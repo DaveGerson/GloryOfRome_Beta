@@ -10,4 +10,5 @@ class LocationEntity(BaseEntity):
     """
     entity_type: str = Field("location", description="Hardcoded to 'location'.")
     capacity: Optional[int] = Field(None, description="The maximum number of individuals the location can accommodate.")
+    resources: List[str] = Field(default_factory=list, description="A list of the natural resources that currently are contained within this location.")
     contained_entities: List[str] = Field(default_factory=list, description="A list of entity_id's for all entities currently at this location.")
