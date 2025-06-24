@@ -2,8 +2,8 @@
 # The main entry point for the Roman Crisis Simulation.
 
 import json
-from .simulation.state_manager import StateManager
-from .tests.fixtures.turn_one_data import generate_turn_one_entities, generate_turn_one_edges
+from simulation.state_manager import StateManager
+from tests.fixtures.turn_one_data import generate_turn_one_entities, generate_turn_one_edges
 
 
 def setup_scenario():
@@ -66,4 +66,3 @@ if __name__ == "__main__":
     # with open("final_state.json", "w") as f:
     #     f.write(final_state_json)
     # print("\nFinal game state saved to final_state.json")
-
