@@ -1,9 +1,9 @@
 from .memory import Memory
 from .personality import PersonalityTrait
-from .relationship import Relationship
+from .social_relationship import SocialRelationship
 
 __all__ = [
     "Memory",
     "PersonalityTrait",
-    "Relationship",
+    "SocialRelationship",
 ]

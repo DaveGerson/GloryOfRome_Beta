@@ -3,7 +3,7 @@ from typing import Dict, List
 
 from .base_entity import BaseEntity
 from ..supporting.memory import Memory
-from ..supporting.relationship import Relationship
+from ..supporting.social_relationship import SocialRelationship
 
 class SentientEntity(BaseEntity):
     """

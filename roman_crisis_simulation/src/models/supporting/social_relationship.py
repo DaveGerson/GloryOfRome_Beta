@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import List
 
-class Relationship(BaseModel):
+class SocialRelationship(BaseModel):
     """
     Defines a social link between two SentientEntity instances.
     """

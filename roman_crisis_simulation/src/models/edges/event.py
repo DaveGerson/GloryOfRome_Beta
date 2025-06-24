@@ -5,7 +5,6 @@ at a specific time, involving specific entities.
 from pydantic import Field
 from typing import List, Dict, Optional
 from .base_edge import BaseEdge
-from ..supporting.state_change import StateChange
 
 class Event(BaseEdge):
     """
@@ -20,7 +19,6 @@ class Event(BaseEdge):
           for each entity to have its own modified copy of the event.
     """
     outcome_narrative: str = Field(..., description="A prose description of what happened as a result of the event.")
-    structured_outcomes: List[StateChange] = Field(default_factory=list, description="A list of concrete state changes that occurred as a result of the event.")
     perceptions: Dict[str, str] = Field(default_factory=dict, description="A mapping of entity_id to their personal, narrative perception of the event.")
     location: Optional[str] = Field(None, description="The ID of the LocationEntity where the event took place.")
 
