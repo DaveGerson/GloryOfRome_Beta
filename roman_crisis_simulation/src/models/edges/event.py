@@ -1,15 +1,26 @@
-from pydantic import BaseModel, Field
-from typing import Dict
+"""
+This module defines the Event edge, a record of something that happened
+at a specific time, involving specific entities.
+"""
+from pydantic import Field
+from typing import List, Dict, Optional
+from .base_edge import BaseEdge
+from ..supporting.state_change import StateChange
 
-# This type represents an external facing event that occured between two individuals.
-class Event(BaseModel):
+class Event(BaseEdge):
     """
-    A record of something that happens at a specific point in time, involving multiple
-    entities and producing a set of outcomes. Events are the primary drivers of change.
+    Represents a discrete event that occurred in the simulation.
+
+    Updates:
+        - Inherits from BaseEdge.
+        - Added 'structured_outcomes' to provide explicit, machine-readable
+          consequences for an event.
+        - Added 'perceptions' to model how different entities uniquely
+          experience and remember the same event. This replaces the need
+          for each entity to have its own modified copy of the event.
     """
-    event_id: str = Field(..., description="A unique identifier for the event.")
-    turn: int = Field(..., description="The simulation turn on which the event occurred.")
-    event_type: str = Field(..., description="The category of the event (e.g., 'Marriage', 'Assassination', 'Senate Vote').")
-    description: str = Field(..., description="A narrative description of the event and its outcome.")
-    participants: Dict[str, str] = Field(..., description="A dictionary mapping entity_id to the role they played (e.g., 'perpetrator', 'victim').")
-    location: str = Field(..., description="The entity_id of the LocationEntity where the event took place.")
+    outcome_narrative: str = Field(..., description="A prose description of what happened as a result of the event.")
+    structured_outcomes: List[StateChange] = Field(default_factory=list, description="A list of concrete state changes that occurred as a result of the event.")
+    perceptions: Dict[str, str] = Field(default_factory=dict, description="A mapping of entity_id to their personal, narrative perception of the event.")
+    location: Optional[str] = Field(None, description="The ID of the LocationEntity where the event took place.")
+

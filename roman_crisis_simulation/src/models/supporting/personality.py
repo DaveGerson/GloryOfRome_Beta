@@ -1,11 +1,22 @@
+"""
+This module defines the PersonalityTrait, a more descriptive and narrative-driven
+way to represent an entity's character.
+"""
 from pydantic import BaseModel, Field
+from typing import Optional
 
-class PersonalityTraits(BaseModel):
+class PersonalityTrait(BaseModel):
     """
-    Defines the psychological profile of an IndividualEntity. Values range from 1 to 10.
+    Represents a single, descriptive personality trait of an individual.
+
+    Instead of a numeric scale, this model uses prose to describe how a
+    trait manifests, allowing for more nuanced character portrayals by the LLM.
     """
-    ambition: int = Field(..., ge=1, le=10, description="The drive for power, wealth, and status.")
-    paranoia: int = Field(..., ge=1, le=10, description="The level of suspicion and distrust of others.")
-    loyalty: int = Field(..., ge=1, le=10, description="The commitment to allies, patrons, and the state.")
-    cunning: int = Field(..., ge=1, le=10, description="Skill in strategy, intrigue, and political maneuvering.")
-    honor: int = Field(..., ge=1, le=10, description="Adherence to Roman virtues (`mos maiorum`).")
+    name: str = Field(..., description="The name of the personality trait (e.g., 'Ambitious', 'Cautious').")
+    description: str = Field(..., description="A prose description of how this trait manifests in the individual.")
+    reason: Optional[str] = Field(None, description="An optional explanation for why the entity has this trait, often tied to a past event.")
+
+    class Config:
+        """Pydantic configuration."""
+        extra = 'forbid'
+

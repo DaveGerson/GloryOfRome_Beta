@@ -10,8 +10,9 @@ class SentientEntity(BaseEntity):
     An abstract class for entities capable of thought, memory, and social interaction.
     It serves as the foundation for both individuals and groups.
     """
+    is_active: bool = Field(True, description="Flag to indicate if the entity should be actively simulated in a turn.")
+    status: str = Field("active", description="The current status of the entity (e.g., 'in hiding', 'powerful', 'ill'). Open text for AI interpretation.")
     memories: List[Memory] = Field(default_factory=list, description="A record of significant past events experienced by the entity.")
-    relationships: Dict[str, Relationship] = Field(default_factory=dict, description="The entity's social connections and dispositions towards others.")
     short_term_goals: List[str] = Field(default_factory=list, description="Immediate objectives the entity is trying to achieve.")
     long_term_ambitions: List[str] = Field(default_factory=list, description="The overarching life goals or strategic objectives of the entity.")
-    current_state_narrative: str = Field(..., description="A brief, LLM-generated narrative describing the entity's current situation and emotional state.")
+    current_state_narrative: str = Field("",description="A dynamic, prose description of the entity's current situation, thoughts, and feelings.")
