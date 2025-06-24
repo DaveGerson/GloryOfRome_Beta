@@ -4,10 +4,10 @@
 import unittest
 from pydantic import ValidationError
 
-# Import the data generation functions from our fixtures
+# Import the data generation functions from our fixtures using absolute paths from the 'src' root
 from .fixtures.turn_one_data import generate_turn_one_entities, generate_turn_one_edges
 
-# Import the models to be tested
+# Import the models to be tested using absolute paths from the 'src' root
 from ..models.entity import IndividualEntity, GroupEntity, LocationEntity
 from ..models.edges import Relationship
 from ..models.supporting import SocialRelationship
@@ -76,15 +76,15 @@ class TestEdgeModels(unittest.TestCase):
         """Tests that a Relationship can be created without a SocialRelationship."""
         try:
             Relationship(
+                id="test_rel_2",  # Edges require an id
                 source="char_player",
                 target="char_general",
                 description="A test relationship.",
                 relationship_type="political"
             )
-        except ValidationError:
-            self.fail("Relationship creation failed unexpectedly without SocialRelationship.")
+        except ValidationError as e:
+            self.fail(f"Relationship creation failed unexpectedly without SocialRelationship: {e}")
 
 
 if __name__ == '__main__':
     unittest.main()
-

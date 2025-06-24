@@ -8,3 +8,6 @@ The challenge is that the complexity of human nature cannot be programmed in a d
 many inputs, and the inputs are too abstract to be hand-coded. AI is a potential solve for this gap because it can
 handle and develop an understanding of far more inputs than humans could event think about and structure, let alone
 develop programatic rules for.  
+
+
+-- activate tests on windows by running .venv\Scripts\activate.bat and then 
