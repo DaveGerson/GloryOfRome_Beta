@@ -211,6 +211,24 @@ export interface InvestigationResult {
 }
 
 /**
+ * A record of a single raw call made to the Gemini API through
+ * ai/core/geminiService.ts. Captured so every prompt/response pair is
+ * inspectable after the fact (debugging, replay, eval) instead of being
+ * lost the moment a turn completes. One record is pushed per model
+ * round-trip - including a schema-repair retry, which shows up as its own
+ * entry with the same `callName`.
+ */
+export interface RawCallRecord {
+  callName: string;
+  model: string;
+  latencyMs: number;
+  attempts: number; // number of network attempts (retries) this round-trip took
+  promptChars: number;
+  rawResponse: string; // capped at ~20k chars, see geminiService.ts
+  validated: boolean; // true if JSON parsing (and zod validation, if requested) succeeded
+}
+
+/**
  * An entry for the Game Master's turn history log.
  */
 export interface TurnHistoryEntry {
@@ -219,6 +237,7 @@ export interface TurnHistoryEntry {
   adjudication: Adjudication;
   narration?: string; // Optional narrated text
   postTurnEntities: Entity[];
+  rawCalls?: RawCallRecord[]; // Raw prompt/response capture for every AI call made this turn
 }
 
 export interface SpotlightEntity {

@@ -3,7 +3,9 @@ import { GoogleGenAI } from "@google/genai";
 import { Entity, WorldState, EntityStub } from '../../types';
 import { ScenarioStructureSchema, EntityListSchema } from './schemas';
 import { mockGenerateScenarioStructure, mockGenerateEntitiesDetails, mockInitiateWorld } from '../mocks';
-import { parseModelJson } from './json';
+import { generateStructured, GEMINI_PRO } from './geminiService';
+import { zScenarioStructure, zEntityBatch } from './zodSchemas';
+import { buildScenarioStructurePrompt, buildEntityBatchPrompt } from '../prompts/worldGen';
 
 export const generateScenarioStructure = async (
     ai: GoogleGenAI,
@@ -12,43 +14,24 @@ export const generateScenarioStructure = async (
     isMockMode: boolean
 ): Promise<{ worldState: WorldState, playerStub: EntityStub, npcStubs: EntityStub[] }> => {
     console.log(`[InitWorld:Step1] Generating scenario structure...`);
-    
+
     if (isMockMode) {
         return mockGenerateScenarioStructure(metaNarrative, playerCharacterDescription);
     }
 
-    const prompt = `
-    You are a world-building Game Master. Step 1: Create the skeleton of a new political simulation.
-    
-    **Meta-Narrative:** "${metaNarrative}"
-    **Player Concept:** "${playerCharacterDescription}"
-
-    **Task:**
-    1.  **World State:** Generate a 'WorldState' with 3-4 distinct, thematic regions appropriate for the narrative.
-    2.  **Cast List (Stubs):** Identify the key actors.
-        - **Player:** One entity must be the player character.
-        - **NPCs:** Create 4-6 other key entities (individuals or factions) that will drive the conflict.
-        - For each, provide a 'stub': ID, name, position (role/title), and a one-sentence description.
-    
-    The 'entity_id's must be unique snake_case strings.
-    
-    **IMPORTANT:** Output ONLY the JSON object. Do not include any conversational text.
-    `;
+    const { systemInstruction, prompt } = buildScenarioStructurePrompt(metaNarrative, playerCharacterDescription);
 
     try {
         console.log(`[InitWorld:Step1] Sending request to Gemini (Budget: 512)...`);
-        const response = await ai.models.generateContent({
-            model: "gemini-3-pro-preview",
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: ScenarioStructureSchema,
-                thinkingConfig: { thinkingBudget: 512 } 
-            },
+        const result = await generateStructured<{ worldState: WorldState, playerStub: EntityStub, npcStubs: EntityStub[] }>(ai, {
+            callName: 'scenarioStructure',
+            model: GEMINI_PRO,
+            systemInstruction,
+            prompt,
+            responseSchema: ScenarioStructureSchema,
+            zodSchema: zScenarioStructure,
+            thinkingConfig: { thinkingBudget: 512 },
         });
-        
-        console.log(`[InitWorld:Step1] Response received. Length: ${response.text?.length || 0}`);
-        const result = parseModelJson<{ worldState: WorldState, playerStub: EntityStub, npcStubs: EntityStub[] }>(response.text || "{}");
 
         console.log(`[InitWorld:Step1] Parsed successfully. Player: ${result.playerStub?.entity_id}, NPCs: ${result.npcStubs?.length}`);
         return result;
@@ -69,58 +52,23 @@ const generateEntityBatch = async (
 ): Promise<Entity[]> => {
     const targetIds = targetStubs.map(s => s.entity_id).join(', ');
     console.log(`[InitWorld:Step2:${batchName}] preparing prompt for IDs: [${targetIds}]`);
-    
-    const castListContext = allStubs.map(s => `- ${s.name} (${s.entity_id}): ${s.position}. ${s.brief_description}`).join('\n');
-    const regionNames = Object.keys(worldState.regions).join(', ');
 
-    const prompt = `
-    You are a world-building Game Master. Step 2: Flesh out the characters.
-
-    **Meta-Narrative:** "${metaNarrative}"
-    **Regions Available:** ${regionNames}
-    
-    **Full Cast Context (Use this for relationships):**
-    ${castListContext}
-
-    **Task:**
-    Generate the FULL 'Entity' objects for ONLY these specific characters: ${targetIds}.
-    
-    **Requirements:**
-    1.  **Match IDs:** You MUST use the exact 'entity_id's provided.
-    2.  **Deep Relationships:** Every entity must have a 'relationships' object keyed by the IDs of the OTHER entities in the Full Cast Context.
-        - Set 'trust_level' (-10 to 10).
-        - Set 'perceived_threat', 'ideological_alignment', 'dependency_level'.
-    3.  **Schemes:** Give every entity (except maybe the player) a multi-step 'active_scheme'.
-    4.  **Resources:** Create unique, thematic resources.
-    5.  **Location:** Place them in one of the regions defined in the World State.
-    6.  **Memories:** Start with empty arrays.
-
-    **CRITICAL OUTPUT RULES:**
-    - Output pure JSON only. 
-    - **DO NOT REPEAT** the Cast Context or the inputs in your response logic. 
-    - **DO NOT** output entities that were not requested in the "Task" list.
-    `;
+    const { systemInstruction, prompt } = buildEntityBatchPrompt(targetStubs, allStubs, metaNarrative, worldState);
 
     try {
         console.log(`[InitWorld:Step2:${batchName}] Sending request to Gemini (Budget: ${budget})...`);
         const start = Date.now();
-        const response = await ai.models.generateContent({
-            model: "gemini-3-pro-preview",
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: EntityListSchema,
-                thinkingConfig: { thinkingBudget: budget }
-            },
+        const result = await generateStructured<{ entities?: Entity[] }>(ai, {
+            callName: `entityBatch:${batchName}`,
+            model: GEMINI_PRO,
+            systemInstruction,
+            prompt,
+            responseSchema: EntityListSchema,
+            zodSchema: zEntityBatch,
+            thinkingConfig: { thinkingBudget: budget },
         });
         const duration = Date.now() - start;
-        console.log(`[InitWorld:Step2:${batchName}] Request complete in ${duration}ms. Text Length: ${response.text?.length || 0}`);
-
-        if (!response.text) {
-            throw new Error(`Empty response text for batch ${batchName}`);
-        }
-
-        const result = parseModelJson<{ entities?: Entity[] }>(response.text);
+        console.log(`[InitWorld:Step2:${batchName}] Request complete in ${duration}ms.`);
 
         if (!result.entities || !Array.isArray(result.entities)) {
              throw new Error(`Invalid JSON structure for batch ${batchName}: missing 'entities' array.`);
@@ -130,10 +78,6 @@ const generateEntityBatch = async (
         return result.entities;
     } catch (e) {
         console.error(`[InitWorld:Step2:${batchName}] Failed:`, e);
-        // Log the first 500 chars of response to see what went wrong if it's not empty
-        if (e instanceof SyntaxError) {
-             console.error(`[InitWorld:Step2:${batchName}] JSON Syntax Error. Cleaned text snippet:`, e.message);
-        }
         throw e;
     }
 };
@@ -145,7 +89,7 @@ export const initiateWorld = async (
     isMockMode: boolean
 ): Promise<{ worldState: WorldState, entities: Entity[], playerCharacterId: string }> => {
     console.log(`[InitWorld] Starting world generation for narrative: "${metaNarrative}"`);
-    
+
     if (isMockMode) {
         return mockInitiateWorld(metaNarrative, playerCharacterDescription);
     }
@@ -153,20 +97,20 @@ export const initiateWorld = async (
     try {
         // Step 1: Generate Skeleton
         const structure = await generateScenarioStructure(ai, metaNarrative, playerCharacterDescription, isMockMode);
-        
+
         const allStubs = [structure.playerStub, ...structure.npcStubs];
         const entities: Entity[] = [];
 
         // Step 2: Generate Player (Detailed)
         // Reduced budget to 512 to avoid "hallucination loops" or excessive output size
         const playerEntities = await generateEntityBatch(
-            ai, 
-            [structure.playerStub], 
-            allStubs, 
-            metaNarrative, 
-            structure.worldState, 
-            "Player", 
-            512 
+            ai,
+            [structure.playerStub],
+            allStubs,
+            metaNarrative,
+            structure.worldState,
+            "Player",
+            512
         );
         entities.push(...playerEntities);
 
