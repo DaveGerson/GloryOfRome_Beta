@@ -84,23 +84,55 @@ export function applyDeltas(
                  case 'status': {
                     const entity = updatedEntities.find(e => e.entity_id === delta.key);
                     if (entity) {
-                        const newStatus = delta.reason.toLowerCase();
-                        // STOPGAP (full enum redesign tracked separately): the AI's free-text
-                        // 'reason' is matched against natural death phrasings ("has died", "was
-                        // killed", "slain", etc.), not just the literal substring "dead". To avoid
-                        // false-positive kills on phrasing like "nearly died but survived", any
-                        // survival/negation wording nearby suppresses the death match.
-                        const indicatesDeath = /\b(dead|died|killed|slain|slaughtered|assassinated|perished|executed)\b/.test(newStatus);
-                        const indicatesSurvival = /\b(surviv\w*|recovers?|recovered|escape[sd]?|avoid(?:s|ed|ing)?|spared|rescued|saved|did ?n'?t die|no one (?:died|was killed))\b/.test(newStatus);
-                        if (indicatesDeath && !indicatesSurvival) entity.status = 'dead';
-                        else if (newStatus.includes('exiled')) entity.status = 'exiled';
-                        else if (newStatus.includes('missing')) entity.status = 'missing';
-                        else if (newStatus.includes('moves to')) {
-                            const location = newStatus.replace('moves to ', '').trim();
+                        const validStatuses: Entity['status'][] = ['alive', 'dead', 'exiled', 'missing'];
+
+                        if (delta.new_status && validStatuses.includes(delta.new_status)) {
+                            // STRUCTURED PATH (preferred, MAINT-P0.2): the model set the
+                            // enum field explicitly. This wins regardless of how 'reason'
+                            // happens to be phrased - e.g. new_status:'dead' alongside a
+                            // reason like "He miraculously survived" still results in
+                            // death, because 'reason' is narrative/display text only and
+                            // is never parsed for control flow when the structured field
+                            // is present.
+                            entity.status = delta.new_status;
+                        } else {
+                            // LEGACY FALLBACK (pre-MAINT-P0.2, kept as-is): no structured
+                            // 'new_status' was supplied - either an older mock/save that
+                            // predates the enum field, or the model omitted it. Fall back
+                            // to free-text parsing of 'reason'.
+                            //
+                            // STOPGAP (full enum redesign tracked separately): the AI's free-text
+                            // 'reason' is matched against natural death phrasings ("has died", "was
+                            // killed", "slain", etc.), not just the literal substring "dead". To avoid
+                            // false-positive kills on phrasing like "nearly died but survived", any
+                            // survival/negation wording nearby suppresses the death match.
+                            const newStatus = delta.reason.toLowerCase();
+                            const indicatesDeath = /\b(dead|died|killed|slain|slaughtered|assassinated|perished|executed)\b/.test(newStatus);
+                            const indicatesSurvival = /\b(surviv\w*|recovers?|recovered|escape[sd]?|avoid(?:s|ed|ing)?|spared|rescued|saved|did ?n'?t die|no one (?:died|was killed))\b/.test(newStatus);
+                            if (indicatesDeath && !indicatesSurvival) entity.status = 'dead';
+                            else if (newStatus.includes('exiled')) entity.status = 'exiled';
+                            else if (newStatus.includes('missing')) entity.status = 'missing';
+                            else if (newStatus.includes('moves to')) {
+                                const location = newStatus.replace('moves to ', '').trim();
+                                const validLocations = Object.keys(currentWorldState.regions);
+                                // A simple check to see if the location is valid before assigning
+                                if (validLocations.some(vl => location.toLowerCase().includes(vl.toLowerCase()))) {
+                                    entity.location = validLocations.find(vl => location.toLowerCase().includes(vl.toLowerCase())) || entity.location;
+                                }
+                            }
+                        }
+
+                        // STRUCTURED PATH (preferred, MAINT-P0.2): applied after the
+                        // status handling above (structured or legacy) so a single delta
+                        // can carry both a status change and a location change (e.g.
+                        // fleeing into exile). Only exact, known region names are
+                        // accepted - unlike the legacy fuzzy substring match above, this
+                        // is a direct lookup since the model is expected to echo a real
+                        // region name. An unrecognized region leaves location unchanged.
+                        if (delta.new_location) {
                             const validLocations = Object.keys(currentWorldState.regions);
-                            // A simple check to see if the location is valid before assigning
-                            if (validLocations.some(vl => location.toLowerCase().includes(vl.toLowerCase()))) {
-                                entity.location = validLocations.find(vl => location.toLowerCase().includes(vl.toLowerCase())) || entity.location;
+                            if (validLocations.includes(delta.new_location)) {
+                                entity.location = delta.new_location;
                             }
                         }
                     }

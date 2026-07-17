@@ -133,6 +133,12 @@ export const zEventDelta = z.object({
   key: z.string(),
   delta: z.number(),
   reason: z.string(),
+  // 'status' deltas only: structured status/location fields. Nullable and
+  // optional so non-status deltas (resource, relation, scheme, ...) don't
+  // need to carry them. See ai/core/engine.ts's 'status' case and
+  // ai/prompts/adjudication.ts for how these are produced/consumed.
+  new_status: z.enum(['alive', 'dead', 'exiled', 'missing']).nullable().optional(),
+  new_location: z.string().nullable().optional(),
 }).passthrough();
 
 export const zEntityAction = z.object({

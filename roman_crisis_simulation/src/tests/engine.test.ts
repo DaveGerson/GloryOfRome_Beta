@@ -232,6 +232,97 @@ describe('applyAdjudication', () => {
 
       expect(entity?.location).toBe('Praetorian Camp'); // Unchanged
     });
+
+    // --- MAINT-P0.2: structured new_status/new_location fields ---
+    // These take precedence over free-text 'reason' parsing entirely; 'reason'
+    // is narrative/display text only and is never consulted when the
+    // structured field is present.
+    describe('Structured new_status/new_location (MAINT-P0.2)', () => {
+      it('should kill an entity when new_status is "dead", even if reason text says the opposite', () => {
+        const adjudication = deepCopy(baseAdjudication);
+        adjudication.deltas.push({
+          type: 'status',
+          key: 'maximinus_thrax',
+          delta: 0,
+          reason: 'He miraculously survived the assassination attempt.',
+          new_status: 'dead',
+        });
+
+        const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+        const entity = updatedEntities.find(e => e.entity_id === 'maximinus_thrax');
+
+        // Structured field wins: despite "survived" wording (which would
+        // suppress a death under the legacy regex), new_status:'dead' is
+        // authoritative.
+        expect(entity?.status).toBe('dead');
+      });
+
+      it('should exile an entity via new_status regardless of reason phrasing', () => {
+        const adjudication = deepCopy(baseAdjudication);
+        adjudication.deltas.push({
+          type: 'status',
+          key: 'maximinus_thrax',
+          delta: 0,
+          reason: 'Political maneuvering forces a change in circumstances.',
+          new_status: 'exiled',
+        });
+
+        const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+        const entity = updatedEntities.find(e => e.entity_id === 'maximinus_thrax');
+
+        expect(entity?.status).toBe('exiled');
+      });
+
+      it('should move an entity to a new valid location via the structured new_location field', () => {
+        const adjudication = deepCopy(baseAdjudication);
+        adjudication.deltas.push({
+          type: 'status',
+          key: 'maximinus_thrax',
+          delta: 0,
+          reason: 'Relocates to the imperial residence.',
+          new_location: 'Palatine Hill',
+        });
+
+        const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+        const entity = updatedEntities.find(e => e.entity_id === 'maximinus_thrax');
+
+        expect(entity?.location).toBe('Palatine Hill');
+      });
+
+      it('should leave location unchanged when new_location names an unrecognized region', () => {
+        const adjudication = deepCopy(baseAdjudication);
+        adjudication.deltas.push({
+          type: 'status',
+          key: 'maximinus_thrax',
+          delta: 0,
+          reason: 'Flees the city.',
+          new_location: 'Gaul',
+        });
+
+        const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+        const entity = updatedEntities.find(e => e.entity_id === 'maximinus_thrax');
+
+        expect(entity?.location).toBe('Praetorian Camp'); // Unchanged - 'Gaul' is not a known region
+      });
+
+      it('should apply both a structured status change and a structured location change from the same delta', () => {
+        const adjudication = deepCopy(baseAdjudication);
+        adjudication.deltas.push({
+          type: 'status',
+          key: 'maximinus_thrax',
+          delta: 0,
+          reason: 'Banished from Rome after the failed coup.',
+          new_status: 'exiled',
+          new_location: 'Palatine Hill',
+        });
+
+        const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+        const entity = updatedEntities.find(e => e.entity_id === 'maximinus_thrax');
+
+        expect(entity?.status).toBe('exiled');
+        expect(entity?.location).toBe('Palatine Hill');
+      });
+    });
   });
 
   // --- Region Deltas ---

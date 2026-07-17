@@ -172,7 +172,27 @@ export interface EventDelta {
     type: EventDeltaType;
     key: string;
     delta: number;
+    /**
+     * Narrative/display text only - what happened, in prose, for the report
+     * log. NOT parsed for control flow. For 'status' deltas, the actual
+     * life/freedom state change and movement are carried by the structured
+     * `new_status`/`new_location` fields below; `reason` must not be relied
+     * upon to determine engine behavior.
+     */
     reason: string;
+    /**
+     * 'status' deltas only: the entity's new life/freedom status. The model
+     * MUST set this whenever an entity's status changes (dies, is exiled,
+     * goes missing, or returns to alive) - this is the authoritative signal
+     * the engine acts on, not `reason`'s prose.
+     */
+    new_status?: 'alive' | 'dead' | 'exiled' | 'missing';
+    /**
+     * 'status' deltas only: the entity's new location (a region name), when
+     * the status delta represents the entity moving. Optional - only set
+     * when movement occurs.
+     */
+    new_location?: string;
 }
 
 /**
