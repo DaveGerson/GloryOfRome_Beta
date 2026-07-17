@@ -17,9 +17,11 @@ const EventDeltaSchema = {
     type: Type.OBJECT,
     properties: {
         type: { type: Type.STRING, enum: EventDeltaTypeEnum, description: "The type of state change." },
-        key: { type: Type.STRING, description: "Identifier for what is changing. For 'relation', use 'entity_a_id:entity_b_id:attribute' (e.g., trust_level, perceived_threat). For 'resource', use 'entity_id:resource_name'. For 'scheme' or 'faction', this is the entity_id. For region changes, use the region's name." },
+        key: { type: Type.STRING, description: "Identifier for what is changing. For 'relation', use 'entity_a_id:entity_b_id:attribute' (e.g., trust_level, perceived_threat) — the delta changes entity_a's perception of entity_b ONLY; if a change is mutual, emit a second delta with the ids reversed. For 'resource', use 'entity_id:resource_name'. For 'scheme' or 'faction', this is the entity_id. For region changes, use the region's name." },
         delta: { type: Type.NUMBER, description: "The numerical change to apply. For status, scheme, region, add_region, remove_region, and faction this is ignored. For rumors, this should be a float from 0.0 to 1.0 representing credibility." },
-        reason: { type: Type.STRING, description: "A short narrative description of why the change occurred. For 'status' or 'rumor' types, this contains the new status or the rumor text. For 'scheme', this is a JSON string of the complete, updated scheme object. For 'add_region', this is a JSON string of the new RegionState object. For 'faction', this is the entity_id of the new faction, or 'null' if they become unaligned." },
+        reason: { type: Type.STRING, description: "A short NARRATIVE description of why the change occurred, for display only - it is never parsed to decide game state. For 'rumor' types, this contains the rumor text. For 'scheme', this is a JSON string of the complete, updated scheme object. For 'add_region', this is a JSON string of the new RegionState object. For 'faction', this is the entity_id of the new faction, or 'null' if they become unaligned. For 'status' types, this is still the narrative explanation (e.g. 'Struck down by an assassin's blade in the forum') - the actual status/location change for 'status' deltas MUST be set via new_status/new_location below, not inferred from this text." },
+        new_status: { type: Type.STRING, enum: ['alive', 'dead', 'exiled', 'missing'], nullable: true, description: "REQUIRED for 'status' type deltas whenever an entity's life or freedom status changes (dies, is exiled, goes missing, or is restored to alive) - set this to the entity's new status. Omit/null for all other delta types." },
+        new_location: { type: Type.STRING, nullable: true, description: "Optional, 'status' type deltas only: set this to the (existing) region name the entity has moved to, when the status change involves relocation (e.g. fleeing into exile, going missing in a specific region). Omit/null if the entity's location does not change." },
     },
     required: ['type', 'key', 'delta', 'reason'],
 };
@@ -249,15 +251,170 @@ export const RelationshipDeltasSchema = {
 export const ConversationSimulationSchema = {
     type: Type.OBJECT,
     properties: {
-        dialogueSnippet: { 
-            type: Type.STRING, 
-            description: "A short, third-person summary of the conversation for the GM Log (e.g., 'Maximinus and Pontius met in secret. Maximinus offered support in exchange for future concessions. Pontius agreed.')." 
+        dialogueSnippet: {
+            type: Type.STRING,
+            description: "A short, third-person summary of the conversation for the GM Log (e.g., 'Maximinus and Pontius met in secret. Maximinus offered support in exchange for future concessions. Pontius agreed.')."
         },
-        deltas: { 
-            type: Type.ARRAY, 
-            items: EventDeltaSchema, 
-            description: "A small set of EventDeltas resulting from the conversation (e.g., relationship changes, new secrets)." 
+        deltas: {
+            type: Type.ARRAY,
+            items: EventDeltaSchema,
+            description: "A small set of EventDeltas resulting from the conversation (e.g., relationship changes, new secrets)."
         }
     },
     required: ['dialogueSnippet', 'deltas']
+};
+
+export const StoryRelevanceSchema = {
+    type: Type.OBJECT,
+    properties: {
+        spotlight_entities: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    entity_id: { type: Type.STRING },
+                    reason: { type: Type.STRING }
+                },
+                required: ['entity_id', 'reason']
+            }
+        },
+        add_entity_suggestion: {
+            type: Type.OBJECT,
+            nullable: true,
+            properties: {
+                description: { type: Type.STRING, description: "A detailed description of the new entity to be created." },
+                reason: { type: Type.STRING, description: "Why this entity should be added now." }
+            },
+            required: ['description', 'reason']
+        },
+        remove_entity_suggestion: {
+            type: Type.OBJECT,
+            nullable: true,
+            properties: {
+                entity_id: { type: Type.STRING, description: "The ID of the entity to remove." },
+                reason: { type: Type.STRING, description: "Why this entity should be removed now." }
+            },
+            required: ['entity_id', 'reason']
+        },
+        add_location_suggestion: {
+            type: Type.OBJECT,
+            nullable: true,
+            properties: {
+                name: { type: Type.STRING, description: "The name of the new location." },
+                description: { type: Type.STRING, description: "A brief description of the new location." },
+                reason: { type: Type.STRING, description: "Why this location should be added now." }
+            },
+            required: ['name', 'description', 'reason']
+        },
+        remove_location_suggestion: {
+            type: Type.OBJECT,
+            nullable: true,
+            properties: {
+                name: { type: Type.STRING, description: "The name of the location to remove." },
+                reason: { type: Type.STRING, description: "Why this location should be removed now." }
+            },
+            required: ['name', 'reason']
+        }
+    },
+    required: ['spotlight_entities']
+};
+
+export const SimulationStateSchema = {
+    type: Type.OBJECT,
+    properties: {
+        imperial_status: { type: Type.STRING, enum: ['Stable', 'Contested', 'Vacant'] },
+        senate_status: { type: Type.STRING, enum: ['Ascendant', 'Functional', 'Deposed', 'Irrelevant'] },
+        military_status: { type: Type.STRING, enum: ['Loyal', 'Divided', 'Rebellious'] },
+        plebeian_mood: { type: Type.STRING, enum: ['Content', 'Uneasy', 'Rioting'] },
+        major_ongoing_crisis: { type: Type.STRING, nullable: true },
+    },
+    required: ['imperial_status', 'senate_status', 'military_status', 'plebeian_mood', 'major_ongoing_crisis']
+};
+
+/**
+ * Investigation results have a `reportData` shape that depends on the
+ * requested `subject`: a full `Scheme` object for 'scheme', or a plain
+ * string list for 'secrets'/'beliefs'. Mirrors the inline schema
+ * previously built per-call inside `intelligence.ts::getInvestigationResult`.
+ */
+export function buildInvestigationResultSchema(subject: 'secrets' | 'beliefs' | 'scheme') {
+    const subjectSchema = subject === 'scheme' ? SchemeSchema : { type: Type.ARRAY, items: { type: Type.STRING } };
+    return {
+        type: Type.OBJECT,
+        properties: {
+            reportData: subjectSchema,
+            report: { type: Type.STRING, description: "The narrative intelligence report summarizing the findings." },
+            consequences: { type: Type.STRING, nullable: true, description: "Negative consequences of the investigation. If none, return null." }
+        },
+        required: ['reportData', 'report', 'consequences']
+    };
+}
+
+/**
+ * The Gemini response schema for player-driven character creation
+ * (ai/tools/characterCreator.ts::createCharacter). Reuses `RelationshipSchema`
+ * and `SchemeSchema` from above rather than re-declaring them a third time
+ * (previously hand-copied here) - see ROADMAP_6_MAINTAINABILITY.md's note
+ * that the Scheme/Relationship JSON schema was "hand-copied across
+ * schemas.ts, characterCreator.ts, and intelligence.ts". This schema's
+ * `required` list and relationship key set intentionally differ from the
+ * main `EntitySchema` above (new characters must ship with an
+ * `active_scheme`/`personality`/`beliefs`/`secrets`/`skills` up front,
+ * seeded against the *initial* named cast, whereas mid-game `add_entities`
+ * are looser) - so it stays a distinct schema rather than being merged.
+ */
+export const CharacterCreationEntitySchema = {
+    type: Type.OBJECT,
+    properties: {
+        entity_id: { type: Type.STRING, description: "A unique snake_case version of the character's name." },
+        name: { type: Type.STRING, description: "The character's full name." },
+        entity_type: { type: Type.STRING, description: "Should be 'individual'." },
+        status: { type: Type.STRING, description: "Should be 'alive'." },
+        position: { type: Type.STRING, description: "The character's job or title." },
+        location: { type: Type.STRING, description: "The character's starting location from this list: Palatine Hill, The Curia, Praetorian Camp, The Suburra." },
+        faction_id: { type: Type.STRING, description: "Optional. Assign to 'senatorial_party' or 'military_cabal' if appropriate, otherwise omit." },
+        personality: PersonalityTraitsSchema,
+        beliefs: { type: Type.ARRAY, items: { type: Type.STRING }, description: "A list of 2-3 core beliefs or ideologies." },
+        secrets: { type: Type.ARRAY, items: { type: Type.STRING }, description: "A list of 1-2 hidden secrets or fears." },
+        skills: {
+            type: Type.OBJECT,
+            properties: {
+                oratory: { type: Type.NUMBER },
+                administration: { type: Type.NUMBER },
+                strategy: { type: Type.NUMBER },
+                intrigue: { type: Type.NUMBER },
+            },
+            description: "A rating of skills from 1-10."
+        },
+        current_state_narrative: { type: Type.STRING, description: "A rich, third-person description of the character." },
+        short_term_goals: { type: Type.ARRAY, items: { type: Type.STRING }, description: "A list of 1-3 immediate goals." },
+        long_term_ambitions: { type: Type.ARRAY, items: { type: Type.STRING }, description: "A list of 1-2 long-term ambitions." },
+        active_scheme: SchemeSchema,
+        resources: {
+            type: Type.OBJECT,
+            properties: {
+                denarii: { type: Type.NUMBER, nullable: true },
+                deep_analyses: { type: Type.NUMBER, nullable: true },
+                investigations: { type: Type.NUMBER, nullable: true }
+            },
+            additionalProperties: { oneOf: [{ type: Type.STRING }, { type: Type.NUMBER }, { type: Type.ARRAY, items: { type: Type.STRING } }] },
+            description: "Starting resources. Include denarii, deep_analyses, and investigations. Be creative with additional thematic resources."
+        },
+        relationships: {
+            type: Type.OBJECT,
+            description: "Initial relationships with existing entities. The key must be the entity_id.",
+            properties: {
+                "severus_alexander": RelationshipSchema,
+                "maximinus_thrax": RelationshipSchema,
+                "praetorian_guard": RelationshipSchema,
+                "roman_senate": RelationshipSchema,
+                "julia_mamaea": RelationshipSchema,
+                "senatorial_party": RelationshipSchema,
+                "military_cabal": RelationshipSchema
+            }
+        },
+        visibility_network: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of entity_ids the character knows about." },
+        memories: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Should be an empty array." }
+    },
+    required: ['entity_id', 'name', 'entity_type', 'status', 'position', 'location', 'personality', 'beliefs', 'secrets', 'skills', 'current_state_narrative', 'short_term_goals', 'long_term_ambitions', 'active_scheme', 'resources', 'relationships', 'visibility_network', 'memories']
 };

@@ -2,10 +2,21 @@
 import React, { useState } from 'react';
 import { PlayerCharacterOption } from '../types';
 
+/** Summary info shown on the "Continue your reign" card - deliberately just
+ * the handful of fields needed for display, not the full save bundle. */
+export interface SavedGameSummary {
+    characterName: string;
+    turnNumber: number;
+    savedAt: string; // ISO timestamp
+}
+
 const CharacterSelection: React.FC<{
     onSelectCharacter: (option: PlayerCharacterOption) => void;
     onCreateCharacter: (args: { description: string, metaNarrative?: string, useCustomGamestate: boolean }) => Promise<void>;
-}> = ({ onSelectCharacter, onCreateCharacter }) => {
+    savedGame?: SavedGameSummary | null;
+    onContinue?: () => void;
+    onStartAnew?: () => void;
+}> = ({ onSelectCharacter, onCreateCharacter, savedGame, onContinue, onStartAnew }) => {
     const [showCustomForm, setShowCustomForm] = useState(false);
     const [customDescription, setCustomDescription] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -19,6 +30,12 @@ const CharacterSelection: React.FC<{
         { name: "The Wealthy Senator", entity_id: "gaius_pontius_magnus", description: "Use your vast wealth and political influence to manipulate the Senate from within.", difficulty: "Medium" },
         { name: "The Cunning Spymaster", entity_id: "lycinia_stolo", description: "Operate from the shadows, trading secrets and lies to shape the future of the Empire.", difficulty: "Hard" },
     ];
+
+    const handleStartAnewClick = () => {
+        if (window.confirm('Abandon your saved reign and start anew? This cannot be undone.')) {
+            onStartAnew?.();
+        }
+    };
 
     const handleCustomSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -60,6 +77,34 @@ const CharacterSelection: React.FC<{
                 <h2 className="text-4xl font-decorative text-red-900 text-center roman-inset-text">Choose Your Destiny</h2>
                 <p className="text-center text-stone-700 mt-2">The year is 235 CE. The Empire teeters on the brink of chaos. Who will you be?</p>
                 
+                {!showCustomForm && savedGame && (
+                    <div className="mt-8 roman-stone-panel p-6 rounded-sm border-2 border-amber-600 bg-amber-50/40 flex flex-col md:flex-row items-center justify-between gap-4 animate-fade-in">
+                        <div className="text-center md:text-left">
+                            <h3 className="text-2xl font-bold text-red-900 roman-inset-text">Continue Your Reign</h3>
+                            <p className="text-stone-700 mt-1">
+                                Playing as <strong>{savedGame.characterName}</strong> &mdash; Turn {savedGame.turnNumber}
+                            </p>
+                            <p className="text-stone-500 text-sm mt-1">
+                                Saved {new Date(savedGame.savedAt).toLocaleString()}
+                            </p>
+                        </div>
+                        <div className="flex flex-col items-center gap-2 shrink-0">
+                            <button
+                                onClick={onContinue}
+                                className="bg-red-800 text-stone-100 rounded-sm px-6 py-3 hover:bg-red-700 transition-colors border border-red-900 btn-animate text-lg font-bold whitespace-nowrap"
+                            >
+                                Continue Your Reign
+                            </button>
+                            <button
+                                onClick={handleStartAnewClick}
+                                className="text-stone-500 hover:text-red-800 text-sm underline"
+                            >
+                                Start anew
+                            </button>
+                        </div>
+                    </div>
+                )}
+
                 {!showCustomForm ? (
                     <div className="grid md:grid-cols-2 gap-6 mt-8">
                         {PLAYER_CHARACTER_OPTIONS.map(opt => (

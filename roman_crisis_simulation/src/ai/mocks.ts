@@ -59,6 +59,10 @@ const MOCK_ADJUDICATION: Adjudication = {
     { type: 'rumor', key: 'severus_alexander', delta: 0.6, reason: 'The Emperor is said to be considering a peaceful tribute to the Germans, angering the legions.' },
     { type: 'relation', key: 'severus_alexander:praetorian_guard', delta: 1, reason: 'Promised a donative.' },
     { type: 'add_region', key: 'Temple of Jupiter', delta: 0, reason: '{"stability":"Stable","controlling_faction":null,"current_events":["Priests conduct rituals to placate the gods amidst the political turmoil."]}' },
+    // Demonstrates the structured status-delta contract (MAINT-P0.2): 'reason'
+    // is narrative-only, 'new_location' is the authoritative field the engine
+    // acts on. See ai/core/engine.ts's 'status' case.
+    { type: 'status', key: 'gaius_pontius_magnus', delta: 0, reason: "Fearing the Praetorians' wavering loyalty, the Senator quietly withdraws to his estate to avoid becoming a target.", new_location: 'The Suburra' },
   ],
   headlines: ["Discontent grows in the Praetorian Camp as rumors of imperial weakness spread.", "Emperor promises bonus to Praetorian Guard."],
   gm_private: ["The Praetorian Guard's loyalty is wavering more than publicly known.", "Lycinia Stolo's network has been compromised. She is no longer a major player and is being replaced by the more aggressive Flavius Fulco."],

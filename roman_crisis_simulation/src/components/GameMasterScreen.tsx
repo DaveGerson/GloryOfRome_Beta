@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { TurnHistoryEntry, Adjudication, Entity, Relationship, Memory, Scheme } from '../types';
+import { TurnHistoryEntry, Adjudication, Entity, Relationship, Memory, Scheme, RawCallRecord } from '../types';
 
 const TabButton: React.FC<{ label: string; active: boolean; onClick: () => void; }> = ({ label, active, onClick }) => (
     <button
@@ -173,9 +173,36 @@ const EntityStatesView: React.FC<{ entities: Entity[] }> = ({ entities }) => (
     </div>
 );
 
-const RawJsonView: React.FC<{ adjudication: Adjudication }> = ({ adjudication }) => (
-    <div className="text-xs space-y-2 bg-stone-900 p-3 rounded overflow-x-auto">
-        <pre>{JSON.stringify(adjudication, null, 2)}</pre>
+const RawCallsView: React.FC<{ rawCalls?: RawCallRecord[] }> = ({ rawCalls }) => (
+    <div className="space-y-2">
+        {rawCalls && rawCalls.length > 0 ? (
+            rawCalls.map((call, index) => (
+                <details key={index} className="bg-stone-900 p-2 rounded text-xs">
+                    <summary className="cursor-pointer font-bold text-red-400">
+                        {call.callName} <span className="text-stone-400 font-normal">- {call.model} - {call.latencyMs}ms - {call.attempts} attempt(s) - {call.validated ? 'validated' : 'NOT validated'}</span>
+                    </summary>
+                    <p className="text-stone-400 mt-1">Prompt chars: {call.promptChars}</p>
+                    <pre className="mt-1 whitespace-pre-wrap break-words">{call.rawResponse}</pre>
+                </details>
+            ))
+        ) : (
+            <p className="text-stone-400">No raw calls captured for this turn.</p>
+        )}
+    </div>
+);
+
+const RawJsonView: React.FC<{ adjudication: Adjudication; rawCalls?: RawCallRecord[] }> = ({ adjudication, rawCalls }) => (
+    <div className="space-y-4">
+        <div>
+            <h4 className="font-bold text-stone-300 mb-2 underline">Raw AI Calls (prompt/response capture)</h4>
+            <RawCallsView rawCalls={rawCalls} />
+        </div>
+        <div>
+            <h4 className="font-bold text-stone-300 mb-2 underline">Parsed Adjudication</h4>
+            <div className="text-xs space-y-2 bg-stone-900 p-3 rounded overflow-x-auto">
+                <pre>{JSON.stringify(adjudication, null, 2)}</pre>
+            </div>
+        </div>
     </div>
 );
 
@@ -247,7 +274,7 @@ const GameMasterScreen: React.FC<{
                                     {activeTab === 'actions' && <ActionsView adjudication={entry.adjudication} />}
                                     {activeTab === 'deltas' && <DeltasView adjudication={entry.adjudication} />}
                                     {activeTab === 'private' && <PrivateView adjudication={entry.adjudication} />}
-                                    {activeTab === 'raw json' && <RawJsonView adjudication={entry.adjudication} />}
+                                    {activeTab === 'raw json' && <RawJsonView adjudication={entry.adjudication} rawCalls={entry.rawCalls} />}
                                 </div>
                             </div>
                         ))
