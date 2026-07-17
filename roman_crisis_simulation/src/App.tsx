@@ -4,7 +4,8 @@ import { GoogleGenAI, Type } from "@google/genai";
 
 import Header from './components/Header';
 import CharacterSelection from './components/CharacterSelection';
-import { ChatMessage, ChatInput, ActionPills } from './components/Chat';
+import { ChatMessage, ChatInput, ActionPills, TypingIndicator } from './components/Chat';
+import CrisisBanner from './components/CrisisBanner';
 import SidePanel from './components/SidePanel';
 import GameMasterScreen from './components/GameMasterScreen';
 import EventModal from './components/EventModal';
@@ -49,18 +50,21 @@ const App: React.FC = () => {
     useEffect(() => {
         // Run a "smoke test" on startup to validate that all mock functions
         // are working as expected after any system changes.
+        // Dev-only scaffolding: never runs (and never alerts) in a production
+        // build — players should never see a blocking alert() on load.
+        if (!import.meta.env.DEV) return;
+
         const performSmokeTest = async () => {
             try {
                 await runSmokeTest();
             } catch (error) {
-                // Display the error prominently to the developer/user.
-                // In a production build, this might be handled by an error boundary.
+                // Display the error prominently to the developer.
                 console.error(error);
-                alert((error as Error).message); 
+                alert((error as Error).message);
             }
         };
 
-        // This test runs on every startup to ensure build validity.
+        // This test runs on every startup (in dev only) to ensure build validity.
         performSmokeTest();
     }, []); // Empty dependency array ensures this runs only once on mount.
 
@@ -69,6 +73,21 @@ const App: React.FC = () => {
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, gameState]);
+
+    // There is no persistence yet, so once a game is underway (past character
+    // selection) a tab close/refresh silently destroys the entire run. Warn
+    // the player before that happens.
+    useEffect(() => {
+        if (gameState === GameState.SETUP) return;
+
+        const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+            event.preventDefault();
+            event.returnValue = '';
+        };
+
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, [gameState]);
     
     const addMessage = useCallback((message: Message) => {
         setMessages(prev => [...prev, message]);
@@ -96,6 +115,7 @@ const App: React.FC = () => {
         if (!playerEntity) {
             addMessage({ sender: 'gm', text: "Error: Player character not found."});
             setGameState(GameState.AWAITING_PLAYER_INPUT);
+            setInputValue(playerActionText);
             return;
         }
 
@@ -142,9 +162,18 @@ const App: React.FC = () => {
 
         } catch (error)
         {
+            // Keep the full error in the console for diagnosis, but never lose
+            // the player's game over this — no "please refresh" (that nukes
+            // the whole session, and there's no persistence yet).
             console.error("Error running turn:", error);
-            addMessage({ sender: 'gm', text: "A fateful error has occurred. The simulation cannot proceed. Please refresh."});
+            const errorDetail = error instanceof Error ? error.message : String(error);
+            addMessage({
+                sender: 'gm',
+                text: `A fateful error has occurred and the turn could not be resolved: ${errorDetail}\n\nYour game is safe. Your action has been restored below — press Send to try again.`
+            });
             setGameState(GameState.AWAITING_PLAYER_INPUT);
+            // Restore the player's action so they can retry without retyping it.
+            setInputValue(playerActionText);
         }
     }, [entities, playerCharacterId, turnNumber, worldState, simulationState, reports, turnHistory, addMessage, gmInterventionText, isMockMode, metaNarrative]);
 
@@ -269,14 +298,16 @@ const App: React.FC = () => {
     return (
         <div className="min-h-screen text-[#3a2e2c] flex flex-col h-screen">
             <Header worldState={worldState} isMockMode={isMockMode} setIsMockMode={setIsMockMode} />
+            <CrisisBanner crisis={simulationState.major_ongoing_crisis} />
             <div className="flex flex-grow overflow-hidden">
                 <div className="w-2/3 flex flex-col">
                     {gameState === GameState.SETUP ? (
                         <CharacterSelection onSelectCharacter={handleSelectCharacter} onCreateCharacter={handleCustomCreation} />
                     ) : (
                         <>
-                            <main className="flex-grow p-4 overflow-y-auto">
+                            <main className="flex-grow p-4 overflow-y-auto" aria-live="polite">
                                 {messages.map((msg, index) => <ChatMessage key={index} message={msg} />)}
+                                {gameState === GameState.PROCESSING && <TypingIndicator />}
                                 <div ref={messagesEndRef} />
                             </main>
                             <div className="bg-[#e8e6e1]/70 backdrop-blur-sm border-t-4 border-double border-[#c9c5b8]">
@@ -290,6 +321,7 @@ const App: React.FC = () => {
                                             onChange={setInputValue}
                                             onSubmit={handleSendMessage}
                                             disabled={gameState !== GameState.AWAITING_PLAYER_INPUT}
+                                            isProcessing={gameState === GameState.PROCESSING}
                                         />
                                     </div>
                                     <div className="pr-4">

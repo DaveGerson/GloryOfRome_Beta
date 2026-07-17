@@ -3,23 +3,7 @@ import { GoogleGenAI } from "@google/genai";
 import { Entity, WorldState, EntityStub } from '../../types';
 import { ScenarioStructureSchema, EntityListSchema } from './schemas';
 import { mockGenerateScenarioStructure, mockGenerateEntitiesDetails, mockInitiateWorld } from '../mocks';
-
-const cleanJson = (text: string): string => {
-    // 1. Remove markdown code blocks if present
-    let cleaned = text.replace(/^```json\s*/, '').replace(/\s*```$/, '').trim();
-    // 2. Remove generic markdown code blocks
-    cleaned = cleaned.replace(/^```\s*/, '').replace(/\s*```$/, '').trim();
-    
-    // 3. aggressively find the outer braces to ignore preamble/postamble text
-    const firstBrace = cleaned.indexOf('{');
-    const lastBrace = cleaned.lastIndexOf('}');
-    
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-        cleaned = cleaned.substring(firstBrace, lastBrace + 1);
-    }
-    
-    return cleaned;
-};
+import { parseModelJson } from './json';
 
 export const generateScenarioStructure = async (
     ai: GoogleGenAI,
@@ -64,9 +48,8 @@ export const generateScenarioStructure = async (
         });
         
         console.log(`[InitWorld:Step1] Response received. Length: ${response.text?.length || 0}`);
-        const cleanedText = cleanJson(response.text || "{}");
-        const result = JSON.parse(cleanedText);
-        
+        const result = parseModelJson<{ worldState: WorldState, playerStub: EntityStub, npcStubs: EntityStub[] }>(response.text || "{}");
+
         console.log(`[InitWorld:Step1] Parsed successfully. Player: ${result.playerStub?.entity_id}, NPCs: ${result.npcStubs?.length}`);
         return result;
     } catch (e) {
@@ -136,10 +119,9 @@ const generateEntityBatch = async (
         if (!response.text) {
             throw new Error(`Empty response text for batch ${batchName}`);
         }
-        
-        const cleanedText = cleanJson(response.text);
-        const result = JSON.parse(cleanedText);
-        
+
+        const result = parseModelJson<{ entities?: Entity[] }>(response.text);
+
         if (!result.entities || !Array.isArray(result.entities)) {
              throw new Error(`Invalid JSON structure for batch ${batchName}: missing 'entities' array.`);
         }
@@ -188,23 +170,30 @@ export const initiateWorld = async (
         );
         entities.push(...playerEntities);
 
-        // Step 3: Generate NPCs in small batches to avoid timeouts and output limits
+        // Step 3: Generate NPCs in small batches to avoid timeouts and output limits.
+        // Batches are independent of one another, so fire them all in parallel
+        // (Promise.all preserves result ordering regardless of completion order,
+        // and rejects with the first batch failure - same fail-fast contract the
+        // sequential loop had, just without the artificial serialization latency).
         const chunkSize = 2; // Process 2 NPCs at a time
+        const npcBatches: EntityStub[][] = [];
         for (let i = 0; i < structure.npcStubs.length; i += chunkSize) {
-            const batchStubs = structure.npcStubs.slice(i, i + chunkSize);
-            const batchName = `NPCs_${Math.floor(i/chunkSize) + 1}`;
-            
-            const npcEntities = await generateEntityBatch(
-                ai, 
-                batchStubs, 
-                allStubs, 
-                metaNarrative, 
-                structure.worldState, 
-                batchName, 
-                512 
-            );
-            entities.push(...npcEntities);
+            npcBatches.push(structure.npcStubs.slice(i, i + chunkSize));
         }
+
+        const npcEntityBatches = await Promise.all(
+            npcBatches.map((batchStubs, index) => generateEntityBatch(
+                ai,
+                batchStubs,
+                allStubs,
+                metaNarrative,
+                structure.worldState,
+                `NPCs_${index + 1}`,
+                512
+            ))
+        );
+
+        npcEntityBatches.forEach(npcEntities => entities.push(...npcEntities));
 
         console.log(`[InitWorld] World Generation Complete. Total Entities: ${entities.length}`);
 

@@ -75,9 +75,11 @@ describe('applyAdjudication', () => {
 
   // --- Relation Deltas ---
   describe('Relation Deltas', () => {
-    it('should change trust level between two entities using the old key format', () => {
+    it('should change trust level directionally using the old key format', () => {
       const adjudication = deepCopy(baseAdjudication);
-      // Legacy format test
+      // Legacy format test. Relation deltas are directional: 'A:B' changes only
+      // A's perception of B — mutual shifts require a second delta with the
+      // ids reversed.
       adjudication.deltas.push({ type: 'relation', key: 'severus_alexander:maximinus_thrax', delta: 3, reason: 'Successful negotiation' });
 
       const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
@@ -85,7 +87,7 @@ describe('applyAdjudication', () => {
       const entityB = updatedEntities.find(e => e.entity_id === 'maximinus_thrax');
 
       expect(entityA?.relationships['maximinus_thrax'].trust_level).toBe(-4); // -7 + 3
-      expect(entityB?.relationships['severus_alexander'].trust_level).toBe(-5); // -8 + 3
+      expect(entityB?.relationships['severus_alexander'].trust_level).toBe(-8); // unchanged: delta is directional
     });
 
     it('should change trust level using the new attribute-specific key format', () => {
@@ -144,11 +146,71 @@ describe('applyAdjudication', () => {
     it('should change an entity status to dead', () => {
       const adjudication = deepCopy(baseAdjudication);
       adjudication.deltas.push({ type: 'status', key: 'maximinus_thrax', delta: 0, reason: 'Is now dead' });
-      
+
       const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
       const entity = updatedEntities.find(e => e.entity_id === 'maximinus_thrax');
 
       expect(entity?.status).toBe('dead');
+    });
+
+    // Stopgap bug fix: engine.ts previously only matched the literal substring
+    // 'dead', so natural AI phrasings like "has died" or "was killed" never
+    // matched and the entity silently stayed 'alive'. These cases lock in the
+    // broadened (but still substring/regex-based, pre-enum-redesign) matching.
+    it('should change an entity status to dead on "has died" phrasing', () => {
+      const adjudication = deepCopy(baseAdjudication);
+      adjudication.deltas.push({ type: 'status', key: 'maximinus_thrax', delta: 0, reason: 'Maximinus Thrax has died of his wounds' });
+
+      const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+      const entity = updatedEntities.find(e => e.entity_id === 'maximinus_thrax');
+
+      expect(entity?.status).toBe('dead');
+    });
+
+    it('should change an entity status to dead on the bare word "dead"', () => {
+      const adjudication = deepCopy(baseAdjudication);
+      adjudication.deltas.push({ type: 'status', key: 'maximinus_thrax', delta: 0, reason: 'dead' });
+
+      const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+      const entity = updatedEntities.find(e => e.entity_id === 'maximinus_thrax');
+
+      expect(entity?.status).toBe('dead');
+    });
+
+    it('should change an entity status to dead on "was killed" phrasing', () => {
+      const adjudication = deepCopy(baseAdjudication);
+      adjudication.deltas.push({ type: 'status', key: 'maximinus_thrax', delta: 0, reason: 'He was killed in an ambush outside the camp' });
+
+      const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+      const entity = updatedEntities.find(e => e.entity_id === 'maximinus_thrax');
+
+      expect(entity?.status).toBe('dead');
+    });
+
+    it('should change an entity status to exiled', () => {
+      const adjudication = deepCopy(baseAdjudication);
+      adjudication.deltas.push({ type: 'status', key: 'maximinus_thrax', delta: 0, reason: 'Was exiled to a remote province' });
+
+      const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+      const entity = updatedEntities.find(e => e.entity_id === 'maximinus_thrax');
+
+      expect(entity?.status).toBe('exiled');
+    });
+
+    // Documented stopgap behavior: this substring/regex approach cannot truly
+    // understand negation. We special-case the common "survived a close call"
+    // phrasing so it does NOT kill the entity, but this is a heuristic, not a
+    // general solution - the proper fix is the structured `new_status` enum
+    // field (P0.2 in ROADMAP_6_MAINTAINABILITY.md), which removes freeform
+    // reason-string interpretation from control flow entirely.
+    it('should NOT kill an entity for "nearly died but survived" phrasing', () => {
+      const adjudication = deepCopy(baseAdjudication);
+      adjudication.deltas.push({ type: 'status', key: 'maximinus_thrax', delta: 0, reason: 'He nearly died but survived the assassination attempt' });
+
+      const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+      const entity = updatedEntities.find(e => e.entity_id === 'maximinus_thrax');
+
+      expect(entity?.status).toBe('alive');
     });
 
     it('should move an entity to a new valid location', () => {

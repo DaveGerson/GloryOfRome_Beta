@@ -11,16 +11,18 @@ const AquilaIcon = () => (
 
 const Header: React.FC<{ worldState: WorldState, isMockMode: boolean, setIsMockMode: (isMock: boolean) => void }> = ({ worldState, isMockMode, setIsMockMode }) => (
     <header className="relative text-center p-3 bg-[#e8e6e1]/70 backdrop-blur-sm border-b-4 border-double border-[#c9c5b8]">
-        <div className="absolute top-2 right-2 flex items-center bg-stone-700 p-2 rounded text-stone-100 font-mono text-xs shadow-lg z-10">
-          <label htmlFor="mock-toggle" className="mr-2 cursor-pointer">Mock Mode</label>
-          <input
-            id="mock-toggle"
-            type="checkbox"
-            checked={isMockMode}
-            onChange={(e) => setIsMockMode(e.target.checked)}
-            className="h-4 w-4 text-red-800 bg-stone-600 border-stone-500 rounded focus:ring-red-700 cursor-pointer"
-          />
-        </div>
+        {import.meta.env.DEV && (
+            <div className="absolute top-2 right-2 flex items-center bg-stone-700 p-2 rounded text-stone-100 font-mono text-xs shadow-lg z-10">
+              <label htmlFor="mock-toggle" className="mr-2 cursor-pointer">Mock Mode</label>
+              <input
+                id="mock-toggle"
+                type="checkbox"
+                checked={isMockMode}
+                onChange={(e) => setIsMockMode(e.target.checked)}
+                className="h-4 w-4 text-red-800 bg-stone-600 border-stone-500 rounded focus:ring-red-700 cursor-pointer"
+              />
+            </div>
+        )}
         <AquilaIcon />
         <h1 className="text-4xl font-decorative font-bold text-red-900 roman-inset-text">Roman Crisis Simulation</h1>
         <div className="flex justify-center divide-x-2 divide-stone-400 mt-2 text-md text-stone-700">

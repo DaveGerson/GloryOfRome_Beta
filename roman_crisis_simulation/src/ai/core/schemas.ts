@@ -17,7 +17,7 @@ const EventDeltaSchema = {
     type: Type.OBJECT,
     properties: {
         type: { type: Type.STRING, enum: EventDeltaTypeEnum, description: "The type of state change." },
-        key: { type: Type.STRING, description: "Identifier for what is changing. For 'relation', use 'entity_a_id:entity_b_id:attribute' (e.g., trust_level, perceived_threat). For 'resource', use 'entity_id:resource_name'. For 'scheme' or 'faction', this is the entity_id. For region changes, use the region's name." },
+        key: { type: Type.STRING, description: "Identifier for what is changing. For 'relation', use 'entity_a_id:entity_b_id:attribute' (e.g., trust_level, perceived_threat) — the delta changes entity_a's perception of entity_b ONLY; if a change is mutual, emit a second delta with the ids reversed. For 'resource', use 'entity_id:resource_name'. For 'scheme' or 'faction', this is the entity_id. For region changes, use the region's name." },
         delta: { type: Type.NUMBER, description: "The numerical change to apply. For status, scheme, region, add_region, remove_region, and faction this is ignored. For rumors, this should be a float from 0.0 to 1.0 representing credibility." },
         reason: { type: Type.STRING, description: "A short narrative description of why the change occurred. For 'status' or 'rumor' types, this contains the new status or the rumor text. For 'scheme', this is a JSON string of the complete, updated scheme object. For 'add_region', this is a JSON string of the new RegionState object. For 'faction', this is the entity_id of the new faction, or 'null' if they become unaligned." },
     },

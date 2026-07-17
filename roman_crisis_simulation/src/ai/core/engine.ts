@@ -134,7 +134,7 @@ PRINCIPLES:
     - To add an entity, use the 'add_entities' field.
     - To remove an entity, use the 'remove_entities' field.
     - To add/remove a location, create an 'add_region'/'remove_region' delta. Before removing a location, you MUST relocate any entities there using 'status' deltas.
-- RELATIONSHIP DELTAS: To modify a relationship, create a 'relation' delta. The 'key' MUST specify the attribute: 'entity_a_id:entity_b_id:attribute'. Valid attributes are 'trust_level', 'respect_level', 'perceived_threat', 'ideological_alignment', 'dependency_level'. The 'delta' is the amount to change.
+- RELATIONSHIP DELTAS: To modify a relationship, create a 'relation' delta. The 'key' MUST specify the attribute: 'entity_a_id:entity_b_id:attribute'. Valid attributes are 'trust_level', 'respect_level', 'perceived_threat', 'ideological_alignment', 'dependency_level'. The 'delta' is the amount to change. A delta changes entity_a's perception of entity_b ONLY (relationships are asymmetric); if a change is mutual, emit two deltas, one per direction.
 - Spotlight NPCs MUST take at least one proactive action to advance their scheme.
 - All NPCs can react. The player's action can be the catalyst for the turn.
 - Introduce 0-2 rumors per turn via 'rumor' deltas. A rumor's 'delta' field is its credibility (0.0 to 1.0).
@@ -181,44 +181,54 @@ export function applyDeltas(
                     const validAttributes = ['trust_level', 'respect_level', 'perceived_threat', 'ideological_alignment', 'dependency_level'];
                     if (!validAttributes.includes(attr)) break;
 
-                    [entityAId, entityBId].forEach((id, index) => {
-                        const entity = updatedEntities.find(e => e.entity_id === id);
-                        if (entity) {
-                            const otherId = index === 0 ? entityBId : entityAId;
-                            if (!entity.relationships[otherId]) {
-                                entity.relationships[otherId] = { entity_id: otherId, relationship_type: 'acquaintance', trust_level: 0, recent_interactions: [] };
-                            }
-                            
-                            const rel = entity.relationships[otherId];
-                            
-                            // Initialize attribute if it doesn't exist
-                            if (rel[attr] === undefined) {
-                                (rel as any)[attr] = 0;
-                            }
+                    // Directional semantics: the key 'A:B:attribute' changes A's
+                    // perception of B only. Relationships are asymmetric by design
+                    // (A can trust B while B despises A), and attributes like
+                    // perceived_threat are inherently one-sided. Mutual changes
+                    // require two deltas, one per direction — the schema/prompt
+                    // instruct the model accordingly.
+                    const entity = updatedEntities.find(e => e.entity_id === entityAId);
+                    if (entity) {
+                        if (!entity.relationships[entityBId]) {
+                            entity.relationships[entityBId] = { entity_id: entityBId, relationship_type: 'acquaintance', trust_level: 0, recent_interactions: [] };
+                        }
 
-                            if (typeof (rel as any)[attr] === 'number') {
-                                (rel as any)[attr] += delta.delta;
+                        const rel = entity.relationships[entityBId];
 
-                                // Clamping logic
-                                if (attr === 'trust_level' || attr === 'ideological_alignment' || attr === 'respect_level') {
-                                    (rel as any)[attr] = Math.max(-10, Math.min(10, (rel as any)[attr]));
-                                } else if (attr === 'perceived_threat' || attr === 'dependency_level') {
-                                    (rel as any)[attr] = Math.max(0, Math.min(10, (rel as any)[attr]));
-                                }
-                            }
-                            
-                            if (!rel.recent_interactions.some(interaction => interaction.endsWith(delta.reason))) {
-                                rel.recent_interactions.push(`Turn ${turnNumber}: ${delta.reason}`);
+                        // Initialize attribute if it doesn't exist
+                        if (rel[attr] === undefined) {
+                            (rel as any)[attr] = 0;
+                        }
+
+                        if (typeof (rel as any)[attr] === 'number') {
+                            (rel as any)[attr] += delta.delta;
+
+                            // Clamping logic
+                            if (attr === 'trust_level' || attr === 'ideological_alignment' || attr === 'respect_level') {
+                                (rel as any)[attr] = Math.max(-10, Math.min(10, (rel as any)[attr]));
+                            } else if (attr === 'perceived_threat' || attr === 'dependency_level') {
+                                (rel as any)[attr] = Math.max(0, Math.min(10, (rel as any)[attr]));
                             }
                         }
-                    });
+
+                        if (!rel.recent_interactions.some(interaction => interaction.endsWith(delta.reason))) {
+                            rel.recent_interactions.push(`Turn ${turnNumber}: ${delta.reason}`);
+                        }
+                    }
                     break;
                 }
                  case 'status': {
                     const entity = updatedEntities.find(e => e.entity_id === delta.key);
                     if (entity) {
                         const newStatus = delta.reason.toLowerCase();
-                        if (newStatus.includes('dead')) entity.status = 'dead';
+                        // STOPGAP (full enum redesign tracked separately): the AI's free-text
+                        // 'reason' is matched against natural death phrasings ("has died", "was
+                        // killed", "slain", etc.), not just the literal substring "dead". To avoid
+                        // false-positive kills on phrasing like "nearly died but survived", any
+                        // survival/negation wording nearby suppresses the death match.
+                        const indicatesDeath = /\b(dead|died|killed|slain|slaughtered|assassinated|perished|executed)\b/.test(newStatus);
+                        const indicatesSurvival = /\b(surviv\w*|recovers?|recovered|escape[sd]?|avoid(?:s|ed|ing)?|spared|rescued|saved|did ?n'?t die|no one (?:died|was killed))\b/.test(newStatus);
+                        if (indicatesDeath && !indicatesSurvival) entity.status = 'dead';
                         else if (newStatus.includes('exiled')) entity.status = 'exiled';
                         else if (newStatus.includes('missing')) entity.status = 'missing';
                         else if (newStatus.includes('moves to')) {

@@ -2,10 +2,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { Entity, WorldState, StoryRelevance, Scheme, Adjudication, SimulationState, EventDelta } from '../../types';
 import { mockGetClarificationOnEvent, mockGetRawThoughts, mockGetDeepAnalysis, mockGetInvestigationResult, mockGetPlayerMonologue, mockGetStoryRelevance, mockSimulatePrivateConversation } from '../mocks';
 import { RelationshipDeltasSchema, ConversationSimulationSchema } from '../core/schemas';
-
-const cleanJson = (text: string): string => {
-    return text.replace(/^```json\s*/, '').replace(/\s*```$/, '').trim();
-};
+import { parseModelJson } from '../core/json';
 
 export const getClarificationOnEvent = async (ai: GoogleGenAI, event: string, question: string, player: Entity, allEntities: Entity[], isMockMode: boolean): Promise<string> => {
     if (isMockMode) {
@@ -121,8 +118,7 @@ export const getInvestigationResult = async (ai: GoogleGenAI, target: Entity, pl
             thinkingConfig: { thinkingBudget: 512 }
         }
     });
-    const cleanedText = cleanJson(response.text || "{}");
-    const result = JSON.parse(cleanedText);
+    const result = parseModelJson<{ report: string, consequences: string | null, reportData: any }>(response.text || "{}");
     return { report: result.report, consequences: result.consequences, reportData: result.reportData };
 };
 
@@ -248,8 +244,7 @@ export const getStoryRelevance = async (ai: GoogleGenAI, turnNumber: number, pre
         }
     });
     
-    const cleanedText = cleanJson(response.text || "{}");
-    return JSON.parse(cleanedText) as StoryRelevance;
+    return parseModelJson<StoryRelevance>(response.text || "{}");
 };
 
 export const getUpdatedSimulationState = async (ai: GoogleGenAI, adjudication: Adjudication, oldState: SimulationState, isMockMode: boolean): Promise<SimulationState> => {
@@ -296,8 +291,7 @@ Return only the valid JSON object.
         }
     });
 
-    const cleanedText = cleanJson(response.text || "{}");
-    return JSON.parse(cleanedText) as SimulationState;
+    return parseModelJson<SimulationState>(response.text || "{}");
 };
 
 export const getRelationshipUpdates = async (ai: GoogleGenAI, narration: string, headlines: string[], entities: Entity[], isMockMode: boolean): Promise<EventDelta[]> => {
@@ -334,6 +328,7 @@ export const getRelationshipUpdates = async (ai: GoogleGenAI, narration: string,
     Based *only* on the events described above, generate a list of 'relation' deltas to reflect how the characters' feelings towards each other might have changed.
     - Only generate deltas for relationships that were directly or strongly implicitly affected by the events.
     - The 'key' for a relation delta MUST be in the format 'entity_a_id:entity_b_id:attribute'. Valid attributes are 'trust_level', 'respect_level', 'perceived_threat', 'ideological_alignment', 'dependency_level'.
+    - A delta changes entity_a's perception of entity_b ONLY (relationships are asymmetric). If both characters' feelings changed, emit two deltas — one per direction. The two directions need not be equal.
     - 'delta' should be a small integer, typically between -3 and 3, representing the change.
     - 'reason' should be a brief justification citing the event from the narration.
     - If no relationships were significantly affected, return an empty list for 'deltas'.
@@ -351,8 +346,7 @@ export const getRelationshipUpdates = async (ai: GoogleGenAI, narration: string,
         },
     });
 
-    const cleanedText = cleanJson(response.text || "{}");
-    const result = JSON.parse(cleanedText) as { deltas: EventDelta[] };
+    const result = parseModelJson<{ deltas: EventDelta[] }>(response.text || "{}");
     return result.deltas;
 };
 
@@ -397,6 +391,5 @@ export const simulatePrivateConversation = async (
         },
     });
 
-    const cleanedText = cleanJson(response.text || "{}");
-    return JSON.parse(cleanedText) as { dialogueSnippet: string, deltas: EventDelta[] };
+    return parseModelJson<{ dialogueSnippet: string, deltas: EventDelta[] }>(response.text || "{}");
 };

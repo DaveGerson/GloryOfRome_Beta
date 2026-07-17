@@ -1,6 +1,59 @@
 
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { Message } from '../types';
+
+// Themed status copy cycled while the Game Master "thinks" (PROCESSING).
+// Purely presentational/timer-based — no coupling to the actual turn pipeline.
+const PROCESSING_MESSAGES = [
+    'Whispers cross the Senate floor…',
+    'Your rivals move in the dark…',
+    'Couriers ride from the frontier…',
+    'The chronicler sets down the day…',
+];
+
+/**
+ * Cycles through `messages` on an interval while `active` is true. Resets to
+ * the first message whenever it goes inactive so the next activation starts
+ * fresh.
+ */
+function useRotatingMessage(active: boolean, messages: string[], intervalMs = 3200): string {
+    const [index, setIndex] = useState(0);
+
+    useEffect(() => {
+        if (!active) {
+            setIndex(0);
+            return;
+        }
+        const id = setInterval(() => {
+            setIndex(prev => (prev + 1) % messages.length);
+        }, intervalMs);
+        return () => clearInterval(id);
+    }, [active, messages, intervalMs]);
+
+    return messages[index];
+}
+
+/**
+ * A visible, animated "typing" bubble shown in the message stream while the
+ * Game Master is processing a turn — makes the 30-60s wait feel alive
+ * instead of frozen.
+ */
+export const TypingIndicator: React.FC = () => {
+    const statusText = useRotatingMessage(true, PROCESSING_MESSAGES);
+
+    return (
+        <div className="flex justify-start mb-4 animate-fade-in" aria-live="polite">
+            <div className="roman-stone-panel text-stone-800 border-l-4 border-red-800 rounded-lg px-4 py-3 max-w-md flex items-center gap-3">
+                <div className="flex gap-1" aria-hidden="true">
+                    <span className="w-2 h-2 bg-red-800 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-2 h-2 bg-red-800 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-2 h-2 bg-red-800 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                </div>
+                <p className="italic text-sm text-stone-600">{statusText}</p>
+            </div>
+        </div>
+    );
+};
 
 export const ChatMessage: React.FC<{ message: Message }> = ({ message }) => {
     const isGM = message.sender === 'gm';
@@ -46,8 +99,10 @@ export const ChatInput: React.FC<{
     onChange: (value: string) => void;
     onSubmit: () => void;
     disabled: boolean;
-}> = ({ value, onChange, onSubmit, disabled }) => {
+    isProcessing?: boolean;
+}> = ({ value, onChange, onSubmit, disabled, isProcessing = false }) => {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const processingText = useRotatingMessage(isProcessing, PROCESSING_MESSAGES);
 
     useEffect(() => {
         if (textareaRef.current) {
@@ -72,7 +127,11 @@ export const ChatInput: React.FC<{
         }
     };
     
-    const placeholderText = disabled ? "Awaiting Game Master..." : "Enter your action... (Shift+Enter for new line)";
+    const placeholderText = isProcessing
+        ? processingText
+        : disabled
+        ? "Awaiting the Senate's judgment..."
+        : "Enter your action... (Shift+Enter for new line)";
     
     return (
         <form onSubmit={handleSubmit} className="p-4">

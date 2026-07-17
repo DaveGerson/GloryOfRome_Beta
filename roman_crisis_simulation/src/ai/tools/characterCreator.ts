@@ -2,10 +2,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { Entity, Scheme } from '../../types';
 import { ALL_INITIAL_ENTITIES } from '../../constants/baseScenario';
 import { mockCreateCharacter } from "../mocks";
-
-const cleanJson = (text: string): string => {
-    return text.replace(/^```json\s*/, '').replace(/\s*```$/, '').trim();
-};
+import { parseModelJson } from '../core/json';
 
 export const createCharacter = async (ai: GoogleGenAI, description: string, isMockMode: boolean): Promise<Entity> => {
     console.log(`[CharCreator] Starting character creation for: "${description}"`);
@@ -152,8 +149,7 @@ Your response MUST be a perfectly valid JSON object that adheres to the schema. 
              throw new Error("Empty response from AI for character creation.");
         }
         
-        const cleanedText = cleanJson(response.text);
-        const character = JSON.parse(cleanedText) as Entity;
+        const character = parseModelJson<Entity>(response.text);
         console.log(`[CharCreator] Character created: ${character.name} (${character.entity_id})`);
         return character;
     } catch (error) {

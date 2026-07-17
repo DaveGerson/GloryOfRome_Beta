@@ -4,6 +4,7 @@ import { AdjudicationSchema } from './schemas';
 import { compileContext, applyAdjudication, applyDeltas } from './engine';
 import { mockRunNewTurn } from "../mocks";
 import { getPlayerMonologue, getStoryRelevance, getUpdatedSimulationState, getRelationshipUpdates, simulatePrivateConversation } from '../tools/intelligence';
+import { parseModelJson } from './json';
 
 export async function runNewTurn(
     ai: GoogleGenAI,
@@ -55,9 +56,7 @@ export async function runNewTurn(
         },
     });
 
-    const text = response.text || "{}";
-    const cleanedText = text.replace(/^```json\s*/, '').replace(/\s*```$/, '').trim();
-    const adjudication = JSON.parse(cleanedText) as Adjudication;
+    const adjudication = parseModelJson<Adjudication>(response.text || "{}");
 
     // *** NEW STEP 2.5: Get Updated Simulation State ***
     const updatedSimulationState = await getUpdatedSimulationState(ai, adjudication, currentSimulationState, isMockMode);
