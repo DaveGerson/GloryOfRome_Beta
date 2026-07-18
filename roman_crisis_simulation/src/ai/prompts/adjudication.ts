@@ -34,6 +34,7 @@ import {
   buildStoryEvolutionBlock,
   buildMetaNarrativeBlock,
   buildMetaStateBlock,
+  buildSecretSurvivorsBlock,
 } from './fragments';
 
 const ADJUDICATION_SYSTEM_INSTRUCTION = `
@@ -116,6 +117,8 @@ ${history.length > 0 ? history.join('\n') : "No recent events of note."}
 ${buildSpotlightBlock(spotlightNpcs)}
 
 ${buildOtherNpcsBlock(otherNpcs)}
+
+${buildSecretSurvivorsBlock(npcEntities)}
 
 PLAYER CHARACTER:
 Name: ${playerEntity.name} (ID: ${playerEntity.entity_id})

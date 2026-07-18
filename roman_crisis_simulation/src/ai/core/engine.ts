@@ -9,6 +9,37 @@ import { Entity, WorldState, Adjudication, Report, EventDelta, Relationship } fr
 // testable" and should stay that way.
 
 /**
+ * The free-text death-phrase heuristic, used only when a 'status' delta
+ * omits the structured `new_status` field (a legacy/pre-MAINT-P0.2 delta,
+ * or a turn where the model forgot to set it). Matches common death
+ * phrasings while suppressing false positives from nearby
+ * survival/negation wording (e.g. "nearly died but survived"). Extracted
+ * from applyDeltas' inline 'status' case so it has exactly one
+ * implementation.
+ */
+export function legacyReasonIndicatesDeath(reason: string): boolean {
+    const text = reason.toLowerCase();
+    const indicatesDeath = /\b(dead|died|killed|slain|slaughtered|assassinated|perished|executed)\b/.test(text);
+    const indicatesSurvival = /\b(surviv\w*|recovers?|recovered|escape[sd]?|avoid(?:s|ed|ing)?|spared|rescued|saved|did ?n'?t die|no one (?:died|was killed))\b/.test(text);
+    return indicatesDeath && !indicatesSurvival;
+}
+
+/**
+ * True if a 'status' EventDelta represents a claimed death - either via the
+ * structured `new_status === 'dead'` field (preferred, MAINT-P0.2), or (for
+ * legacy deltas that omit it) `legacyReasonIndicatesDeath`'s free-text
+ * matching. This is the EXACT rule `applyDeltas`' 'status' case uses to
+ * decide whether an entity dies, exported so
+ * `ai/core/mortality.ts`'s death-claim scan (DESIGN_DECISIONS.md D2/D3)
+ * reuses the identical detection instead of re-implementing the regex.
+ */
+export function isDeathClaimDelta(delta: EventDelta): boolean {
+    if (delta.type !== 'status') return false;
+    if (delta.new_status) return delta.new_status === 'dead';
+    return legacyReasonIndicatesDeath(delta.reason);
+}
+
+/**
  * Applies a list of deltas to the current game state.
  * This is a pure function that returns new state objects.
  */
@@ -105,11 +136,11 @@ export function applyDeltas(
                             // 'reason' is matched against natural death phrasings ("has died", "was
                             // killed", "slain", etc.), not just the literal substring "dead". To avoid
                             // false-positive kills on phrasing like "nearly died but survived", any
-                            // survival/negation wording nearby suppresses the death match.
+                            // survival/negation wording nearby suppresses the death match. See
+                            // `legacyReasonIndicatesDeath` above (also reused by
+                            // ai/core/mortality.ts's death-claim detection).
                             const newStatus = delta.reason.toLowerCase();
-                            const indicatesDeath = /\b(dead|died|killed|slain|slaughtered|assassinated|perished|executed)\b/.test(newStatus);
-                            const indicatesSurvival = /\b(surviv\w*|recovers?|recovered|escape[sd]?|avoid(?:s|ed|ing)?|spared|rescued|saved|did ?n'?t die|no one (?:died|was killed))\b/.test(newStatus);
-                            if (indicatesDeath && !indicatesSurvival) entity.status = 'dead';
+                            if (legacyReasonIndicatesDeath(delta.reason)) entity.status = 'dead';
                             else if (newStatus.includes('exiled')) entity.status = 'exiled';
                             else if (newStatus.includes('missing')) entity.status = 'missing';
                             else if (newStatus.includes('moves to')) {
@@ -134,6 +165,18 @@ export function applyDeltas(
                             if (validLocations.includes(delta.new_location)) {
                                 entity.location = delta.new_location;
                             }
+                        }
+
+                        // GM-PRIVATE secret-survival state (DESIGN_DECISIONS.md D3).
+                        // CODE-GENERATED ONLY - this field is never requested from the
+                        // model (see types.ts's EventDelta.secret_truth); only
+                        // ai/core/mortality.ts::processMortality attaches it, when a
+                        // validated NPC death resolves to "presumed dead" on the fate
+                        // table. Copying it here (alongside status/location) keeps a
+                        // single application point for everything a 'status' delta can
+                        // carry.
+                        if (delta.secret_truth) {
+                            entity.secret_truth = delta.secret_truth;
                         }
                     }
                     break;

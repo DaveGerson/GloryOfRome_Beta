@@ -331,6 +331,51 @@ export const SimulationStateSchema = {
     required: ['imperial_status', 'senate_status', 'military_status', 'plebeian_mood', 'major_ongoing_crisis']
 };
 
+// --- Mortality pipeline (ai/core/mortality.ts, DESIGN_DECISIONS.md D2/D3) --
+
+/** The mortality VALIDATION call's Gemini response schema (ai/core/mortality.ts). */
+export const MortalityValidationSchema = {
+    type: Type.OBJECT,
+    properties: {
+        dispositions: {
+            type: Type.ARRAY,
+            description: "Exactly one disposition per death-claim candidate, matched by entity_id.",
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    entity_id: { type: Type.STRING },
+                    valid: { type: Type.BOOLEAN, description: "True if this death is real and earned given the turn's events; false if hallucinated/unsupported melodrama." },
+                    reasoning: { type: Type.STRING, description: "Short (1-2 sentence) justification, for the GM only - never shown to the player." },
+                },
+                required: ['entity_id', 'valid', 'reasoning'],
+            },
+        },
+    },
+    required: ['dispositions'],
+};
+
+/** The mortality OUTCOME call's Gemini response schema (ai/core/mortality.ts). */
+export const MortalityOutcomeSchema = {
+    type: Type.OBJECT,
+    properties: {
+        outcomes: {
+            type: Type.ARRAY,
+            description: "Exactly one outcome entry per candidate, matched by entity_id.",
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    entity_id: { type: Type.STRING },
+                    deltas: { type: Type.ARRAY, items: EventDeltaSchema, description: "Loss/boon/wounding SIDE-EFFECT deltas only - never a 'status' delta, that has already been decided." },
+                    narrative_directive: { type: Type.STRING, description: "One line steering the narrator on exactly how to narrate this outcome." },
+                    secret_motive: { type: Type.STRING, nullable: true, description: "'presumed_dead' candidates only: why they're hiding and what they might want if they return. Omit/null otherwise." },
+                },
+                required: ['entity_id', 'deltas', 'narrative_directive'],
+            },
+        },
+    },
+    required: ['outcomes'],
+};
+
 /**
  * Investigation results have a `reportData` shape that depends on the
  * requested `subject`: a full `Scheme` object for 'scheme', or a plain

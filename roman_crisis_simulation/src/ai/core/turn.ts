@@ -8,6 +8,7 @@ import { generateStructured, generateText, GEMINI_PRO, beginTurnCapture, endTurn
 import { zAdjudication } from './zodSchemas';
 import { buildAdjudicationPrompt } from '../prompts/adjudication';
 import { buildNarrationPrompt } from '../prompts/narration';
+import { processMortality } from './mortality';
 
 // Adjudication is the highest-stakes, most consequence-dense call of the
 // turn - a moderate temperature keeps outcomes varied without letting the
@@ -84,46 +85,72 @@ export async function runNewTurn(
         temperature: ADJUDICATION_TEMPERATURE,
     });
 
-    // *** NEW STEP 2.5: Get Updated Simulation State ***
-    const updatedSimulationState = await getUpdatedSimulationState(ai, adjudication, currentSimulationState, isMockMode);
-
-    // 3. Apply adjudication to get new state
-    let { updatedEntities, updatedWorldState, updatedReports } = applyAdjudication(adjudication, currentEntities, currentWorldState, currentReports);
-
-    // *** NEW STEP 3.5: SIMULATE OFF-SCREEN NPC CONVERSATION ***
+    // *** NEW STEP 2.5: SIMULATE OFF-SCREEN NPC CONVERSATION ***
+    // Moved ahead of applyAdjudication (previously ran on post-applyAdjudication
+    // `updatedEntities`) so its deltas can be merged into `adjudication.deltas`
+    // and pass through the SAME mortality validation gate as everything else
+    // (DESIGN_DECISIONS.md D2/D3: "Any death declared by the adjudication (or
+    // private-conversation deltas) must be VALIDATED"). This means npc1/npc2
+    // are looked up from the pre-turn `currentEntities` snapshot rather than
+    // the post-adjudication one - a minor behavioral shift, traded for a
+    // single unified death-claim scan below instead of two.
     if (storyRelevance.spotlight_entities.length >= 2) {
         const npc1Id = storyRelevance.spotlight_entities[0].entity_id;
         const npc2Id = storyRelevance.spotlight_entities[1].entity_id;
-        const npc1 = updatedEntities.find(e => e.entity_id === npc1Id);
-        const npc2 = updatedEntities.find(e => e.entity_id === npc2Id);
+        const npc1 = currentEntities.find(e => e.entity_id === npc1Id);
+        const npc2 = currentEntities.find(e => e.entity_id === npc2Id);
 
         if (npc1 && npc2) {
             const conversationResult = await simulatePrivateConversation(ai, npc1, npc2, adjudication, isMockMode);
 
             if (conversationResult && conversationResult.deltas.length > 0) {
-                // Apply the new deltas from the conversation
-                const { updatedEntities: entitiesAfterConversation, updatedWorldState: worldStateAfterConversation } = applyDeltas(
-                    conversationResult.deltas,
-                    updatedEntities,
-                    updatedWorldState,
-                    turnNumber
-                );
-                updatedEntities = entitiesAfterConversation;
-                updatedWorldState = worldStateAfterConversation;
-
-                // Add the conversation to the GM log for transparency
+                // Merge into the adjudication's own deltas (rather than applying
+                // them separately) so a single applyAdjudication call - and a
+                // single mortality pass - covers both sources of deltas.
+                adjudication.deltas.push(...conversationResult.deltas);
                 adjudication.gm_private.push(`[Secret Meeting] ${conversationResult.dialogueSnippet}`);
             }
         }
     }
 
+    // *** NEW STEP 2.6: MORTALITY PIPELINE (DESIGN_DECISIONS.md D2/D3/D4) ***
+    // Runs BEFORE applyAdjudication and BEFORE narration: any death claim in
+    // `adjudication.deltas` (main adjudication + the private-conversation
+    // deltas just merged above) is validated by a second, independent model
+    // call, then resolved by a hidden code-side roll. The model never
+    // decides death - it only narrates the pre-decided outcome (via
+    // `mortalityEvents`' directives, fed into the narration prompt below).
+    // In mock mode this is a no-op (see ai/core/mortality.ts's doc comment).
+    const { transformedAdjudication, mortalityEvents } = await processMortality(
+        ai,
+        adjudication,
+        currentEntities,
+        playerEntity.entity_id,
+        turnNumber,
+        isMockMode
+    );
+
+    // *** NEW STEP 2.7: Get Updated Simulation State ***
+    // Uses the mortality-TRANSFORMED adjudication so e.g. `imperial_status`
+    // doesn't flip to 'Vacant' off a death claim that validation/the roll
+    // ultimately overturned.
+    const updatedSimulationState = await getUpdatedSimulationState(ai, transformedAdjudication, currentSimulationState, isMockMode);
+
+    // 3. Apply the (mortality-transformed) adjudication to get new state
+    let { updatedEntities, updatedWorldState, updatedReports } = applyAdjudication(transformedAdjudication, currentEntities, currentWorldState, currentReports);
+
     // 4. Get player monologue
     const updatedPlayerEntity = updatedEntities.find(e => e.entity_id === playerEntity.entity_id) || playerEntity;
     const recentPlayerIntents = turnHistory.map(h => h.playerIntent).slice(-6);
-    const playerMonologue = await getPlayerMonologue(ai, updatedPlayerEntity, adjudication.headlines, recentPlayerIntents, isMockMode);
+    const playerMonologue = await getPlayerMonologue(ai, updatedPlayerEntity, transformedAdjudication.headlines, recentPlayerIntents, isMockMode);
 
-    // 5. Get narration and suggested actions
-    const narrationPrompt = buildNarrationPrompt(metaNarrative, updatedPlayerEntity, playerIntent, adjudication);
+    // 5. Get narration and suggested actions. `buildNarrationPrompt` receives
+    // a SANITIZED adjudication (gm_private and any secret_truth trace
+    // stripped - see ai/prompts/narration.ts) plus the mortality pipeline's
+    // pre-decided narrative directives, so the model narrates outcomes
+    // without ever seeing GM-private ground truth (DESIGN_DECISIONS.md D3/D4).
+    const mortalityDirectives = mortalityEvents.map(ev => `- ${ev.entity_name} (${ev.entity_id}): ${ev.outcomeSummary}`);
+    const narrationPrompt = buildNarrationPrompt(metaNarrative, updatedPlayerEntity, playerIntent, transformedAdjudication, mortalityDirectives);
     const fullText = await generateText(ai, {
         callName: 'narration',
         model: GEMINI_PRO,
@@ -137,22 +164,23 @@ export async function runNewTurn(
     const suggestedActions = narrationParts.slice(1).map(s => s.trim()).filter(s => s.length > 0);
 
     // 5.5 Get and apply relationship updates based on narrative
-    const relationshipDeltas = await getRelationshipUpdates(ai, narration, adjudication.headlines, updatedEntities, isMockMode);
+    const relationshipDeltas = await getRelationshipUpdates(ai, narration, transformedAdjudication.headlines, updatedEntities, isMockMode);
     if (relationshipDeltas && relationshipDeltas.length > 0) {
         const { updatedEntities: entitiesAfterRelationshipUpdates } = applyDeltas(relationshipDeltas, updatedEntities, updatedWorldState, turnNumber);
         updatedEntities = entitiesAfterRelationshipUpdates;
         // Log this change for debugging.
-        adjudication.gm_private.push(`[Narrative Analyst] Applied ${relationshipDeltas.length} relationship delta(s) based on turn events.`);
+        transformedAdjudication.gm_private.push(`[Narrative Analyst] Applied ${relationshipDeltas.length} relationship delta(s) based on turn events.`);
     }
 
     // 6. Create history entry
     const newHistoryEntry: TurnHistoryEntry = {
         turnNumber,
         playerIntent,
-        adjudication,
+        adjudication: transformedAdjudication,
         narration,
         postTurnEntities: updatedEntities, // Store final state
         rawCalls: endTurnCapture(),
+        mortalityTrace: mortalityEvents.length > 0 ? mortalityEvents : undefined,
     };
 
     const result = {
@@ -161,7 +189,7 @@ export async function runNewTurn(
         updatedSimulationState, // Return the new state
         updatedReports,
         narration,
-        headlines: adjudication.headlines,
+        headlines: transformedAdjudication.headlines,
         suggestedActions: suggestedActions.length > 0 ? suggestedActions : ["Consider your next move carefully.", "Consolidate your power.", "Seek new allies."],
         playerMonologue,
         newHistoryEntry,

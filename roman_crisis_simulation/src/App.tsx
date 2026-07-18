@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { GameState, Entity, PlayerCharacterOption, Message, TurnHistoryEntry, InvestigationResult, Report, GameEvent, PlayerEventChoice, SimulationState, EventHistoryEntry } from './types';
 import { GoogleGenAI, Type } from "@google/genai";
 
@@ -6,6 +6,7 @@ import Header from './components/Header';
 import CharacterSelection, { SavedGameSummary } from './components/CharacterSelection';
 import { ChatMessage, ChatInput, ActionPills, TypingIndicator } from './components/Chat';
 import CrisisBanner from './components/CrisisBanner';
+import DispatchesDigest from './components/DispatchesDigest';
 import SidePanel from './components/SidePanel';
 import GameMasterScreen from './components/GameMasterScreen';
 import EventModal from './components/EventModal';
@@ -18,6 +19,7 @@ import { initiateWorld } from './ai/core/initiator';
 import { runSmokeTest } from './tests/smokeTest';
 import { AiServiceError } from './ai/core/geminiService';
 import { saveGame, loadGame, clearSave, hasSave, SaveGameState } from './persistence/saveGame';
+import { buildPerceivedDigest, TabId } from './perception/visibility';
 
 
 // --- MAIN APP ---
@@ -37,6 +39,12 @@ const App: React.FC = () => {
     const [playerCharacterId, setPlayerCharacterId] = useState<string | null>(null);
     const [turnHistory, setTurnHistory] = useState<TurnHistoryEntry[]>([]);
     const [isGmScreenVisible, setIsGmScreenVisible] = useState(false);
+    // D7 - the GM console (log/debugger) stays in the codebase permanently
+    // but is hidden by default for a clean player view. This is the runtime
+    // toggle that governs whether the GM LOG button even appears; Ctrl+Shift+G
+    // (see the effect below) and, in dev builds, a small Header checkbox both
+    // flip it. Deliberately not persisted - every fresh session starts hidden.
+    const [isGmConsoleEnabled, setIsGmConsoleEnabled] = useState(false);
     const [turnInvestigations, setTurnInvestigations] = useState<InvestigationResult[]>([]);
     const [gmInterventionText, setGmInterventionText] = useState<string>('');
     const [isMockMode, setIsMockMode] = useState(false);
@@ -82,6 +90,41 @@ const App: React.FC = () => {
     }, []); // Empty dependency array ensures this runs only once on mount.
 
     const playerEntity = entities.find(e => e.entity_id === playerCharacterId) || null;
+
+    // D2/Phase 2 item 5 dead-player stopgap: once the player's own entity
+    // stops being 'alive' (dead/exiled/missing all count - only 'alive'
+    // keeps the run going), the run is over. The full epilogue screen is a
+    // later stage; for now this just locks input and shows a somber banner.
+    // Deliberately does NOT add a new GameState value per the task brief -
+    // GameState.AWAITING_PLAYER_INPUT is still the state, it's just inert.
+    const isPlayerDead = playerEntity !== null && playerEntity.status !== 'alive';
+
+    // Perception layer (D5, Phase 2 item 2): the most recently committed
+    // turn's ground-truth deltas, filtered down to what the player would
+    // actually perceive. Recomputed from turnHistory itself (which already
+    // persists) rather than kept in separate state, so the digest survives
+    // a reload with no extra save-format changes. Uses that turn's OWN
+    // postTurnEntities for the player's location/network, since either can
+    // change turn to turn.
+    const lastTurn = turnHistory.length > 0 ? turnHistory[turnHistory.length - 1] : null;
+    const lastTurnPlayer = useMemo(
+        () => lastTurn?.postTurnEntities.find(e => e.entity_id === playerCharacterId) ?? null,
+        [lastTurn, playerCharacterId]
+    );
+    const lastTurnPerceivedChanges = useMemo(
+        () => (lastTurn && lastTurnPlayer)
+            ? buildPerceivedDigest(lastTurn.adjudication.deltas, lastTurnPlayer, lastTurn.postTurnEntities, worldState)
+            : [],
+        [lastTurn, lastTurnPlayer, worldState]
+    );
+    // Which SidePanel tabs to pulse - built strictly from the already-filtered
+    // perceived changes above, never from the raw deltas, so a pulse can
+    // never itself leak something the perception filter withheld.
+    const pulsingTabs = useMemo(() => {
+        const tabs = new Set<TabId>();
+        lastTurnPerceivedChanges.forEach(change => change.tabs.forEach(tab => tabs.add(tab)));
+        return tabs;
+    }, [lastTurnPerceivedChanges]);
 
     // Builds the full persistable game-state bundle from current state,
     // optionally overriding fields with just-computed values (state setters
@@ -142,6 +185,29 @@ const App: React.FC = () => {
         window.addEventListener('beforeunload', handleBeforeUnload);
         return () => window.removeEventListener('beforeunload', handleBeforeUnload);
     }, [gameState]);
+
+    // D7 - Ctrl+Shift+G is the primary runtime toggle for the GM console's
+    // availability (separate from whether the screen is currently open -
+    // see isGmScreenVisible). Works in every build, not just dev, since the
+    // console itself is meant to stay reachable for tuning, just hidden by
+    // default.
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.ctrlKey && event.shiftKey && (event.key === 'G' || event.key === 'g')) {
+                event.preventDefault();
+                setIsGmConsoleEnabled(prev => !prev);
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, []);
+
+    // If the console is toggled off (keyboard or the dev Header checkbox)
+    // while the screen happens to be open, close it too - "hidden by
+    // default" shouldn't leave a stale open panel behind.
+    useEffect(() => {
+        if (!isGmConsoleEnabled) setIsGmScreenVisible(false);
+    }, [isGmConsoleEnabled]);
 
     const addMessage = useCallback((message: Message) => {
         setMessages(prev => [...prev, message]);
@@ -486,8 +552,27 @@ const App: React.FC = () => {
 
     return (
         <div className="min-h-screen text-[#3a2e2c] flex flex-col h-screen">
-            <Header worldState={worldState} isMockMode={isMockMode} setIsMockMode={setIsMockMode} />
+            <Header
+                worldState={worldState}
+                isMockMode={isMockMode}
+                setIsMockMode={setIsMockMode}
+                isGmConsoleEnabled={isGmConsoleEnabled}
+                setIsGmConsoleEnabled={setIsGmConsoleEnabled}
+            />
             <CrisisBanner crisis={simulationState.major_ongoing_crisis} />
+            {isPlayerDead && (
+                <div
+                    role="alert"
+                    className="w-full bg-stone-950 text-stone-300 border-y-4 border-double border-stone-700 px-4 py-3 shadow-lg text-center animate-fade-in"
+                >
+                    <p className="font-decorative uppercase tracking-[0.2em] text-xs sm:text-sm text-stone-500">
+                        The Story Has Ended
+                    </p>
+                    <p className="mt-1 italic">
+                        {playerEntity?.name} is now <span className="font-bold not-italic">{playerEntity?.status}</span>. No further action can be taken.
+                    </p>
+                </div>
+            )}
             <div className="flex flex-grow overflow-hidden">
                 <div className="w-2/3 flex flex-col">
                     {gameState === GameState.SETUP ? (
@@ -503,10 +588,13 @@ const App: React.FC = () => {
                             <main className="flex-grow p-4 overflow-y-auto" aria-live="polite">
                                 {messages.map((msg, index) => <ChatMessage key={index} message={msg} />)}
                                 {gameState === GameState.PROCESSING && <TypingIndicator />}
+                                {gameState !== GameState.PROCESSING && lastTurn && (
+                                    <DispatchesDigest changes={lastTurnPerceivedChanges} />
+                                )}
                                 <div ref={messagesEndRef} />
                             </main>
                             <div className="bg-[#e8e6e1]/70 backdrop-blur-sm border-t-4 border-double border-[#c9c5b8]">
-                                {gameState === GameState.AWAITING_PLAYER_INPUT && retryAction && (
+                                {gameState === GameState.AWAITING_PLAYER_INPUT && !isPlayerDead && retryAction && (
                                     <div className="px-4 pt-2 flex justify-center animate-fade-in">
                                         <button
                                             onClick={() => executeTurn(retryAction)}
@@ -517,7 +605,7 @@ const App: React.FC = () => {
                                         </button>
                                     </div>
                                 )}
-                                {gameState === GameState.AWAITING_PLAYER_INPUT && suggestedActions.length > 0 && (
+                                {gameState === GameState.AWAITING_PLAYER_INPUT && !isPlayerDead && suggestedActions.length > 0 && (
                                     <ActionPills actions={suggestedActions} onSelectAction={handlePillClick} />
                                 )}
                                 <div className="flex items-center">
@@ -526,32 +614,36 @@ const App: React.FC = () => {
                                             value={inputValue}
                                             onChange={setInputValue}
                                             onSubmit={handleSendMessage}
-                                            disabled={gameState !== GameState.AWAITING_PLAYER_INPUT}
+                                            disabled={gameState !== GameState.AWAITING_PLAYER_INPUT || isPlayerDead}
                                             isProcessing={gameState === GameState.PROCESSING}
+                                            placeholderOverride={isPlayerDead ? 'Your story has ended.' : undefined}
                                         />
                                     </div>
                                     <div className="pr-4">
-                                        <button
-                                            onClick={() => setIsGmScreenVisible(true)}
-                                            className="bg-stone-800 text-amber-200 border-2 border-amber-400/50 rounded-sm px-4 py-2 hover:bg-stone-700 hover:text-amber-100 disabled:bg-stone-400 disabled:border-stone-500 disabled:text-stone-500 transition-all btn-animate"
-                                            aria-label="Open Game Master Screen"
-                                            disabled={turnHistory.length === 0}
-                                        >
-                                            GM LOG
-                                        </button>
+                                        {isGmConsoleEnabled && (
+                                            <button
+                                                onClick={() => setIsGmScreenVisible(true)}
+                                                className="bg-stone-800 text-amber-200 border-2 border-amber-400/50 rounded-sm px-4 py-2 hover:bg-stone-700 hover:text-amber-100 disabled:bg-stone-400 disabled:border-stone-500 disabled:text-stone-500 transition-all btn-animate"
+                                                aria-label="Open Game Master Screen"
+                                                disabled={turnHistory.length === 0}
+                                            >
+                                                GM LOG
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             </div>
                         </>
                     )}
                 </div>
-                
-                <SidePanel 
-                    gameState={gameState} 
+
+                <SidePanel
+                    gameState={gameState}
                     playerEntity={playerEntity}
-                    entities={entities} 
+                    entities={entities}
                     currentEvents={currentEvents}
                     worldState={worldState}
+                    simulationState={simulationState}
                     reports={reports}
                     onSpendInvestigation={(cost) => handleSpendResource('investigations', cost)}
                     onNewInvestigationResult={handleNewInvestigationResult}
@@ -559,13 +651,16 @@ const App: React.FC = () => {
                     ai={aiRef.current}
                     isMockMode={isMockMode}
                     eventHistory={eventHistory}
+                    pulsingTabs={pulsingTabs}
                 />
             </div>
-            {isGmScreenVisible && <GameMasterScreen 
-                history={turnHistory} 
-                onClose={() => setIsGmScreenVisible(false)} 
+            {isGmConsoleEnabled && isGmScreenVisible && <GameMasterScreen
+                history={turnHistory}
+                onClose={() => setIsGmScreenVisible(false)}
                 interventionText={gmInterventionText}
                 onSetIntervention={handleSetIntervention}
+                playerCharacterId={playerCharacterId}
+                worldState={worldState}
             />}
             {activeEvent && <EventModal event={activeEvent} onChoose={handleEventChoice} />}
         </div>

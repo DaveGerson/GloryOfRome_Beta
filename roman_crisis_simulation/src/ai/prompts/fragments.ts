@@ -119,3 +119,26 @@ This is the undeniable high-level truth of the world right now. All of your deci
 ${JSON.stringify(simulationState, null, 2)}
 `;
 }
+
+/**
+ * GM-SECRET block: NPCs whose PUBLIC status is 'dead' but who are secretly
+ * alive in hiding per the mortality pipeline's "presumed dead" NPC fate
+ * outcome (DESIGN_DECISIONS.md D3, see `Entity.secret_truth` in types.ts
+ * and ai/core/mortality.ts). Listed for the adjudicator ONLY, so a hidden
+ * survivor can be dramatically reintroduced later (a 'status' delta with
+ * new_status:'alive') when narratively opportune.
+ *
+ * CRITICAL: this text - and the underlying `secret_truth` field - must
+ * NEVER reach any player-facing prompt. See
+ * ai/prompts/narration.ts::sanitizeAdjudicationForNarration, which strips
+ * every trace of it before the narration call.
+ */
+export function buildSecretSurvivorsBlock(allNpcEntities: Entity[]): string {
+  const survivors = allNpcEntities.filter(e => e.secret_truth?.actually_alive);
+  if (survivors.length === 0) return '';
+  return `
+GM-SECRET: SECRETLY SURVIVING ENTITIES (never reveal this to the player - for your plotting only):
+The world (and the player) believe these entities are dead. They are NOT - they are alive and hiding. You MAY dramatically reintroduce any of them (e.g. as a returning nemesis) when narratively opportune, by emitting a 'status' delta with new_status:'alive' for them. Until you choose to do so, they remain publicly dead and MUST NOT appear, act, or be referenced as alive in any headline, delta reason, or entity action.
+${survivors.map(e => `- ${e.name} (${e.entity_id}), hidden since turn ${e.secret_truth!.hidden_since_turn}. Motive: ${e.secret_truth!.motive}`).join('\n')}
+`;
+}

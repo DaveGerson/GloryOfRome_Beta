@@ -107,6 +107,24 @@ export interface Entity {
   secrets?: string[];
   skills?: Record<string, number>;
   active_scheme?: Scheme;
+  /**
+   * GM-PRIVATE. Set by the mortality pipeline (ai/core/mortality.ts) when
+   * this entity's PUBLIC `status` is 'dead' but the NPC fate table
+   * (DESIGN_DECISIONS.md D3) rolled "presumed dead": the world and the
+   * player believe they are dead, but they are secretly alive in hiding and
+   * may be dramatically reintroduced later (a 'status' delta with
+   * new_status:'alive') as a nemesis. This MUST NEVER reach any
+   * player-facing surface - not narration, not entity briefs shown to the
+   * player, not suggested actions. Only the GM console and the
+   * adjudicator's GM-secret prompt fragment
+   * (ai/prompts/fragments.ts::buildSecretSurvivorsBlock) may read it. See
+   * the sanitization in ai/prompts/narration.ts for the enforcement point.
+   */
+  secret_truth?: {
+    actually_alive: true;
+    hidden_since_turn: number;
+    motive: string;
+  };
 }
 
 /**
@@ -193,6 +211,16 @@ export interface EventDelta {
      * when movement occurs.
      */
     new_location?: string;
+    /**
+     * 'status' deltas only, CODE-GENERATED ONLY - never requested from the
+     * model, never part of any Gemini responseSchema/zod input schema.
+     * Attached exclusively by ai/core/mortality.ts::processMortality when a
+     * validated NPC death resolves to "presumed dead" on the fate table
+     * (DESIGN_DECISIONS.md D3); ai/core/engine.ts's 'status' case copies it
+     * onto the entity as `Entity.secret_truth` when the delta is applied.
+     * See the leak-prevention notes on `Entity.secret_truth` above.
+     */
+    secret_truth?: Entity['secret_truth'];
 }
 
 /**
@@ -249,6 +277,29 @@ export interface RawCallRecord {
 }
 
 /**
+ * One entity's trip through the mortality pipeline this turn
+ * (DESIGN_DECISIONS.md D2/D3/D4) - produced by
+ * ai/core/mortality.ts::processMortality and appended to the turn's
+ * history entry so the GM console can inspect/tune rolls. Per D4, rolls
+ * are NEVER shown to the player - this trace is GM-console-only ground
+ * truth, same as `Adjudication.gm_private`.
+ */
+export interface MortalityEvent {
+  entity_id: string;
+  entity_name: string;
+  /** The original claimed cause of death (the death delta's `reason`, captured before mortality rewrote it). */
+  claim: string;
+  /** Whether the second, independent validation call dispositioned this claim as real (vs. hallucination/overreach). */
+  valid: boolean;
+  /** The hidden d20 roll, present only when `valid` (an invalidated claim never reaches the dice). Never shown to the player. */
+  roll?: number;
+  /** The resolved table band (e.g. 'dies', 'survive_with_loss', 'presumed_dead') - see ai/core/resolution.ts. */
+  band?: string;
+  /** One-line GM-facing summary of what actually happened / the narration directive used. */
+  outcomeSummary: string;
+}
+
+/**
  * An entry for the Game Master's turn history log.
  */
 export interface TurnHistoryEntry {
@@ -258,6 +309,7 @@ export interface TurnHistoryEntry {
   narration?: string; // Optional narrated text
   postTurnEntities: Entity[];
   rawCalls?: RawCallRecord[]; // Raw prompt/response capture for every AI call made this turn
+  mortalityTrace?: MortalityEvent[]; // Every death claim this turn went through processMortality, see MortalityEvent
 }
 
 export interface SpotlightEntity {

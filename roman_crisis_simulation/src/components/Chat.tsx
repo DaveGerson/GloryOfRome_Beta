@@ -100,7 +100,13 @@ export const ChatInput: React.FC<{
     onSubmit: () => void;
     disabled: boolean;
     isProcessing?: boolean;
-}> = ({ value, onChange, onSubmit, disabled, isProcessing = false }) => {
+    /**
+     * Overrides the computed placeholder outright (e.g. the Phase 2
+     * dead-player stopgap's "Your story has ended." - see App.tsx). Takes
+     * priority over the processing/disabled copy below.
+     */
+    placeholderOverride?: string;
+}> = ({ value, onChange, onSubmit, disabled, isProcessing = false, placeholderOverride }) => {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const processingText = useRotatingMessage(isProcessing, PROCESSING_MESSAGES);
 
@@ -127,7 +133,9 @@ export const ChatInput: React.FC<{
         }
     };
     
-    const placeholderText = isProcessing
+    const placeholderText = placeholderOverride
+        ? placeholderOverride
+        : isProcessing
         ? processingText
         : disabled
         ? "Awaiting the Senate's judgment..."

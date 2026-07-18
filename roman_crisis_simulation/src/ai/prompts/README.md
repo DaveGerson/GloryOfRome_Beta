@@ -17,7 +17,9 @@ one of the builders below.
 | `storyRelevance` | `intelligence.ts::buildStoryRelevancePrompt` | pro | `zStoryRelevance` | `StoryRelevanceSchema` | `turn.ts` step 0 (Director) |
 | `updatedSimulationState` | `intelligence.ts::buildSimulationStateUpdatePrompt` | pro | `zSimulationState` | `SimulationStateSchema` | `turn.ts` step 2.5 |
 | `relationshipUpdates` | `intelligence.ts::buildRelationshipUpdatesPrompt` | pro | `zRelationshipDeltas` | `RelationshipDeltasSchema` | `turn.ts` step 5.5 |
-| `privateConversation` | `intelligence.ts::buildPrivateConversationPrompt` | pro | `zConversationSimulation` | `ConversationSimulationSchema` | `turn.ts` step 3.5 (off-screen sim) |
+| `privateConversation` | `intelligence.ts::buildPrivateConversationPrompt` | pro | `zConversationSimulation` | `ConversationSimulationSchema` | `turn.ts` step 2.5 (off-screen sim) |
+| `mortalityValidation` | `mortality.ts::buildMortalityValidationPrompt` | pro | `zMortalityValidation` | `MortalityValidationSchema` | `turn.ts` step 2.6 (`ai/core/mortality.ts::processMortality`, gate 1) |
+| `mortalityOutcome` | `mortality.ts::buildMortalityOutcomePrompt` | pro | `zMortalityOutcome` | `MortalityOutcomeSchema` | `turn.ts` step 2.6 (`ai/core/mortality.ts::processMortality`, gate 3) |
 | `investigation` | `intelligence.ts::buildInvestigationPrompt` | pro | `zInvestigationResult` | `buildInvestigationResultSchema(subject)` | Player-triggered intel action |
 | `clarification` | `intelligence.ts::buildClarificationPrompt` | flash | - (prose) | - | Player-triggered intel action |
 | `rawThoughts` | `intelligence.ts::buildRawThoughtsPrompt` | flash | - (prose) | - | Player-triggered intel action |
@@ -32,9 +34,39 @@ one of the builders below.
 
 `fragments.ts` holds the shared, reusable text builders (entity briefs,
 world-state summary, GM-intervention block, story-evolution block,
-relationship serialization) that more than one prompt above pulls from -
-it is the one source of truth for each fragment; nothing else
-re-serializes state inline.
+relationship serialization, the GM-secret secretly-alive-entities block)
+that more than one prompt above pulls from - it is the one source of truth
+for each fragment; nothing else re-serializes state inline.
+
+## The mortality pipeline: the model never decides death
+
+`mortalityValidation` and `mortalityOutcome` (`ai/prompts/mortality.ts`,
+consumed by `ai/core/mortality.ts::processMortality`) are a deliberately
+different shape from every other call family above: **the model never
+decides an outcome, only narrates one the code already rolled**
+(DESIGN_DECISIONS.md D2/D3/D4).
+
+- `mortalityValidation` only dispositions whether a claimed death is real
+  and earned (`valid: boolean`) - it does not choose what happens next.
+- A hidden `Math.random()`-backed d20 (`ai/core/resolution.ts::rollD20`) is
+  then resolved by a PURE function (`resolvePlayerDeathSave`/
+  `resolveNpcFate`) into a band. This roll is never sent to, or requested
+  from, the model, and never shown to the player - it's recorded in the
+  turn's `mortalityTrace` (`MortalityEvent[]`, types.ts) for the GM console
+  only.
+- `mortalityOutcome` is only asked to dress an ALREADY-DECIDED band in
+  concrete deltas and a one-line narration directive - it is told the band
+  up front and must not contradict or reinterpret it.
+- The narration call (`narration.ts::buildNarrationPrompt`) receives those
+  directives as non-negotiable staging notes, plus a SANITIZED adjudication
+  (`sanitizeAdjudicationForNarration` strips `gm_private` and any
+  `secret_truth` trace) - see the CRITICAL LEAK-PREVENTION comment there for
+  why: a "presumed dead" NPC's secret survival must never reach a
+  player-facing prompt.
+
+If you touch this pipeline, keep that direction of control intact: adding
+a field the model could use to influence life/death would reopen the exact
+hallucinated-death problem D2/D3 exist to close.
 
 ## System vs. user split
 

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { TurnHistoryEntry, Adjudication, Entity, Relationship, Memory, Scheme, RawCallRecord } from '../types';
+import { TurnHistoryEntry, Adjudication, Entity, Relationship, Memory, Scheme, RawCallRecord, WorldState } from '../types';
+import { classifyDelta } from '../perception/visibility';
 
 const TabButton: React.FC<{ label: string; active: boolean; onClick: () => void; }> = ({ label, active, onClick }) => (
     <button
@@ -206,12 +207,84 @@ const RawJsonView: React.FC<{ adjudication: Adjudication; rawCalls?: RawCallReco
     </div>
 );
 
+/**
+ * The Ground Truth tuning view (D7 + Phase 2 item 4). GameMasterScreen is
+ * the ONE place raw, unfiltered ground truth is allowed to reach a rendered
+ * screen (D5/D7) - everywhere else goes through perception/visibility.ts's
+ * filter. This view puts the two side by side deliberately: every delta this
+ * turn, and what classifyDelta (the same function the player-facing
+ * digest/WorldStateTab use) would have let through for the current player
+ * character - so filter rules can be tuned by eyeballing the diff.
+ *
+ * Also surfaces `mortalityTrace` off the turn history entry, if present. The
+ * mortality pipeline (D2/D3/D4) is being built concurrently by another agent
+ * and may add that field to TurnHistoryEntry at any point - accessed
+ * defensively via an untyped cast so this file compiles regardless of
+ * landing order.
+ */
+const GroundTruthView: React.FC<{
+    entry: TurnHistoryEntry;
+    playerCharacterId: string | null;
+    worldState: WorldState;
+}> = ({ entry, playerCharacterId, worldState }) => {
+    const playerAtTurn = entry.postTurnEntities.find(e => e.entity_id === playerCharacterId) ?? null;
+    // Defensive/loose access - see doc comment above. `mortalityTrace` isn't
+    // on TurnHistoryEntry in this file's copy of types.ts yet; once the
+    // concurrent mortality-pipeline work lands it, this starts picking it up
+    // with no change needed here.
+    const mortalityTrace = (entry as Record<string, unknown>).mortalityTrace;
+
+    return (
+        <div className="space-y-4">
+            <div>
+                <h4 className="font-bold text-stone-300 mb-2 underline">Unfiltered Deltas vs. Perception Filter</h4>
+                <p className="text-xs text-stone-500 mb-2">
+                    Left: raw ground truth for this turn. Right: what perception/visibility.ts's classifyDelta lets{' '}
+                    {playerAtTurn ? <span className="text-stone-300">{playerAtTurn.name}</span> : 'the player'} perceive.
+                </p>
+                {!playerAtTurn ? (
+                    <p className="text-stone-400">No player character to classify against for this turn.</p>
+                ) : entry.adjudication.deltas.length === 0 ? (
+                    <p className="text-stone-400">No deltas were recorded this turn.</p>
+                ) : (
+                    <div className="space-y-2">
+                        {entry.adjudication.deltas.map((delta, index) => {
+                            const visibility = classifyDelta(delta, playerAtTurn, entry.postTurnEntities, worldState);
+                            return (
+                                <div key={index} className="grid grid-cols-2 gap-3 bg-stone-900 p-2 rounded text-xs">
+                                    <div>
+                                        <p><span className="font-bold text-red-400 capitalize">{delta.type}</span> <span className="text-stone-500">({delta.key})</span></p>
+                                        <p className="italic text-stone-400 mt-1">"{delta.reason}"</p>
+                                    </div>
+                                    <div className={`self-center font-bold ${visibility.visible ? 'text-green-400' : 'text-stone-600'}`}>
+                                        {visibility.visible ? `VISIBLE — ${visibility.source}` : 'FILTERED (invisible to player)'}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+            <div>
+                <h4 className="font-bold text-stone-300 mb-2 underline">Mortality Trace</h4>
+                {mortalityTrace ? (
+                    <pre className="text-xs bg-stone-900 p-3 rounded overflow-x-auto whitespace-pre-wrap">{JSON.stringify(mortalityTrace, null, 2)}</pre>
+                ) : (
+                    <p className="text-stone-400 text-xs">No mortality trace recorded for this turn (mortality pipeline not yet wired in, or nothing triggered it).</p>
+                )}
+            </div>
+        </div>
+    );
+};
+
 const GameMasterScreen: React.FC<{
     history: TurnHistoryEntry[];
     onClose: () => void;
     interventionText: string;
     onSetIntervention: (text: string) => void;
-}> = ({ history, onClose, interventionText, onSetIntervention }) => {
+    playerCharacterId: string | null;
+    worldState: WorldState;
+}> = ({ history, onClose, interventionText, onSetIntervention, playerCharacterId, worldState }) => {
     const [activeTab, setActiveTab] = useState('summary');
     const [interventionInput, setInterventionInput] = useState(interventionText);
     const [showConfirmation, setShowConfirmation] = useState(false);
@@ -222,7 +295,7 @@ const GameMasterScreen: React.FC<{
         setTimeout(() => setShowConfirmation(false), 3000);
     };
 
-    const tabs = ['summary', 'entity states', 'actions', 'deltas', 'private', 'raw json'];
+    const tabs = ['summary', 'entity states', 'actions', 'deltas', 'private', 'ground truth', 'raw json'];
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 animate-fade-in">
@@ -274,6 +347,7 @@ const GameMasterScreen: React.FC<{
                                     {activeTab === 'actions' && <ActionsView adjudication={entry.adjudication} />}
                                     {activeTab === 'deltas' && <DeltasView adjudication={entry.adjudication} />}
                                     {activeTab === 'private' && <PrivateView adjudication={entry.adjudication} />}
+                                    {activeTab === 'ground truth' && <GroundTruthView entry={entry} playerCharacterId={playerCharacterId} worldState={worldState} />}
                                     {activeTab === 'raw json' && <RawJsonView adjudication={entry.adjudication} rawCalls={entry.rawCalls} />}
                                 </div>
                             </div>
