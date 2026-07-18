@@ -5,6 +5,12 @@ export enum GameState {
   AWAITING_PLAYER_INPUT,
   PROCESSING,
   AWAITING_EVENT_CHOICE,
+  /**
+   * The run has ended (D1: survival-only — ONLY player death ends a run;
+   * exile/missing are survivable and keep the game playable). Terminal:
+   * input locked, EpilogueScreen shown.
+   */
+  GAME_OVER,
 }
 
 /**
@@ -167,7 +173,13 @@ export const EntityActionIntentEnum = [
 
 export type EntityActionIntent = typeof EntityActionIntentEnum[number];
 
-export const EventDeltaTypeEnum = ['resource', 'relation', 'region', 'status', 'rumor', 'scheme', 'add_region', 'remove_region', 'faction'] as const;
+/**
+ * 'world' (D6/Phase 2): changes a top-level WorldState macro field —
+ * key is 'economic_stability' or 'political_climate', reason is the new
+ * string value. Previously no delta type could touch these, so the Header
+ * meters could never change.
+ */
+export const EventDeltaTypeEnum = ['resource', 'relation', 'region', 'status', 'rumor', 'scheme', 'add_region', 'remove_region', 'faction', 'world'] as const;
 export type EventDeltaType = typeof EventDeltaTypeEnum[number];
 
 export const ReportSourceEnum = ['scout', 'spy', 'merchant', 'messenger', 'rumor'] as const;
