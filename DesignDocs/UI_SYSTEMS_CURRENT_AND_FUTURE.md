@@ -11,6 +11,10 @@ It has two parts:
 
 All paths below are relative to `roman_crisis_simulation/src/` unless noted otherwise.
 
+> **Companion document:** `UI_SCREEN_WIREFRAMES.md` describes each of these screens *visually* —
+> structural wireframes, element inventories, and states — intended as the ground-truth input
+> for a holistic visual redesign.
+
 ---
 
 # Part I — Current UI Systems
