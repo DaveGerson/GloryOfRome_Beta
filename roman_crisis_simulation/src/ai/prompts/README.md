@@ -27,6 +27,18 @@ one of the builders below.
 | `scenarioStructure` | `worldGen.ts::buildScenarioStructurePrompt` | pro | `zScenarioStructure` | `ScenarioStructureSchema` | `initiator.ts` Step 1 (world skeleton) |
 | `entityBatch` | `worldGen.ts::buildEntityBatchPrompt` | pro | `zEntityBatch` | `EntityListSchema` | `initiator.ts` Step 2 (fill in entities) |
 | `characterCreation` | `characterCreation.ts::buildCharacterCreationPrompt` | pro | `zEntity` | `CharacterCreationEntitySchema` | Player character creation |
+| `ambitionInference` | `ambition.ts::buildAmbitionInferencePrompt` | flash | `zAmbitionInference` (local to `ai/tools/ambition.ts`) | `AmbitionInferenceSchema` (local to `ai/tools/ambition.ts`) | `App.tsx` `executeTurn`, every 3rd committed turn (D8, fire-and-forget) |
+| `epilogue` | `epilogue.ts::buildEpiloguePrompt` | pro | - (prose) | - | `components/EpilogueScreen.tsx`, once per run on `GameState.GAME_OVER` |
+
+`ambitionInference`'s zod/Gemini schemas are deliberately NOT in
+`ai/core/zodSchemas.ts`/`ai/core/schemas.ts` - they're small, stable, and
+owned entirely by the D8 ambition-inference feature, defined locally in
+`ai/tools/ambition.ts` instead of touching those two shared files (owned by
+a concurrent workstream as of Phase 2 Stage B). `epilogue` has no
+`ai/tools/epilogue.ts` at all - the call is orchestrated directly inside
+`EpilogueScreen.tsx`, since the "tool" here is small enough to live
+alongside the component's own loading/fallback state rather than as a
+separate wrapper.
 
 (`entityBatch` runs once per parallel NPC batch at runtime; its actual
 `callName` is suffixed per batch, e.g. `entityBatch:Player`,

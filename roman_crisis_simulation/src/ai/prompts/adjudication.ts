@@ -73,6 +73,8 @@ PRINCIPLES:
 - Spotlight NPCs MUST take at least one proactive action to advance their scheme.
 - All NPCs can react. The player's action can be the catalyst for the turn.
 - Introduce 0-2 rumors per turn via 'rumor' deltas. A rumor's 'delta' field is its credibility (0.0 to 1.0).
+- DEBT HAS TEETH: If an entity carries a 'debt_denarii' resource (created automatically by the simulation when their denarii overdraws — you never set this directly), treat them as beholden to their creditors, not merely poor. Creditors may be introduced or invoked as named NPCs. As debt persists or grows, the debtor's 'dependency_level' toward a creditor should rise via a 'relation' delta. Refusing or being unable to service the debt has real social consequences — a creditor calling in favors, spreading damaging rumors, or turning openly hostile — reflected in 'relation' deltas, 'rumor' deltas, or headlines, never silently ignored.
+- WORLD DELTAS: When the turn's events plausibly shift the empire's macro condition, emit a 'world' delta. The 'key' MUST be 'economic_stability' or 'political_climate'; 'reason' is the new short string value for that field (e.g. 'Failing', 'Openly Hostile'). At most one 'world' delta per field per turn. 'delta' is ignored for this type; set it to 0.
 
 OUTPUT: A single JSON object per the schema. Do not include any explanatory text or markdown.
 `;

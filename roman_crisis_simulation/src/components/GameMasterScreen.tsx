@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { TurnHistoryEntry, Adjudication, Entity, Relationship, Memory, Scheme, RawCallRecord, WorldState } from '../types';
 import { classifyDelta } from '../perception/visibility';
+import { InferredAmbitionState } from '../persistence/saveGame';
 
 const TabButton: React.FC<{ label: string; active: boolean; onClick: () => void; }> = ({ label, active, onClick }) => (
     <button
@@ -284,7 +285,9 @@ const GameMasterScreen: React.FC<{
     onSetIntervention: (text: string) => void;
     playerCharacterId: string | null;
     worldState: WorldState;
-}> = ({ history, onClose, interventionText, onSetIntervention, playerCharacterId, worldState }) => {
+    /** DESIGN_DECISIONS.md D8 - the latest inferred-ambition snapshot, if any. GM-console-only display; never shown to the player. */
+    inferredAmbition?: InferredAmbitionState | null;
+}> = ({ history, onClose, interventionText, onSetIntervention, playerCharacterId, worldState, inferredAmbition }) => {
     const [activeTab, setActiveTab] = useState('summary');
     const [interventionInput, setInterventionInput] = useState(interventionText);
     const [showConfirmation, setShowConfirmation] = useState(false);
@@ -304,6 +307,17 @@ const GameMasterScreen: React.FC<{
                     <h2 className="text-2xl font-decorative text-red-400">Game Master Tools</h2>
                     <button onClick={onClose} className="text-stone-300 hover:text-white text-2xl transition-transform duration-200 ease-in-out hover:scale-110" aria-label="Close Game Master screen">&times;</button>
                 </div>
+
+                {/* DESIGN_DECISIONS.md D8 - the ONE other sanctioned surface for the inferred ambition besides EpilogueScreen. Never rendered on any player-facing view. */}
+                {inferredAmbition && (
+                    <div className="mb-4 flex-shrink-0 text-sm bg-stone-900 border border-stone-700 rounded-md px-3 py-2">
+                        <span className="font-bold text-stone-300">Apparent Ambition:</span>{' '}
+                        <span className="text-amber-300 italic">"{inferredAmbition.apparent_ambition}"</span>{' '}
+                        <span className="text-stone-500">
+                            (confidence: {inferredAmbition.confidence}, as of turn {inferredAmbition.asOfTurn})
+                        </span>
+                    </div>
+                )}
 
                 <div className="p-4 border border-stone-600 rounded-md flex-shrink-0 bg-stone-900">
                     <h3 className="text-lg font-bold text-stone-300 mb-2">GM Intervention</h3>

@@ -1,4 +1,5 @@
 import { Entity, WorldState, Adjudication, Report, EventDelta, Relationship } from '../../types';
+import { SYSTEMIC_RESOURCES, applySystemicResourceRule } from './resources';
 
 // NOTE: The turn-adjudication prompt (formerly `compileContext` here) has
 // moved to `ai/prompts/adjudication.ts::buildAdjudicationPrompt`, and its
@@ -61,7 +62,26 @@ export function applyDeltas(
                     const entity = updatedEntities.find(e => e.entity_id === entityId);
                     if (entity) {
                         const currentVal = (entity.resources[resourceName] as number) || 0;
-                        entity.resources[resourceName] = currentVal + delta.delta;
+                        const rawNewVal = currentVal + delta.delta;
+
+                        // SYSTEMIC RESOURCE REGISTRY (DESIGN_DECISIONS.md D6,
+                        // ai/core/resources.ts). Most resources are freeform - a
+                        // bare running total, free to go negative - and keep
+                        // exactly today's behavior. A small registry (denarii
+                        // first) instead gets engine-enforced floors/thresholds/
+                        // consequences (e.g. an overdraft becomes debt rather
+                        // than a bare zero floor). Non-registry resource names
+                        // fall through to the `else` branch, unchanged.
+                        const rule = SYSTEMIC_RESOURCES[resourceName];
+                        if (rule) {
+                            const { finalValue, reports } = applySystemicResourceRule(
+                                rule, entity, resourceName, currentVal, rawNewVal, turnNumber
+                            );
+                            entity.resources[resourceName] = finalValue;
+                            newReports.push(...reports);
+                        } else {
+                            entity.resources[resourceName] = rawNewVal;
+                        }
                     }
                     break;
                 }
@@ -185,6 +205,25 @@ export function applyDeltas(
                     const [regionName, property] = delta.key.split(':');
                     if(updatedWorldState.regions[regionName] && property === 'stability') {
                         updatedWorldState.regions[regionName].stability = delta.reason;
+                    }
+                    break;
+                }
+                case 'world': {
+                    // 'world' (D6/Phase 2, types.ts's EventDeltaTypeEnum doc
+                    // comment): changes a top-level WorldState macro field -
+                    // 'key' is 'economic_stability' or 'political_climate',
+                    // 'reason' is the new string value. This is the delta type
+                    // that unfreezes the Header meters, which already render
+                    // these two fields but previously had no delta case that
+                    // could ever change them. Unknown keys no-op (with a
+                    // console.warn) rather than writing an arbitrary field onto
+                    // WorldState - only these two names are part of the
+                    // contract.
+                    const validWorldKeys = ['economic_stability', 'political_climate'];
+                    if (validWorldKeys.includes(delta.key)) {
+                        updatedWorldState[delta.key] = delta.reason;
+                    } else {
+                        console.warn(`Unknown 'world' delta key "${delta.key}" - expected 'economic_stability' or 'political_climate'. No-op.`);
                     }
                     break;
                 }
