@@ -33,6 +33,22 @@ const NARRATION_TEMPERATURE = 1.0;
  *    merged with any private-conversation deltas) actually claims a death -
  *    see `detectDeathClaims`, called just below to decide this WITHOUT
  *    duplicating `processMortality`'s own internal fast-path detection.
+ *
+ * PARALLELIZATION NOTE (ROADMAP_0_MASTER_PLAN.md Phase 3 item 3): once the
+ * mortality-transformed adjudication has been applied, `simulation_state`,
+ * `monologue`, and `narration` are launched CONCURRENTLY via `Promise.all`
+ * - none of the three depends on either of the other two's output (see the
+ * race-audit comment at the call site below). Their `onStage` notifications
+ * still fire once each, synchronously, in the exact order the three legs
+ * are LAUNCHED ('simulation_state' -> 'monologue' -> 'narration') - so the
+ * stage a caller sees "settle" on is 'narration', the leg whose output the
+ * player actually watches (and whose streaming bubble takes over the UI
+ * immediately regardless). This is a deliberate shift from every other
+ * stage in this enum: `onStage` notifications are no longer strictly
+ * "the one thing currently running" for these three - they're "the latest
+ * leg launched", since three are genuinely in flight at once. Callers that
+ * want a single human-readable status label for this window can just treat
+ * 'narration' as covering all three.
  */
 export type TurnStage =
     | 'story_relevance'
@@ -188,25 +204,69 @@ export async function runNewTurn(
         isMockMode
     );
 
-    // *** NEW STEP 2.7: Get Updated Simulation State ***
-    // Uses the mortality-TRANSFORMED adjudication so e.g. `imperial_status`
-    // doesn't flip to 'Vacant' off a death claim that validation/the roll
-    // ultimately overturned.
-    options?.onStage?.('simulation_state');
-    const updatedSimulationState = await getUpdatedSimulationState(ai, transformedAdjudication, currentSimulationState, isMockMode);
-
-    // 3. Apply the (mortality-transformed) adjudication to get new state
+    // 3. Apply the (mortality-transformed) adjudication to get new state.
+    // Pure/synchronous (ai/core/engine.ts) - runs to completion before any
+    // of the three parallel legs below are launched, so `updatedEntities`/
+    // `updatedWorldState`/`updatedReports` are fully settled, ordinary
+    // (non-shared-with-anything-concurrent) values by the time they're read.
     let { updatedEntities, updatedWorldState, updatedReports } = applyAdjudication(transformedAdjudication, currentEntities, currentWorldState, currentReports);
-
-    // 4. Get player monologue
-    options?.onStage?.('monologue');
     const updatedPlayerEntity = updatedEntities.find(e => e.entity_id === playerEntity.entity_id) || playerEntity;
     const recentPlayerIntents = turnHistory.map(h => h.playerIntent).slice(-6);
-    const playerMonologue = await getPlayerMonologue(ai, updatedPlayerEntity, transformedAdjudication.headlines, recentPlayerIntents, isMockMode);
 
-    // 5. Get narration and suggested actions. `buildNarrationPrompt` receives
-    // a SANITIZED adjudication (gm_private and any secret_truth trace
-    // stripped - see ai/prompts/narration.ts) plus the mortality pipeline's
+    // *** NEW STEPS 2.7/4/5, PARALLELIZED (ROADMAP_0_MASTER_PLAN.md Phase 3
+    // item 3) ***
+    //
+    // Three remaining legs of the turn are launched CONCURRENTLY via
+    // `Promise.all`, because none of them depends on either of the other
+    // two's output - only on the mortality-transformed adjudication and/or
+    // the now-applied entity state:
+    //   (a) getUpdatedSimulationState - reads `transformedAdjudication` +
+    //       the OLD `currentSimulationState` (never the entities) to derive
+    //       empire-level meta-narrative status. Previously ran BEFORE
+    //       `applyAdjudication` (step 2.7); reordering it to run alongside
+    //       the other two is behaviorally identical since it never read
+    //       anything `applyAdjudication` produces.
+    //   (b) getPlayerMonologue - reads only the already-applied
+    //       `updatedPlayerEntity` + this turn's headlines/recent intents.
+    //   (c) narration - reads `transformedAdjudication` + `updatedPlayerEntity`
+    //       (both sanitized internally - see ai/prompts/narration.ts);
+    //       streams via `onNarrationChunk`/the stream gate exactly as before
+    //       this refactor, just launched inside the parallel block instead
+    //       of sequentially after the monologue call.
+    // `getRelationshipUpdates` is deliberately NOT in this group - it
+    // consumes the narration TEXT itself (the join's own output), so it
+    // stays sequential after `Promise.all` resolves, below.
+    //
+    // RACE AUDIT (read every function's body - ai/tools/intelligence.ts,
+    // ai/prompts/narration.ts, ai/prompts/intelligence.ts - before landing
+    // this): none of (a)/(b)/(c) mutates any argument it's given.
+    //  - `getUpdatedSimulationState`/`getPlayerMonologue` only pass their
+    //    Entity/Adjudication/SimulationState params into pure `buildX`
+    //    prompt-string builders (template literals / JSON.stringify) and
+    //    return a freshly-parsed value from `generateStructured`/
+    //    `generateText` - no assignment back onto any input.
+    //  - The narration path's `buildNarrationPrompt` runs
+    //    `sanitizeAdjudicationForNarration`/`sanitizeEntityForNarration`
+    //    first, which build BRAND NEW objects via spread/`.map()` (they
+    //    never assign onto `adjudication`/`updatedPlayerEntity`).
+    //  - `getRelationshipUpdates` (the one call the roadmap's warning
+    //    specifically flagged for historically mutating `adjudication.gm_private`)
+    //    already returns a plain `EventDelta[]` today - it is turn.ts itself,
+    //    sequentially AFTER the join below, that pushes a note onto
+    //    `transformedAdjudication.gm_private`. So there is no "return the
+    //    delta and apply it in a defined order" step needed for the three
+    //    parallel legs - none of them touch shared state at all, mutated or
+    //    otherwise. `getRelationshipUpdates` stays sequential regardless,
+    //    per the spec, since its INPUT depends on this join's OUTPUT.
+    options?.onStage?.('simulation_state');
+    const simulationStatePromise = getUpdatedSimulationState(ai, transformedAdjudication, currentSimulationState, isMockMode);
+
+    options?.onStage?.('monologue');
+    const monologuePromise = getPlayerMonologue(ai, updatedPlayerEntity, transformedAdjudication.headlines, recentPlayerIntents, isMockMode);
+
+    // Get narration and suggested actions. `buildNarrationPrompt` receives a
+    // SANITIZED adjudication (gm_private and any secret_truth trace stripped
+    // - see ai/prompts/narration.ts) plus the mortality pipeline's
     // pre-decided narrative directives, so the model narrates outcomes
     // without ever seeing GM-private ground truth (DESIGN_DECISIONS.md D3/D4).
     options?.onStage?.('narration');
@@ -229,9 +289,23 @@ export async function runNewTurn(
     // ever sees display-safe text with any `SUGGESTION:` tail withheld -
     // see streamSplit.ts.
     const onNarrationChunk = options?.onNarrationChunk;
-    const fullText = onNarrationChunk
-        ? await generateTextStream(ai, narrationRequest, (textSoFar) => onNarrationChunk(narrationStreamGate(textSoFar)))
-        : await generateText(ai, narrationRequest);
+    const narrationPromise = onNarrationChunk
+        ? generateTextStream(ai, narrationRequest, (textSoFar) => onNarrationChunk(narrationStreamGate(textSoFar)))
+        : generateText(ai, narrationRequest);
+
+    // The join. If any of the three rejects, `Promise.all` rejects
+    // immediately with that leg's error (fail-fast) - the other two keep
+    // running to their own settlement in the background, but since
+    // `Promise.all` already attached a handler to every promise in its
+    // array (synchronously, as part of the call above), a later
+    // resolve/reject from a "losing" leg is never reported as an unhandled
+    // rejection. The outer try/catch below (`endTurnCapture(); throw e;`)
+    // is what actually surfaces the failure to the caller.
+    const [updatedSimulationState, playerMonologue, fullText] = await Promise.all([
+        simulationStatePromise,
+        monologuePromise,
+        narrationPromise,
+    ]);
     const narrationParts = fullText.split('SUGGESTION:');
     const narration = narrationParts[0].trim();
     const suggestedActions = narrationParts.slice(1).map(s => s.trim()).filter(s => s.length > 0);
