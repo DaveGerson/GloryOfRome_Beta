@@ -239,6 +239,18 @@ export const zMortalityOutcome = z.object({
   outcomes: z.array(zMortalityOutcomeEntry),
 }).passthrough();
 
+// --- Resolution layer: action assessment (ai/tools/assessment.ts, ROADMAP_0_MASTER_PLAN.md Phase 3 item 4) --
+
+/** Validates the action-assessment call's output (ai/tools/assessment.ts). */
+export const zActionAssessment = z.object({
+  is_consequential: z.boolean(),
+  action_category: z.string(),
+  relevant_skill: z.enum(['oratory', 'strategy', 'intrigue']).nullable(),
+  difficulty: z.number(),
+  opposing_entity_id: z.string().nullable(),
+  rationale: z.string(),
+}).passthrough();
+
 // --- World generation (initiator.ts) --------------------------------------
 
 /** Validates generateScenarioStructure's output (initiator.ts, Step 1). */

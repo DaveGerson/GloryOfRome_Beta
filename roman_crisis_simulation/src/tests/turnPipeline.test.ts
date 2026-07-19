@@ -68,6 +68,23 @@ const simulationState: SimulationState = {
 // refactor.
 const storyRelevanceJson = JSON.stringify({ spotlight_entities: [] });
 
+// The resolution layer's assessment call (ROADMAP_0_MASTER_PLAN.md Phase 3
+// item 4) runs CONCURRENTLY with storyRelevance - see ai/core/turn.ts step 0.
+// This default response marks the action non-consequential, so the bulk of
+// this file's tests (which audit the parallelization introduced by Phase 3
+// item 3, not the resolution layer itself) see NO PLAYER ACTION OUTCOME
+// block and NO resolutionTrace - i.e. the adjudicator behaves exactly as it
+// did before the resolution layer existed. The dedicated resolution-layer
+// tests below use their own consequential response instead.
+const nonConsequentialAssessmentJson = JSON.stringify({
+  is_consequential: false,
+  action_category: 'idle conversation',
+  relevant_skill: null,
+  difficulty: 10,
+  opposing_entity_id: null,
+  rationale: 'No real risk or opposition in this action.',
+});
+
 const adjudicationJson = JSON.stringify({
   turn: 2,
   entityActions: [],
@@ -120,6 +137,7 @@ async function tick(times = 20): Promise<void> {
 
 type CallKind =
   | 'storyRelevance'
+  | 'assessment'
   | 'adjudication'
   | 'simulationState'
   | 'monologue'
@@ -128,6 +146,7 @@ type CallKind =
 
 const ALL_KINDS: CallKind[] = [
   'storyRelevance',
+  'assessment',
   'adjudication',
   'simulationState',
   'monologue',
@@ -137,12 +156,14 @@ const ALL_KINDS: CallKind[] = [
 
 /**
  * Classifies a call by its (stable, distinct-per-callsite) systemInstruction
- * text - see ai/prompts/adjudication.ts, ai/prompts/intelligence.ts,
- * ai/prompts/narration.ts for the exact wording each marker is drawn from.
+ * text - see ai/prompts/adjudication.ts, ai/prompts/assessment.ts,
+ * ai/prompts/intelligence.ts, ai/prompts/narration.ts for the exact wording
+ * each marker is drawn from.
  */
 function classify(systemInstruction: unknown): CallKind {
   const s = typeof systemInstruction === 'string' ? systemInstruction : '';
   if (s.includes('master storyteller and game master')) return 'storyRelevance';
+  if (s.includes('Action Assessor')) return 'assessment';
   if (s.includes('Roman Crisis Adjudicator & Simulation Engine')) return 'adjudication';
   if (s.includes('Roman historian analyzing the state of the Empire')) return 'simulationState';
   if (s.includes('the inner voice of')) return 'monologue';
@@ -158,6 +179,8 @@ interface Harness {
   issued: Record<CallKind, Deferred<void>>;
   /** The test resolves/rejects these to control when (and how) each call's network round-trip settles. */
   response: Record<CallKind, Deferred<string>>;
+  /** The `contents` (user prompt) string of the most recent call of each kind - lets a test inspect e.g. whether the adjudication prompt carried a PLAYER ACTION OUTCOME block. */
+  promptsByKind: Partial<Record<CallKind, string>>;
   generateContent: ReturnType<typeof vi.fn>;
   generateContentStream: ReturnType<typeof vi.fn>;
 }
@@ -174,10 +197,12 @@ function createHarness(streamNarration = false): Harness {
   const order: CallKind[] = [];
   const issued = Object.fromEntries(ALL_KINDS.map(k => [k, createDeferred<void>()])) as Record<CallKind, Deferred<void>>;
   const response = Object.fromEntries(ALL_KINDS.map(k => [k, createDeferred<string>()])) as Record<CallKind, Deferred<string>>;
+  const promptsByKind: Partial<Record<CallKind, string>> = {};
 
   const generateContent = vi.fn(async (params: { model: string; contents: string; config?: Record<string, unknown> }) => {
     const kind = classify(params.config?.systemInstruction);
     order.push(kind);
+    promptsByKind[kind] = params.contents;
     issued[kind].resolve();
     const text = await response[kind].promise;
     return { text };
@@ -186,6 +211,7 @@ function createHarness(streamNarration = false): Harness {
   const generateContentStream = vi.fn(async (params: { model: string; contents: string; config?: Record<string, unknown> }) => {
     const kind = classify(params.config?.systemInstruction);
     order.push(kind);
+    promptsByKind[kind] = params.contents;
     issued[kind].resolve();
     const fullText = await response[kind].promise;
     async function* gen() {
@@ -208,7 +234,7 @@ function createHarness(streamNarration = false): Harness {
     models: streamNarration ? { generateContent, generateContentStream } : { generateContent },
   } as unknown as GoogleGenAI;
 
-  return { ai, order, issued, response, generateContent, generateContentStream };
+  return { ai, order, issued, response, promptsByKind, generateContent, generateContentStream };
 }
 
 afterEach(() => {
@@ -242,18 +268,31 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     );
     turnPromise.catch(() => {}); // consumed properly below; just guards intermediate awaits in this test
 
-    // --- story_relevance -> adjudication must be SEQUENTIAL -------------
-    await h.issued.storyRelevance.promise;
-    expect(h.order).toEqual(['storyRelevance']);
+    // --- story_relevance and assessment run CONCURRENTLY (Phase 3 item 4 -
+    // resolution layer), and BOTH must resolve before adjudication starts ---
+    await Promise.all([h.issued.storyRelevance.promise, h.issued.assessment.promise]);
+    expect(h.order).toEqual(['storyRelevance', 'assessment']);
 
     let adjudicationIssuedEarly = false;
     h.issued.adjudication.promise.then(() => { adjudicationIssuedEarly = true; });
     await tick();
-    expect(adjudicationIssuedEarly).toBe(false); // adjudication must NOT start before story-relevance resolves
+    expect(adjudicationIssuedEarly).toBe(false); // adjudication must NOT start before story-relevance/assessment resolve
 
+    // Resolve story-relevance only - adjudication must still not start,
+    // since it also awaits the assessment leg (same Promise.all).
     h.response.storyRelevance.resolve(storyRelevanceJson);
+    await tick();
+    expect(adjudicationIssuedEarly).toBe(false);
+
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
     await h.issued.adjudication.promise;
-    expect(h.order).toEqual(['storyRelevance', 'adjudication']);
+    expect(h.order).toEqual(['storyRelevance', 'assessment', 'adjudication']);
+
+    // Non-consequential path (ROADMAP_0_MASTER_PLAN.md Phase 3 item 4): no
+    // PLAYER ACTION OUTCOME block is injected into the adjudication prompt -
+    // the adjudicator sees exactly what it did before the resolution layer
+    // existed.
+    expect(h.promptsByKind.adjudication).not.toContain('PLAYER ACTION OUTCOME');
 
     h.response.adjudication.resolve(adjudicationJson);
 
@@ -263,7 +302,7 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     // (never observe all three issued) since none of their responses have
     // been provided yet.
     await Promise.all([h.issued.simulationState.promise, h.issued.monologue.promise, h.issued.narration.promise]);
-    expect(h.order).toEqual(['storyRelevance', 'adjudication', 'simulationState', 'monologue', 'narration']);
+    expect(h.order).toEqual(['storyRelevance', 'assessment', 'adjudication', 'simulationState', 'monologue', 'narration']);
 
     // --- (ii) relationship_updates must NOT be issued until narration resolves ---
     let relUpdatesIssuedEarly = false;
@@ -282,7 +321,7 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     h.response.narration.resolve(narrationFullText);
     await h.issued.relationshipUpdates.promise;
     expect(h.order).toEqual([
-      'storyRelevance', 'adjudication', 'simulationState', 'monologue', 'narration', 'relationshipUpdates',
+      'storyRelevance', 'assessment', 'adjudication', 'simulationState', 'monologue', 'narration', 'relationshipUpdates',
     ]);
 
     h.response.relationshipUpdates.resolve(relationshipJson);
@@ -297,9 +336,15 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     expect(result.headlines).toEqual(['The treasury grows.']);
     expect(result.updatedEntities.find(e => e.entity_id === 'player_1')?.resources.denarii).toBe(1050);
 
+    // Non-consequential action: no resolution-layer trace at all - no roll
+    // was ever made (ROADMAP_0_MASTER_PLAN.md Phase 3 item 4).
+    expect(result.newHistoryEntry.resolutionTrace).toBeUndefined();
+
     // onStage fired once per real stage, in the exact documented order -
     // private_conversation/mortality correctly skipped this turn (no
-    // spotlight entities, no death claim).
+    // spotlight entities, no death claim). The assessment call does NOT get
+    // its own stage - it shares 'story_relevance' (see TurnStage's doc
+    // comment in ai/core/turn.ts).
     expect(onStage.mock.calls.map(c => c[0])).toEqual([
       'story_relevance', 'adjudication', 'simulation_state', 'monologue', 'narration', 'relationship_updates',
     ]);
@@ -308,10 +353,10 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     // the concurrent interleaving of recordCall pushes (ai/core/geminiService.ts).
     const rawCalls = result.newHistoryEntry.rawCalls ?? [];
     expect(rawCalls.map(r => r.callName).sort()).toEqual(
-      ['storyRelevance', 'adjudication', 'updatedSimulationState', 'playerMonologue', 'narration', 'relationshipUpdates'].sort()
+      ['storyRelevance', 'assessment', 'adjudication', 'updatedSimulationState', 'playerMonologue', 'narration', 'relationshipUpdates'].sort()
     );
     expect(rawCalls.every(r => r.validated)).toBe(true);
-    expect(rawCalls).toHaveLength(6);
+    expect(rawCalls).toHaveLength(7);
   });
 
   it('streams narration via generateContentStream inside the same parallel block, still concurrent with simulation-state/monologue', async () => {
@@ -337,11 +382,12 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     turnPromise.catch(() => {});
 
     h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
     await h.issued.adjudication.promise;
     h.response.adjudication.resolve(adjudicationJson);
 
     await Promise.all([h.issued.simulationState.promise, h.issued.monologue.promise, h.issued.narration.promise]);
-    expect(h.order).toEqual(['storyRelevance', 'adjudication', 'simulationState', 'monologue', 'narration']);
+    expect(h.order).toEqual(['storyRelevance', 'assessment', 'adjudication', 'simulationState', 'monologue', 'narration']);
     // Narration went through the STREAMING path, not plain generateContent.
     expect(h.generateContentStream).toHaveBeenCalledTimes(1);
 
@@ -379,6 +425,7 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
       turnPromise.catch(() => {}); // the turn's own rejection is handled deliberately - not what we're testing here
 
       h.response.storyRelevance.resolve(storyRelevanceJson);
+      h.response.assessment.resolve(nonConsequentialAssessmentJson);
       await h.issued.adjudication.promise;
       h.response.adjudication.resolve(adjudicationJson);
 
@@ -406,5 +453,119 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     } finally {
       process.off('unhandledRejection', onUnhandledRejection);
     }
+  });
+});
+
+// --- Resolution layer (ROADMAP_0_MASTER_PLAN.md Phase 3 item 4) ----------
+
+/** Mocks Math.random so rollD20() (ai/core/resolution.ts) returns exactly `roll` - mirrors tests/mortality.test.ts's identical helper. */
+function mockRoll(roll: number) {
+  return vi.spyOn(Math, 'random').mockReturnValue((roll - 1) / 20);
+}
+
+describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAction)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('consequential action: resolves a hidden roll, injects the PLAYER ACTION OUTCOME block into the adjudication prompt, and records a resolutionTrace', async () => {
+    mockRoll(20); // rollD20() -> 20
+    const h = createHarness(false);
+    const player = makeEntity(); // no personality/skills -> personalityModifier and relevantSkillValue both contribute 0
+
+    const consequentialAssessmentJson = JSON.stringify({
+      is_consequential: true,
+      action_category: 'oratory persuasion',
+      relevant_skill: 'oratory',
+      difficulty: 10,
+      opposing_entity_id: null,
+      rationale: 'A bold public appeal to the Senate.',
+    });
+
+    const turnPromise = runNewTurn(
+      h.ai, 'Give a rousing speech to the Senate', player, 2, [player], worldState, simulationState, [], [], '', false, 'Grim political thriller'
+    );
+    turnPromise.catch(() => {});
+
+    await Promise.all([h.issued.storyRelevance.promise, h.issued.assessment.promise]);
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(consequentialAssessmentJson);
+
+    await h.issued.adjudication.promise;
+    // total = roll(20) + skill(0, none known) + personality(0, none) + opposition(0, no opposing entity) = 20.
+    // margin = total(20) - difficulty(10) = 10 -> tier 'critical_success' (margin >= 10).
+    const adjudicationPrompt = h.promptsByKind.adjudication ?? '';
+    expect(adjudicationPrompt).toContain('PLAYER ACTION OUTCOME');
+    expect(adjudicationPrompt).toContain('CRITICAL_SUCCESS');
+    expect(adjudicationPrompt).toContain('oratory persuasion');
+    // The roll/margin/mechanics themselves are GM-only - fine to appear in
+    // this prompt (never player-facing), but the tier name is the only
+    // mechanical detail that needs to reach it per this feature's contract.
+    h.response.adjudication.resolve(adjudicationJson);
+
+    await Promise.all([h.issued.simulationState.promise, h.issued.monologue.promise, h.issued.narration.promise]);
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologueText);
+    h.response.narration.resolve(narrationFullText);
+
+    await h.issued.relationshipUpdates.promise;
+    h.response.relationshipUpdates.resolve(relationshipJson);
+
+    const result = await turnPromise;
+
+    expect(result.newHistoryEntry.resolutionTrace).toMatchObject({
+      roll: 20,
+      total: 20,
+      margin: 10,
+      tier: 'critical_success',
+    });
+    expect(result.newHistoryEntry.resolutionTrace?.assessment).toMatchObject({
+      is_consequential: true,
+      action_category: 'oratory persuasion',
+      relevant_skill: 'oratory',
+      difficulty: 10,
+    });
+    // A GM-private note records the roll/mechanics for the GM console (D4 -
+    // never shown to the player, but ARE recorded for tuning).
+    expect(result.newHistoryEntry.adjudication.gm_private.some(note => note.includes('[Resolution]'))).toBe(true);
+  });
+
+  it('non-consequential action: no roll, no PLAYER ACTION OUTCOME block, no resolutionTrace - story_relevance and assessment still run concurrently', async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+    const randomSpy = vi.spyOn(Math, 'random');
+
+    const turnPromise = runNewTurn(
+      h.ai, 'What news from the forum?', player, 2, [player], worldState, simulationState, [], [], '', false, 'Grim political thriller'
+    );
+    turnPromise.catch(() => {});
+
+    // Both calls are already in flight before either resolves - true
+    // concurrency, matching Phase 3 item 3's established pattern.
+    await Promise.all([h.issued.storyRelevance.promise, h.issued.assessment.promise]);
+    expect(h.order).toEqual(['storyRelevance', 'assessment']);
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+
+    await h.issued.adjudication.promise;
+    expect(h.promptsByKind.adjudication).not.toContain('PLAYER ACTION OUTCOME');
+    h.response.adjudication.resolve(adjudicationJson);
+
+    await Promise.all([h.issued.simulationState.promise, h.issued.monologue.promise, h.issued.narration.promise]);
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologueText);
+    h.response.narration.resolve(narrationFullText);
+
+    await h.issued.relationshipUpdates.promise;
+    h.response.relationshipUpdates.resolve(relationshipJson);
+
+    const result = await turnPromise;
+
+    expect(result.newHistoryEntry.resolutionTrace).toBeUndefined();
+    expect(result.newHistoryEntry.adjudication.gm_private.some(note => note.includes('[Resolution]'))).toBe(false);
+    // No dice were ever rolled for a non-consequential action.
+    expect(randomSpy).not.toHaveBeenCalled();
+    randomSpy.mockRestore();
   });
 });

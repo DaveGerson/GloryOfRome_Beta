@@ -1,24 +1,42 @@
 /**
  * ai/core/resolution.ts
  *
- * Deterministic, code-side outcome resolution - the seed of the Phase 3
- * "resolution layer" (ROADMAP_0_MASTER_PLAN.md Phase 3 item 4: "a
+ * Deterministic, code-side outcome resolution - the mechanical spine of the
+ * Phase 3 "resolution layer" (ROADMAP_0_MASTER_PLAN.md Phase 3 item 4: "a
  * deterministic resolution layer... the LLM narrates a pre-decided
- * result"). Mortality (DESIGN_DECISIONS.md D2/D3/D4) is deliberately built
- * as this module's FIRST consumer, not a one-off - when Phase 3 adds
- * skill/trait/relationship-weighted checks producing coarse outcome tiers,
- * they should extend this file (new tables + `resolve*` functions
- * alongside these) rather than fork a parallel mechanism.
+ * result"). Mortality (DESIGN_DECISIONS.md D2/D3/D4, `resolvePlayerDeathSave`/
+ * `resolveNpcFate` below) was this module's FIRST consumer and its behavior
+ * is UNCHANGED by everything added below - `resolveAction` and its modifier
+ * helpers are a second, general-purpose consumer living alongside it, not a
+ * replacement. Do not change `PLAYER_DEATH_SAVE_TABLE`/`NPC_FATE_TABLE` or
+ * either `resolve*` mortality function's behavior when extending this file.
+ *
+ * `resolveAction` (ai/core/turn.ts's per-turn action resolution, and
+ * ai/tools/intelligence.ts's investigation rolls) is the generalized
+ * skill/trait/relationship-weighted check the mortality pipeline was always
+ * meant to be a template for: a d20 roll plus modifiers compared against a
+ * difficulty, producing one of five coarse outcome tiers. Coarse
+ * deliberately - per ROADMAP_0_MASTER_PLAN.md Phase 3 item 4, tiers stay
+ * broad so the model retains room to invent *how* an outcome plays out.
  *
  * Every `resolve*` function below is a PURE function over an
  * already-rolled value, so every band is exhaustively unit-testable
- * without touching randomness. Only `rollD20` touches `Math.random`.
+ * without touching randomness. Only `rollD20` touches `Math.random`. The
+ * modifier helpers (`derivePersonalityModifier`, `deriveOppositionModifier`,
+ * `deriveInvestigationDifficulty`) are ALSO pure - they turn game state
+ * (personality traits, a directional relationship, a target's profile)
+ * into a plain number, deliberately kept separate from `resolveAction`
+ * itself so each piece of the formula is independently testable.
  *
  * Per DESIGN_DECISIONS.md D4, rolls are NEVER shown to the player - only
  * narration conveys the outcome (via the `defaultDirective`/model-authored
- * narrative directive, see ai/prompts/mortality.ts). Rolls ARE recorded
- * for the GM console (see MortalityEvent in types.ts).
+ * narrative directive, see ai/prompts/mortality.ts, or the tier-guidance
+ * text in ai/prompts/adjudication.ts / ai/prompts/intelligence.ts for the
+ * action-resolution consumers). Rolls ARE recorded for the GM console (see
+ * `MortalityEvent`/`ActionResolutionEvent` in types.ts).
  */
+
+import { Entity, PersonalityTraits, Relationship } from '../../types';
 
 /**
  * Rolls a d20 (1-20 inclusive). Uses `Math.random()` directly - fine for
@@ -226,4 +244,241 @@ export function resolveNpcFate(roll: number): NpcFateOutcome {
         label: 'Escapes openly - survives visibly, the attempt is known.',
         defaultDirective: 'Narrate a visible, witnessed escape - everyone present now knows an attempt was made on their life.',
     };
+}
+
+// --- General action resolution (ROADMAP_0_MASTER_PLAN.md Phase 3 item 4) ---
+//
+// The general-purpose consumer `resolvePlayerDeathSave`/`resolveNpcFate`
+// above were built to anticipate: roll a d20, add modifiers, compare to a
+// difficulty, land in one of five coarse tiers. Two call sites feed this:
+//  - ai/core/turn.ts: the player's assessed-consequential action each turn
+//    (ai/tools/assessment.ts decides IF a roll happens at all).
+//  - ai/tools/intelligence.ts: `getInvestigationResult`'s intrigue roll
+//    (always rolled - no assessment call needed there, see
+//    `deriveInvestigationDifficulty` below).
+
+/** A skill this resolution layer knows how to weigh. Mirrors the coarse skill buckets the assessment call (ai/prompts/assessment.ts) is allowed to name. */
+export type ResolvableSkill = 'oratory' | 'strategy' | 'intrigue';
+
+/**
+ * Difficulty is always expressed on this fixed 5 (trivial) - 25 (nearly
+ * impossible) scale, whether it comes from the assessment call's own
+ * judgment (ai/prompts/assessment.ts) or a derived helper below
+ * (`deriveInvestigationDifficulty`). Named here so both producers tune
+ * against the same documented range instead of inventing their own.
+ */
+export const ACTION_DIFFICULTY_RANGE = {
+    MIN: 5,
+    MAX: 25,
+} as const;
+
+function clampDifficulty(value: number): number {
+    return Math.min(ACTION_DIFFICULTY_RANGE.MAX, Math.max(ACTION_DIFFICULTY_RANGE.MIN, value));
+}
+
+/**
+ * The five coarse outcome tiers a resolved action lands in. Deliberately
+ * coarse (not a numeric success percentage) so the adjudicator retains room
+ * to invent *how* the tier manifests - see ROADMAP_0_MASTER_PLAN.md Phase 3
+ * item 4's "tiers stay coarse" instruction. Consumed by
+ * ai/prompts/adjudication.ts's PLAYER ACTION OUTCOME block and
+ * ai/prompts/intelligence.ts's investigation tier guidance.
+ */
+export type ActionResolutionTier =
+    | 'critical_failure'
+    | 'failure'
+    | 'partial_success'
+    | 'success'
+    | 'critical_success';
+
+/**
+ * Margin (see `resolveAction`) thresholds mapping to each tier, named and
+ * exported so tuning the table is a one-line change. A tier is chosen by the
+ * FIRST band (in this order) whose comparison holds:
+ *  - margin <= CRITICAL_FAILURE_MAX           -> 'critical_failure'
+ *  - margin <  FAILURE_MAX                    -> 'failure'
+ *  - margin <  PARTIAL_SUCCESS_MAX             -> 'partial_success'
+ *  - margin <  SUCCESS_MAX                     -> 'success'
+ *  - otherwise (margin >= SUCCESS_MAX)         -> 'critical_success'
+ */
+export const ACTION_RESOLUTION_TIER_THRESHOLDS = {
+    /** margin <= this value is a critical failure. */
+    CRITICAL_FAILURE_MAX: -10,
+    /** margin < this value (and > CRITICAL_FAILURE_MAX) is a plain failure. */
+    FAILURE_MAX: 0,
+    /** margin < this value (and >= FAILURE_MAX) is a partial success. */
+    PARTIAL_SUCCESS_MAX: 5,
+    /** margin < this value (and >= PARTIAL_SUCCESS_MAX) is a plain success; margin >= this value is a critical success. */
+    SUCCESS_MAX: 10,
+} as const;
+
+function tierForMargin(margin: number): ActionResolutionTier {
+    if (margin <= ACTION_RESOLUTION_TIER_THRESHOLDS.CRITICAL_FAILURE_MAX) return 'critical_failure';
+    if (margin < ACTION_RESOLUTION_TIER_THRESHOLDS.FAILURE_MAX) return 'failure';
+    if (margin < ACTION_RESOLUTION_TIER_THRESHOLDS.PARTIAL_SUCCESS_MAX) return 'partial_success';
+    if (margin < ACTION_RESOLUTION_TIER_THRESHOLDS.SUCCESS_MAX) return 'success';
+    return 'critical_success';
+}
+
+export interface ResolveActionInput {
+    /** Already-rolled d20 (1-20 inclusive) - injected for testability; production callers use `rollD20()`. Per D4, never shown to the player. */
+    roll: number;
+    /** The actor's relevant skill value (0-10), or null if no skill applies/is known - treated as 0 contribution. */
+    relevantSkillValue: number | null;
+    /** Pre-derived via `derivePersonalityModifier` - kept as a separate pure input rather than computed inside this function. */
+    personalityModifier: number;
+    /** Pre-derived via `deriveOppositionModifier` - kept as a separate pure input rather than computed inside this function. */
+    oppositionModifier: number;
+    /** Target difficulty, `ACTION_DIFFICULTY_RANGE.MIN`-`ACTION_DIFFICULTY_RANGE.MAX` (5-25). */
+    difficulty: number;
+}
+
+export interface ActionResolution {
+    /** Echoes the input roll - never shown to the player (D4). */
+    roll: number;
+    /** roll + relevantSkillValue (0 if null) + personalityModifier + oppositionModifier. */
+    total: number;
+    /** total - difficulty. The value the tier bands (`ACTION_RESOLUTION_TIER_THRESHOLDS`) are drawn from. */
+    margin: number;
+    tier: ActionResolutionTier;
+}
+
+/**
+ * Resolves an already-rolled d20 plus modifiers against a difficulty into
+ * one of five coarse tiers. Pure - deterministic given its inputs, so every
+ * margin band is unit-testable without touching `Math.random`. See
+ * `rollD20` for the production roll, and `derivePersonalityModifier`/
+ * `deriveOppositionModifier` for how the two modifier inputs are usually
+ * produced.
+ */
+export function resolveAction(input: ResolveActionInput): ActionResolution {
+    const { roll, relevantSkillValue, personalityModifier, oppositionModifier, difficulty } = input;
+    assertValidRoll('resolveAction', roll);
+
+    const total = roll + (relevantSkillValue ?? 0) + personalityModifier + oppositionModifier;
+    const margin = total - difficulty;
+
+    return { roll, total, margin, tier: tierForMargin(margin) };
+}
+
+// --- Modifier helpers (pure) --------------------------------------------
+
+/** A trait value at this point on the 1-10 `PersonalityTraits` scale (types.ts) contributes zero modifier - i.e. "average" for this trait. */
+const TRAIT_MODIFIER_CENTER = 5;
+/** Divisor turning a trait's distance from `TRAIT_MODIFIER_CENTER` into a roll-total modifier of roughly -2 to +2.5 across the 1-10 range. */
+const TRAIT_MODIFIER_DIVISOR = 2;
+/** Separate divisor for the honor-vs-treachery penalty term, so it can be tuned independently of the skill-driven trait bonus above. */
+const TREACHERY_HONOR_DIVISOR = 2;
+
+/** Free-text `action_category` substrings (ai/prompts/assessment.ts) that mark an action as treachery/betrayal for `derivePersonalityModifier`'s honor penalty. */
+const TREACHERY_KEYWORDS = ['treachery', 'betray', 'backstab', 'double-cross', 'double cross'];
+
+function isTreacherousActionCategory(actionCategory: string): boolean {
+    const lower = actionCategory.toLowerCase();
+    return TREACHERY_KEYWORDS.some(keyword => lower.includes(keyword));
+}
+
+export interface PersonalityModifierInput {
+    /** The ACTOR's own personality traits - undefined entities (e.g. a faction/group with no `personality`) contribute a zero modifier. */
+    personality?: PersonalityTraits;
+    /** The action's relevant skill (from the assessment call, or fixed - e.g. 'intrigue' for investigations), or null. */
+    relevantSkill: ResolvableSkill | null;
+    /** The assessment call's free-text `action_category` (or an equivalent fixed label for non-assessed call sites like investigations) - scanned for treachery/betrayal keywords to apply the honor penalty below. */
+    actionCategory: string;
+}
+
+/**
+ * Turns the ACTOR's personality traits into a roll-total modifier, relevant
+ * to the action being attempted:
+ *  - 'intrigue' or 'strategy' actions are fueled by cunning - a schemer's
+ *    guile helps regardless of whether the scheme is martial or covert.
+ *  - 'oratory' actions are fueled by ambition - the drive behind bold,
+ *    persuasive rhetoric.
+ *  - ANY action whose `actionCategory` reads as treachery/betrayal
+ *    (see `TREACHERY_KEYWORDS`) applies an HONOR PENALTY: a high-honor
+ *    character is WORSE at treachery (it cuts against their nature), a
+ *    low-honor character suffers little or even gains from the same act.
+ * Returns 0 for an entity with no `personality` (e.g. a faction/group).
+ */
+export function derivePersonalityModifier(input: PersonalityModifierInput): number {
+    const { personality, relevantSkill, actionCategory } = input;
+    if (!personality) return 0;
+
+    let modifier = 0;
+
+    if (relevantSkill === 'intrigue' || relevantSkill === 'strategy') {
+        modifier += (personality.cunning - TRAIT_MODIFIER_CENTER) / TRAIT_MODIFIER_DIVISOR;
+    }
+    if (relevantSkill === 'oratory') {
+        modifier += (personality.ambition - TRAIT_MODIFIER_CENTER) / TRAIT_MODIFIER_DIVISOR;
+    }
+    if (isTreacherousActionCategory(actionCategory)) {
+        modifier -= (personality.honor - TRAIT_MODIFIER_CENTER) / TREACHERY_HONOR_DIVISOR;
+    }
+
+    return modifier;
+}
+
+/** Divisor turning a 0-10 `perceived_threat` into a roll-total penalty of 0 to -5: the more threatening the opposing entity finds the actor, the more on guard they are, the harder the actor's action. */
+const PERCEIVED_THREAT_GUARD_DIVISOR = 2;
+/** Divisor turning a -10..10 `trust_level` into a roll-total modifier of -2.5 to +2.5: the opposing entity's trust toward the actor makes the actor's action easier or harder. */
+const TRUST_LEVEL_DIVISOR = 4;
+
+export interface OppositionModifierInput {
+    /**
+     * The OPPOSING entity's own relationship record describing ITS
+     * perception of the actor - i.e. `opposingEntity.relationships[actorId]`,
+     * per this codebase's directional relationship convention (see
+     * ai/prompts/adjudication.ts's RELATIONSHIP DELTAS rule: a relationship
+     * keyed under entity A describes A's perception of the other entity
+     * ONLY). Undefined/null (no relationship on record, or no opposing
+     * entity at all) is treated as neutral - zero modifier.
+     */
+    relationshipTowardActor?: Relationship | null;
+}
+
+/**
+ * Turns the OPPOSING entity's directional stats toward the actor into a
+ * roll-total modifier:
+ *  - Higher `perceived_threat` (0-10) means the opposing entity is more on
+ *    guard against the actor specifically, making the actor's action HARDER
+ *    (a negative contribution).
+ *  - Higher `trust_level` (-10 to 10) toward the actor makes the actor's
+ *    action EASIER (a positive contribution); distrust makes it harder.
+ * Returns 0 when there is no opposing entity or no relationship on record
+ * (treated as neutral, not hostile).
+ */
+export function deriveOppositionModifier(input: OppositionModifierInput): number {
+    const rel = input.relationshipTowardActor;
+    if (!rel) return 0;
+
+    const perceivedThreat = rel.perceived_threat ?? 0;
+    const trust = rel.trust_level ?? 0;
+
+    const guardPenalty = -(perceivedThreat / PERCEIVED_THREAT_GUARD_DIVISOR);
+    const trustBonus = trust / TRUST_LEVEL_DIVISOR;
+
+    return guardPenalty + trustBonus;
+}
+
+// --- Investigation difficulty (ai/tools/intelligence.ts) -----------------
+
+/** Baseline difficulty for an investigation with an average (5/10) target - see `deriveInvestigationDifficulty`. */
+const INVESTIGATION_BASE_DIFFICULTY = 12;
+
+/**
+ * Derives an investigation's difficulty from the TARGET's own paranoia and
+ * intrigue skill (both nudge the difficulty up - a more paranoid, more
+ * cunning-at-hiding-things target is harder to investigate), clamped to
+ * `ACTION_DIFFICULTY_RANGE`. Replaces the old prose "40% chance of a
+ * negative consequence" line that lived inside
+ * ai/prompts/intelligence.ts::buildInvestigationPrompt and was never
+ * actually load-bearing (ai/tools/intelligence.ts::getInvestigationResult
+ * never passed a real risk signal into the prompt).
+ */
+export function deriveInvestigationDifficulty(target: Entity): number {
+    const paranoia = target.personality?.paranoia ?? TRAIT_MODIFIER_CENTER;
+    const intrigueSkill = target.skills?.intrigue ?? TRAIT_MODIFIER_CENTER;
+    const raw = INVESTIGATION_BASE_DIFFICULTY + (paranoia - TRAIT_MODIFIER_CENTER) + (intrigueSkill - TRAIT_MODIFIER_CENTER);
+    return clampDifficulty(raw);
 }

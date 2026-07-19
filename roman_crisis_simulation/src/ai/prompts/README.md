@@ -11,6 +11,7 @@ one of the builders below.
 
 | Call name | Builder | Model | Zod schema | Gemini schema | Pipeline stage |
 |---|---|---|---|---|---|
+| `assessment` | `assessment.ts::buildActionAssessmentPrompt` | flash | `zActionAssessment` | `ActionAssessmentSchema` | `turn.ts` step 0 (resolution layer gatekeeper, concurrent with `storyRelevance`) |
 | `adjudication` | `adjudication.ts::buildAdjudicationPrompt` | pro | `zAdjudication` | `AdjudicationSchema` | `turn.ts` step 2 (main turn) |
 | `narration` | `narration.ts::buildNarrationPrompt` | pro | - (prose) | - | `turn.ts` step 5 |
 | `playerMonologue` | `narration.ts::buildPlayerMonologuePrompt` | flash | - (prose) | - | `turn.ts` step 4 |
@@ -79,6 +80,60 @@ decides an outcome, only narrates one the code already rolled**
 If you touch this pipeline, keep that direction of control intact: adding
 a field the model could use to influence life/death would reopen the exact
 hallucinated-death problem D2/D3 exist to close.
+
+## The resolution layer: code decides WHETHER, the model decides HOW
+
+`assessment` (`ai/prompts/assessment.ts`, consumed by
+`ai/tools/assessment.ts::getActionAssessment`) and `ai/core/resolution.ts`'s
+`resolveAction` are the general-purpose sibling of the mortality pipeline
+above (ROADMAP_0_MASTER_PLAN.md Phase 3 item 4) - they share its exact
+contract: **the model never decides whether an action succeeds, only
+narrates a pre-decided outcome.**
+
+- `assessment` runs on EVERY turn, launched CONCURRENTLY with
+  `storyRelevance` via `Promise.all` in `ai/core/turn.ts` (both read only
+  pre-turn state, so this costs zero extra wall-clock). It classifies the
+  player's action - `is_consequential`, `action_category`, `relevant_skill`
+  (`'oratory' | 'strategy' | 'intrigue' | null`), `difficulty` (5-25),
+  `opposing_entity_id` - but decides nothing mechanical itself.
+- Non-consequential actions (questions, idle conversation, pure information
+  requests) skip rolling ENTIRELY: no dice, no `PLAYER ACTION OUTCOME` block
+  in the adjudication prompt, no `resolutionTrace` on the turn's
+  `TurnHistoryEntry` (types.ts). The adjudicator behaves exactly as it did
+  before this feature existed.
+- For a consequential action, `ai/core/turn.ts` resolves a HIDDEN
+  `rollD20()` via `resolveAction` (`ai/core/resolution.ts`), using the
+  player's own skill/personality (`derivePersonalityModifier`) and the
+  opposing entity's directional stats toward the player
+  (`deriveOppositionModifier` - `perceived_threat` raises their guard,
+  `trust_level` toward the actor eases it). The resulting tier
+  (`critical_failure` / `failure` / `partial_success` / `success` /
+  `critical_success`) is injected into the adjudication prompt
+  (`ai/prompts/adjudication.ts::buildPlayerActionOutcomeBlock`) as a
+  PRE-DECIDED outcome - the adjudicator decides HOW it manifests (deltas,
+  NPC reactions, headline wording), never WHETHER. Tier names are fine
+  inside the prompt (GM-side only) but must never reach a headline or a
+  delta's player-adjacent `reason` text - see that block's own wording.
+- The same `resolveAction` machinery also resolves
+  `ai/tools/intelligence.ts::getInvestigationResult`'s roll (a real dice
+  check replacing the old prose "40% chance" line that was never actually
+  wired to anything) - always rolled (no assessment call needed, an
+  investigation is always consequential), with `difficulty` derived from
+  the target's own paranoia/intrigue (`deriveInvestigationDifficulty`).
+  `consequences` is enforced POST-HOC in code (not just prompt hope): always
+  `null` on a success/critical-success tier, always a non-null string on a
+  failure/critical-failure tier (falling back to a generic one if the model
+  ignores the tier guidance).
+- Every roll is recorded for the GM console ONLY, never shown to the player
+  (D4): `ActionResolutionEvent` (types.ts) on the turn's `resolutionTrace`,
+  plus a `[Resolution]` `gm_private` note.
+- **Mock mode**: the assessment call is never reached at all -
+  `runNewTurn` short-circuits into `mockRunNewTurn` before any resolution-
+  layer code runs, so mock-mode turns never roll and never assess. (The
+  `isMockMode` branch inside `getActionAssessment` itself is dead code from
+  `turn.ts`'s call site, kept only for parity with its sibling `get*`
+  functions in `ai/tools/intelligence.ts`, all of which follow the same
+  pattern.)
 
 ## System vs. user split
 

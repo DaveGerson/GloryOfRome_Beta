@@ -312,6 +312,43 @@ export interface MortalityEvent {
 }
 
 /**
+ * One turn's trip through the `ai/core/resolution.ts` "resolution layer"
+ * action-resolution pipeline (ROADMAP_0_MASTER_PLAN.md Phase 3 item 4) -
+ * produced by `ai/core/turn.ts` when the assessment call
+ * (`ai/tools/assessment.ts::getActionAssessment`) flags the player's action
+ * as consequential, and appended to the turn's history entry so the GM
+ * console can inspect/tune rolls. Per DESIGN_DECISIONS.md D4, rolls are
+ * NEVER shown to the player - this trace is GM-console-only ground truth,
+ * same as `MortalityEvent`/`Adjudication.gm_private`. Entirely absent on
+ * turns where the assessment call found the action non-consequential (no
+ * roll is made, no trace is recorded).
+ *
+ * `assessment`'s shape mirrors `ai/tools/assessment.ts`'s `ActionAssessment`
+ * - kept as an inline duplicate here (rather than an import) so types.ts
+ * stays import-free, the same convention `MortalityEvent` below follows for
+ * the mortality pipeline's own result shapes. Keep the two in sync if
+ * either changes.
+ */
+export interface ActionResolutionEvent {
+  assessment: {
+    is_consequential: boolean;
+    action_category: string;
+    relevant_skill: 'oratory' | 'strategy' | 'intrigue' | null;
+    difficulty: number;
+    opposing_entity_id: string | null;
+    rationale: string;
+  };
+  /** The hidden d20 roll (`ai/core/resolution.ts::rollD20`) - never shown to the player (D4). */
+  roll: number;
+  /** roll + relevant skill value + personality modifier + opposition modifier. */
+  total: number;
+  /** total - difficulty; the value the tier bands (`ai/core/resolution.ts::ACTION_RESOLUTION_TIER_THRESHOLDS`) are drawn from. */
+  margin: number;
+  /** The resolved outcome tier - see `ai/core/resolution.ts::resolveAction`. */
+  tier: 'critical_failure' | 'failure' | 'partial_success' | 'success' | 'critical_success';
+}
+
+/**
  * An entry for the Game Master's turn history log.
  */
 export interface TurnHistoryEntry {
@@ -322,6 +359,7 @@ export interface TurnHistoryEntry {
   postTurnEntities: Entity[];
   rawCalls?: RawCallRecord[]; // Raw prompt/response capture for every AI call made this turn
   mortalityTrace?: MortalityEvent[]; // Every death claim this turn went through processMortality, see MortalityEvent
+  resolutionTrace?: ActionResolutionEvent; // The player action's trip through the resolution layer this turn (if consequential), see ActionResolutionEvent
 }
 
 export interface SpotlightEntity {

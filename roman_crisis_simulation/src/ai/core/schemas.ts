@@ -376,6 +376,22 @@ export const MortalityOutcomeSchema = {
     required: ['outcomes'],
 };
 
+// --- Resolution layer: action assessment (ai/tools/assessment.ts, ROADMAP_0_MASTER_PLAN.md Phase 3 item 4) --
+
+/** The action-assessment call's Gemini response schema (ai/tools/assessment.ts). */
+export const ActionAssessmentSchema = {
+    type: Type.OBJECT,
+    properties: {
+        is_consequential: { type: Type.BOOLEAN, description: "True if the player's action carries real risk/uncertainty/opposition warranting a hidden dice roll; false for questions, idle conversation, or pure information requests." },
+        action_category: { type: Type.STRING, description: "A short free-text label for the kind of action (e.g. 'oratory persuasion', 'intrigue/scheme', 'treachery'). GM-only classification, never shown to the player." },
+        relevant_skill: { type: Type.STRING, enum: ['oratory', 'strategy', 'intrigue'], nullable: true, description: "The single most load-bearing skill for this action, or null if none clearly applies (always null when is_consequential is false)." },
+        difficulty: { type: Type.NUMBER, description: "Target difficulty from 5 (trivial) to 25 (nearly impossible), before the player's own skill/personality are factored in." },
+        opposing_entity_id: { type: Type.STRING, nullable: true, description: "The exact entity_id of the specific NPC this action opposes/targets, or null if none." },
+        rationale: { type: Type.STRING, description: "Short (1-2 sentence) GM-only justification - never shown to the player." },
+    },
+    required: ['is_consequential', 'action_category', 'relevant_skill', 'difficulty', 'opposing_entity_id', 'rationale'],
+};
+
 /**
  * Investigation results have a `reportData` shape that depends on the
  * requested `subject`: a full `Scheme` object for 'scheme', or a plain

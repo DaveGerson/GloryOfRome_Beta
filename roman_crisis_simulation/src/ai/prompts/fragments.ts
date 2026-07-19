@@ -17,19 +17,28 @@
 import { Entity, WorldState, SimulationState, StoryRelevance } from '../../types';
 
 /**
- * Full per-entity brief: goals/scheme/personality/beliefs/relationships.
+ * Full per-entity brief: goals/scheme/personality/skills/beliefs/relationships.
  * Used for spotlight and "other" NPCs in the adjudication prompt, and for
  * the player entity elsewhere. Moved verbatim from `engine.ts`'s
  * `getEntityBrief` (unexported local helper).
+ *
+ * `skills` (ROADMAP_0_MASTER_PLAN.md Phase 3 item 4): a compact
+ * "Skills: oratory:5, strategy:7" line, added so the adjudicator and the
+ * resolution layer's assessment call (ai/prompts/assessment.ts) can see
+ * numeric skill values - previously omitted entirely, so no prompt ever let
+ * the model reason about a character's actual competence. A handful of
+ * short tokens per entity; trivial prompt-size impact even across a full
+ * cast of NPCs.
  */
 export function getEntityBrief(entity: Entity): string {
   const relationships = Object.values(entity.relationships)
     .filter(r => r) // Filter out null or undefined relationships
     .map(r => `${r.entity_id}(T:${r.trust_level}, R:${r.respect_level ?? 0}, Th:${r.perceived_threat ?? 0}, A:${r.ideological_alignment ?? 0}, D:${r.dependency_level ?? 0})`).join(', ');
   const personality = entity.personality ? `Personality(A:${entity.personality.ambition}, P:${entity.personality.paranoia}, L:${entity.personality.loyalty}, C:${entity.personality.cunning}, H:${entity.personality.honor})` : '';
+  const skills = entity.skills ? `Skills: ${Object.entries(entity.skills).map(([name, value]) => `${name}:${value}`).join(', ')}` : '';
   const beliefs = entity.beliefs ? `Beliefs: ${entity.beliefs.join('; ')}` : '';
   const scheme = entity.active_scheme ? `Active Scheme: ${JSON.stringify(entity.active_scheme)}` : '';
-  return `${entity.name} (${entity.position || entity.entity_type}) [Status: ${entity.status}, Location: ${entity.location}] Goals: ${entity.short_term_goals.join(', ')}. ${scheme}. ${personality}. ${beliefs}. Relationships: ${relationships}`;
+  return `${entity.name} (${entity.position || entity.entity_type}) [Status: ${entity.status}, Location: ${entity.location}] Goals: ${entity.short_term_goals.join(', ')}. ${scheme}. ${personality}. ${skills}. ${beliefs}. Relationships: ${relationships}`;
 }
 
 /**

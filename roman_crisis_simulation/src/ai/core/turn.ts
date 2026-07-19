@@ -1,15 +1,17 @@
 import { GoogleGenAI } from "@google/genai";
-import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState } from '../../types';
+import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent } from '../../types';
 import { AdjudicationSchema } from './schemas';
 import { applyAdjudication, applyDeltas } from './engine';
 import { mockRunNewTurn } from "../mocks";
 import { getPlayerMonologue, getStoryRelevance, getUpdatedSimulationState, getRelationshipUpdates, simulatePrivateConversation } from '../tools/intelligence';
+import { getActionAssessment } from '../tools/assessment';
 import { generateStructured, generateText, generateTextStream, GEMINI_PRO, beginTurnCapture, endTurnCapture } from './geminiService';
 import { zAdjudication } from './zodSchemas';
-import { buildAdjudicationPrompt } from '../prompts/adjudication';
+import { buildAdjudicationPrompt, PlayerActionOutcomeContext } from '../prompts/adjudication';
 import { buildNarrationPrompt } from '../prompts/narration';
 import { processMortality, detectDeathClaims } from './mortality';
 import { createNarrationStreamGate } from './streamSplit';
+import { rollD20, resolveAction, derivePersonalityModifier, deriveOppositionModifier } from './resolution';
 
 // Adjudication is the highest-stakes, most consequence-dense call of the
 // turn - a moderate temperature keeps outcomes varied without letting the
@@ -33,6 +35,14 @@ const NARRATION_TEMPERATURE = 1.0;
  *    merged with any private-conversation deltas) actually claims a death -
  *    see `detectDeathClaims`, called just below to decide this WITHOUT
  *    duplicating `processMortality`'s own internal fast-path detection.
+ *
+ * RESOLUTION LAYER NOTE (ROADMAP_0_MASTER_PLAN.md Phase 3 item 4): the
+ * resolution layer's assessment call (`ai/tools/assessment.ts::getActionAssessment`)
+ * runs CONCURRENTLY with `getStoryRelevance` under the SAME `'story_relevance'`
+ * notification - it deliberately does NOT get its own `TurnStage` member.
+ * `components/Chat.tsx` holds an exhaustive `Record` over this union owned
+ * by a concurrent workstream, so this feature composes with the existing
+ * stage window instead of extending it.
  *
  * PARALLELIZATION NOTE (ROADMAP_0_MASTER_PLAN.md Phase 3 item 3): once the
  * mortality-transformed adjudication has been applied, `simulation_state`,
@@ -112,11 +122,72 @@ export async function runNewTurn(
     beginTurnCapture();
 
     try {
-    // 0. Determine story relevance to identify spotlight entities for proactive simulation
+    // 0. Determine story relevance (Director spotlight-picking) AND assess
+    // whether the player's action is consequential enough to warrant a
+    // hidden dice resolution (ROADMAP_0_MASTER_PLAN.md Phase 3 item 4's
+    // resolution layer) - launched CONCURRENTLY via `Promise.all`. Both
+    // calls only read PRE-TURN state (currentWorldState/currentEntities/
+    // playerEntity/turnHistory) and are otherwise fully independent of one
+    // another, so this costs zero additional wall-clock over story_relevance
+    // alone (see the TurnStage doc comment above for why both share the
+    // single 'story_relevance' notification instead of a new stage).
     options?.onStage?.('story_relevance');
-    const storyRelevance = await getStoryRelevance(ai, turnNumber, turnHistory.slice(-1)[0]?.adjudication.headlines || [], currentWorldState, isMockMode);
-
     const npcEntities = currentEntities.filter(e => e.entity_id !== playerEntity.entity_id);
+    const [storyRelevance, actionAssessment] = await Promise.all([
+        getStoryRelevance(ai, turnNumber, turnHistory.slice(-1)[0]?.adjudication.headlines || [], currentWorldState, isMockMode),
+        getActionAssessment(ai, playerEntity, playerIntent, currentWorldState, npcEntities, isMockMode),
+    ]);
+
+    // *** RESOLUTION LAYER (ROADMAP_0_MASTER_PLAN.md Phase 3 item 4) ***
+    // The model NEVER decides whether the player's action succeeds - it only
+    // narrates a pre-decided outcome, mirroring the mortality pipeline's own
+    // contract (DESIGN_DECISIONS.md D2/D3/D4). Non-consequential actions
+    // (questions, idle conversation, pure information requests) skip rolling
+    // entirely: no PLAYER ACTION OUTCOME block is injected into the
+    // adjudication prompt below, no `resolutionTrace` is recorded, and the
+    // adjudicator behaves exactly as it did before this feature existed.
+    let playerActionOutcome: PlayerActionOutcomeContext | undefined;
+    let resolutionTrace: ActionResolutionEvent | undefined;
+    if (actionAssessment.is_consequential) {
+        const opposingEntity = actionAssessment.opposing_entity_id
+            ? currentEntities.find(e => e.entity_id === actionAssessment.opposing_entity_id)
+            : undefined;
+        // Directional per this codebase's relationship convention (see
+        // ai/prompts/adjudication.ts's RELATIONSHIP DELTAS rule): a
+        // relationship keyed under entity A describes A's perception of the
+        // OTHER entity ONLY. `opposingEntity.relationships[playerEntity.entity_id]`
+        // is therefore the opposing entity's perception of the PLAYER - "the
+        // opposing entity's directional stats toward the actor" this
+        // feature's spec calls for.
+        const relationshipTowardActor = opposingEntity?.relationships[playerEntity.entity_id];
+
+        const relevantSkillValue = actionAssessment.relevant_skill
+            ? playerEntity.skills?.[actionAssessment.relevant_skill] ?? null
+            : null;
+        const personalityModifier = derivePersonalityModifier({
+            personality: playerEntity.personality,
+            relevantSkill: actionAssessment.relevant_skill,
+            actionCategory: actionAssessment.action_category,
+        });
+        const oppositionModifier = deriveOppositionModifier({ relationshipTowardActor });
+
+        const resolution = resolveAction({
+            roll: rollD20(),
+            relevantSkillValue,
+            personalityModifier,
+            oppositionModifier,
+            difficulty: actionAssessment.difficulty,
+        });
+
+        playerActionOutcome = { tier: resolution.tier, actionCategory: actionAssessment.action_category };
+        resolutionTrace = {
+            assessment: actionAssessment,
+            roll: resolution.roll,
+            total: resolution.total,
+            margin: resolution.margin,
+            tier: resolution.tier,
+        };
+    }
 
     // 1. Compile context
     const recentHistory = turnHistory.slice(-6).map(h => `Turn ${h.turnNumber}: ${h.narration || h.adjudication.headlines.join('. ')}`);
@@ -130,6 +201,7 @@ export async function runNewTurn(
         gmInterventionText,
         storyRelevance,
         metaNarrative,
+        playerActionOutcome,
     });
 
     // 2. Get adjudication from AI
@@ -144,6 +216,19 @@ export async function runNewTurn(
         thinkingConfig: { thinkingBudget: 1024 },
         temperature: ADJUDICATION_TEMPERATURE,
     });
+
+    // Record the resolution layer's trace as a GM-private note (mirrors the
+    // mortality pipeline's own gm_private notes) BEFORE processMortality
+    // deep-clones the adjudication below, so the note is carried through
+    // into `transformedAdjudication` automatically. Mechanics (roll/total/
+    // margin/tier) are fine here - gm_private is stripped entirely before
+    // the player-facing narration call (see narration.ts's
+    // sanitizeAdjudicationForNarration).
+    if (resolutionTrace) {
+        adjudication.gm_private.push(
+            `[Resolution] Player action ("${playerIntent}", ${resolutionTrace.assessment.action_category}) - roll ${resolutionTrace.roll} + modifiers vs difficulty ${resolutionTrace.assessment.difficulty} -> margin ${resolutionTrace.margin.toFixed(1)} -> ${resolutionTrace.tier}.`
+        );
+    }
 
     // *** NEW STEP 2.5: SIMULATE OFF-SCREEN NPC CONVERSATION ***
     // Moved ahead of applyAdjudication (previously ran on post-applyAdjudication
@@ -329,6 +414,7 @@ export async function runNewTurn(
         postTurnEntities: updatedEntities, // Store final state
         rawCalls: endTurnCapture(),
         mortalityTrace: mortalityEvents.length > 0 ? mortalityEvents : undefined,
+        resolutionTrace,
     };
 
     const result = {
