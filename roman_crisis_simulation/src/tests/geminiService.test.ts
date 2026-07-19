@@ -4,13 +4,43 @@ import { ApiError } from '@google/genai';
 import {
   generateStructured,
   generateText,
+  generateTextStream,
   AiServiceError,
   GeminiClient,
+  beginTurnCapture,
+  endTurnCapture,
 } from '../ai/core/geminiService';
 
 /** Minimal mock client matching GeminiClient's structural shape. */
 function makeMockAi(generateContent: (...args: any[]) => Promise<{ text?: string }>): GeminiClient {
   return { models: { generateContent } };
+}
+
+/** Minimal mock client for streaming - `generateContent` is stubbed but unused. */
+function makeStreamMockAi(
+  generateContentStream: (...args: any[]) => Promise<AsyncIterable<{ text?: string }>>
+): GeminiClient {
+  return {
+    models: {
+      generateContent: vi.fn(async () => ({ text: '' })),
+      generateContentStream,
+    },
+  };
+}
+
+/** Builds an async generator yielding one chunk per string in `texts`. */
+async function* chunksOf(texts: string[]): AsyncGenerator<{ text?: string }> {
+  for (const text of texts) {
+    yield { text };
+  }
+}
+
+/** Like `chunksOf`, but throws `error` after yielding all of `texts`. */
+async function* chunksThenThrow(texts: string[], error: unknown): AsyncGenerator<{ text?: string }> {
+  for (const text of texts) {
+    yield { text };
+  }
+  throw error;
 }
 
 describe('geminiService', () => {
@@ -176,6 +206,197 @@ describe('geminiService', () => {
         generateText(ai, { callName: 'test-fatal-400', model: 'test-model', prompt: 'say hi' })
       ).rejects.toMatchObject({ name: 'AiServiceError', kind: 'fatal' });
       expect(generateContent).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('generateTextStream', () => {
+    afterEach(() => {
+      endTurnCapture(); // Drain any capture left active by a test that forgot to end it.
+    });
+
+    it('accumulates cumulative text across chunks, invoking onChunk after each, and resolves with the full text', async () => {
+      const generateContentStream = vi.fn(async () => chunksOf(['Hello ', 'brave ', 'new world']));
+      const ai = makeStreamMockAi(generateContentStream);
+
+      const onChunk = vi.fn();
+      const result = await generateTextStream(
+        ai,
+        { callName: 'test-stream-happy', model: 'test-model', prompt: 'narrate' },
+        onChunk
+      );
+
+      expect(result).toBe('Hello brave new world');
+      expect(onChunk).toHaveBeenCalledTimes(3);
+      expect(onChunk).toHaveBeenNthCalledWith(1, 'Hello ');
+      expect(onChunk).toHaveBeenNthCalledWith(2, 'Hello brave ');
+      expect(onChunk).toHaveBeenNthCalledWith(3, 'Hello brave new world');
+      expect(generateContentStream).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips onChunk for a chunk carrying no text', async () => {
+      const generateContentStream = vi.fn(async () => chunksOf(['A', '', 'B']));
+      const ai = makeStreamMockAi(generateContentStream);
+
+      const onChunk = vi.fn();
+      const result = await generateTextStream(
+        ai,
+        { callName: 'test-stream-empty-chunk', model: 'test-model', prompt: 'narrate' },
+        onChunk
+      );
+
+      expect(result).toBe('AB');
+      expect(onChunk).toHaveBeenCalledTimes(2);
+    });
+
+    describe('acquisition retry (transient failures before the stream starts)', () => {
+      beforeEach(() => {
+        vi.useFakeTimers();
+      });
+
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it('retries a transient failure while ACQUIRING the stream and succeeds', async () => {
+        const serverError = new ApiError({ message: 'Internal Server Error', status: 500 });
+        const generateContentStream = vi
+          .fn()
+          .mockRejectedValueOnce(serverError)
+          .mockResolvedValueOnce(chunksOf(['Recovered ', 'narration']));
+        const ai = makeStreamMockAi(generateContentStream);
+
+        const onChunk = vi.fn();
+        const resultPromise = generateTextStream(
+          ai,
+          { callName: 'test-stream-acquire-retry', model: 'test-model', prompt: 'narrate' },
+          onChunk
+        );
+
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        const result = await resultPromise;
+        expect(result).toBe('Recovered narration');
+        expect(generateContentStream).toHaveBeenCalledTimes(2);
+        expect(onChunk).toHaveBeenCalledTimes(2);
+      });
+
+      it('gives up after exhausting acquisition retries and throws a transient AiServiceError', async () => {
+        const serverError = new ApiError({ message: 'Internal Server Error', status: 503 });
+        const generateContentStream = vi.fn().mockRejectedValue(serverError);
+        const ai = makeStreamMockAi(generateContentStream);
+
+        const resultPromise = generateTextStream(
+          ai,
+          { callName: 'test-stream-acquire-exhausted', model: 'test-model', prompt: 'narrate' },
+          vi.fn()
+        );
+        resultPromise.catch(() => {});
+
+        await vi.advanceTimersByTimeAsync(30_000);
+
+        await expect(resultPromise).rejects.toMatchObject({
+          name: 'AiServiceError',
+          kind: 'transient',
+          callName: 'test-stream-acquire-exhausted',
+        });
+        expect(generateContentStream).toHaveBeenCalledTimes(3); // MAX_ATTEMPTS
+      });
+
+      it('does not retry a non-transient acquisition failure - fails fast as fatal', async () => {
+        const badRequest = new ApiError({ message: 'Bad Request', status: 400 });
+        const generateContentStream = vi.fn().mockRejectedValue(badRequest);
+        const ai = makeStreamMockAi(generateContentStream);
+
+        await expect(
+          generateTextStream(
+            ai,
+            { callName: 'test-stream-acquire-fatal', model: 'test-model', prompt: 'narrate' },
+            vi.fn()
+          )
+        ).rejects.toMatchObject({ name: 'AiServiceError', kind: 'fatal' });
+        expect(generateContentStream).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it('surfaces a mid-stream failure (after chunks started flowing) as a transient AiServiceError with no retry', async () => {
+      const midStreamError = new Error('connection dropped mid-response');
+      const generateContentStream = vi.fn(async () =>
+        chunksThenThrow(['The senator rises', ' to speak, but'], midStreamError)
+      );
+      const ai = makeStreamMockAi(generateContentStream);
+
+      const onChunk = vi.fn();
+      await expect(
+        generateTextStream(
+          ai,
+          { callName: 'test-stream-mid-error', model: 'test-model', prompt: 'narrate' },
+          onChunk
+        )
+      ).rejects.toMatchObject({
+        name: 'AiServiceError',
+        kind: 'transient',
+        callName: 'test-stream-mid-error',
+      });
+
+      // The chunks that DID arrive before the failure were still delivered.
+      expect(onChunk).toHaveBeenCalledTimes(2);
+      // No retry of the stream itself - acquiring it only happened once.
+      expect(generateContentStream).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws a fatal AiServiceError if the client has no generateContentStream implementation', async () => {
+      const ai: GeminiClient = { models: { generateContent: vi.fn(async () => ({ text: '' })) } };
+
+      await expect(
+        generateTextStream(
+          ai,
+          { callName: 'test-stream-unsupported', model: 'test-model', prompt: 'narrate' },
+          vi.fn()
+        )
+      ).rejects.toMatchObject({ name: 'AiServiceError', kind: 'fatal', callName: 'test-stream-unsupported' });
+    });
+
+    it('records the full concatenated text (with attempts/latency) via the turn capture, same as generateText', async () => {
+      const generateContentStream = vi.fn(async () => chunksOf(['Part one ', 'part two']));
+      const ai = makeStreamMockAi(generateContentStream);
+
+      beginTurnCapture();
+      const result = await generateTextStream(
+        ai,
+        { callName: 'test-stream-capture', model: 'test-model', prompt: 'narrate' },
+        vi.fn()
+      );
+      const records = endTurnCapture();
+
+      expect(result).toBe('Part one part two');
+      expect(records).toHaveLength(1);
+      expect(records[0]).toMatchObject({
+        callName: 'test-stream-capture',
+        model: 'test-model',
+        attempts: 1,
+        rawResponse: 'Part one part two',
+        validated: true,
+      });
+      expect(records[0].latencyMs).toBeGreaterThanOrEqual(0);
+      expect(records[0].promptChars).toBe('narrate'.length);
+    });
+
+    it('does not record anything if acquiring the stream fails outright (nothing succeeded to capture)', async () => {
+      const badRequest = new ApiError({ message: 'Bad Request', status: 400 });
+      const generateContentStream = vi.fn().mockRejectedValue(badRequest);
+      const ai = makeStreamMockAi(generateContentStream);
+
+      beginTurnCapture();
+      await expect(
+        generateTextStream(
+          ai,
+          { callName: 'test-stream-capture-fail', model: 'test-model', prompt: 'narrate' },
+          vi.fn()
+        )
+      ).rejects.toThrow();
+      const records = endTurnCapture();
+
+      expect(records).toHaveLength(0);
     });
   });
 

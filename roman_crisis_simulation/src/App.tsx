@@ -4,7 +4,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 
 import Header from './components/Header';
 import CharacterSelection, { SavedGameSummary } from './components/CharacterSelection';
-import { ChatMessage, ChatInput, ActionPills, TypingIndicator } from './components/Chat';
+import { ChatMessage, ChatInput, ActionPills, TypingIndicator, StreamingNarrationBubble } from './components/Chat';
 import CrisisBanner from './components/CrisisBanner';
 import DispatchesDigest from './components/DispatchesDigest';
 import SidePanel from './components/SidePanel';
@@ -12,7 +12,7 @@ import GameMasterScreen from './components/GameMasterScreen';
 import EventModal from './components/EventModal';
 import EpilogueScreen from './components/EpilogueScreen';
 import { ALL_INITIAL_ENTITIES, INITIAL_WORLD_STATE, INITIAL_SIMULATION_STATE } from './constants/baseScenario';
-import { runNewTurn } from './ai/core/turn';
+import { runNewTurn, TurnStage } from './ai/core/turn';
 import { WorldState } from './types';
 import { createCharacter } from './ai/tools/characterCreator';
 import { inferAmbition } from './ai/tools/ambition';
@@ -71,6 +71,17 @@ const App: React.FC = () => {
     // part of the save bundle - see persistence/saveGame.ts.
     const [savedGameInfo, setSavedGameInfo] = useState<SavedGameSummary | null>(null);
     const [retryAction, setRetryAction] = useState<string | null>(null);
+
+    // ROADMAP_0_MASTER_PLAN.md Phase 3 items 1-2 - the "thinking theater" and
+    // streaming narration. Both are purely transient, in-flight-turn UI
+    // state, never part of the save bundle: `turnStage` drives the themed
+    // status line (see components/Chat.tsx's TypingIndicator/ChatInput),
+    // `streamingNarration` holds the live, gate-filtered GM bubble text
+    // (see StreamingNarrationBubble) fed by runNewTurn's `onNarrationChunk`.
+    // Both are cleared the instant a turn commits OR errors - see
+    // executeTurn below - so they never survive past the turn that set them.
+    const [turnStage, setTurnStage] = useState<TurnStage | null>(null);
+    const [streamingNarration, setStreamingNarration] = useState<string>('');
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const aiRef = useRef(new GoogleGenAI({apiKey: process.env.API_KEY}));
@@ -271,6 +282,11 @@ const App: React.FC = () => {
         // Any in-flight retry affordance is superseded by this attempt (fresh
         // or re-run) - it'll be recreated below if this attempt also fails.
         setRetryAction(null);
+        // Reset the thinking-theater/streaming state for this fresh attempt.
+        // Defensive: both are already cleared by the previous turn's
+        // success/error path below, but a stale value must never carry over.
+        setTurnStage(null);
+        setStreamingNarration('');
 
         const playerMessage: Message = { sender: 'player', text: playerActionText };
         addMessage(playerMessage);
@@ -305,7 +321,8 @@ const App: React.FC = () => {
                 reports,
                 gmInterventionText,
                 isMockMode,
-                metaNarrative
+                metaNarrative,
+                { onStage: setTurnStage, onNarrationChunk: setStreamingNarration }
             );
 
             // COMMIT STATE
@@ -335,6 +352,11 @@ const App: React.FC = () => {
             setCurrentEvents(result.headlines);
             setTurnInvestigations([]);
             setGmInterventionText(''); // Clear intervention after it's used
+            // The final, parsed narration message above now replaces the
+            // transient streaming bubble - clear the thinking-theater state
+            // so it can't linger into the next AWAITING_PLAYER_INPUT render.
+            setTurnStage(null);
+            setStreamingNarration('');
 
             // DESIGN_DECISIONS.md D1 - survival-only: ONLY the player's own
             // death ends the run. Once it does, skip the event-trigger check
@@ -416,6 +438,12 @@ const App: React.FC = () => {
             // the player's game over this — no "please refresh" (persistence
             // now exists, and nothing was committed mid-turn anyway).
             console.error("Error running turn:", error);
+
+            // On ANY error, the transient streaming bubble and stage state
+            // are cleared - they're pure in-flight-turn UI, and this turn's
+            // attempt just ended (whether or not the player retries).
+            setTurnStage(null);
+            setStreamingNarration('');
 
             // AiServiceError (ai/core/geminiService.ts) distinguishes a
             // transient failure (network/429/5xx that survived retries) -
@@ -719,7 +747,11 @@ const App: React.FC = () => {
                                 <>
                                     <main className="flex-grow p-4 overflow-y-auto" aria-live="polite">
                                         {messages.map((msg, index) => <ChatMessage key={index} message={msg} />)}
-                                        {gameState === GameState.PROCESSING && <TypingIndicator />}
+                                        {gameState === GameState.PROCESSING && (
+                                            streamingNarration
+                                                ? <StreamingNarrationBubble text={streamingNarration} />
+                                                : <TypingIndicator stage={turnStage} />
+                                        )}
                                         {gameState !== GameState.PROCESSING && lastTurn && (
                                             <DispatchesDigest changes={lastTurnPerceivedChanges} />
                                         )}
@@ -748,6 +780,7 @@ const App: React.FC = () => {
                                                     onSubmit={handleSendMessage}
                                                     disabled={gameState !== GameState.AWAITING_PLAYER_INPUT}
                                                     isProcessing={gameState === GameState.PROCESSING}
+                                                    turnStage={turnStage}
                                                 />
                                             </div>
                                             <div className="pr-4">

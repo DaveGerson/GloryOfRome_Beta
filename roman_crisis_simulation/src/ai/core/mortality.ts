@@ -44,8 +44,20 @@ interface DeathClaim {
   isPlayer: boolean;
 }
 
-/** Scans `deltas` for status deltas that claim a death (reusing engine.ts's exact detection rule) and resolves them against `entities`. */
-function detectDeathClaims(deltas: EventDelta[], entities: Entity[], playerId: string): DeathClaim[] {
+/**
+ * Scans `deltas` for status deltas that claim a death (reusing engine.ts's
+ * exact detection rule) and resolves them against `entities`.
+ *
+ * Exported so `turn.ts` can run this SAME cheap, side-effect-free check
+ * before deciding whether to fire the `'mortality'` `onStage` notification
+ * (ROADMAP_0_MASTER_PLAN.md Phase 3 item 1) - rather than duplicating the
+ * detection rule, or having `processMortality` itself take an `onStage`
+ * param just to report "I'm about to do nothing." `processMortality` below
+ * still calls this again internally for its own fast-path; that's one cheap
+ * array scan repeated, not a second AI call, so there's no real cost to
+ * keeping the two call sites independent.
+ */
+export function detectDeathClaims(deltas: EventDelta[], entities: Entity[], playerId: string): DeathClaim[] {
   const claims: DeathClaim[] = [];
   for (const delta of deltas) {
     if (!isDeathClaimDelta(delta)) continue;
