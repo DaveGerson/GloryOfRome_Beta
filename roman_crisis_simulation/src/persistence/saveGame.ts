@@ -78,6 +78,17 @@ export interface SaveGameState {
    * back to `null` when reading it off an old save).
    */
   inferredAmbition?: InferredAmbitionState | null;
+  /**
+   * ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - the investigation-consequence
+   * queue closing the `turnInvestigations` loop (see
+   * `components/investigationLoop.ts`). Optional so `SAVE_VERSION` stays at
+   * 1: a pre-existing save with no such field loads cleanly and simply
+   * starts with an empty queue (App.tsx's `handleContinue` falls back to
+   * `[]` when reading it off an old save). Deliberately survives a
+   * mid-retry failure - only cleared once the turn that consumes it
+   * actually commits.
+   */
+  pendingIntelligenceFallout?: string[];
 }
 
 /** The versioned envelope actually written to storage. */

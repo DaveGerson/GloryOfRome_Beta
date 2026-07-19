@@ -287,7 +287,16 @@ const GameMasterScreen: React.FC<{
     worldState: WorldState;
     /** DESIGN_DECISIONS.md D8 - the latest inferred-ambition snapshot, if any. GM-console-only display; never shown to the player. */
     inferredAmbition?: InferredAmbitionState | null;
-}> = ({ history, onClose, interventionText, onSetIntervention, playerCharacterId, worldState, inferredAmbition }) => {
+    /**
+     * ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - the investigation-consequence
+     * queue (components/investigationLoop.ts), not yet consumed by a
+     * committed turn. Per DESIGN_DECISIONS.md D5, the player only ever gets
+     * a subtle in-fiction hint that something went wrong - this raw,
+     * mechanical text is GM-console-only, same as everything else on this
+     * screen (D7).
+     */
+    pendingIntelligenceFallout?: string[];
+}> = ({ history, onClose, interventionText, onSetIntervention, playerCharacterId, worldState, inferredAmbition, pendingIntelligenceFallout }) => {
     const [activeTab, setActiveTab] = useState('summary');
     const [interventionInput, setInterventionInput] = useState(interventionText);
     const [showConfirmation, setShowConfirmation] = useState(false);
@@ -316,6 +325,28 @@ const GameMasterScreen: React.FC<{
                         <span className="text-stone-500">
                             (confidence: {inferredAmbition.confidence}, as of turn {inferredAmbition.asOfTurn})
                         </span>
+                    </div>
+                )}
+
+                {/*
+                  ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - the raw, mechanical
+                  consequence text queued by a risky investigation (see
+                  components/investigationLoop.ts) that hasn't yet been fed
+                  into a turn's GM Intervention text (App.tsx's executeTurn).
+                  This is the ONLY player-adjacent-but-not-player-facing
+                  surface where the literal string is shown - the player
+                  themselves only ever gets the subtle chat notice at the
+                  moment of investigation, then the reinterpreted fallout via
+                  next turn's narration (D5).
+                */}
+                {pendingIntelligenceFallout && pendingIntelligenceFallout.length > 0 && (
+                    <div className="mb-4 flex-shrink-0 text-sm bg-stone-900 border border-stone-700 rounded-md px-3 py-2">
+                        <span className="font-bold text-stone-300">Pending Intelligence Fallout:</span>
+                        <ul className="list-disc list-inside ml-2 mt-1">
+                            {pendingIntelligenceFallout.map((consequence, index) => (
+                                <li key={index} className="text-amber-300 italic">"{consequence}"</li>
+                            ))}
+                        </ul>
                     </div>
                 )}
 

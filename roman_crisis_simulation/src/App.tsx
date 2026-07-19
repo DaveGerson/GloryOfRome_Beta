@@ -25,6 +25,7 @@ import { AiServiceError } from './ai/core/geminiService';
 import { saveGame, loadGame, clearSave, hasSave, SaveGameState, InferredAmbitionState } from './persistence/saveGame';
 import { hasSeenOnboarding, markOnboardingSeen } from './persistence/onboarding';
 import { buildPerceivedDigest, TabId } from './perception/visibility';
+import { appendFallout, clearFallout, buildInterventionTextWithFallout, hasFallout } from './components/investigationLoop';
 
 
 // --- MAIN APP ---
@@ -55,7 +56,18 @@ const App: React.FC = () => {
     // (see the effect below) and, in dev builds, a small Header checkbox both
     // flip it. Deliberately not persisted - every fresh session starts hidden.
     const [isGmConsoleEnabled, setIsGmConsoleEnabled] = useState(false);
-    const [turnInvestigations, setTurnInvestigations] = useState<InvestigationResult[]>([]);
+    // ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - the investigation-consequence
+    // queue (components/investigationLoop.ts). Replaces the old
+    // `turnInvestigations: InvestigationResult[]` state, which stashed full
+    // investigation results and cleared them every turn WITHOUT ever
+    // feeding the `consequences` string back into the world - the exact
+    // "wired and never consumed" dead loop the roadmap calls out. This
+    // holds just the pending, not-yet-narrated consequence strings; it's
+    // appended to by handleNewInvestigationResult, prepended onto
+    // `gmInterventionText` for the next `runNewTurn` call (see
+    // `executeTurn`), and only cleared once that turn actually commits -
+    // NOT on a failed/rolled-back turn, so a retry still carries it.
+    const [pendingIntelligenceFallout, setPendingIntelligenceFallout] = useState<string[]>([]);
     const [gmInterventionText, setGmInterventionText] = useState<string>('');
     const [isMockMode, setIsMockMode] = useState(false);
     const [activeEvent, setActiveEvent] = useState<GameEvent | null>(null);
@@ -210,8 +222,9 @@ const App: React.FC = () => {
         currentEvents,
         gmInterventionText,
         inferredAmbition,
+        pendingIntelligenceFallout,
         ...overrides,
-    }), [entities, worldState, simulationState, reports, turnNumber, playerCharacterId, turnHistory, eventHistory, metaNarrative, messages, triggeredEventIds, suggestedActions, currentEvents, gmInterventionText, inferredAmbition]);
+    }), [entities, worldState, simulationState, reports, turnNumber, playerCharacterId, turnHistory, eventHistory, metaNarrative, messages, triggeredEventIds, suggestedActions, currentEvents, gmInterventionText, inferredAmbition, pendingIntelligenceFallout]);
 
     // On mount, check for an existing autosave so CharacterSelection can
     // offer a "Continue your reign" card instead of forcing a fresh start.
@@ -321,6 +334,16 @@ const App: React.FC = () => {
         const preTurnSnapshot = buildSaveState({ messages: [...messages, playerMessage] });
         preTurnSnapshotRef.current = preTurnSnapshot;
 
+        // ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - without touching
+        // runNewTurn's signature (ai/** is off-limits here), any pending
+        // investigation fallout rides into this turn's adjudication by
+        // being prepended onto the GM Intervention text - the adjudicator
+        // already treats that argument as a must-honor world fact (see
+        // ai/prompts/fragments.ts's buildGmInterventionBlock). This is
+        // computed fresh from CURRENT state every attempt (including a
+        // retry), so a retried turn still carries the same fallout.
+        const interventionTextForTurn = buildInterventionTextWithFallout(pendingIntelligenceFallout, gmInterventionText);
+
         try {
             const result = await runNewTurn(
                 aiRef.current,
@@ -332,7 +355,7 @@ const App: React.FC = () => {
                 simulationState, // Pass the new state here
                 turnHistory,
                 reports,
-                gmInterventionText,
+                interventionTextForTurn,
                 isMockMode,
                 metaNarrative,
                 { onStage: setTurnStage, onNarrationChunk: setStreamingNarration }
@@ -363,7 +386,12 @@ const App: React.FC = () => {
             addMessage(monologueMessage);
             setSuggestedActions(result.suggestedActions);
             setCurrentEvents(result.headlines);
-            setTurnInvestigations([]);
+            // ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - the fallout queue is
+            // "consumed" only here, once the turn that was handed
+            // `interventionTextForTurn` (built from it, above) has actually
+            // committed. A failed/rolled-back attempt never reaches this
+            // line, so the queue survives untouched for a retry.
+            setPendingIntelligenceFallout(clearFallout());
             setGmInterventionText(''); // Clear intervention after it's used
             // The final, parsed narration message above now replaces the
             // transient streaming bubble - clear the thinking-theater state
@@ -403,6 +431,7 @@ const App: React.FC = () => {
                 suggestedActions: result.suggestedActions,
                 currentEvents: result.headlines,
                 gmInterventionText: '',
+                pendingIntelligenceFallout: [],
             }));
 
             // DESIGN_DECISIONS.md D8 - a cheap periodic model call infers the
@@ -439,6 +468,7 @@ const App: React.FC = () => {
                             suggestedActions: result.suggestedActions,
                             currentEvents: result.headlines,
                             gmInterventionText: '',
+                            pendingIntelligenceFallout: [],
                             inferredAmbition: nextAmbition,
                         }));
                     })
@@ -499,13 +529,21 @@ const App: React.FC = () => {
                 setSuggestedActions(snapshot.suggestedActions);
                 setCurrentEvents(snapshot.currentEvents);
                 setGmInterventionText(snapshot.gmInterventionText);
+                // ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - the fallout
+                // queue was never actually cleared on this path (that only
+                // happens in the success branch above), so this is a no-op
+                // in practice today - restored explicitly anyway, for the
+                // same "don't rely on the invariant" reason as every other
+                // field here. Guarantees a failed/rolled-back turn's
+                // pending fallout survives intact for a retry.
+                setPendingIntelligenceFallout(snapshot.pendingIntelligenceFallout ?? []);
             }
 
             setGameState(GameState.AWAITING_PLAYER_INPUT);
             // Restore the player's action so they can retry without retyping it.
             setInputValue(playerActionText);
         }
-    }, [entities, playerCharacterId, turnNumber, worldState, simulationState, reports, turnHistory, messages, addMessage, gmInterventionText, isMockMode, metaNarrative, buildSaveState]);
+    }, [entities, playerCharacterId, turnNumber, worldState, simulationState, reports, turnHistory, messages, addMessage, gmInterventionText, isMockMode, metaNarrative, buildSaveState, pendingIntelligenceFallout]);
 
     const handleSendMessage = () => {
         const text = inputValue.trim();
@@ -623,8 +661,29 @@ const App: React.FC = () => {
         saveGame(buildSaveState({ entities: newEntities }));
     };
 
+    // ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - queues any risky
+    // investigation's consequence for the next turn (see
+    // components/investigationLoop.ts and executeTurn's
+    // interventionTextForTurn above), and - per DESIGN_DECISIONS.md D5 (the
+    // player is never omniscient) - surfaces only a subtle, in-fiction hint
+    // right now, never the mechanical consequence text itself. That text
+    // only ever reaches a player-facing surface once it's been reinterpreted
+    // through next turn's narration/dispatches; the GM console
+    // (GameMasterScreen's "Pending Intelligence Fallout" line) is the one
+    // place it's shown verbatim.
     const handleNewInvestigationResult = (result: InvestigationResult) => {
-        setTurnInvestigations(prev => [...prev, result]);
+        const nextFallout = appendFallout(pendingIntelligenceFallout, result);
+        if (nextFallout !== pendingIntelligenceFallout) {
+            setPendingIntelligenceFallout(nextFallout);
+            saveGame(buildSaveState({ pendingIntelligenceFallout: nextFallout }));
+        }
+
+        if (hasFallout(result.consequences)) {
+            addMessage({
+                sender: 'gm',
+                text: "Your agent returns — but something in their manner suggests the visit did not go unnoticed."
+            });
+        }
     };
 
     const handleSetIntervention = (text: string) => {
@@ -703,6 +762,10 @@ const App: React.FC = () => {
         // existed, so this normalizes it to `null` rather than `undefined`
         // for InferredAmbitionState | null's sake.
         setInferredAmbition(s.inferredAmbition ?? null);
+        // Optional field (Phase 3 item 5) - absent on saves from before the
+        // investigation-fallout queue existed, so this normalizes it to an
+        // empty queue rather than `undefined`.
+        setPendingIntelligenceFallout(s.pendingIntelligenceFallout ?? []);
 
         // A save can legitimately be reloaded while the last-loaded run had
         // already ended (the player closed/refreshed the tab on the epilogue
@@ -848,6 +911,7 @@ const App: React.FC = () => {
                             simulationState={simulationState}
                             reports={reports}
                             onSpendInvestigation={(cost) => handleSpendResource('investigations', cost)}
+                            onSpendDeepAnalysis={(cost) => handleSpendResource('deep_analyses', cost)}
                             onNewInvestigationResult={handleNewInvestigationResult}
                             onAddSecretAsResource={handleAddSecretAsResource}
                             ai={aiRef.current}
@@ -866,6 +930,7 @@ const App: React.FC = () => {
                 playerCharacterId={playerCharacterId}
                 worldState={worldState}
                 inferredAmbition={inferredAmbition}
+                pendingIntelligenceFallout={pendingIntelligenceFallout}
             />}
             {activeEvent && <EventModal event={activeEvent} onChoose={handleEventChoice} />}
             {showOnboarding && gameState === GameState.AWAITING_PLAYER_INPUT && (
