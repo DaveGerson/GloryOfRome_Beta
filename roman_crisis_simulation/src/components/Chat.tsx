@@ -171,6 +171,7 @@ export const ChatInput: React.FC<{
         <form onSubmit={handleSubmit} className="p-4">
             <div className="flex items-end">
                 <textarea
+                    id="chat-input"
                     ref={textareaRef}
                     value={value}
                     onChange={(e) => onChange(e.target.value)}

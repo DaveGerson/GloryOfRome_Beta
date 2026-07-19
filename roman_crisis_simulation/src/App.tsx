@@ -11,6 +11,8 @@ import SidePanel from './components/SidePanel';
 import GameMasterScreen from './components/GameMasterScreen';
 import EventModal from './components/EventModal';
 import EpilogueScreen from './components/EpilogueScreen';
+import OnboardingOverlay from './components/OnboardingOverlay';
+import { deriveStarterActions } from './components/starterActions';
 import { ALL_INITIAL_ENTITIES, INITIAL_WORLD_STATE, INITIAL_SIMULATION_STATE } from './constants/baseScenario';
 import { runNewTurn, TurnStage } from './ai/core/turn';
 import { WorldState } from './types';
@@ -21,6 +23,7 @@ import { initiateWorld } from './ai/core/initiator';
 import { runSmokeTest } from './tests/smokeTest';
 import { AiServiceError } from './ai/core/geminiService';
 import { saveGame, loadGame, clearSave, hasSave, SaveGameState, InferredAmbitionState } from './persistence/saveGame';
+import { hasSeenOnboarding, markOnboardingSeen } from './persistence/onboarding';
 import { buildPerceivedDigest, TabId } from './perception/visibility';
 
 
@@ -82,6 +85,16 @@ const App: React.FC = () => {
     // executeTurn below - so they never survive past the turn that set them.
     const [turnStage, setTurnStage] = useState<TurnStage | null>(null);
     const [streamingNarration, setStreamingNarration] = useState<string>('');
+
+    // ROADMAP_0_MASTER_PLAN.md Phase 3 item 6 - the first-turn onboarding
+    // intro. Purely transient UI state (never part of the save bundle):
+    // whether it's EVER been dismissed on this device lives in
+    // persistence/onboarding.ts, a dedicated localStorage key outside the
+    // save blob (it's a device preference, not campaign state). Only ever
+    // set true from `startGameWithCharacter` (a brand-new campaign, whether
+    // from a preset or a custom-created character) - never from
+    // `handleContinue`, so resuming an existing save never shows it.
+    const [showOnboarding, setShowOnboarding] = useState(false);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const aiRef = useRef(new GoogleGenAI({apiKey: process.env.API_KEY}));
@@ -525,6 +538,22 @@ const App: React.FC = () => {
         };
         addMessage(introMessage);
 
+        // ROADMAP_0_MASTER_PLAN.md Phase 3 item 6 - seed the suggested-action
+        // pills from the chosen character's own goals (pure, no AI call - see
+        // components/starterActions.ts) so turn 1 isn't a blank page.
+        const starterActions = deriveStarterActions(characterEntity);
+        setSuggestedActions(starterActions);
+
+        // Show the first-turn onboarding overlay exactly once ever, on
+        // whichever device/browser hasn't dismissed it yet - covers both a
+        // preset character (handleSelectCharacter) and a custom-created one
+        // (handleCustomCreation), since both call this function. Never
+        // fires from handleContinue, which restores `showOnboarding`'s
+        // default of `false` implicitly (it isn't part of SaveGameState).
+        if (!hasSeenOnboarding()) {
+            setShowOnboarding(true);
+        }
+
         // Autosave the very first commit of a new campaign - this is what
         // makes "Continue your reign" available on the next visit.
         saveGame(buildSaveState({
@@ -533,6 +562,7 @@ const App: React.FC = () => {
             metaNarrative: resolvedMetaNarrative,
             playerCharacterId: characterEntity.entity_id,
             messages: [...messages, introMessage],
+            suggestedActions: starterActions,
         }));
     };
 
@@ -689,6 +719,14 @@ const App: React.FC = () => {
         setSavedGameInfo(null);
     }, []);
 
+    // Fires on X, Escape, or finishing the final step alike (see
+    // OnboardingOverlay's onClose) - marks the device-level seen-flag so it
+    // never shows again, then hides the overlay.
+    const handleCloseOnboarding = useCallback(() => {
+        markOnboardingSeen();
+        setShowOnboarding(false);
+    }, []);
+
     return (
         <div className="min-h-screen text-[#3a2e2c] flex flex-col h-screen">
             <Header
@@ -830,6 +868,9 @@ const App: React.FC = () => {
                 inferredAmbition={inferredAmbition}
             />}
             {activeEvent && <EventModal event={activeEvent} onChoose={handleEventChoice} />}
+            {showOnboarding && gameState === GameState.AWAITING_PLAYER_INPUT && (
+                <OnboardingOverlay isOpen={showOnboarding} onClose={handleCloseOnboarding} />
+            )}
         </div>
     );
 };
