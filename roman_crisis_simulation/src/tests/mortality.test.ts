@@ -298,6 +298,41 @@ describe('ai/core/mortality.ts processMortality', () => {
     expect(updatedPlayer.resources.denarii).toBe(500); // 1000 - 500
   });
 
+  it('rejects status deltas authored by the outcome call (security gate: only the fate roll decides status)', async () => {
+    mockRoll(8);
+    const adjudication = makeAdjudication([
+      { type: 'status', key: playerId, delta: 0, reason: 'Ambushed on the road.', new_status: 'dead' },
+    ]);
+    const { ai } = makeMockAi(
+      JSON.stringify({ dispositions: [{ entity_id: playerId, valid: true, reasoning: 'A real ambush occurred.' }] }),
+      JSON.stringify({
+        outcomes: [
+          {
+            entity_id: playerId,
+            deltas: [
+              { type: 'resource', key: `${playerId}:denarii`, delta: -500, reason: 'Bribed the ambushers.' },
+              // A rogue status delta targeting ANOTHER entity - must be dropped,
+              // never applied: it would kill the NPC outside the fate pipeline.
+              { type: 'status', key: npcId, delta: 0, reason: 'Cut down in the crossfire.', new_status: 'dead' },
+            ],
+            narrative_directive: 'Narrate a costly escape.',
+          },
+        ],
+      })
+    );
+
+    const { transformedAdjudication } = await processMortality(ai, adjudication, entities, playerId, 5, false);
+
+    // The safe side-effect delta survives; the rogue status delta does not.
+    expect(transformedAdjudication.deltas.find(d => d.type === 'resource' && d.key === `${playerId}:denarii`)).toBeDefined();
+    expect(transformedAdjudication.deltas.find(d => d.type === 'status' && d.key === npcId)).toBeUndefined();
+    // The rejection is recorded for the GM console.
+    expect(transformedAdjudication.gm_private.some(n => n.includes('REJECTED') && n.includes(npcId))).toBe(true);
+
+    const { updatedEntities } = applyDeltas(transformedAdjudication.deltas, entities, { year: 1, week: 1, economic_stability: '', political_climate: '', regions: {} }, 5);
+    expect(updatedEntities.find(e => e.entity_id === npcId)?.status).toBe('alive');
+  });
+
   it('validated NPC death, roll 17 -> presumed dead: public status dead, secretly alive', async () => {
     mockRoll(17);
     const adjudication = makeAdjudication([

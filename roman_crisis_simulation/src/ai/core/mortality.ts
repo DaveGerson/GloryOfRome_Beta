@@ -94,6 +94,23 @@ function isNpcFateOutcome(outcome: ResolvedOutcome): outcome is NpcFateOutcome {
 }
 
 /**
+ * Splits outcome-call-authored deltas into those safe to apply (side-effect
+ * types: resource/relation/rumor/scheme/region/world/faction...) and
+ * rejected 'status' deltas, which may only ever originate from the
+ * validated fate roll itself. See the security-gate comment at the call
+ * site. Exported for direct unit testing.
+ */
+export function partitionOutcomeDeltas(deltas: EventDelta[]): { safe: EventDelta[]; rejected: EventDelta[] } {
+  const safe: EventDelta[] = [];
+  const rejected: EventDelta[] = [];
+  for (const delta of deltas) {
+    if (delta.type === 'status') rejected.push(delta);
+    else safe.push(delta);
+  }
+  return { safe, rejected };
+}
+
+/**
  * Runs the mortality pipeline against the adjudication's (already merged)
  * deltas. Fast path: if no status delta claims a death, returns
  * immediately with the adjudication untouched and zero extra AI calls.
@@ -249,7 +266,23 @@ export async function processMortality(
     claim.delta.reason = narrativeDirective;
 
     if (contentOverride?.deltas && contentOverride.deltas.length > 0) {
-      extraDeltas.push(...contentOverride.deltas);
+      // SECURITY GATE (D2/D4): the outcome call authors SIDE-EFFECT content
+      // (resource losses, relationship shifts, rumors, scheme changes) - it
+      // must never author life/freedom status itself. A 'status' delta
+      // emitted here would be appended AFTER the one detectDeathClaims/
+      // validation/roll pass and applied unchecked by applyAdjudication,
+      // letting the outcome model kill, revive, or exile ANY entity outside
+      // the hidden fate roll. The claim's own delta (rewritten above)
+      // already carries the authoritative status for this candidate; drop
+      // every 'status' delta from outcome content and record the rejection
+      // for the GM console.
+      const { safe, rejected } = partitionOutcomeDeltas(contentOverride.deltas);
+      extraDeltas.push(...safe);
+      for (const dropped of rejected) {
+        gmPrivateNotes.push(
+          `[Mortality] ${entityLabel}: REJECTED a 'status' delta authored by the outcome call (key: ${dropped.key}) - status changes may only come from the validated fate roll.`
+        );
+      }
     }
 
     if (isNpcFateOutcome(outcome) && outcome.secretlyAlive) {

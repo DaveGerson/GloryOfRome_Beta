@@ -22,7 +22,7 @@ import { checkForTriggeredEvent, applyEventChoiceDeltas } from './events/engine'
 import { initiateWorld } from './ai/core/initiator';
 import { runSmokeTest } from './tests/smokeTest';
 import { AiServiceError } from './ai/core/geminiService';
-import { saveGame, loadGame, clearSave, hasSave, SaveGameState, InferredAmbitionState } from './persistence/saveGame';
+import { saveGame, loadGame, clearSave, hasSave, updateSavedAmbition, SaveGameState, InferredAmbitionState } from './persistence/saveGame';
 import { hasSeenOnboarding, markOnboardingSeen } from './persistence/onboarding';
 import { buildPerceivedDigest, TabId } from './perception/visibility';
 import { appendFallout, clearFallout, buildInterventionTextWithFallout, hasFallout } from './components/investigationLoop';
@@ -452,25 +452,14 @@ const App: React.FC = () => {
                     .then(inference => {
                         const nextAmbition: InferredAmbitionState = { ...inference, asOfTurn: ambitionTurnNumber };
                         setInferredAmbition(nextAmbition);
-                        // Persist alongside the turn's own autosave above -
-                        // this call resolves asynchronously, well after that
-                        // saveGame() already ran, so it needs its own write
-                        // rather than relying on that earlier one to have
-                        // captured it.
-                        saveGame(buildSaveState({
-                            entities: result.updatedEntities,
-                            worldState: newWorldState,
-                            simulationState: result.updatedSimulationState,
-                            reports: result.updatedReports,
-                            turnNumber: newTurnNumber,
-                            turnHistory: newTurnHistory,
-                            messages: [...messages, playerMessage, gmMessage, monologueMessage],
-                            suggestedActions: result.suggestedActions,
-                            currentEvents: result.headlines,
-                            gmInterventionText: '',
-                            pendingIntelligenceFallout: [],
-                            inferredAmbition: nextAmbition,
-                        }));
+                        // Persist by PATCHING only the ambition field into
+                        // whatever autosave is newest at the moment this
+                        // resolves. A full saveGame(buildSaveState(...)) here
+                        // would write the stale turn snapshot this callback
+                        // closed over - if the player committed another turn
+                        // while inference was in flight, that would clobber
+                        // the newer autosave and lose those turns on reload.
+                        updateSavedAmbition(nextAmbition);
                     })
                     .catch(console.warn);
             }

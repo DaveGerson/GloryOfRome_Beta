@@ -167,6 +167,40 @@ export function saveGame(state: SaveGameState): void {
 }
 
 /**
+ * Patches ONLY the inferred-ambition field into whatever autosave is
+ * currently stored, leaving every other field of the latest save untouched.
+ *
+ * This exists because ambition inference is fire-and-forget and can resolve
+ * WELL AFTER later turns have committed and autosaved: writing a full
+ * `saveGame(buildSaveState(...))` from that async callback would clobber
+ * the newer autosave with the stale turn snapshot the callback closed over
+ * (losing every subsequently committed turn on reload). Patching the stored
+ * blob in place is immune to that staleness - it always decorates the
+ * NEWEST save, whichever turn produced it.
+ *
+ * No-ops safely (with a console.warn) when no valid save exists or storage
+ * is unavailable.
+ */
+export function updateSavedAmbition(ambition: InferredAmbitionState): void {
+  const existing = loadGame();
+  if (!existing) {
+    console.warn('updateSavedAmbition: no valid autosave to patch; skipping');
+    return;
+  }
+
+  try {
+    const patched: SaveGame = {
+      ...existing,
+      savedAt: new Date().toISOString(),
+      state: { ...existing.state, inferredAmbition: ambition },
+    };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(patched));
+  } catch (e) {
+    console.warn('updateSavedAmbition: write failed; ambition not persisted', e);
+  }
+}
+
+/**
  * Loads the autosave, or `null` if there is none, it's corrupted, it's an
  * unrecognized shape, or its version doesn't match `SAVE_VERSION`. Never
  * throws - every failure mode is a `console.warn` + `null`, so callers can
