@@ -26,6 +26,10 @@ import { saveGame, loadGame, clearSave, hasSave, updateSavedAmbition, SaveGameSt
 import { hasSeenOnboarding, markOnboardingSeen } from './persistence/onboarding';
 import { buildPerceivedDigest, TabId } from './perception/visibility';
 import { appendFallout, clearFallout, buildInterventionTextWithFallout, hasFallout } from './components/investigationLoop';
+import { Button } from './components/ui/Core';
+import { Tooltip } from './components/ui/Feedback';
+import { toRoman } from './components/ui/Brand';
+import nocturneUrl from './design/nocturne.css?url';
 
 
 // --- MAIN APP ---
@@ -86,6 +90,28 @@ const App: React.FC = () => {
     // part of the save bundle - see persistence/saveGame.ts.
     const [savedGameInfo, setSavedGameInfo] = useState<SavedGameSummary | null>(null);
     const [retryAction, setRetryAction] = useState<string | null>(null);
+
+    // LVX/NOX lighting. Nox Romae (design/nocturne.css) is an override
+    // stylesheet loaded after styles.css; toggling swaps the whole client
+    // between marble day and the torchlit night skin. Persisted so the
+    // choice survives reloads. Presentation-only - never part of the save.
+    const [isNox, setIsNox] = useState<boolean>(() => {
+        try { return localStorage.getItem('gor-theme') === 'nox'; } catch { return false; }
+    });
+
+    useEffect(() => {
+        let link = document.getElementById('nox-css') as HTMLLinkElement | null;
+        if (!link && isNox) {
+            link = document.createElement('link');
+            link.id = 'nox-css';
+            link.rel = 'stylesheet';
+            link.href = nocturneUrl;
+            document.head.appendChild(link);
+        } else if (link) {
+            link.disabled = !isNox;
+        }
+        try { localStorage.setItem('gor-theme', isNox ? 'nox' : 'lux'); } catch { /* private mode */ }
+    }, [isNox]);
 
     // ROADMAP_0_MASTER_PLAN.md Phase 3 items 1-2 - the "thinking theater" and
     // streaming narration. Both are purely transient, in-flight-turn UI
@@ -374,6 +400,9 @@ const App: React.FC = () => {
             const newTurnNumber = turnNumber + 1;
             const gmMessage: Message = { sender: 'gm', text: result.narration };
             const monologueMessage: Message = { sender: 'player_monologue', text: result.playerMonologue };
+            // Week-advance ribbon written into the stream once the turn commits
+            // (rendered as a TurnRibbon divider, not a speech bubble).
+            const ribbonMessage: Message = { sender: 'ribbon', text: `Week ${toRoman(newWorldState.week)} · The chronicler sets down the day` };
 
             setEntities(result.updatedEntities);
             setReports(result.updatedReports);
@@ -384,6 +413,7 @@ const App: React.FC = () => {
 
             addMessage(gmMessage);
             addMessage(monologueMessage);
+            addMessage(ribbonMessage);
             setSuggestedActions(result.suggestedActions);
             setCurrentEvents(result.headlines);
             // ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - the fallout queue is
@@ -427,7 +457,7 @@ const App: React.FC = () => {
                 reports: result.updatedReports,
                 turnNumber: newTurnNumber,
                 turnHistory: newTurnHistory,
-                messages: [...messages, playerMessage, gmMessage, monologueMessage],
+                messages: [...messages, playerMessage, gmMessage, monologueMessage, ribbonMessage],
                 suggestedActions: result.suggestedActions,
                 currentEvents: result.headlines,
                 gmInterventionText: '',
@@ -780,7 +810,7 @@ const App: React.FC = () => {
     }, []);
 
     return (
-        <div className="min-h-screen text-[#3a2e2c] flex flex-col h-screen">
+        <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
             <Header
                 worldState={worldState}
                 isMockMode={isMockMode}
@@ -800,16 +830,16 @@ const App: React.FC = () => {
             {gameState !== GameState.GAME_OVER && isPlayerExiledOrMissing && playerEntity && (
                 <div
                     role="status"
-                    className="w-full bg-stone-800 text-stone-300 border-y-2 border-double border-stone-600 px-4 py-2 shadow-md text-center animate-fade-in"
+                    style={{ width: '100%', background: 'linear-gradient(180deg,#2A231A,#1B1509)', color: '#D9C89E', borderTop: '1px solid rgba(201,162,39,.35)', borderBottom: '1px solid rgba(201,162,39,.35)', padding: '8px 16px', textAlign: 'center', boxShadow: '0 2px 6px rgba(58,44,16,.3)', animation: 'gorFadeIn .5s ease-out both' }}
                 >
-                    <p className="italic text-sm sm:text-base">
+                    <p style={{ margin: 0, fontStyle: 'italic', fontSize: 15 }}>
                         {playerEntity.status === 'exiled'
                             ? `You scheme from exile in ${playerEntity.location}.`
                             : `You have gone missing — last seen near ${playerEntity.location}. The world does not know if you yet live.`}
                     </p>
                 </div>
             )}
-            <div className="flex flex-grow overflow-hidden">
+            <main style={{ flex: 1, minHeight: 0, display: 'flex' }}>
                 {gameState === GameState.GAME_OVER && playerEntity ? (
                     <EpilogueScreen
                         player={playerEntity}
@@ -824,7 +854,7 @@ const App: React.FC = () => {
                     />
                 ) : (
                     <>
-                        <div className="w-2/3 flex flex-col">
+                        <section data-screen-label="Chat" style={{ flex: 2, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
                             {gameState === GameState.SETUP ? (
                                 <CharacterSelection
                                     onSelectCharacter={handleSelectCharacter}
@@ -835,7 +865,7 @@ const App: React.FC = () => {
                                 />
                             ) : (
                                 <>
-                                    <main className="flex-grow p-4 overflow-y-auto" aria-live="polite">
+                                    <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }} aria-live="polite">
                                         {messages.map((msg, index) => <ChatMessage key={index} message={msg} />)}
                                         {gameState === GameState.PROCESSING && (
                                             streamingNarration
@@ -846,50 +876,48 @@ const App: React.FC = () => {
                                             <DispatchesDigest changes={lastTurnPerceivedChanges} />
                                         )}
                                         <div ref={messagesEndRef} />
-                                    </main>
-                                    <div className="bg-[#e8e6e1]/70 backdrop-blur-sm border-t-4 border-double border-[#c9c5b8]">
+                                    </div>
+                                    <div style={{ flex: 'none', borderTop: '1px solid var(--border-subtle)', padding: '12px 24px 16px', background: 'rgba(255,254,249,.55)' }}>
                                         {gameState === GameState.AWAITING_PLAYER_INPUT && retryAction && (
-                                            <div className="px-4 pt-2 flex justify-center animate-fade-in">
-                                                <button
+                                            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10, animation: 'gorRise .4s ease-out both' }}>
+                                                <Button
+                                                    variant="secondary"
                                                     onClick={() => executeTurn(retryAction)}
-                                                    className="bg-amber-800 hover:bg-amber-700 text-amber-50 rounded-sm px-4 py-1.5 text-sm shadow-md border border-amber-950 btn-animate"
                                                     aria-label="Retry the last action"
                                                 >
-                                                    &#8635; Retry: "{retryAction.length > 60 ? `${retryAction.slice(0, 60)}…` : retryAction}"
-                                                </button>
+                                                    ↻ Retry: “{retryAction.length > 56 ? `${retryAction.slice(0, 56)}…` : retryAction}”
+                                                </Button>
                                             </div>
                                         )}
                                         {gameState === GameState.AWAITING_PLAYER_INPUT && suggestedActions.length > 0 && (
                                             <ActionPills actions={suggestedActions} onSelectAction={handlePillClick} />
                                         )}
-                                        <div className="flex items-center">
-                                            <div className="flex-grow">
-                                                <ChatInput
-                                                    value={inputValue}
-                                                    onChange={setInputValue}
-                                                    onSubmit={handleSendMessage}
-                                                    disabled={gameState !== GameState.AWAITING_PLAYER_INPUT}
-                                                    isProcessing={gameState === GameState.PROCESSING}
-                                                    turnStage={turnStage}
-                                                />
-                                            </div>
-                                            <div className="pr-4">
-                                                {isGmConsoleEnabled && (
-                                                    <button
+                                        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+                                            <ChatInput
+                                                value={inputValue}
+                                                onChange={setInputValue}
+                                                onSubmit={handleSendMessage}
+                                                disabled={gameState !== GameState.AWAITING_PLAYER_INPUT}
+                                                isProcessing={gameState === GameState.PROCESSING}
+                                                turnStage={turnStage}
+                                            />
+                                            {isGmConsoleEnabled && (
+                                                <Tooltip wide label={turnHistory.length > 0 ? "The Fates' ledger — every thread and die of the simulation, recorded." : 'The ledger opens once a turn has been played.'}>
+                                                    <Button
+                                                        variant="secondary"
                                                         onClick={() => setIsGmScreenVisible(true)}
-                                                        className="bg-stone-800 text-amber-200 border-2 border-amber-400/50 rounded-sm px-4 py-2 hover:bg-stone-700 hover:text-amber-100 disabled:bg-stone-400 disabled:border-stone-500 disabled:text-stone-500 transition-all btn-animate"
                                                         aria-label="Open Game Master Screen"
                                                         disabled={turnHistory.length === 0}
                                                     >
-                                                        GM LOG
-                                                    </button>
-                                                )}
-                                            </div>
+                                                        GM Log
+                                                    </Button>
+                                                </Tooltip>
+                                            )}
                                         </div>
                                     </div>
                                 </>
                             )}
-                        </div>
+                        </section>
 
                         <SidePanel
                             gameState={gameState}
@@ -910,6 +938,10 @@ const App: React.FC = () => {
                         />
                     </>
                 )}
+            </main>
+            <div role="group" aria-label="Lighting: marble day or torchlit night" style={{ position: 'fixed', bottom: 14, right: 14, zIndex: 80, display: 'flex', border: '1px solid var(--border-strong)', borderRadius: 'var(--radius-sm)', overflow: 'hidden', boxShadow: 'var(--shadow-raised)', fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600, letterSpacing: '.14em' }}>
+                <button type="button" aria-pressed={!isNox} title="Marble — day" onClick={() => setIsNox(false)} style={{ padding: '6px 12px', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit', fontWeight: 'inherit', letterSpacing: 'inherit', background: !isNox ? 'var(--gold-600)' : 'var(--surface-card)', color: !isNox ? '#241C11' : 'var(--text-muted)' }}>LVX</button>
+                <button type="button" aria-pressed={isNox} title="Nox Romae — torchlit" onClick={() => setIsNox(true)} style={{ padding: '6px 12px', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit', fontWeight: 'inherit', letterSpacing: 'inherit', borderLeft: '1px solid var(--border-subtle)', background: isNox ? 'var(--gold-600)' : 'var(--surface-card)', color: isNox ? '#241C11' : 'var(--text-muted)' }}>NOX</button>
             </div>
             {isGmConsoleEnabled && isGmScreenVisible && <GameMasterScreen
                 history={turnHistory}
