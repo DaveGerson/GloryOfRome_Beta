@@ -1,0 +1,18 @@
+:root{
+--radius-sm:2px;--radius-md:3px;--radius-lg:6px;
+--shadow-card:0 1px 2px rgba(74,56,20,.16),0 0 0 1px var(--border-faint);
+--shadow-raised:0 4px 14px rgba(74,56,20,.2),0 0 0 1px var(--border-subtle);
+--shadow-modal:0 24px 60px rgba(58,44,16,.35),0 0 0 1px var(--border-strong);
+--shadow-inset:inset 0 1px 3px rgba(74,56,20,.16);
+--focus-ring:0 0 0 2px var(--surface-page),0 0 0 4px var(--gold-500);
+--metal-gold:linear-gradient(180deg,#E8C959 0%,#CFA92C 45%,#A5831D 55%,#BE9A2E 100%);
+--metal-crimson:linear-gradient(180deg,#A63325 0%,#8C1C13 50%,#701509 55%,#7E1910 100%);
+--metal-tyrian:linear-gradient(180deg,#8E4368 0%,#5E2246 55%,#43172F 100%);
+--dentil:repeating-linear-gradient(90deg,var(--gold-600) 0 3px,transparent 3px 9px);
+--bevel:inset 0 1px 0 rgba(255,255,255,.4),inset 0 -2px 0 rgba(0,0,0,.16);
+--chamfer-sm:polygon(6px 0,calc(100% - 6px) 0,100% 6px,100% calc(100% - 6px),calc(100% - 6px) 100%,6px 100%,0 calc(100% - 6px),0 6px);
+--chamfer-lg:polygon(12px 0,calc(100% - 12px) 0,100% 12px,100% calc(100% - 12px),calc(100% - 12px) 100%,12px 100%,0 calc(100% - 12px),0 12px);
+--ease-standard:cubic-bezier(.4,0,.2,1);
+--duration-fast:120ms;
+--duration-slow:240ms;
+}

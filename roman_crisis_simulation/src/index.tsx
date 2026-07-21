@@ -3,6 +3,10 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import ErrorBoundary from './components/ErrorBoundary';
+// The Glory of Rome design system: tokens (fonts/colors/typography/spacing/
+// effects) + component classes. Nox Romae (nocturne.css) is lazy-loaded by
+// App's LVX/NOX switch.
+import './design/styles.css';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
