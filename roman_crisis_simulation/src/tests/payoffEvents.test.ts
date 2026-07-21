@@ -339,7 +339,8 @@ describe('buildAdjudicationPrompt: the GM-private HISTORICAL MATERIAL block (4D.
     const prompt = buildPrompt(MATERIAL);
     // D24: when pacing tightens and a current is due, prefer weaving it.
     expect(prompt).toContain('When your PACING JUDGMENT says TIGHTEN and one of these historical currents is due, PREFER weaving its premise');
-    expect(prompt).toContain('otherwise craft a custom one');
+    expect(prompt).toContain('when you TIGHTEN and none of them is due, craft a custom crisis instead');
+    expect(prompt).toContain('When you are NOT tightening, this block asks nothing of you');
     // D12: verbatim scripted firing stays the modal system's exception.
     expect(prompt).toContain('The modal event system may still fire a RIPE entry verbatim as the exception, not the model (D12)');
   });

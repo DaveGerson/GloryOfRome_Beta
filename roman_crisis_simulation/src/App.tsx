@@ -362,6 +362,13 @@ const App: React.FC = () => {
             // records (repeatable + cooldown), not the legacy string set;
             // simulationState/turnNumber feed the sim-state-keyed triggers
             // and the cooldown arithmetic.
+            // Known coordination gap: nothing suppresses a verbatim modal
+            // fire for a premise the adjudicator wove into the turn that
+            // just committed - "verbatim as the exception" (D12) is held
+            // only by trigger rarity and cooldowns. The prompt's
+            // never-pre-stage clause keeps content from duplicating, but a
+            // same-turn weave-then-modal double-hit is possible; a
+            // suppression gate is an owner-ruling candidate.
             const event = checkForTriggeredEvent(worldState, entities, eventFirings, playerEntity, simulationState, turnNumber);
             if (event) {
                 dispatch({ type: 'EVENT_TRIGGERED', event });

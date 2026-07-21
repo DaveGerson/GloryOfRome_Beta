@@ -122,6 +122,12 @@ export const NEAR_COOLDOWN_WINDOW = 3;
  * adjudicator's PACING JUDGMENT can prefer a due historical current over a
  * custom crisis; it never fires anything itself. Pure; exported for direct
  * unit testing.
+ *
+ * Boundary skew: material derives at the pre-commit turn number N, while
+ * the modal eligibility check after that same turn commits runs at N+1 -
+ * so an event exactly one cooldown turn from eligibility is labeled NEAR
+ * for the very turn at whose end it can fire verbatim. Foreshadow-then-fire
+ * is coherent, so the off-by-one is accepted rather than compensated.
  */
 export function selectRipeEventMaterial(
     worldState: WorldState,
