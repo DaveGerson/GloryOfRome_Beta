@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { TurnHistoryEntry, Adjudication, Entity, Relationship, Memory, Scheme, RawCallRecord, WorldState } from '../types';
 import { classifyDelta } from '../perception/visibility';
-import { InferredAmbitionState } from '../persistence/saveGame';
+import { InferredAmbitionState, SAVE_VERSION } from '../persistence/saveGame';
+import { buildEvalCorpus, evalCorpusFilename } from '../persistence/evalCorpus';
+import { getSessionCallLog } from '../ai/core/geminiService';
 import { toRoman } from './ui/Brand';
 
 /**
@@ -238,6 +240,8 @@ const GameMasterScreen: React.FC<{
     onSetIntervention: (text: string) => void;
     playerCharacterId: string | null;
     worldState: WorldState;
+    /** The current turn number - stamped into the eval corpus export's metadata and filename (D18). */
+    turnNumber: number;
     /** DESIGN_DECISIONS.md D8 - the latest inferred-ambition snapshot, if any. GM-console-only display; never shown to the player. */
     inferredAmbition?: InferredAmbitionState | null;
     /**
@@ -249,7 +253,7 @@ const GameMasterScreen: React.FC<{
      * screen (D7).
      */
     pendingIntelligenceFallout?: string[];
-}> = ({ history, onClose, interventionText, onSetIntervention, playerCharacterId, worldState, inferredAmbition, pendingIntelligenceFallout }) => {
+}> = ({ history, onClose, interventionText, onSetIntervention, playerCharacterId, worldState, turnNumber, inferredAmbition, pendingIntelligenceFallout }) => {
     const [activeTab, setActiveTab] = useState('summary');
     const [interventionInput, setInterventionInput] = useState(interventionText);
     const [showConfirmation, setShowConfirmation] = useState(false);
@@ -265,6 +269,26 @@ const GameMasterScreen: React.FC<{
         setShowConfirmation(true);
     };
 
+    // DESIGN_DECISIONS.md D18 - downloads the session's captured turns
+    // (prompts, responses, seeds, traces) plus the out-of-band session call
+    // log as a JSON file for offline eval/tuning. Capture is session-side
+    // only; nothing here touches the persisted save. This action must live
+    // on this GM-only screen and nowhere player-facing (D4/D5/D7).
+    const handleExportEvalCorpus = () => {
+        const corpus = buildEvalCorpus(history, getSessionCallLog(), {
+            saveVersion: SAVE_VERSION,
+            turnNumber,
+            playerCharacterId,
+        });
+        const blob = new Blob([JSON.stringify(corpus, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = evalCorpusFilename(turnNumber);
+        anchor.click();
+        URL.revokeObjectURL(url);
+    };
+
     return (
         <div className="gor-dialog-backdrop">
             <div role="dialog" aria-modal="true" aria-label="Game Master Tools" style={{ width: 'min(1060px, calc(100% - 48px))', height: 'calc(100% - 56px)', display: 'flex', flexDirection: 'column', background: 'var(--dentil) left top/100% 4px no-repeat, linear-gradient(180deg,#2A231A,#161209 60%,#131009)', border: '1px solid rgba(201,162,39,.45)', clipPath: 'var(--chamfer-lg)', filter: 'drop-shadow(0 24px 60px rgba(0,0,0,.55))', padding: '20px 24px 18px', gap: 12, boxSizing: 'border-box' }}>
@@ -273,7 +297,17 @@ const GameMasterScreen: React.FC<{
                         <h2 style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 26, color: GOLD, textShadow: '0 2px 3px rgba(0,0,0,.6)', margin: 0 }}>Game Master Tools</h2>
                         <span style={{ ...lbl, letterSpacing: '.24em' }}>The Fates' ledger — every thread measured, every die recorded</span>
                     </div>
-                    <button type="button" onClick={onClose} aria-label="Close Game Master screen" style={{ all: 'unset', cursor: 'pointer', color: DIM, fontSize: 26, lineHeight: 1, padding: '2px 8px' }}>×</button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <button
+                            type="button"
+                            onClick={handleExportEvalCorpus}
+                            title="Download this session's captured prompts, responses, seeds, and traces as JSON"
+                            style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, letterSpacing: '.08em', textTransform: 'uppercase', color: '#241C11', background: 'var(--metal-gold)', border: '1px solid #8A6D14', clipPath: 'var(--chamfer-sm)', padding: '9px 16px', cursor: 'pointer', boxShadow: 'var(--bevel)' }}
+                        >
+                            Export Eval Corpus
+                        </button>
+                        <button type="button" onClick={onClose} aria-label="Close Game Master screen" style={{ all: 'unset', cursor: 'pointer', color: DIM, fontSize: 26, lineHeight: 1, padding: '2px 8px' }}>×</button>
+                    </div>
                 </div>
 
                 {/* DESIGN_DECISIONS.md D8 - the ONE other sanctioned surface for the inferred ambition besides EpilogueScreen. Never rendered on any player-facing view. */}

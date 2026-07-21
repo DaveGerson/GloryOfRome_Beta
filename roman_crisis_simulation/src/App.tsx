@@ -911,6 +911,7 @@ const App: React.FC = () => {
                 onSetIntervention={handleSetIntervention}
                 playerCharacterId={playerCharacterId}
                 worldState={worldState}
+                turnNumber={turnNumber}
                 inferredAmbition={inferredAmbition}
                 pendingIntelligenceFallout={pendingIntelligenceFallout}
             />}
