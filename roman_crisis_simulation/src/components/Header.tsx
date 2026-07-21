@@ -1,13 +1,27 @@
-
 import React from 'react';
 import { WorldState } from '../types';
+import { Switch } from './ui/Forms';
+import { Medallion, toRoman } from './ui/Brand';
 
-const AquilaIcon = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" className="h-20 w-20 mx-auto text-red-900 -mb-2" fill="currentColor">
-        <path d="M50 10C30 10 15 25 15 45c0 10 5 20 12 26-3-5-5-11-5-17 0-15 12-27 27-27s27 12 27 27c0 6-2 12-5 17 7-6 12-16 12-26 0-20-15-35-35-35zm0 2c18 0 33 14 33 33 0 9-4 18-10 24-2-2-4-4-6-5-2-2-5-3-8-3-10 0-18 8-18 18h-2c0-10-8-18-18-18-3 0-6 1-8 3-2 1-4 3-6 5-6-6-10-15-10-24 0-19 15-33 33-33zm-1 30c-12 0-22 10-22 22 0 4 1 8 3 11 3-2 6-3 10-3 11 0 20 9 20 20v1h-2c-11 0-20-9-20-20 0-5 2-10 6-13-1-3-2-6-2-9 0-10 8-18 18-18s18 8 18 18c0 3-1 6-2 9 4 3 6 8 6 13 0 11-9 20-20 20h-2v-1c0-11 9-20 20-20 4 0 7 1 10 3 2-3 3-7 3-11 0-12-10-22-22-22zM50 78c-8 0-15-7-15-15s7-15 15-15 15 7 15 15-7 15-15 15z" />
-    </svg>
+/**
+ * Twin-medallion Tyrian vexillum masthead (design system ui_kits/simulation/Header):
+ * SENATVS·POPVLVSQVE·ROMANVS kicker, gold cornice, ◆-separated world stats, and
+ * the dev-only Mock Mode / GM Console switches. World stats are live from
+ * `worldState`.
+ */
+
+const Stat: React.FC<{ k: string; v: React.ReactNode; tone?: string }> = ({ k, v, tone }) => (
+    <span style={{ padding: '0 16px', display: 'inline-flex', gap: 8, alignItems: 'baseline' }}>
+        <span className="gor-label" style={{ color: '#D8B98A' }}>{k}</span>
+        <span style={{ color: tone || '#F8F1DE', fontVariantNumeric: 'tabular-nums', fontSize: 15 }}>{v}</span>
+    </span>
 );
 
+const Gem: React.FC = () => (
+    <span aria-hidden="true" style={{ color: 'rgba(232,201,89,.55)', fontSize: 8, alignSelf: 'center' }}>◆</span>
+);
+
+const devLabel: React.CSSProperties = { color: '#D8B98A' };
 
 const Header: React.FC<{
     worldState: WorldState,
@@ -23,39 +37,46 @@ const Header: React.FC<{
     isGmConsoleEnabled: boolean,
     setIsGmConsoleEnabled: (enabled: boolean) => void,
 }> = ({ worldState, isMockMode, setIsMockMode, isGmConsoleEnabled, setIsGmConsoleEnabled }) => (
-    <header className="relative text-center p-3 bg-[#e8e6e1]/70 backdrop-blur-sm border-b-4 border-double border-[#c9c5b8]">
-        {import.meta.env.DEV && (
-            <div className="absolute top-2 right-2 flex items-center gap-3 bg-stone-700 p-2 rounded text-stone-100 font-mono text-xs shadow-lg z-10">
-              <span className="flex items-center">
-                <label htmlFor="mock-toggle" className="mr-2 cursor-pointer">Mock Mode</label>
-                <input
-                  id="mock-toggle"
-                  type="checkbox"
-                  checked={isMockMode}
-                  onChange={(e) => setIsMockMode(e.target.checked)}
-                  className="h-4 w-4 text-red-800 bg-stone-600 border-stone-500 rounded focus:ring-red-700 cursor-pointer"
-                />
-              </span>
-              <span className="flex items-center" title="Ctrl+Shift+G also toggles this">
-                <label htmlFor="gm-console-toggle" className="mr-2 cursor-pointer">GM Console</label>
-                <input
-                  id="gm-console-toggle"
-                  type="checkbox"
-                  checked={isGmConsoleEnabled}
-                  onChange={(e) => setIsGmConsoleEnabled(e.target.checked)}
-                  className="h-4 w-4 text-red-800 bg-stone-600 border-stone-500 rounded focus:ring-red-700 cursor-pointer"
-                />
-              </span>
+    <header style={{ position: 'relative', textAlign: 'center', padding: '14px 24px 13px', borderBottom: '1px solid #38122A', background: 'var(--dentil) left bottom/100% 4px no-repeat, linear-gradient(180deg,#7E3A5E,#5E2246 55%,#43172F)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,.15), 0 2px 6px rgba(74,56,20,.35)', flex: 'none' }}>
+        <span aria-hidden="true" style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 3, background: 'linear-gradient(180deg,#E8C959,#A5831D)' }}></span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 26 }}>
+            <Medallion size={68} />
+            <div>
+                <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 11, letterSpacing: '.42em', color: '#D8B98A', textShadow: '0 1px 1px rgba(0,0,0,.4)' }}>SENATVS · POPVLVSQVE · ROMANVS</div>
+                <h1 style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 33, color: '#F0D089', textShadow: '0 2px 3px rgba(0,0,0,.5)', letterSpacing: '.02em', lineHeight: 1.15, margin: '2px 0' }}>Roman Crisis Simulation</h1>
+                <div className="gor-label" style={{ color: '#E8C959' }}>The Glory of Rome · {worldState.year + 753} Ab Urbe Condita</div>
             </div>
-        )}
-        <AquilaIcon />
-        <h1 className="text-4xl font-decorative font-bold text-red-900 roman-inset-text">Roman Crisis Simulation</h1>
-        <div className="flex justify-center divide-x-2 divide-stone-400 mt-2 text-md text-stone-700">
-            <span className="px-4"><strong>Year:</strong> {worldState.year} CE</span>
-            <span className="px-4"><strong>Week:</strong> {worldState.week}</span>
-            <span className="px-4"><strong>Economic Stability:</strong> {worldState.economic_stability}</span>
-            <span className="px-4"><strong>Political Climate:</strong> {worldState.political_climate}</span>
+            <Medallion size={68} />
         </div>
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 10, flexWrap: 'wrap' }}>
+            <Stat k="Year" v={`${worldState.year} CE`} />
+            <Gem />
+            <Stat k="Week" v={toRoman(worldState.week)} />
+            <Gem />
+            <Stat k="Economic Stability" v={worldState.economic_stability} tone="#E9B36A" />
+            <Gem />
+            <Stat k="Political Climate" v={worldState.political_climate} tone="#F0A196" />
+        </div>
+        {import.meta.env.DEV && (
+            <span style={{ position: 'absolute', top: 12, right: 14, display: 'inline-flex', alignItems: 'center', gap: 14, padding: '4px 10px', background: 'rgba(0,0,0,.28)', border: '1px solid rgba(232,201,89,.3)', borderRadius: 'var(--radius-sm)' }}>
+                <Switch
+                    id="mock-toggle"
+                    checked={isMockMode}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setIsMockMode(e.target.checked)}
+                    label={<span className="gor-label" style={devLabel}>Mock Mode</span>}
+                    style={{ gap: 8 }}
+                />
+                <span title="Ctrl+Shift+G also toggles this">
+                    <Switch
+                        id="gm-console-toggle"
+                        checked={isGmConsoleEnabled}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setIsGmConsoleEnabled(e.target.checked)}
+                        label={<span className="gor-label" style={devLabel}>GM Console</span>}
+                        style={{ gap: 8 }}
+                    />
+                </span>
+            </span>
+        )}
     </header>
 );
 

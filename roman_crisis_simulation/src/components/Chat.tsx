@@ -1,7 +1,9 @@
-
 import React, { useRef, useEffect } from 'react';
 import { Message } from '../types';
 import { TurnStage } from '../ai/core/turn';
+import { ActionPill } from './ui/Game';
+import { TurnRibbon } from './ui/Brand';
+import { Button } from './ui/Core';
 
 // Themed status copy for the "thinking" theater (ROADMAP_0_MASTER_PLAN.md
 // Phase 3 item 1) - one line per real `runNewTurn` pipeline step (see
@@ -39,14 +41,10 @@ export const TypingIndicator: React.FC<{ stage?: TurnStage | null }> = ({ stage 
     const statusText = getStageStatusText(stage);
 
     return (
-        <div className="flex justify-start mb-4 animate-fade-in" aria-live="polite">
-            <div className="roman-stone-panel text-stone-800 border-l-4 border-red-800 rounded-lg px-4 py-3 max-w-md flex items-center gap-3">
-                <div className="flex gap-1" aria-hidden="true">
-                    <span className="w-2 h-2 bg-red-800 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <span className="w-2 h-2 bg-red-800 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <span className="w-2 h-2 bg-red-800 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                </div>
-                <p className="italic text-sm text-stone-600">{statusText}</p>
+        <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 14 }}>
+            <div className="gor-typing" role="status" aria-live="polite">
+                <span className="gor-typing-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+                <span className="gor-typing-text">{statusText}</span>
             </div>
         </div>
     );
@@ -66,55 +64,39 @@ export const StreamingNarrationBubble: React.FC<{ text: string }> = ({ text }) =
     if (!text) return null;
 
     return (
-        <div className="flex justify-start mb-4 animate-fade-in" aria-live="polite">
-            <div className="roman-stone-panel text-stone-800 border-l-4 border-red-800 rounded-lg px-4 py-2 max-w-md">
-                <p className="whitespace-pre-wrap">
-                    {text}
-                    <span
-                        className="inline-block w-2 h-4 bg-red-800 ml-0.5 align-middle animate-pulse"
-                        aria-hidden="true"
-                    />
-                </p>
+        <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 14 }} aria-live="polite">
+            <div className="gor-msg gor-msg-gm">
+                {text}
+                <span
+                    aria-hidden="true"
+                    style={{ display: 'inline-block', width: 8, height: 17, background: 'var(--crimson-500)', marginLeft: 2, verticalAlign: 'middle', animation: 'gorEmber 1.2s ease-in-out infinite' }}
+                />
             </div>
         </div>
     );
 };
 
+/** Renders **bold** only; everything else is escaped-by-construction prose from the engine. */
+const md = (t: string) => String(t).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
 export const ChatMessage: React.FC<{ message: Message }> = ({ message }) => {
-    const isGM = message.sender === 'gm';
-    const isMonologue = message.sender === 'player_monologue';
-    const isPlayer = message.sender === 'player';
-
-    let messageClasses = '';
-    let justification = 'justify-start';
-
-    if (isGM) {
-        messageClasses = 'roman-stone-panel text-stone-800 border-l-4 border-red-800';
-        justification = 'justify-start';
-    } else if (isPlayer) {
-        messageClasses = 'bg-red-900 text-stone-100';
-        justification = 'justify-end';
-    } else if (isMonologue) {
-        messageClasses = 'bg-transparent border-2 border-dashed border-stone-400 text-stone-600 italic';
-        justification = 'justify-center w-full max-w-2xl mx-auto';
+    if (message.sender === 'ribbon') {
+        return <TurnRibbon>{message.text}</TurnRibbon>;
     }
-    
-    const textWithBold = message.text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
 
+    if (message.sender === 'player_monologue') {
+        return (
+            <div style={{ width: '100%', maxWidth: 640, margin: '0 auto 14px' }}>
+                <div className="gor-msg-kicker">Inner Thoughts</div>
+                <div className="gor-msg gor-msg-monologue" style={{ maxWidth: 'none' }} dangerouslySetInnerHTML={{ __html: md(message.text) }}></div>
+            </div>
+        );
+    }
+
+    const isPlayer = message.sender === 'player';
     return (
-        <div className={`flex ${justification} mb-4 animate-fade-in`}>
-            {isMonologue ? (
-                <div className="text-center w-full">
-                    <div className="text-stone-500 text-sm mb-1 font-decorative">Inner Thoughts</div>
-                    <div className={`rounded-lg px-4 py-2 ${messageClasses}`}>
-                        <p className="whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: textWithBold }} />
-                    </div>
-                </div>
-            ) : (
-                <div className={`rounded-lg px-4 py-2 max-w-md ${messageClasses}`}>
-                    <p className="whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: textWithBold }} />
-                </div>
-            )}
+        <div style={{ display: 'flex', justifyContent: isPlayer ? 'flex-end' : 'flex-start', marginBottom: 14 }}>
+            <div className={`gor-msg ${isPlayer ? 'gor-msg-player' : 'gor-msg-gm'}`} dangerouslySetInnerHTML={{ __html: md(message.text) }}></div>
         </div>
     );
 };
@@ -158,7 +140,7 @@ export const ChatInput: React.FC<{
             onSubmit();
         }
     };
-    
+
     const placeholderText = placeholderOverride
         ? placeholderOverride
         : isProcessing
@@ -166,48 +148,35 @@ export const ChatInput: React.FC<{
         : disabled
         ? "Awaiting the Senate's judgment..."
         : "Enter your action... (Shift+Enter for new line)";
-    
+
     return (
-        <form onSubmit={handleSubmit} className="p-4">
-            <div className="flex items-end">
-                <textarea
-                    id="chat-input"
-                    ref={textareaRef}
-                    value={value}
-                    onChange={(e) => onChange(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    disabled={disabled}
-                    placeholder={placeholderText}
-                    className="flex-grow rounded-sm py-2 px-4 border border-[#c9c5b8] bg-white/30 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-red-800 resize-none max-h-40 shadow-inner"
-                    aria-label="Chat input"
-                    rows={1}
-                />
-                <button
-                    type="submit"
-                    disabled={disabled}
-                    className="ml-4 bg-red-800 text-stone-100 rounded-sm px-6 py-2 self-stretch flex items-center justify-center hover:bg-red-700 disabled:bg-stone-400 transition-colors border border-red-900 btn-animate"
-                    aria-label="Send message"
-                >
-                    SEND
-                </button>
-            </div>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexGrow: 1 }}>
+            <textarea
+                id="chat-input"
+                ref={textareaRef}
+                className="gor-textarea"
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                onKeyDown={handleKeyDown}
+                disabled={disabled}
+                placeholder={placeholderText}
+                style={{ flex: 1, resize: 'none', maxHeight: 160, overflowY: 'auto' }}
+                aria-label="Chat input"
+                rows={1}
+            />
+            <Button type="submit" disabled={disabled || !value.trim()} aria-label="Send message">
+                Speak
+            </Button>
         </form>
     );
 };
 
-export const ActionPills: React.FC<{ actions: string[]; onSelectAction: (action: string) => void }> = ({ actions, onSelectAction }) => {
-    return (
-        <div className="px-4 pt-2 pb-1 flex flex-wrap justify-center animate-fade-in">
-            {actions.map((action, index) => (
-                <button
-                    key={index}
-                    onClick={() => onSelectAction(action)}
-                    className="bg-stone-300 hover:bg-red-800 hover:text-white transition-colors duration-200 text-stone-700 rounded-sm px-4 py-1.5 text-sm mr-2 mb-2 shadow-md border border-stone-400 btn-animate pill-animate"
-                    style={{ animationDelay: `${index * 50}ms` }}
-                >
-                    {action}
-                </button>
-            ))}
-        </div>
-    );
-};
+export const ActionPills: React.FC<{ actions: string[]; onSelectAction: (action: string) => void }> = ({ actions, onSelectAction }) => (
+    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8, marginBottom: 10 }}>
+        {actions.map((action, index) => (
+            <ActionPill key={index} delay={index * 80} onClick={() => onSelectAction(action)}>
+                {action}
+            </ActionPill>
+        ))}
+    </div>
+);
