@@ -1,12 +1,18 @@
 # Phase 4 Brainstorm — The Grill (pre-decision)
 
-**Status:** brainstorm, not a plan. Produced from a full code audit at commit
+**Status: RESOLVED (July 2026).** The owner ruled on the ten headline
+questions; the rulings are recorded as **D9–D18** in `DESIGN_DECISIONS.md`
+and the resulting plan is `ROADMAP_PHASE_4.md`. Two questions (G9, G14)
+received no explicit ruling — the plan adopts this document's own
+recommendations for those, flagged as such there. This document is kept as
+the audit and decision record.
+
+Originally: brainstorm, not a plan. Produced from a full code audit at commit
 `4755035` (post-PR #4: engine merge + design-system re-skin). Baseline:
 typecheck clean, **201/201 tests green**. Companion to
 `ROADMAP_0_MASTER_PLAN.md` Phase 4 ("Make It Deep: The Dope Leap") and
 `DESIGN_DECISIONS.md` D1–D8. Open questions below are numbered **G1–G14**;
-answers should graduate into `DESIGN_DECISIONS.md` as **D9+** rulings before
-implementation starts.
+answers graduate into `DESIGN_DECISIONS.md` as **D9+** rulings.
 
 ---
 
@@ -100,7 +106,7 @@ model ever drives `economic_stability` to `Failing`.
 
 ### 1.6 "Codebase keeps pace"
 
-`App.tsx` is **971 lines with ~24 `useState` slices** and no reducer/context.
+`App.tsx` is **971 lines with ~30 `useState` slices** and no reducer/context.
 Phase 4 as scoped adds at least three new state slices (knowledge store,
 tension, dossiers). Save format is v1 in localStorage.
 
@@ -304,7 +310,7 @@ show harness evidence it's worth paying for.
 
 ### G13. Does the App.tsx refactor precede or trail the features?
 
-971 lines, ~24 slices, and Phase 4 wants to add knowledge store + tension +
+971 lines, ~30 slices, and Phase 4 wants to add knowledge store + tension +
 dossier state. The master plan lists the reducer/context extraction as item 7
 ("keeps pace"); the code says it's a prerequisite — every new slice added to
 the god component raises the extraction cost later. Also in this bucket:

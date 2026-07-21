@@ -72,3 +72,98 @@ mortality rolls/traces.
 No quest log, no chosen goals. A cheap periodic model call infers what the
 player *appears* to be pursuing from their actions. Used for: epilogue
 framing, and NPC reactions to the player's apparent (not actual) agenda.
+
+---
+
+Rulings D9–D18 answer the Phase 4 grill questions in
+`PHASE_4_BRAINSTORM.md` (July 2026). Two questions received no explicit
+owner ruling: G9 (Chronicle's source of record) and G14 (the out-of-scope
+list) — the plan adopts the brainstorm's own recommendations for those
+two, flagged as such in `ROADMAP_PHASE_4.md`. The resulting plan is
+`ROADMAP_PHASE_4.md`.
+
+## D9 — Plumbing first, so mechanics can be brainstormed live
+Phase 4 builds the substrate before the headline features: call capture,
+reproducible rolls, the eval/tuning export, the knowledge layer, and the
+state-refactor. The stated purpose is not engineering hygiene for its own
+sake — it is that with instrumentation in place, mechanics can be iterated
+and observed *live* instead of argued about in the abstract.
+*Answers:* G1 (the phase's product is the substrate), Shape B adopted.
+
+## D10 — NPCs get their own brains: richer selves, not smarter play
+Each NPC — or a *set* of NPCs (a faction, a household, the spotlight cast)
+— gets its own simulated mind. The point is explicitly NOT tactical
+intelligence; it is that each simulated self becomes *richer*: a bounded
+knowledge of the world (what that character actually witnessed or heard),
+their own motives, voice, and continuity of intent from week to week.
+Grouping minds per-set rather than per-individual is an acceptable cost
+lever; dumber-but-truer characters beat smarter-but-omniscient ones.
+*Answers:* G4/G5. *Changes:* the full mind split is committed (not
+evidence-gated), but lands after the D9 substrate; per-NPC knowledge
+bounds come from generalizing `perception/visibility.ts` to any viewer.
+
+## D11 — The system may lie, but must always know it is lying
+Sourced information (rumors, reports, hearsay) can be deliberately false.
+Precondition, ruled explicitly: the system must know what a lie is *for
+its own sake* — ground truth with GM-private truth flags is mandatory
+bookkeeping, so a falsehood is only ever presented knowingly and
+trackably, never as an accident of generation the engine itself cannot
+distinguish from fact. The GM console shows true-vs-believed. Witnessed
+events do not lie.
+*Answers:* G7. *Changes:* fidelity stops being binary; truth flags join
+`secret_truth` in the GM-private data class (grep-clean of player
+surfaces).
+
+## D12 — Events repurposed as mostly non-deterministic payoff material
+The authored-event system stops being a fire-once trigger library and
+becomes source material for payoff moments — but payoffs are, for the
+most part, NOT deterministic scripts. When the pacing layer (D15) calls
+for a payoff, the content is generated/adjudicated with directives;
+authored events serve as seeds and templates, fired verbatim only as the
+exception.
+*Answers:* G11.
+
+## D13 — The relationship map shows interpretation and hearsay only
+The map is a rendering of two things only: what the player *interprets*
+(their own readings and sensed impressions) and what they have *heard*
+(sourced claims). Every edge carries its provenance. Ground-truth
+relationship values never render there — and because heard things can be
+lies (D11), the map can be wrong, not merely stale.
+*Answers:* G6.
+
+## D14 — Dossiers freeze at acquisition; refreshing costs less
+Intel snapshots at the turn it was learned and does not auto-update —
+staleness is fog of war. Re-investigating a target you already hold a
+dossier on costs less than the first acquisition (an update discount),
+so keeping files current is a cheaper, ongoing practice rather than
+repeated full price.
+*Answers:* G8. *Changes:* dossiers persist in the save (optional field);
+the ephemeral component-local intel state is retired.
+
+## D15 — Tension is a soft meter, lightly directing adjudication
+A tension value is tracked code-side and fed into the adjudication
+process as *light* direction to maintain pace — pacing guidance the
+model weighs, not a hard threshold that forcibly detonates content.
+(Read of the owner's ruling "love directing" as "light directing" —
+flagged for confirmation.) GM console displays the meter (D7); the
+player only ever feels it.
+*Answers:* G10, softened per D12's non-determinism preference.
+
+## D16 — Slower and better is fine
+There is no hard per-turn cost/latency ceiling for Phase 4. Where an
+added call or larger context buys a richer simulation (D10), the trade
+is accepted. Context compression remains permitted hygiene, not a gate.
+*Answers:* G12.
+
+## D17 — Housekeeping happens now
+The `App.tsx` state extraction (reducer/context) and save bounding land
+at the start of Phase 4, before new systems add state. New persisted
+fields stay optional per the save-compatibility invariant.
+*Answers:* G13.
+
+## D18 — The eval/tuning export lands now
+Raw call capture (prompts and responses, plus per-turn seeds) is
+exported from the GM console as files for tuning and evaluation; saves
+stay lean (capture is session-side, not part of the persisted save
+blob). Golden turns for the judge come from real owner-played sessions.
+*Answers:* G2/G3.
