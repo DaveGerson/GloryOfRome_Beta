@@ -11,7 +11,7 @@ import { buildAdjudicationPrompt, PlayerActionOutcomeContext } from '../prompts/
 import { buildNarrationPrompt } from '../prompts/narration';
 import { processMortality, detectDeathClaims } from './mortality';
 import { createNarrationStreamGate } from './streamSplit';
-import { rollD20, resolveAction, derivePersonalityModifier, deriveOppositionModifier } from './resolution';
+import { rollD20, resolveAction, derivePersonalityModifier, deriveOppositionModifier, createSeededRng, generateSeed } from './resolution';
 
 // Adjudication is the highest-stakes, most consequence-dense call of the
 // turn - a moderate temperature keeps outcomes varied without letting the
@@ -121,6 +121,16 @@ export async function runNewTurn(
     // raw-call log. See ai/core/geminiService.ts.
     beginTurnCapture();
 
+    // One seed per turn: every hidden roll this pipeline makes draws from
+    // this single seeded generator, in a fixed order - the player action's
+    // resolution roll first (when consequential), then each mortality roll
+    // in claim order - so recording `turnSeed` on the history entry below
+    // replays the turn's dice exactly (see createSeededRng in
+    // ai/core/resolution.ts). Per DESIGN_DECISIONS.md D4 the seed is
+    // GM-console data, never player-facing.
+    const turnSeed = generateSeed();
+    const turnRng = createSeededRng(turnSeed);
+
     try {
     // 0. Determine story relevance (Director spotlight-picking) AND assess
     // whether the player's action is consequential enough to warrant a
@@ -172,7 +182,7 @@ export async function runNewTurn(
         const oppositionModifier = deriveOppositionModifier({ relationshipTowardActor });
 
         const resolution = resolveAction({
-            roll: rollD20(),
+            roll: rollD20(turnRng),
             relevantSkillValue,
             personalityModifier,
             oppositionModifier,
@@ -286,7 +296,8 @@ export async function runNewTurn(
         currentEntities,
         playerEntity.entity_id,
         turnNumber,
-        isMockMode
+        isMockMode,
+        turnRng
     );
 
     // 3. Apply the (mortality-transformed) adjudication to get new state.
@@ -415,6 +426,7 @@ export async function runNewTurn(
         rawCalls: endTurnCapture(),
         mortalityTrace: mortalityEvents.length > 0 ? mortalityEvents : undefined,
         resolutionTrace,
+        turnSeed,
     };
 
     const result = {

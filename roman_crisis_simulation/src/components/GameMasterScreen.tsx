@@ -212,6 +212,14 @@ const GroundTruthView: React.FC<{
                 )}
             </div>
             <div>
+                <span style={lbl}>Turn Seed</span>
+                <p style={{ fontSize: 13, margin: '4px 0 0', fontFamily: MONO, color: typeof entry.turnSeed === 'number' ? PARCH : DIM }}>
+                    {typeof entry.turnSeed === 'number'
+                        ? `${entry.turnSeed} — replays this turn's hidden rolls in draw order (action roll, then mortality rolls).`
+                        : 'None recorded for this turn.'}
+                </p>
+            </div>
+            <div>
                 <span style={lbl}>Mortality Trace</span>
                 {mortalityTrace ? (
                     <pre style={{ ...well, fontFamily: MONO, fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginTop: 6, color: PARCH }}>{JSON.stringify(mortalityTrace, null, 2)}</pre>

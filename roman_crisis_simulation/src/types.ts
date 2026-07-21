@@ -352,6 +352,17 @@ export interface ActionResolutionEvent {
   margin: number;
   /** The resolved outcome tier - see `ai/core/resolution.ts::resolveAction`. */
   tier: 'critical_failure' | 'failure' | 'partial_success' | 'success' | 'critical_success';
+  /**
+   * The 32-bit seed of the dedicated seeded generator
+   * (`ai/core/resolution.ts::createSeededRng`) whose first draw produced
+   * `roll` - present only for resolutions that run OUTSIDE a turn and so
+   * carry their own seed (player-triggered investigations,
+   * `ai/tools/intelligence.ts::getInvestigationResult`). A turn's own
+   * action roll instead draws from the per-turn generator whose seed is the
+   * history entry's `turnSeed`. GM-console-only, like every other field
+   * here (D4).
+   */
+  seed?: number;
 }
 
 /**
@@ -366,6 +377,17 @@ export interface TurnHistoryEntry {
   rawCalls?: RawCallRecord[]; // Raw prompt/response capture for every AI call made this turn
   mortalityTrace?: MortalityEvent[]; // Every death claim this turn went through processMortality, see MortalityEvent
   resolutionTrace?: ActionResolutionEvent; // The player action's trip through the resolution layer this turn (if consequential), see ActionResolutionEvent
+  /**
+   * The 32-bit seed of this turn's roll generator
+   * (`ai/core/resolution.ts::createSeededRng`). Every hidden roll the turn
+   * made draws from that one generator in a fixed order - the player
+   * action's resolution roll first (when consequential), then each
+   * mortality roll in claim order - so the recorded seed replays the
+   * turn's dice exactly. Optional: entries persisted before this field
+   * existed (and mock-mode turns) simply lack it. Per DESIGN_DECISIONS.md
+   * D4 it is GM-console-only, never rendered on any player-facing surface.
+   */
+  turnSeed?: number;
 }
 
 export interface SpotlightEntity {

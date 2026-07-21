@@ -104,6 +104,37 @@ describe('persistence/saveGame', () => {
     expect(loadGame()).toBeNull();
   });
 
+  it('round-trips the optional turnSeed on history entries, alongside entries that lack it', () => {
+    const seeded: TurnHistoryEntry = { ...makeHistoryEntry(1, false), turnSeed: 123456789 };
+    const unseeded = makeHistoryEntry(2, false); // no turnSeed - same shape older entries have
+    saveGame(makeState({ turnNumber: 3, turnHistory: [seeded, unseeded] }));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.turnHistory[0].turnSeed).toBe(123456789);
+    expect(loaded!.state.turnHistory[1].turnSeed).toBeUndefined();
+    // Everything else about the seedless entry is untouched.
+    expect(loaded!.state.turnHistory[1].narration).toBe('Narration for turn 2');
+    expect(loaded!.state.turnHistory[1].adjudication.headlines).toEqual(['Headline 2']);
+  });
+
+  it('loads a stored v1 envelope whose history entries predate turnSeed', () => {
+    // Written directly to storage, bypassing saveGame, to mirror a blob
+    // persisted before the field existed.
+    const envelope = {
+      version: SAVE_VERSION,
+      savedAt: new Date().toISOString(),
+      state: makeState({ turnNumber: 2, turnHistory: [makeHistoryEntry(1, false)] }),
+    };
+    localStorage.setItem('gloryOfRome:autosave', JSON.stringify(envelope));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.turnHistory).toHaveLength(1);
+    expect(loaded!.state.turnHistory[0].turnSeed).toBeUndefined();
+    expect(loaded!.state.turnHistory[0].playerIntent).toBe('do thing 1');
+  });
+
   describe('updateSavedAmbition (stale-autosave race guard)', () => {
     const ambition: InferredAmbitionState = {
       apparent_ambition: 'Seize the purple by courting the Rhine legions',

@@ -20,6 +20,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { GoogleGenAI } from '@google/genai';
 import { runNewTurn } from '../ai/core/turn';
 import { endTurnCapture } from '../ai/core/geminiService';
+import { rollD20, createSeededRng } from '../ai/core/resolution';
 import type { Entity, WorldState, SimulationState } from '../types';
 
 // --- fixtures ---------------------------------------------------------
@@ -139,6 +140,8 @@ type CallKind =
   | 'storyRelevance'
   | 'assessment'
   | 'adjudication'
+  | 'mortalityValidation'
+  | 'mortalityOutcome'
   | 'simulationState'
   | 'monologue'
   | 'narration'
@@ -148,6 +151,8 @@ const ALL_KINDS: CallKind[] = [
   'storyRelevance',
   'assessment',
   'adjudication',
+  'mortalityValidation',
+  'mortalityOutcome',
   'simulationState',
   'monologue',
   'narration',
@@ -165,6 +170,8 @@ function classify(systemInstruction: unknown): CallKind {
   if (s.includes('master storyteller and game master')) return 'storyRelevance';
   if (s.includes('Action Assessor')) return 'assessment';
   if (s.includes('Roman Crisis Adjudicator & Simulation Engine')) return 'adjudication';
+  if (s.includes('Mortality Validator')) return 'mortalityValidation';
+  if (s.includes('Mortality Outcome Author')) return 'mortalityOutcome';
   if (s.includes('Roman historian analyzing the state of the Empire')) return 'simulationState';
   if (s.includes('the inner voice of')) return 'monologue';
   if (s.includes('Chronicler of the Empire & Intelligence Briefer')) return 'narration';
@@ -458,9 +465,17 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
 
 // --- Resolution layer (ROADMAP_0_MASTER_PLAN.md Phase 3 item 4) ----------
 
-/** Mocks Math.random so rollD20() (ai/core/resolution.ts) returns exactly `roll` - mirrors tests/mortality.test.ts's identical helper. */
+/**
+ * Mocks Math.random so the pipeline's turn seed (generateSeed,
+ * ai/core/resolution.ts) becomes one whose seeded generator's FIRST d20
+ * draw is exactly `roll`. Searches the (dense) low seed space for such a
+ * seed, then pins Math.random to the value generateSeed floors back to it -
+ * mirrors tests/investigation.test.ts's identical helper.
+ */
 function mockRoll(roll: number) {
-  return vi.spyOn(Math, 'random').mockReturnValue((roll - 1) / 20);
+  let seed = 0;
+  while (rollD20(createSeededRng(seed)) !== roll) seed++;
+  return vi.spyOn(Math, 'random').mockReturnValue(seed / 2 ** 32);
 }
 
 describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAction)', () => {
@@ -528,6 +543,14 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     // A GM-private note records the roll/mechanics for the GM console (D4 -
     // never shown to the player, but ARE recorded for tuning).
     expect(result.newHistoryEntry.adjudication.gm_private.some(note => note.includes('[Resolution]'))).toBe(true);
+
+    // The turn's seed is persisted on the history entry (GM-only, D4), and
+    // replaying it reproduces the recorded roll: the action roll is the
+    // per-turn generator's first draw.
+    const turnSeed = result.newHistoryEntry.turnSeed;
+    expect(typeof turnSeed).toBe('number');
+    expect(Number.isInteger(turnSeed)).toBe(true);
+    expect(rollD20(createSeededRng(turnSeed!))).toBe(20);
   });
 
   it('non-consequential action: no roll, no PLAYER ACTION OUTCOME block, no resolutionTrace - story_relevance and assessment still run concurrently', async () => {
@@ -564,8 +587,81 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
 
     expect(result.newHistoryEntry.resolutionTrace).toBeUndefined();
     expect(result.newHistoryEntry.adjudication.gm_private.some(note => note.includes('[Resolution]'))).toBe(false);
-    // No dice were ever rolled for a non-consequential action.
-    expect(randomSpy).not.toHaveBeenCalled();
+    // Math.random is touched exactly once - the turn-seed entropy draw at
+    // pipeline start (generateSeed, ai/core/resolution.ts). No dice were
+    // ever rolled for a non-consequential action.
+    expect(randomSpy).toHaveBeenCalledTimes(1);
+    // The seed is still recorded even on a roll-free turn - it determines
+    // any roll the turn WOULD have made.
+    expect(typeof result.newHistoryEntry.turnSeed).toBe('number');
     randomSpy.mockRestore();
+  });
+
+  it('records turnSeed on the history entry, and the same seed replays every roll the turn made - action roll first, then the mortality roll', async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+    const npc = makeEntity({ entity_id: 'npc_1', name: 'Senator Rufus' });
+
+    const consequentialAssessmentJson = JSON.stringify({
+      is_consequential: true,
+      action_category: 'intrigue: assassination plot',
+      relevant_skill: 'intrigue',
+      difficulty: 15,
+      opposing_entity_id: null,
+      rationale: 'A dagger in the dark.',
+    });
+    // Carries a death claim so the mortality pipeline actually rolls -
+    // making this turn draw TWICE from the per-turn generator.
+    const adjudicationWithDeathJson = JSON.stringify({
+      turn: 2,
+      entityActions: [],
+      deltas: [
+        { type: 'resource', key: 'player_1:denarii', delta: -100, reason: 'Bribes for the guards.' },
+        { type: 'status', key: 'npc_1', delta: 0, reason: 'Cut down in the Curia.', new_status: 'dead' },
+      ],
+      headlines: ['Blood in the Curia.'],
+      gm_private: [],
+    });
+
+    // Pre-resolve every response the pipeline could need. The turn seed is
+    // real entropy here (Math.random unmocked), so which fate band the
+    // mortality roll lands in - and therefore whether the mortality OUTCOME
+    // call fires at all - is not known up front; its response is queued
+    // either way and simply goes unused when the band needs no content.
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(consequentialAssessmentJson);
+    h.response.adjudication.resolve(adjudicationWithDeathJson);
+    h.response.mortalityValidation.resolve(JSON.stringify({
+      dispositions: [{ entity_id: 'npc_1', valid: true, reasoning: 'A real assassination attempt occurred this turn.' }],
+    }));
+    h.response.mortalityOutcome.resolve(JSON.stringify({
+      outcomes: [{ entity_id: 'npc_1', deltas: [], narrative_directive: 'Narrate the aftermath.', secret_motive: null }],
+    }));
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologueText);
+    h.response.narration.resolve(narrationFullText);
+    h.response.relationshipUpdates.resolve(relationshipJson);
+
+    const result = await runNewTurn(
+      h.ai, 'Send the assassin after Rufus', player, 2, [player, npc], worldState, simulationState, [], [], '', false, 'Grim political thriller'
+    );
+
+    const entry = result.newHistoryEntry;
+    expect(typeof entry.turnSeed).toBe('number');
+    expect(Number.isInteger(entry.turnSeed)).toBe(true);
+    expect(entry.turnSeed!).toBeGreaterThanOrEqual(0);
+    expect(entry.turnSeed!).toBeLessThan(2 ** 32);
+
+    expect(entry.resolutionTrace).toBeDefined();
+    expect(entry.mortalityTrace).toHaveLength(1);
+    expect(entry.mortalityTrace![0]).toMatchObject({ entity_id: 'npc_1', valid: true });
+    expect(entry.mortalityTrace![0].roll).toBeGreaterThanOrEqual(1);
+    expect(entry.mortalityTrace![0].roll).toBeLessThanOrEqual(20);
+
+    // Replay: rebuilding the generator from the persisted seed reproduces
+    // the turn's recorded rolls in draw order.
+    const replayRng = createSeededRng(entry.turnSeed!);
+    expect(rollD20(replayRng)).toBe(entry.resolutionTrace!.roll);
+    expect(rollD20(replayRng)).toBe(entry.mortalityTrace![0].roll);
   });
 });

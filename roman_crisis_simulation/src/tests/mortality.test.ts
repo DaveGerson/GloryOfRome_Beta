@@ -6,6 +6,7 @@ import {
   rollD20,
   resolvePlayerDeathSave,
   resolveNpcFate,
+  createSeededRng,
   PLAYER_DEATH_SAVE_TABLE,
   NPC_FATE_TABLE,
 } from '../ai/core/resolution';
@@ -424,5 +425,33 @@ describe('ai/core/mortality.ts processMortality', () => {
     expect(adjudication.deltas[0].reason).toBe(originalDeltaReason);
     expect(adjudication.deltas[0].new_status).toBe('dead');
     expect(adjudication.gm_private).toEqual([]);
+  });
+
+  it('draws fate rolls from a supplied seeded rng: same seed -> same roll/band, and Math.random is never touched', async () => {
+    const randomSpy = vi.spyOn(Math, 'random');
+
+    const run = async () => {
+      const adjudication = makeAdjudication([
+        { type: 'status', key: npcId, delta: 0, reason: 'Cut down in the Curia.', new_status: 'dead' },
+      ]);
+      const { ai } = makeMockAi(
+        JSON.stringify({ dispositions: [{ entity_id: npcId, valid: true, reasoning: 'A real attempt occurred.' }] }),
+        // Queued for bands whose content needs the outcome call; unused otherwise.
+        JSON.stringify({ outcomes: [{ entity_id: npcId, deltas: [], narrative_directive: 'Narrate the aftermath.', secret_motive: null }] })
+      );
+      return processMortality(ai, adjudication, entities, playerId, 5, false, createSeededRng(0xc0ffee));
+    };
+
+    const first = await run();
+    const second = await run();
+
+    expect(first.mortalityEvents[0].roll).toBeGreaterThanOrEqual(1);
+    expect(first.mortalityEvents[0].roll).toBeLessThanOrEqual(20);
+    expect(second.mortalityEvents[0].roll).toBe(first.mortalityEvents[0].roll);
+    expect(second.mortalityEvents[0].band).toBe(first.mortalityEvents[0].band);
+    // The seeded generator's first draw reproduces the roll independently.
+    expect(rollD20(createSeededRng(0xc0ffee))).toBe(first.mortalityEvents[0].roll);
+    // With an rng supplied, nothing in the pipeline falls back to Math.random.
+    expect(randomSpy).not.toHaveBeenCalled();
   });
 });
