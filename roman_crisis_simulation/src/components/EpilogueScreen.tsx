@@ -3,6 +3,7 @@ import { Entity, TurnHistoryEntry, EventHistoryEntry } from '../types';
 import { generateText, GEMINI_PRO, GeminiClient } from '../ai/core/geminiService';
 import { buildEpiloguePrompt, EpilogueTurnHeadlines, EpilogueEventChoice } from '../ai/prompts/epilogue';
 import { clearSave } from '../persistence/saveGame';
+import { GildedAquila, toRoman } from './ui/Brand';
 
 // Epilogue prose is the single most "reward the player" text in the app -
 // same temperature reasoning as ai/core/turn.ts's NARRATION_TEMPERATURE.
@@ -43,6 +44,9 @@ function buildStaticFallbackEpitaph(player: Entity, causeNarration: string): str
     `"Here the record closes - the rest is left to those who come after."`,
   ].join('\n\n');
 }
+
+const STELE_TEXT = '#D9C89E', STELE_DIM = '#A18A5C', STELE_BRIGHT = '#F2E3BE';
+const steleLabel: React.CSSProperties = { fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', color: STELE_DIM };
 
 const EpilogueScreen: React.FC<{
   player: Entity;
@@ -159,68 +163,70 @@ const EpilogueScreen: React.FC<{
   };
 
   return (
-    <div className="w-full flex-grow overflow-y-auto bg-stone-950 text-stone-200 animate-fade-in">
-      <div className="max-w-3xl mx-auto px-6 py-16">
-        <p className="text-center font-decorative uppercase tracking-[0.3em] text-xs text-stone-500 mb-2">
+    <div style={{ width: '100%', flex: 1, minHeight: 0, overflowY: 'auto', background: 'radial-gradient(90% 60% at 50% 0%, #221A0E, #131009 70%)', color: STELE_TEXT, animation: 'gorFadeIn .5s ease-out both' }}>
+      <div style={{ maxWidth: 720, margin: '0 auto', padding: '56px 24px 64px' }}>
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+          <GildedAquila size={64} />
+        </div>
+        <p style={{ ...steleLabel, textAlign: 'center', letterSpacing: '.3em', marginBottom: 8 }}>
           The Story Has Ended
         </p>
-        <h1 className="text-4xl font-decorative text-center text-stone-100 mb-1">{player.name}</h1>
-        <p className="text-center text-stone-500 italic mb-10">
-          {player.position || player.entity_type} &mdash; {player.location}
+        <h1 style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 38, textAlign: 'center', color: STELE_BRIGHT, textShadow: '0 2px 4px rgba(0,0,0,.7)', margin: '0 0 4px' }}>{player.name}</h1>
+        <p style={{ textAlign: 'center', color: STELE_DIM, fontStyle: 'italic', margin: '0 0 40px' }}>
+          {player.position || player.entity_type} — {player.location}
         </p>
 
-        <div role="region" aria-label="Epilogue" className="border-y-4 border-double border-stone-700 py-8 px-2 sm:px-6 min-h-[10rem]">
+        <div role="region" aria-label="Epilogue" style={{ position: 'relative', borderTop: '1px solid rgba(227,199,102,.4)', borderBottom: '1px solid rgba(227,199,102,.4)', padding: '32px 12px', minHeight: 160, boxShadow: 'inset 0 3px 0 -2px rgba(227,199,102,.15), inset 0 -3px 0 -2px rgba(227,199,102,.15)' }}>
+          <span aria-hidden="true" style={{ position: 'absolute', top: -8, left: '50%', transform: 'translateX(-50%)', color: 'var(--gold-400)', fontSize: 11, background: '#161109', padding: '0 12px' }}>◆</span>
           {isLoading ? (
-            <p className="text-center italic text-stone-400 animate-pulse" aria-live="polite">
-              The chroniclers take up their pens&hellip;
+            <p style={{ textAlign: 'center', fontStyle: 'italic', color: STELE_DIM, animation: 'gorEmber 2.4s ease-in-out infinite' }} aria-live="polite">
+              The chroniclers take up their pens…
             </p>
           ) : (
-            <div className="space-y-4 text-stone-300 leading-relaxed whitespace-pre-line">{epitaph}</div>
+            <div className="gor-dropcap" style={{ fontSize: 17, lineHeight: 1.65, whiteSpace: 'pre-line', color: STELE_TEXT }}>{epitaph}</div>
           )}
+          <span aria-hidden="true" style={{ position: 'absolute', bottom: -8, left: '50%', transform: 'translateX(-50%)', color: 'var(--gold-400)', fontSize: 11, background: '#161109', padding: '0 12px' }}>◆</span>
         </div>
 
         {usedFallback && !isLoading && (
-          <p className="text-center text-stone-600 text-xs mt-4 italic">
-            (The chroniclers could not be reached &mdash; this record was set down by a steadier, quieter hand.)
+          <p style={{ textAlign: 'center', color: 'rgba(161,138,92,.7)', fontSize: 13, marginTop: 16, fontStyle: 'italic' }}>
+            (The chroniclers could not be reached — this record was set down by a steadier, quieter hand.)
           </p>
         )}
 
         {!isLoading && (
-          <div className="mt-10 grid sm:grid-cols-2 gap-6 text-sm">
-            <div className="bg-stone-900/60 border border-stone-700 rounded-sm p-4">
-              <h2 className="font-bold text-stone-300 uppercase tracking-wide text-xs mb-2">Run Stats</h2>
-              <ul className="space-y-1 text-stone-400">
+          <div style={{ marginTop: 40, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, fontSize: 14 }}>
+            <div style={{ background: 'rgba(0,0,0,.32)', border: '1px solid rgba(227,199,102,.25)', borderRadius: 'var(--radius-sm)', padding: '14px 16px' }}>
+              <h2 style={{ ...steleLabel, margin: '0 0 8px' }}>The Reckoning</h2>
+              <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 5, color: STELE_DIM }}>
                 <li>
-                  Turns survived: <span className="text-stone-200">{turnHistory.length}</span>
+                  Turns survived: <span style={{ color: STELE_BRIGHT, fontVariantNumeric: 'tabular-nums' }}>{toRoman(Math.max(1, turnHistory.length))} ({turnHistory.length})</span>
                 </li>
                 <li>
                   Apparent ambition:{' '}
-                  <span className="text-stone-200 italic">
+                  <span style={{ color: STELE_BRIGHT, fontStyle: 'italic' }}>
                     {inferredAmbition ? inferredAmbition.apparent_ambition : 'Never became clear, even in hindsight.'}
                   </span>
                 </li>
               </ul>
             </div>
-            <div className="bg-stone-900/60 border border-stone-700 rounded-sm p-4">
-              <h2 className="font-bold text-stone-300 uppercase tracking-wide text-xs mb-2">Notable Headlines</h2>
+            <div style={{ background: 'rgba(0,0,0,.32)', border: '1px solid rgba(227,199,102,.25)', borderRadius: 'var(--radius-sm)', padding: '14px 16px' }}>
+              <h2 style={{ ...steleLabel, margin: '0 0 8px' }}>Notable Headlines</h2>
               {notableHeadlines.length > 0 ? (
-                <ul className="list-disc list-inside space-y-1 text-stone-400">
+                <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 5, color: STELE_DIM }}>
                   {notableHeadlines.map((h, i) => (
                     <li key={i}>{h}</li>
                   ))}
                 </ul>
               ) : (
-                <p className="text-stone-500 italic">The record is thin.</p>
+                <p style={{ margin: 0, color: STELE_DIM, fontStyle: 'italic' }}>The record is thin.</p>
               )}
             </div>
           </div>
         )}
 
-        <div className="mt-12 flex justify-center">
-          <button
-            onClick={handleNewChronicle}
-            className="bg-red-800 text-stone-100 rounded-sm px-8 py-3 hover:bg-red-700 transition-colors border border-red-900 btn-animate text-lg font-bold"
-          >
+        <div style={{ marginTop: 48, display: 'flex', justifyContent: 'center' }}>
+          <button onClick={handleNewChronicle} className="gor-btn gor-btn-lg gor-btn-primary">
             Begin a New Chronicle
           </button>
         </div>

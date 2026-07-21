@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { WaxSeal } from './ui/Brand';
 
 /**
  * components/OnboardingOverlay.tsx
@@ -26,17 +27,20 @@ export interface OnboardingOverlayProps {
 interface OnboardingStep {
   title: string;
   body: string;
+  seal: string;
 }
 
 const STEPS: readonly OnboardingStep[] = [
   {
     title: 'Rule Your Week',
+    seal: 'I',
     body:
       'You act by writing intentions in your own words — orders, schemes, speeches, letters. ' +
       'Each turn is one week, and the world moves whether you see it or not.',
   },
   {
     title: 'Knowledge Is Survival',
+    seal: 'II',
     body:
       'The side panel holds what you know — not what is true. Dispatches report only what ' +
       'reaches your ears. People can be investigated, coin can be spent, and even then, reports ' +
@@ -44,6 +48,7 @@ const STEPS: readonly OnboardingStep[] = [
   },
   {
     title: 'Death Is Real',
+    seal: 'III',
     body:
       'There is no winning — only how long you last, and what history writes of you afterward. ' +
       'The Fates keep their own ledger: your reign is saved automatically, every turn.',
@@ -121,7 +126,7 @@ const OnboardingOverlay: React.FC<OnboardingOverlayProps> = ({ isOpen, onClose }
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 animate-fade-in">
+    <div className="gor-dialog-backdrop">
       <div
         ref={dialogRef}
         role="dialog"
@@ -130,47 +135,46 @@ const OnboardingOverlay: React.FC<OnboardingOverlayProps> = ({ isOpen, onClose }
         aria-describedby="onboarding-body"
         tabIndex={-1}
         onKeyDown={handleKeyDown}
-        className="relative w-full max-w-lg bg-[#fdfaf3] rounded-lg shadow-xl p-6 border-4 border-double border-red-900 roman-stone-panel animate-fade-in"
+        className="gor-dialog"
+        style={{ maxWidth: 540, padding: '0 0 22px' }}
       >
         <button
           type="button"
           onClick={onClose}
           aria-label="Close introduction"
-          className="absolute top-3 right-3 text-stone-500 hover:text-red-800 text-2xl leading-none btn-animate"
+          style={{ all: 'unset', position: 'absolute', top: 12, right: 16, cursor: 'pointer', color: 'var(--text-muted)', fontSize: 24, lineHeight: 1, zIndex: 1 }}
         >
-          &times;
+          ×
         </button>
 
-        <p className="sr-only" aria-live="polite">
+        <p aria-live="polite" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clipPath: 'inset(50%)' }}>
           Step {step + 1} of {STEPS.length}
         </p>
 
-        <h2
-          id="onboarding-title"
-          className="text-3xl font-decorative text-red-900 text-center roman-inset-text pr-6"
-        >
-          {current.title}
-        </h2>
-        <p id="onboarding-body" className="mt-4 text-stone-700 text-center whitespace-pre-wrap">
+        <div className="gor-dialog-head" style={{ textAlign: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 6 }}>
+            <WaxSeal letter={current.seal} size={50} tone={isLastStep ? 'crimson' : 'tyrian'} />
+          </div>
+          <h2 id="onboarding-title" style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 27, color: 'var(--tyrian-600)' }}>
+            {current.title}
+          </h2>
+          <div className="gor-dialog-rule"></div>
+        </div>
+
+        <p id="onboarding-body" className="gor-dialog-body" style={{ textAlign: 'center', whiteSpace: 'pre-wrap', margin: 0 }}>
           {current.body}
         </p>
 
-        <div className="mt-6 flex flex-col items-center gap-4">
-          <div className="flex gap-2" aria-hidden="true">
+        <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
+          <div style={{ display: 'flex', gap: 8 }} aria-hidden="true">
             {STEPS.map((_, index) => (
               <span
                 key={index}
-                className={`w-2.5 h-2.5 rounded-full transition-colors ${
-                  index === step ? 'bg-red-800' : 'bg-stone-300'
-                }`}
+                style={{ width: 9, height: 9, borderRadius: '50%', transition: 'background var(--duration-slow) var(--ease-standard)', background: index === step ? 'var(--gold-500)' : 'var(--parchment-300)', boxShadow: index === step ? '0 0 4px rgba(201,162,39,.6)' : undefined }}
               />
             ))}
           </div>
-          <button
-            type="button"
-            onClick={handleAdvance}
-            className="bg-red-800 text-stone-100 rounded-sm px-6 py-2 hover:bg-red-700 transition-colors border border-red-900 btn-animate"
-          >
+          <button type="button" onClick={handleAdvance} className="gor-btn gor-btn-md gor-btn-primary">
             {isLastStep ? 'Begin' : 'Next'}
           </button>
         </div>

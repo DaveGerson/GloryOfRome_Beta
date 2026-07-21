@@ -19,6 +19,8 @@ const SOURCE_LABELS: Partial<Record<PerceptionSource, string>> = {
  * this is intentionally a different visual register from narration (an
  * intelligence-briefing aside, not in-fiction prose), so it reads as "here's
  * what your spies/eyes/ears picked up" rather than more GM narration.
+ * Design register: a dark dispatch tablet (the one dark, gold-ruled surface
+ * in the player-facing stream), distinct from the marble GM bubbles.
  *
  * Per the design brief: if nothing beyond the player's own directly-narrated
  * consequences ('self'-sourced changes) was perceptible this turn, the
@@ -30,20 +32,23 @@ const DispatchesDigest: React.FC<{ changes: PerceivedChange[] }> = ({ changes })
     const beyondSelf = changes.filter(c => c.source !== 'self');
 
     return (
-        <div className="flex justify-center mb-4 animate-fade-in w-full">
-            <div className="w-full max-w-2xl bg-stone-800/90 text-amber-100 border border-amber-900/60 rounded-sm px-4 py-3 shadow-inner">
-                <h4 className="font-decorative text-amber-400 text-sm uppercase tracking-widest mb-2 border-b border-stone-600 pb-1">
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 14, width: '100%', animation: 'gorFadeIn .5s ease-out both' }}>
+            <div style={{ width: '100%', maxWidth: 640, background: 'var(--dentil) left top/100% 3px no-repeat, linear-gradient(180deg,#2A231A,#1B1509)', border: '1px solid rgba(201,162,39,.4)', borderRadius: 'var(--radius-md)', padding: '12px 16px 13px', boxShadow: 'var(--bevel), 0 2px 6px rgba(58,44,16,.3)', color: '#E6E1D0' }}>
+                <h4 style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 12, letterSpacing: '.24em', textTransform: 'uppercase', color: '#E8C959', borderBottom: '1px solid rgba(201,162,39,.25)', paddingBottom: 6, marginBottom: 8, textShadow: '0 1px 1px rgba(0,0,0,.5)' }}>
                     Dispatches &amp; Observations
                 </h4>
                 {beyondSelf.length === 0 ? (
-                    <p className="italic text-sm text-stone-400">{QUIET_DIGEST_MESSAGE}</p>
+                    <p style={{ margin: 0, fontStyle: 'italic', fontSize: 14, color: '#A99A76' }}>{QUIET_DIGEST_MESSAGE}</p>
                 ) : (
-                    <ul className="space-y-1.5 text-sm">
+                    <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6, fontSize: 14 }}>
                         {changes.map((change, index) => (
-                            <li key={index} className="flex justify-between items-baseline gap-3">
-                                <span>{change.text}</span>
+                            <li key={index} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+                                <span style={{ display: 'inline-flex', gap: 8 }}>
+                                    <span aria-hidden="true" style={{ color: 'var(--gold-400)', flex: 'none' }}>❧</span>
+                                    <span>{change.text}</span>
+                                </span>
                                 {change.source !== 'self' && (
-                                    <span className="text-xs italic text-stone-400 whitespace-nowrap flex-shrink-0">
+                                    <span style={{ fontSize: 12, fontStyle: 'italic', color: '#A99A76', whiteSpace: 'nowrap', flexShrink: 0 }}>
                                         {SOURCE_LABELS[change.source]}
                                     </span>
                                 )}
