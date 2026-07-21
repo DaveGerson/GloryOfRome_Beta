@@ -109,6 +109,14 @@ export class AiServiceError extends Error {
 const MAX_ATTEMPTS = 3;
 const BASE_BACKOFF_MS = 1000; // ~1s / 2s / 4s before jitter
 const MAX_RAW_RESPONSE_CHARS = 20_000;
+/**
+ * Cap on captured prompt/system-instruction text per record. Generous on
+ * purpose - the capture exists so a call can be replayed/evaluated verbatim,
+ * so truncation should only ever fire on a pathological outlier.
+ */
+export const MAX_CAPTURED_PROMPT_CHARS = 50_000;
+/** Bound on the session-wide call log below; oldest records are evicted first. */
+export const MAX_SESSION_CALL_RECORDS = 500;
 
 /**
  * Detects whether an error from the network/SDK layer is worth retrying:
@@ -137,22 +145,33 @@ function jitteredBackoffMs(attempt: number): number {
   return Math.max(0, Math.round(base + jitter));
 }
 
-function truncateForCapture(text: string): string {
-  if (text.length <= MAX_RAW_RESPONSE_CHARS) return text;
-  return `${text.slice(0, MAX_RAW_RESPONSE_CHARS)}... [truncated, ${text.length} total chars]`;
+function truncateForCapture(text: string, maxChars: number = MAX_RAW_RESPONSE_CHARS): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}... [truncated, ${text.length} total chars]`;
 }
 
 // --- Raw call capture -------------------------------------------------
 //
-// A turn makes several sequential AI calls (adjudication, narration,
-// relationship updates, etc). `beginTurnCapture`/`endTurnCapture` let
-// turn.ts bracket the whole pipeline and collect every call made in
-// between into one array, without threading a capture parameter through
-// every intelligence.ts/turn.ts function signature. Calls made outside a
-// begin/end bracket (e.g. DramatisPersonaeTab's ad-hoc investigation
-// calls) simply aren't captured - there's no turn to attach them to.
+// Two channels, both GM-console/eval-side only - captured prompts and
+// responses must never reach a player-facing surface (DESIGN_DECISIONS.md
+// D4/D5) and must never be written into the persisted save blob (saves stay
+// lean per D18; persistence/saveGame.ts strips the text fields on
+// serialize):
+//
+//  - Turn bracket: a turn makes several sequential AI calls (adjudication,
+//    narration, relationship updates, etc). `beginTurnCapture`/
+//    `endTurnCapture` let turn.ts bracket the whole pipeline and collect
+//    every call made in between into one array, without threading a
+//    capture parameter through every intelligence.ts/turn.ts function
+//    signature.
+//  - Session log: EVERY call - bracketed or not (e.g. DramatisPersonaeTab's
+//    ad-hoc investigation calls, clarifications, deep analysis, ambition
+//    inference, the epilogue) - is also appended to a module-level,
+//    session-scoped log bounded at MAX_SESSION_CALL_RECORDS (oldest
+//    evicted first). In-memory only; it does not survive a reload.
 
 let activeCapture: RawCallRecord[] | null = null;
+let sessionCallLog: RawCallRecord[] = [];
 
 /** Starts collecting raw call records for the current turn. */
 export function beginTurnCapture(): void {
@@ -166,9 +185,33 @@ export function endTurnCapture(): RawCallRecord[] {
   return records;
 }
 
+/** Snapshot (oldest first) of the bounded session-wide call log. */
+export function getSessionCallLog(): RawCallRecord[] {
+  return [...sessionCallLog];
+}
+
+/** Empties the session-wide call log. Does not touch an active turn bracket. */
+export function resetSessionCallLog(): void {
+  sessionCallLog = [];
+}
+
 function recordCall(record: RawCallRecord): void {
+  const bounded: RawCallRecord = {
+    ...record,
+    rawResponse: truncateForCapture(record.rawResponse),
+  };
+  if (bounded.promptText !== undefined) {
+    bounded.promptText = truncateForCapture(bounded.promptText, MAX_CAPTURED_PROMPT_CHARS);
+  }
+  if (bounded.systemInstruction !== undefined) {
+    bounded.systemInstruction = truncateForCapture(bounded.systemInstruction, MAX_CAPTURED_PROMPT_CHARS);
+  }
+  sessionCallLog.push(bounded);
+  if (sessionCallLog.length > MAX_SESSION_CALL_RECORDS) {
+    sessionCallLog.splice(0, sessionCallLog.length - MAX_SESSION_CALL_RECORDS);
+  }
   if (activeCapture) {
-    activeCapture.push({ ...record, rawResponse: truncateForCapture(record.rawResponse) });
+    activeCapture.push(bounded);
   }
 }
 
@@ -323,6 +366,8 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
         latencyMs: network.latencyMs,
         attempts: network.attempts,
         promptChars: currentPrompt.length,
+        promptText: currentPrompt,
+        systemInstruction: req.systemInstruction,
         rawResponse: network.text,
         validated: false,
       });
@@ -346,6 +391,8 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
         latencyMs: network.latencyMs,
         attempts: network.attempts,
         promptChars: currentPrompt.length,
+        promptText: currentPrompt,
+        systemInstruction: req.systemInstruction,
         rawResponse: network.text,
         validated: true,
       });
@@ -360,6 +407,8 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
         latencyMs: network.latencyMs,
         attempts: network.attempts,
         promptChars: currentPrompt.length,
+        promptText: currentPrompt,
+        systemInstruction: req.systemInstruction,
         rawResponse: network.text,
         validated: true,
       });
@@ -373,6 +422,8 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
       latencyMs: network.latencyMs,
       attempts: network.attempts,
       promptChars: currentPrompt.length,
+      promptText: currentPrompt,
+      systemInstruction: req.systemInstruction,
       rawResponse: network.text,
       validated: false,
     });
@@ -429,6 +480,8 @@ export async function generateText(ai: GeminiClient, req: GenerateTextRequest): 
     latencyMs: network.latencyMs,
     attempts: network.attempts,
     promptChars: req.prompt.length,
+    promptText: req.prompt,
+    systemInstruction: req.systemInstruction,
     rawResponse: network.text,
     validated: true,
   });
@@ -518,6 +571,8 @@ export async function generateTextStream(
     latencyMs: Date.now() - totalStart,
     attempts,
     promptChars: req.prompt.length,
+    promptText: req.prompt,
+    systemInstruction: req.systemInstruction,
     rawResponse: textSoFar,
     validated: true,
   });

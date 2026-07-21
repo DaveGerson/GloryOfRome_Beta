@@ -53,6 +53,8 @@ function makeRawCall(callName: string): RawCallRecord {
     latencyMs: 100,
     attempts: 1,
     promptChars: 1000,
+    promptText: `full prompt for ${callName}: ${'p'.repeat(500)}`,
+    systemInstruction: `system instruction for ${callName}`,
     rawResponse: 'x'.repeat(1000),
     validated: true,
   };
@@ -133,6 +135,94 @@ describe('persistence/saveGame', () => {
     expect(loaded!.state.turnHistory).toHaveLength(1);
     expect(loaded!.state.turnHistory[0].turnSeed).toBeUndefined();
     expect(loaded!.state.turnHistory[0].playerIntent).toBe('do thing 1');
+  });
+
+  describe('lean saves - captured prompt text never persisted', () => {
+    it('strips promptText/systemInstruction from every persisted rawCall, keeping rawResponse and metadata', () => {
+      const turnHistory = [makeHistoryEntry(1, true), makeHistoryEntry(2, true)];
+      const state = makeState({ turnNumber: 3, turnHistory });
+
+      saveGame(state);
+
+      // The serialized blob carries no captured prompt text anywhere.
+      const raw = localStorage.getItem('gloryOfRome:autosave')!;
+      expect(raw).not.toContain('promptText');
+      expect(raw).not.toContain('systemInstruction');
+      expect(raw).not.toContain('full prompt for');
+
+      // rawResponse persistence is unchanged: EVERY entry keeps its rawCalls.
+      const loaded = loadGame();
+      expect(loaded).not.toBeNull();
+      for (const entry of loaded!.state.turnHistory) {
+        expect(entry.rawCalls).toHaveLength(2);
+        for (const call of entry.rawCalls!) {
+          expect(call.promptText).toBeUndefined();
+          expect(call.systemInstruction).toBeUndefined();
+          expect(call.rawResponse).toBe('x'.repeat(1000));
+          expect(call.promptChars).toBe(1000);
+        }
+      }
+
+      // The in-memory records the caller handed in keep their full text.
+      expect(state.turnHistory[0].rawCalls![0].promptText).toContain('full prompt for');
+      expect(state.turnHistory[0].rawCalls![0].systemInstruction).toContain('system instruction for');
+    });
+
+    it('keeps the prompt text out of the blob on the oversize-retry path too', () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      let calls = 0;
+      const realSetItem = Storage.prototype.setItem;
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+        this: Storage,
+        key: string,
+        value: string
+      ) {
+        calls++;
+        if (calls === 1) {
+          throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+        }
+        return realSetItem.call(this, key, value);
+      });
+
+      saveGame(makeState({ turnNumber: 3, turnHistory: [makeHistoryEntry(1, true), makeHistoryEntry(2, true)] }));
+
+      const raw = localStorage.getItem('gloryOfRome:autosave')!;
+      expect(raw).not.toContain('promptText');
+      expect(raw).not.toContain('systemInstruction');
+      // The retry's existing behavior is intact: only the newest entry keeps rawCalls.
+      const loaded = loadGame();
+      expect(loaded!.state.turnHistory[0].rawCalls).toBeUndefined();
+      expect(loaded!.state.turnHistory[1].rawCalls).toHaveLength(2);
+    });
+
+    it('loads a stored v1 envelope whose rawCalls predate promptText/systemInstruction', () => {
+      // Written directly to storage, bypassing saveGame, to mirror a blob
+      // persisted before the fields existed.
+      const legacyCall = {
+        callName: 'adjudication',
+        model: 'gemini-3-pro-preview',
+        latencyMs: 100,
+        attempts: 1,
+        promptChars: 1000,
+        rawResponse: 'x'.repeat(1000),
+        validated: true,
+      };
+      const envelope = {
+        version: SAVE_VERSION,
+        savedAt: new Date().toISOString(),
+        state: makeState({
+          turnNumber: 2,
+          turnHistory: [{ ...makeHistoryEntry(1, false), rawCalls: [legacyCall] }],
+        }),
+      };
+      localStorage.setItem('gloryOfRome:autosave', JSON.stringify(envelope));
+
+      const loaded = loadGame();
+      expect(loaded).not.toBeNull();
+      expect(loaded!.state.turnHistory[0].rawCalls).toHaveLength(1);
+      expect(loaded!.state.turnHistory[0].rawCalls![0]).toEqual(legacyCall);
+      expect(loaded!.state.turnHistory[0].rawCalls![0].promptText).toBeUndefined();
+    });
   });
 
   describe('updateSavedAmbition (stale-autosave race guard)', () => {

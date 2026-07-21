@@ -9,6 +9,10 @@ import {
   GeminiClient,
   beginTurnCapture,
   endTurnCapture,
+  getSessionCallLog,
+  resetSessionCallLog,
+  MAX_SESSION_CALL_RECORDS,
+  MAX_CAPTURED_PROMPT_CHARS,
 } from '../ai/core/geminiService';
 
 /** Minimal mock client matching GeminiClient's structural shape. */
@@ -379,6 +383,7 @@ describe('geminiService', () => {
       });
       expect(records[0].latencyMs).toBeGreaterThanOrEqual(0);
       expect(records[0].promptChars).toBe('narrate'.length);
+      expect(records[0].promptText).toBe('narrate');
     });
 
     it('does not record anything if acquiring the stream fails outright (nothing succeeded to capture)', async () => {
@@ -397,6 +402,121 @@ describe('geminiService', () => {
       const records = endTurnCapture();
 
       expect(records).toHaveLength(0);
+    });
+  });
+
+  describe('raw call capture - prompt text and the session-wide log', () => {
+    beforeEach(() => {
+      resetSessionCallLog();
+    });
+
+    afterEach(() => {
+      resetSessionCallLog();
+      endTurnCapture(); // Drain any capture left active by a test that forgot to end it.
+    });
+
+    it('captures promptText and systemInstruction on a bracketed structured call', async () => {
+      const ai = makeMockAi(async () => ({ text: '{"value": 1}' }));
+
+      beginTurnCapture();
+      await generateStructured<{ value: number }>(ai, {
+        callName: 'test-capture-prompt',
+        model: 'test-model',
+        systemInstruction: 'You are the adjudicator.',
+        prompt: 'adjudicate the turn',
+      });
+      const records = endTurnCapture();
+
+      expect(records).toHaveLength(1);
+      expect(records[0].promptText).toBe('adjudicate the turn');
+      expect(records[0].systemInstruction).toBe('You are the adjudicator.');
+      expect(records[0].promptChars).toBe('adjudicate the turn'.length);
+      // The same call is also visible in the session-wide log.
+      expect(getSessionCallLog()).toHaveLength(1);
+      expect(getSessionCallLog()[0].promptText).toBe('adjudicate the turn');
+    });
+
+    it('captures the repair-retry round-trip with ITS actual prompt (the repair suffix included)', async () => {
+      const zPoint = z.object({ x: z.number(), y: z.number() });
+      const generateContent = vi.fn()
+        .mockResolvedValueOnce({ text: '{"x": 1}' }) // missing "y" - fails zod
+        .mockResolvedValueOnce({ text: '{"x": 1, "y": 2}' });
+      const ai = makeMockAi(generateContent);
+
+      beginTurnCapture();
+      await generateStructured<{ x: number; y: number }>(ai, {
+        callName: 'test-capture-repair',
+        model: 'test-model',
+        prompt: 'give me a point',
+        zodSchema: zPoint,
+      });
+      const records = endTurnCapture();
+
+      expect(records).toHaveLength(2);
+      expect(records[0].promptText).toBe('give me a point');
+      expect(records[1].promptText).toContain('give me a point');
+      expect(records[1].promptText).toContain('violated the schema');
+    });
+
+    it('records an out-of-band call (no active bracket) in the session log', async () => {
+      const ai = makeMockAi(async () => ({ text: 'a report on the legate' }));
+
+      await generateText(ai, {
+        callName: 'test-out-of-band',
+        model: 'test-model',
+        systemInstruction: 'You are an informant.',
+        prompt: 'investigate the legate',
+      });
+
+      const log = getSessionCallLog();
+      expect(log).toHaveLength(1);
+      expect(log[0]).toMatchObject({
+        callName: 'test-out-of-band',
+        model: 'test-model',
+        promptText: 'investigate the legate',
+        systemInstruction: 'You are an informant.',
+        rawResponse: 'a report on the legate',
+        validated: true,
+      });
+      // No bracket was open, so a later bracket sees none of it.
+      beginTurnCapture();
+      expect(endTurnCapture()).toHaveLength(0);
+    });
+
+    it('evicts the oldest records once the session log exceeds its cap', async () => {
+      const ai = makeMockAi(async () => ({ text: 'ok' }));
+      const overflow = 3;
+      const total = MAX_SESSION_CALL_RECORDS + overflow;
+
+      for (let i = 0; i < total; i++) {
+        await generateText(ai, { callName: `call-${i}`, model: 'test-model', prompt: 'p' });
+      }
+
+      const log = getSessionCallLog();
+      expect(log).toHaveLength(MAX_SESSION_CALL_RECORDS);
+      expect(log[0].callName).toBe(`call-${overflow}`); // oldest survivors first
+      expect(log[log.length - 1].callName).toBe(`call-${total - 1}`);
+    });
+
+    it('truncates an oversized prompt defensively while keeping the true promptChars', async () => {
+      const bigPrompt = 'p'.repeat(MAX_CAPTURED_PROMPT_CHARS + 100);
+      const ai = makeMockAi(async () => ({ text: 'ok' }));
+
+      await generateText(ai, { callName: 'test-truncate-prompt', model: 'test-model', prompt: bigPrompt });
+
+      const log = getSessionCallLog();
+      expect(log).toHaveLength(1);
+      expect(log[0].promptText!.length).toBeLessThan(bigPrompt.length);
+      expect(log[0].promptText).toContain('[truncated');
+      expect(log[0].promptChars).toBe(bigPrompt.length);
+    });
+
+    it('omits systemInstruction from the record when the request had none', async () => {
+      const ai = makeMockAi(async () => ({ text: 'ok' }));
+
+      await generateText(ai, { callName: 'test-no-sys', model: 'test-model', prompt: 'p' });
+
+      expect(getSessionCallLog()[0].systemInstruction).toBeUndefined();
     });
   });
 

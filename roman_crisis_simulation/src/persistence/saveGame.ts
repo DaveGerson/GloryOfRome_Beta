@@ -116,6 +116,25 @@ function stripOldRawCalls(turnHistory: TurnHistoryEntry[]): TurnHistoryEntry[] {
   });
 }
 
+/**
+ * Strips the captured prompt/system-instruction text from every rawCall
+ * record before serialization. Call capture is session-side only
+ * (DESIGN_DECISIONS.md D18: saves stay lean) - the persisted blob keeps each
+ * record's `rawResponse`/metadata for the GM screen's raw-JSON tab, but the
+ * full prompt text must never be written to storage. The in-memory records
+ * are left untouched (new entry/record objects are built), so the GM console
+ * and session-side export keep the full text.
+ */
+function stripCapturedCallText(turnHistory: TurnHistoryEntry[]): TurnHistoryEntry[] {
+  return turnHistory.map(entry => {
+    if (!entry.rawCalls) return entry;
+    return {
+      ...entry,
+      rawCalls: entry.rawCalls.map(({ promptText, systemInstruction, ...rest }) => rest),
+    };
+  });
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -139,10 +158,17 @@ function looksLikeSaveGame(value: unknown): value is SaveGame {
  * autosave is silently skipped - the in-memory game is unaffected.
  */
 export function saveGame(state: SaveGameState): void {
+  // Persisted saves never carry captured prompt text, regardless of size -
+  // see stripCapturedCallText.
+  const leanState: SaveGameState = {
+    ...state,
+    turnHistory: stripCapturedCallText(state.turnHistory),
+  };
+
   const envelope: SaveGame = {
     version: SAVE_VERSION,
     savedAt: new Date().toISOString(),
-    state,
+    state: leanState,
   };
 
   try {
@@ -156,8 +182,8 @@ export function saveGame(state: SaveGameState): void {
     const strippedEnvelope: SaveGame = {
       ...envelope,
       state: {
-        ...state,
-        turnHistory: stripOldRawCalls(state.turnHistory),
+        ...leanState,
+        turnHistory: stripOldRawCalls(leanState.turnHistory),
       },
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(strippedEnvelope));

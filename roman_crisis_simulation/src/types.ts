@@ -292,6 +292,17 @@ export interface RawCallRecord {
   promptChars: number;
   rawResponse: string; // capped at ~20k chars, see geminiService.ts
   validated: boolean; // true if JSON parsing (and zod validation, if requested) succeeded
+  /**
+   * The full prompt text as sent (capped at MAX_CAPTURED_PROMPT_CHARS, see
+   * geminiService.ts). Session-side capture for the GM console and
+   * eval/tuning export only - never rendered on a player-facing surface
+   * (D4/D5), and never written into the persisted save blob (saves stay
+   * lean per DESIGN_DECISIONS.md D18; persistence/saveGame.ts strips it on
+   * serialize). Optional: records loaded from older saves lack it.
+   */
+  promptText?: string;
+  /** The call's system instruction, if any - same caps, visibility, and persistence rules as `promptText`. */
+  systemInstruction?: string;
 }
 
 /**
