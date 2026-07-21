@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent } from '../../types';
+import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent, TruthLedgerEntry } from '../../types';
 import { AdjudicationSchema } from './schemas';
 import { applyAdjudication, applyDeltas } from './engine';
 import { mockRunNewTurn } from "../mocks";
@@ -95,6 +95,10 @@ export async function runNewTurn(
     currentSimulationState: SimulationState,
     turnHistory: TurnHistoryEntry[],
     currentReports: Report[],
+    // GM-PRIVATE (DESIGN_DECISIONS.md D11): flows current -> updated exactly
+    // like currentReports/updatedReports; the engine appends one entry per
+    // rumor delta (ai/core/engine.ts).
+    currentTruthLedger: TruthLedgerEntry[],
     gmInterventionText: string,
     isMockMode: boolean,
     metaNarrative: string,
@@ -104,6 +108,7 @@ export async function runNewTurn(
     updatedWorldState: WorldState,
     updatedSimulationState: SimulationState,
     updatedReports: Report[],
+    updatedTruthLedger: TruthLedgerEntry[],
     narration: string,
     headlines: string[],
     suggestedActions: string[],
@@ -113,7 +118,7 @@ export async function runNewTurn(
     if (isMockMode) {
         if(!mockRunNewTurn) throw new Error("Mock function 'mockRunNewTurn' is not implemented.");
         // FIX: Pass currentSimulationState to the mock function to align with its updated signature.
-        return mockRunNewTurn(playerIntent, playerEntity, turnNumber, currentEntities, currentWorldState, currentReports, gmInterventionText, metaNarrative, currentSimulationState);
+        return mockRunNewTurn(playerIntent, playerEntity, turnNumber, currentEntities, currentWorldState, currentReports, gmInterventionText, metaNarrative, currentSimulationState, currentTruthLedger);
     }
 
     // Bracket the whole turn pipeline so every AI call made below (across
@@ -305,7 +310,7 @@ export async function runNewTurn(
     // of the three parallel legs below are launched, so `updatedEntities`/
     // `updatedWorldState`/`updatedReports` are fully settled, ordinary
     // (non-shared-with-anything-concurrent) values by the time they're read.
-    let { updatedEntities, updatedWorldState, updatedReports } = applyAdjudication(transformedAdjudication, currentEntities, currentWorldState, currentReports);
+    let { updatedEntities, updatedWorldState, updatedReports, updatedTruthLedger } = applyAdjudication(transformedAdjudication, currentEntities, currentWorldState, currentReports, currentTruthLedger);
     const updatedPlayerEntity = updatedEntities.find(e => e.entity_id === playerEntity.entity_id) || playerEntity;
     const recentPlayerIntents = turnHistory.map(h => h.playerIntent).slice(-6);
 
@@ -434,6 +439,7 @@ export async function runNewTurn(
         updatedWorldState,
         updatedSimulationState, // Return the new state
         updatedReports,
+        updatedTruthLedger,
         narration,
         headlines: transformedAdjudication.headlines,
         suggestedActions: suggestedActions.length > 0 ? suggestedActions : ["Consider your next move carefully.", "Consolidate your power.", "Seek new allies."],

@@ -268,6 +268,7 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
       simulationState,
       [],
       [],
+      [],
       '',
       false,
       'Grim political thriller',
@@ -381,6 +382,7 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
       simulationState,
       [],
       [],
+      [],
       '',
       false,
       'Grim political thriller',
@@ -427,7 +429,7 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
 
     try {
       const turnPromise = runNewTurn(
-        h.ai, 'Address the Senate', player, 2, [player], worldState, simulationState, [], [], '', false, 'Grim political thriller'
+        h.ai, 'Address the Senate', player, 2, [player], worldState, simulationState, [], [], [], '', false, 'Grim political thriller'
       );
       turnPromise.catch(() => {}); // the turn's own rejection is handled deliberately - not what we're testing here
 
@@ -498,7 +500,7 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     });
 
     const turnPromise = runNewTurn(
-      h.ai, 'Give a rousing speech to the Senate', player, 2, [player], worldState, simulationState, [], [], '', false, 'Grim political thriller'
+      h.ai, 'Give a rousing speech to the Senate', player, 2, [player], worldState, simulationState, [], [], [], '', false, 'Grim political thriller'
     );
     turnPromise.catch(() => {});
 
@@ -559,7 +561,7 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     const randomSpy = vi.spyOn(Math, 'random');
 
     const turnPromise = runNewTurn(
-      h.ai, 'What news from the forum?', player, 2, [player], worldState, simulationState, [], [], '', false, 'Grim political thriller'
+      h.ai, 'What news from the forum?', player, 2, [player], worldState, simulationState, [], [], [], '', false, 'Grim political thriller'
     );
     turnPromise.catch(() => {});
 
@@ -660,7 +662,7 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     h.response.relationshipUpdates.resolve(relationshipJson);
 
     const result = await runNewTurn(
-      h.ai, 'Send the assassin after Rufus', player, 2, [player, npc], worldState, simulationState, [], [], '', false, 'Grim political thriller'
+      h.ai, 'Send the assassin after Rufus', player, 2, [player, npc], worldState, simulationState, [], [], [], '', false, 'Grim political thriller'
     );
 
     const entry = result.newHistoryEntry;

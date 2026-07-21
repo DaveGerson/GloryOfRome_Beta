@@ -139,6 +139,15 @@ export const zEventDelta = z.object({
   // ai/prompts/adjudication.ts for how these are produced/consumed.
   new_status: z.enum(['alive', 'dead', 'exiled', 'missing']).nullable().optional(),
   new_location: z.string().nullable().optional(),
+  // 'rumor' deltas only, GM-PRIVATE (DESIGN_DECISIONS.md D11 - same
+  // handling class as secret_truth): the claim's actual truth disposition
+  // and originating entity. The adjudication prompt demands is_true on
+  // every rumor; nullable/optional here so non-rumor deltas need not carry
+  // them and so an omission fails soft into the engine's assumed-true
+  // fallback (ai/core/engine.ts) instead of failing the whole turn. See
+  // types.ts's EventDelta for the leak-prevention contract.
+  is_true: z.boolean().nullable().optional(),
+  origin_id: z.string().nullable().optional(),
 }).passthrough();
 
 export const zEntityAction = z.object({

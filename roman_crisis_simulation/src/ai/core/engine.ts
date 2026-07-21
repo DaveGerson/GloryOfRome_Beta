@@ -1,4 +1,4 @@
-import { Entity, WorldState, Adjudication, Report, EventDelta, Relationship } from '../../types';
+import { Entity, WorldState, Adjudication, Report, EventDelta, Relationship, TruthLedgerEntry } from '../../types';
 import { SYSTEMIC_RESOURCES, applySystemicResourceRule } from './resources';
 
 // NOTE: The turn-adjudication prompt (formerly `compileContext` here) has
@@ -29,6 +29,16 @@ export const MAX_ENTITY_MEMORIES = 40;
  * semantics for every consumer.
  */
 export const MAX_RECENT_INTERACTIONS = 20;
+
+/**
+ * Upper bound on the GM-private truth ledger (DESIGN_DECISIONS.md D11) -
+ * the oldest entries are dropped once an append would exceed it. One entry
+ * is written per rumor delta and persisted in the save, so the ledger must
+ * be bounded like every other accreting slice; the bound is deliberately
+ * generous because the ledger is the GM console's true-vs-believed tuning
+ * record, not disposable debug data.
+ */
+export const MAX_TRUTH_LEDGER_ENTRIES = 200;
 
 /**
  * The free-text death-phrase heuristic, used only when a 'status' delta
@@ -70,10 +80,16 @@ export function applyDeltas(
     currentEntities: Entity[],
     currentWorldState: WorldState,
     turnNumber: number
-): { updatedEntities: Entity[], updatedWorldState: WorldState, newReports: Report[] } {
+): { updatedEntities: Entity[], updatedWorldState: WorldState, newReports: Report[], newTruthLedgerEntries: TruthLedgerEntry[] } {
     const updatedEntities: Entity[] = JSON.parse(JSON.stringify(currentEntities));
     const updatedWorldState: WorldState = JSON.parse(JSON.stringify(currentWorldState));
     const newReports: Report[] = [];
+    const newTruthLedgerEntries: TruthLedgerEntry[] = [];
+    // Per-call sequence for rumor report/ledger ids: Date.now() alone can
+    // collide when one turn emits several rumors in the same millisecond,
+    // and each ledger entry's reportId link requires the Report id to be
+    // unique within the turn.
+    let rumorSeq = 0;
 
     deltas.forEach(delta => {
         try {
@@ -258,8 +274,9 @@ export function applyDeltas(
                     break;
                 }
                 case 'rumor': {
+                    rumorSeq += 1;
                     const newReport: Report = {
-                        id: `report_${turnNumber}_${Date.now()}`,
+                        id: `report_${turnNumber}_${Date.now()}_${rumorSeq}`,
                         turn: turnNumber,
                         source: 'rumor',
                         about: delta.key, // entity or region id
@@ -267,6 +284,30 @@ export function applyDeltas(
                         credibility: Math.max(0.0, Math.min(1.0, delta.delta))
                     };
                     newReports.push(newReport);
+
+                    // GM-PRIVATE truth ledger (DESIGN_DECISIONS.md D11): every
+                    // rumor is recorded with its actual truth disposition,
+                    // alongside the Report the player sees. The adjudication
+                    // prompt demands `is_true` on every rumor delta; when the
+                    // model omits it anyway, the entry defaults to true and is
+                    // flagged `assumed` so the GM console can surface the
+                    // failure - the engine never invents a lie on its own.
+                    const hasDisposition = typeof delta.is_true === 'boolean';
+                    const ledgerEntry: TruthLedgerEntry = {
+                        id: `truth_${turnNumber}_${Date.now()}_${rumorSeq}`,
+                        turn: turnNumber,
+                        claim: delta.reason,
+                        aboutId: delta.key,
+                        isTrue: hasDisposition ? delta.is_true as boolean : true,
+                        reportId: newReport.id,
+                    };
+                    if (typeof delta.origin_id === 'string' && delta.origin_id.length > 0) {
+                        ledgerEntry.originId = delta.origin_id;
+                    }
+                    if (!hasDisposition) {
+                        ledgerEntry.assumed = true;
+                    }
+                    newTruthLedgerEntries.push(ledgerEntry);
                     break;
                 }
                 case 'scheme': {
@@ -328,7 +369,24 @@ export function applyDeltas(
         }
     });
 
-    return { updatedEntities, updatedWorldState, newReports };
+    return { updatedEntities, updatedWorldState, newReports, newTruthLedgerEntries };
+}
+
+/**
+ * Appends fresh truth-ledger entries onto the existing ledger, dropping the
+ * oldest entries past MAX_TRUTH_LEDGER_ENTRIES. Pure - returns a new array
+ * (or the input reference when there is nothing to append).
+ */
+export function appendTruthLedgerEntries(
+    currentTruthLedger: TruthLedgerEntry[],
+    newEntries: TruthLedgerEntry[]
+): TruthLedgerEntry[] {
+    if (newEntries.length === 0) return currentTruthLedger;
+    const combined = [...currentTruthLedger, ...newEntries];
+    if (combined.length > MAX_TRUTH_LEDGER_ENTRIES) {
+        return combined.slice(combined.length - MAX_TRUTH_LEDGER_ENTRIES);
+    }
+    return combined;
 }
 
 
@@ -336,11 +394,15 @@ export function applyAdjudication(
     adjudication: Adjudication,
     currentEntities: Entity[],
     currentWorldState: WorldState,
-    currentReports: Report[]
-): { updatedEntities: Entity[], updatedWorldState: WorldState, updatedReports: Report[] } {
-    
-    let { updatedEntities: entitiesAfterDeltas, updatedWorldState, newReports } = applyDeltas(adjudication.deltas, currentEntities, currentWorldState, adjudication.turn);
+    currentReports: Report[],
+    // Optional so pre-ledger call sites keep working; they receive the
+    // fresh entries appended onto an empty ledger.
+    currentTruthLedger: TruthLedgerEntry[] = []
+): { updatedEntities: Entity[], updatedWorldState: WorldState, updatedReports: Report[], updatedTruthLedger: TruthLedgerEntry[] } {
+
+    let { updatedEntities: entitiesAfterDeltas, updatedWorldState, newReports, newTruthLedgerEntries } = applyDeltas(adjudication.deltas, currentEntities, currentWorldState, adjudication.turn);
     const updatedReports = [...currentReports, ...newReports];
+    const updatedTruthLedger = appendTruthLedgerEntries(currentTruthLedger, newTruthLedgerEntries);
 
     // Handle non-delta updates like memories
     adjudication.headlines.forEach(headline => {
@@ -383,5 +445,5 @@ export function applyAdjudication(
         entitiesAfterDeltas.push(...adjudication.add_entities);
     }
 
-    return { updatedEntities: entitiesAfterDeltas, updatedWorldState, updatedReports };
+    return { updatedEntities: entitiesAfterDeltas, updatedWorldState, updatedReports, updatedTruthLedger };
 }

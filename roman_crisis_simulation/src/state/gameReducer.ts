@@ -29,6 +29,7 @@ import {
   SimulationState,
   EventHistoryEntry,
   WorldState,
+  TruthLedgerEntry,
 } from '../types';
 import type { SaveGameState, InferredAmbitionState } from '../persistence/saveGame';
 import { INITIAL_WORLD_STATE, INITIAL_SIMULATION_STATE } from '../constants/baseScenario';
@@ -43,6 +44,15 @@ export interface GameDomainState {
   worldState: WorldState;
   simulationState: SimulationState;
   reports: Report[];
+  /**
+   * DESIGN_DECISIONS.md D11 - the GM-private truth ledger: one entry per
+   * rumor, recording whether its claim is actually true and who originated
+   * it (written by ai/core/engine.ts alongside the Report the player sees,
+   * bounded at MAX_TRUTH_LEDGER_ENTRIES). Same handling class as
+   * `secret_truth`: rendered ONLY in GameMasterScreen's true-vs-believed
+   * view (D7) - never on any player-facing surface.
+   */
+  truthLedger: TruthLedgerEntry[];
   turnNumber: number;
   playerCharacterId: string | null;
   turnHistory: TurnHistoryEntry[];
@@ -80,6 +90,7 @@ export function createInitialGameState(): GameDomainState {
     worldState: INITIAL_WORLD_STATE,
     simulationState: INITIAL_SIMULATION_STATE,
     reports: [],
+    truthLedger: [],
     turnNumber: 1,
     playerCharacterId: null,
     turnHistory: [],
@@ -151,6 +162,7 @@ export type GameAction =
       worldState: WorldState;
       simulationState: SimulationState;
       reports: Report[];
+      truthLedger: TruthLedgerEntry[];
       turnNumber: number;
       turnHistory: TurnHistoryEntry[];
       gmMessage: Message;
@@ -252,6 +264,7 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         worldState: action.worldState,
         simulationState: action.simulationState,
         reports: action.reports,
+        truthLedger: action.truthLedger,
         turnNumber: action.turnNumber,
         // Older entries shed their full entity snapshots here - the one
         // commit point every turn passes through, so state and autosave
@@ -283,6 +296,9 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         worldState: snapshot.worldState,
         simulationState: snapshot.simulationState,
         reports: snapshot.reports,
+        // Optional field (D11) - a pre-ledger snapshot restores to an empty
+        // ledger, same normalization as GAME_LOADED below.
+        truthLedger: snapshot.truthLedger ?? [],
         turnNumber: snapshot.turnNumber,
         turnHistory: snapshot.turnHistory,
         eventHistory: snapshot.eventHistory,
@@ -355,6 +371,9 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         suggestedActions: s.suggestedActions,
         currentEvents: s.currentEvents,
         gmInterventionText: s.gmInterventionText,
+        // Optional field (D11) - absent on saves from before the truth
+        // ledger existed, so this normalizes it to an empty ledger.
+        truthLedger: s.truthLedger ?? [],
         // Optional field (D8) - absent on saves from before this field
         // existed, so this normalizes it to `null` rather than `undefined`
         // for InferredAmbitionState | null's sake.

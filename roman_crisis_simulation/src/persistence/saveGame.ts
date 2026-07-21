@@ -27,6 +27,7 @@ import type {
   WorldState,
   SimulationState,
   Report,
+  TruthLedgerEntry,
   TurnHistoryEntry,
   EventHistoryEntry,
   Message,
@@ -89,6 +90,17 @@ export interface SaveGameState {
    * actually commits.
    */
   pendingIntelligenceFallout?: string[];
+  /**
+   * DESIGN_DECISIONS.md D11 - the GM-private truth ledger (one entry per
+   * rumor: actual truth disposition + origin, bounded at
+   * ai/core/engine.ts's MAX_TRUTH_LEDGER_ENTRIES). Optional so
+   * `SAVE_VERSION` stays at 1: a pre-existing save with no such field
+   * loads cleanly and starts with an empty ledger (GAME_LOADED in
+   * state/gameReducer.ts falls back to `[]`). GM-console-only data, same
+   * handling class as `secret_truth` - persisting it is bookkeeping, never
+   * a license for a player-facing surface to read it.
+   */
+  truthLedger?: TruthLedgerEntry[];
 }
 
 /** The versioned envelope actually written to storage. */

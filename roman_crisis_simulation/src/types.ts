@@ -239,6 +239,27 @@ export interface EventDelta {
      * See the leak-prevention notes on `Entity.secret_truth` above.
      */
     secret_truth?: Entity['secret_truth'];
+    /**
+     * 'rumor' deltas only, GM-PRIVATE (DESIGN_DECISIONS.md D11 - same
+     * handling class as `secret_truth`): whether the rumor's claim is
+     * actually true in the simulation's reality. The adjudicator is
+     * required by its prompt to rule true or false on EVERY rumor delta -
+     * there is no "unknown" class; the GM defines reality. Optional in the
+     * type only as a defensive matter: when the model omits it despite the
+     * prompt, ai/core/engine.ts records the ledger entry with
+     * `isTrue: true` and `assumed: true` rather than silently inventing a
+     * lie. This field must NEVER reach a player-facing surface - it is
+     * stripped before the narration prompt (ai/prompts/narration.ts) and
+     * may render only in GameMasterScreen.
+     */
+    is_true?: boolean;
+    /**
+     * 'rumor' deltas only, GM-PRIVATE (same handling class as
+     * `secret_truth`/`is_true` above): the entity_id of whoever originated
+     * or is spreading the rumor. Omitted/empty when the rumor is organic
+     * (no single attributable source). Renders only in GameMasterScreen.
+     */
+    origin_id?: string;
 }
 
 /**
@@ -252,6 +273,37 @@ export interface Report {
     about: string; // entity or region id
     claim: string;
     credibility: number; // 0.0 to 1.0
+}
+
+/**
+ * GM-PRIVATE truth-ledger record (DESIGN_DECISIONS.md D11): the engine's
+ * own bookkeeping of what every sourced claim's actual truth is, so a
+ * falsehood is only ever presented knowingly and trackably. One entry is
+ * written per rumor delta by ai/core/engine.ts, alongside the Report the
+ * player sees (`reportId` links the two). This is the same handling class
+ * as `Entity.secret_truth`: it may be read ONLY by GameMasterScreen (the
+ * true-vs-believed view, D7) and code under ai/ - never by any
+ * player-facing surface.
+ */
+export interface TruthLedgerEntry {
+    id: string;
+    turn: number;
+    claim: string;
+    /** The entity or region id the claim is about (the rumor delta's key). */
+    aboutId: string;
+    /** Who originated/spreads the claim; absent when organic/unattributable. */
+    originId?: string;
+    /** The claim's ACTUAL truth in the simulation's reality (D11: always ruled, never unknown). */
+    isTrue: boolean;
+    /** The id of the Report the player saw for this claim. */
+    reportId: string;
+    /**
+     * Set when the adjudicator omitted the truth disposition despite the
+     * prompt demanding one - `isTrue` then defaults to true (the engine
+     * never invents a lie on its own) and this flag lets the GM console
+     * surface the failure for tuning.
+     */
+    assumed?: boolean;
 }
 
 /**

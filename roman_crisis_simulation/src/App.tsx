@@ -59,6 +59,7 @@ const App: React.FC = () => {
         worldState,
         simulationState,
         reports,
+        truthLedger,
         turnNumber,
         playerCharacterId,
         turnHistory,
@@ -242,6 +243,7 @@ const App: React.FC = () => {
         worldState: state.worldState,
         simulationState: state.simulationState,
         reports: state.reports,
+        truthLedger: state.truthLedger,
         turnNumber: state.turnNumber,
         playerCharacterId: state.playerCharacterId,
         turnHistory: state.turnHistory,
@@ -386,6 +388,7 @@ const App: React.FC = () => {
                 simulationState, // Pass the new state here
                 turnHistory,
                 reports,
+                truthLedger,
                 interventionTextForTurn,
                 isMockMode,
                 metaNarrative,
@@ -431,6 +434,7 @@ const App: React.FC = () => {
                 worldState: newWorldState,
                 simulationState: result.updatedSimulationState,
                 reports: result.updatedReports,
+                truthLedger: result.updatedTruthLedger,
                 turnNumber: newTurnNumber,
                 turnHistory: newTurnHistory,
                 gmMessage,
@@ -470,6 +474,7 @@ const App: React.FC = () => {
                 worldState: newWorldState,
                 simulationState: result.updatedSimulationState,
                 reports: result.updatedReports,
+                truthLedger: result.updatedTruthLedger,
                 turnNumber: newTurnNumber,
                 turnHistory: newTurnHistory,
                 messages: [...messages, playerMessage, gmMessage, monologueMessage, ribbonMessage],
@@ -941,6 +946,8 @@ const App: React.FC = () => {
                 turnNumber={turnNumber}
                 inferredAmbition={inferredAmbition}
                 pendingIntelligenceFallout={pendingIntelligenceFallout}
+                truthLedger={truthLedger}
+                reports={reports}
             />}
             {activeEvent && <EventModal event={activeEvent} onChoose={handleEventChoice} />}
             {showOnboarding && gameState === GameState.AWAITING_PLAYER_INPUT && (

@@ -120,6 +120,34 @@ describe('persistence/saveGame', () => {
     expect(loaded!.state.turnHistory[1].adjudication.headlines).toEqual(['Headline 2']);
   });
 
+  it('round-trips the optional GM-private truth ledger (D11), including origin/assumed markers', () => {
+    const truthLedger = [
+      { id: 'truth_2_1', turn: 2, claim: 'The Emperor plans tribute', aboutId: 'severus_alexander', originId: 'maximinus_thrax', isTrue: false, reportId: 'report_2_1' },
+      { id: 'truth_3_1', turn: 3, claim: 'Grain stores run low', aboutId: 'The Suburra', isTrue: true, reportId: 'report_3_1', assumed: true },
+    ];
+    saveGame(makeState({ turnNumber: 4, truthLedger }));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.truthLedger).toEqual(truthLedger);
+  });
+
+  it('loads a stored v1 envelope that predates the truth ledger (field simply absent)', () => {
+    // Written directly to storage, bypassing saveGame, to mirror a blob
+    // persisted before the field existed.
+    const envelope = {
+      version: SAVE_VERSION,
+      savedAt: new Date().toISOString(),
+      state: makeState({ turnNumber: 2 }),
+    };
+    localStorage.setItem('gloryOfRome:autosave', JSON.stringify(envelope));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.truthLedger).toBeUndefined();
+    expect(loaded!.state.turnNumber).toBe(2);
+  });
+
   it('round-trips history entries with and without the optional postTurnEntities snapshot', () => {
     const { postTurnEntities, ...withoutSnapshot } = makeHistoryEntry(1, false);
     const withSnapshot: TurnHistoryEntry = { ...makeHistoryEntry(2, false), postTurnEntities: [] };

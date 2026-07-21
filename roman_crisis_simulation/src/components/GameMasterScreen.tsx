@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { TurnHistoryEntry, Adjudication, Entity, Relationship, Memory, Scheme, RawCallRecord, WorldState } from '../types';
+import { TurnHistoryEntry, Adjudication, Entity, Relationship, Memory, Scheme, RawCallRecord, WorldState, TruthLedgerEntry, Report } from '../types';
 import { classifyDelta } from '../perception/visibility';
 import { InferredAmbitionState, SAVE_VERSION } from '../persistence/saveGame';
 import { buildEvalCorpus, evalCorpusFilename } from '../persistence/evalCorpus';
@@ -19,7 +19,7 @@ const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
 const lbl: React.CSSProperties = { fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', color: DIM };
 const well: React.CSSProperties = { background: 'rgba(0,0,0,.32)', border: '1px solid rgba(201,162,39,.22)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' };
 
-const TABS = ['summary', 'entity states', 'actions', 'deltas', 'private', 'ground truth', 'raw json'];
+const TABS = ['summary', 'entity states', 'actions', 'deltas', 'private', 'ground truth', 'truth ledger', 'raw json'];
 
 const SummaryView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => (
     <>
@@ -240,6 +240,49 @@ const GroundTruthView: React.FC<{
     );
 };
 
+/**
+ * The true-vs-believed view (DESIGN_DECISIONS.md D11 + D7): the GM-private
+ * truth ledger, one row per rumor - the claim as the player heard it, the
+ * credibility the matching Report presented, and the ACTUAL truth plus
+ * origin only this console may show. Campaign-wide (the ledger is a single
+ * bounded collection, not per-turn data), newest first. Entries flagged
+ * `assumed` mark rumors the adjudicator failed to disposition despite the
+ * prompt - defaulted to TRUE, never silently invented as lies.
+ */
+const TruthLedgerView: React.FC<{ ledger: TruthLedgerEntry[]; reports: Report[] }> = ({ ledger, reports }) => (
+    <>
+        {ledger.length === 0 ? (
+            <p style={{ color: DIM, margin: 0 }}>No rumors have been recorded in the truth ledger yet.</p>
+        ) : (
+            ledger.slice().reverse().map(entry => {
+                const matchingReport = reports.find(r => r.id === entry.reportId);
+                return (
+                    <div key={entry.id} style={well}>
+                        <div style={{ display: 'flex', gap: 14, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                            <span style={{ ...lbl, color: GOLD }}>Turn {toRoman(entry.turn)}</span>
+                            <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 12, letterSpacing: '.08em', color: entry.isTrue ? GREEN : RED }}>
+                                {entry.isTrue ? 'TRUE' : 'FALSE'}
+                            </span>
+                            {entry.assumed && (
+                                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 12, letterSpacing: '.08em', color: RED }}>
+                                    ASSUMED — model omitted the disposition
+                                </span>
+                            )}
+                            <span style={{ fontFamily: MONO, fontSize: 12, color: DIM }}>
+                                player saw: {matchingReport ? `${(matchingReport.credibility * 100).toFixed(0)}% credible` : 'no matching report'}
+                            </span>
+                        </div>
+                        <div style={{ fontSize: 14, fontStyle: 'italic', color: PARCH, marginTop: 4 }}>“{entry.claim}”</div>
+                        <div style={{ fontFamily: MONO, fontSize: 12, color: DIM, marginTop: 4 }}>
+                            about: {entry.aboutId} · origin: {entry.originId || 'organic (unattributed)'}
+                        </div>
+                    </div>
+                );
+            })
+        )}
+    </>
+);
+
 const GameMasterScreen: React.FC<{
     history: TurnHistoryEntry[];
     onClose: () => void;
@@ -260,7 +303,15 @@ const GameMasterScreen: React.FC<{
      * screen (D7).
      */
     pendingIntelligenceFallout?: string[];
-}> = ({ history, onClose, interventionText, onSetIntervention, playerCharacterId, worldState, turnNumber, inferredAmbition, pendingIntelligenceFallout }) => {
+    /**
+     * DESIGN_DECISIONS.md D11 - the GM-private truth ledger. This console
+     * is the ONLY rendered surface allowed to show it (same handling class
+     * as `secret_truth`); see TruthLedgerView above.
+     */
+    truthLedger?: TruthLedgerEntry[];
+    /** The full report log, used by TruthLedgerView to show the credibility the player saw for each ledger entry. */
+    reports?: Report[];
+}> = ({ history, onClose, interventionText, onSetIntervention, playerCharacterId, worldState, turnNumber, inferredAmbition, pendingIntelligenceFallout, truthLedger, reports }) => {
     const [activeTab, setActiveTab] = useState('summary');
     const [interventionInput, setInterventionInput] = useState(interventionText);
     const [showConfirmation, setShowConfirmation] = useState(false);
@@ -391,7 +442,10 @@ const GameMasterScreen: React.FC<{
                 </div>
 
                 <div style={{ flex: 1, overflowY: 'auto', paddingRight: 6, display: 'flex', flexDirection: 'column', gap: 20, color: PARCH }}>
-                    {history.length === 0 ? (
+                    {/* The truth ledger is one campaign-wide bounded collection (D11), not per-turn data - rendered once, outside the per-turn loop below. */}
+                    {activeTab === 'truth ledger' ? (
+                        <TruthLedgerView ledger={truthLedger ?? []} reports={reports ?? []} />
+                    ) : history.length === 0 ? (
                         <p style={{ color: DIM }}>No turns have been processed yet.</p>
                     ) : (
                         history.slice().reverse().map(entry => (

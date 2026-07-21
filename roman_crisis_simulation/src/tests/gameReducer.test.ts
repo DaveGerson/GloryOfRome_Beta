@@ -70,6 +70,9 @@ function makeTurnCommit(state: GameDomainState, entities = state.entities): Extr
     worldState: { ...state.worldState, week: state.worldState.week + 1 },
     simulationState: createInitialGameState().simulationState,
     reports: [],
+    truthLedger: [
+      { id: 'truth_1_1', turn: state.turnNumber, claim: 'A whispered lie', aboutId: 'severus_alexander', isTrue: false, reportId: 'report_1_1' },
+    ],
     turnNumber: state.turnNumber + 1,
     turnHistory: [...state.turnHistory, makeHistoryEntry(state.turnNumber)],
     gmMessage: { sender: 'gm', text: 'The die is cast.' },
@@ -138,6 +141,7 @@ describe('state/gameReducer', () => {
       expect(result.worldState).toBe(action.worldState);
       expect(result.simulationState).toBe(action.simulationState);
       expect(result.reports).toBe(action.reports);
+      expect(result.truthLedger).toBe(action.truthLedger);
       expect(result.turnNumber).toBe(action.turnNumber);
       expect(result.turnHistory).toBe(action.turnHistory);
       expect(result.suggestedActions).toEqual(['New pill']);
@@ -327,6 +331,22 @@ describe('state/gameReducer', () => {
       const result = gameReducer(state, { type: 'TURN_ROLLED_BACK', snapshot });
       expect(result.pendingIntelligenceFallout).toEqual([]);
     });
+
+    it('restores the truth ledger from the snapshot, normalizing an absent field to an empty ledger (D11)', () => {
+      const state = makePlayingState({
+        truthLedger: [{ id: 'truth_mid', turn: 3, claim: 'Mid-turn lie', aboutId: 'x', isTrue: false, reportId: 'r_mid' }],
+      });
+      const withLedger = makeSaveState({
+        truthLedger: [{ id: 'truth_pre', turn: 2, claim: 'Pre-turn claim', aboutId: 'y', isTrue: true, reportId: 'r_pre' }],
+      });
+      const restored = gameReducer(state, { type: 'TURN_ROLLED_BACK', snapshot: withLedger });
+      expect(restored.truthLedger).toEqual(withLedger.truthLedger);
+
+      const withoutLedger = makeSaveState();
+      delete withoutLedger.truthLedger;
+      const normalized = gameReducer(state, { type: 'TURN_ROLLED_BACK', snapshot: withoutLedger });
+      expect(normalized.truthLedger).toEqual([]);
+    });
   });
 
   describe('EVENT_TRIGGERED', () => {
@@ -395,6 +415,7 @@ describe('state/gameReducer', () => {
       const save = makeSaveState({
         inferredAmbition: { apparent_ambition: 'Appears intent on seizing the purple.', confidence: 'high', asOfTurn: 6 },
         pendingIntelligenceFallout: ['Old fallout'],
+        truthLedger: [{ id: 'truth_5_1', turn: 5, claim: 'A persisted lie', aboutId: 'severus_alexander', originId: 'maximinus_thrax', isTrue: false, reportId: 'report_5_1' }],
       });
       const result = gameReducer(state, { type: 'GAME_LOADED', save });
 
@@ -414,6 +435,7 @@ describe('state/gameReducer', () => {
       expect(result.gmInterventionText).toBe(save.gmInterventionText);
       expect(result.inferredAmbition).toEqual(save.inferredAmbition);
       expect(result.pendingIntelligenceFallout).toEqual(['Old fallout']);
+      expect(result.truthLedger).toEqual(save.truthLedger);
       expect(result.gameState).toBe(GameState.AWAITING_PLAYER_INPUT);
     });
 
@@ -421,9 +443,12 @@ describe('state/gameReducer', () => {
       const save = makeSaveState();
       delete save.inferredAmbition;
       delete save.pendingIntelligenceFallout;
+      delete save.truthLedger;
       const result = gameReducer(createInitialGameState(), { type: 'GAME_LOADED', save });
       expect(result.inferredAmbition).toBeNull();
       expect(result.pendingIntelligenceFallout).toEqual([]);
+      // D11 - a legacy (pre-ledger) save starts with an empty truth ledger.
+      expect(result.truthLedger).toEqual([]);
     });
 
     it('re-derives GAME_OVER from a save whose player is dead (D1 - GAME_OVER itself is never persisted)', () => {

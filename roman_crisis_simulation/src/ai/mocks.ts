@@ -1,7 +1,7 @@
 
 // ai/mocks.ts
 
-import { Adjudication, Entity, Report, Scheme, SimulationState, StoryRelevance, TurnHistoryEntry, WorldState, EventDelta, EntityStub } from '../types';
+import { Adjudication, Entity, Report, Scheme, SimulationState, StoryRelevance, TruthLedgerEntry, TurnHistoryEntry, WorldState, EventDelta, EntityStub } from '../types';
 import { applyAdjudication, applyDeltas } from './core/engine';
 
 // --- MOCK DATA ---
@@ -56,7 +56,10 @@ const MOCK_ADJUDICATION: Adjudication = {
   deltas: [
     { type: 'resource', key: 'maximinus_thrax:legion_support', delta: 2, reason: 'Successful propaganda campaign.' },
     { type: 'relation', key: 'severus_alexander:maximinus_thrax', delta: -1, reason: 'Slandered by military propaganda.' },
-    { type: 'rumor', key: 'severus_alexander', delta: 0.6, reason: 'The Emperor is said to be considering a peaceful tribute to the Germans, angering the legions.' },
+    // Rumor deltas carry the GM-private truth-ledger fields (D11): the
+    // adjudicator rules on every rumor's actual truth and names its origin
+    // when attributable - here, a lie planted by Thrax's propaganda.
+    { type: 'rumor', key: 'severus_alexander', delta: 0.6, reason: 'The Emperor is said to be considering a peaceful tribute to the Germans, angering the legions.', is_true: false, origin_id: 'maximinus_thrax' },
     { type: 'relation', key: 'severus_alexander:praetorian_guard', delta: 1, reason: 'Promised a donative.' },
     { type: 'add_region', key: 'Temple of Jupiter', delta: 0, reason: '{"stability":"Stable","controlling_faction":null,"current_events":["Priests conduct rituals to placate the gods amidst the political turmoil."]}' },
     // Demonstrates the structured status-delta contract (MAINT-P0.2): 'reason'
@@ -224,12 +227,14 @@ export const mockRunNewTurn = async (
     currentReports: Report[],
     gmInterventionText: string,
     metaNarrative: string,
-    currentSimulationState: SimulationState
+    currentSimulationState: SimulationState,
+    currentTruthLedger: TruthLedgerEntry[] = []
 ): Promise<{
     updatedEntities: Entity[],
     updatedWorldState: WorldState,
     updatedSimulationState: SimulationState,
     updatedReports: Report[],
+    updatedTruthLedger: TruthLedgerEntry[],
     narration: string,
     headlines: string[],
     suggestedActions: string[],
@@ -241,8 +246,8 @@ export const mockRunNewTurn = async (
     console.log("Meta Narrative:", metaNarrative);
 
     const adjudication = { ...MOCK_ADJUDICATION, turn: turnNumber };
-    
-    let { updatedEntities, updatedWorldState, updatedReports } = applyAdjudication(adjudication, currentEntities, currentWorldState, currentReports);
+
+    let { updatedEntities, updatedWorldState, updatedReports, updatedTruthLedger } = applyAdjudication(adjudication, currentEntities, currentWorldState, currentReports, currentTruthLedger);
     
     // MOCK CONVERSATION SIMULATION
     const npc1 = updatedEntities.find(e => e.entity_id === 'maximinus_thrax');
@@ -285,6 +290,7 @@ export const mockRunNewTurn = async (
         updatedWorldState,
         updatedSimulationState: currentSimulationState,
         updatedReports,
+        updatedTruthLedger,
         narration,
         headlines: adjudication.headlines,
         suggestedActions,

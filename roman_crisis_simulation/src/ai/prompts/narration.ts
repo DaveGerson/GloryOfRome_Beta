@@ -37,12 +37,18 @@ export function sanitizeEntityForNarration(entity: Entity): Omit<Entity, 'secret
  * enforcement point; `getEntityBrief`/`getLightEntityBrief` (fragments.ts)
  * never serialize `secret_truth` either, and a dead-but-secretly-alive NPC
  * always shows `status: 'dead'` there, exactly as the public record says.
+ *
+ * The same per-delta stripping covers a rumor delta's `is_true`/`origin_id`
+ * (DESIGN_DECISIONS.md D11 - the truth-ledger fields, same GM-private
+ * handling class as `secret_truth`): the narrator must present a rumor at
+ * its stated credibility with no knowledge of whether it is actually a
+ * lie, or the disposition could color player-facing prose.
  */
 export function sanitizeAdjudicationForNarration(adjudication: Adjudication): Omit<Adjudication, 'gm_private'> {
   const { gm_private, add_entities, deltas, ...rest } = adjudication;
   return {
     ...rest,
-    deltas: deltas.map(({ secret_truth, ...delta }) => delta),
+    deltas: deltas.map(({ secret_truth, is_true, origin_id, ...delta }) => delta),
     add_entities: add_entities?.map(sanitizeEntityForNarration) as Entity[] | undefined,
   };
 }
