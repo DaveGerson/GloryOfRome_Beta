@@ -384,7 +384,15 @@ export interface TurnHistoryEntry {
   playerIntent: string;
   adjudication: Adjudication;
   narration?: string; // Optional narrated text
-  postTurnEntities: Entity[];
+  /**
+   * Deep copy of the full entity roster as of this turn's commit - the
+   * dominant per-turn share of the save blob. Present only on the most
+   * recent KEEP_FULL_SNAPSHOTS entries (state/gameReducer.ts): each turn
+   * commit drops it from entries older than that window. Saves written
+   * while the field was required carry it on every entry, so both shapes
+   * load; every consumer must tolerate its absence on older entries.
+   */
+  postTurnEntities?: Entity[];
   rawCalls?: RawCallRecord[]; // Raw prompt/response capture for every AI call made this turn
   mortalityTrace?: MortalityEvent[]; // Every death claim this turn went through processMortality, see MortalityEvent
   resolutionTrace?: ActionResolutionEvent; // The player action's trip through the resolution layer this turn (if consequential), see ActionResolutionEvent

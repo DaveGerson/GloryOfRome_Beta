@@ -93,6 +93,35 @@ export function createInitialGameState(): GameDomainState {
   };
 }
 
+/**
+ * How many of the most recent turnHistory entries keep their full
+ * `postTurnEntities` snapshot (see types.ts). A snapshot deep-copies the
+ * entire roster, so it is the dominant per-turn share of the save blob and
+ * of localStorage's ~5MB quota - only a bounded recent window may retain
+ * one. Must stay >= 1: the newest entry's snapshot backs App.tsx's
+ * perception digest and the GM console's most-recent views.
+ */
+export const KEEP_FULL_SNAPSHOTS = 10;
+
+/**
+ * Drops `postTurnEntities` from every entry older than the most recent
+ * KEEP_FULL_SNAPSHOTS. Returns the input array unchanged (same reference)
+ * when no entry needs trimming, matching the reducer's convention that
+ * untouched slices keep their identity.
+ */
+function withOldSnapshotsDropped(turnHistory: TurnHistoryEntry[]): TurnHistoryEntry[] {
+  const cutoff = turnHistory.length - KEEP_FULL_SNAPSHOTS;
+  if (cutoff <= 0) return turnHistory;
+  let changed = false;
+  const trimmed = turnHistory.map((entry, index) => {
+    if (index >= cutoff || entry.postTurnEntities === undefined) return entry;
+    changed = true;
+    const { postTurnEntities, ...rest } = entry;
+    return rest;
+  });
+  return changed ? trimmed : turnHistory;
+}
+
 export type GameAction =
   /** Append one chat message (player, GM, monologue, or ribbon). */
   | { type: 'MESSAGE_ADDED'; message: Message }
@@ -218,7 +247,10 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         simulationState: action.simulationState,
         reports: action.reports,
         turnNumber: action.turnNumber,
-        turnHistory: action.turnHistory,
+        // Older entries shed their full entity snapshots here - the one
+        // commit point every turn passes through, so state and autosave
+        // always carry the identical bounded shape.
+        turnHistory: withOldSnapshotsDropped(action.turnHistory),
         messages: [...state.messages, action.gmMessage, action.monologueMessage, action.ribbonMessage],
         suggestedActions: action.suggestedActions,
         currentEvents: action.currentEvents,

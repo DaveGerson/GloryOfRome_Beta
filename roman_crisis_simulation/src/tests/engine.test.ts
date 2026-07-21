@@ -4,10 +4,10 @@
 // Note: This test file is written with Vitest/Jest syntax.
 // You will need to set up a test runner in your project to execute these tests.
 import { describe, it, expect, beforeEach } from 'vitest';
-import { applyAdjudication } from '../ai/core/engine';
+import { applyAdjudication, MAX_ENTITY_MEMORIES, MAX_RECENT_INTERACTIONS } from '../ai/core/engine';
 import { applyEventChoiceDeltas } from '../events/engine';
 import { getMockInitialState } from './mockData';
-import { Entity, WorldState, Adjudication, Report, PlayerEventChoice } from '../types';
+import { Entity, WorldState, Adjudication, Report, PlayerEventChoice, Memory } from '../types';
 
 // Helper for deep copying state to ensure test isolation
 const deepCopy = <T>(obj: T): T => JSON.parse(JSON.stringify(obj));
@@ -503,6 +503,95 @@ describe('applyAdjudication', () => {
         
         expect(entity?.memories.length).toBe(1);
         expect(entity?.memories[0].event_description).toBe("A shocking proclamation by Maximinus Thrax has stunned the city.");
+    });
+
+    it(`caps memories at MAX_ENTITY_MEMORIES (${MAX_ENTITY_MEMORIES}), dropping the oldest and keeping the newest`, () => {
+        const makeMemory = (i: number): Memory => ({
+            turn: i, event_description: `Old event ${i}`, emotional_impact: 'Notable', involved_entities: [],
+        });
+        const target = mockEntities.find(e => e.entity_id === 'maximinus_thrax')!;
+        target.memories = Array.from({ length: MAX_ENTITY_MEMORIES }, (_, i) => makeMemory(i));
+
+        const adjudication = deepCopy(baseAdjudication);
+        adjudication.headlines.push('Maximinus Thrax marches on Rome.');
+
+        const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+        const entity = updatedEntities.find(e => e.entity_id === 'maximinus_thrax')!;
+
+        expect(entity.memories.length).toBe(MAX_ENTITY_MEMORIES);
+        // The oldest was dropped...
+        expect(entity.memories[0].event_description).toBe('Old event 1');
+        expect(entity.memories.some(m => m.event_description === 'Old event 0')).toBe(false);
+        // ...and the newest is the fresh headline memory.
+        expect(entity.memories[MAX_ENTITY_MEMORIES - 1].event_description).toBe('Maximinus Thrax marches on Rome.');
+    });
+
+    it('does not drop anything when a memory write lands exactly on the cap', () => {
+        const makeMemory = (i: number): Memory => ({
+            turn: i, event_description: `Old event ${i}`, emotional_impact: 'Notable', involved_entities: [],
+        });
+        const target = mockEntities.find(e => e.entity_id === 'maximinus_thrax')!;
+        target.memories = Array.from({ length: MAX_ENTITY_MEMORIES - 1 }, (_, i) => makeMemory(i));
+
+        const adjudication = deepCopy(baseAdjudication);
+        adjudication.headlines.push('Maximinus Thrax marches on Rome.');
+
+        const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+        const entity = updatedEntities.find(e => e.entity_id === 'maximinus_thrax')!;
+
+        expect(entity.memories.length).toBe(MAX_ENTITY_MEMORIES);
+        expect(entity.memories[0].event_description).toBe('Old event 0');
+        expect(entity.memories[MAX_ENTITY_MEMORIES - 1].event_description).toBe('Maximinus Thrax marches on Rome.');
+    });
+  });
+
+  // --- Write-site bounds on relationship interaction logs ---
+  describe('recent_interactions cap', () => {
+    it(`caps recent_interactions at MAX_RECENT_INTERACTIONS (${MAX_RECENT_INTERACTIONS}), dropping the oldest and keeping the newest`, () => {
+        const emperor = mockEntities.find(e => e.entity_id === 'severus_alexander')!;
+        emperor.relationships['maximinus_thrax'].recent_interactions =
+            Array.from({ length: MAX_RECENT_INTERACTIONS }, (_, i) => `Turn ${i}: old interaction ${i}`);
+
+        const adjudication = deepCopy(baseAdjudication);
+        adjudication.deltas.push({
+            type: 'relation',
+            key: 'severus_alexander:maximinus_thrax:trust_level',
+            delta: -1,
+            reason: 'A public insult',
+        });
+
+        const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+        const interactions = updatedEntities.find(e => e.entity_id === 'severus_alexander')!
+            .relationships['maximinus_thrax'].recent_interactions;
+
+        expect(interactions.length).toBe(MAX_RECENT_INTERACTIONS);
+        // The oldest was dropped...
+        expect(interactions[0]).toBe('Turn 1: old interaction 1');
+        expect(interactions).not.toContain('Turn 0: old interaction 0');
+        // ...and the newest is the fresh interaction line.
+        expect(interactions[MAX_RECENT_INTERACTIONS - 1]).toBe('Turn 1: A public insult');
+    });
+
+    it('does not drop anything when an interaction write lands exactly on the cap', () => {
+        const emperor = mockEntities.find(e => e.entity_id === 'severus_alexander')!;
+        emperor.relationships['maximinus_thrax'].recent_interactions =
+            Array.from({ length: MAX_RECENT_INTERACTIONS - 1 }, (_, i) => `Turn ${i}: old interaction ${i}`);
+
+        const adjudication = deepCopy(baseAdjudication);
+        adjudication.deltas.push({
+            type: 'relation',
+            key: 'severus_alexander:maximinus_thrax:trust_level',
+            delta: -1,
+            reason: 'A public insult',
+        });
+
+        const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+        const interactions = updatedEntities.find(e => e.entity_id === 'severus_alexander')!
+            .relationships['maximinus_thrax'].recent_interactions;
+
+        expect(interactions.length).toBe(MAX_RECENT_INTERACTIONS);
+        expect(interactions[0]).toBe('Turn 0: old interaction 0');
+        expect(interactions[MAX_RECENT_INTERACTIONS - 1]).toBe('Turn 1: A public insult');
     });
   });
 

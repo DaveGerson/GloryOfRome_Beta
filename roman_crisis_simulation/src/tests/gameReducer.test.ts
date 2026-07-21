@@ -10,6 +10,7 @@ import {
   createInitialGameState,
   GameDomainState,
   GameAction,
+  KEEP_FULL_SNAPSHOTS,
 } from '../state/gameReducer';
 import { GameState, Message, TurnHistoryEntry, GameEvent } from '../types';
 import type { SaveGameState } from '../persistence/saveGame';
@@ -169,6 +170,61 @@ describe('state/gameReducer', () => {
       );
       const result = gameReducer(state, makeTurnCommit(state, exiled));
       expect(result.gameState).toBe(GameState.PROCESSING);
+    });
+
+    describe('postTurnEntities snapshot window', () => {
+      it(`keeps full snapshots only on the most recent KEEP_FULL_SNAPSHOTS (${KEEP_FULL_SNAPSHOTS}) entries, dropping the field from older ones`, () => {
+        const state = makePlayingState({ gameState: GameState.PROCESSING });
+        const overflow = 3;
+        const longHistory = Array.from(
+          { length: KEEP_FULL_SNAPSHOTS + overflow },
+          (_, i) => makeHistoryEntry(i + 1)
+        );
+        const action = { ...makeTurnCommit(state), turnHistory: longHistory };
+        const result = gameReducer(state, action);
+
+        expect(result.turnHistory).toHaveLength(KEEP_FULL_SNAPSHOTS + overflow);
+        result.turnHistory.forEach((entry, index) => {
+          if (index < overflow) {
+            expect(entry.postTurnEntities).toBeUndefined();
+          } else {
+            expect(entry.postTurnEntities).toBeDefined();
+          }
+        });
+        // Only the snapshot field is dropped - everything else survives.
+        expect(result.turnHistory[0].turnNumber).toBe(1);
+        expect(result.turnHistory[0].playerIntent).toBe('intent 1');
+        expect(result.turnHistory[0].narration).toBe('Narration 1');
+        expect(result.turnHistory[0].adjudication.headlines).toEqual(['Headline 1']);
+      });
+
+      it('keeps every snapshot when the history is exactly KEEP_FULL_SNAPSHOTS long', () => {
+        const state = makePlayingState({ gameState: GameState.PROCESSING });
+        const exactHistory = Array.from(
+          { length: KEEP_FULL_SNAPSHOTS },
+          (_, i) => makeHistoryEntry(i + 1)
+        );
+        const action = { ...makeTurnCommit(state), turnHistory: exactHistory };
+        const result = gameReducer(state, action);
+
+        expect(result.turnHistory).toBe(exactHistory);
+        result.turnHistory.forEach(entry => expect(entry.postTurnEntities).toBeDefined());
+      });
+
+      it('tolerates entries already lacking the snapshot (older-save shape) and keeps the array identity when nothing needs dropping', () => {
+        const state = makePlayingState({ gameState: GameState.PROCESSING });
+        const alreadyTrimmed = Array.from(
+          { length: KEEP_FULL_SNAPSHOTS + 2 },
+          (_, i) => {
+            const { postTurnEntities, ...rest } = makeHistoryEntry(i + 1);
+            return i < 2 ? rest : { ...rest, postTurnEntities };
+          }
+        );
+        const action = { ...makeTurnCommit(state), turnHistory: alreadyTrimmed };
+        const result = gameReducer(state, action);
+
+        expect(result.turnHistory).toBe(alreadyTrimmed);
+      });
     });
   });
 

@@ -179,7 +179,12 @@ const GroundTruthView: React.FC<{
     playerCharacterId: string | null;
     worldState: WorldState;
 }> = ({ entry, playerCharacterId, worldState }) => {
-    const playerAtTurn = entry.postTurnEntities.find(e => e.entity_id === playerCharacterId) ?? null;
+    // Older entries may lack their entity snapshot (only the most recent
+    // KEEP_FULL_SNAPSHOTS entries retain one - state/gameReducer.ts); the
+    // per-delta classification needs the turn's own roster, so without it
+    // this view can only say so.
+    const snapshotEntities = entry.postTurnEntities;
+    const playerAtTurn = snapshotEntities?.find(e => e.entity_id === playerCharacterId) ?? null;
     const mortalityTrace = (entry as Record<string, unknown>).mortalityTrace;
 
     return (
@@ -190,14 +195,16 @@ const GroundTruthView: React.FC<{
                     Left: raw ground truth for this turn. Right: what perception/visibility.ts's classifyDelta lets{' '}
                     {playerAtTurn ? <span style={{ color: PARCH }}>{playerAtTurn.name}</span> : 'the player'} perceive.
                 </p>
-                {!playerAtTurn ? (
+                {!snapshotEntities ? (
+                    <p style={{ color: DIM, margin: 0 }}>Entity snapshot trimmed for this older turn - only the most recent turns retain one, and the perception classification needs the turn's own roster.</p>
+                ) : !playerAtTurn ? (
                     <p style={{ color: DIM, margin: 0 }}>No player character to classify against for this turn.</p>
                 ) : entry.adjudication.deltas.length === 0 ? (
                     <p style={{ color: DIM, margin: 0 }}>No deltas were recorded this turn.</p>
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         {entry.adjudication.deltas.map((delta, index) => {
-                            const visibility = classifyDelta(delta, playerAtTurn, entry.postTurnEntities, worldState);
+                            const visibility = classifyDelta(delta, playerAtTurn, snapshotEntities, worldState);
                             return (
                                 <div key={index} style={{ ...well, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13 }}>
                                     <div>
@@ -388,7 +395,9 @@ const GameMasterScreen: React.FC<{
                             <div key={entry.turnNumber} style={{ display: 'flex', flexDirection: 'column', gap: 10, borderBottom: '1px solid rgba(201,162,39,.15)', paddingBottom: 18 }}>
                                 <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 17, letterSpacing: '.1em', color: GOLD }}>TURN {toRoman(entry.turnNumber)}</span>
                                 {activeTab === 'summary' && <SummaryView entry={entry} />}
-                                {activeTab === 'entity states' && <EntityStatesView entities={entry.postTurnEntities} />}
+                                {activeTab === 'entity states' && (entry.postTurnEntities
+                                    ? <EntityStatesView entities={entry.postTurnEntities} />
+                                    : <p style={{ color: DIM, margin: 0 }}>Entity snapshot trimmed for this older turn - only the most recent turns retain one.</p>)}
                                 {activeTab === 'actions' && <ActionsView adjudication={entry.adjudication} />}
                                 {activeTab === 'deltas' && <DeltasView adjudication={entry.adjudication} />}
                                 {activeTab === 'private' && <PrivateView adjudication={entry.adjudication} />}

@@ -206,13 +206,17 @@ const App: React.FC = () => {
     // a reload with no extra save-format changes. Uses that turn's OWN
     // postTurnEntities for the player's location/network, since either can
     // change turn to turn.
+    // The newest entry always retains its snapshot (the reducer's
+    // KEEP_FULL_SNAPSHOTS window keeps at least the most recent entry), but
+    // the field is optional on TurnHistoryEntry, so both reads guard for
+    // absence rather than assuming it.
     const lastTurn = turnHistory.length > 0 ? turnHistory[turnHistory.length - 1] : null;
     const lastTurnPlayer = useMemo(
-        () => lastTurn?.postTurnEntities.find(e => e.entity_id === playerCharacterId) ?? null,
+        () => lastTurn?.postTurnEntities?.find(e => e.entity_id === playerCharacterId) ?? null,
         [lastTurn, playerCharacterId]
     );
     const lastTurnPerceivedChanges = useMemo(
-        () => (lastTurn && lastTurnPlayer)
+        () => (lastTurn?.postTurnEntities && lastTurnPlayer)
             ? buildPerceivedDigest(lastTurn.adjudication.deltas, lastTurnPlayer, lastTurn.postTurnEntities, worldState)
             : [],
         [lastTurn, lastTurnPlayer, worldState]

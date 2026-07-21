@@ -10,6 +10,27 @@ import { SYSTEMIC_RESOURCES, applySystemicResourceRule } from './resources';
 // testable" and should stay that way.
 
 /**
+ * Upper bound on an entity's `memories` list - the oldest entries are
+ * dropped once a write would exceed it. Memories accrue on every headline
+ * that names the entity and are persisted in the save, so they must be
+ * bounded; the bound is deliberately generous because memories are
+ * simulation context (they can inform prompts and future systems), not
+ * disposable debug data - a cap tight enough to change what the model can
+ * recall would be a mechanics change, which this is not.
+ */
+export const MAX_ENTITY_MEMORIES = 40;
+
+/**
+ * Upper bound on a relationship's `recent_interactions` list - the oldest
+ * entries are dropped once a write would exceed it. One line is appended
+ * per relation delta and persisted in the save, so an active relationship
+ * grows without limit otherwise. The field's contract is "recent": only
+ * the newest window is meaningful, so dropping the oldest preserves its
+ * semantics for every consumer.
+ */
+export const MAX_RECENT_INTERACTIONS = 20;
+
+/**
  * The free-text death-phrase heuristic, used only when a 'status' delta
  * omits the structured `new_status` field (a legacy/pre-MAINT-P0.2 delta,
  * or a turn where the model forgot to set it). Matches common death
@@ -128,6 +149,12 @@ export function applyDeltas(
 
                         if (!rel.recent_interactions.some(interaction => interaction.endsWith(delta.reason))) {
                             rel.recent_interactions.push(`Turn ${turnNumber}: ${delta.reason}`);
+                            // Bounded at the write site: drop the oldest past
+                            // MAX_RECENT_INTERACTIONS (also trims over-long
+                            // lists from saves written before the bound).
+                            if (rel.recent_interactions.length > MAX_RECENT_INTERACTIONS) {
+                                rel.recent_interactions.splice(0, rel.recent_interactions.length - MAX_RECENT_INTERACTIONS);
+                            }
                         }
                     }
                     break;
@@ -320,8 +347,14 @@ export function applyAdjudication(
                     turn: adjudication.turn,
                     event_description: headline,
                     emotional_impact: "Notable",
-                    involved_entities: [] 
+                    involved_entities: []
                 });
+                // Bounded at the write site: drop the oldest past
+                // MAX_ENTITY_MEMORIES (also trims over-long lists from
+                // saves written before the bound).
+                if (entity.memories.length > MAX_ENTITY_MEMORIES) {
+                    entity.memories.splice(0, entity.memories.length - MAX_ENTITY_MEMORIES);
+                }
             }
         });
     });

@@ -120,6 +120,40 @@ describe('persistence/saveGame', () => {
     expect(loaded!.state.turnHistory[1].adjudication.headlines).toEqual(['Headline 2']);
   });
 
+  it('round-trips history entries with and without the optional postTurnEntities snapshot', () => {
+    const { postTurnEntities, ...withoutSnapshot } = makeHistoryEntry(1, false);
+    const withSnapshot: TurnHistoryEntry = { ...makeHistoryEntry(2, false), postTurnEntities: [] };
+    saveGame(makeState({ turnNumber: 3, turnHistory: [withoutSnapshot, withSnapshot] }));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.turnHistory[0].postTurnEntities).toBeUndefined();
+    expect(loaded!.state.turnHistory[1].postTurnEntities).toEqual([]);
+    // Everything else about the snapshotless entry is untouched.
+    expect(loaded!.state.turnHistory[0].narration).toBe('Narration for turn 1');
+    expect(loaded!.state.turnHistory[0].adjudication.headlines).toEqual(['Headline 1']);
+  });
+
+  it('loads a stored v1 envelope whose history entries all carry full snapshots (pre-optional shape)', () => {
+    // Written directly to storage, bypassing saveGame, to mirror a blob
+    // persisted while the field was required on every entry.
+    const envelope = {
+      version: SAVE_VERSION,
+      savedAt: new Date().toISOString(),
+      state: makeState({
+        turnNumber: 3,
+        turnHistory: [makeHistoryEntry(1, false), makeHistoryEntry(2, false)],
+      }),
+    };
+    localStorage.setItem('gloryOfRome:autosave', JSON.stringify(envelope));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.turnHistory).toHaveLength(2);
+    expect(loaded!.state.turnHistory[0].postTurnEntities).toEqual([]);
+    expect(loaded!.state.turnHistory[1].postTurnEntities).toEqual([]);
+  });
+
   it('loads a stored v1 envelope whose history entries predate turnSeed', () => {
     // Written directly to storage, bypassing saveGame, to mirror a blob
     // persisted before the field existed.
