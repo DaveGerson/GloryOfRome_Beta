@@ -1,0 +1,428 @@
+/**
+ * Pure unit tests for state/gameReducer.ts - no DOM, no React harness (this
+ * repo has no react-testing-library). Each action is a single atomic commit
+ * point, so the assertions check both the landed values and the fields a
+ * given action must NOT touch.
+ */
+import { describe, it, expect } from 'vitest';
+import {
+  gameReducer,
+  createInitialGameState,
+  GameDomainState,
+  GameAction,
+} from '../state/gameReducer';
+import { GameState, Message, TurnHistoryEntry, GameEvent } from '../types';
+import type { SaveGameState } from '../persistence/saveGame';
+import { getMockInitialState } from './mockData';
+
+const PLAYER_ID = 'severus_alexander';
+
+function makeHistoryEntry(turnNumber: number): TurnHistoryEntry {
+  return {
+    turnNumber,
+    playerIntent: `intent ${turnNumber}`,
+    adjudication: {
+      turn: turnNumber,
+      entityActions: [],
+      deltas: [],
+      headlines: [`Headline ${turnNumber}`],
+      gm_private: [],
+    },
+    narration: `Narration ${turnNumber}`,
+    postTurnEntities: [],
+  };
+}
+
+/** A mid-campaign state with the mock scenario's entities and the player set. */
+function makePlayingState(overrides: Partial<GameDomainState> = {}): GameDomainState {
+  const { entities, worldState } = getMockInitialState();
+  return {
+    ...createInitialGameState(),
+    gameState: GameState.AWAITING_PLAYER_INPUT,
+    entities,
+    worldState,
+    playerCharacterId: PLAYER_ID,
+    turnNumber: 3,
+    turnHistory: [makeHistoryEntry(1), makeHistoryEntry(2)],
+    messages: [
+      { sender: 'gm', text: 'Welcome.' },
+      { sender: 'player', text: 'I scheme.' },
+    ],
+    suggestedActions: ['Old pill'],
+    currentEvents: ['Old headline'],
+    pendingIntelligenceFallout: ['An agent was spotted.'],
+    gmInterventionText: 'A comet is seen over Rome.',
+    ...overrides,
+  };
+}
+
+/** The same entity roster with the player marked dead. */
+function withDeadPlayer(state: GameDomainState): GameDomainState['entities'] {
+  return state.entities.map(e => (e.entity_id === PLAYER_ID ? { ...e, status: 'dead' as const } : e));
+}
+
+function makeTurnCommit(state: GameDomainState, entities = state.entities): Extract<GameAction, { type: 'TURN_COMMITTED' }> {
+  return {
+    type: 'TURN_COMMITTED',
+    entities,
+    worldState: { ...state.worldState, week: state.worldState.week + 1 },
+    simulationState: createInitialGameState().simulationState,
+    reports: [],
+    turnNumber: state.turnNumber + 1,
+    turnHistory: [...state.turnHistory, makeHistoryEntry(state.turnNumber)],
+    gmMessage: { sender: 'gm', text: 'The die is cast.' },
+    monologueMessage: { sender: 'player_monologue', text: 'What have I done?' },
+    ribbonMessage: { sender: 'ribbon', text: 'Week II' },
+    suggestedActions: ['New pill'],
+    currentEvents: ['New headline'],
+  };
+}
+
+function makeSaveState(overrides: Partial<SaveGameState> = {}): SaveGameState {
+  const { entities, worldState } = getMockInitialState();
+  return {
+    entities,
+    worldState,
+    simulationState: createInitialGameState().simulationState,
+    reports: [],
+    turnNumber: 7,
+    playerCharacterId: PLAYER_ID,
+    turnHistory: [makeHistoryEntry(6)],
+    eventHistory: [{ eventId: 'ev1', eventTitle: 'The Omen', choiceText: 'Ignore it', turnNumber: 4 }],
+    metaNarrative: 'A loaded crisis.',
+    messages: [{ sender: 'gm', text: 'Loaded.' }],
+    triggeredEventIds: ['ev1'],
+    suggestedActions: ['Loaded pill'],
+    currentEvents: ['Loaded headline'],
+    gmInterventionText: 'Loaded intervention',
+    ...overrides,
+  };
+}
+
+describe('state/gameReducer', () => {
+  describe('unknown action', () => {
+    it('returns the state unchanged, as the SAME reference', () => {
+      const state = makePlayingState();
+      const result = gameReducer(state, { type: 'NOT_A_REAL_ACTION' } as unknown as GameAction);
+      expect(result).toBe(state);
+    });
+  });
+
+  describe('TURN_STARTED', () => {
+    it('enters PROCESSING, clears the pills, and appends ONLY the player message', () => {
+      const state = makePlayingState();
+      const playerMessage: Message = { sender: 'player', text: 'I address the Senate.' };
+      const result = gameReducer(state, { type: 'TURN_STARTED', playerMessage });
+
+      expect(result.gameState).toBe(GameState.PROCESSING);
+      expect(result.suggestedActions).toEqual([]);
+      expect(result.messages).toEqual([...state.messages, playerMessage]);
+      // Nothing else may change - the pre-turn snapshot depends on it.
+      expect(result.entities).toBe(state.entities);
+      expect(result.worldState).toBe(state.worldState);
+      expect(result.turnNumber).toBe(state.turnNumber);
+      expect(result.pendingIntelligenceFallout).toBe(state.pendingIntelligenceFallout);
+      expect(result.gmInterventionText).toBe(state.gmInterventionText);
+    });
+  });
+
+  describe('TURN_COMMITTED', () => {
+    it('lands the whole commit atomically and consumes the fallout queue and intervention text', () => {
+      const state = makePlayingState({ gameState: GameState.PROCESSING });
+      const action = makeTurnCommit(state);
+      const result = gameReducer(state, action);
+
+      expect(result.entities).toBe(action.entities);
+      expect(result.worldState).toBe(action.worldState);
+      expect(result.simulationState).toBe(action.simulationState);
+      expect(result.reports).toBe(action.reports);
+      expect(result.turnNumber).toBe(action.turnNumber);
+      expect(result.turnHistory).toBe(action.turnHistory);
+      expect(result.suggestedActions).toEqual(['New pill']);
+      expect(result.currentEvents).toEqual(['New headline']);
+      expect(result.messages).toEqual([
+        ...state.messages,
+        action.gmMessage,
+        action.monologueMessage,
+        action.ribbonMessage,
+      ]);
+      expect(result.pendingIntelligenceFallout).toEqual([]);
+      expect(result.gmInterventionText).toBe('');
+    });
+
+    it('keeps the phase as-is while the player lives (the event-trigger check resolves it)', () => {
+      const state = makePlayingState({ gameState: GameState.PROCESSING });
+      const result = gameReducer(state, makeTurnCommit(state));
+      expect(result.gameState).toBe(GameState.PROCESSING);
+    });
+
+    it('resolves the phase to GAME_OVER when the committed entities show the player dead (D1)', () => {
+      const state = makePlayingState({ gameState: GameState.PROCESSING });
+      const result = gameReducer(state, makeTurnCommit(state, withDeadPlayer(state)));
+      expect(result.gameState).toBe(GameState.GAME_OVER);
+    });
+
+    it('does NOT end the run for a merely exiled player (D1 - only death is terminal)', () => {
+      const state = makePlayingState({ gameState: GameState.PROCESSING });
+      const exiled = state.entities.map(e =>
+        e.entity_id === PLAYER_ID ? { ...e, status: 'exiled' as const } : e
+      );
+      const result = gameReducer(state, makeTurnCommit(state, exiled));
+      expect(result.gameState).toBe(GameState.PROCESSING);
+    });
+  });
+
+  describe('TURN_ROLLED_BACK', () => {
+    it('restores the snapshot fields but never the chat log', () => {
+      const preTurn = makePlayingState();
+      const snapshot = makeSaveState({
+        turnNumber: preTurn.turnNumber,
+        pendingIntelligenceFallout: ['An agent was spotted.'],
+      });
+      // A half-attempted turn's transient additions: the player's message
+      // and the GM's error notice are already in the log and must survive.
+      const midFailure: GameDomainState = {
+        ...preTurn,
+        gameState: GameState.PROCESSING,
+        messages: [
+          ...preTurn.messages,
+          { sender: 'player', text: 'Doomed action' },
+          { sender: 'gm', text: 'A fateful error has occurred' },
+        ],
+      };
+
+      const result = gameReducer(midFailure, { type: 'TURN_ROLLED_BACK', snapshot });
+
+      expect(result.entities).toBe(snapshot.entities);
+      expect(result.worldState).toBe(snapshot.worldState);
+      expect(result.simulationState).toBe(snapshot.simulationState);
+      expect(result.reports).toBe(snapshot.reports);
+      expect(result.turnNumber).toBe(snapshot.turnNumber);
+      expect(result.turnHistory).toBe(snapshot.turnHistory);
+      expect(result.eventHistory).toBe(snapshot.eventHistory);
+      expect(result.triggeredEventIds).toBe(snapshot.triggeredEventIds);
+      expect(result.suggestedActions).toBe(snapshot.suggestedActions);
+      expect(result.currentEvents).toBe(snapshot.currentEvents);
+      expect(result.gmInterventionText).toBe(snapshot.gmInterventionText);
+      expect(result.pendingIntelligenceFallout).toEqual(['An agent was spotted.']);
+      // The chat log is deliberately NOT restored.
+      expect(result.messages).toBe(midFailure.messages);
+      // Fields never touched mid-turn are not part of the rollback.
+      expect(result.playerCharacterId).toBe(midFailure.playerCharacterId);
+      expect(result.metaNarrative).toBe(midFailure.metaNarrative);
+      expect(result.inferredAmbition).toBe(midFailure.inferredAmbition);
+      // The phase transition is a separate GAME_STATE_SET, not part of this action.
+      expect(result.gameState).toBe(GameState.PROCESSING);
+    });
+
+    it('normalizes a snapshot without the optional fallout field to an empty queue', () => {
+      const state = makePlayingState();
+      const snapshot = makeSaveState();
+      delete snapshot.pendingIntelligenceFallout;
+      const result = gameReducer(state, { type: 'TURN_ROLLED_BACK', snapshot });
+      expect(result.pendingIntelligenceFallout).toEqual([]);
+    });
+  });
+
+  describe('EVENT_TRIGGERED', () => {
+    it('opens the event modal and awaits the choice', () => {
+      const state = makePlayingState({ gameState: GameState.PROCESSING });
+      const event = { id: 'ev2', title: 'The Mutiny' } as GameEvent;
+      const result = gameReducer(state, { type: 'EVENT_TRIGGERED', event });
+      expect(result.activeEvent).toBe(event);
+      expect(result.gameState).toBe(GameState.AWAITING_EVENT_CHOICE);
+    });
+  });
+
+  describe('EVENT_CHOICE_APPLIED', () => {
+    function makeChoiceAction(state: GameDomainState, entities = state.entities): Extract<GameAction, { type: 'EVENT_CHOICE_APPLIED' }> {
+      return {
+        type: 'EVENT_CHOICE_APPLIED',
+        entities,
+        worldState: { ...state.worldState, political_climate: 'Explosive' },
+        eventMessage: { sender: 'gm', text: '**Event: The Mutiny**\nYou chose to: *Pay the legions*' },
+        eventHistory: [
+          ...state.eventHistory,
+          { eventId: 'ev2', eventTitle: 'The Mutiny', choiceText: 'Pay the legions', turnNumber: state.turnNumber },
+        ],
+        triggeredEventIds: [...state.triggeredEventIds, 'ev2'],
+      };
+    }
+
+    it('applies the choice atomically, closes the modal, and returns to input', () => {
+      const event = { id: 'ev2', title: 'The Mutiny' } as GameEvent;
+      const state = makePlayingState({
+        gameState: GameState.AWAITING_EVENT_CHOICE,
+        activeEvent: event,
+      });
+      const action = makeChoiceAction(state);
+      const result = gameReducer(state, action);
+
+      expect(result.entities).toBe(action.entities);
+      expect(result.worldState).toBe(action.worldState);
+      expect(result.messages).toEqual([...state.messages, action.eventMessage]);
+      expect(result.eventHistory).toBe(action.eventHistory);
+      expect(result.triggeredEventIds).toBe(action.triggeredEventIds);
+      expect(result.activeEvent).toBeNull();
+      expect(result.gameState).toBe(GameState.AWAITING_PLAYER_INPUT);
+      // An event choice never touches the turn pipeline's slices.
+      expect(result.turnNumber).toBe(state.turnNumber);
+      expect(result.turnHistory).toBe(state.turnHistory);
+      expect(result.pendingIntelligenceFallout).toBe(state.pendingIntelligenceFallout);
+      expect(result.gmInterventionText).toBe(state.gmInterventionText);
+    });
+
+    it('resolves to GAME_OVER when the choice deltas killed the player (D1)', () => {
+      const event = { id: 'ev2', title: 'The Mutiny' } as GameEvent;
+      const state = makePlayingState({
+        gameState: GameState.AWAITING_EVENT_CHOICE,
+        activeEvent: event,
+      });
+      const result = gameReducer(state, makeChoiceAction(state, withDeadPlayer(state)));
+      expect(result.activeEvent).toBeNull();
+      expect(result.gameState).toBe(GameState.GAME_OVER);
+    });
+  });
+
+  describe('GAME_LOADED', () => {
+    it('restores every persisted field from the save', () => {
+      const state = createInitialGameState();
+      const save = makeSaveState({
+        inferredAmbition: { apparent_ambition: 'Appears intent on seizing the purple.', confidence: 'high', asOfTurn: 6 },
+        pendingIntelligenceFallout: ['Old fallout'],
+      });
+      const result = gameReducer(state, { type: 'GAME_LOADED', save });
+
+      expect(result.entities).toBe(save.entities);
+      expect(result.worldState).toBe(save.worldState);
+      expect(result.simulationState).toBe(save.simulationState);
+      expect(result.reports).toBe(save.reports);
+      expect(result.turnNumber).toBe(save.turnNumber);
+      expect(result.playerCharacterId).toBe(save.playerCharacterId);
+      expect(result.turnHistory).toBe(save.turnHistory);
+      expect(result.eventHistory).toBe(save.eventHistory);
+      expect(result.metaNarrative).toBe(save.metaNarrative);
+      expect(result.messages).toBe(save.messages);
+      expect(result.triggeredEventIds).toBe(save.triggeredEventIds);
+      expect(result.suggestedActions).toBe(save.suggestedActions);
+      expect(result.currentEvents).toBe(save.currentEvents);
+      expect(result.gmInterventionText).toBe(save.gmInterventionText);
+      expect(result.inferredAmbition).toEqual(save.inferredAmbition);
+      expect(result.pendingIntelligenceFallout).toEqual(['Old fallout']);
+      expect(result.gameState).toBe(GameState.AWAITING_PLAYER_INPUT);
+    });
+
+    it('normalizes the optional fields absent on older saves', () => {
+      const save = makeSaveState();
+      delete save.inferredAmbition;
+      delete save.pendingIntelligenceFallout;
+      const result = gameReducer(createInitialGameState(), { type: 'GAME_LOADED', save });
+      expect(result.inferredAmbition).toBeNull();
+      expect(result.pendingIntelligenceFallout).toEqual([]);
+    });
+
+    it('re-derives GAME_OVER from a save whose player is dead (D1 - GAME_OVER itself is never persisted)', () => {
+      const base = makeSaveState();
+      const save = makeSaveState({
+        entities: base.entities.map(e =>
+          e.entity_id === PLAYER_ID ? { ...e, status: 'dead' as const } : e
+        ),
+      });
+      const result = gameReducer(createInitialGameState(), { type: 'GAME_LOADED', save });
+      expect(result.gameState).toBe(GameState.GAME_OVER);
+    });
+  });
+
+  describe('GAME_STARTED', () => {
+    it('starts a campaign in the default world when no custom world is provided', () => {
+      const state = createInitialGameState();
+      const { entities } = getMockInitialState();
+      const introMessage: Message = { sender: 'gm', text: 'You have chosen.' };
+      const result = gameReducer(state, {
+        type: 'GAME_STARTED',
+        entities,
+        playerCharacterId: PLAYER_ID,
+        introMessage,
+        suggestedActions: ['First move'],
+      });
+
+      expect(result.entities).toBe(entities);
+      expect(result.playerCharacterId).toBe(PLAYER_ID);
+      expect(result.gameState).toBe(GameState.AWAITING_PLAYER_INPUT);
+      expect(result.messages).toEqual([introMessage]);
+      expect(result.suggestedActions).toEqual(['First move']);
+      // The defaults stand when the campaign isn't a custom world.
+      expect(result.worldState).toBe(state.worldState);
+      expect(result.metaNarrative).toBe(state.metaNarrative);
+    });
+
+    it('adopts the provided world and meta-narrative for a custom world', () => {
+      const state = createInitialGameState();
+      const { entities, worldState } = getMockInitialState();
+      const result = gameReducer(state, {
+        type: 'GAME_STARTED',
+        entities,
+        playerCharacterId: PLAYER_ID,
+        introMessage: { sender: 'gm', text: 'A new world.' },
+        suggestedActions: [],
+        worldState,
+        metaNarrative: 'A custom crisis.',
+      });
+      expect(result.worldState).toBe(worldState);
+      expect(result.metaNarrative).toBe('A custom crisis.');
+    });
+  });
+
+  describe('INVESTIGATION_COMMITTED', () => {
+    it('lands the spend and the fallout append in one transition', () => {
+      const state = makePlayingState({ pendingIntelligenceFallout: [] });
+      const spent = state.entities.map(e =>
+        e.entity_id === PLAYER_ID ? { ...e, resources: { ...e.resources, investigations: 0 } } : e
+      );
+      const result = gameReducer(state, {
+        type: 'INVESTIGATION_COMMITTED',
+        entities: spent,
+        pendingIntelligenceFallout: ['The agent was seen.'],
+      });
+      expect(result.entities).toBe(spent);
+      expect(result.pendingIntelligenceFallout).toEqual(['The agent was seen.']);
+    });
+  });
+
+  describe('simple field actions', () => {
+    it('MESSAGE_ADDED appends to the chat log', () => {
+      const state = makePlayingState();
+      const message: Message = { sender: 'gm', text: 'A courier arrives.' };
+      const result = gameReducer(state, { type: 'MESSAGE_ADDED', message });
+      expect(result.messages).toEqual([...state.messages, message]);
+    });
+
+    it('GAME_STATE_SET changes only the phase', () => {
+      const state = makePlayingState({ gameState: GameState.PROCESSING });
+      const result = gameReducer(state, { type: 'GAME_STATE_SET', gameState: GameState.AWAITING_PLAYER_INPUT });
+      expect(result.gameState).toBe(GameState.AWAITING_PLAYER_INPUT);
+      expect(result.messages).toBe(state.messages);
+      expect(result.entities).toBe(state.entities);
+    });
+
+    it('GM_INTERVENTION_SET stores the operator text', () => {
+      const result = gameReducer(makePlayingState(), { type: 'GM_INTERVENTION_SET', text: 'Vesuvius stirs.' });
+      expect(result.gmInterventionText).toBe('Vesuvius stirs.');
+    });
+
+    it('AMBITION_INFERRED stores the reading', () => {
+      const inferredAmbition = { apparent_ambition: 'Appears set on ruling Rome.', confidence: 'low' as const, asOfTurn: 3 };
+      const result = gameReducer(makePlayingState(), { type: 'AMBITION_INFERRED', inferredAmbition });
+      expect(result.inferredAmbition).toBe(inferredAmbition);
+    });
+
+    it('RESOURCE_SPENT replaces the entity roster', () => {
+      const state = makePlayingState();
+      const spent = state.entities.map(e =>
+        e.entity_id === PLAYER_ID ? { ...e, resources: { ...e.resources, deep_analyses: 3 } } : e
+      );
+      const result = gameReducer(state, { type: 'RESOURCE_SPENT', entities: spent });
+      expect(result.entities).toBe(spent);
+    });
+  });
+});
