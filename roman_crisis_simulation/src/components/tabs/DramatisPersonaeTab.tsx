@@ -4,11 +4,14 @@ import { GoogleGenAI } from "@google/genai";
 import { getRawThoughts, getInvestigationResult, getDeepAnalysis } from '../../ai/tools/intelligence';
 import InfoTooltip from '../InfoTooltip';
 import GlossaryTooltip from '../GlossaryTooltip';
+import { Card, Button } from '../ui/Core';
+import { TrustBar } from '../ui/Game';
+import { toRoman } from '../ui/Brand';
 
 type UncoveredIntel = {
     secrets?: string[];
     beliefs?: string[];
-    active_scheme?: Scheme;
+    scheme?: Scheme;
     raw_thoughts?: string;
     /**
      * ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - the premium intel tier built
@@ -30,32 +33,30 @@ const glossaryTerms = {
     }
 };
 
-const TrustBar: React.FC<{ level: number }> = ({ level }) => {
-    const percentage = ((level + 10) / 20) * 100;
-    const color = level > 3 ? 'bg-green-700' : level < -3 ? 'bg-red-900' : 'bg-stone-500';
+const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--text-muted)' };
+const quiet: React.CSSProperties = { fontSize: 14, fontStyle: 'italic', color: 'var(--text-muted)' };
 
-    return (
-        <div className="w-full bg-stone-300 rounded-sm h-2.5 my-1 shadow-inner border border-stone-400" title={`Trust Level: ${level}`}>
-            <div className={`${color} h-full rounded-sm`} style={{ width: `${percentage}%` }}></div>
-        </div>
-    );
+const stepGlyph = (status: Scheme['steps'][number]['status']) => {
+    if (status === 'completed') return { glyph: '✓', color: 'var(--laurel-500)' };
+    if (status === 'in_progress') return { glyph: '›', color: 'var(--crimson-500)' };
+    if (status === 'failed') return { glyph: '✕', color: 'var(--crimson-500)' };
+    return { glyph: '·', color: 'var(--text-muted)' };
 };
 
 const SchemeIntelDisplay: React.FC<{ scheme: Scheme }> = ({ scheme }) => (
-    <div className="text-xs text-stone-600 space-y-1">
-        <p><span className="font-bold text-stone-700">Name:</span> <span className="italic">"{scheme.name}"</span></p>
-        <p><span className="font-bold text-stone-700">Goal:</span> {scheme.overall_goal}</p>
-        <div>
-            <span className="font-bold text-stone-700">Steps:</span>
-            <ul className="list-disc list-inside ml-2">
-                {scheme.steps.map((step, i) => (
-                    <li key={i}><span className="capitalize">{step.status}:</span> {step.objective}</li>
-                ))}
-            </ul>
-        </div>
+    <div style={{ fontSize: 14, display: 'flex', flexDirection: 'column', gap: 3 }}>
+        <span><strong>“{scheme.name}”</strong> — {scheme.overall_goal}</span>
+        {scheme.steps.map((step, i) => {
+            const { glyph, color } = stepGlyph(step.status);
+            return (
+                <span key={i} style={{ display: 'flex', gap: 8 }}>
+                    <span aria-hidden="true" style={{ color, flex: 'none', width: 12, textAlign: 'center' }}>{glyph}</span>
+                    <span style={{ color: step.status === 'pending' ? 'var(--text-muted)' : 'inherit' }}>{step.objective}</span>
+                </span>
+            );
+        })}
     </div>
 );
-
 
 const IntelSection: React.FC<{
     title: string;
@@ -66,44 +67,43 @@ const IntelSection: React.FC<{
     onUncover: () => void;
     isLoading: boolean;
     tooltip: string;
-}> = ({ title, cost, resourceName, resourceCount, uncoveredData, onUncover, isLoading, tooltip }) => {
-    
+    footnote?: React.ReactNode;
+}> = ({ title, cost, resourceName, resourceCount, uncoveredData, onUncover, isLoading, tooltip, footnote }) => {
+
     const renderContent = () => {
+        if (isLoading) {
+            return <span style={quiet}>Your asset works in the dark…</span>;
+        }
         if (uncoveredData) {
-            if (Array.isArray(uncoveredData)) {
-                return (
-                     <ul className="text-xs text-stone-600 list-disc list-inside">
-                        {uncoveredData.map((item, i) => <li key={i}>{item}</li>)}
-                    </ul>
-                );
-            }
-            // Check if it's a scheme object
-            if (typeof uncoveredData === 'object' && uncoveredData !== null && 'overall_goal' in uncoveredData) {
-                return <SchemeIntelDisplay scheme={uncoveredData as Scheme} />;
-            }
-            // Fallback for string
-            return <p className="text-xs text-stone-600 italic">"{String(uncoveredData)}"</p>;
+            const revealed = Array.isArray(uncoveredData) ? (
+                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 14 }}>
+                    {uncoveredData.map((item, i) => <li key={i}>{item}</li>)}
+                </ul>
+            ) : (typeof uncoveredData === 'object' && uncoveredData !== null && 'overall_goal' in uncoveredData) ? (
+                <SchemeIntelDisplay scheme={uncoveredData as Scheme} />
+            ) : (
+                <p style={{ ...quiet, margin: 0 }}>“{String(uncoveredData)}”</p>
+            );
+            return (
+                <div style={{ animation: 'gorFadeIn .4s ease-out both' }}>
+                    {revealed}
+                    {footnote}
+                </div>
+            );
         }
         return (
-            <div className="flex justify-between items-center">
-                <p className="text-xs text-stone-500 italic">[Unknown]</p>
-                <button 
-                    onClick={onUncover}
-                    disabled={resourceCount < cost || isLoading}
-                    className="bg-stone-600 text-white text-xs px-2 py-1 rounded-sm shadow-md border border-stone-700 hover:bg-stone-500 disabled:bg-stone-400 btn-animate"
-                >
-                    {isLoading ? '...' : `Reveal (${cost} ${resourceName})`}
-                </button>
-            </div>
+            <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <span style={quiet}>[ Unknown ]</span>
+                <Button size="sm" variant="secondary" onClick={onUncover} disabled={resourceCount < cost || isLoading}>
+                    Reveal · {toRoman(cost)} {resourceName}
+                </Button>
+            </span>
         );
     };
 
     return (
-        <div className="mt-2">
-            <h5 className="text-xs font-bold text-stone-700 flex items-center">
-                {title}
-                <InfoTooltip text={tooltip} />
-            </h5>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <span style={{ ...labelStyle, display: 'inline-flex', alignItems: 'center' }}>{title}<InfoTooltip text={tooltip} /></span>
             {renderContent()}
         </div>
     );
@@ -113,8 +113,8 @@ const IntelSection: React.FC<{
  * ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - "Deep Analysis" is a premium
  * intel tier, distinct from the `IntelSection` cards above: it's a single
  * synthesized spymaster's assessment rather than a raw uncovered fact, so it
- * gets its own visual treatment (an illuminated, parchment-gold card) to
- * read as qualitatively different from the grey "Reveal" panels.
+ * gets its own visual treatment (a gilt, illuminated card) to read as
+ * qualitatively different from the standard "Reveal" panels.
  */
 const DeepAnalysisSection: React.FC<{
     analysis: string | undefined;
@@ -126,48 +126,48 @@ const DeepAnalysisSection: React.FC<{
     const canAfford = resourceCount >= cost;
 
     return (
-        <div className="mt-3 pt-3 border-t-2 border-dashed border-amber-700">
-            <h5 className="text-xs font-bold text-amber-800 uppercase tracking-wide flex items-center">
+        <div style={{ marginTop: 6, paddingTop: 10, borderTop: '2px dashed var(--border-strong)' }}>
+            <span style={{ ...labelStyle, color: 'var(--gold-700)', display: 'inline-flex', alignItems: 'center' }}>
                 Spymaster's Assessment
                 <InfoTooltip text="Commission a premium, synthesized strategic judgment on this individual - a higher-tier read than a raw investigation report, spent from your rare Deep Analyses." />
-            </h5>
-            {analysis ? (
-                <div className="mt-1 bg-amber-50 border-l-4 border-amber-700 rounded-sm p-2 shadow-inner">
-                    <p className="text-xs text-amber-900 italic whitespace-pre-wrap">"{analysis}"</p>
+            </span>
+            {isLoading ? (
+                <p style={{ ...quiet, margin: '4px 0 0' }}>The assessment is being drawn up…</p>
+            ) : analysis ? (
+                <div className="gor-card gor-card-gilt" style={{ marginTop: 5, padding: '10px 12px', animation: 'gorFadeIn .4s ease-out both' }}>
+                    <p style={{ margin: 0, fontSize: 14, fontStyle: 'italic', whiteSpace: 'pre-wrap' }}>“{analysis}”</p>
                 </div>
             ) : (
-                <div className="flex justify-between items-center mt-1 gap-2">
-                    <p className="text-xs text-stone-500 italic">[No deep analysis commissioned]</p>
-                    <button
+                <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                    <span style={quiet}>[ No deep analysis commissioned ]</span>
+                    <Button
+                        size="sm"
                         onClick={onCommission}
                         disabled={!canAfford || isLoading}
                         title={!canAfford ? `Requires ${cost} Deep Analyses (you have ${resourceCount})` : undefined}
-                        className="flex-shrink-0 bg-amber-800 text-white text-xs px-2 py-1 rounded-sm shadow-md border border-amber-950 hover:bg-amber-700 disabled:bg-stone-400 btn-animate"
                     >
-                        {isLoading ? '...' : `Commission Deep Analysis (${cost} Deep Analyses)`}
-                    </button>
-                </div>
+                        Commission · {toRoman(cost)} Deep
+                    </Button>
+                </span>
             )}
         </div>
     );
 };
 
-
 const EntityDetails: React.FC<{
     entity: Entity;
     playerEntity: Entity;
-    isMember?: boolean;
     onSpendInvestigation: (cost: number) => void;
     onSpendDeepAnalysis: (cost: number) => void;
     onNewInvestigationResult: (result: InvestigationResult) => void;
     onAddSecretAsResource: (targetId: string, secrets: string[]) => void;
     ai: GoogleGenAI;
     isMockMode: boolean;
-}> = ({ entity, playerEntity, isMember, onSpendInvestigation, onSpendDeepAnalysis, onNewInvestigationResult, onAddSecretAsResource, ai, isMockMode }) => {
+}> = ({ entity, playerEntity, onSpendInvestigation, onSpendDeepAnalysis, onNewInvestigationResult, onAddSecretAsResource, ai, isMockMode }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [uncoveredIntel, setUncoveredIntel] = useState<UncoveredIntel>({});
     const [loadingState, setLoadingState] = useState<string | null>(null);
-    
+
     const playerRelationship = playerEntity.relationships[entity.entity_id];
 
     const handleRequest = async (type: 'secrets' | 'beliefs' | 'scheme' | 'raw_thoughts' | 'deep_analysis', target: Entity) => {
@@ -199,13 +199,13 @@ const EntityDetails: React.FC<{
                 case 'secrets':
                 case 'scheme': {
                     if ((playerEntity.resources.investigations as number) >= 1) {
-                         const result = await getInvestigationResult(ai, target, playerEntity, true, isMockMode, type);
-                         setUncoveredIntel(prev => ({ ...prev, [type]: result.reportData }));
-                         onSpendInvestigation(1);
-                         onNewInvestigationResult({ target_id: target.entity_id, report: result.report, consequences: result.consequences });
-                         if (type === 'secrets' && result.reportData && Array.isArray(result.reportData)) {
+                        const result = await getInvestigationResult(ai, target, playerEntity, true, isMockMode, type);
+                        setUncoveredIntel(prev => ({ ...prev, [type]: result.reportData }));
+                        onSpendInvestigation(1);
+                        onNewInvestigationResult({ target_id: target.entity_id, report: result.report, consequences: result.consequences });
+                        if (type === 'secrets' && result.reportData && Array.isArray(result.reportData)) {
                             onAddSecretAsResource(target.entity_id, result.reportData as string[]);
-                         }
+                        }
                     }
                     break;
                 }
@@ -218,56 +218,56 @@ const EntityDetails: React.FC<{
     const investigations = (playerEntity.resources.investigations as number) || 0;
     const deepAnalyses = (playerEntity.resources.deep_analyses as number) || 0;
 
+    const num = (k: string, v: number) => (
+        <span key={k} style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+            {k} <strong style={{ color: 'var(--text-heading)', fontVariantNumeric: 'tabular-nums' }}>{v}</strong>
+        </span>
+    );
+
     return (
-        <div className={`p-3 ${isMember ? 'border-t border-stone-300 bg-stone-50' : 'roman-stone-panel rounded-sm'}`}>
-            <div className="flex justify-between items-start">
-                <div>
-                    <h4 className="font-bold text-stone-800">{entity.name}</h4>
-                    <p className="text-sm text-stone-600 -mt-1">{entity.position || entity.entity_type}</p>
-                </div>
-                 <button onClick={() => setIsExpanded(prev => !prev)} className="bg-red-800 text-white text-xs px-3 py-1 rounded-sm shadow-md border border-red-900 hover:bg-red-700 btn-animate">
+        <Card
+            title={entity.name}
+            action={
+                <Button size="sm" variant={isExpanded ? 'ghost' : 'secondary'} onClick={() => setIsExpanded(prev => !prev)}>
                     {isExpanded ? 'Collapse' : 'Intel'}
-                </button>
-            </div>
-             {playerRelationship && (
-                <>
-                    <TrustBar level={playerRelationship.trust_level} />
-                    <div className="text-xs text-stone-600 flex justify-between">
-                        <span className="italic" title={`Trust: ${playerRelationship.trust_level}/10`}>Trust: <strong className="text-stone-800">{playerRelationship.trust_level}</strong></span>
-                        <span className="italic" title={`Respect: ${playerRelationship.respect_level ?? 0}/10`}>Respect: <strong className="text-stone-800">{playerRelationship.respect_level ?? 0}</strong></span>
-                    </div>
-                    <div className="text-xs text-stone-600 grid grid-cols-3 gap-x-2 text-center mt-1">
-                        <span title={`Perceived Threat: ${playerRelationship.perceived_threat ?? 0}/10`}>
-                            Threat: <strong className="text-stone-800">{playerRelationship.perceived_threat ?? 0}</strong>
-                        </span>
-                        <span title={`Ideological Alignment: ${playerRelationship.ideological_alignment ?? 0}/10`}>
-                            Alignment: <strong className="text-stone-800">{playerRelationship.ideological_alignment ?? 0}</strong>
-                        </span>
-                        <span title={`Your Dependency: ${playerRelationship.dependency_level ?? 0}/10`}>
-                            Dependency: <strong className="text-stone-800">{playerRelationship.dependency_level ?? 0}</strong>
-                        </span>
-                    </div>
-                </>
-            )}
+                </Button>
+            }
+        >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <span style={quiet}>{entity.position || entity.entity_type}</span>
+                {playerRelationship && (
+                    <>
+                        <TrustBar label="Trust" level={playerRelationship.trust_level} />
+                        <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                            {num('Respect', playerRelationship.respect_level ?? 0)}
+                            {num('Threat', playerRelationship.perceived_threat ?? 0)}
+                            {num('Alignment', playerRelationship.ideological_alignment ?? 0)}
+                            {num('Dependency', playerRelationship.dependency_level ?? 0)}
+                        </div>
+                    </>
+                )}
 
-            {isExpanded && (
-                <div className="mt-3 pt-3 border-t border-stone-300 space-y-2 animate-fade-in">
-                    <p className="text-sm text-stone-700 italic">"{entity.current_state_narrative}"</p>
-                    <p className="text-sm text-stone-600 mt-1"><strong>Goals:</strong> {entity.short_term_goals.join(', ')}</p>
-                    <button
-                        onClick={() => handleRequest('raw_thoughts', entity)}
-                        disabled={!!loadingState}
-                        className="text-left w-full text-sm mt-2 p-2 bg-stone-200 hover:bg-stone-300 rounded"
-                    >
-                         <h5 className="font-bold text-stone-700 text-xs">RAW THOUGHTS (Free)</h5>
-                         {loadingState === 'raw_thoughts' 
-                            ? <p className="text-xs text-stone-500 italic">Thinking...</p>
-                            : <p className="text-xs text-stone-600 italic">"{uncoveredIntel.raw_thoughts || 'Click to gauge your immediate feelings about this person.'}"</p>
-                         }
-                    </button>
+                {isExpanded && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 8, borderTop: '1px solid var(--border-faint)', animation: 'gorFadeIn .35s ease-out both' }}>
+                        <span style={{ fontSize: 15, fontStyle: 'italic' }}>“{entity.current_state_narrative}”</span>
+                        <span style={{ fontSize: 14 }}><strong>Goals:</strong> {entity.short_term_goals.join(', ')}</span>
+                        <button
+                            type="button"
+                            onClick={() => handleRequest('raw_thoughts', entity)}
+                            disabled={!!loadingState}
+                            style={{ all: 'unset', cursor: loadingState ? 'wait' : 'pointer', padding: '8px 10px', background: 'var(--surface-inset)', boxShadow: 'var(--shadow-inset)', borderRadius: 'var(--radius-sm)' }}
+                        >
+                            <span style={labelStyle}>Raw Thoughts · Free</span>
+                            <div style={{ ...quiet, marginTop: 2 }}>
+                                {loadingState === 'raw_thoughts'
+                                    ? 'Gauging your read of them…'
+                                    : uncoveredIntel.raw_thoughts
+                                        ? <span style={{ color: 'var(--text-body)' }}>“{uncoveredIntel.raw_thoughts}”</span>
+                                        : 'Press to gauge your immediate read of this person.'}
+                            </div>
+                        </button>
 
-                    <div className="mt-2 space-y-2 pt-2 border-t border-dashed border-stone-300">
-                        <p className="text-sm font-bold text-stone-800">Intelligence Briefing</p>
+                        <span className="gor-label" style={{ color: 'var(--tyrian-500)' }}>Intelligence Briefing</span>
                         <IntelSection
                             title="Beliefs"
                             cost={1}
@@ -278,12 +278,12 @@ const EntityDetails: React.FC<{
                             isLoading={loadingState === 'beliefs'}
                             tooltip="Uncover the core ideologies and principles that drive this character's decisions."
                         />
-                         <IntelSection
+                        <IntelSection
                             title="Active Scheme"
                             cost={1}
                             resourceName="Inv."
                             resourceCount={investigations}
-                            uncoveredData={uncoveredIntel.active_scheme}
+                            uncoveredData={uncoveredIntel.scheme}
                             onUncover={() => handleRequest('scheme', entity)}
                             isLoading={loadingState === 'scheme'}
                             tooltip="Discover the character's primary, overarching plan or strategy."
@@ -297,6 +297,7 @@ const EntityDetails: React.FC<{
                             onUncover={() => handleRequest('secrets', entity)}
                             isLoading={loadingState === 'secrets'}
                             tooltip="Use high-risk, high-reward investigation to uncover hidden fears, blackmail material, or secret plots."
+                            footnote={<span style={{ fontSize: 13, color: 'var(--laurel-500)', fontStyle: 'italic' }}>❧ Leverage filed under Assets.</span>}
                         />
                         <DeepAnalysisSection
                             analysis={uncoveredIntel.deep_analysis}
@@ -306,12 +307,11 @@ const EntityDetails: React.FC<{
                             isLoading={loadingState === 'deep_analysis'}
                         />
                     </div>
-                </div>
-            )}
-        </div>
+                )}
+            </div>
+        </Card>
     );
 };
-
 
 const FactionSection: React.FC<{
     faction: Entity,
@@ -323,36 +323,28 @@ const FactionSection: React.FC<{
     onAddSecretAsResource: (targetId: string, secrets: string[]) => void;
     ai: GoogleGenAI;
     isMockMode: boolean;
-}> = ({ faction, members, playerEntity, onSpendInvestigation, onSpendDeepAnalysis, onNewInvestigationResult, onAddSecretAsResource, ai, isMockMode }) => {
+}> = ({ faction, members, playerEntity, ...wiring }) => {
     const glossaryEntry = glossaryTerms[faction.name as keyof typeof glossaryTerms];
     return (
-        <div className="mb-4">
-            <div className="bg-red-900 text-white p-2 rounded-t-sm">
-                <h4 className="font-bold">
-                     {glossaryEntry ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ background: 'var(--metal-tyrian)', color: '#F2EBDC', padding: '9px 14px', boxShadow: 'var(--bevel)', display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, letterSpacing: '.08em', textTransform: 'uppercase', color: '#F0D089' }}>
+                    {glossaryEntry ? (
                         <GlossaryTooltip description={glossaryEntry.description} wikiLink={glossaryEntry.wikiLink}>
                             {faction.name}
                         </GlossaryTooltip>
                     ) : faction.name}
-                </h4>
-                <p className="text-xs italic">"{faction.current_state_narrative}"</p>
+                </span>
+                <span style={{ fontSize: 13, fontStyle: 'italic', color: '#D8B98A' }}>“{faction.current_state_narrative}”</span>
             </div>
-            <div className="border border-t-0 border-stone-300 rounded-b-sm roman-stone-panel">
-                {members.map(entity => (
-                    <EntityDetails
-                        key={entity.entity_id}
-                        entity={entity}
-                        playerEntity={playerEntity}
-                        isMember={true}
-                        onSpendInvestigation={onSpendInvestigation}
-                        onSpendDeepAnalysis={onSpendDeepAnalysis}
-                        onNewInvestigationResult={onNewInvestigationResult}
-                        onAddSecretAsResource={onAddSecretAsResource}
-                        ai={ai}
-                        isMockMode={isMockMode}
-                    />
-                ))}
-            </div>
+            {members.map(entity => (
+                <EntityDetails
+                    key={entity.entity_id}
+                    entity={entity}
+                    playerEntity={playerEntity}
+                    {...wiring}
+                />
+            ))}
         </div>
     );
 };
@@ -366,51 +358,46 @@ const DramatisPersonaeTab: React.FC<{
     onAddSecretAsResource: (targetId: string, secrets: string[]) => void;
     ai: GoogleGenAI;
     isMockMode: boolean;
-}> = ({ playerEntity, entities, onSpendInvestigation, onSpendDeepAnalysis, onNewInvestigationResult, onAddSecretAsResource, ai, isMockMode }) => {
+}> = ({ playerEntity, entities, ...wiring }) => {
 
-    if (!playerEntity) return <div className="p-4"><p>Loading character...</p></div>;
+    if (!playerEntity) return <p style={quiet}>Loading character…</p>;
 
+    const investigations = (playerEntity.resources.investigations as number) || 0;
     const factions = entities.filter(e => e.entity_type === 'faction' && e.status === 'alive');
     const allAliveButPlayer = entities.filter(e => e.entity_id !== playerEntity.entity_id && e.status === 'alive');
     const factionMembers = allAliveButPlayer.filter(e => e.faction_id && e.entity_type !== 'faction');
     const unaligned = allAliveButPlayer.filter(e => !e.faction_id && e.entity_type !== 'faction');
 
     return (
-        <div className="p-4 space-y-4">
-            <h3 className="text-lg font-bold text-red-900 border-b border-stone-300 pb-1">Dramatis Personae</h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+                <span style={quiet}>What is known — and what can be bought.</span>
+                <span className="gor-label" style={{ color: investigations > 0 ? 'var(--gold-700)' : 'var(--crimson-500)', whiteSpace: 'nowrap' }}>
+                    Investigations: {investigations > 0 ? toRoman(investigations) : 'None'}
+                    <InfoTooltip text="Your capacity for espionage. Spend to reveal beliefs, schemes, or secrets." />
+                </span>
+            </span>
             {factions.map(faction => (
                 <FactionSection
                     key={faction.entity_id}
                     faction={faction}
                     members={factionMembers.filter(m => m.faction_id === faction.entity_id)}
                     playerEntity={playerEntity}
-                    onSpendInvestigation={onSpendInvestigation}
-                    onSpendDeepAnalysis={onSpendDeepAnalysis}
-                    onNewInvestigationResult={onNewInvestigationResult}
-                    onAddSecretAsResource={onAddSecretAsResource}
-                    ai={ai}
-                    isMockMode={isMockMode}
+                    {...wiring}
                 />
             ))}
             {unaligned.length > 0 && (
-                <div>
-                    <h4 className="text-md font-bold text-stone-800 mt-6 mb-2">Unaligned</h4>
-                    <div className="space-y-3">
-                        {unaligned.map(entity => (
-                           <EntityDetails
-                                key={entity.entity_id}
-                                entity={entity}
-                                playerEntity={playerEntity}
-                                onSpendInvestigation={onSpendInvestigation}
-                                onSpendDeepAnalysis={onSpendDeepAnalysis}
-                                onNewInvestigationResult={onNewInvestigationResult}
-                                onAddSecretAsResource={onAddSecretAsResource}
-                                ai={ai}
-                                isMockMode={isMockMode}
-                           />
-                        ))}
-                    </div>
-                </div>
+                <>
+                    <span style={{ ...labelStyle, marginTop: 2 }}>Unaligned</span>
+                    {unaligned.map(entity => (
+                        <EntityDetails
+                            key={entity.entity_id}
+                            entity={entity}
+                            playerEntity={playerEntity}
+                            {...wiring}
+                        />
+                    ))}
+                </>
             )}
         </div>
     );
