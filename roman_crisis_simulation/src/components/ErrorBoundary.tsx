@@ -61,22 +61,19 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
     const canRestore = hasSave();
 
     return (
-      <div className="min-h-screen flex items-center justify-center p-8 bg-[#e8e6e1] text-[#3a2e2c]">
-        <div className="roman-stone-panel max-w-lg w-full p-8 rounded-sm border-2 border-red-900 text-center">
-          <h1 className="text-3xl font-decorative text-red-900 roman-inset-text mb-3">
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+        <div className="gor-card gor-card-gilt" style={{ maxWidth: 520, width: '100%', padding: '32px 28px', textAlign: 'center' }}>
+          <h1 style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 30, color: 'var(--tyrian-600)', marginBottom: 10 }}>
             The Republic Endures
           </h1>
-          <p className="text-stone-700 mb-4">
+          <p style={{ margin: '0 0 14px' }}>
             A fracture appeared in the chronicle and the scene could not be rendered. Your
-            progress is not lost - the Republic's records survive even this.
+            progress is not lost — the Republic's records survive even this.
           </p>
-          <p className="text-stone-500 text-sm font-mono bg-stone-200/60 rounded-sm p-3 mb-6 break-words">
+          <p style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 13, color: 'var(--text-muted)', background: 'var(--surface-inset)', boxShadow: 'var(--shadow-inset)', borderRadius: 'var(--radius-sm)', padding: 12, margin: '0 0 22px', wordBreak: 'break-word' }}>
             {error.message}
           </p>
-          <button
-            onClick={this.handleReload}
-            className="bg-red-800 text-stone-100 rounded-sm px-6 py-3 hover:bg-red-700 transition-colors border border-red-900 btn-animate text-lg font-bold"
-          >
+          <button onClick={this.handleReload} className="gor-btn gor-btn-lg gor-btn-primary">
             {canRestore ? 'Restore Last Save' : 'Reload'}
           </button>
         </div>

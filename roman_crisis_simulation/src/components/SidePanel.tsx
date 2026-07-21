@@ -11,14 +11,21 @@ import ChronicleTab from './tabs/ChronicleTab';
 import WorldStateTab from './tabs/WorldStateTab';
 import { TabId } from '../perception/visibility';
 
-const TABS: { id: TabId; label: string }[] = [
-    { id: 'world_state', label: 'World State' },
-    { id: 'events', label: 'Events' },
-    { id: 'reports', label: 'Reports' },
-    { id: 'chronicle', label: 'Chronicle' },
-    { id: 'dramatis_personae', label: 'Dramatis Personae' },
-    { id: 'locations', label: 'Empire' },
-    { id: 'resources', label: 'Assets' },
+/**
+ * The intelligence dashboard — player dossier header, Tyrian-pennant tab bar,
+ * and the seven tabs of what is known (and what can be bought).
+ * `data-screen-label="Side Panel"` is load-bearing: nocturne.css re-washes this
+ * surface by attribute selector.
+ */
+
+const TABS: { id: TabId; label: string; fullLabel: string }[] = [
+    { id: 'world_state', label: 'World', fullLabel: 'World State' },
+    { id: 'events', label: 'Events', fullLabel: 'Events' },
+    { id: 'reports', label: 'Reports', fullLabel: 'Reports' },
+    { id: 'chronicle', label: 'Chronicle', fullLabel: 'Chronicle' },
+    { id: 'dramatis_personae', label: 'Personae', fullLabel: 'Dramatis Personae' },
+    { id: 'locations', label: 'Empire', fullLabel: 'Empire' },
+    { id: 'resources', label: 'Assets', fullLabel: 'Assets' },
 ];
 
 const SidePanel: React.FC<{
@@ -29,10 +36,9 @@ const SidePanel: React.FC<{
     worldState: WorldState;
     simulationState: SimulationState;
     reports: Report[];
-    onSpendInvestigation: (cost: number) => void;
     onSpendDeepAnalysis: (cost: number) => void;
-    onNewInvestigationResult: (result: InvestigationResult) => void;
-    onAddSecretAsResource: (targetId: string, secrets: string[]) => void;
+    /** One atomic callback per investigation reveal - spend + blackmail + fallout in a single state/save pass (see App.tsx's handleInvestigationOutcome). */
+    onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult) => void;
     ai: GoogleGenAI;
     isMockMode: boolean;
     eventHistory: EventHistoryEntry[];
@@ -43,7 +49,7 @@ const SidePanel: React.FC<{
      * filter didn't already let through - this set is built strictly from
      * buildPerceivedDigest's output, never raw deltas. */
     pulsingTabs: Set<TabId>;
-}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, onSpendInvestigation, onSpendDeepAnalysis, onNewInvestigationResult, onAddSecretAsResource, ai, isMockMode, eventHistory, pulsingTabs }) => {
+}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, onSpendDeepAnalysis, onInvestigationOutcome, ai, isMockMode, eventHistory, pulsingTabs }) => {
     const [activeTab, setActiveTab] = useState<TabId>('world_state');
     // Tabs the player has already looked at since the current pulsingTabs
     // set arrived - clicking a pulsing tab dismisses its own pulse
@@ -55,7 +61,11 @@ const SidePanel: React.FC<{
     }, [pulsingTabs]);
 
     if (gameState === GameState.SETUP) {
-        return <div className="w-1/3 bg-[#e8e6e1]/70 backdrop-blur-sm border-l-4 border-double border-[#c9c5b8] flex items-center justify-center p-4"><p className="text-stone-600">Awaiting Character Selection...</p></div>;
+        return (
+            <aside data-screen-label="Side Panel" style={{ flex: 1, minWidth: 0, borderLeft: '1px solid var(--border-strong)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,254,249,.45)', padding: 16 }}>
+                <p style={{ fontStyle: 'italic', color: 'var(--text-muted)', textAlign: 'center' }}>Awaiting the choice of a destiny…</p>
+            </aside>
+        );
     }
 
     const handleTabClick = (id: TabId) => {
@@ -64,34 +74,36 @@ const SidePanel: React.FC<{
     };
 
     return (
-        <div className="w-1/3 bg-[#e8e6e1]/70 backdrop-blur-sm border-l-4 border-double border-[#c9c5b8] flex flex-col">
+        <aside data-screen-label="Side Panel" style={{ flex: 1, minWidth: 0, borderLeft: '1px solid var(--border-strong)', display: 'flex', flexDirection: 'column', background: 'rgba(255,254,249,.45)' }}>
             <style>{`
-                @keyframes sidePanelTabPulse {
-                    0%, 100% { box-shadow: 0 0 0 rgba(153, 27, 27, 0); }
-                    50% { box-shadow: 0 0 0 3px rgba(153, 27, 27, 0.45); }
+                @keyframes gorTabPulse {
+                    0%, 100% { box-shadow: inset 0 0 0 rgba(158,126,27,0); }
+                    50% { box-shadow: inset 0 0 0 2px rgba(201,162,39,.75); }
                 }
-                .tab-pulse {
-                    animation: sidePanelTabPulse 1.4s ease-in-out 3;
-                }
+                .gor-tab-pulse { animation: gorTabPulse 1.4s ease-in-out 3; }
+                @media (prefers-reduced-motion: reduce) { .gor-tab-pulse { animation: none; } }
             `}</style>
             <PlayerStatus playerEntity={playerEntity} />
-            <div className="flex border-b-4 border-double border-[#c9c5b8] flex-wrap">
+            <div style={{ flex: 'none', display: 'flex', flexWrap: 'wrap', borderBottom: '1px solid var(--border-subtle)' }} role="tablist" aria-label="Intelligence dashboard">
                 {TABS.map(tab => {
                     const shouldPulse = pulsingTabs.has(tab.id) && !dismissed.has(tab.id);
                     return (
                         <button
                             key={tab.id}
+                            className={`gor-tab ${shouldPulse ? 'gor-tab-pulse' : ''}`}
+                            role="tab"
+                            aria-selected={activeTab === tab.id}
                             onClick={() => handleTabClick(tab.id)}
-                            className={`flex-1 p-3 text-sm font-bold uppercase tracking-wider border-b-4 transition-colors relative ${activeTab === tab.id ? 'bg-transparent text-red-900 border-red-900' : 'bg-transparent text-stone-600 hover:bg-[#d8d5ce] border-transparent'} ${shouldPulse ? 'tab-pulse' : ''}`}
-                            aria-label={shouldPulse ? `${tab.label} (new intelligence)` : tab.label}
+                            aria-label={shouldPulse ? `${tab.fullLabel} (new intelligence)` : tab.fullLabel}
+                            style={{ padding: '9px 7px', fontSize: 11, flex: '1 0 auto', textAlign: 'center', position: 'relative' }}
                         >
                             {tab.label}
-                            {shouldPulse && <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-red-700" aria-hidden="true" />}
+                            {shouldPulse && <span aria-hidden="true" style={{ position: 'absolute', top: 4, right: 4, width: 7, height: 7, borderRadius: '50%', background: 'radial-gradient(circle at 35% 30%, #E8C959, #9E7E1B 70%)', boxShadow: '0 0 4px rgba(232,201,89,.8)' }} />}
                         </button>
                     );
                 })}
             </div>
-            <div className="flex-grow overflow-y-auto">
+            <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
                 {activeTab === 'world_state' && <WorldStateTab simulationState={simulationState} worldState={worldState} entities={entities} playerEntity={playerEntity} currentEvents={currentEvents} />}
                 {activeTab === 'events' && <CurrentEventsTab events={currentEvents} playerEntity={playerEntity} allEntities={entities} ai={ai} isMockMode={isMockMode} />}
                 {activeTab === 'reports' && <ReportsTab reports={reports} />}
@@ -99,17 +111,15 @@ const SidePanel: React.FC<{
                 {activeTab === 'dramatis_personae' && <DramatisPersonaeTab
                     playerEntity={playerEntity}
                     entities={entities}
-                    onSpendInvestigation={onSpendInvestigation}
                     onSpendDeepAnalysis={onSpendDeepAnalysis}
-                    onNewInvestigationResult={onNewInvestigationResult}
-                    onAddSecretAsResource={onAddSecretAsResource}
+                    onInvestigationOutcome={onInvestigationOutcome}
                     ai={ai}
                     isMockMode={isMockMode}
                 />}
-                {activeTab === 'locations' && <EmpireTab worldState={worldState} entities={entities} />}
+                {activeTab === 'locations' && <EmpireTab worldState={worldState} entities={entities} playerEntity={playerEntity} />}
                 {activeTab === 'resources' && <ResourcesTab playerEntity={playerEntity} />}
             </div>
-        </div>
+        </aside>
     );
 };
 

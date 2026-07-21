@@ -17,7 +17,13 @@ export enum GameState {
  * Represents a single message in the chat interface.
  */
 export interface Message {
-    sender: 'player' | 'gm' | 'player_monologue';
+    /**
+     * 'ribbon' is a decorative week-advance divider written into the stream
+     * when a turn commits (rendered as a TurnRibbon, not a speech bubble).
+     * Additive and optional in practice - old saves without ribbons load
+     * unchanged (save-compat per PR #3 invariant 6).
+     */
+    sender: 'player' | 'gm' | 'player_monologue' | 'ribbon';
     text: string;
 }
 

@@ -23,10 +23,11 @@ const getTooltipText = (key: string): string => {
     return resourceTooltips[key] || "A measure of your influence or assets.";
 };
 
+const quiet: React.CSSProperties = { fontSize: 14, fontStyle: 'italic', color: 'var(--text-muted)' };
 
 const ResourcesTab: React.FC<{ playerEntity: Entity | null }> = ({ playerEntity }) => {
     if (!playerEntity?.resources) {
-        return <div className="p-4"><p>No resources to display.</p></div>;
+        return <p style={quiet}>No resources to display.</p>;
     }
 
     const directAssets: Record<string, string | number | string[]> = {};
@@ -35,65 +36,63 @@ const ResourcesTab: React.FC<{ playerEntity: Entity | null }> = ({ playerEntity 
 
     Object.entries(playerEntity.resources).forEach(([key, value]) => {
         if (directAssetKeys.some(k => key.includes(k))) {
-            // FIX: Cast `value` from `unknown` to the expected type to resolve the assignment error.
             directAssets[key] = value as string | number | string[];
         } else {
-            // FIX: Cast `value` from `unknown` to the expected type to resolve the assignment error.
             influence[key] = value as string | number | string[];
         }
     });
 
-    const renderResourceValue = (value: string | number | string[]) => {
+    const renderRow = (key: string, value: string | number | string[]) => {
+        const isBlackmail = key.startsWith('blackmail_on_');
         if (Array.isArray(value)) {
             return (
-                <ul className="text-right text-xs italic text-stone-600 mt-1 space-y-0.5 max-w-xs">
-                    {value.map((item, index) => <li key={index} className="truncate" title={item}>"{item}"</li>)}
-                </ul>
-            );
-        }
-         const isPercentage = typeof value === 'number' && value >= 0 && value <= 100 && !Number.isInteger(value);
-        
-        return (
-            <span className="font-bold text-stone-800">
-                {typeof value === 'number' ? value.toLocaleString() : value}
-                {isPercentage ? '%' : ''}
-            </span>
-        );
-    };
-
-    const renderResourceList = (resourceMap: Record<string, string | number | string[]>) => (
-         <ul className="mt-2 space-y-2">
-            {Object.entries(resourceMap).map(([key, value]) => (
-                <li key={key} className="flex justify-between items-start">
-                    <span className="capitalize text-stone-700 flex items-center">
+                <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '8px 2px', borderBottom: '1px solid var(--border-faint)' }}>
+                    <span className="gor-label" style={{ color: isBlackmail ? 'var(--crimson-500)' : undefined, display: 'inline-flex', alignItems: 'center' }}>
                         {key.replace(/_/g, ' ')}
                         <InfoTooltip text={getTooltipText(key)} />
                     </span>
-                    {renderResourceValue(value)}
-                </li>
-            ))}
-        </ul>
-    );
+                    {value.map((item, index) => (
+                        <span key={index} style={{ ...quiet, textAlign: 'right' }} title={item}>“{item}”</span>
+                    ))}
+                </div>
+            );
+        }
+        // Fractional 0-100 values are ratios and read as percentages (a
+        // long-standing display convention carried over from the old UI).
+        const isPercentage = typeof value === 'number' && value >= 0 && value <= 100 && !Number.isInteger(value);
+        return (
+            <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, padding: '8px 2px', borderBottom: '1px solid var(--border-faint)' }}>
+                <span className="gor-label" style={{ display: 'inline-flex', alignItems: 'center' }}>
+                    {key.replace(/_/g, ' ')}
+                    <InfoTooltip text={getTooltipText(key)} />
+                </span>
+                <span className="gor-meter-val" style={{ textAlign: 'right' }}>
+                    {typeof value === 'number' ? value.toLocaleString() : value}
+                    {isPercentage ? '%' : ''}
+                </span>
+            </div>
+        );
+    };
 
     return (
-        <div className="p-4 space-y-6">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
             <div>
-                <h3 className="text-lg font-bold text-red-900 border-b border-stone-300 pb-1 flex items-center roman-inset-text">
+                <span className="gor-label" style={{ color: 'var(--crimson-500)', display: 'inline-flex', alignItems: 'center' }}>
                     Direct Assets
                     <InfoTooltip text="Resources you own and control directly, including tangible assets and uncovered intelligence." />
-                </h3>
-                {Object.keys(directAssets).length > 0 ? (
-                   renderResourceList(directAssets)
-                ) : <p className="text-stone-600 mt-2 text-sm">You have no direct assets.</p>}
+                </span>
+                {Object.keys(directAssets).length > 0
+                    ? Object.entries(directAssets).map(([k, v]) => renderRow(k, v))
+                    : <p style={{ ...quiet, marginTop: 8 }}>You have no direct assets.</p>}
             </div>
             <div>
-                <h3 className="text-lg font-bold text-red-900 border-b border-stone-300 pb-1 flex items-center roman-inset-text">
-                    Influence & Support
+                <span className="gor-label" style={{ color: 'var(--crimson-500)', display: 'inline-flex', alignItems: 'center' }}>
+                    Influence &amp; Support
                     <InfoTooltip text="Resources that are aligned with you but not directly controlled. Their loyalty and support can change." />
-                </h3>
-                {Object.keys(influence).length > 0 ? (
-                    renderResourceList(influence)
-                ) : <p className="text-stone-600 mt-2 text-sm">You currently hold no significant influence.</p>}
+                </span>
+                {Object.keys(influence).length > 0
+                    ? Object.entries(influence).map(([k, v]) => renderRow(k, v))
+                    : <p style={{ ...quiet, marginTop: 8 }}>You currently hold no significant influence.</p>}
             </div>
         </div>
     );

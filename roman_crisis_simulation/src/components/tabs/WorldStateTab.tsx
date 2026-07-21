@@ -1,5 +1,6 @@
 import React from 'react';
 import { Entity, SimulationState, WorldState, RegionState } from '../../types';
+import { Card, Badge } from '../ui/Core';
 
 /**
  * "The State of the Empire - as known to you" (Phase 2 item 2, D5).
@@ -19,74 +20,74 @@ import { Entity, SimulationState, WorldState, RegionState } from '../../types';
  *    on.
  */
 
-const SEVERITY_COLORS: Record<string, string> = {
-    good: 'text-green-700',
-    warn: 'text-yellow-700',
-    bad: 'text-red-800',
+type Severity = 'good' | 'warn' | 'bad';
+
+const SEVERITY_TONES: Record<Severity, 'laurel' | 'bronze' | 'crimson'> = {
+    good: 'laurel',
+    warn: 'bronze',
+    bad: 'crimson',
 };
 
-function badgeClass(severity: 'good' | 'warn' | 'bad'): string {
-    return `font-bold ${SEVERITY_COLORS[severity]}`;
-}
-
-const IMPERIAL_STATUS_SEVERITY: Record<SimulationState['imperial_status'], 'good' | 'warn' | 'bad'> = {
+const IMPERIAL_STATUS_SEVERITY: Record<SimulationState['imperial_status'], Severity> = {
     Stable: 'good',
     Contested: 'warn',
     Vacant: 'bad',
 };
 
-const SENATE_STATUS_SEVERITY: Record<SimulationState['senate_status'], 'good' | 'warn' | 'bad'> = {
+const SENATE_STATUS_SEVERITY: Record<SimulationState['senate_status'], Severity> = {
     Ascendant: 'good',
     Functional: 'good',
     Irrelevant: 'warn',
     Deposed: 'bad',
 };
 
-const MILITARY_STATUS_SEVERITY: Record<SimulationState['military_status'], 'good' | 'warn' | 'bad'> = {
+const MILITARY_STATUS_SEVERITY: Record<SimulationState['military_status'], Severity> = {
     Loyal: 'good',
     Divided: 'warn',
     Rebellious: 'bad',
 };
 
-const PLEBEIAN_MOOD_SEVERITY: Record<SimulationState['plebeian_mood'], 'good' | 'warn' | 'bad'> = {
+const PLEBEIAN_MOOD_SEVERITY: Record<SimulationState['plebeian_mood'], Severity> = {
     Content: 'good',
     Uneasy: 'warn',
     Rioting: 'bad',
 };
 
-const MacroStatusRow: React.FC<{ label: string; value: string; severity: 'good' | 'warn' | 'bad' }> = ({ label, value, severity }) => (
-    <div className="flex justify-between items-center py-1 border-b border-stone-300/60 last:border-b-0">
-        <span className="text-stone-700">{label}</span>
-        <span className={badgeClass(severity)}>{value}</span>
+const quiet: React.CSSProperties = { fontSize: 14, fontStyle: 'italic', color: 'var(--text-muted)' };
+
+const MacroStatusRow: React.FC<{ label: string; value: string; severity: Severity }> = ({ label, value, severity }) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '7px 2px', borderBottom: '1px solid var(--border-faint)' }}>
+        <span className="gor-label">{label}</span>
+        <Badge tone={SEVERITY_TONES[severity]}>{value}</Badge>
     </div>
 );
 
-/** Is `regionName` something the player has direct or networked sight into? */
-function isRegionKnownToPlayer(regionName: string, player: Entity, entities: Entity[]): boolean {
+/** Is `regionName` something the player has direct or networked sight into?
+ * Exported so EmpireTab applies the identical D5 locality/network rule -
+ * one sight rule, two views. */
+export function isRegionKnownToPlayer(regionName: string, player: Entity, entities: Entity[]): boolean {
     if (player.location === regionName) return true;
     return player.visibility_network.some(id => entities.find(e => e.entity_id === id)?.location === regionName);
 }
 
 const KnownRegionCard: React.FC<{ name: string; region: RegionState; isHome: boolean }> = ({ name, region, isHome }) => (
-    <div className="roman-stone-panel p-3 rounded-sm">
-        <h4 className="font-bold text-stone-800 flex items-center gap-2">
-            {name}
-            {isHome && <span className="text-xs font-normal text-red-900 uppercase tracking-wide">(your location)</span>}
-        </h4>
-        <p className="text-sm mt-1"><strong>Status:</strong> {region.stability}</p>
-        <p className="text-sm"><strong>Control:</strong> {region.controlling_faction ? region.controlling_faction.replace(/_/g, ' ') : 'Disputed'}</p>
-        {region.current_events.length > 0 && (
-            <ul className="text-xs text-stone-600 list-disc list-inside mt-1">
-                {region.current_events.map((event, i) => <li key={i}>{event}</li>)}
-            </ul>
-        )}
-    </div>
+    <Card title={name} action={isHome ? <Badge tone="gold">Your location</Badge> : undefined}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 14 }}>
+            <span><strong>Status:</strong> {region.stability}</span>
+            <span><strong>Control:</strong> {region.controlling_faction ? region.controlling_faction.replace(/_/g, ' ') : 'Disputed'}</span>
+            {region.current_events.length > 0 && (
+                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: 'var(--text-muted)' }}>
+                    {region.current_events.map((event, i) => <li key={i}>{event}</li>)}
+                </ul>
+            )}
+        </div>
+    </Card>
 );
 
 const HiddenRegionRow: React.FC<{ name: string }> = ({ name }) => (
-    <div className="roman-stone-panel p-3 rounded-sm opacity-60">
-        <h4 className="font-bold text-stone-600">{name}</h4>
-        <p className="text-xs italic text-stone-500 mt-1">Beyond your sight - no word has reached you from here.</p>
+    <div className="gor-card" style={{ padding: '10px 14px', opacity: 0.6 }}>
+        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 14, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>{name}</span>
+        <p style={{ ...quiet, fontSize: 13, margin: '3px 0 0' }}>Beyond your sight - no word has reached you from here.</p>
     </div>
 );
 
@@ -97,39 +98,39 @@ const WorldStateTab: React.FC<{
     playerEntity: Entity | null;
     currentEvents: string[];
 }> = ({ simulationState, worldState, entities, playerEntity, currentEvents }) => (
-    <div className="p-4 space-y-4">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div>
-            <h3 className="text-lg font-bold text-red-900 border-b border-stone-300 pb-1">The State of the Empire</h3>
-            <p className="text-xs text-stone-500 mt-1 mb-2 italic">As known to you - common knowledge across the Empire.</p>
-            <div className="roman-stone-panel p-3 rounded-sm">
+            <h3 className="gor-label" style={{ color: 'var(--crimson-500)' }}>The State of the Empire</h3>
+            <p style={{ ...quiet, fontSize: 13, margin: '3px 0 8px' }}>As known to you - common knowledge across the Empire.</p>
+            <div className="gor-card" style={{ padding: '6px 14px 8px' }}>
                 <MacroStatusRow label="The Throne" value={simulationState.imperial_status} severity={IMPERIAL_STATUS_SEVERITY[simulationState.imperial_status]} />
                 <MacroStatusRow label="The Senate" value={simulationState.senate_status} severity={SENATE_STATUS_SEVERITY[simulationState.senate_status]} />
                 <MacroStatusRow label="The Legions" value={simulationState.military_status} severity={MILITARY_STATUS_SEVERITY[simulationState.military_status]} />
                 <MacroStatusRow label="The Plebs" value={simulationState.plebeian_mood} severity={PLEBEIAN_MOOD_SEVERITY[simulationState.plebeian_mood]} />
-                <div className="flex justify-between items-center py-1">
-                    <span className="text-stone-700">Ongoing Crisis</span>
-                    <span className={simulationState.major_ongoing_crisis ? badgeClass('bad') : 'text-stone-500'}>
-                        {simulationState.major_ongoing_crisis ?? 'None reported'}
-                    </span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '7px 2px' }}>
+                    <span className="gor-label">Ongoing Crisis</span>
+                    {simulationState.major_ongoing_crisis
+                        ? <Badge tone="crimson">{simulationState.major_ongoing_crisis}</Badge>
+                        : <span style={quiet}>None reported</span>}
                 </div>
             </div>
         </div>
 
         <div>
-            <h3 className="text-lg font-bold text-red-900 border-b border-stone-300 pb-1">Recent Headlines</h3>
+            <h3 className="gor-label" style={{ color: 'var(--crimson-500)' }}>Recent Headlines</h3>
             {currentEvents.length === 0 ? (
-                <p className="text-stone-600 text-sm mt-2">The city criers have nothing new to shout.</p>
+                <p style={{ ...quiet, marginTop: 8 }}>The city criers have nothing new to shout.</p>
             ) : (
-                <ul className="text-sm text-stone-700 list-disc list-inside mt-2 space-y-1">
+                <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 14, display: 'flex', flexDirection: 'column', gap: 4 }}>
                     {currentEvents.map((event, i) => <li key={i}>{event}</li>)}
                 </ul>
             )}
         </div>
 
         <div>
-            <h3 className="text-lg font-bold text-red-900 border-b border-stone-300 pb-1">Your Intelligence Picture</h3>
-            <p className="text-xs text-stone-500 mt-1 mb-2 italic">Regions you can see - your own ground, and anywhere your network has eyes.</p>
-            <div className="space-y-2">
+            <h3 className="gor-label" style={{ color: 'var(--crimson-500)' }}>Your Intelligence Picture</h3>
+            <p style={{ ...quiet, fontSize: 13, margin: '3px 0 8px' }}>Regions you can see - your own ground, and anywhere your network has eyes.</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {Object.entries(worldState.regions).map(([name, region]) => {
                     if (!playerEntity) return <HiddenRegionRow key={name} name={name} />;
                     const known = isRegionKnownToPlayer(name, playerEntity, entities);

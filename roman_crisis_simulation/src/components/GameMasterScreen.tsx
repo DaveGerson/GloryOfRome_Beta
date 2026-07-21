@@ -1,227 +1,176 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { TurnHistoryEntry, Adjudication, Entity, Relationship, Memory, Scheme, RawCallRecord, WorldState } from '../types';
 import { classifyDelta } from '../perception/visibility';
 import { InferredAmbitionState } from '../persistence/saveGame';
+import { toRoman } from './ui/Brand';
 
-const TabButton: React.FC<{ label: string; active: boolean; onClick: () => void; }> = ({ label, active, onClick }) => (
-    <button
-        onClick={onClick}
-        className={`px-4 py-2 text-sm font-bold transition-colors duration-200 ${
-            active
-                ? 'bg-stone-700 text-red-400 border-b-2 border-red-400'
-                : 'text-stone-400 hover:bg-stone-700 hover:text-white'
-        }`}
-    >
-        {label}
-    </button>
-);
+/**
+ * Game Master Tools — "the Fates' ledger": a dark tablinum modal over the
+ * marble client. This is the ONE place raw, unfiltered ground truth is
+ * allowed to reach a rendered screen (D5/D7) — everywhere else goes through
+ * perception/visibility.ts's filter. Hidden by default; Ctrl+Shift+G (or the
+ * dev Header switch) governs whether the GM Log button even appears (D7).
+ */
+
+const GOLD = '#F0D089', DIM = '#A99A76', PARCH = '#E6E1D0', RED = '#E0968B', GREEN = '#A8BC7E';
+const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+const lbl: React.CSSProperties = { fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', color: DIM };
+const well: React.CSSProperties = { background: 'rgba(0,0,0,.32)', border: '1px solid rgba(201,162,39,.22)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' };
+
+const TABS = ['summary', 'entity states', 'actions', 'deltas', 'private', 'ground truth', 'raw json'];
 
 const SummaryView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => (
     <>
-        <div className="mb-4">
-             <h4 className="font-bold text-stone-300 mb-2 underline">Player Intent</h4>
-             <p className="text-sm bg-stone-700 p-2 rounded text-stone-300">"{entry.playerIntent}"</p>
+        <div style={well}>
+            <span style={lbl}>Player Intent</span>
+            <div style={{ marginTop: 4, fontSize: 15 }}>“{entry.playerIntent}”</div>
         </div>
-        <div>
-             <h4 className="font-bold text-stone-300 mb-2 underline">Generated Narration</h4>
-             <p className="text-sm bg-stone-900 p-2 rounded text-stone-300 italic">{entry.narration || "No narration generated."}</p>
+        <div style={well}>
+            <span style={lbl}>Generated Narration</span>
+            <div style={{ marginTop: 4, fontSize: 15, fontStyle: 'italic', color: DIM }}>{entry.narration || 'No narration generated.'}</div>
         </div>
     </>
 );
 
 const ActionsView: React.FC<{ adjudication: Adjudication }> = ({ adjudication }) => (
-    <div className="space-y-2">
+    <>
         {adjudication.entityActions.length > 0 ? (
             adjudication.entityActions.map((action, index) => (
-                <div key={index} className="bg-stone-900 p-2 rounded text-sm">
-                    <p><span className="font-bold text-red-400">{action.id}</span></p>
-                    <p className="ml-2"><strong>Intent:</strong> {action.intent}</p>
-                    {action.target && <p className="ml-2"><strong>Target:</strong> {action.target}</p>}
-                    <p className="ml-2 italic"><strong>Notes:</strong> "{action.notes}"</p>
+                <div key={index} style={well}>
+                    <span style={{ color: RED, fontFamily: MONO, fontSize: 13 }}>{action.id}</span>
+                    <div style={{ fontSize: 14, marginTop: 3 }}>
+                        <strong style={{ color: DIM }}>Intent:</strong> {action.intent}
+                        {action.target && <> · <strong style={{ color: DIM }}>Target:</strong> {action.target}</>}
+                    </div>
+                    <div style={{ fontSize: 14, fontStyle: 'italic', color: DIM }}>“{action.notes}”</div>
                 </div>
             ))
         ) : (
-            <p className="text-stone-400">No specific entity actions were recorded.</p>
+            <p style={{ color: DIM, margin: 0 }}>No specific entity actions were recorded.</p>
         )}
-    </div>
+    </>
 );
 
 const DeltasView: React.FC<{ adjudication: Adjudication }> = ({ adjudication }) => (
-     <div className="space-y-2">
+    <>
         {adjudication.deltas.length > 0 ? (
             adjudication.deltas.map((delta, index) => (
-                <div key={index} className="bg-stone-900 p-2 rounded text-sm">
-                    <p><span className="font-bold text-red-400 capitalize">{delta.type}</span></p>
-                    <p className="ml-2"><strong>Key:</strong> {delta.key}</p>
-                    <p className="ml-2"><strong>Delta:</strong> {delta.delta}</p>
-                    <p className="ml-2 italic"><strong>Reason:</strong> "{delta.reason}"</p>
+                <div key={index} style={{ ...well, display: 'flex', gap: 14, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                    <span style={{ ...lbl, color: RED }}>{delta.type}</span>
+                    <span style={{ fontFamily: MONO, fontSize: 13 }}>{delta.key}</span>
+                    <span style={{ fontFamily: MONO, fontSize: 13, color: GOLD }}>{delta.delta}</span>
+                    {delta.new_status && <span style={{ fontFamily: MONO, fontSize: 13, color: RED }}>→ {delta.new_status}{delta.new_location ? ` · ${delta.new_location}` : ''}</span>}
+                    <span style={{ fontSize: 13, fontStyle: 'italic', color: DIM }}>“{delta.reason}”</span>
                 </div>
             ))
         ) : (
-            <p className="text-stone-400">No state deltas were recorded.</p>
+            <p style={{ color: DIM, margin: 0 }}>No state deltas were recorded.</p>
         )}
-    </div>
+    </>
 );
 
 const PrivateView: React.FC<{ adjudication: Adjudication }> = ({ adjudication }) => (
-    <div className="space-y-2">
+    <>
         {adjudication.gm_private.length > 0 ? (
             adjudication.gm_private.map((note, index) => (
-                <p key={index} className="bg-stone-900 p-2 rounded text-sm italic">"{note}"</p>
+                <div key={index} style={{ ...well, fontStyle: 'italic', fontSize: 14, color: DIM }}>“{note}”</div>
             ))
         ) : (
-            <p className="text-stone-400">No private GM notes for this turn.</p>
+            <p style={{ color: DIM, margin: 0 }}>No private GM notes for this turn.</p>
         )}
-    </div>
+    </>
 );
 
-const SchemeDisplay: React.FC<{ scheme: Scheme }> = ({ scheme }) => (
-    <div className="mt-2 text-xs bg-stone-800 p-2 rounded">
-        <p><strong className="text-stone-300">Active Scheme:</strong> <span className="italic text-yellow-300">"{scheme.name}"</span></p>
-        <p className="text-stone-400 mt-1"><strong>Goal:</strong> {scheme.overall_goal}</p>
-        <ul className="list-disc list-inside ml-2 mt-1 text-stone-300">
-            {scheme.steps.map((step, i) => (
-                <li key={i}><span className="capitalize">{step.status}:</span> {step.objective}</li>
-            ))}
-        </ul>
-    </div>
+const SchemeLine: React.FC<{ scheme: Scheme }> = ({ scheme }) => (
+    <span>
+        <strong style={{ color: DIM }}>Scheme:</strong> <span style={{ color: '#E3C766', fontStyle: 'italic' }}>“{scheme.name}”</span> — {scheme.overall_goal}
+        <span style={{ display: 'block', fontSize: 12, color: DIM }}>
+            {scheme.steps.map((s, i) => <span key={i}>{i > 0 && ' · '}{s.status}: {s.objective}</span>)}
+        </span>
+    </span>
 );
 
 const EntityStatesView: React.FC<{ entities: Entity[] }> = ({ entities }) => (
-    <div className="space-y-3">
+    <>
         {entities.map(entity => (
-            <div key={entity.entity_id} className="bg-stone-900 p-3 rounded text-sm">
-                <h5 className="font-bold text-red-400">{entity.name} <span className="text-stone-400 font-normal">- {entity.position || entity.entity_type}</span></h5>
-                
-                {entity.active_scheme && <SchemeDisplay scheme={entity.active_scheme} />}
-
-                <div className="grid grid-cols-2 gap-x-4 text-xs mt-2">
-                    <div>
-                        <p><strong className="text-stone-300">Status:</strong> {entity.status}</p>
-                        <p><strong className="text-stone-300">Location:</strong> {entity.location}</p>
-                    </div>
-                    <div>
-                        <p><strong className="text-stone-300">Resources:</strong></p>
-                        <ul className="list-disc list-inside ml-2">
-                            {Object.entries(entity.resources).map(([key, value]) => (
-                                <li key={key}>{key.replace(/_/g, ' ')}: {value}</li>
-                            ))}
-                        </ul>
-                    </div>
+            <div key={entity.entity_id} style={well}>
+                <span style={{ color: RED, fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14 }}>{entity.name}</span>
+                <span style={{ color: DIM, fontSize: 13 }}> — {entity.position || entity.entity_type}</span>
+                <div style={{ fontSize: 13, color: PARCH, marginTop: 6, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px' }}>
+                    <span><strong style={{ color: DIM }}>Status:</strong> {entity.status} · {entity.location}</span>
+                    <span><strong style={{ color: DIM }}>Resources:</strong> {Object.entries(entity.resources).map(([k, v]) => `${k.replace(/_/g, ' ')}: ${Array.isArray(v) ? v.length + ' item(s)' : v}`).join(' · ') || '—'}</span>
+                    {entity.personality && (
+                        <span><strong style={{ color: DIM }}>Personality:</strong> {Object.entries(entity.personality).map(([k, v]) => `${k} ${v}`).join(' · ')}</span>
+                    )}
+                    {entity.skills && (
+                        <span><strong style={{ color: DIM }}>Skills:</strong> {Object.entries(entity.skills).map(([k, v]) => `${k} ${v}`).join(' · ')}</span>
+                    )}
                 </div>
-                
-                {entity.personality && entity.skills && (
-                    <div className="mt-2 text-xs border-t border-stone-700 pt-2">
-                        <p><strong className="text-stone-300">Personality & Skills:</strong></p>
-                        <div className="grid grid-cols-2 gap-x-4">
-                            <ul className="list-disc list-inside ml-2">
-                                {Object.entries(entity.personality).map(([key, value]) => (
-                                    <li key={key}>{key.charAt(0).toUpperCase() + key.slice(1)}: {value}</li>
-                                ))}
-                            </ul>
-                            <ul className="list-disc list-inside ml-2">
-                                {Object.entries(entity.skills).map(([key, value]) => (
-                                    <li key={key}>{key.charAt(0).toUpperCase() + key.slice(1)}: {value}</li>
-                                ))}
-                            </ul>
-                        </div>
-                    </div>
+                {entity.active_scheme && (
+                    <div style={{ fontSize: 13, marginTop: 6 }}><SchemeLine scheme={entity.active_scheme} /></div>
                 )}
-                
-                {(entity.beliefs && entity.beliefs.length > 0) || (entity.secrets && entity.secrets.length > 0) ? (
-                     <div className="mt-2 text-xs border-t border-stone-700 pt-2">
+                {((entity.beliefs && entity.beliefs.length > 0) || (entity.secrets && entity.secrets.length > 0)) && (
+                    <div style={{ fontSize: 13, marginTop: 6, borderTop: '1px solid rgba(201,162,39,.15)', paddingTop: 6, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px' }}>
                         {entity.beliefs && entity.beliefs.length > 0 && (
-                            <div>
-                                <p><strong className="text-stone-300">Beliefs:</strong></p>
-                                <ul className="list-disc list-inside ml-2">
-                                    {entity.beliefs.map((belief, i) => <li key={i}>{belief}</li>)}
-                                </ul>
-                            </div>
+                            <span><strong style={{ color: DIM }}>Beliefs:</strong> {entity.beliefs.join(' · ')}</span>
                         )}
-                         {entity.secrets && entity.secrets.length > 0 && (
-                            <div className="mt-1">
-                                <p><strong className="text-stone-300">Secrets:</strong></p>
-                                 <ul className="list-disc list-inside ml-2">
-                                    {entity.secrets.map((secret, i) => <li key={i}>{secret}</li>)}
-                                </ul>
-                            </div>
+                        {entity.secrets && entity.secrets.length > 0 && (
+                            <span><strong style={{ color: DIM }}>Secrets:</strong> {entity.secrets.join(' · ')}</span>
                         )}
-                    </div>
-                ) : null}
-
-                {entity.memories && entity.memories.length > 0 && (
-                    <div className="mt-2 text-xs border-t border-stone-700 pt-2">
-                        <p><strong className="text-stone-300">Recent Memories:</strong></p>
-                        <ul className="list-disc list-inside ml-2">
-                            {entity.memories.slice(-3).reverse().map((memory: Memory, i: number) => (
-                                <li key={i}>Turn {memory.turn}: {memory.event_description}</li>
-                            ))}
-                        </ul>
                     </div>
                 )}
-
-                <div className="mt-2 text-xs border-t border-stone-700 pt-2">
-                     <p><strong className="text-stone-300">Relationships:</strong></p>
-                     <ul className="list-disc list-inside ml-2">
-                        {Object.entries(entity.relationships).filter(([, rel]) => rel).map(([targetId, rel]: [string, Relationship]) => {
-                             const targetName = entities.find(e => e.entity_id === targetId)?.name || targetId;
-                             const relDetails = `T: ${rel.trust_level}, Th: ${rel.perceived_threat ?? 0}, A: ${rel.ideological_alignment ?? 0}, D: ${rel.dependency_level ?? 0}`;
-                             return <li key={targetId}>{targetName}: {relDetails}</li>
-                        })}
-                     </ul>
+                {entity.memories && entity.memories.length > 0 && (
+                    <div style={{ fontSize: 13, marginTop: 6, borderTop: '1px solid rgba(201,162,39,.15)', paddingTop: 6 }}>
+                        <strong style={{ color: DIM }}>Recent memories:</strong>{' '}
+                        {entity.memories.slice(-3).reverse().map((memory: Memory, i: number) => (
+                            <span key={i}>{i > 0 && ' · '}T{memory.turn}: {memory.event_description}</span>
+                        ))}
+                    </div>
+                )}
+                <div style={{ fontFamily: MONO, fontSize: 12, marginTop: 6, borderTop: '1px solid rgba(201,162,39,.15)', paddingTop: 6, color: PARCH }}>
+                    <strong style={{ color: DIM, fontFamily: 'inherit' }}>Rel:</strong>{' '}
+                    {Object.entries(entity.relationships).filter(([, rel]) => rel).map(([targetId, rel]: [string, Relationship], i) => {
+                        const targetName = entities.find(e => e.entity_id === targetId)?.name || targetId;
+                        return <span key={targetId}>{i > 0 && ' · '}{targetName} T:{rel.trust_level} Th:{rel.perceived_threat ?? 0} A:{rel.ideological_alignment ?? 0} D:{rel.dependency_level ?? 0}</span>;
+                    })}
                 </div>
             </div>
         ))}
-    </div>
-);
-
-const RawCallsView: React.FC<{ rawCalls?: RawCallRecord[] }> = ({ rawCalls }) => (
-    <div className="space-y-2">
-        {rawCalls && rawCalls.length > 0 ? (
-            rawCalls.map((call, index) => (
-                <details key={index} className="bg-stone-900 p-2 rounded text-xs">
-                    <summary className="cursor-pointer font-bold text-red-400">
-                        {call.callName} <span className="text-stone-400 font-normal">- {call.model} - {call.latencyMs}ms - {call.attempts} attempt(s) - {call.validated ? 'validated' : 'NOT validated'}</span>
-                    </summary>
-                    <p className="text-stone-400 mt-1">Prompt chars: {call.promptChars}</p>
-                    <pre className="mt-1 whitespace-pre-wrap break-words">{call.rawResponse}</pre>
-                </details>
-            ))
-        ) : (
-            <p className="text-stone-400">No raw calls captured for this turn.</p>
-        )}
-    </div>
+    </>
 );
 
 const RawJsonView: React.FC<{ adjudication: Adjudication; rawCalls?: RawCallRecord[] }> = ({ adjudication, rawCalls }) => (
-    <div className="space-y-4">
-        <div>
-            <h4 className="font-bold text-stone-300 mb-2 underline">Raw AI Calls (prompt/response capture)</h4>
-            <RawCallsView rawCalls={rawCalls} />
-        </div>
-        <div>
-            <h4 className="font-bold text-stone-300 mb-2 underline">Parsed Adjudication</h4>
-            <div className="text-xs space-y-2 bg-stone-900 p-3 rounded overflow-x-auto">
-                <pre>{JSON.stringify(adjudication, null, 2)}</pre>
-            </div>
-        </div>
-    </div>
+    <>
+        {rawCalls && rawCalls.length > 0 ? (
+            rawCalls.map((call, index) => (
+                <details key={index} style={{ ...well, fontFamily: MONO, fontSize: 12 }}>
+                    <summary style={{ cursor: 'pointer', color: RED }}>
+                        {call.callName} <span style={{ color: DIM }}>— {call.model} · {call.latencyMs}ms · {call.attempts} attempt{call.attempts > 1 ? 's' : ''} · {call.validated ? 'validated' : 'NOT validated'}</span>
+                    </summary>
+                    <p style={{ color: DIM, margin: '8px 0 0' }}>Prompt chars: {call.promptChars}</p>
+                    <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: '8px 0 0', color: PARCH }}>{call.rawResponse}</pre>
+                </details>
+            ))
+        ) : (
+            <p style={{ color: DIM, margin: 0 }}>No raw calls captured for this turn.</p>
+        )}
+        <details style={{ ...well, fontFamily: MONO, fontSize: 12 }}>
+            <summary style={{ cursor: 'pointer', color: GOLD }}>Parsed adjudication</summary>
+            <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: '8px 0 0', color: PARCH }}>{JSON.stringify(adjudication, null, 2)}</pre>
+        </details>
+    </>
 );
 
 /**
- * The Ground Truth tuning view (D7 + Phase 2 item 4). GameMasterScreen is
- * the ONE place raw, unfiltered ground truth is allowed to reach a rendered
- * screen (D5/D7) - everywhere else goes through perception/visibility.ts's
- * filter. This view puts the two side by side deliberately: every delta this
- * turn, and what classifyDelta (the same function the player-facing
- * digest/WorldStateTab use) would have let through for the current player
- * character - so filter rules can be tuned by eyeballing the diff.
+ * The Ground Truth tuning view (D7 + Phase 2 item 4). Puts the two sides
+ * side by side deliberately: every delta this turn, and what classifyDelta
+ * (the same function the player-facing digest/WorldStateTab use) would have
+ * let through for the current player character - so filter rules can be
+ * tuned by eyeballing the diff.
  *
- * Also surfaces `mortalityTrace` off the turn history entry, if present. The
- * mortality pipeline (D2/D3/D4) is being built concurrently by another agent
- * and may add that field to TurnHistoryEntry at any point - accessed
- * defensively via an untyped cast so this file compiles regardless of
- * landing order.
+ * Also surfaces `mortalityTrace` off the turn history entry, if present -
+ * accessed defensively via an untyped cast so this file compiles regardless
+ * of the mortality pipeline's landing order.
  */
 const GroundTruthView: React.FC<{
     entry: TurnHistoryEntry;
@@ -229,35 +178,31 @@ const GroundTruthView: React.FC<{
     worldState: WorldState;
 }> = ({ entry, playerCharacterId, worldState }) => {
     const playerAtTurn = entry.postTurnEntities.find(e => e.entity_id === playerCharacterId) ?? null;
-    // Defensive/loose access - see doc comment above. `mortalityTrace` isn't
-    // on TurnHistoryEntry in this file's copy of types.ts yet; once the
-    // concurrent mortality-pipeline work lands it, this starts picking it up
-    // with no change needed here.
     const mortalityTrace = (entry as Record<string, unknown>).mortalityTrace;
 
     return (
-        <div className="space-y-4">
+        <>
             <div>
-                <h4 className="font-bold text-stone-300 mb-2 underline">Unfiltered Deltas vs. Perception Filter</h4>
-                <p className="text-xs text-stone-500 mb-2">
+                <span style={lbl}>Unfiltered Deltas vs. Perception Filter</span>
+                <p style={{ fontSize: 13, color: DIM, margin: '4px 0 8px' }}>
                     Left: raw ground truth for this turn. Right: what perception/visibility.ts's classifyDelta lets{' '}
-                    {playerAtTurn ? <span className="text-stone-300">{playerAtTurn.name}</span> : 'the player'} perceive.
+                    {playerAtTurn ? <span style={{ color: PARCH }}>{playerAtTurn.name}</span> : 'the player'} perceive.
                 </p>
                 {!playerAtTurn ? (
-                    <p className="text-stone-400">No player character to classify against for this turn.</p>
+                    <p style={{ color: DIM, margin: 0 }}>No player character to classify against for this turn.</p>
                 ) : entry.adjudication.deltas.length === 0 ? (
-                    <p className="text-stone-400">No deltas were recorded this turn.</p>
+                    <p style={{ color: DIM, margin: 0 }}>No deltas were recorded this turn.</p>
                 ) : (
-                    <div className="space-y-2">
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         {entry.adjudication.deltas.map((delta, index) => {
                             const visibility = classifyDelta(delta, playerAtTurn, entry.postTurnEntities, worldState);
                             return (
-                                <div key={index} className="grid grid-cols-2 gap-3 bg-stone-900 p-2 rounded text-xs">
+                                <div key={index} style={{ ...well, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13 }}>
                                     <div>
-                                        <p><span className="font-bold text-red-400 capitalize">{delta.type}</span> <span className="text-stone-500">({delta.key})</span></p>
-                                        <p className="italic text-stone-400 mt-1">"{delta.reason}"</p>
+                                        <span style={{ ...lbl, color: RED }}>{delta.type}</span> <span style={{ fontFamily: MONO, fontSize: 12, color: DIM }}>({delta.key})</span>
+                                        <div style={{ fontStyle: 'italic', color: DIM, marginTop: 3 }}>“{delta.reason}”</div>
                                     </div>
-                                    <div className={`self-center font-bold ${visibility.visible ? 'text-green-400' : 'text-stone-600'}`}>
+                                    <div style={{ alignSelf: 'center', fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 12, letterSpacing: '.08em', color: visibility.visible ? GREEN : 'rgba(169,154,118,.45)' }}>
                                         {visibility.visible ? `VISIBLE — ${visibility.source}` : 'FILTERED (invisible to player)'}
                                     </div>
                                 </div>
@@ -267,14 +212,14 @@ const GroundTruthView: React.FC<{
                 )}
             </div>
             <div>
-                <h4 className="font-bold text-stone-300 mb-2 underline">Mortality Trace</h4>
+                <span style={lbl}>Mortality Trace</span>
                 {mortalityTrace ? (
-                    <pre className="text-xs bg-stone-900 p-3 rounded overflow-x-auto whitespace-pre-wrap">{JSON.stringify(mortalityTrace, null, 2)}</pre>
+                    <pre style={{ ...well, fontFamily: MONO, fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginTop: 6, color: PARCH }}>{JSON.stringify(mortalityTrace, null, 2)}</pre>
                 ) : (
-                    <p className="text-stone-400 text-xs">No mortality trace recorded for this turn (mortality pipeline not yet wired in, or nothing triggered it).</p>
+                    <p style={{ fontSize: 13, color: DIM, margin: '4px 0 0' }}>No mortality trace recorded for this turn (mortality pipeline not yet wired in, or nothing triggered it).</p>
                 )}
             </div>
-        </div>
+        </>
     );
 };
 
@@ -301,28 +246,34 @@ const GameMasterScreen: React.FC<{
     const [interventionInput, setInterventionInput] = useState(interventionText);
     const [showConfirmation, setShowConfirmation] = useState(false);
 
+    useEffect(() => {
+        if (!showConfirmation) return;
+        const t = setTimeout(() => setShowConfirmation(false), 3000);
+        return () => clearTimeout(t);
+    }, [showConfirmation]);
+
     const handleSetIntervention = () => {
         onSetIntervention(interventionInput);
         setShowConfirmation(true);
-        setTimeout(() => setShowConfirmation(false), 3000);
     };
 
-    const tabs = ['summary', 'entity states', 'actions', 'deltas', 'private', 'ground truth', 'raw json'];
-
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 animate-fade-in">
-            <div className="gm-panel-bg text-stone-100 font-mono w-4/5 h-4/5 rounded-lg shadow-xl flex flex-col p-4">
-                <div className="flex justify-between items-center border-b border-stone-600 pb-2 mb-4 flex-shrink-0">
-                    <h2 className="text-2xl font-decorative text-red-400">Game Master Tools</h2>
-                    <button onClick={onClose} className="text-stone-300 hover:text-white text-2xl transition-transform duration-200 ease-in-out hover:scale-110" aria-label="Close Game Master screen">&times;</button>
+        <div className="gor-dialog-backdrop">
+            <div role="dialog" aria-modal="true" aria-label="Game Master Tools" style={{ width: 'min(1060px, calc(100% - 48px))', height: 'calc(100% - 56px)', display: 'flex', flexDirection: 'column', background: 'var(--dentil) left top/100% 4px no-repeat, linear-gradient(180deg,#2A231A,#161209 60%,#131009)', border: '1px solid rgba(201,162,39,.45)', clipPath: 'var(--chamfer-lg)', filter: 'drop-shadow(0 24px 60px rgba(0,0,0,.55))', padding: '20px 24px 18px', gap: 12, boxSizing: 'border-box' }}>
+                <div style={{ flex: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, borderBottom: '1px solid rgba(201,162,39,.25)', paddingBottom: 12 }}>
+                    <div>
+                        <h2 style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 26, color: GOLD, textShadow: '0 2px 3px rgba(0,0,0,.6)', margin: 0 }}>Game Master Tools</h2>
+                        <span style={{ ...lbl, letterSpacing: '.24em' }}>The Fates' ledger — every thread measured, every die recorded</span>
+                    </div>
+                    <button type="button" onClick={onClose} aria-label="Close Game Master screen" style={{ all: 'unset', cursor: 'pointer', color: DIM, fontSize: 26, lineHeight: 1, padding: '2px 8px' }}>×</button>
                 </div>
 
                 {/* DESIGN_DECISIONS.md D8 - the ONE other sanctioned surface for the inferred ambition besides EpilogueScreen. Never rendered on any player-facing view. */}
                 {inferredAmbition && (
-                    <div className="mb-4 flex-shrink-0 text-sm bg-stone-900 border border-stone-700 rounded-md px-3 py-2">
-                        <span className="font-bold text-stone-300">Apparent Ambition:</span>{' '}
-                        <span className="text-amber-300 italic">"{inferredAmbition.apparent_ambition}"</span>{' '}
-                        <span className="text-stone-500">
+                    <div style={{ flex: 'none', ...well, fontSize: 14 }}>
+                        <span style={lbl}>Apparent Ambition</span>{' '}
+                        <span style={{ color: '#E3C766', fontStyle: 'italic' }}>“{inferredAmbition.apparent_ambition}”</span>{' '}
+                        <span style={{ color: DIM, fontSize: 13 }}>
                             (confidence: {inferredAmbition.confidence}, as of turn {inferredAmbition.asOfTurn})
                         </span>
                     </div>
@@ -340,61 +291,67 @@ const GameMasterScreen: React.FC<{
                   next turn's narration (D5).
                 */}
                 {pendingIntelligenceFallout && pendingIntelligenceFallout.length > 0 && (
-                    <div className="mb-4 flex-shrink-0 text-sm bg-stone-900 border border-stone-700 rounded-md px-3 py-2">
-                        <span className="font-bold text-stone-300">Pending Intelligence Fallout:</span>
-                        <ul className="list-disc list-inside ml-2 mt-1">
+                    <div style={{ flex: 'none', ...well, fontSize: 14 }}>
+                        <span style={lbl}>Pending Intelligence Fallout</span>
+                        <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
                             {pendingIntelligenceFallout.map((consequence, index) => (
-                                <li key={index} className="text-amber-300 italic">"{consequence}"</li>
+                                <li key={index} style={{ color: '#E3C766', fontStyle: 'italic' }}>“{consequence}”</li>
                             ))}
                         </ul>
                     </div>
                 )}
 
-                <div className="p-4 border border-stone-600 rounded-md flex-shrink-0 bg-stone-900">
-                    <h3 className="text-lg font-bold text-stone-300 mb-2">GM Intervention</h3>
-                    <p className="text-sm text-stone-400 mb-2">
-                        Add a directive for the AI to consider in the next turn's adjudication. This can introduce external events or steer entity behavior.
-                    </p>
+                <div style={{ flex: 'none', ...well, border: '1px solid rgba(179,58,43,.45)' }}>
+                    <span style={{ ...lbl, color: RED }}>GM Intervention</span>
+                    <p style={{ margin: '4px 0 8px', fontSize: 14, color: DIM }}>A directive the Fates will weave into the next turn's adjudication — an outside event, or a thumb on an entity's scale.</p>
                     <textarea
                         value={interventionInput}
                         onChange={(e) => setInterventionInput(e.target.value)}
-                        className="w-full h-20 bg-stone-700 text-stone-200 p-2 rounded-sm border border-stone-500 focus:ring-1 focus:ring-red-500 focus:border-red-500"
-                        placeholder="e.g., A plague breaks out in the Suburra. or Maximinus Thrax should become more aggressive."
                         aria-label="Game Master Intervention Input"
-                    />
-                    <div className="flex items-center mt-2">
+                        placeholder={'E.g. "A plague breaks out in the Suburra" — or "Maximinus Thrax should become more aggressive."'}
+                        rows={2}
+                        style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', background: '#1B1610', color: PARCH, border: '1px solid rgba(201,162,39,.3)', borderRadius: 'var(--radius-sm)', padding: '8px 10px', fontFamily: 'var(--font-body)', fontSize: 15, boxShadow: 'inset 0 1px 3px rgba(0,0,0,.5)' }}
+                    ></textarea>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 8 }}>
                         <button
+                            type="button"
                             onClick={handleSetIntervention}
-                            className="bg-red-700 text-white px-4 py-2 rounded-sm hover:bg-red-600 disabled:bg-red-900 disabled:cursor-not-allowed transition-colors shadow-md btn-animate"
+                            style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, letterSpacing: '.08em', textTransform: 'uppercase', color: '#F8F1DE', background: 'var(--metal-crimson)', border: '1px solid #5E1008', clipPath: 'var(--chamfer-sm)', padding: '9px 16px', cursor: 'pointer', boxShadow: 'var(--bevel)' }}
                         >
                             Set Directive for Next Turn
                         </button>
-                        {showConfirmation && <span className="ml-4 text-green-400 animate-fade-in">Directive Saved!</span>}
+                        {showConfirmation && <span style={{ color: GREEN, fontStyle: 'italic', fontSize: 14, animation: 'gorFadeIn .3s ease-out both' }}>The Fates have heard. It will be woven into the next turn.</span>}
                     </div>
                 </div>
 
-                <div className="flex border-b border-stone-600 flex-shrink-0 mt-4">
-                    {tabs.map(tab => (
-                         <TabButton key={tab} label={tab.toUpperCase()} active={activeTab === tab} onClick={() => setActiveTab(tab)} />
+                <div style={{ flex: 'none', display: 'flex', gap: 2, borderBottom: '1px solid rgba(201,162,39,.25)', flexWrap: 'wrap' }} role="tablist" aria-label="Ledger views">
+                    {TABS.map(tab => (
+                        <button
+                            key={tab}
+                            role="tab"
+                            aria-selected={tab === activeTab}
+                            onClick={() => setActiveTab(tab)}
+                            style={{ all: 'unset', cursor: 'pointer', fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase', padding: '8px 12px', color: tab === activeTab ? GOLD : DIM, borderBottom: tab === activeTab ? '2px solid var(--gold-500)' : '2px solid transparent', background: tab === activeTab ? 'rgba(201,162,39,.08)' : 'transparent' }}
+                        >
+                            {tab}
+                        </button>
                     ))}
                 </div>
 
-                <div className="overflow-y-auto flex-grow pr-2 mt-4">
+                <div style={{ flex: 1, overflowY: 'auto', paddingRight: 6, display: 'flex', flexDirection: 'column', gap: 20, color: PARCH }}>
                     {history.length === 0 ? (
-                        <p className="text-stone-400 p-4">No turns have been processed yet.</p>
+                        <p style={{ color: DIM }}>No turns have been processed yet.</p>
                     ) : (
                         history.slice().reverse().map(entry => (
-                            <div key={entry.turnNumber} className="mb-6 pb-4 border-b border-stone-700 last:border-b-0">
-                                <h3 className="text-xl font-bold text-red-500 mb-2">Turn {entry.turnNumber}</h3>
-                                <div className="p-2">
-                                    {activeTab === 'summary' && <SummaryView entry={entry} />}
-                                    {activeTab === 'entity states' && <EntityStatesView entities={entry.postTurnEntities} />}
-                                    {activeTab === 'actions' && <ActionsView adjudication={entry.adjudication} />}
-                                    {activeTab === 'deltas' && <DeltasView adjudication={entry.adjudication} />}
-                                    {activeTab === 'private' && <PrivateView adjudication={entry.adjudication} />}
-                                    {activeTab === 'ground truth' && <GroundTruthView entry={entry} playerCharacterId={playerCharacterId} worldState={worldState} />}
-                                    {activeTab === 'raw json' && <RawJsonView adjudication={entry.adjudication} rawCalls={entry.rawCalls} />}
-                                </div>
+                            <div key={entry.turnNumber} style={{ display: 'flex', flexDirection: 'column', gap: 10, borderBottom: '1px solid rgba(201,162,39,.15)', paddingBottom: 18 }}>
+                                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 17, letterSpacing: '.1em', color: GOLD }}>TURN {toRoman(entry.turnNumber)}</span>
+                                {activeTab === 'summary' && <SummaryView entry={entry} />}
+                                {activeTab === 'entity states' && <EntityStatesView entities={entry.postTurnEntities} />}
+                                {activeTab === 'actions' && <ActionsView adjudication={entry.adjudication} />}
+                                {activeTab === 'deltas' && <DeltasView adjudication={entry.adjudication} />}
+                                {activeTab === 'private' && <PrivateView adjudication={entry.adjudication} />}
+                                {activeTab === 'ground truth' && <GroundTruthView entry={entry} playerCharacterId={playerCharacterId} worldState={worldState} />}
+                                {activeTab === 'raw json' && <RawJsonView adjudication={entry.adjudication} rawCalls={entry.rawCalls} />}
                             </div>
                         ))
                     )}

@@ -1,0 +1,22 @@
+:root{
+--font-display:'Cinzel',serif;
+--font-epic:'Cinzel Decorative',serif;
+--font-body:'EB Garamond',Georgia,serif;
+/* Scale */
+--text-display:44px;--text-h1:32px;--text-h2:24px;--text-h3:19px;--text-body-lg:19px;--text-body-size:17px;--text-body-sm:15px;--text-label:12px;--text-numeral:15px;
+/* Leading */
+--leading-display:1.1;--leading-heading:1.2;--leading-body:1.55;
+/* Tracking */
+--tracking-display:.02em;--tracking-label:.14em;
+}
+body{font-family:var(--font-body);font-size:var(--text-body-size);line-height:var(--leading-body);color:var(--text-body);background-color:var(--surface-page);background-image:radial-gradient(120% 90% at 50% 0%,rgba(255,255,252,.9),rgba(255,255,252,0) 55%),url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><filter id="n" x="0" y="0"><feTurbulence type="fractalNoise" baseFrequency="0.7" numOctaves="5" stitchTiles="stitch"/></filter><rect width="100" height="100" filter="url%28%23n%29" opacity="0.055"/></svg>'),radial-gradient(150% 120% at 50% 110%,rgba(112,100,74,.13),rgba(112,100,74,0) 55%),repeating-linear-gradient(105deg,rgba(122,114,94,.06) 0 1px,transparent 1px 26px),repeating-linear-gradient(118deg,rgba(122,114,94,.045) 0 1px,transparent 1px 43px),repeating-linear-gradient(24deg,rgba(94,34,70,.03) 0 1px,transparent 1px 37px),radial-gradient(45% 30% at 20% 30%,rgba(158,126,27,.06),transparent 70%),radial-gradient(40% 30% at 80% 60%,rgba(94,34,70,.06),transparent 70%);background-attachment:fixed;margin:0}
+h1,h2,h3,h4{font-family:var(--font-display);color:var(--text-heading);line-height:var(--leading-heading);letter-spacing:var(--tracking-display);font-weight:600;text-shadow:0 1px 0 rgba(255,255,255,.5);margin:0}
+a{color:var(--gold-700);text-decoration:none;border-bottom:1px solid var(--border-subtle)}
+a:hover{color:var(--gold-600);border-bottom-color:var(--border-strong)}
+::selection{background:rgba(126,58,94,.28)}
+body::before{content:"";position:fixed;inset:0;box-shadow:inset 0 0 90px rgba(58,44,16,.16);pointer-events:none;z-index:90}
+::-webkit-scrollbar{width:10px}
+::-webkit-scrollbar-track{background:var(--surface-inset)}
+::-webkit-scrollbar-thumb{background:linear-gradient(180deg,#B08E52,#8A6D3B);border-radius:5px;border:2px solid var(--surface-inset)}
+::-webkit-scrollbar-thumb:hover{background:linear-gradient(180deg,#C9A75F,#9E7E45)}
+.gor-dropcap::first-letter{font-family:var(--font-display);font-weight:700;font-size:3.1em;line-height:.82;float:left;padding:4px 8px 0 0;color:var(--crimson-500)}
