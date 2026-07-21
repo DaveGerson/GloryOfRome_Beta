@@ -9,18 +9,43 @@ const AquilaIcon = () => (
 );
 
 
-const Header: React.FC<{ worldState: WorldState, isMockMode: boolean, setIsMockMode: (isMock: boolean) => void }> = ({ worldState, isMockMode, setIsMockMode }) => (
+const Header: React.FC<{
+    worldState: WorldState,
+    isMockMode: boolean,
+    setIsMockMode: (isMock: boolean) => void,
+    /**
+     * D7 - the GM console is hidden by default, toggled at runtime rather
+     * than removed. The Ctrl+Shift+G shortcut (App.tsx) is the primary way
+     * to flip this; this dev-only checkbox is a discoverable, unobtrusive
+     * backup so a developer poking at the app doesn't need to know the
+     * shortcut. Never rendered in a production build.
+     */
+    isGmConsoleEnabled: boolean,
+    setIsGmConsoleEnabled: (enabled: boolean) => void,
+}> = ({ worldState, isMockMode, setIsMockMode, isGmConsoleEnabled, setIsGmConsoleEnabled }) => (
     <header className="relative text-center p-3 bg-[#e8e6e1]/70 backdrop-blur-sm border-b-4 border-double border-[#c9c5b8]">
         {import.meta.env.DEV && (
-            <div className="absolute top-2 right-2 flex items-center bg-stone-700 p-2 rounded text-stone-100 font-mono text-xs shadow-lg z-10">
-              <label htmlFor="mock-toggle" className="mr-2 cursor-pointer">Mock Mode</label>
-              <input
-                id="mock-toggle"
-                type="checkbox"
-                checked={isMockMode}
-                onChange={(e) => setIsMockMode(e.target.checked)}
-                className="h-4 w-4 text-red-800 bg-stone-600 border-stone-500 rounded focus:ring-red-700 cursor-pointer"
-              />
+            <div className="absolute top-2 right-2 flex items-center gap-3 bg-stone-700 p-2 rounded text-stone-100 font-mono text-xs shadow-lg z-10">
+              <span className="flex items-center">
+                <label htmlFor="mock-toggle" className="mr-2 cursor-pointer">Mock Mode</label>
+                <input
+                  id="mock-toggle"
+                  type="checkbox"
+                  checked={isMockMode}
+                  onChange={(e) => setIsMockMode(e.target.checked)}
+                  className="h-4 w-4 text-red-800 bg-stone-600 border-stone-500 rounded focus:ring-red-700 cursor-pointer"
+                />
+              </span>
+              <span className="flex items-center" title="Ctrl+Shift+G also toggles this">
+                <label htmlFor="gm-console-toggle" className="mr-2 cursor-pointer">GM Console</label>
+                <input
+                  id="gm-console-toggle"
+                  type="checkbox"
+                  checked={isGmConsoleEnabled}
+                  onChange={(e) => setIsGmConsoleEnabled(e.target.checked)}
+                  className="h-4 w-4 text-red-800 bg-stone-600 border-stone-500 rounded focus:ring-red-700 cursor-pointer"
+                />
+              </span>
             </div>
         )}
         <AquilaIcon />

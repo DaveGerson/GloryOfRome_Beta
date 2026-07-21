@@ -17,9 +17,9 @@ const EventDeltaSchema = {
     type: Type.OBJECT,
     properties: {
         type: { type: Type.STRING, enum: EventDeltaTypeEnum, description: "The type of state change." },
-        key: { type: Type.STRING, description: "Identifier for what is changing. For 'relation', use 'entity_a_id:entity_b_id:attribute' (e.g., trust_level, perceived_threat) — the delta changes entity_a's perception of entity_b ONLY; if a change is mutual, emit a second delta with the ids reversed. For 'resource', use 'entity_id:resource_name'. For 'scheme' or 'faction', this is the entity_id. For region changes, use the region's name." },
+        key: { type: Type.STRING, description: "Identifier for what is changing. For 'relation', use 'entity_a_id:entity_b_id:attribute' (e.g., trust_level, perceived_threat) — the delta changes entity_a's perception of entity_b ONLY; if a change is mutual, emit a second delta with the ids reversed. For 'resource', use 'entity_id:resource_name'. For 'scheme' or 'faction', this is the entity_id. For region changes, use the region's name. For 'world', use 'economic_stability' or 'political_climate' — no other keys are recognized." },
         delta: { type: Type.NUMBER, description: "The numerical change to apply. For status, scheme, region, add_region, remove_region, and faction this is ignored. For rumors, this should be a float from 0.0 to 1.0 representing credibility." },
-        reason: { type: Type.STRING, description: "A short NARRATIVE description of why the change occurred, for display only - it is never parsed to decide game state. For 'rumor' types, this contains the rumor text. For 'scheme', this is a JSON string of the complete, updated scheme object. For 'add_region', this is a JSON string of the new RegionState object. For 'faction', this is the entity_id of the new faction, or 'null' if they become unaligned. For 'status' types, this is still the narrative explanation (e.g. 'Struck down by an assassin's blade in the forum') - the actual status/location change for 'status' deltas MUST be set via new_status/new_location below, not inferred from this text." },
+        reason: { type: Type.STRING, description: "A short NARRATIVE description of why the change occurred, for display only - it is never parsed to decide game state. For 'rumor' types, this contains the rumor text. For 'scheme', this is a JSON string of the complete, updated scheme object. For 'add_region', this is a JSON string of the new RegionState object. For 'faction', this is the entity_id of the new faction, or 'null' if they become unaligned. For 'status' types, this is still the narrative explanation (e.g. 'Struck down by an assassin's blade in the forum') - the actual status/location change for 'status' deltas MUST be set via new_status/new_location below, not inferred from this text. For 'world' types, this IS the new value itself — the short string to assign to the WorldState field named in 'key' (e.g. 'Failing', 'Openly Hostile')." },
         new_status: { type: Type.STRING, enum: ['alive', 'dead', 'exiled', 'missing'], nullable: true, description: "REQUIRED for 'status' type deltas whenever an entity's life or freedom status changes (dies, is exiled, goes missing, or is restored to alive) - set this to the entity's new status. Omit/null for all other delta types." },
         new_location: { type: Type.STRING, nullable: true, description: "Optional, 'status' type deltas only: set this to the (existing) region name the entity has moved to, when the status change involves relocation (e.g. fleeing into exile, going missing in a specific region). Omit/null if the entity's location does not change." },
     },
@@ -329,6 +329,67 @@ export const SimulationStateSchema = {
         major_ongoing_crisis: { type: Type.STRING, nullable: true },
     },
     required: ['imperial_status', 'senate_status', 'military_status', 'plebeian_mood', 'major_ongoing_crisis']
+};
+
+// --- Mortality pipeline (ai/core/mortality.ts, DESIGN_DECISIONS.md D2/D3) --
+
+/** The mortality VALIDATION call's Gemini response schema (ai/core/mortality.ts). */
+export const MortalityValidationSchema = {
+    type: Type.OBJECT,
+    properties: {
+        dispositions: {
+            type: Type.ARRAY,
+            description: "Exactly one disposition per death-claim candidate, matched by entity_id.",
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    entity_id: { type: Type.STRING },
+                    valid: { type: Type.BOOLEAN, description: "True if this death is real and earned given the turn's events; false if hallucinated/unsupported melodrama." },
+                    reasoning: { type: Type.STRING, description: "Short (1-2 sentence) justification, for the GM only - never shown to the player." },
+                },
+                required: ['entity_id', 'valid', 'reasoning'],
+            },
+        },
+    },
+    required: ['dispositions'],
+};
+
+/** The mortality OUTCOME call's Gemini response schema (ai/core/mortality.ts). */
+export const MortalityOutcomeSchema = {
+    type: Type.OBJECT,
+    properties: {
+        outcomes: {
+            type: Type.ARRAY,
+            description: "Exactly one outcome entry per candidate, matched by entity_id.",
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    entity_id: { type: Type.STRING },
+                    deltas: { type: Type.ARRAY, items: EventDeltaSchema, description: "Loss/boon/wounding SIDE-EFFECT deltas only - never a 'status' delta, that has already been decided." },
+                    narrative_directive: { type: Type.STRING, description: "One line steering the narrator on exactly how to narrate this outcome." },
+                    secret_motive: { type: Type.STRING, nullable: true, description: "'presumed_dead' candidates only: why they're hiding and what they might want if they return. Omit/null otherwise." },
+                },
+                required: ['entity_id', 'deltas', 'narrative_directive'],
+            },
+        },
+    },
+    required: ['outcomes'],
+};
+
+// --- Resolution layer: action assessment (ai/tools/assessment.ts, ROADMAP_0_MASTER_PLAN.md Phase 3 item 4) --
+
+/** The action-assessment call's Gemini response schema (ai/tools/assessment.ts). */
+export const ActionAssessmentSchema = {
+    type: Type.OBJECT,
+    properties: {
+        is_consequential: { type: Type.BOOLEAN, description: "True if the player's action carries real risk/uncertainty/opposition warranting a hidden dice roll; false for questions, idle conversation, or pure information requests." },
+        action_category: { type: Type.STRING, description: "A short free-text label for the kind of action (e.g. 'oratory persuasion', 'intrigue/scheme', 'treachery'). GM-only classification, never shown to the player." },
+        relevant_skill: { type: Type.STRING, enum: ['oratory', 'strategy', 'intrigue'], nullable: true, description: "The single most load-bearing skill for this action, or null if none clearly applies (always null when is_consequential is false)." },
+        difficulty: { type: Type.NUMBER, description: "Target difficulty from 5 (trivial) to 25 (nearly impossible), before the player's own skill/personality are factored in." },
+        opposing_entity_id: { type: Type.STRING, nullable: true, description: "The exact entity_id of the specific NPC this action opposes/targets, or null if none." },
+        rationale: { type: Type.STRING, description: "Short (1-2 sentence) GM-only justification - never shown to the player." },
+    },
+    required: ['is_consequential', 'action_category', 'relevant_skill', 'difficulty', 'opposing_entity_id', 'rationale'],
 };
 
 /**

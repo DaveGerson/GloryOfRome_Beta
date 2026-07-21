@@ -213,6 +213,44 @@ export const zInvestigationResult = z.object({
   consequences: z.string().nullable(),
 }).passthrough();
 
+// --- Mortality pipeline (ai/core/mortality.ts, DESIGN_DECISIONS.md D2/D3) --
+
+/** Validates the mortality VALIDATION call's output (ai/core/mortality.ts). */
+export const zMortalityDisposition = z.object({
+  entity_id: z.string(),
+  valid: z.boolean(),
+  reasoning: z.string(),
+}).passthrough();
+
+export const zMortalityValidation = z.object({
+  dispositions: z.array(zMortalityDisposition),
+}).passthrough();
+
+/** Validates the mortality OUTCOME call's output (ai/core/mortality.ts). */
+export const zMortalityOutcomeEntry = z.object({
+  entity_id: z.string(),
+  deltas: z.array(zEventDelta),
+  narrative_directive: z.string(),
+  // 'presumed_dead' candidates only - see ai/prompts/mortality.ts's BAND_GUIDANCE.
+  secret_motive: z.string().nullable().optional(),
+}).passthrough();
+
+export const zMortalityOutcome = z.object({
+  outcomes: z.array(zMortalityOutcomeEntry),
+}).passthrough();
+
+// --- Resolution layer: action assessment (ai/tools/assessment.ts, ROADMAP_0_MASTER_PLAN.md Phase 3 item 4) --
+
+/** Validates the action-assessment call's output (ai/tools/assessment.ts). */
+export const zActionAssessment = z.object({
+  is_consequential: z.boolean(),
+  action_category: z.string(),
+  relevant_skill: z.enum(['oratory', 'strategy', 'intrigue']).nullable(),
+  difficulty: z.number(),
+  opposing_entity_id: z.string().nullable(),
+  rationale: z.string(),
+}).passthrough();
+
 // --- World generation (initiator.ts) --------------------------------------
 
 /** Validates generateScenarioStructure's output (initiator.ts, Step 1). */

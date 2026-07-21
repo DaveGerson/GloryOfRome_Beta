@@ -66,10 +66,86 @@ describe('applyAdjudication', () => {
     it('should not error for a resource delta on a non-existent entity', () => {
        const adjudication = deepCopy(baseAdjudication);
       adjudication.deltas.push({ type: 'resource', key: 'non_existent_entity:gold', delta: 100, reason: '' });
-      
+
       const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
 
       expect(updatedEntities).toEqual(mockEntities);
+    });
+
+    // --- Systemic Resource Registry (DESIGN_DECISIONS.md D6) ---
+    describe('Systemic resources: denarii (D6)', () => {
+      it('should allow a non-systemic resource to go negative freely (regression)', () => {
+        const adjudication = deepCopy(baseAdjudication);
+        // legion_support is not in the systemic registry - should behave exactly
+        // as before: a bare running total, free to go negative.
+        adjudication.deltas.push({ type: 'resource', key: 'maximinus_thrax:legion_support', delta: -200, reason: 'Legions mutiny' });
+
+        const { updatedEntities, updatedReports } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+        const entity = updatedEntities.find(e => e.entity_id === 'maximinus_thrax');
+
+        expect(entity?.resources.legion_support).toBe(-115); // 85 - 200
+        expect(updatedReports.length).toBe(0);
+      });
+
+      it('should clamp denarii to 0 and convert the overdraft shortfall to debt_denarii, emitting a report', () => {
+        const adjudication = deepCopy(baseAdjudication);
+        // severus_alexander starts with 50000 denarii.
+        adjudication.deltas.push({ type: 'resource', key: 'severus_alexander:denarii', delta: -60000, reason: 'A disastrous campaign bankrupts the treasury' });
+
+        const { updatedEntities, updatedReports } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+        const entity = updatedEntities.find(e => e.entity_id === 'severus_alexander');
+
+        expect(entity?.resources.denarii).toBe(0);
+        expect(entity?.resources.debt_denarii).toBe(10000); // shortfall: 60000 - 50000
+
+        const debtReport = updatedReports.find(r => (r.claim as string).includes('coffers run dry'));
+        expect(debtReport).toBeDefined();
+        expect(debtReport?.claim).toBe('Your coffers run dry — the shortfall of 10000 denarii is owed to your creditors.');
+      });
+
+      it('should accumulate debt_denarii across repeated overdrafts on the same entity', () => {
+        const adjudication = deepCopy(baseAdjudication);
+        adjudication.deltas.push({ type: 'resource', key: 'severus_alexander:denarii', delta: -60000, reason: 'First overdraft' });
+
+        const first = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+        const entityAfterFirst = first.updatedEntities.find(e => e.entity_id === 'severus_alexander')!;
+        expect(entityAfterFirst.resources.denarii).toBe(0);
+        expect(entityAfterFirst.resources.debt_denarii).toBe(10000);
+
+        const secondAdjudication = deepCopy(baseAdjudication);
+        secondAdjudication.deltas.push({ type: 'resource', key: 'severus_alexander:denarii', delta: -2500, reason: 'Second overdraft, already at zero' });
+
+        const second = applyAdjudication(secondAdjudication, first.updatedEntities, first.updatedWorldState, first.updatedReports);
+        const entityAfterSecond = second.updatedEntities.find(e => e.entity_id === 'severus_alexander')!;
+
+        expect(entityAfterSecond.resources.denarii).toBe(0);
+        expect(entityAfterSecond.resources.debt_denarii).toBe(12500); // 10000 + 2500 accumulated
+      });
+
+      it('should emit exactly one low-treasury warning when crossing the threshold, and not again while still below it', () => {
+        // severus_alexander starts at 50000 (well above LOW_TREASURY_THRESHOLD = 5000).
+        const firstAdjudication = deepCopy(baseAdjudication);
+        firstAdjudication.deltas.push({ type: 'resource', key: 'severus_alexander:denarii', delta: -46000, reason: 'Crosses below the low-treasury threshold' }); // 50000 -> 4000
+
+        const first = applyAdjudication(firstAdjudication, mockEntities, mockWorldState, mockReports);
+        const entityAfterFirst = first.updatedEntities.find(e => e.entity_id === 'severus_alexander')!;
+        expect(entityAfterFirst.resources.denarii).toBe(4000);
+
+        const warningReports = first.updatedReports.filter(r => (r.claim as string).includes('fallen below'));
+        expect(warningReports.length).toBe(1);
+
+        // Apply a second delta that keeps denarii below the threshold - should
+        // NOT emit a second warning (only the crossing itself warns).
+        const secondAdjudication = deepCopy(baseAdjudication);
+        secondAdjudication.deltas.push({ type: 'resource', key: 'severus_alexander:denarii', delta: -1000, reason: 'Still below threshold' }); // 4000 -> 3000
+
+        const second = applyAdjudication(secondAdjudication, first.updatedEntities, first.updatedWorldState, first.updatedReports);
+        const entityAfterSecond = second.updatedEntities.find(e => e.entity_id === 'severus_alexander')!;
+        expect(entityAfterSecond.resources.denarii).toBe(3000);
+
+        const warningReportsAfterSecond = second.updatedReports.filter(r => (r.claim as string).includes('fallen below'));
+        expect(warningReportsAfterSecond.length).toBe(1); // still just the one from the crossing
+      });
     });
   });
 
@@ -364,6 +440,38 @@ describe('applyAdjudication', () => {
 
         const { updatedWorldState } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
         expect(updatedWorldState).toEqual(mockWorldState);
+    });
+  });
+
+  // --- World Deltas (D6/Phase 2: unfreezes the Header meters) ---
+  describe('World Deltas', () => {
+    it("should update economic_stability from a 'world' delta", () => {
+      const adjudication = deepCopy(baseAdjudication);
+      adjudication.deltas.push({ type: 'world', key: 'economic_stability', delta: 0, reason: 'Failing' });
+
+      const { updatedWorldState } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+
+      expect(updatedWorldState.economic_stability).toBe('Failing');
+      expect(updatedWorldState.political_climate).toBe(mockWorldState.political_climate); // unchanged
+    });
+
+    it("should update political_climate from a 'world' delta", () => {
+      const adjudication = deepCopy(baseAdjudication);
+      adjudication.deltas.push({ type: 'world', key: 'political_climate', delta: 0, reason: 'Openly Hostile' });
+
+      const { updatedWorldState } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+
+      expect(updatedWorldState.political_climate).toBe('Openly Hostile');
+    });
+
+    it("should no-op on an unrecognized 'world' delta key", () => {
+      const adjudication = deepCopy(baseAdjudication);
+      adjudication.deltas.push({ type: 'world', key: 'imperial_mood', delta: 0, reason: 'Ecstatic' });
+
+      const { updatedWorldState } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+
+      expect(updatedWorldState).toEqual(mockWorldState);
+      expect((updatedWorldState as any).imperial_mood).toBeUndefined();
     });
   });
 

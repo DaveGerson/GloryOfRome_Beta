@@ -14,6 +14,7 @@
  */
 
 import { Adjudication, Entity, WorldState, SimulationState } from '../../types';
+import type { ActionResolutionTier } from '../core/resolution';
 import { getLightEntityBrief } from './fragments';
 
 /**
@@ -87,9 +88,31 @@ export function buildDeepAnalysisPrompt(
 }
 
 /**
+ * Per-tier authoring guidance for the investigation report call, keyed by
+ * the exact tier strings from ai/core/resolution.ts. Replaces the old prose
+ * "40% chance of a negative consequence" line, which was never actually
+ * wired to a real roll (ai/tools/intelligence.ts::getInvestigationResult
+ * ignored its own `isRisky` param entirely in the real, non-mock path). The
+ * tier is now decided by a real hidden `resolveAction` roll BEFORE this
+ * prompt is built - the model narrates the pre-decided tier, it does not
+ * decide it (mirrors the mortality pipeline's contract, see
+ * ai/prompts/README.md). `consequences` MUST/MUST NOT be null per tier is
+ * additionally enforced post-hoc in code
+ * (ai/tools/intelligence.ts::getInvestigationResult) - this text steers the
+ * model, it is not the only guarantee.
+ */
+const INVESTIGATION_TIER_GUIDANCE: Record<ActionResolutionTier, string> = {
+  critical_failure: "The investigation goes badly wrong - the agent is caught red-handed. 'consequences' is MANDATORY: describe a severe, concrete negative outcome (the agent captured/exposed, the target now openly hunting the player, a damaging rumor loosed, etc).",
+  failure: "The investigation fails to turn up reliable intelligence and the attempt draws notice. 'consequences' is MANDATORY: describe a real (if less severe) negative outcome - the agent is spotted and now watched, a resource or contact is burned.",
+  partial_success: "The investigation succeeds but leaves a trace - the target is left with a faint, unconfirmed whiff of suspicion. 'consequences' MAY describe a mild complication, or be null if you judge the trace goes unnoticed.",
+  success: "The investigation goes cleanly - the target notices nothing. 'consequences' MUST be null.",
+  critical_success: "The investigation goes exceptionally well - clean, AND the agent turns up one additional bonus detail beyond what was asked for. 'consequences' MUST be null.",
+};
+
+/**
  * PURPOSE: Generate the results of an investigation into a target's
  * secrets/beliefs/scheme, including a narrative report and possible
- * negative consequences.
+ * negative consequences, CONSISTENT with an already-rolled resolution tier.
  * MODEL: pro (GEMINI_PRO).
  * CONSUMER: ai/tools/intelligence.ts `getInvestigationResult`.
  * OUTPUT: validated against `zInvestigationResult` (ai/core/zodSchemas.ts) /
@@ -98,14 +121,15 @@ export function buildDeepAnalysisPrompt(
 export function buildInvestigationPrompt(
   target: Entity,
   player: Entity,
-  subject: 'secrets' | 'beliefs' | 'scheme'
+  subject: 'secrets' | 'beliefs' | 'scheme',
+  tier: ActionResolutionTier
 ): { systemInstruction: string; prompt: string } {
   const systemInstruction = `You are the head of intelligence for ${player.name}. You completed an investigation into ${target.name} to uncover their **${subject}**.
 
     **Task:** Generate a JSON object with the results.
     1.  **reportData:** Based on the target's profile, generate a plausible list of ${subject} (or a full Scheme object if the subject is 'scheme'). This is the raw data.
-    2.  **report:** Write a brief, narrative report for your master summarizing what you found.
-    3.  **consequences:** If the investigation has a chance of failure (paranoia > 6 or cunning > 6), there's a 40% chance of a negative consequence. Otherwise, return null. The consequence should be a short string describing the negative outcome (e.g., 'Your agent was spotted').
+    2.  **report:** Write a brief, narrative report for your master summarizing what you found, consistent with the outcome below.
+    3.  **consequences:** The investigation's outcome has ALREADY been mechanically decided by a hidden roll (you do not decide it, only write consistent report content) as: ${tier.toUpperCase()}. ${INVESTIGATION_TIER_GUIDANCE[tier]}
 
     **CRITICAL JSON FORMATTING RULES:**
     Your response MUST be a perfectly valid JSON object that adheres to the schema.

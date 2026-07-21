@@ -5,6 +5,12 @@ export enum GameState {
   AWAITING_PLAYER_INPUT,
   PROCESSING,
   AWAITING_EVENT_CHOICE,
+  /**
+   * The run has ended (D1: survival-only — ONLY player death ends a run;
+   * exile/missing are survivable and keep the game playable). Terminal:
+   * input locked, EpilogueScreen shown.
+   */
+  GAME_OVER,
 }
 
 /**
@@ -107,6 +113,24 @@ export interface Entity {
   secrets?: string[];
   skills?: Record<string, number>;
   active_scheme?: Scheme;
+  /**
+   * GM-PRIVATE. Set by the mortality pipeline (ai/core/mortality.ts) when
+   * this entity's PUBLIC `status` is 'dead' but the NPC fate table
+   * (DESIGN_DECISIONS.md D3) rolled "presumed dead": the world and the
+   * player believe they are dead, but they are secretly alive in hiding and
+   * may be dramatically reintroduced later (a 'status' delta with
+   * new_status:'alive') as a nemesis. This MUST NEVER reach any
+   * player-facing surface - not narration, not entity briefs shown to the
+   * player, not suggested actions. Only the GM console and the
+   * adjudicator's GM-secret prompt fragment
+   * (ai/prompts/fragments.ts::buildSecretSurvivorsBlock) may read it. See
+   * the sanitization in ai/prompts/narration.ts for the enforcement point.
+   */
+  secret_truth?: {
+    actually_alive: true;
+    hidden_since_turn: number;
+    motive: string;
+  };
 }
 
 /**
@@ -149,7 +173,13 @@ export const EntityActionIntentEnum = [
 
 export type EntityActionIntent = typeof EntityActionIntentEnum[number];
 
-export const EventDeltaTypeEnum = ['resource', 'relation', 'region', 'status', 'rumor', 'scheme', 'add_region', 'remove_region', 'faction'] as const;
+/**
+ * 'world' (D6/Phase 2): changes a top-level WorldState macro field —
+ * key is 'economic_stability' or 'political_climate', reason is the new
+ * string value. Previously no delta type could touch these, so the Header
+ * meters could never change.
+ */
+export const EventDeltaTypeEnum = ['resource', 'relation', 'region', 'status', 'rumor', 'scheme', 'add_region', 'remove_region', 'faction', 'world'] as const;
 export type EventDeltaType = typeof EventDeltaTypeEnum[number];
 
 export const ReportSourceEnum = ['scout', 'spy', 'merchant', 'messenger', 'rumor'] as const;
@@ -193,6 +223,16 @@ export interface EventDelta {
      * when movement occurs.
      */
     new_location?: string;
+    /**
+     * 'status' deltas only, CODE-GENERATED ONLY - never requested from the
+     * model, never part of any Gemini responseSchema/zod input schema.
+     * Attached exclusively by ai/core/mortality.ts::processMortality when a
+     * validated NPC death resolves to "presumed dead" on the fate table
+     * (DESIGN_DECISIONS.md D3); ai/core/engine.ts's 'status' case copies it
+     * onto the entity as `Entity.secret_truth` when the delta is applied.
+     * See the leak-prevention notes on `Entity.secret_truth` above.
+     */
+    secret_truth?: Entity['secret_truth'];
 }
 
 /**
@@ -249,6 +289,66 @@ export interface RawCallRecord {
 }
 
 /**
+ * One entity's trip through the mortality pipeline this turn
+ * (DESIGN_DECISIONS.md D2/D3/D4) - produced by
+ * ai/core/mortality.ts::processMortality and appended to the turn's
+ * history entry so the GM console can inspect/tune rolls. Per D4, rolls
+ * are NEVER shown to the player - this trace is GM-console-only ground
+ * truth, same as `Adjudication.gm_private`.
+ */
+export interface MortalityEvent {
+  entity_id: string;
+  entity_name: string;
+  /** The original claimed cause of death (the death delta's `reason`, captured before mortality rewrote it). */
+  claim: string;
+  /** Whether the second, independent validation call dispositioned this claim as real (vs. hallucination/overreach). */
+  valid: boolean;
+  /** The hidden d20 roll, present only when `valid` (an invalidated claim never reaches the dice). Never shown to the player. */
+  roll?: number;
+  /** The resolved table band (e.g. 'dies', 'survive_with_loss', 'presumed_dead') - see ai/core/resolution.ts. */
+  band?: string;
+  /** One-line GM-facing summary of what actually happened / the narration directive used. */
+  outcomeSummary: string;
+}
+
+/**
+ * One turn's trip through the `ai/core/resolution.ts` "resolution layer"
+ * action-resolution pipeline (ROADMAP_0_MASTER_PLAN.md Phase 3 item 4) -
+ * produced by `ai/core/turn.ts` when the assessment call
+ * (`ai/tools/assessment.ts::getActionAssessment`) flags the player's action
+ * as consequential, and appended to the turn's history entry so the GM
+ * console can inspect/tune rolls. Per DESIGN_DECISIONS.md D4, rolls are
+ * NEVER shown to the player - this trace is GM-console-only ground truth,
+ * same as `MortalityEvent`/`Adjudication.gm_private`. Entirely absent on
+ * turns where the assessment call found the action non-consequential (no
+ * roll is made, no trace is recorded).
+ *
+ * `assessment`'s shape mirrors `ai/tools/assessment.ts`'s `ActionAssessment`
+ * - kept as an inline duplicate here (rather than an import) so types.ts
+ * stays import-free, the same convention `MortalityEvent` below follows for
+ * the mortality pipeline's own result shapes. Keep the two in sync if
+ * either changes.
+ */
+export interface ActionResolutionEvent {
+  assessment: {
+    is_consequential: boolean;
+    action_category: string;
+    relevant_skill: 'oratory' | 'strategy' | 'intrigue' | null;
+    difficulty: number;
+    opposing_entity_id: string | null;
+    rationale: string;
+  };
+  /** The hidden d20 roll (`ai/core/resolution.ts::rollD20`) - never shown to the player (D4). */
+  roll: number;
+  /** roll + relevant skill value + personality modifier + opposition modifier. */
+  total: number;
+  /** total - difficulty; the value the tier bands (`ai/core/resolution.ts::ACTION_RESOLUTION_TIER_THRESHOLDS`) are drawn from. */
+  margin: number;
+  /** The resolved outcome tier - see `ai/core/resolution.ts::resolveAction`. */
+  tier: 'critical_failure' | 'failure' | 'partial_success' | 'success' | 'critical_success';
+}
+
+/**
  * An entry for the Game Master's turn history log.
  */
 export interface TurnHistoryEntry {
@@ -258,6 +358,8 @@ export interface TurnHistoryEntry {
   narration?: string; // Optional narrated text
   postTurnEntities: Entity[];
   rawCalls?: RawCallRecord[]; // Raw prompt/response capture for every AI call made this turn
+  mortalityTrace?: MortalityEvent[]; // Every death claim this turn went through processMortality, see MortalityEvent
+  resolutionTrace?: ActionResolutionEvent; // The player action's trip through the resolution layer this turn (if consequential), see ActionResolutionEvent
 }
 
 export interface SpotlightEntity {

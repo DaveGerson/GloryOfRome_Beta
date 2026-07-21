@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { TurnHistoryEntry, Adjudication, Entity, Relationship, Memory, Scheme, RawCallRecord } from '../types';
+import { TurnHistoryEntry, Adjudication, Entity, Relationship, Memory, Scheme, RawCallRecord, WorldState } from '../types';
+import { classifyDelta } from '../perception/visibility';
+import { InferredAmbitionState } from '../persistence/saveGame';
 
 const TabButton: React.FC<{ label: string; active: boolean; onClick: () => void; }> = ({ label, active, onClick }) => (
     <button
@@ -206,12 +208,95 @@ const RawJsonView: React.FC<{ adjudication: Adjudication; rawCalls?: RawCallReco
     </div>
 );
 
+/**
+ * The Ground Truth tuning view (D7 + Phase 2 item 4). GameMasterScreen is
+ * the ONE place raw, unfiltered ground truth is allowed to reach a rendered
+ * screen (D5/D7) - everywhere else goes through perception/visibility.ts's
+ * filter. This view puts the two side by side deliberately: every delta this
+ * turn, and what classifyDelta (the same function the player-facing
+ * digest/WorldStateTab use) would have let through for the current player
+ * character - so filter rules can be tuned by eyeballing the diff.
+ *
+ * Also surfaces `mortalityTrace` off the turn history entry, if present. The
+ * mortality pipeline (D2/D3/D4) is being built concurrently by another agent
+ * and may add that field to TurnHistoryEntry at any point - accessed
+ * defensively via an untyped cast so this file compiles regardless of
+ * landing order.
+ */
+const GroundTruthView: React.FC<{
+    entry: TurnHistoryEntry;
+    playerCharacterId: string | null;
+    worldState: WorldState;
+}> = ({ entry, playerCharacterId, worldState }) => {
+    const playerAtTurn = entry.postTurnEntities.find(e => e.entity_id === playerCharacterId) ?? null;
+    // Defensive/loose access - see doc comment above. `mortalityTrace` isn't
+    // on TurnHistoryEntry in this file's copy of types.ts yet; once the
+    // concurrent mortality-pipeline work lands it, this starts picking it up
+    // with no change needed here.
+    const mortalityTrace = (entry as Record<string, unknown>).mortalityTrace;
+
+    return (
+        <div className="space-y-4">
+            <div>
+                <h4 className="font-bold text-stone-300 mb-2 underline">Unfiltered Deltas vs. Perception Filter</h4>
+                <p className="text-xs text-stone-500 mb-2">
+                    Left: raw ground truth for this turn. Right: what perception/visibility.ts's classifyDelta lets{' '}
+                    {playerAtTurn ? <span className="text-stone-300">{playerAtTurn.name}</span> : 'the player'} perceive.
+                </p>
+                {!playerAtTurn ? (
+                    <p className="text-stone-400">No player character to classify against for this turn.</p>
+                ) : entry.adjudication.deltas.length === 0 ? (
+                    <p className="text-stone-400">No deltas were recorded this turn.</p>
+                ) : (
+                    <div className="space-y-2">
+                        {entry.adjudication.deltas.map((delta, index) => {
+                            const visibility = classifyDelta(delta, playerAtTurn, entry.postTurnEntities, worldState);
+                            return (
+                                <div key={index} className="grid grid-cols-2 gap-3 bg-stone-900 p-2 rounded text-xs">
+                                    <div>
+                                        <p><span className="font-bold text-red-400 capitalize">{delta.type}</span> <span className="text-stone-500">({delta.key})</span></p>
+                                        <p className="italic text-stone-400 mt-1">"{delta.reason}"</p>
+                                    </div>
+                                    <div className={`self-center font-bold ${visibility.visible ? 'text-green-400' : 'text-stone-600'}`}>
+                                        {visibility.visible ? `VISIBLE — ${visibility.source}` : 'FILTERED (invisible to player)'}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+            <div>
+                <h4 className="font-bold text-stone-300 mb-2 underline">Mortality Trace</h4>
+                {mortalityTrace ? (
+                    <pre className="text-xs bg-stone-900 p-3 rounded overflow-x-auto whitespace-pre-wrap">{JSON.stringify(mortalityTrace, null, 2)}</pre>
+                ) : (
+                    <p className="text-stone-400 text-xs">No mortality trace recorded for this turn (mortality pipeline not yet wired in, or nothing triggered it).</p>
+                )}
+            </div>
+        </div>
+    );
+};
+
 const GameMasterScreen: React.FC<{
     history: TurnHistoryEntry[];
     onClose: () => void;
     interventionText: string;
     onSetIntervention: (text: string) => void;
-}> = ({ history, onClose, interventionText, onSetIntervention }) => {
+    playerCharacterId: string | null;
+    worldState: WorldState;
+    /** DESIGN_DECISIONS.md D8 - the latest inferred-ambition snapshot, if any. GM-console-only display; never shown to the player. */
+    inferredAmbition?: InferredAmbitionState | null;
+    /**
+     * ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - the investigation-consequence
+     * queue (components/investigationLoop.ts), not yet consumed by a
+     * committed turn. Per DESIGN_DECISIONS.md D5, the player only ever gets
+     * a subtle in-fiction hint that something went wrong - this raw,
+     * mechanical text is GM-console-only, same as everything else on this
+     * screen (D7).
+     */
+    pendingIntelligenceFallout?: string[];
+}> = ({ history, onClose, interventionText, onSetIntervention, playerCharacterId, worldState, inferredAmbition, pendingIntelligenceFallout }) => {
     const [activeTab, setActiveTab] = useState('summary');
     const [interventionInput, setInterventionInput] = useState(interventionText);
     const [showConfirmation, setShowConfirmation] = useState(false);
@@ -222,7 +307,7 @@ const GameMasterScreen: React.FC<{
         setTimeout(() => setShowConfirmation(false), 3000);
     };
 
-    const tabs = ['summary', 'entity states', 'actions', 'deltas', 'private', 'raw json'];
+    const tabs = ['summary', 'entity states', 'actions', 'deltas', 'private', 'ground truth', 'raw json'];
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 animate-fade-in">
@@ -231,6 +316,39 @@ const GameMasterScreen: React.FC<{
                     <h2 className="text-2xl font-decorative text-red-400">Game Master Tools</h2>
                     <button onClick={onClose} className="text-stone-300 hover:text-white text-2xl transition-transform duration-200 ease-in-out hover:scale-110" aria-label="Close Game Master screen">&times;</button>
                 </div>
+
+                {/* DESIGN_DECISIONS.md D8 - the ONE other sanctioned surface for the inferred ambition besides EpilogueScreen. Never rendered on any player-facing view. */}
+                {inferredAmbition && (
+                    <div className="mb-4 flex-shrink-0 text-sm bg-stone-900 border border-stone-700 rounded-md px-3 py-2">
+                        <span className="font-bold text-stone-300">Apparent Ambition:</span>{' '}
+                        <span className="text-amber-300 italic">"{inferredAmbition.apparent_ambition}"</span>{' '}
+                        <span className="text-stone-500">
+                            (confidence: {inferredAmbition.confidence}, as of turn {inferredAmbition.asOfTurn})
+                        </span>
+                    </div>
+                )}
+
+                {/*
+                  ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - the raw, mechanical
+                  consequence text queued by a risky investigation (see
+                  components/investigationLoop.ts) that hasn't yet been fed
+                  into a turn's GM Intervention text (App.tsx's executeTurn).
+                  This is the ONLY player-adjacent-but-not-player-facing
+                  surface where the literal string is shown - the player
+                  themselves only ever gets the subtle chat notice at the
+                  moment of investigation, then the reinterpreted fallout via
+                  next turn's narration (D5).
+                */}
+                {pendingIntelligenceFallout && pendingIntelligenceFallout.length > 0 && (
+                    <div className="mb-4 flex-shrink-0 text-sm bg-stone-900 border border-stone-700 rounded-md px-3 py-2">
+                        <span className="font-bold text-stone-300">Pending Intelligence Fallout:</span>
+                        <ul className="list-disc list-inside ml-2 mt-1">
+                            {pendingIntelligenceFallout.map((consequence, index) => (
+                                <li key={index} className="text-amber-300 italic">"{consequence}"</li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
 
                 <div className="p-4 border border-stone-600 rounded-md flex-shrink-0 bg-stone-900">
                     <h3 className="text-lg font-bold text-stone-300 mb-2">GM Intervention</h3>
@@ -274,6 +392,7 @@ const GameMasterScreen: React.FC<{
                                     {activeTab === 'actions' && <ActionsView adjudication={entry.adjudication} />}
                                     {activeTab === 'deltas' && <DeltasView adjudication={entry.adjudication} />}
                                     {activeTab === 'private' && <PrivateView adjudication={entry.adjudication} />}
+                                    {activeTab === 'ground truth' && <GroundTruthView entry={entry} playerCharacterId={playerCharacterId} worldState={worldState} />}
                                     {activeTab === 'raw json' && <RawJsonView adjudication={entry.adjudication} rawCalls={entry.rawCalls} />}
                                 </div>
                             </div>

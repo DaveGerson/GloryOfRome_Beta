@@ -10,7 +10,9 @@
  *  - The `SaveGame` envelope/state types are defined HERE (not in
  *    `types.ts`), deliberately - `types.ts` is owned by a concurrent
  *    workstream. Everything inside `SaveGameState` is composed from types
- *    that already live in `../types`.
+ *    that already live in `../types`, with one exception: `inferredAmbition`
+ *    (DESIGN_DECISIONS.md D8) is typed off `ai/tools/ambition.ts`, a file
+ *    owned by this same workstream, not the concurrent one.
  *  - Every localStorage call is guarded: a private/incognito context can
  *    throw `SecurityError` just for touching `localStorage`, and any write
  *    can throw `QuotaExceededError`. Neither should ever crash the game -
@@ -29,11 +31,22 @@ import type {
   EventHistoryEntry,
   Message,
 } from '../types';
+import type { AmbitionInference } from '../ai/tools/ambition';
 
 /** Bump this whenever `SaveGameState`'s shape changes in a backwards-incompatible way. */
 export const SAVE_VERSION = 1 as const;
 
 const SAVE_KEY = 'gloryOfRome:autosave';
+
+/**
+ * The periodic D8 ambition-inference snapshot (App.tsx / ai/tools/ambition.ts),
+ * plus the turn number it was computed as of - so a consumer (GameMasterScreen,
+ * EpilogueScreen) can tell a fresh read from a stale one on a long-since-moved-on
+ * campaign. GM-console/epilogue only - never rendered as a player-facing goal UI.
+ */
+export interface InferredAmbitionState extends AmbitionInference {
+  asOfTurn: number;
+}
 
 /**
  * Everything that makes up "the campaign" - i.e. the subset of `App.tsx`'s
@@ -56,6 +69,26 @@ export interface SaveGameState {
   suggestedActions: string[];
   currentEvents: string[];
   gmInterventionText: string;
+  /**
+   * DESIGN_DECISIONS.md D8 - the most recent inferred-ambition snapshot, if
+   * any has been computed yet this campaign. Optional (and nullable) so
+   * `SAVE_VERSION` stays at 1: a pre-existing save with no such field at all
+   * still loads cleanly (see `looksLikeSaveGame`'s deliberately minimal
+   * structural check below, and App.tsx's `handleContinue`, which falls
+   * back to `null` when reading it off an old save).
+   */
+  inferredAmbition?: InferredAmbitionState | null;
+  /**
+   * ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - the investigation-consequence
+   * queue closing the `turnInvestigations` loop (see
+   * `components/investigationLoop.ts`). Optional so `SAVE_VERSION` stays at
+   * 1: a pre-existing save with no such field loads cleanly and simply
+   * starts with an empty queue (App.tsx's `handleContinue` falls back to
+   * `[]` when reading it off an old save). Deliberately survives a
+   * mid-retry failure - only cleared once the turn that consumes it
+   * actually commits.
+   */
+  pendingIntelligenceFallout?: string[];
 }
 
 /** The versioned envelope actually written to storage. */
@@ -130,6 +163,40 @@ export function saveGame(state: SaveGameState): void {
     localStorage.setItem(SAVE_KEY, JSON.stringify(strippedEnvelope));
   } catch (e) {
     console.warn('saveGame: retry after stripping rawCalls also failed; autosave skipped', e);
+  }
+}
+
+/**
+ * Patches ONLY the inferred-ambition field into whatever autosave is
+ * currently stored, leaving every other field of the latest save untouched.
+ *
+ * This exists because ambition inference is fire-and-forget and can resolve
+ * WELL AFTER later turns have committed and autosaved: writing a full
+ * `saveGame(buildSaveState(...))` from that async callback would clobber
+ * the newer autosave with the stale turn snapshot the callback closed over
+ * (losing every subsequently committed turn on reload). Patching the stored
+ * blob in place is immune to that staleness - it always decorates the
+ * NEWEST save, whichever turn produced it.
+ *
+ * No-ops safely (with a console.warn) when no valid save exists or storage
+ * is unavailable.
+ */
+export function updateSavedAmbition(ambition: InferredAmbitionState): void {
+  const existing = loadGame();
+  if (!existing) {
+    console.warn('updateSavedAmbition: no valid autosave to patch; skipping');
+    return;
+  }
+
+  try {
+    const patched: SaveGame = {
+      ...existing,
+      savedAt: new Date().toISOString(),
+      state: { ...existing.state, inferredAmbition: ambition },
+    };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(patched));
+  } catch (e) {
+    console.warn('updateSavedAmbition: write failed; ambition not persisted', e);
   }
 }
 

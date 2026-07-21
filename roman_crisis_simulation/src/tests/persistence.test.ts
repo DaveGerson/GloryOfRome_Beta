@@ -7,8 +7,10 @@ import {
   loadGame,
   clearSave,
   hasSave,
+  updateSavedAmbition,
   SAVE_VERSION,
   type SaveGameState,
+  type InferredAmbitionState,
 } from '../persistence/saveGame';
 import type { TurnHistoryEntry, RawCallRecord } from '../types';
 
@@ -100,6 +102,45 @@ describe('persistence/saveGame', () => {
   it('hasSave returns false when nothing has been saved', () => {
     expect(hasSave()).toBe(false);
     expect(loadGame()).toBeNull();
+  });
+
+  describe('updateSavedAmbition (stale-autosave race guard)', () => {
+    const ambition: InferredAmbitionState = {
+      apparent_ambition: 'Seize the purple by courting the Rhine legions',
+      confidence: 'medium',
+      asOfTurn: 3,
+    };
+
+    it('patches ONLY the ambition field into the newest stored save', () => {
+      // Simulate the race: turn 3 autosaves, then turn 4 autosaves a NEWER
+      // state, and only THEN does the (stale) ambition callback resolve.
+      saveGame(makeState({ turnNumber: 3 }));
+      const newerState = makeState({ turnNumber: 4 });
+      saveGame(newerState);
+
+      updateSavedAmbition(ambition);
+
+      const loaded = loadGame();
+      expect(loaded).not.toBeNull();
+      // The newer turn's state survives untouched...
+      expect(loaded!.state.turnNumber).toBe(4);
+      expect({ ...loaded!.state, inferredAmbition: undefined }).toEqual({ ...newerState, inferredAmbition: undefined });
+      // ...and the ambition landed on top of it.
+      expect(loaded!.state.inferredAmbition).toEqual(ambition);
+    });
+
+    it('no-ops safely when no save exists', () => {
+      expect(() => updateSavedAmbition(ambition)).not.toThrow();
+      expect(hasSave()).toBe(false);
+    });
+
+    it('tolerates a storage write failure without throwing', () => {
+      saveGame(makeState({ turnNumber: 2 }));
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('quota', 'QuotaExceededError');
+      });
+      expect(() => updateSavedAmbition(ambition)).not.toThrow();
+    });
   });
 
   it('clearSave removes the autosave', () => {

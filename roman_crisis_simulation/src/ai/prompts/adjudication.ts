@@ -26,6 +26,7 @@
  */
 
 import { Entity, WorldState, SimulationState, StoryRelevance } from '../../types';
+import type { ActionResolutionTier } from '../core/resolution';
 import {
   buildWorldSummary,
   buildSpotlightBlock,
@@ -34,6 +35,7 @@ import {
   buildStoryEvolutionBlock,
   buildMetaNarrativeBlock,
   buildMetaStateBlock,
+  buildSecretSurvivorsBlock,
 } from './fragments';
 
 const ADJUDICATION_SYSTEM_INSTRUCTION = `
@@ -72,9 +74,51 @@ PRINCIPLES:
 - Spotlight NPCs MUST take at least one proactive action to advance their scheme.
 - All NPCs can react. The player's action can be the catalyst for the turn.
 - Introduce 0-2 rumors per turn via 'rumor' deltas. A rumor's 'delta' field is its credibility (0.0 to 1.0).
+- DEBT HAS TEETH: If an entity carries a 'debt_denarii' resource (created automatically by the simulation when their denarii overdraws — you never set this directly), treat them as beholden to their creditors, not merely poor. Creditors may be introduced or invoked as named NPCs. As debt persists or grows, the debtor's 'dependency_level' toward a creditor should rise via a 'relation' delta. Refusing or being unable to service the debt has real social consequences — a creditor calling in favors, spreading damaging rumors, or turning openly hostile — reflected in 'relation' deltas, 'rumor' deltas, or headlines, never silently ignored.
+- WORLD DELTAS: When the turn's events plausibly shift the empire's macro condition, emit a 'world' delta. The 'key' MUST be 'economic_stability' or 'political_climate'; 'reason' is the new short string value for that field (e.g. 'Failing', 'Openly Hostile'). At most one 'world' delta per field per turn. 'delta' is ignored for this type; set it to 0.
+- PLAYER ACTION RESOLUTION (resolution layer, ROADMAP_0_MASTER_PLAN.md Phase 3 item 4): When the prompt below includes a "PLAYER ACTION OUTCOME" block, the player's action's outcome TIER has ALREADY been decided by a hidden dice roll you never see - mirroring the mortality pipeline's own contract (you narrate/adjudicate a pre-decided outcome, you never decide it yourself). You decide HOW that tier manifests - the concrete deltas, NPC reactions, and headline wording - you never decide, second-guess, upgrade, or downgrade WHETHER the action succeeded. The tier name is for your (the adjudicator's) internal use only: NEVER let the tier name, a roll number, or any other mechanical detail reach 'headlines', a delta's player-adjacent 'reason' text, or anything else that could reach the player - mechanics stay exclusively in your own reasoning and, if you wish to note them, 'gm_private'. When no such block is present, the player's action carries no pre-decided outcome - adjudicate it exactly as you always have.
 
 OUTPUT: A single JSON object per the schema. Do not include any explanatory text or markdown.
 `;
+
+/**
+ * The pre-decided outcome of the player's action, from the resolution layer
+ * (`ai/core/resolution.ts::resolveAction`, wired in `ai/core/turn.ts`).
+ * Present ONLY when the assessment call (`ai/prompts/assessment.ts`)
+ * flagged the action as consequential - see `buildPlayerActionOutcomeBlock`
+ * below. `tier` is GM-side only; it must never reach player-facing text.
+ */
+export interface PlayerActionOutcomeContext {
+  tier: ActionResolutionTier;
+  actionCategory: string;
+}
+
+/** Per-tier authoring guidance for the adjudicator, keyed by the exact tier strings from ai/core/resolution.ts. Mirrors ai/prompts/mortality.ts's BAND_GUIDANCE pattern. */
+const PLAYER_ACTION_TIER_GUIDANCE: Record<ActionResolutionTier, string> = {
+  critical_failure: 'The action fails badly. Narrate/adjudicate a real, concrete negative consequence beyond simple failure - a complication, an exposure, or a backfire that leaves the player worse off than if they had done nothing.',
+  failure: "The action does not achieve its goal. The consequence should be plausible and may sting, but it is not catastrophic.",
+  partial_success: 'The action partly succeeds - the player gains something real, but at a cost or with a complication attached.',
+  success: "The action succeeds cleanly and achieves its intended goal.",
+  critical_success: "The action succeeds exceptionally well - it achieves its goal AND yields an extra, unlooked-for benefit.",
+};
+
+/**
+ * Builds the "PLAYER ACTION OUTCOME" block injected into the adjudication
+ * prompt when the resolution layer has already decided the player's
+ * action's outcome tier this turn. Returns '' (no block at all) when
+ * `outcome` is undefined - the non-consequential path, where the
+ * adjudicator behaves exactly as it did before this feature existed.
+ * Exported for direct unit testing.
+ */
+export function buildPlayerActionOutcomeBlock(outcome: PlayerActionOutcomeContext | undefined, playerIntent: string): string {
+  if (!outcome) return '';
+  return `
+PLAYER ACTION OUTCOME (pre-decided by a hidden roll - GM-only; never reveal the tier, roll, or any mechanics to the player):
+The player's action ("${playerIntent}", category: ${outcome.actionCategory}) has ALREADY been mechanically resolved as: ${outcome.tier.toUpperCase()}.
+${PLAYER_ACTION_TIER_GUIDANCE[outcome.tier]}
+This outcome is FINAL. You decide HOW it manifests in the story - you do NOT decide, second-guess, upgrade, or downgrade WHETHER it succeeded.
+`;
+}
 
 export interface AdjudicationPromptInput {
   worldState: WorldState;
@@ -86,6 +130,8 @@ export interface AdjudicationPromptInput {
   gmInterventionText: string;
   storyRelevance: StoryRelevance;
   metaNarrative: string;
+  /** Present only when the resolution layer's assessment call flagged this turn's player action as consequential - see `buildPlayerActionOutcomeBlock`. */
+  playerActionOutcome?: PlayerActionOutcomeContext;
 }
 
 /** Builds the { systemInstruction, prompt } pair for the main turn adjudication call. */
@@ -93,6 +139,7 @@ export function buildAdjudicationPrompt(input: AdjudicationPromptInput): { syste
   const {
     worldState, simulationState, playerEntity, npcEntities, history,
     playerIntent, gmInterventionText, storyRelevance, metaNarrative,
+    playerActionOutcome,
   } = input;
 
   const spotlightIds = new Set(storyRelevance.spotlight_entities.map(s => s.entity_id));
@@ -117,11 +164,13 @@ ${buildSpotlightBlock(spotlightNpcs)}
 
 ${buildOtherNpcsBlock(otherNpcs)}
 
+${buildSecretSurvivorsBlock(npcEntities)}
+
 PLAYER CHARACTER:
 Name: ${playerEntity.name} (ID: ${playerEntity.entity_id})
 Action this turn: "${playerIntent}"
 This action is an INPUT. Do NOT generate an action for the player in your output. Your task is to determine the consequences and NPC reactions to this action.
-
+${buildPlayerActionOutcomeBlock(playerActionOutcome, playerIntent)}
 ${buildGmInterventionBlock(gmInterventionText)}
 
 ${buildStoryEvolutionBlock(storyRelevance)}

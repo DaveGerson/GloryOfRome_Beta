@@ -56,6 +56,21 @@ export interface GeminiClient {
       contents: string;
       config?: Record<string, unknown>;
     }) => Promise<{ text?: string }>;
+    /**
+     * Streaming counterpart of `generateContent`, used by `generateTextStream`
+     * below. Optional so existing plain-object test mocks (e.g.
+     * `{ models: { generateContent: vi.fn() } }`) keep structurally
+     * satisfying this interface without also having to stub streaming - any
+     * real `GoogleGenAI` instance always has it. Each yielded item's `.text`
+     * is that CHUNK's own incremental text (per the SDK: "the response
+     * yielded in chunks"), not the cumulative text so far - callers are
+     * responsible for accumulating, exactly like `generateTextStream` does.
+     */
+    generateContentStream?: (params: {
+      model: string;
+      contents: string;
+      config?: Record<string, unknown>;
+    }) => Promise<AsyncIterable<{ text?: string }>>;
   };
 }
 
@@ -165,10 +180,22 @@ interface NetworkResult {
   latencyMs: number;
 }
 
-async function callWithRetry(
-  callName: string,
-  invoke: () => Promise<{ text?: string }>
-): Promise<NetworkResult> {
+interface RetryResult<T> {
+  value: T;
+  attempts: number;
+  latencyMs: number;
+}
+
+/**
+ * Generic transient-retry loop: jittered exponential backoff on a transient
+ * failure (see `isTransientError`), immediate `fatal` AiServiceError on
+ * anything else, `transient` AiServiceError once `MAX_ATTEMPTS` is
+ * exhausted. Shared by `callWithRetry` (plain-text/JSON calls) and
+ * `generateTextStream`'s stream-acquisition step below - the two differ
+ * only in what `invoke` resolves to (a response object vs. an async
+ * generator), not in the retry semantics themselves.
+ */
+async function retryTransient<T>(callName: string, invoke: () => Promise<T>): Promise<RetryResult<T>> {
   const start = Date.now();
   let attempt = 0;
   let lastError: unknown;
@@ -176,8 +203,8 @@ async function callWithRetry(
   while (attempt < MAX_ATTEMPTS) {
     attempt++;
     try {
-      const response = await invoke();
-      return { text: response.text || '', attempts: attempt, latencyMs: Date.now() - start };
+      const value = await invoke();
+      return { value, attempts: attempt, latencyMs: Date.now() - start };
     } catch (e) {
       lastError = e;
       if (!isTransientError(e)) {
@@ -202,6 +229,14 @@ async function callWithRetry(
 
   // Unreachable (loop always returns or throws), but keeps TS happy.
   throw new AiServiceError('transient', callName, `Gemini call '${callName}' failed unexpectedly`, lastError);
+}
+
+async function callWithRetry(
+  callName: string,
+  invoke: () => Promise<{ text?: string }>
+): Promise<NetworkResult> {
+  const { value, attempts, latencyMs } = await retryTransient(callName, invoke);
+  return { text: value.text || '', attempts, latencyMs };
 }
 
 // --- Structured (JSON) calls --------------------------------------------
@@ -399,4 +434,93 @@ export async function generateText(ai: GeminiClient, req: GenerateTextRequest): 
   });
 
   return network.text;
+}
+
+/**
+ * Streaming counterpart of `generateText` (ROADMAP_0_MASTER_PLAN.md Phase 3
+ * item 2 - "the narration call uses generateContentStream; the GM's
+ * dispatch types onto the page"). Same call shape (`GenerateTextRequest`),
+ * plus an `onChunk` callback invoked with the CUMULATIVE text received so
+ * far after every chunk that carries new text.
+ *
+ * Retry semantics are deliberately asymmetric across the two phases of a
+ * streaming call, per ROADMAP_0_MASTER_PLAN.md Phase 3 item 2's spec:
+ *
+ *  - ACQUIRING the stream (the `generateContentStream` call itself, before
+ *    the first chunk has been read) is retried exactly like
+ *    `generateText`/`generateStructured` - jittered backoff on a transient
+ *    429/5xx/network failure, immediate `fatal` AiServiceError on anything
+ *    else, `transient` AiServiceError once `MAX_ATTEMPTS` is exhausted.
+ *  - Once chunks have started flowing, a failure mid-stream is surfaced
+ *    directly as a `transient` AiServiceError with NO retry - re-issuing a
+ *    partially-consumed prompt and somehow resuming mid-narration is not
+ *    worth the complexity; callers (App.tsx) already have a uniform
+ *    "offer to retry the whole turn" affordance for any transient error.
+ *
+ * The full concatenated text is what feeds the raw-call capture
+ * (`recordCall`), with `attempts` reflecting only the acquisition retries
+ * (a successful stream is always consumed in one pass) and `latencyMs`
+ * spanning acquisition-through-final-chunk, mirroring `generateText`.
+ */
+export async function generateTextStream(
+  ai: GeminiClient,
+  req: GenerateTextRequest,
+  onChunk: (textSoFar: string) => void
+): Promise<string> {
+  const { callName, model } = req;
+  const streamFn = ai.models.generateContentStream;
+  if (!streamFn) {
+    throw new AiServiceError(
+      'fatal',
+      callName,
+      `Gemini call '${callName}' requested a streaming response but this client has no generateContentStream implementation.`
+    );
+  }
+
+  const config = buildConfig({
+    systemInstruction: req.systemInstruction,
+    thinkingConfig: req.thinkingConfig,
+    temperature: req.temperature,
+    json: false,
+  });
+
+  const totalStart = Date.now();
+
+  // Phase 1: acquire the stream, retrying transient failures exactly like
+  // callWithRetry does for a non-streaming call.
+  const { value: stream, attempts } = await retryTransient(callName, () =>
+    streamFn({ model, contents: req.prompt, config })
+  );
+
+  // Phase 2: consume it. No retry here by design (see doc comment above) -
+  // any error at this point (including on the very first chunk) is surfaced
+  // as transient, since the stream was already successfully acquired.
+  let textSoFar = '';
+  try {
+    for await (const chunk of stream) {
+      if (chunk.text) {
+        textSoFar += chunk.text;
+        onChunk(textSoFar);
+      }
+    }
+  } catch (e) {
+    throw new AiServiceError(
+      'transient',
+      callName,
+      `Gemini call '${callName}' failed mid-stream: ${e instanceof Error ? e.message : String(e)}`,
+      e
+    );
+  }
+
+  recordCall({
+    callName,
+    model,
+    latencyMs: Date.now() - totalStart,
+    attempts,
+    promptChars: req.prompt.length,
+    rawResponse: textSoFar,
+    validated: true,
+  });
+
+  return textSoFar;
 }
