@@ -8,6 +8,13 @@ no ruling)* where they appear: the Chronicle's source of record (G9, item
 4B.6) and the out-of-scope list (G14, final section). Baseline at adoption:
 commit `4755035` + non-mechanical fixes, 208 tests green.
 
+**Status: 4A COMPLETE** (commits `f3d5f8d`..`5a453ad`, suite at 305,
+adversarially reviewed; cap values ratified). **Second ruling round D19–D24
+applied** to 4B–4D below. Two 4B questions remain OPEN and block only the
+items that cite them: how confidence is displayed to the player (numbers vs
+in-fiction wording), and dossier refresh pricing (how much cheaper, paid in
+what).
+
 Shape: **substrate first (D9)** — plumbing that makes mechanics observable
 and iterable live, then the systems that need it. Four sub-phases; each
 ships independently, CI-green, save-compatible (new persisted fields
@@ -60,28 +67,38 @@ mechanic be watched, replayed, and tuned instead of guessed at.*
    (invariant 2) so rumors are emitted *with* their truth flag. Truth flags are GM-private data,
    same class as `secret_truth` — grep-clean of player surfaces, rendered
    only in the GM console's true-vs-believed view (D7).
-2. **Player knowledge store.** New persisted (optional) state: accreted
-   entries `{claim, subject, source, turnLearned, confidence}` covering
-   interpretations (own sensed impressions, digest entries) and hearsay
-   (reports, rumors, bought intel). Written by the perception digest,
-   investigations, and event outcomes. **New invariant: player-facing
-   intelligence surfaces read ONLY this store, never live entity ground
-   truth.**
+2. **Player knowledge store — information as a living entity (D21).**
+   New persisted (optional) state where each unit is a CLAIM entity:
+   `{id, claim, subject, firstLearnedTurn, updates: [{turn, source,
+   restatement, confidence}]}` — time-dated at every step, accreting
+   updates as the rumor mill re-reports (the player sees a claim's
+   evolution, not just its first arrival). Interpretations (own sensed
+   impressions, digest entries) and hearsay (reports, rumors, bought
+   intel) both write into it. Per D14, an acquired snapshot stays frozen
+   at its stamp while its claim keeps gaining sourced updates. **New
+   invariant: player-facing intelligence surfaces read ONLY this store,
+   never live entity ground truth.** *(OPEN: whether confidence renders
+   as numbers or in-fiction wording.)*
 3. **Persistent dossiers (D14).** Investigation results write knowledge
    entries instead of component-local state (retiring the
    evaporates-on-tab-switch `uncoveredIntel`). Dossier view per NPC:
    frozen snapshots stamped with turn + source; **refreshing a held
    dossier costs less than first acquisition**. `blackmail_on_*` folds in
-   as an entry type (resource stays for engine compatibility).
+   as an entry type (resource stays for engine compatibility). *(OPEN:
+   refresh discount size and currency.)*
 4. **Relationship map (D13).** Fill the 0-byte `RelationshipsTab`: edges
    are *interpretation* (own outbound feelings; sensed impressions of
    others' stances toward you) and *hearsay* (claims about third-party
    ties), each with provenance and age. No ground-truth values — the map
    can be wrong when a source lied, not merely stale.
-5. **Rumor feed + planting (D11).** Chronological feed over the knowledge
-   store's sourced claims. Planting a false rumor becomes an NPC scheme
-   verb (and a player action the adjudicator can resolve); the existing
-   investigation spend is the verification counter.
+5. **Rumor feed + planting (D11, D19, D20).** Chronological feed over the
+   knowledge store's claim entities, showing updates as they arrive
+   (D21). Planting a false rumor is BOTH an NPC scheme verb and a player
+   action (D19); planted lies are counterplay targets — spotting,
+   tracing, refuting. The investigation spend is the verification
+   counter, and **verification itself rolls: a bad outcome can return a
+   false confirmation (D20)** — narrated with full confidence, truth
+   recorded only in the GM ledger.
 6. **Chronicle rebuild** *(adopted, no ruling — G9)*. Persist the per-turn
    perceived digest (currently computed and discarded) and render the
    reign from it — intent → narration → what you perceived.
@@ -103,29 +120,37 @@ continuity of intent.*
    spotlight cast *and* carries forward persistent intents —
    `entityActions` becomes real state feeding the next turn instead of
    write-only schema baggage.
-4. **Minds (D10).** Per-NPC — or per-*set* (faction, household, spotlight
-   cast) as the cost lever — mind calls for the spotlight: each sees only
-   its own brief + memories + perceived digest, returns intent, private
-   reasoning, and voice. The Adjudicator consumes minds' outputs and
-   resolves conflicts; `applyDeltas` unchanged. Slower and better is
-   accepted (D16); richness axes join the 4A judge so the gain is
-   *observed*, not assumed.
+4. **Minds (D10, D22).** One mind per spotlight character or per set of
+   spotlight characters, with grouping kept open as the cost lever.
+   Factions that act as a bloc (the Plebs, the Senate, gangs) may be
+   modeled as collective NPCs with a single group mind (D22). Each mind
+   sees only its own brief + memories + perceived digest, returns
+   intent, private reasoning, and voice. The Adjudicator consumes minds'
+   outputs and resolves conflicts; `applyDeltas` unchanged. Slower and
+   better is accepted (D16); richness axes join the 4A judge so the gain
+   is *observed*, not assumed.
 5. **Voice.** `voice`/`epithet` fields (optional, worldgen + narration in
    lockstep) so minds and narration speak in character.
 
 ## 4D — Pacing & Payoff (D12, D15)
 
-1. **Soft tension meter (D15).** Code-tracked scalar from observable
-   signals (delta volume, outcome tiers, deaths, scheme age); fed into
-   adjudication as *light pacing direction* — guidance the model weighs,
-   never a hard detonation threshold. GM console displays it (D7); the
-   player only feels it (ambient copy, quiet-week texture).
-2. **Events repurposed (D12).** The authored-event library becomes payoff
-   *material*: sim-state-keyed, role-agnostic (Emperor gates dropped),
-   repeatable with cooldowns — but mostly consumed as seeds/templates the
-   adjudicator riffs on when tension calls for a payoff. Verbatim scripted
-   firing is the exception, not the model. Deterministic fire-once
-   triggers retire.
+1. **Adjudicator-judged pacing (D23, supersedes D15's meter).** No
+   code-side tension scalar. The adjudicator itself tracks pacing and
+   makes an intentional choice to step in, and only when it judges it
+   required — default posture is non-intervention, letting dramatic
+   circumstance generate dynamics naturally, with *light directing* when
+   it does act. Its pacing reasoning lands in `gm_private` so the GM
+   console shows the judgment (D7); the player only feels it. A
+   user-facing configuration setting tunes the pacing posture (placement
+   decided at implementation; a full settings surface stays out of
+   scope).
+2. **Events repurposed (D12, D24).** The authored-event library becomes
+   payoff *material*: sim-state-keyed, role-agnostic (Emperor gates
+   dropped), repeatable with cooldowns. When the adjudicator judges a
+   payoff due, it **prefers a historical/authored event whose time has
+   plausibly come; otherwise it crafts a custom crisis** (D24). Verbatim
+   scripted firing is the exception, not the model. Deterministic
+   fire-once triggers retire.
 3. **Moment lines.** On scheme completion/detonation, a signature
    in-character line from the mind's voice — the screenshotable payoff.
 

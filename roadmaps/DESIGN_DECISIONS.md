@@ -167,3 +167,61 @@ exported from the GM console as files for tuning and evaluation; saves
 stay lean (capture is session-side, not part of the persisted save
 blob). Golden turns for the judge come from real owner-played sessions.
 *Answers:* G2/G3.
+
+---
+
+Rulings D19–D24 are the second Phase 4 round (July 2026), answering the
+granular 4B–4D design questions. Two questions from that round remain
+open — confidence display (numbers vs in-fiction) and dossier refresh
+pricing — tracked in `ROADMAP_PHASE_4.md`. The 4A save-bounding cap
+values (40 memories / 20 interactions / 10 snapshots) were ratified in
+this round.
+
+## D19 — Planting lies is a player verb, and lies invite counterplay
+Planting a false rumor is not NPC-only: the player can do it as an
+action. Planted lies — whoever planted them — are game objects others
+can act against; spotting, tracing, and refuting them is part of play.
+*Extends:* D11 (the engine always knows what is a lie, regardless of
+who planted it).
+
+## D20 — Verification can deceive
+Paying to verify a claim is itself a roll: on a bad outcome the game
+may return a false confirmation — a lie comes back "confirmed" — not
+merely "inconclusive." Even verification is untrusted; the D11 truth
+ledger is the only place certainty exists. (Recorded from an owner
+reply that was cut off mid-sentence after endorsing this option; flag
+if misread.)
+
+## D21 — Information is a time-dated, living entity
+Every piece of information the player holds is stamped with when it was
+learned AND continues to live: as weeks pass, the rumor mill issues
+updates that adjust or restate existing claims, and the player sees a
+claim's evolution, not just its first arrival. Modeling information as
+an entity — a claim with an update timeline — is the sanctioned shape.
+Coexists with D14: what you *acquired* stays frozen at its stamp; the
+claim it belongs to keeps accreting new sourced updates.
+*Changes:* the 4B knowledge store becomes an information-entity store
+(claims with update histories), not a flat log.
+
+## D22 — Minds per spotlight character or set; factions may be one mind
+One mind per spotlight character, or per set of spotlight characters,
+with the door deliberately open to grouping minds for cost. Factions
+that plausibly act as a bloc (the Plebs, the Senate, gangs) may be
+modeled as a collective NPC with a single group mind.
+*Refines:* D10.
+
+## D23 — Pacing is the adjudicator's intentional judgment, not a score
+Supersedes D15's mechanism: quiet tolerance is not a number the code
+accumulates. The adjudicator itself intelligently tracks pacing and
+makes an *intentional choice* to step in, only when it judges it
+required — the default posture is non-intervention, because dramatic
+circumstance should generate dynamics naturally. "Light directing" is
+confirmed as the correct D15 reading. A user-facing configuration
+setting makes the pacing posture tunable.
+*Supersedes:* D15's code-side meter (the light-touch principle stands).
+
+## D24 — Payoffs prefer a due historical event, else custom
+When the adjudicator judges a payoff is warranted, it should prefer a
+historical/authored event whose time has plausibly come; otherwise it
+crafts a custom crisis.
+*Refines:* D12.
