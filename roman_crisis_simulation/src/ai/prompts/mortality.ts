@@ -104,7 +104,7 @@ const BAND_GUIDANCE: Record<string, string> = {
   gravely_wounded:
     "The NPC survives PUBLICLY but is gravely wounded - weakened. Emit at least one delta reflecting the toll (e.g. a resource or skill drop, lost standing, a damaged relationship). Never emit a 'status' delta - their public status is already decided as alive.",
   presumed_dead:
-    "The world and the player believe this NPC is dead. They are secretly alive, in hiding, and may return later as a nemesis. Do NOT emit any delta that reveals this to the public - deltas here (if any) must be consistent with a confirmed death. Provide a short 'secret_motive': why they are hiding and what they might want if they return.",
+    "The world and the player believe this NPC is dead. They are secretly alive, in hiding, and may return later as a nemesis. Do NOT emit any delta that reveals this to the public - deltas here (if any) must be consistent with a confirmed death. Any 'rumor' delta claiming or reporting the death is 'is_true' FALSE: the world-truth is that they live, however universally the death is believed (see the RUMOR DELTAS rule). Provide a short 'secret_motive': why they are hiding and what they might want if they return.",
   escapes_openly:
     "The NPC visibly escapes death - everyone present now knows an attempt was made on their life. Consider a delta reflecting the fallout now that the attempt is public knowledge (e.g. a relation delta raising perceived_threat, or a rumor). Never emit a 'status' delta - their public status is already decided as alive.",
 };
@@ -122,6 +122,11 @@ ${Object.entries(BAND_GUIDANCE)
   .join('\n')}
 
 Valid delta types: ${EventDeltaTypeEnum.join(', ')}. Every candidate MUST receive exactly one outcome entry, matched by its exact entity_id.
+
+RUMOR DELTAS: EVERY 'rumor' delta you emit MUST also carry two GM-private bookkeeping fields:
+- 'is_true' (boolean, ALWAYS set): whether the claim is ACTUALLY TRUE in the simulation's reality, ruled STRICTLY by world-truth - never omit it, and there is no "unknown". For a 'presumed_dead' candidate the world-truth is that they secretly LIVE: a rumor claim asserting or confirming their death is 'is_true' FALSE, however completely the world believes it.
+- 'origin_id' (string): the entity_id of whoever starts or spreads the rumor. Omit it ONLY when the rumor is genuinely organic, with no single attributable source.
+Both fields are GM-private ledger data: neither may surface in the delta's 'reason' text, the 'narrative_directive', or anything else that could reach the player.
 
 OUTPUT: A single JSON object per the schema. Do not include any explanatory text or markdown.
 `;

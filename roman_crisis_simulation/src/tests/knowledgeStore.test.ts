@@ -274,26 +274,44 @@ describe('knowledge/store', () => {
 
   describe('leak guard (D5/D21 hard invariant)', () => {
     // Fields of the GM-private handling class (D11 truth ledger, rumor
-    // delta truth flags, secret survivors) that must NEVER appear anywhere
-    // in the store's serialized form.
+    // delta truth flags in wire AND ledger casings, secret survivors, the
+    // assumed flag) that must NEVER appear anywhere in the store's
+    // serialized form. Asserted as serialized JSON KEY patterns
+    // (`"key":`), not bare substrings: prose like "he assumed the throne"
+    // must never trip the guard, and every entry below is seeded onto the
+    // polluted fixtures pre-ingestion so no entry can pass vacuously.
     const FORBIDDEN_KEYS = ['is_true', 'origin_id', 'isTrue', 'originId', 'secret_truth', 'assumed'];
+    const asJsonKey = (key: string) => `"${key}":`;
+    const POLLUTION = {
+      is_true: false,
+      origin_id: 'maximinus_thrax',
+      isTrue: false,
+      originId: 'maximinus_thrax',
+      assumed: true,
+      secret_truth: { actually_alive: true, hidden_since_turn: 2, motive: 'revenge' },
+    };
 
-    it('ingesting a Report polluted with truth-ledger fields (a lying rumor built by careless spreading) stores none of them', () => {
+    it('ingesting a Report polluted with every forbidden key (a lying rumor built by careless spreading) stores none of them', () => {
       // Reports never legitimately carry these - they live on rumor DELTAS
       // and the GM ledger - but a future refactor could plausibly build a
       // Report by spreading a delta. The field-by-field copy must hold.
       const pollutedReport = {
         ...makeReport({ claim: 'The Emperor has secretly fled Rome' }),
-        is_true: false,
-        origin_id: 'maximinus_thrax',
-        secret_truth: { actually_alive: true, hidden_since_turn: 2, motive: 'revenge' },
+        ...POLLUTION,
       } as unknown as Report;
+
+      // Non-vacuous by construction: every forbidden key is actually
+      // present on the fixture before ingestion.
+      const pollutedSerialized = JSON.stringify(pollutedReport);
+      for (const key of FORBIDDEN_KEYS) {
+        expect(pollutedSerialized).toContain(asJsonKey(key));
+      }
 
       const store = ingestReports([], [pollutedReport]);
       const serialized = JSON.stringify(store);
 
       for (const key of FORBIDDEN_KEYS) {
-        expect(serialized).not.toContain(key);
+        expect(serialized).not.toContain(asJsonKey(key));
       }
       // The player-visible half of the lie is stored intact - the store
       // records what the player BELIEVES, truth flags stay in the ledger.
@@ -301,12 +319,18 @@ describe('knowledge/store', () => {
       expect(store[0].updates[0].credibility).toBe(0.6);
     });
 
-    it('digest and investigation ingestion are equally clean end to end', () => {
+    it('digest and investigation ingestion are equally clean end to end, without tripping on prose that merely contains a forbidden word', () => {
       const pollutedChange = {
-        ...makeChange(),
-        is_true: true,
-        origin_id: 'someone',
+        // The stored TEXT legitimately contains the word "assumed" - only
+        // the serialized KEY may never appear.
+        ...makeChange({ text: 'He assumed command of the garrison.' }),
+        ...POLLUTION,
       } as unknown as PerceivedChange;
+
+      const pollutedSerialized = JSON.stringify(pollutedChange);
+      for (const key of FORBIDDEN_KEYS) {
+        expect(pollutedSerialized).toContain(asJsonKey(key));
+      }
 
       let store = ingestPerceivedChanges([], [pollutedChange], 2);
       store = ingestInvestigationReveal(store, {
@@ -318,8 +342,10 @@ describe('knowledge/store', () => {
 
       const serialized = JSON.stringify(store);
       for (const key of FORBIDDEN_KEYS) {
-        expect(serialized).not.toContain(key);
+        expect(serialized).not.toContain(asJsonKey(key));
       }
+      // The prose itself is stored untouched.
+      expect(store[0].claim).toBe('He assumed command of the garrison.');
     });
   });
 });

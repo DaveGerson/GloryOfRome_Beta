@@ -388,6 +388,13 @@ const GameMasterScreen: React.FC<{
             saveVersion: SAVE_VERSION,
             turnNumber,
             playerCharacterId,
+        }, {
+            // Campaign-wide GM-side slices (D11 ledger / D21 knowledge) so
+            // the offline judge can score true-vs-believed and assumed-rate.
+            // Passed through as-is: absent on a legacy campaign stays absent
+            // in the corpus.
+            truthLedger,
+            knowledge,
         });
         const blob = new Blob([JSON.stringify(corpus, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);

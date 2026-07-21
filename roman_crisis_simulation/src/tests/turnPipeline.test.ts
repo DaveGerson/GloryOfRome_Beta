@@ -21,7 +21,7 @@ import type { GoogleGenAI } from '@google/genai';
 import { runNewTurn } from '../ai/core/turn';
 import { endTurnCapture } from '../ai/core/geminiService';
 import { rollD20, createSeededRng } from '../ai/core/resolution';
-import type { Entity, WorldState, SimulationState } from '../types';
+import type { Entity, WorldState, SimulationState, Report, TruthLedgerEntry } from '../types';
 
 // --- fixtures ---------------------------------------------------------
 
@@ -462,6 +462,64 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     } finally {
       process.off('unhandledRejection', onUnhandledRejection);
     }
+  });
+});
+
+// --- Campaign truth-ledger threading (DESIGN_DECISIONS.md D11) ------------
+
+describe('ai/core/turn.ts runNewTurn - campaign truth-ledger threading (D11)', () => {
+  it('preserves a NON-EMPTY prior campaign ledger and appends this turn\'s rumor entries, alongside the prior report log', async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+
+    // A campaign already in progress: one prior ledger entry and its linked
+    // Report. If the pipeline stopped threading currentTruthLedger into
+    // applyAdjudication (returning only this turn's entries), this test
+    // fails - the prior entry would vanish from updatedTruthLedger.
+    const priorLedger: TruthLedgerEntry[] = [
+      { id: 'truth_prior', turn: 1, claim: 'An earlier lie', aboutId: 'npc_x', isTrue: false, originId: 'npc_x', reportId: 'report_prior' },
+    ];
+    const priorReports: Report[] = [
+      { id: 'report_prior', turn: 1, source: 'rumor', about: 'npc_x', claim: 'An earlier lie', credibility: 0.4 },
+    ];
+
+    const adjudicationWithRumorJson = JSON.stringify({
+      turn: 2,
+      entityActions: [],
+      deltas: [
+        { type: 'rumor', key: 'player_1', delta: 0.6, reason: 'The treasury is whispered to stand empty.', is_true: false, origin_id: 'npc_x' },
+      ],
+      headlines: ['Whispers in the forum.'],
+      gm_private: [],
+    });
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    h.response.adjudication.resolve(adjudicationWithRumorJson);
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologueText);
+    h.response.narration.resolve(narrationFullText);
+    h.response.relationshipUpdates.resolve(relationshipJson);
+
+    const result = await runNewTurn(
+      h.ai, 'Hold court', player, 2, [player], worldState, simulationState, [], priorReports, priorLedger, '', false, 'Grim political thriller'
+    );
+
+    // The prior campaign entry survives verbatim at the head of the ledger...
+    expect(result.updatedTruthLedger).toHaveLength(2);
+    expect(result.updatedTruthLedger[0]).toEqual(priorLedger[0]);
+    // ...and this turn's rumor is appended with its ruled disposition intact.
+    const appended = result.updatedTruthLedger[1];
+    expect(appended.isTrue).toBe(false);
+    expect(appended.originId).toBe('npc_x');
+    expect(appended.assumed).toBeUndefined();
+    // The report log accretes the same way: prior report kept, new one linked.
+    expect(result.updatedReports).toHaveLength(2);
+    expect(result.updatedReports[0]).toEqual(priorReports[0]);
+    expect(result.updatedReports.some(r => r.id === appended.reportId)).toBe(true);
+    // Inputs were never mutated.
+    expect(priorLedger).toHaveLength(1);
+    expect(priorReports).toHaveLength(1);
   });
 });
 

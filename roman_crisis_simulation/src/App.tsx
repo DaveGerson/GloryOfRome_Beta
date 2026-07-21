@@ -27,7 +27,7 @@ import { AiServiceError, resetSessionCallLog } from './ai/core/geminiService';
 import { saveGame, loadGame, clearSave, hasSave, updateSavedAmbition, SaveGameState, InferredAmbitionState } from './persistence/saveGame';
 import { hasSeenOnboarding, markOnboardingSeen } from './persistence/onboarding';
 import { buildPerceivedDigest, TabId } from './perception/visibility';
-import { ingestPerceivedChanges, ingestReports, ingestInvestigationReveal } from './knowledge/store';
+import { computeTurnKnowledge, computeInvestigationKnowledge } from './knowledge/commit';
 import { appendFallout, buildInterventionTextWithFallout, hasFallout } from './components/investigationLoop';
 import { Button } from './components/ui/Core';
 import { Tooltip } from './components/ui/Feedback';
@@ -418,26 +418,27 @@ const App: React.FC = () => {
             const newTurnHistory = withOldSnapshotsDropped([...turnHistory, historyEntryWithState]);
             const newTurnNumber = turnNumber + 1;
 
-            // D21 knowledge-store ingestion (knowledge/store.ts): the next
+            // D21 knowledge-store ingestion (knowledge/commit.ts): the next
             // store is computed from the SAME D5-filtered digest the player
             // is about to see (the identical buildPerceivedDigest inputs the
             // lastTurnPerceivedChanges memo will re-derive from this history
             // entry) plus this turn's NEW Reports - never from raw deltas or
-            // anything GM-private. Committed atomically with the rest of the
-            // turn below, so a rolled-back turn ingests nothing.
+            // anything GM-private. The helper owns the new-report id filter
+            // and stamps every update with the authoritative `turnNumber`
+            // (never a model-authored turn field). Committed atomically with
+            // the rest of the turn below, so a rolled-back turn ingests
+            // nothing.
             const playerAfterTurn = result.updatedEntities.find(e => e.entity_id === playerCharacterId) ?? null;
             const perceivedThisTurn = playerAfterTurn
                 ? buildPerceivedDigest(historyEntryWithState.adjudication.deltas, playerAfterTurn, result.updatedEntities, newWorldState)
                 : [];
-            // New reports = whatever this turn appended; matched by id (not
-            // by array position) so a future bounding of the reports slice
-            // can't silently re-ingest old ones.
-            const priorReportIds = new Set(reports.map(r => r.id));
-            const reportsThisTurn = result.updatedReports.filter(r => !priorReportIds.has(r.id));
-            const newKnowledge = ingestReports(
-                ingestPerceivedChanges(knowledge, perceivedThisTurn, turnNumber),
-                reportsThisTurn
-            );
+            const newKnowledge = computeTurnKnowledge({
+                prev: knowledge,
+                perceivedChanges: perceivedThisTurn,
+                reportsBefore: reports,
+                reportsAfter: result.updatedReports,
+                turnNumber,
+            });
             const gmMessage: Message = { sender: 'gm', text: result.narration };
             const monologueMessage: Message = { sender: 'player_monologue', text: result.playerMonologue };
             // Week-advance ribbon written into the stream once the turn commits
@@ -739,16 +740,17 @@ const App: React.FC = () => {
         });
         const nextFallout = appendFallout(pendingIntelligenceFallout, result);
         // D14/D21 - the bought reveal is ingested into the knowledge store
-        // in the SAME atomic commit as the spend, so the intel finally
-        // persists (in state and in the save) instead of evaporating with
-        // DramatisPersonaeTab's component-local display state. Only the
-        // player-facing report text is ingested - never the resolution
-        // trace or anything GM-private.
-        const nextKnowledge = ingestInvestigationReveal(knowledge, {
+        // (knowledge/commit.ts) in the SAME atomic commit as the spend, so
+        // the intel finally persists (in state and in the save) instead of
+        // evaporating with DramatisPersonaeTab's component-local display
+        // state. Only the player-facing report text is ingested - never the
+        // resolution trace or anything GM-private.
+        const nextKnowledge = computeInvestigationKnowledge({
+            prev: knowledge,
             targetId,
             kind,
-            text: result.report,
-            turn: turnNumber,
+            reportText: result.report,
+            turnNumber,
         });
 
         dispatch({ type: 'INVESTIGATION_COMMITTED', entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge });

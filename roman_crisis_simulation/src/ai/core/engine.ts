@@ -275,6 +275,14 @@ export function applyDeltas(
                 }
                 case 'rumor': {
                     rumorSeq += 1;
+                    // TURN PROVENANCE CONSTRAINT: when this runs under
+                    // applyAdjudication, `turnNumber` is `adjudication.turn` -
+                    // a model-echoed field - so the Report's and ledger
+                    // entry's `turn` stamps record the turn the ADJUDICATION
+                    // claims, not the App's authoritative counter. The GM
+                    // console reads these stamps as-is; the player knowledge
+                    // store does NOT trust them - knowledge/commit.ts stamps
+                    // claim updates with the authoritative turn instead.
                     const newReport: Report = {
                         id: `report_${turnNumber}_${Date.now()}_${rumorSeq}`,
                         turn: turnNumber,

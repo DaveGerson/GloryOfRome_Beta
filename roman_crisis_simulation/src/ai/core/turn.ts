@@ -415,6 +415,16 @@ export async function runNewTurn(
     options?.onStage?.('relationship_updates');
     const relationshipDeltas = await getRelationshipUpdates(ai, narration, transformedAdjudication.headlines, updatedEntities, isMockMode);
     if (relationshipDeltas && relationshipDeltas.length > 0) {
+        // DISCARD CONSTRAINT: only `updatedEntities` is taken from this
+        // applyDeltas call - any newReports/newTruthLedgerEntries it returns
+        // are dropped, AFTER updatedReports/updatedTruthLedger were already
+        // settled above. Safe today because this call site's contract is
+        // 'relation' deltas only (buildRelationshipUpdatesPrompt instructs
+        // the model to emit nothing else), and 'relation' deltas mint no
+        // Reports or ledger entries. If this step ever legitimately applied
+        // rumor-bearing or systemic-resource deltas, their Report/ledger
+        // output would have to be threaded into updatedReports/
+        // updatedTruthLedger rather than discarded here.
         const { updatedEntities: entitiesAfterRelationshipUpdates } = applyDeltas(relationshipDeltas, updatedEntities, updatedWorldState, turnNumber);
         updatedEntities = entitiesAfterRelationshipUpdates;
         // Log this change for debugging.

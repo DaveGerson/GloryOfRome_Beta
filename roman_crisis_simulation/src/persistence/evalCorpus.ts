@@ -30,8 +30,10 @@ import type {
   Adjudication,
   MortalityEvent,
   RawCallRecord,
+  TruthLedgerEntry,
   TurnHistoryEntry,
 } from '../types';
+import type { KnowledgeClaim } from '../knowledge/store';
 
 /** Light provenance for the corpus - enough to tie a file back to the session that produced it. */
 export interface EvalCorpusMeta {
@@ -58,6 +60,22 @@ export interface EvalCorpusTurn {
   mortalityTrace: MortalityEvent[] | null;
 }
 
+/**
+ * Campaign-wide GM-side slices the exporter can attach so the offline judge
+ * can score true-vs-believed and the assumed-disposition rate across the
+ * whole campaign, not just per-turn calls. Both are GM-only artifacts
+ * already (the D11 ledger renders nowhere but the GM console; the D21
+ * knowledge store is the believed side of the same instrument), and the
+ * corpus itself is a GM-console-only export (D18) - so including them adds
+ * no player-facing leak surface. Both stay OPTIONAL: corpora exported
+ * before these slices existed simply lack the fields, and every consumer
+ * must tolerate their absence.
+ */
+export interface EvalCorpusCampaignSlices {
+  truthLedger?: TruthLedgerEntry[];
+  knowledge?: KnowledgeClaim[];
+}
+
 export interface EvalCorpus {
   meta: EvalCorpusMeta;
   turns: EvalCorpusTurn[];
@@ -68,14 +86,19 @@ export interface EvalCorpus {
    * epilogue).
    */
   sessionCallLog: RawCallRecord[];
+  /** GM-private truth ledger (D11), when the exporter provided it - see EvalCorpusCampaignSlices. */
+  truthLedger?: TruthLedgerEntry[];
+  /** Player knowledge store (D21), when the exporter provided it - see EvalCorpusCampaignSlices. */
+  knowledge?: KnowledgeClaim[];
 }
 
 export function buildEvalCorpus(
   turnHistory: TurnHistoryEntry[],
   sessionCallLog: RawCallRecord[],
   meta: EvalCorpusMeta,
+  slices?: EvalCorpusCampaignSlices,
 ): EvalCorpus {
-  return {
+  const corpus: EvalCorpus = {
     meta: { ...meta },
     turns: turnHistory.map((entry): EvalCorpusTurn => ({
       turnNumber: entry.turnNumber,
@@ -89,6 +112,16 @@ export function buildEvalCorpus(
     })),
     sessionCallLog: [...sessionCallLog],
   };
+  // Only attach a slice when it was actually provided: an absent slice must
+  // stay absent (not become an empty array), so a consumer can distinguish
+  // "exporter predates the slice" from "campaign genuinely has none yet".
+  if (slices?.truthLedger) {
+    corpus.truthLedger = [...slices.truthLedger];
+  }
+  if (slices?.knowledge) {
+    corpus.knowledge = [...slices.knowledge];
+  }
+  return corpus;
 }
 
 /** Download filename for a corpus exported with the given current turn number. */

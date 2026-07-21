@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { buildEvalCorpus, evalCorpusFilename } from '../persistence/evalCorpus';
 import { SAVE_VERSION } from '../persistence/saveGame';
+import type { KnowledgeClaim } from '../knowledge/store';
 import type {
   ActionResolutionEvent,
   MortalityEvent,
   RawCallRecord,
+  TruthLedgerEntry,
   TurnHistoryEntry,
 } from '../types';
 
@@ -184,6 +186,51 @@ describe('persistence/evalCorpus buildEvalCorpus', () => {
   it('survives a JSON round-trip unchanged', () => {
     const corpus = buildEvalCorpus([makeFullEntry(1), makeLegacyEntry(2)], [makeRawCall('epilogue')], META);
     expect(JSON.parse(JSON.stringify(corpus))).toEqual(corpus);
+  });
+
+  describe('campaign slices (truth ledger / knowledge, GM-side)', () => {
+    const truthLedger: TruthLedgerEntry[] = [
+      { id: 'truth_2_1', turn: 2, claim: 'The Emperor bargains with the Germans', aboutId: 'severus_alexander', isTrue: false, originId: 'maximinus_thrax', reportId: 'report_2_1' },
+      { id: 'truth_3_1', turn: 3, claim: 'Grain stores run low', aboutId: 'The Suburra', isTrue: true, assumed: true, reportId: 'report_3_1' },
+    ];
+    const knowledge: KnowledgeClaim[] = [
+      {
+        id: 'claim_2_report:severus_alexander:rumor',
+        subject: 'severus_alexander',
+        claim: 'The Emperor bargains with the Germans',
+        claimKey: 'report:severus_alexander:rumor',
+        firstLearnedTurn: 2,
+        updates: [{ turn: 2, source: 'rumor', text: 'The Emperor bargains with the Germans', credibility: 0.6 }],
+      },
+    ];
+
+    it('carries both slices as top-level fields, as copies, so the judge can score campaign-wide true-vs-believed and assumed-rate', () => {
+      const corpus = buildEvalCorpus([makeFullEntry(1)], [], META, { truthLedger, knowledge });
+
+      expect(corpus.truthLedger).toEqual(truthLedger);
+      expect(corpus.truthLedger).not.toBe(truthLedger);
+      expect(corpus.knowledge).toEqual(knowledge);
+      expect(corpus.knowledge).not.toBe(knowledge);
+      // The assumed flag - the judge's assumed-rate input - passes through.
+      expect(corpus.truthLedger![1].assumed).toBe(true);
+    });
+
+    it('omits absent slices entirely (legacy exports keep their exact prior shape)', () => {
+      const withoutSlices = buildEvalCorpus([makeFullEntry(1)], [], META);
+      expect(Object.keys(withoutSlices).sort()).toEqual(['meta', 'sessionCallLog', 'turns']);
+      expect('truthLedger' in withoutSlices).toBe(false);
+      expect('knowledge' in withoutSlices).toBe(false);
+
+      // One slice provided, the other absent - only the provided one lands.
+      const partial = buildEvalCorpus([makeFullEntry(1)], [], META, { truthLedger });
+      expect(partial.truthLedger).toEqual(truthLedger);
+      expect('knowledge' in partial).toBe(false);
+    });
+
+    it('survives a JSON round-trip unchanged with slices attached', () => {
+      const corpus = buildEvalCorpus([makeFullEntry(1)], [makeRawCall('epilogue')], META, { truthLedger, knowledge });
+      expect(JSON.parse(JSON.stringify(corpus))).toEqual(corpus);
+    });
   });
 });
 

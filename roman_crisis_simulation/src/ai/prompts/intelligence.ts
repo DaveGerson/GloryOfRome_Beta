@@ -307,6 +307,11 @@ export function buildPrivateConversationPrompt(
     1.  **dialogueSnippet:** Write a short, third-person summary of their conversation for the Game Master's log.
     2.  **deltas:** Generate 1-3 'EventDelta' objects that mechanically represent the outcome. This could be changing their 'trust_level' or 'perceived_threat' towards each other, or creating a new 'resource' like 'blackmail_on_${npc1.entity_id}'.
 
+    RUMOR DELTAS: if any delta is a 'rumor' (e.g. the pair agree to seed a story after the meeting), it MUST also carry two GM-private bookkeeping fields:
+    - 'is_true' (boolean, ALWAYS set): whether the claim is ACTUALLY TRUE in the simulation's reality, ruled STRICTLY by world-truth - never omit it, and there is no "unknown". Authorship never changes the ruling: a fabricated lie is false because its claim is false; a deliberately spread truth is still true.
+    - 'origin_id' (string): the entity_id of whichever participant starts or spreads the rumor.
+    Both fields are GM-private ledger data: neither may surface in the delta's 'reason' text, the 'dialogueSnippet', or anything else that could reach the player.
+
     Return a valid JSON object matching the schema.
     `;
 

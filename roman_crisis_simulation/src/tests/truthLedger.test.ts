@@ -18,8 +18,10 @@ import {
 } from '../ai/core/engine';
 import { zEventDelta, zAdjudication } from '../ai/core/zodSchemas';
 import { AdjudicationSchema } from '../ai/core/schemas';
-import { sanitizeAdjudicationForNarration } from '../ai/prompts/narration';
+import { sanitizeAdjudicationForNarration, buildNarrationPrompt } from '../ai/prompts/narration';
 import { buildAdjudicationPrompt } from '../ai/prompts/adjudication';
+import { buildMortalityOutcomePrompt } from '../ai/prompts/mortality';
+import { buildPrivateConversationPrompt } from '../ai/prompts/intelligence';
 import { getMockInitialState } from './mockData';
 import { Adjudication, Entity, EventDelta, Report, TruthLedgerEntry, WorldState } from '../types';
 
@@ -77,6 +79,29 @@ describe('schema pair: rumor truth fields (is_true/origin_id)', () => {
     expect(Object.keys(deltaProperties)).toContain('origin_id');
   });
 
+  it('pins the schema descriptions\' load-bearing semantics: world-truth ruling, never unset, never reaches the player', () => {
+    const deltaProperties = (AdjudicationSchema.properties.deltas.items as {
+      properties: Record<string, { description?: string }>;
+    }).properties;
+
+    const isTrueDescription = deltaProperties.is_true.description ?? '';
+    // The ruling follows world-truth alone - a fabrication that happens to
+    // be true is still true; authorship never changes the ruling.
+    expect(isTrueDescription).toContain('Ruled STRICTLY by world-truth');
+    expect(isTrueDescription).toContain('a fabrication that happens to be true is still true');
+    expect(isTrueDescription).toContain('authorship never changes the ruling');
+    // The helpful planted-lie example survives, grounded in the claim (not authorship).
+    expect(isTrueDescription).toContain('a planted lie is false because its claim is false');
+    // Always ruled, never unset; GM-private, never player-facing.
+    expect(isTrueDescription).toContain('never leave it unset');
+    expect(isTrueDescription).toContain('GM-PRIVATE');
+    expect(isTrueDescription).toContain('This never reaches the player');
+
+    const originIdDescription = deltaProperties.origin_id.description ?? '';
+    expect(originIdDescription).toContain('GM-PRIVATE');
+    expect(originIdDescription).toContain('This never reaches the player');
+  });
+
   it('the adjudication prompt demands both fields on every rumor (prompt/schema lockstep)', () => {
     const { entities, worldState } = getMockInitialState();
     const player = entities[0];
@@ -98,6 +123,50 @@ describe('schema pair: rumor truth fields (is_true/origin_id)', () => {
     expect(systemInstruction).toContain("'origin_id'");
     // D11: true or false, always - the prompt must forbid an unknown class.
     expect(systemInstruction).toContain('never omit it');
+  });
+});
+
+describe('D11 lockstep: every other delta-producing prompt demands truth dispositions on rumor deltas', () => {
+  it('the mortality OUTCOME prompt demands is_true/origin_id, and rules presumed_dead death-rumors FALSE (the world-truth is that they live)', () => {
+    const { systemInstruction } = buildMortalityOutcomePrompt({
+      candidates: [{
+        entity_id: 'gaius_pontius_magnus',
+        name: 'Gaius Pontius Magnus',
+        isPlayer: false,
+        band: 'presumed_dead',
+        cause: 'Cut down in the Curia.',
+        entityBrief: 'Gaius Pontius Magnus - Senator - The Curia',
+      }],
+    });
+
+    // The same GM-private bookkeeping demand the adjudication prompt makes -
+    // outcome-authored rumor deltas flow through the SAME engine rumor case
+    // and must never land as assumed-true by omission.
+    expect(systemInstruction).toContain("'is_true'");
+    expect(systemInstruction).toContain('ALWAYS set');
+    expect(systemInstruction).toContain('never omit it');
+    expect(systemInstruction).toContain("'origin_id'");
+    expect(systemInstruction).toContain('GM-private ledger data');
+    // The presumed_dead band's world-truth ruling: the engine sets
+    // secret_truth.actually_alive, so a rumor asserting the death is FALSE -
+    // it must never be ledgered assumed-true the same turn the engine knows
+    // the entity lives.
+    expect(systemInstruction).toContain("'is_true' FALSE");
+    expect(systemInstruction).toContain('the world-truth is that they live');
+  });
+
+  it('the private-conversation prompt demands is_true/origin_id on any rumor delta it returns', () => {
+    const { entities } = getMockInitialState();
+    const adjudication = deepCopy(baseAdjudication);
+    const { systemInstruction } = buildPrivateConversationPrompt(entities[1], entities[2], adjudication);
+
+    expect(systemInstruction).toContain("'is_true'");
+    expect(systemInstruction).toContain('ALWAYS set');
+    expect(systemInstruction).toContain('never omit it');
+    expect(systemInstruction).toContain("'origin_id'");
+    expect(systemInstruction).toContain('GM-private ledger data');
+    // World-truth ruling, consistent with the schema description's wording.
+    expect(systemInstruction).toContain('Authorship never changes the ruling');
   });
 });
 
@@ -245,5 +314,41 @@ describe('leak prevention: dispositions never reach the player-facing narration 
     // claim, key, and credibility intact.
     expect(sanitized.deltas[0].reason).toBe('The Emperor is said to be bargaining with the Germans.');
     expect(sanitized.deltas[0].delta).toBe(0.7);
+  });
+
+  it('buildNarrationPrompt actually applies the sanitizer: the BUILT prompt carries no GM-private keys while keeping the rumor text', () => {
+    const { entities } = getMockInitialState();
+    const player = entities[0];
+    const adjudication: Adjudication = {
+      ...deepCopy(baseAdjudication),
+      deltas: [
+        rumorDelta({ is_true: false, origin_id: 'maximinus_thrax' }),
+        {
+          type: 'status',
+          key: 'gaius_pontius_magnus',
+          delta: 0,
+          reason: 'Struck down in the forum, so the city believes.',
+          new_status: 'dead',
+          secret_truth: { actually_alive: true, hidden_since_turn: 4, motive: 'Bide time and return for revenge.' },
+        },
+      ],
+      gm_private: ['[Mortality] validated death claim -> roll 14 -> presumed_dead'],
+    };
+
+    // The call site under test: the prompt builder itself must run the
+    // sanitizer - a sanitizer that is only ever tested in isolation pins
+    // nothing about the player-facing prompt actually built each turn.
+    const { systemInstruction, prompt } = buildNarrationPrompt(
+      'A succession crisis.', player, 'Hold court', adjudication, []
+    );
+    const built = systemInstruction + prompt;
+
+    for (const forbidden of ['is_true', 'origin_id', 'gm_private', 'secret_truth', 'actually_alive', 'presumed_dead']) {
+      expect(built).not.toContain(forbidden);
+    }
+    // The rumor still reaches the narrator as narrative content, at its
+    // stated credibility, with no disposition attached.
+    expect(prompt).toContain('The Emperor is said to be bargaining with the Germans.');
+    expect(prompt).toContain('Struck down in the forum, so the city believes.');
   });
 });

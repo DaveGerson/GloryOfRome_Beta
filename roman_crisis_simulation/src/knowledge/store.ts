@@ -40,9 +40,17 @@
  *     re-reporting about the same subject is the rumor mill re-reporting)
  *   - investigation: `investigation:{targetId}:{kind}` (re-buying the same
  *     aspect of the same target refreshes the same dossier claim, D14)
- * This is a v1 constraint, not a limitation to engineer around here: a
- * differently-worded rumor about the same subject from a different source
- * intentionally opens a separate claim.
+ * V1 COARSENESS, stated plainly: every production rumor Report carries
+ * source 'rumor' (ai/core/engine.ts's rumor case), so ALL rumors about the
+ * same subject land on ONE claim timeline. That merging is deliberately
+ * load-bearing for D19 counterplay - a follow-up reusing the original
+ * rumor's key reads as the mill re-reporting on the same matter - but it
+ * also over-merges: two UNRELATED rumors about the same subject share a
+ * timeline, and will until a finer matching key (per-storyline rather than
+ * per-subject) ships with the rumor-feed stage. Changing the matching rule
+ * is an owner-visible design decision at that stage, not a tweak to make
+ * here. A different source FAMILY about the same subject (e.g. 'spy' vs
+ * 'rumor') does still open a separate claim.
  */
 
 import type { PerceivedChange, PerceptionSource } from '../perception/visibility';
@@ -211,7 +219,15 @@ export function ingestPerceivedChanges(
 
 /**
  * Ingests a turn's NEW Reports (the player-visible rumor/report channel).
- * Each report's own `turn` stamp is used - a Report is dated at emission.
+ * By default each report's own `turn` stamp is used - a Report is dated at
+ * emission.
+ *
+ * `atTurn`, when provided, stamps the knowledge UPDATES with that turn
+ * instead (the Report object itself keeps its own `turn` field). A Report's
+ * `turn` descends from the model-echoed `adjudication.turn`
+ * (ai/core/engine.ts's rumor case), so turn-commit callers pass the App's
+ * authoritative turn counter here - a model that mislabels its turn must
+ * not skew the claim timeline (see knowledge/commit.ts).
  *
  * Leak guard (D5/D11): only the five whitelisted fields below are read off
  * each Report. A Report never legitimately carries truth-ledger data
@@ -221,14 +237,14 @@ export function ingestPerceivedChanges(
  *
  * Returns the input store reference when handed no reports.
  */
-export function ingestReports(store: KnowledgeClaim[], newReports: Report[]): KnowledgeClaim[] {
+export function ingestReports(store: KnowledgeClaim[], newReports: Report[], atTurn?: number): KnowledgeClaim[] {
   let next = store;
   for (const report of newReports) {
     next = upsertClaim(next, {
       claimKey: `report:${report.about}:${report.source}`,
       subject: report.about,
       text: report.claim,
-      turn: report.turn,
+      turn: typeof atTurn === 'number' ? atTurn : report.turn,
       source: report.source,
       credibility: report.credibility,
     });

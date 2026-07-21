@@ -55,6 +55,16 @@ export function applyEventChoiceDeltas(
     // monotonic across year rollovers, unlike `week`) should pass it
     // explicitly for full accuracy; it takes precedence when provided.
     const resolvedTurnNumber = turnNumber ?? currentWorldState.week;
+    // DISCARD CONSTRAINT: only entities/worldState are taken from this
+    // applyDeltas call - any newReports/newTruthLedgerEntries it returns are
+    // dropped. Safe today because authored event choices
+    // (constants/events.ts) carry no 'rumor' deltas, so no truth-ledger
+    // entries (D11) can be minted here. The one Report-minting path
+    // reachable through an authored choice is the systemic denarii rule on
+    // an overdraft (ai/core/resources.ts): the debt STATE still lands on
+    // the entity, only the notification Report is lost on this path. An
+    // authored event that mints rumors - or that must surface debt notices -
+    // needs this signature extended to return them.
     const { updatedEntities, updatedWorldState } = applyDeltas(processedDeltas, currentEntities, currentWorldState, resolvedTurnNumber);
     return { updatedEntities, updatedWorldState };
 }

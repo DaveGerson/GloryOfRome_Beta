@@ -20,8 +20,9 @@ import { buildAdjudicationPrompt } from '../ai/prompts/adjudication';
 import { buildEvalJudgePrompt } from '../ai/prompts/evalJudge';
 import { mockRunNewTurn } from '../ai/mocks';
 import { ingestReports } from '../knowledge/store';
+import { computeTurnKnowledge } from '../knowledge/commit';
 import { getMockInitialState } from './mockData';
-import { Adjudication, Report, SimulationState } from '../types';
+import { Adjudication, Report, SimulationState, TruthLedgerEntry } from '../types';
 
 const SIM_STATE: SimulationState = {
   imperial_status: 'Stable', senate_status: 'Functional', military_status: 'Loyal',
@@ -57,11 +58,22 @@ describe('adjudication prompt: the lies-in-play contract (D19, prompt/schema loc
     expect(systemInstruction).toContain('HOW WELL the plant lands');
   });
 
-  it('carries the NPC-planting rule in service of active_scheme, weaponized truths included', () => {
+  it('carries the NPC-planting rule in service of active_scheme, ruled strictly by world-truth', () => {
     const systemInstruction = buildSystemInstruction();
     expect(systemInstruction).toContain('NPC PLANTING');
     expect(systemInstruction).toContain("in service of their 'active_scheme'");
-    expect(systemInstruction).toContain('true for a weaponized truth');
+    // World-truth rules the disposition, never authorship: a weaponized
+    // truth stays true, and even a fabrication that happens to be true is
+    // ruled true.
+    expect(systemInstruction).toContain('a weaponized truth is still true');
+    expect(systemInstruction).toContain('a fabrication that happens to be true is still true');
+    expect(systemInstruction).toContain('authorship never changes the ruling');
+  });
+
+  it('the organic 0-2 rumor budget never suppresses a mandated plant or counterplay follow-up', () => {
+    const systemInstruction = buildSystemInstruction();
+    expect(systemInstruction).toContain('ORGANIC rumors only');
+    expect(systemInstruction).toContain('never suppressed to stay within the budget');
   });
 
   it('carries the counterplay rule: follow-ups about the SAME subject, and the mill has no access to truth (D11/D21)', () => {
@@ -85,13 +97,36 @@ describe('adjudication prompt: the lies-in-play contract (D19, prompt/schema loc
 });
 
 describe('mock mode: the player-planted rumor path is exercisable offline', () => {
-  const runMockTurn = (turnNumber: number, currentReports: Report[] = [], currentLedger = []) => {
+  const runMockTurn = (turnNumber: number, currentReports: Report[] = [], currentLedger: TruthLedgerEntry[] = []) => {
     const { entities, worldState } = getMockInitialState();
     return mockRunNewTurn(
       'Plant a rumor about Thrax', entities[0], turnNumber, entities, worldState,
       currentReports, '', 'A succession crisis.', SIM_STATE, currentLedger
     );
   };
+
+  it('threads a NON-EMPTY prior campaign ledger through the mock turn: prior entries preserved, this turn\'s appended', async () => {
+    const { entities } = getMockInitialState();
+    const priorLedger: TruthLedgerEntry[] = [
+      { id: 'truth_prior', turn: 2, claim: 'An older lie', aboutId: 'severus_alexander', isTrue: false, originId: 'maximinus_thrax', reportId: 'report_prior' },
+    ];
+
+    const result = await runMockTurn(4, [], priorLedger);
+
+    // The prior campaign entry survives verbatim at the head of the ledger -
+    // the mock turn's result must accrete onto the campaign ledger, never
+    // replace it with only this turn's entries.
+    expect(result.updatedTruthLedger.length).toBeGreaterThan(priorLedger.length);
+    expect(result.updatedTruthLedger[0]).toEqual(priorLedger[0]);
+    // Everything appended after it is this turn's own (turn-4) output,
+    // including the player's plant.
+    const appended = result.updatedTruthLedger.slice(1);
+    expect(appended.length).toBeGreaterThan(0);
+    expect(appended.every(entry => entry.turn === 4)).toBe(true);
+    expect(appended.some(entry => entry.originId === entities[0].entity_id)).toBe(true);
+    // The input ledger was never mutated.
+    expect(priorLedger).toHaveLength(1);
+  });
 
   it('records the planted lie in the truth ledger with the PLAYER as origin, explicitly false (never assumed)', async () => {
     const { entities } = getMockInitialState();
@@ -137,11 +172,17 @@ describe('mock mode: the player-planted rumor path is exercisable offline', () =
     }
 
     // Turn 5 re-reports about the same subject through the same channel:
-    // ingest only the NEW reports (matched by id, as App.tsx's commit does)
-    // and the existing claim accretes an update instead of forking.
+    // committed through the SAME glue App.tsx uses (knowledge/commit.ts),
+    // which ingests only the NEW reports (matched by id) - the existing
+    // claim accretes an update instead of forking.
     const second = await runMockTurn(5, first.updatedReports);
-    const priorIds = new Set(first.updatedReports.map(r => r.id));
-    store = ingestReports(store, second.updatedReports.filter(r => !priorIds.has(r.id)));
+    store = computeTurnKnowledge({
+      prev: store,
+      perceivedChanges: [],
+      reportsBefore: first.updatedReports,
+      reportsAfter: second.updatedReports,
+      turnNumber: 5,
+    });
 
     const continued = store.find(c => c.claimKey === 'report:maximinus_thrax:rumor')!;
     expect(continued.firstLearnedTurn).toBe(4); // frozen at first arrival
