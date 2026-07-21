@@ -25,7 +25,9 @@ import { zNpcMindDecision } from '../ai/core/zodSchemas';
 import { NpcMindDecisionSchema } from '../ai/core/schemas';
 import { buildNpcMindPrompt, buildMindSelfBrief, MAX_MINDS_PER_TURN, MIND_MEMORY_LINES } from '../ai/prompts/npcMind';
 import { buildNpcMindDecisionsBlock } from '../ai/prompts/fragments';
-import { runNewTurn, selectMindEntities } from '../ai/core/turn';
+import { runNewTurn, selectMindEntities, selectUnrememberedChanges } from '../ai/core/turn';
+import { MAX_NPC_MEMORY_LINES_PER_TURN } from '../perception/npcPerception';
+import { buildPerceivedDigest, type PerceivedChange } from '../perception/visibility';
 import { endTurnCapture } from '../ai/core/geminiService';
 import { withOldSnapshotsDropped, KEEP_FULL_SNAPSHOTS } from '../state/gameReducer';
 import { mockRunNewTurn, mockGetNpcMindDecision } from '../ai/mocks';
@@ -81,6 +83,19 @@ const RIVAL_SECRET = 'Keeps a Parthian paymaster in the cellar';
 const OWN_SCHEME_NAME = 'The Thracian Ascent';
 const OWN_SECRET = 'Fears his own veterans will turn on him';
 const PLAYER_SECRET = 'Secretly negotiating with the Germans';
+const PLAYER_SCHEME_NAME = 'Hold the Throne Against All';
+// A publicly-dead hidden survivor (D3 secret_truth) in the roster: its
+// GM-private motive must never reach any mind's prompt.
+const HIDDEN_MOTIVE = 'Waits in a Capri villa to reclaim the purple';
+
+function makeHiddenSurvivor(): Entity {
+  return makeEntity({
+    entity_id: 'npc_hidden',
+    name: 'Vanished Prefect',
+    status: 'dead',
+    secret_truth: { actually_alive: true, hidden_since_turn: 2, motive: HIDDEN_MOTIVE },
+  });
+}
 
 function makeAsymmetryCast(): { player: Entity; npcA: Entity; npcB: Entity } {
   const player = makeEntity({
@@ -88,7 +103,7 @@ function makeAsymmetryCast(): { player: Entity; npcA: Entity; npcB: Entity } {
     name: 'Gaius Testus',
     location: 'Palatine Hill',
     secrets: [PLAYER_SECRET],
-    active_scheme: { name: 'Hold the Throne', overall_goal: 'Survive.', steps: [] },
+    active_scheme: { name: PLAYER_SCHEME_NAME, overall_goal: 'Survive.', steps: [] },
   });
   const npcA = makeEntity({
     entity_id: 'npc_thrax',
@@ -206,34 +221,41 @@ interface MindHarness {
 }
 
 /**
- * Classifies by stable systemInstruction markers (the same convention as
- * tests/turnPipeline.test.ts) and responds SYNCHRONOUSLY from the scripted
- * map - order[] then proves the real issue sequence. Mind calls are keyed
- * per character (their prompt names the entity_id) so each mind's prompt
- * and response can be scripted independently, which the one-deferred-per-
- * kind harness in turnPipeline.test.ts cannot do.
+ * Classifies a call by its stable systemInstruction markers (the same
+ * convention as tests/turnPipeline.test.ts). Module-level so BOTH fakes in
+ * this file - the synchronous scripted harness below and the deferred
+ * concurrency harness - share one classifier. Mind calls are keyed per
+ * character (their prompt names the entity_id).
+ */
+function classifyCall(systemInstruction: string, contents: string): string {
+  if (systemInstruction.includes('master storyteller and game master')) return 'storyRelevance';
+  if (systemInstruction.includes('Action Assessor')) return 'assessment';
+  if (systemInstruction.includes("character's own private mind")) {
+    // The prompt's self-brief names the entity_id - key minds per character.
+    const match = contents.match(/entity_id: (\w+)/);
+    return `npcMind:${match?.[1] ?? 'unknown'}`;
+  }
+  if (systemInstruction.includes('Roman Crisis Adjudicator & Simulation Engine')) return 'adjudication';
+  if (systemInstruction.includes('secret observer')) return 'privateConversation';
+  if (systemInstruction.includes('Roman historian analyzing the state of the Empire')) return 'simulationState';
+  if (systemInstruction.includes('the inner voice of')) return 'monologue';
+  if (systemInstruction.includes('Chronicler of the Empire & Intelligence Briefer')) return 'narration';
+  if (systemInstruction.includes('narrative analyst AI')) return 'relationshipUpdates';
+  throw new Error(`npcMinds test fake: unrecognized call. systemInstruction: ${systemInstruction.slice(0, 120)}`);
+}
+
+/**
+ * Responds SYNCHRONOUSLY from the scripted map - order[] then proves the
+ * real issue sequence. Each mind's prompt and response can be scripted
+ * independently, which the one-deferred-per-kind harness in
+ * turnPipeline.test.ts cannot do.
  */
 function createMindHarness(responses: Record<string, string | Error>): MindHarness {
   const order: string[] = [];
   const prompts: Record<string, string> = {};
   const systems: Record<string, string> = {};
 
-  const classify = (systemInstruction: string, contents: string): string => {
-    if (systemInstruction.includes('master storyteller and game master')) return 'storyRelevance';
-    if (systemInstruction.includes('Action Assessor')) return 'assessment';
-    if (systemInstruction.includes("character's own private mind")) {
-      // The prompt's self-brief names the entity_id - key minds per character.
-      const match = contents.match(/entity_id: (\w+)/);
-      return `npcMind:${match?.[1] ?? 'unknown'}`;
-    }
-    if (systemInstruction.includes('Roman Crisis Adjudicator & Simulation Engine')) return 'adjudication';
-    if (systemInstruction.includes('secret observer')) return 'privateConversation';
-    if (systemInstruction.includes('Roman historian analyzing the state of the Empire')) return 'simulationState';
-    if (systemInstruction.includes('the inner voice of')) return 'monologue';
-    if (systemInstruction.includes('Chronicler of the Empire & Intelligence Briefer')) return 'narration';
-    if (systemInstruction.includes('narrative analyst AI')) return 'relationshipUpdates';
-    throw new Error(`npcMinds test fake: unrecognized call. systemInstruction: ${systemInstruction.slice(0, 120)}`);
-  };
+  const classify = classifyCall;
 
   const generateContent = vi.fn(async (params: { model: string; contents: string; config?: Record<string, unknown> }) => {
     const systemInstruction = typeof params.config?.systemInstruction === 'string' ? params.config.systemInstruction : '';
@@ -268,8 +290,11 @@ function baseResponses(): Record<string, string | Error> {
 
 function runAsymmetryTurn(harness: MindHarness) {
   const { player, npcA, npcB } = makeAsymmetryCast();
+  // The hidden survivor rides in the roster so the asymmetry pin covers
+  // secret_truth: its motive reaches the (omniscient) adjudicator's
+  // GM-SECRET block but must never reach any mind.
   return runNewTurn(
-    harness.ai, 'Hold court', player, 5, [player, npcA, npcB], WORLD_STATE, SIM_STATE,
+    harness.ai, 'Hold court', player, 5, [player, npcA, npcB, makeHiddenSurvivor()], WORLD_STATE, SIM_STATE,
     [makePreviousEntry()], [], [], [
       { entity_id: 'npc_thrax', intent: 'March the Rhine legions on Rome', continuity: 'continue' },
       { entity_id: 'npc_venena', intent: 'Slip the toxin into the palace kitchens', continuity: 'continue' },
@@ -404,9 +429,18 @@ describe('runNewTurn npc_minds: the information-asymmetry pin', () => {
     // ...and symmetrically, Venena never sees Thrax's privates.
     expect(venenaPrompt).not.toContain(OWN_SCHEME_NAME);
     expect(venenaPrompt).not.toContain(OWN_SECRET);
-    // The player's private data never enters any mind.
+    // The player's private data never enters any mind - neither their
+    // secrets nor their active_scheme NAME.
+    const venenaFullText = `${harness.systems['npcMind:npc_venena']}\n${venenaPrompt}`;
     expect(thraxFullText).not.toContain(PLAYER_SECRET);
-    expect(`${harness.systems['npcMind:npc_venena']}\n${venenaPrompt}`).not.toContain(PLAYER_SECRET);
+    expect(venenaFullText).not.toContain(PLAYER_SECRET);
+    expect(thraxFullText).not.toContain(PLAYER_SCHEME_NAME);
+    expect(venenaFullText).not.toContain(PLAYER_SCHEME_NAME);
+    // The hidden survivor's secret_truth (D3) - present in the roster and
+    // in the adjudicator's GM-SECRET block - never enters a mind.
+    expect(thraxFullText).not.toContain(HIDDEN_MOTIVE);
+    expect(venenaFullText).not.toContain(HIDDEN_MOTIVE);
+    expect(harness.prompts.adjudication).toContain(HIDDEN_MOTIVE); // the omniscient adjudicator DOES see it - the asymmetry is real, not vacuous
     // GM-private material from the previous turn never enters a mind.
     expect(thraxFullText).not.toContain(PREVIOUS_GM_NOTE);
     expect(venenaPrompt).not.toContain(PREVIOUS_GM_NOTE);
@@ -425,6 +459,68 @@ describe('runNewTurn npc_minds: the information-asymmetry pin', () => {
     expect(harness.prompts['npcMind:npc_thrax']).toContain('Your legion support grows.');
     // ...and invisible to Venena: different location, no network reach.
     expect(harness.prompts['npcMind:npc_venena']).not.toContain('legion support');
+  });
+});
+
+// --- the digest/memory double-count filter (memory stamp vs re-derived digest) ---
+
+describe('selectUnrememberedChanges + mind assembly: no line shows twice in one prompt', () => {
+  function makeChange(text: string): PerceivedChange {
+    return { text, source: 'self', tabs: [], subject: 'npc_thrax', deltaType: 'resource', deltaKey: 'npc_thrax:legion_support' };
+  }
+  function makeMemory(turn: number, text: string) {
+    return { turn, event_description: text, emotional_impact: 'Notable', involved_entities: [] };
+  }
+
+  it('drops lines stamped as PREVIOUS-turn memories, keeps unstamped lines, and never matches an older turn\'s identical text', () => {
+    const changes = [makeChange('Stamped line.'), makeChange('Unstamped line.'), makeChange('Old echo.')];
+    const memories = [
+      makeMemory(4, 'Stamped line.'),
+      // Same text, OLDER turn: a different event - must not suppress the
+      // fresh digest line.
+      makeMemory(2, 'Old echo.'),
+    ];
+    expect(selectUnrememberedChanges(changes, memories, 4).map(c => c.text)).toEqual(['Unstamped line.', 'Old echo.']);
+  });
+
+  it('keeps the full digest for an un-stamped viewer (excluded from the perceiving set) and when no previous turn exists', () => {
+    const changes = [makeChange('A.'), makeChange('B.')];
+    expect(selectUnrememberedChanges(changes, [], 4)).toEqual(changes);
+    expect(selectUnrememberedChanges(changes, [makeMemory(4, 'A.')], undefined)).toEqual(changes);
+  });
+
+  it('keeps a beyond-cap line: only what the stamp actually recorded filters', () => {
+    // A busy previous turn: the stamp kept only MAX_NPC_MEMORY_LINES_PER_TURN
+    // of the digest's lines; the dropped line's ONLY channel is the digest.
+    const digest = Array.from({ length: MAX_NPC_MEMORY_LINES_PER_TURN + 1 }, (_, i) => makeChange(`Line ${i}.`));
+    const stamped = digest.slice(0, MAX_NPC_MEMORY_LINES_PER_TURN).map(c => makeMemory(4, c.text));
+    const kept = selectUnrememberedChanges(digest, stamped, 4);
+    expect(kept.map(c => c.text)).toEqual([`Line ${MAX_NPC_MEMORY_LINES_PER_TURN}.`]);
+  });
+
+  it('pipeline: a stamped line renders ONCE (memory block), not again in the digest block; an un-stamped viewer keeps her full digest', async () => {
+    const harness = createMindHarness(baseResponses());
+    const { player, npcA, npcB } = makeAsymmetryCast();
+    // Thrax's memories already hold the previous turn's stamped line - the
+    // exact describeDelta text his re-derived digest would produce for the
+    // previous entry's npc_thrax resource delta.
+    npcA.memories = [
+      ...npcA.memories,
+      { turn: 4, event_description: 'Your legion support grows.', emotional_impact: 'Notable', involved_entities: [] },
+    ];
+    await runNewTurn(
+      harness.ai, 'Hold court', player, 5, [player, npcA, npcB], WORLD_STATE, SIM_STATE,
+      [makePreviousEntry()], [], [], [], '', false, 'Grim political thriller'
+    );
+
+    const thraxPrompt = harness.prompts['npcMind:npc_thrax'];
+    // Present once, as the stamped memory...
+    expect(thraxPrompt).toContain('T4: Your legion support grows.');
+    // ...and NOT duplicated in the digest block.
+    expect(thraxPrompt).not.toContain('[self] Your legion support grows.');
+    // Venena (no stamped memories) still receives her full digest - the
+    // public rumor line reaches her through the digest channel only.
+    expect(harness.prompts['npcMind:npc_venena']).toContain('Rumor reaches you: "The treasury is whispered to stand empty."');
   });
 });
 
@@ -479,6 +575,61 @@ describe('runNewTurn npc_minds: pipeline threading and adjudicator consumption',
     // on this), suffixed per character.
     const mindCalls = (result.newHistoryEntry.rawCalls ?? []).filter(c => c.callName.startsWith('npcMind:'));
     expect(mindCalls.map(c => c.callName).sort()).toEqual(['npcMind:npc_thrax', 'npcMind:npc_venena']);
+  });
+
+  it('launches ALL mind calls concurrently (Promise.all): both are ISSUED before either response resolves', async () => {
+    // The withheld-deferred pattern from tests/turnPipeline.test.ts: every
+    // non-mind call answers synchronously from the scripted map, while BOTH
+    // mind responses are withheld behind deferred promises. If the pipeline
+    // regressed to a sequential per-mind loop, the second mind call would
+    // never be issued until the first resolves - the Promise.all on the
+    // issued-signals below would then hang and the test would time out.
+    const scripted = baseResponses();
+    const mindKinds = ['npcMind:npc_thrax', 'npcMind:npc_venena'] as const;
+    const issued: Record<string, { promise: Promise<void>; resolve: () => void }> = {};
+    const withheld: Record<string, { promise: Promise<string>; resolve: (v: string) => void }> = {};
+    for (const kind of mindKinds) {
+      let issuedResolve!: () => void;
+      const issuedPromise = new Promise<void>(res => { issuedResolve = res; });
+      issued[kind] = { promise: issuedPromise, resolve: issuedResolve };
+      let responseResolve!: (v: string) => void;
+      const responsePromise = new Promise<string>(res => { responseResolve = res; });
+      withheld[kind] = { promise: responsePromise, resolve: responseResolve };
+    }
+
+    const order: string[] = [];
+    const generateContent = vi.fn(async (params: { model: string; contents: string; config?: Record<string, unknown> }) => {
+      const systemInstruction = typeof params.config?.systemInstruction === 'string' ? params.config.systemInstruction : '';
+      const kind = classifyCall(systemInstruction, params.contents);
+      order.push(kind);
+      if (kind.startsWith('npcMind:')) {
+        issued[kind].resolve();
+        return { text: await withheld[kind].promise };
+      }
+      const response = scripted[kind];
+      if (response === undefined) throw new Error(`concurrency fake: no scripted response for '${kind}'`);
+      if (response instanceof Error) throw response;
+      return { text: response };
+    });
+    const ai = { models: { generateContent } } as unknown as GoogleGenAI;
+
+    const { player, npcA, npcB } = makeAsymmetryCast();
+    const turnPromise = runNewTurn(
+      ai, 'Hold court', player, 5, [player, npcA, npcB], WORLD_STATE, SIM_STATE,
+      [makePreviousEntry()], [], [], [], '', false, 'Grim political thriller'
+    );
+    turnPromise.catch(() => {}); // consumed properly below
+
+    // Both mind requests were issued while NEITHER response has settled.
+    await Promise.all(mindKinds.map(kind => issued[kind].promise));
+    expect(order.filter(kind => kind.startsWith('npcMind:')).sort()).toEqual([...mindKinds].sort());
+    // Adjudication is still gated on the minds' join.
+    expect(order).not.toContain('adjudication');
+
+    withheld['npcMind:npc_thrax'].resolve(thraxDecisionJson);
+    withheld['npcMind:npc_venena'].resolve(venenaDecisionJson);
+    const result = await turnPromise;
+    expect(result.newHistoryEntry.npcMindResults).toHaveLength(2);
   });
 
   it('zero mind-eligible spotlights: no npc_minds stage, no decisions block, entry omits npcMindResults', async () => {
@@ -546,6 +697,41 @@ describe('runNewTurn npc_minds: per-mind failure degrades softly', () => {
   });
 });
 
+// --- step 5.5: narrative-analyst relation deltas join the committed record ---
+
+describe('runNewTurn step 5.5: relationship deltas are committed, applied once, and player-perceivable', () => {
+  it('appends the applied deltas to the committed adjudication, leaves state singly-applied, and the player digest classifies a self-visible one', async () => {
+    const responses = baseResponses();
+    responses.relationshipUpdates = JSON.stringify({
+      deltas: [
+        { type: 'relation', key: 'player_1:npc_thrax:trust_level', delta: -2, reason: 'The vial changing hands gnaws at him.' },
+      ],
+    });
+    const harness = createMindHarness(responses);
+    const result = await runAsymmetryTurn(harness);
+
+    // Committed: the step-5.5 delta is part of the entry's ground-truth
+    // record - visible to the GM console, the player digest, and next
+    // turn's NPC mind digests.
+    const committed = result.newHistoryEntry.adjudication.deltas.filter(
+      d => d.type === 'relation' && d.key === 'player_1:npc_thrax:trust_level'
+    );
+    expect(committed).toHaveLength(1);
+
+    // Applied to state exactly ONCE: base 0 + (-2) = -2, not -4.
+    const playerAfter = result.updatedEntities.find(e => e.entity_id === 'player_1')!;
+    expect(playerAfter.relationships['npc_thrax'].trust_level).toBe(-2);
+
+    // The player digest derived from the committed entry (the identical
+    // buildPerceivedDigest inputs App.tsx uses at commit) picks it up under
+    // the normal D5 rules: the player is entity_a, so it is 'self'.
+    const digest = buildPerceivedDigest(result.newHistoryEntry.adjudication.deltas, playerAfter, result.updatedEntities, WORLD_STATE);
+    const line = digest.find(c => c.deltaKey === 'player_1:npc_thrax:trust_level');
+    expect(line?.source).toBe('self');
+    expect(line?.text).toBe('Your trust toward Maximinus Thrax shifts.');
+  });
+});
+
 // --- mind selection ---------------------------------------------------------
 
 describe('selectMindEntities: alive, non-player, deduped, capped (4C.4/D22)', () => {
@@ -590,6 +776,39 @@ describe('buildNpcMindDecisionsBlock: decisions in, reasoning never', () => {
     expect(block).not.toContain('SECRET-REASONING');
     expect(buildNpcMindDecisionsBlock([])).toBe('');
     expect(buildNpcMindDecisionsBlock(undefined)).toBe('');
+  });
+
+  it('states precedence over intents/schemes, forbids ADDITIONAL scheme-actions for a decided NPC, and carves out the public manifestation (pin)', () => {
+    const block = buildNpcMindDecisionsBlock([
+      { entity_id: 'npc_a', chosen_action: 'Seize the granary', method: 'At dawn', private_reasoning: 'r' },
+    ]);
+    // The precedence sentence - same wording the system instruction and the
+    // intents block state.
+    expect(block).toContain('mind decision > Director intent > generic scheme rules');
+    // Closes the double-act vector: the decided move IS the proactive move.
+    expect(block).toContain('do NOT generate additional, independent scheme-advancing actions');
+    expect(block).toContain("IS that character's proactive move this turn");
+    // The resolution-layer-style carve-out: provenance private, the acted
+    // move's manifestation public.
+    expect(block).toContain('What is private is the provenance');
+    expect(block).toContain('public manifestation may and should surface in headlines');
+  });
+
+  it('rides scheme_adjustment along as a labeled HINT (minds propose, the adjudicator disposes) - absent when the mind omitted it', () => {
+    const withHint = buildNpcMindDecisionsBlock([
+      { entity_id: 'npc_a', chosen_action: 'Seize the granary', method: 'At dawn', private_reasoning: 'r', scheme_adjustment: 'The granary step is done; next, the docks.' },
+    ]);
+    expect(withHint).toContain('their scheme shifts: "The granary step is done; next, the docks."');
+    expect(withHint).toContain('minds propose, you dispose');
+    const withoutHint = buildNpcMindDecisionsBlock([
+      { entity_id: 'npc_a', chosen_action: 'Seize the granary', method: 'At dawn', private_reasoning: 'r' },
+    ]);
+    expect(withoutHint).not.toContain('their scheme shifts:');
+    // Null (the model may emit it explicitly) behaves like omission.
+    const withNull = buildNpcMindDecisionsBlock([
+      { entity_id: 'npc_a', chosen_action: 'Seize the granary', method: 'At dawn', private_reasoning: 'r', scheme_adjustment: null },
+    ]);
+    expect(withNull).not.toContain('their scheme shifts:');
   });
 });
 

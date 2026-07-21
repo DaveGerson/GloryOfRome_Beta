@@ -9,9 +9,16 @@ no ruling)* where they appear: the Chronicle's source of record (G9, item
 commit `4755035` + non-mechanical fixes, 208 tests green.
 
 **Status: 4A COMPLETE** (commits `f3d5f8d`..`5a453ad`, suite at 305,
-adversarially reviewed; cap values ratified). **Second ruling round D19–D24
-applied** to 4B–4D below. Two 4B questions remain OPEN and block only the
-items that cite them: how confidence is displayed to the player (numbers vs
+adversarially reviewed; cap values ratified). **4B substrate COMPLETE**:
+the GM-private truth ledger (4B.1), the player knowledge store (4B.2), and
+lies-in-play rumor planting/counterplay (part of 4B.5) are landed; the
+remaining 4B player surfaces (dossier view, relationship map, rumor feed,
+Chronicle rebuild) are blocked on the OPEN owner questions below. **4C
+items 1–4 COMPLETE**: NPC-side perception, load-bearing memories, the
+Director's persistent intents, and per-spotlight minds; 4C.5 voice and the
+judge's richness axes are pending. **Second ruling round D19–D24 applied**
+to 4B–4D below. Two 4B questions remain OPEN and block only the items that
+cite them: how confidence is displayed to the player (numbers vs
 in-fiction wording), and dossier refresh pricing (how much cheaper, paid in
 what).
 

@@ -129,8 +129,14 @@ const MAX_RAW_RESPONSE_CHARS = 20_000;
  * so truncation should only ever fire on a pathological outlier.
  */
 export const MAX_CAPTURED_PROMPT_CHARS = 50_000;
-/** Bound on the session-wide call log below; oldest records are evicted first. */
-export const MAX_SESSION_CALL_RECORDS = 500;
+/**
+ * Bound on the session-wide call log below; oldest records are evicted
+ * first. Sized for the 4C pipeline: up to MAX_MINDS_PER_TURN extra
+ * flash-tier mind calls per turn churn the log ~25% faster than the
+ * pre-minds pipeline did, and the eval-corpus export (D18) rides this log -
+ * the window must keep covering a comparable number of turns.
+ */
+export const MAX_SESSION_CALL_RECORDS = 800;
 
 /**
  * Detects whether an error from the network/SDK layer is worth retrying:

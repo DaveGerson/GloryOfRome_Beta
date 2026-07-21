@@ -85,16 +85,21 @@ ${otherNpcs.map(getEntityBrief).join('\n')}
  * (ROADMAP_PHASE_4.md 4C item 3). The two-phase adjudication prompt already
  * demands proactive spotlight actions; this block gives those actions
  * durable direction: each spotlight NPC's Phase 1 action must serve the
- * one-line intent the Director committed for it. Empty/absent intents
- * produce no block at all - the adjudicator behaves exactly as before the
- * Director existed. GM-private data class (D4/D5): this text reaches only
- * the adjudicator, whose player-adjacent output fields never restate it.
+ * one-line intent the Director committed for it - unless that NPC's own
+ * mind decision (the block below this one) overrides it, per the system
+ * instruction's DIRECTION PRECEDENCE rule (mind decision > Director intent
+ * > generic scheme rules). Empty/absent intents produce no block at all -
+ * the adjudicator behaves exactly as before the Director existed.
+ * GM-private data class (D4/D5) with the same carve-out the resolution
+ * layer states for its tiers: what stays private is the direction system's
+ * PROVENANCE (that an intent exists, its wording) - the acted-out move
+ * itself is a real event whose public manifestation belongs in headlines.
  */
 export function buildDirectorIntentsBlock(npcIntents: NpcIntent[] | undefined): string {
   if (!npcIntents || npcIntents.length === 0) return '';
   return `
 SPOTLIGHT NPC INTENTS (the Director's durable direction for this turn):
-Each spotlight NPC below is durably trying to accomplish its stated intent. Their Phase 1 proactive actions MUST act in service of their stated intent - advance it, or react to whatever blocks it. Do not let a spotlight NPC drift onto unrelated business this turn. These intents are GM-private direction: never restate them in 'headlines' or any other player-visible text.
+Each spotlight NPC below is durably trying to accomplish its stated intent. Their Phase 1 proactive actions MUST act in service of their stated intent - advance it, or react to whatever blocks it - and do not let a spotlight NPC drift onto unrelated business this turn, UNLESS that NPC has an entry in the mind-decisions block below: per DIRECTION PRECEDENCE (mind decision > Director intent > generic scheme rules), the mind decision then governs instead. These intents are GM-private direction: never restate them in 'headlines' or any other player-visible text. What is private is the provenance - that an intent exists, its wording, that a Director set it. The action taken in service of an intent is a real event: its public manifestation may and should surface in headlines and NPC reactions as usual.
 ${npcIntents.map(i => `- ${i.entity_id}: "${i.intent}" [${i.continuity}]`).join('\n')}
 `;
 }
@@ -104,21 +109,29 @@ ${npcIntents.map(i => `- ${i.entity_id}: "${i.intent}" [${i.continuity}]`).join(
  * 4C item 4). Each spotlight character whose mind call succeeded has ALREADY
  * chosen its move; the adjudicator's contract is to have that character act
  * it out and resolve conflicts/consequences - it still owns all deltas.
- * DELIBERATELY passes only entity_id/chosen_action/method: the mind's
- * `private_reasoning` never enters the adjudicator's context (it doesn't
- * need their inner monologue - keeps its context lean, and preserves the
- * seam where a mind can be wrong about itself). Empty/absent decisions
- * produce no block at all; spotlights without a decision fall back to the
- * Director-intents block above, exactly the pre-minds behavior. GM-private
- * data class (D4/D5): this text reaches only the adjudicator, whose
- * player-adjacent output fields never restate it.
+ * Per the system instruction's DIRECTION PRECEDENCE rule, a decision here
+ * OVERRIDES that NPC's Director intent and the generic scheme rules, and
+ * the block forbids additional independent scheme-actions for a character
+ * listed in it - the decided move IS that character's proactive move.
+ * A decision's optional `scheme_adjustment` rides along as a HINT only:
+ * minds propose, the adjudicator disposes - it still owns every 'scheme'
+ * delta (the arbitration principle).
+ * DELIBERATELY passes only entity_id/chosen_action/method (+ the optional
+ * scheme hint): the mind's `private_reasoning` never enters the
+ * adjudicator's context (it doesn't need their inner monologue - keeps its
+ * context lean, and preserves the seam where a mind can be wrong about
+ * itself). Empty/absent decisions produce no block at all; spotlights
+ * without a decision fall back to the Director-intents block above, exactly
+ * the pre-minds behavior. GM-private data class (D4/D5) with the same
+ * carve-out as the intents block: private means the direction system's
+ * PROVENANCE, not the acted-out move's public manifestation.
  */
 export function buildNpcMindDecisionsBlock(decisions: NpcMindDecision[] | undefined): string {
   if (!decisions || decisions.length === 0) return '';
   return `
 SPOTLIGHT NPC DECISIONS (each character's own mind has already chosen its move this turn):
-Each entry below is what that character has DECIDED to do this week, in their own head. That spotlight NPC's Phase 1 proactive action MUST be this chosen action, carried out by the stated method - you decide how it plays out, resolve conflicts between characters' decisions, and still own every delta and consequence; do not substitute a different move for them. A character may be wrong about the world or about themselves - let the outcome reflect reality, not their confidence. Spotlight NPCs with no entry here act on their Director intent above, as before. These decisions are GM-private: never restate them in 'headlines' or any other player-visible text.
-${decisions.map(d => `- ${d.entity_id} chose to: "${d.chosen_action}" — method: ${d.method}`).join('\n')}
+Each entry below is what that character has DECIDED to do this week, in their own head. That spotlight NPC's Phase 1 proactive action MUST be this chosen action, carried out by the stated method - you decide how it plays out, resolve conflicts between characters' decisions, and still own every delta and consequence; do not substitute a different move for them, and do NOT generate additional, independent scheme-advancing actions for a character listed here - the chosen action IS that character's proactive move this turn. Per DIRECTION PRECEDENCE (mind decision > Director intent > generic scheme rules), an entry here governs even where it departs from that NPC's intent or scheme. A character may be wrong about the world or about themselves - let the outcome reflect reality, not their confidence. Where an entry notes "their scheme shifts", that is the character's own proposed adjustment - a HINT you may honor by emitting your own 'scheme' delta for them, or disregard: minds propose, you dispose. Spotlight NPCs with no entry here act on their Director intent above, as before. These decisions are GM-private: never restate them in 'headlines' or any other player-visible text. What is private is the provenance - that a mind chose, its wording. The chosen action, once acted out, is a real event: its public manifestation may and should surface in headlines and NPC reactions as usual.
+${decisions.map(d => `- ${d.entity_id} chose to: "${d.chosen_action}" — method: ${d.method}${d.scheme_adjustment ? ` — their scheme shifts: "${d.scheme_adjustment}"` : ''}`).join('\n')}
 `;
 }
 

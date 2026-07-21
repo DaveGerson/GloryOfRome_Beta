@@ -303,6 +303,14 @@ const GroundTruthView: React.FC<{
  * viewer-agnostic rules); per-NPC digests are never persisted in the save.
  * An id absent from the snapshot (an entity removed later that same turn)
  * is skipped.
+ *
+ * APPROXIMATION CAVEAT (stated in the UI copy below): the stamp itself ran
+ * MID-turn, against mid-apply entity/world state; this view re-derives from
+ * the turn's FINAL snapshot (postTurnEntities) and the CURRENT worldState
+ * prop, which can differ - same-turn add/remove_entities, regions removed
+ * in later turns. The view therefore approximates the stamped lines rather
+ * than reproducing them exactly; deliberately not re-plumbed, since the
+ * per-NPC digests are derived-and-discarded by design.
  */
 const NpcPerceptionView: React.FC<{
     entry: TurnHistoryEntry;
@@ -323,11 +331,15 @@ const NpcPerceptionView: React.FC<{
     return (
         <>
             <p style={{ fontSize: 13, color: DIM, margin: '4px 0 8px' }}>
-                What each perceiving NPC actually witnessed or heard this turn - the same viewer-agnostic filter the player's digest runs through, applied from each NPC's own vantage. Their turn memories were stamped from these lines.
+                What each perceiving NPC witnessed or heard this turn - the same viewer-agnostic filter the player's digest runs through, applied from each NPC's own vantage. Re-derived at render time from the turn's final entity snapshot and the current world state, so it APPROXIMATES the lines their memories were stamped from mid-turn: same-turn cast changes or since-removed regions can make it differ from the exact stamped text.
             </p>
             {perceivingIds.map(entityId => {
-                const npc = snapshotEntities.find(e => e.entity_id === entityId);
-                if (!npc) return null;
+                const npcRecord = snapshotEntities.find(e => e.entity_id === entityId);
+                if (!npcRecord) return null;
+                // Defensive default: a legacy-shaped snapshot entity may lack
+                // visibility_network, which classifyDelta reads
+                // unconditionally - the console must render, not crash.
+                const npc = { ...npcRecord, visibility_network: npcRecord.visibility_network ?? [] };
                 const changes = buildPerceivedDigest(entry.adjudication.deltas, npc, snapshotEntities, worldState);
                 return (
                     <div key={entityId} style={well}>

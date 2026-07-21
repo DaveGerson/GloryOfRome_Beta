@@ -22,7 +22,7 @@ import { StoryRelevanceSchema } from '../ai/core/schemas';
 import { buildStoryRelevancePrompt, buildPreviousIntentsBlock, DIRECTOR_MEMORY_LINES } from '../ai/prompts/intelligence';
 import { buildAdjudicationPrompt } from '../ai/prompts/adjudication';
 import { buildDirectorIntentsBlock } from '../ai/prompts/fragments';
-import { selectDurableIntents, buildIntentConsistencyNotes, MAX_NPC_INTENTS } from '../ai/core/turn';
+import { selectDurableIntents, buildIntentConsistencyNotes, buildIntentDiscardNotes, MAX_NPC_INTENTS } from '../ai/core/turn';
 import { mockGetStoryRelevance, mockRunNewTurn } from '../ai/mocks';
 import { getMockInitialState } from './mockData';
 import { Entity, EntityAction, NpcIntent, NpcIntentContinuityEnum, SimulationState, StoryRelevance } from '../types';
@@ -152,6 +152,17 @@ describe('buildStoryRelevancePrompt: the Director input (previous intents, schem
     expect(prompt).toContain("'new'");
   });
 
+  it('binds intent authoring to the character\'s own knowledge - the omniscient-to-bounded channel contract (pin)', () => {
+    const { systemInstruction } = buildStoryRelevancePrompt(3, [], getMockInitialState().worldState, [], []);
+    // The Director is told the intent text lands in the character's head
+    // verbatim, so it must be phrased from the character's own knowledge...
+    expect(systemInstruction).toContain('INTENT KNOWLEDGE BOUND');
+    expect(systemInstruction).toContain('handed VERBATIM to that character\'s own simulated mind');
+    // ...and must never smuggle cast-wide knowledge into it.
+    expect(systemInstruction).toContain("NEVER reference another NPC's scheme, secret");
+    expect(systemInstruction).toContain('did not witness or hear of');
+  });
+
   it('lists the alive cast with exact entity_ids and scheme one-liners, excluding the dead', () => {
     const alive = makeNpc();
     const dead = makeNpc({ entity_id: 'dead_senator', name: 'Dead Senator', status: 'dead', active_scheme: undefined });
@@ -203,6 +214,35 @@ describe('buildAdjudicationPrompt: the Director intents block (prompt lockstep)'
     expect(prompt).toContain('never restate them');
   });
 
+  it('states the three-layer precedence in system instruction AND blocks, with the manifestation carve-out (pin)', () => {
+    const { entities, worldState } = getMockInitialState();
+    const { systemInstruction } = buildAdjudicationPrompt({
+      worldState, simulationState: SIM_STATE, playerEntity: entities[0], npcEntities: entities.slice(1),
+      history: [], playerIntent: 'Hold court', gmInterventionText: '', storyRelevance: makeRelevance(),
+      metaNarrative: 'A succession crisis.',
+    });
+    // The precedence rule is stated once as a principle...
+    expect(systemInstruction).toContain('DIRECTION PRECEDENCE');
+    expect(systemInstruction).toContain('mind decision > Director intent > generic scheme rules');
+    // ...and BOTH scheme-MUSTs defer to a mind decision instead of
+    // contradicting it.
+    expect(systemInstruction).toContain("must advance their 'active_scheme', unless overridden by that entity's mind decision");
+    expect(systemInstruction).toContain('proactive action to advance their scheme, unless overridden by a mind decision');
+
+    // The intents block's don't-drift demand is scoped the same way, and it
+    // carries the resolution-layer-style carve-out: provenance stays
+    // private, the acted-out move's public manifestation does not.
+    const intentsBlock = buildDirectorIntentsBlock([makeIntent()]);
+    // The cross-reference deliberately avoids the literal 'SPOTLIGHT NPC
+    // DECISIONS' title so the block-absence pins elsewhere (prompt must not
+    // contain the title when no decisions block exists) stay meaningful.
+    expect(intentsBlock).toContain('UNLESS that NPC has an entry in the mind-decisions block');
+    expect(intentsBlock).not.toContain('SPOTLIGHT NPC DECISIONS');
+    expect(intentsBlock).toContain('mind decision > Director intent > generic scheme rules');
+    expect(intentsBlock).toContain('What is private is the provenance');
+    expect(intentsBlock).toContain('public manifestation may and should surface in headlines');
+  });
+
   it('emits NO block for absent or empty intents - the pre-Director prompt shape', () => {
     expect(buildPrompt(undefined)).not.toContain('SPOTLIGHT NPC INTENTS');
     expect(buildPrompt([])).not.toContain('SPOTLIGHT NPC INTENTS');
@@ -236,6 +276,62 @@ describe('selectDurableIntents: spotlights only, capped (4C.3)', () => {
     const durable = selectDurableIntents(relevance);
     expect(durable).toHaveLength(MAX_NPC_INTENTS);
     expect(durable.map(i => i.entity_id)).toEqual(ids.slice(0, MAX_NPC_INTENTS));
+  });
+
+  it('dedupes to ONE intent per entity_id, keeping the FIRST - a duplicate never crowds the cap', () => {
+    const relevance = makeRelevance({
+      spotlight_entities: [
+        { entity_id: 'a', reason: 'r' },
+        { entity_id: 'b', reason: 'r' },
+        { entity_id: 'c', reason: 'r' },
+        { entity_id: 'd', reason: 'r' },
+      ],
+      spotlight_intents: [
+        makeIntent({ entity_id: 'a', intent: 'First for a' }),
+        makeIntent({ entity_id: 'a', intent: 'Second for a - dropped' }),
+        makeIntent({ entity_id: 'b', intent: 'For b' }),
+        makeIntent({ entity_id: 'c', intent: 'For c' }),
+        makeIntent({ entity_id: 'd', intent: 'For d' }),
+      ],
+    });
+    const durable = selectDurableIntents(relevance);
+    // Without the dedupe, a's duplicate would consume a cap slot and push
+    // d's intent out; with it, all four spotlights keep one intent each.
+    expect(durable.map(i => i.entity_id)).toEqual(['a', 'b', 'c', 'd']);
+    expect(durable.find(i => i.entity_id === 'a')?.intent).toBe('First for a');
+  });
+});
+
+describe('buildIntentDiscardNotes: the silent-wipe trace (4C.3)', () => {
+  it('records one gm_private note when the Director emitted intents but ALL failed the spotlight filter', () => {
+    const relevance = makeRelevance({
+      spotlight_entities: [{ entity_id: 'a', reason: 'r' }],
+      spotlight_intents: [
+        makeIntent({ entity_id: 'ghost_1', intent: 'x' }),
+        makeIntent({ entity_id: 'ghost_2', intent: 'y' }),
+      ],
+    });
+    const durable = selectDurableIntents(relevance);
+    expect(durable).toEqual([]);
+    const notes = buildIntentDiscardNotes(relevance, durable);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain('[Director]');
+    expect(notes[0]).toContain('2 emitted intent(s) were discarded');
+    expect(notes[0]).toContain('ghost_1, ghost_2');
+    expect(notes[0]).toContain('None on record');
+  });
+
+  it('records nothing when any intent survives, when none were emitted, or when no spotlights exist', () => {
+    // A surviving intent: no wipe happened.
+    const surviving = makeRelevance();
+    expect(buildIntentDiscardNotes(surviving, selectDurableIntents(surviving))).toEqual([]);
+    // Legitimate empty emission: nothing was discarded.
+    const empty = makeRelevance({ spotlight_intents: [] });
+    expect(buildIntentDiscardNotes(empty, selectDurableIntents(empty))).toEqual([]);
+    // No spotlights at all: the filter dropping everything is the contract,
+    // not a wipe worth tracing.
+    const noSpotlights = makeRelevance({ spotlight_entities: [], spotlight_intents: [makeIntent()] });
+    expect(buildIntentDiscardNotes(noSpotlights, selectDurableIntents(noSpotlights))).toEqual([]);
   });
 });
 

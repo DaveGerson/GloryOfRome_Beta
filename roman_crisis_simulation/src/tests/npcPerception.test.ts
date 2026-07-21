@@ -335,6 +335,22 @@ describe('applyAdjudication - perception-grounded memory stamping over the fixtu
     expect(playerAfter.memories).toHaveLength(0);
   });
 
+  it('stamps memories with the AUTHORITATIVE turn number when the context carries one, never the model-echoed adjudication.turn', () => {
+    // The adjudication mislabels its own turn (a model-echoed field); the
+    // caller's authoritative counter must win for memory provenance.
+    const adjudication = { ...makeAdjudication([
+      { type: 'status', key: 'npc_local', delta: 0, reason: 'Dragged off by hired thugs', new_status: 'missing' } as EventDelta,
+    ]), turn: 99 };
+
+    const { updatedEntities } = applyAdjudication(
+      adjudication, deepCopy(entities), deepCopy(worldState), [], [],
+      { playerEntityId: 'player', turnNumber: 7 }
+    );
+
+    const watcher = updatedEntities.find(e => e.entity_id === 'npc_watcher')!;
+    expect(watcher.memories[0].turn).toBe(7);
+  });
+
   it('reaches an NPC through their visibility network when a witness vantage is absent', () => {
     const adjudication = makeAdjudication([
       { type: 'resource', key: 'npc_local:denarii', delta: 500, reason: 'A purse changes hands' },

@@ -21,17 +21,30 @@
  *  - its OWN perception-grounded memories (Entity.memories, the D10 stamp),
  *  - its OWN perceived digest of the previous turn's events (the same
  *    viewer-agnostic filter in perception/visibility.ts, run from THIS
- *    character's vantage),
- *  - its OWN Director intent (recast as the character's carried resolve),
+ *    character's vantage, deduplicated against the memory lines already
+ *    stamped from it - ai/core/turn.ts::selectUnrememberedChanges),
+ *  - its Director intent (recast as the character's carried resolve). NOTE
+ *    the trust model here: the intent is DIRECTOR-AUTHORED free text
+ *    injected verbatim - no code filters it, and free text cannot be
+ *    reliably code-filtered. It is trusted by convention: bounded by the
+ *    Director prompt's own INTENT KNOWLEDGE BOUND authoring contract
+ *    (ai/prompts/intelligence.ts) and audited by the eval judge's
+ *    information-asymmetry axis (ai/prompts/evalJudge.ts), not by code,
  *  - and PUBLIC knowledge (headlines + the D5-public macro world summary).
- * It must NEVER contain another character's secrets, active_scheme,
- * gm_private, secret_truth, rumor truth flags, or the player's private
- * data. That is why `buildMindSelfBrief` below is a DEDICATED builder and
- * the input shape carries no roster: the omniscient adjudicator fragments
- * (ai/prompts/fragments.ts::getEntityBrief and friends) serialize any
- * entity's scheme/secrets and must never be reused here. Pinned by
- * tests/npcMinds.test.ts (a rival's scheme present in world state must not
- * appear in this prompt).
+ * It must NEVER contain another character's secrets, gm_private,
+ * secret_truth, rumor truth flags, or the player's private data - and
+ * never another character's active_scheme OBJECT (goal/steps). One
+ * sanctioned carve-out on scheme NAMES: the crude-v1 witnessed rule lets a
+ * co-located viewer perceive a schemer's scheme delta as "You catch wind
+ * of X's scheme: <name>" (perception/visibility.ts::describeDelta), so a
+ * rival's scheme NAME may legitimately reach this prompt through the
+ * character's own memories/digest. That is proximity-witnessed perception
+ * under D5, not a leak. That is why `buildMindSelfBrief` below is a
+ * DEDICATED builder and the input shape carries no roster: the omniscient
+ * adjudicator fragments (ai/prompts/fragments.ts::getEntityBrief and
+ * friends) serialize any entity's scheme/secrets and must never be reused
+ * here. Pinned by tests/npcMinds.test.ts (a rival's scheme present in
+ * world state must not appear in this prompt).
  *
  * Mind outputs are GM-PRIVATE (D4/D5): GameMasterScreen and ai/ only.
  */
@@ -63,9 +76,9 @@ export const MIND_MEMORY_LINES = 8;
 export interface NpcMindPromptInput {
   /** The character's OWN full entity record - its own secrets/scheme are its own knowledge. Nothing about any other entity may enter through this input. */
   self: Entity;
-  /** The Director's durable intent committed for this character this turn, if any - recast in the prompt as the character's own carried resolve. */
+  /** The Director's durable intent committed for this character this turn, if any - recast in the prompt as the character's own carried resolve. Director-authored free text injected VERBATIM: guarded by the Director's INTENT KNOWLEDGE BOUND contract and the eval judge, not by code (see the asymmetry-contract note above). */
   directorIntent?: NpcIntent;
-  /** What this character perceived of the PREVIOUS turn's events, from its own vantage - already filtered through perception/visibility.ts's buildPerceivedDigest with this character as the viewer. */
+  /** What this character perceived of the PREVIOUS turn's events, from its own vantage - already filtered through perception/visibility.ts's buildPerceivedDigest with this character as the viewer, and already deduplicated against the memory lines the previous turn stamped from that same digest (ai/core/turn.ts::selectUnrememberedChanges) so the prompt never shows the same event twice. */
   perceivedChanges: PerceivedChange[];
   /** PUBLIC knowledge: the previous turn's headlines (empire-public news, D5). */
   publicHeadlines: string[];
@@ -149,8 +162,8 @@ ${buildMindSelfBrief(self)}
 WHAT YOU REMEMBER (your own experiences, oldest first):
 ${memoryLines.length > 0 ? memoryLines.join('\n') : 'Nothing of note yet - your story here is just beginning.'}
 
-WHAT YOU PERCEIVED THIS PAST WEEK (only what your own vantage admitted):
-${perceivedChanges.length > 0 ? perceivedChanges.map(c => `- [${c.source}] ${c.text}`).join('\n') : 'Little reached you this week.'}
+WHAT ELSE YOU PERCEIVED THIS PAST WEEK (only what your own vantage admitted, beyond what you already remember above):
+${perceivedChanges.length > 0 ? perceivedChanges.map(c => `- [${c.source}] ${c.text}`).join('\n') : 'Nothing beyond what you already remember reached you this week.'}
 
 WHAT ALL OF ROME HAS HEARD (public news):
 ${publicHeadlines.length > 0 ? publicHeadlines.map(h => `- ${h}`).join('\n') : '- The city was quiet.'}

@@ -417,6 +417,18 @@ export interface PerceptionStampContext {
     playerEntityId?: string;
     /** Spotlight entity ids, first in line for the bounded perceiving set. */
     spotlightIds?: string[];
+    /**
+     * The App's AUTHORITATIVE turn counter for the turn being applied
+     * (threaded from runNewTurn, which receives it from App.tsx). Used for
+     * the memory stamp's `turn` field INSTEAD of the model-echoed
+     * `adjudication.turn`: a model that mislabels its turn must not skew
+     * memory provenance (the same rule knowledge/commit.ts states for the
+     * player-side knowledge stamps). Optional so legacy call sites keep
+     * working; absent, the stamp falls back to `adjudication.turn` - the
+     * pre-existing behavior. Report/truth-ledger `turn` stamps are a
+     * separate, documented case - see applyDeltas' 'rumor' branch.
+     */
+    turnNumber?: number;
 }
 
 export function applyAdjudication(
@@ -451,12 +463,17 @@ export function applyAdjudication(
         adjudication.deltas
     );
     const npcPerceptions = buildNpcPerceptions(adjudication.deltas, perceivers, entitiesAfterDeltas, updatedWorldState);
+    // Memory stamps use the AUTHORITATIVE turn counter when the caller
+    // provides one (see PerceptionStampContext.turnNumber) - never trusting
+    // the model-echoed `adjudication.turn` for provenance when the real
+    // counter is available.
+    const stampTurn = perceptionContext.turnNumber ?? adjudication.turn;
     npcPerceptions.forEach(perception => {
         const entity = entitiesAfterDeltas.find(e => e.entity_id === perception.entityId);
         if (!entity) return;
         selectMemoryChanges(perception.changes).forEach(change => {
             entity.memories.push({
-                turn: adjudication.turn,
+                turn: stampTurn,
                 event_description: change.text,
                 emotional_impact: "Notable",
                 // The digest's subject id, when it names another roster

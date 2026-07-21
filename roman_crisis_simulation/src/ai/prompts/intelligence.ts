@@ -226,6 +226,7 @@ export function buildStoryRelevancePrompt(
         - 'pivot': the character abandons or redirects its previous intent because events made it obsolete or opened something better.
         - 'new': the character has no previous intent on record.
         Ground each intent in the character's active scheme and its recent memories - what the character itself witnessed or heard, not what you as narrator know. Intents are GM-private direction and never reach the player.
+        INTENT KNOWLEDGE BOUND (hard rule): each intent's text is later handed VERBATIM to that character's own simulated mind as the character's own carried thought. Phrase every intent strictly from that character's own knowledge - their scheme, their memories and perceptions as provided below - and NEVER reference another NPC's scheme, secret, or any act this character did not witness or hear of. You see the whole cast; the character does not, and your wording must not smuggle your omniscience into their head.
     3.  **Evolve The World (Optional):** To keep the story fresh, consider if the cast or setting should change.
         - **Add Entity?** Is there a new character archetype missing that would create compelling conflict? (e.g., a populist tribune, a foreign envoy, a ruthless crime boss). If so, suggest adding ONE.
         - **Remove Entity?** Has an existing character become irrelevant or served their purpose? If so, suggest removing ONE to streamline the story.

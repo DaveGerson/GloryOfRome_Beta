@@ -297,6 +297,7 @@ export const mockRunNewTurn = async (
     let { updatedEntities, updatedWorldState, updatedReports, updatedTruthLedger, perceivingNpcIds } = applyAdjudication(adjudication, currentEntities, currentWorldState, currentReports, currentTruthLedger, {
         playerEntityId: playerEntity.entity_id,
         spotlightIds: storyRelevance.spotlight_entities.map(s => s.entity_id),
+        turnNumber,
     });
 
     // MOCK CONVERSATION SIMULATION

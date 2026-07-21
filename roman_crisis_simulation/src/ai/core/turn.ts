@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent, TruthLedgerEntry, NpcIntent, NpcMindDecision, StoryRelevance, EntityAction } from '../../types';
+import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent, TruthLedgerEntry, NpcIntent, NpcMindDecision, StoryRelevance, EntityAction, Memory } from '../../types';
 import { AdjudicationSchema } from './schemas';
 import { applyAdjudication, applyDeltas } from './engine';
 import { mockRunNewTurn } from "../mocks";
@@ -8,7 +8,7 @@ import { getActionAssessment } from '../tools/assessment';
 import { getNpcMindDecision } from '../tools/npcMind';
 import { MAX_MINDS_PER_TURN } from '../prompts/npcMind';
 import { buildWorldSummary } from '../prompts/fragments';
-import { buildPerceivedDigest } from '../../perception/visibility';
+import { buildPerceivedDigest, PerceivedChange } from '../../perception/visibility';
 import { generateStructured, generateText, generateTextStream, GEMINI_PRO, beginTurnCapture, endTurnCapture } from './geminiService';
 import { zAdjudication } from './zodSchemas';
 import { buildAdjudicationPrompt, PlayerActionOutcomeContext } from '../prompts/adjudication';
@@ -36,7 +36,13 @@ export const MAX_NPC_INTENTS = 4;
 /**
  * Derives the DURABLE intent list from the Director's raw output: only
  * intents whose entity_id is an actual spotlight pick survive (intents are
- * per-spotlight by contract), capped at MAX_NPC_INTENTS in emission order.
+ * per-spotlight by contract), deduped to ONE intent per entity_id keeping
+ * the FIRST emitted, capped at MAX_NPC_INTENTS in emission order. The
+ * dedupe is load-bearing: the Director's contract is exactly one intent
+ * per spotlight, and without it a duplicate would crowd the cap, list
+ * twice in the adjudication prompt's intents block, and disagree with the
+ * mind handoff (whose Map lookup keeps only one entry per entity) about
+ * WHICH intent stands - first-wins makes every consumer see the same one.
  * This filtered list is the single shape everything downstream consumes -
  * the adjudication prompt's intents block, the code-side consistency check,
  * the history entry, and the reducer's persisted `npcIntents` slice.
@@ -44,9 +50,59 @@ export const MAX_NPC_INTENTS = 4;
  */
 export function selectDurableIntents(storyRelevance: StoryRelevance): NpcIntent[] {
     const spotlightIds = new Set(storyRelevance.spotlight_entities.map(s => s.entity_id));
-    return (storyRelevance.spotlight_intents ?? [])
-        .filter(intent => spotlightIds.has(intent.entity_id))
-        .slice(0, MAX_NPC_INTENTS);
+    const seen = new Set<string>();
+    const durable: NpcIntent[] = [];
+    for (const intent of storyRelevance.spotlight_intents ?? []) {
+        if (!spotlightIds.has(intent.entity_id) || seen.has(intent.entity_id)) continue;
+        seen.add(intent.entity_id);
+        durable.push(intent);
+    }
+    return durable.slice(0, MAX_NPC_INTENTS);
+}
+
+/**
+ * GM-private trace for the silent-wipe edge (4C.3): the Director emitted a
+ * schema-valid intent list, spotlights exist, and yet EVERY intent failed
+ * the spotlight filter (mismatched entity_ids) - selectDurableIntents then
+ * commits [] wholesale and next turn's Director is told "None on record"
+ * with no trace of why. This note records the discard for the GM console
+ * (same soft-contract style as buildIntentConsistencyNotes); it changes no
+ * behavior. Returns [] in every non-wipe case, including the legitimate
+ * empty-emission and no-spotlight cases. Pure; exported for direct unit
+ * testing.
+ */
+export function buildIntentDiscardNotes(storyRelevance: StoryRelevance, durableIntents: NpcIntent[]): string[] {
+    const emitted = storyRelevance.spotlight_intents ?? [];
+    if (emitted.length === 0 || durableIntents.length > 0 || storyRelevance.spotlight_entities.length === 0) return [];
+    return [
+        `[Director] All ${emitted.length} emitted intent(s) were discarded: none named a spotlight pick (intents for ${emitted.map(i => i.entity_id).join(', ')}; spotlights ${storyRelevance.spotlight_entities.map(s => s.entity_id).join(', ')}). Nothing was committed, so next turn's Director will see "None on record" - soft contract, nothing was forced.`,
+    ];
+}
+
+/**
+ * Drops the perceived-digest lines a mind prompt would otherwise show
+ * TWICE (4C.4): the previous turn's memory stamp (ai/core/engine.ts) and
+ * the mind-input digest both render the same deltas through
+ * perception/visibility.ts's describeDelta, so a line stamped into this
+ * NPC's memories last turn re-derives byte-identical here. Only lines whose
+ * text matches a memory entry stamped with the PREVIOUS turn's number are
+ * dropped (an older turn's identical text describes a different event and
+ * must not suppress a fresh line). Lines the stamp dropped survive - the
+ * per-turn MAX_NPC_MEMORY_LINES_PER_TURN cap, and viewers excluded from
+ * the perceiving set entirely (MAX_PERCEIVING_NPCS), for whom this digest
+ * is the only channel. Pure; exported for direct unit testing.
+ */
+export function selectUnrememberedChanges(
+    changes: PerceivedChange[],
+    memories: Memory[],
+    previousTurnNumber: number | undefined
+): PerceivedChange[] {
+    if (previousTurnNumber === undefined) return changes;
+    const remembered = new Set(
+        memories.filter(m => m.turn === previousTurnNumber).map(m => m.event_description)
+    );
+    if (remembered.size === 0) return changes;
+    return changes.filter(change => !remembered.has(change.text));
 }
 
 /**
@@ -327,8 +383,16 @@ export async function runNewTurn(
                     directorIntent: intentByEntity.get(npc.entity_id),
                     // The character's own vantage on last week's ground truth
                     // - the same viewer-agnostic filter the memory stamp and
-                    // the player digest use (perception/visibility.ts).
-                    perceivedChanges: buildPerceivedDigest(previousDeltas, npc, currentEntities, currentWorldState),
+                    // the player digest use (perception/visibility.ts) -
+                    // minus the lines the previous turn's memory stamp
+                    // already put in this character's memories, which the
+                    // mind prompt renders separately (see
+                    // selectUnrememberedChanges above).
+                    perceivedChanges: selectUnrememberedChanges(
+                        buildPerceivedDigest(previousDeltas, npc, currentEntities, currentWorldState),
+                        npc.memories,
+                        previousEntry?.turnNumber
+                    ),
                     publicHeadlines,
                     worldSummary,
                     turnNumber,
@@ -391,8 +455,11 @@ export async function runNewTurn(
     // Director intent with no entityAction gets a gm_private note for the
     // GM console. Never a hard failure - see buildIntentConsistencyNotes.
     // gm_private is stripped before narration (ai/prompts/narration.ts), so
-    // these notes can never reach the player.
+    // these notes can never reach the player. The discard note records the
+    // silent-wipe edge (all emitted intents failed the spotlight filter) so
+    // the GM console can see why next turn's Director holds no record.
     adjudication.gm_private.push(...buildIntentConsistencyNotes(adjudication.entityActions, npcIntents));
+    adjudication.gm_private.push(...buildIntentDiscardNotes(storyRelevance, npcIntents));
 
     // Mind-call soft-degradation notes (4C.4): recorded per failed mind in
     // step 1.5 above, attached here once the adjudication object exists -
@@ -477,6 +544,10 @@ export async function runNewTurn(
         {
             playerEntityId: playerEntity.entity_id,
             spotlightIds: storyRelevance.spotlight_entities.map(s => s.entity_id),
+            // The App's authoritative counter - the memory stamp's `turn`
+            // provenance, never the model-echoed adjudication.turn (see
+            // PerceptionStampContext in ai/core/engine.ts).
+            turnNumber,
         }
     );
     const updatedPlayerEntity = updatedEntities.find(e => e.entity_id === playerEntity.entity_id) || playerEntity;
@@ -595,6 +666,21 @@ export async function runNewTurn(
         // updatedTruthLedger rather than discarded here.
         const { updatedEntities: entitiesAfterRelationshipUpdates } = applyDeltas(relationshipDeltas, updatedEntities, updatedWorldState, turnNumber);
         updatedEntities = entitiesAfterRelationshipUpdates;
+        // Merge the just-applied deltas into the COMMITTED adjudication so
+        // they are part of the turn's ground-truth record. They are applied
+        // to state exactly ONCE (the applyDeltas call above): nothing after
+        // this point applies transformedAdjudication.deltas again -
+        // applyAdjudication already ran at step 3, and the committed entry's
+        // deltas feed only derivations (the player digest + knowledge
+        // ingestion in App.tsx, the GM console's views, and next turn's NPC
+        // mind digests), which classify them under the normal D5 rules
+        // (self/witnessed/network/invisible) like any other delta. The NPC
+        // memory stamp inside applyAdjudication ran BEFORE this step, so
+        // these deltas are never stamped as memories this turn - an accepted
+        // one-turn lag: next turn's minds still receive them through the
+        // re-derived digest of this entry (selectUnrememberedChanges keeps
+        // un-stamped lines).
+        transformedAdjudication.deltas.push(...relationshipDeltas);
         // Log this change for debugging.
         transformedAdjudication.gm_private.push(`[Narrative Analyst] Applied ${relationshipDeltas.length} relationship delta(s) based on turn events.`);
     }
