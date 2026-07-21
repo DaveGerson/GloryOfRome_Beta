@@ -25,12 +25,13 @@
  * call sites.
  */
 
-import { Entity, WorldState, SimulationState, StoryRelevance } from '../../types';
+import { Entity, WorldState, SimulationState, StoryRelevance, NpcIntent } from '../../types';
 import type { ActionResolutionTier } from '../core/resolution';
 import {
   buildWorldSummary,
   buildSpotlightBlock,
   buildOtherNpcsBlock,
+  buildDirectorIntentsBlock,
   buildGmInterventionBlock,
   buildStoryEvolutionBlock,
   buildMetaNarrativeBlock,
@@ -140,6 +141,13 @@ export interface AdjudicationPromptInput {
   metaNarrative: string;
   /** Present only when the resolution layer's assessment call flagged this turn's player action as consequential - see `buildPlayerActionOutcomeBlock`. */
   playerActionOutcome?: PlayerActionOutcomeContext;
+  /**
+   * The Director's committed per-spotlight intents for THIS turn (4C.3) -
+   * the bounded list ai/core/turn.ts derives via `selectDurableIntents`.
+   * Optional so pre-Director constructions keep working; absent/empty means
+   * no SPOTLIGHT NPC INTENTS block (see `buildDirectorIntentsBlock`).
+   */
+  npcIntents?: NpcIntent[];
 }
 
 /** Builds the { systemInstruction, prompt } pair for the main turn adjudication call. */
@@ -147,7 +155,7 @@ export function buildAdjudicationPrompt(input: AdjudicationPromptInput): { syste
   const {
     worldState, simulationState, playerEntity, npcEntities, history,
     playerIntent, gmInterventionText, storyRelevance, metaNarrative,
-    playerActionOutcome,
+    playerActionOutcome, npcIntents,
   } = input;
 
   const spotlightIds = new Set(storyRelevance.spotlight_entities.map(s => s.entity_id));
@@ -169,7 +177,7 @@ ${history.length > 0 ? history.join('\n') : "No recent events of note."}
 --- TURN SIMULATION INPUTS ---
 
 ${buildSpotlightBlock(spotlightNpcs)}
-
+${buildDirectorIntentsBlock(npcIntents)}
 ${buildOtherNpcsBlock(otherNpcs)}
 
 ${buildSecretSurvivorsBlock(npcEntities)}

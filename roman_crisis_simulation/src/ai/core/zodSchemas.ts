@@ -26,6 +26,7 @@ import { z } from 'zod';
 import {
   EntityActionIntentEnum,
   EventDeltaTypeEnum,
+  NpcIntentContinuityEnum,
 } from '../../types';
 
 // --- Entity sub-schemas (types.ts mirror) --------------------------------
@@ -168,12 +169,27 @@ export const zAdjudication = z.object({
   remove_entities: z.array(z.string()).nullable().optional(),
 }).passthrough();
 
-/** Validates getStoryRelevance's output (intelligence.ts). */
+/**
+ * One spotlight NPC's persistent intent from the Director (4C.3) - mirrors
+ * types.ts's NpcIntent. GM-private data class (D4/D5): consumed only by
+ * ai/** prompts and the GM console.
+ */
+export const zNpcIntent = z.object({
+  entity_id: z.string(),
+  intent: z.string(),
+  continuity: z.enum(NpcIntentContinuityEnum),
+}).passthrough();
+
+/** Validates getStoryRelevance's (the Director's) output (intelligence.ts). */
 export const zStoryRelevance = z.object({
   spotlight_entities: z.array(z.object({
     entity_id: z.string(),
     reason: z.string(),
   }).passthrough()),
+  // Required, like spotlight_entities: the intents are the durable state the
+  // continuity loop (ai/core/turn.ts) commits every turn - an omission is a
+  // structural failure the repair-retry should catch, not a silent no-op.
+  spotlight_intents: z.array(zNpcIntent),
   add_entity_suggestion: z.object({
     description: z.string(),
     reason: z.string(),

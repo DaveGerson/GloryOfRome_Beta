@@ -161,6 +161,40 @@ describe('persistence/saveGame', () => {
     expect(loaded!.state.knowledge).toEqual(knowledge);
   });
 
+  it('round-trips the optional Director intents slice (4C.3), and their absence on a pre-Director save', () => {
+    const npcIntents = [
+      { entity_id: 'maximinus_thrax', intent: 'Court the Rhine legions for a march on Rome', continuity: 'continue' as const },
+      { entity_id: 'praetorian_guard', intent: 'Extract the donative before pledging swords', continuity: 'new' as const },
+    ];
+    saveGame(makeState({ turnNumber: 6, npcIntents }));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.npcIntents).toEqual(npcIntents);
+
+    // A save written without the field (pre-Director campaign) loads with it
+    // simply absent - GAME_LOADED normalizes absent -> [] downstream.
+    localStorage.clear();
+    saveGame(makeState({ turnNumber: 2 }));
+    const legacy = loadGame();
+    expect(legacy).not.toBeNull();
+    expect(legacy!.state.npcIntents).toBeUndefined();
+  });
+
+  it('round-trips the optional npcIntents on history entries, alongside entries that lack it', () => {
+    const withIntents: TurnHistoryEntry = {
+      ...makeHistoryEntry(1, false),
+      npcIntents: [{ entity_id: 'maximinus_thrax', intent: 'March on Rome', continuity: 'pivot' }],
+    };
+    const withoutIntents = makeHistoryEntry(2, false); // pre-Director entry shape
+    saveGame(makeState({ turnNumber: 3, turnHistory: [withIntents, withoutIntents] }));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.turnHistory[0].npcIntents).toEqual(withIntents.npcIntents);
+    expect(loaded!.state.turnHistory[1].npcIntents).toBeUndefined();
+  });
+
   it('loads a stored v1 envelope that predates the knowledge store (field simply absent)', () => {
     // Written directly to storage, bypassing saveGame, to mirror a blob
     // persisted before the field existed.

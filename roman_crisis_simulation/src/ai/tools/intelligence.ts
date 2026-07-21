@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { Entity, WorldState, StoryRelevance, Adjudication, SimulationState, EventDelta, ActionResolutionEvent } from '../../types';
+import { Entity, WorldState, StoryRelevance, Adjudication, SimulationState, EventDelta, ActionResolutionEvent, NpcIntent } from '../../types';
 import { mockGetClarificationOnEvent, mockGetRawThoughts, mockGetDeepAnalysis, mockGetInvestigationResult, mockGetPlayerMonologue, mockGetStoryRelevance, mockSimulatePrivateConversation } from '../mocks';
 import { RelationshipDeltasSchema, ConversationSimulationSchema, StoryRelevanceSchema, SimulationStateSchema, buildInvestigationResultSchema } from '../core/schemas';
 import { generateStructured, generateText, GEMINI_PRO, GEMINI_FLASH } from '../core/geminiService';
@@ -172,13 +172,13 @@ export const getPlayerMonologue = async (ai: GoogleGenAI, player: Entity, turnHe
     return text || "I am contemplative.";
 };
 
-export const getStoryRelevance = async (ai: GoogleGenAI, turnNumber: number, prevTurnHeadlines: string[], worldState: WorldState, isMockMode: boolean): Promise<StoryRelevance> => {
+export const getStoryRelevance = async (ai: GoogleGenAI, turnNumber: number, prevTurnHeadlines: string[], worldState: WorldState, npcEntities: Entity[], previousIntents: NpcIntent[], isMockMode: boolean): Promise<StoryRelevance> => {
     if (isMockMode) {
         if (!mockGetStoryRelevance) throw new Error("Mock function 'mockGetStoryRelevance' is not implemented.");
-        return mockGetStoryRelevance(turnNumber);
+        return mockGetStoryRelevance(turnNumber, previousIntents);
     }
 
-    const { systemInstruction, prompt } = buildStoryRelevancePrompt(turnNumber, prevTurnHeadlines, worldState);
+    const { systemInstruction, prompt } = buildStoryRelevancePrompt(turnNumber, prevTurnHeadlines, worldState, npcEntities, previousIntents);
     return generateStructured<StoryRelevance>(ai, {
         callName: 'storyRelevance',
         model: GEMINI_PRO,

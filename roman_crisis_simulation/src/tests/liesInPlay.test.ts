@@ -39,7 +39,7 @@ function buildSystemInstruction(): string {
     history: [],
     playerIntent: 'Spread word that Thrax steals from his own men',
     gmInterventionText: '',
-    storyRelevance: { spotlight_entities: [] },
+    storyRelevance: { spotlight_entities: [], spotlight_intents: [] },
     metaNarrative: 'A succession crisis.',
   });
   return systemInstruction;

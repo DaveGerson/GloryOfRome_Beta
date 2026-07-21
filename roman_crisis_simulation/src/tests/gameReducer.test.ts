@@ -88,6 +88,9 @@ function makeTurnCommit(state: GameDomainState, entities = state.entities): Extr
       { id: 'truth_1_1', turn: state.turnNumber, claim: 'A whispered lie', aboutId: 'severus_alexander', isTrue: false, reportId: 'report_1_1' },
     ],
     knowledge: [makeKnowledgeClaim('claim_commit', state.turnNumber)],
+    npcIntents: [
+      { entity_id: 'maximinus_thrax', intent: 'Court the Rhine legions for a march on Rome', continuity: 'new' },
+    ],
     turnNumber: state.turnNumber + 1,
     turnHistory: [...state.turnHistory, makeHistoryEntry(state.turnNumber)],
     gmMessage: { sender: 'gm', text: 'The die is cast.' },
@@ -176,6 +179,21 @@ describe('state/gameReducer', () => {
       const state = makePlayingState({ gameState: GameState.PROCESSING });
       const result = gameReducer(state, makeTurnCommit(state));
       expect(result.gameState).toBe(GameState.PROCESSING);
+    });
+
+    it('replaces the Director intents slice wholesale with the commit\'s npcIntents (4C.3)', () => {
+      const state = makePlayingState({
+        gameState: GameState.PROCESSING,
+        npcIntents: [{ entity_id: 'praetorian_guard', intent: 'A stale prior direction', continuity: 'new' }],
+      });
+      const action = makeTurnCommit(state);
+      const result = gameReducer(state, action);
+      // Wholesale replacement - the prior slice never merges in.
+      expect(result.npcIntents).toBe(action.npcIntents);
+
+      // An empty Director turn clears the slice the same way.
+      const cleared = gameReducer(state, { ...makeTurnCommit(state), npcIntents: [] });
+      expect(cleared.npcIntents).toEqual([]);
     });
 
     it('resolves the phase to GAME_OVER when the committed entities show the player dead (D1)', () => {
@@ -369,6 +387,22 @@ describe('state/gameReducer', () => {
       expect(normalized.truthLedger).toEqual([]);
     });
 
+    it('restores the Director intents from the snapshot, normalizing an absent field to an empty list (4C.3)', () => {
+      const state = makePlayingState({
+        npcIntents: [{ entity_id: 'maximinus_thrax', intent: 'A mid-turn direction', continuity: 'pivot' }],
+      });
+      const snapshotIntents = [{ entity_id: 'praetorian_guard', intent: 'The pre-turn direction', continuity: 'continue' as const }];
+
+      const withIntents = makeSaveState({ npcIntents: snapshotIntents });
+      const restored = gameReducer(state, { type: 'TURN_ROLLED_BACK', snapshot: withIntents });
+      expect(restored.npcIntents).toEqual(snapshotIntents);
+
+      const withoutIntents = makeSaveState();
+      delete withoutIntents.npcIntents;
+      const normalized = gameReducer(state, { type: 'TURN_ROLLED_BACK', snapshot: withoutIntents });
+      expect(normalized.npcIntents).toEqual([]);
+    });
+
     it('restores the knowledge store from the snapshot, normalizing an absent field to an empty store (D21)', () => {
       const state = makePlayingState({
         knowledge: [makeKnowledgeClaim('claim_mid', 3)],
@@ -454,6 +488,7 @@ describe('state/gameReducer', () => {
         pendingIntelligenceFallout: ['Old fallout'],
         truthLedger: [{ id: 'truth_5_1', turn: 5, claim: 'A persisted lie', aboutId: 'severus_alexander', originId: 'maximinus_thrax', isTrue: false, reportId: 'report_5_1' }],
         knowledge: [makeKnowledgeClaim('claim_loaded', 5)],
+        npcIntents: [{ entity_id: 'maximinus_thrax', intent: 'A persisted direction', continuity: 'continue' }],
       });
       const result = gameReducer(state, { type: 'GAME_LOADED', save });
 
@@ -475,6 +510,7 @@ describe('state/gameReducer', () => {
       expect(result.pendingIntelligenceFallout).toEqual(['Old fallout']);
       expect(result.truthLedger).toEqual(save.truthLedger);
       expect(result.knowledge).toEqual(save.knowledge);
+      expect(result.npcIntents).toEqual(save.npcIntents);
       expect(result.gameState).toBe(GameState.AWAITING_PLAYER_INPUT);
     });
 
@@ -484,6 +520,7 @@ describe('state/gameReducer', () => {
       delete save.pendingIntelligenceFallout;
       delete save.truthLedger;
       delete save.knowledge;
+      delete save.npcIntents;
       const result = gameReducer(createInitialGameState(), { type: 'GAME_LOADED', save });
       expect(result.inferredAmbition).toBeNull();
       expect(result.pendingIntelligenceFallout).toEqual([]);
@@ -491,6 +528,9 @@ describe('state/gameReducer', () => {
       expect(result.truthLedger).toEqual([]);
       // D21 - a legacy (pre-knowledge-store) save starts with an empty store.
       expect(result.knowledge).toEqual([]);
+      // 4C.3 - a legacy (pre-Director) save starts with no intents; the
+      // next Director run rules everything 'new'.
+      expect(result.npcIntents).toEqual([]);
     });
 
     it('re-derives GAME_OVER from a save whose player is dead (D1 - GAME_OVER itself is never persisted)', () => {

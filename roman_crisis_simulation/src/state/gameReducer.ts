@@ -30,6 +30,7 @@ import {
   EventHistoryEntry,
   WorldState,
   TruthLedgerEntry,
+  NpcIntent,
 } from '../types';
 import type { SaveGameState, InferredAmbitionState } from '../persistence/saveGame';
 import type { KnowledgeClaim } from '../knowledge/store';
@@ -66,6 +67,17 @@ export interface GameDomainState {
    * commits it here atomically (TURN_COMMITTED / INVESTIGATION_COMMITTED).
    */
   knowledge: KnowledgeClaim[];
+  /**
+   * ROADMAP_PHASE_4.md 4C item 3 - the Director's current per-spotlight
+   * persistent intents: what each spotlight NPC is durably trying to
+   * accomplish, replaced wholesale at each turn commit from the Director's
+   * output and fed into the NEXT turn's Director input (the continuity
+   * loop). Bounded at MAX_NPC_INTENTS (ai/core/turn.ts). GM-PRIVATE per
+   * D4/D5, same handling class as `truthLedger` above: rendered ONLY in
+   * GameMasterScreen, consumed otherwise only by ai/ prompts - never on any
+   * player-facing surface.
+   */
+  npcIntents: NpcIntent[];
   turnNumber: number;
   playerCharacterId: string | null;
   turnHistory: TurnHistoryEntry[];
@@ -105,6 +117,7 @@ export function createInitialGameState(): GameDomainState {
     reports: [],
     truthLedger: [],
     knowledge: [],
+    npcIntents: [],
     turnNumber: 1,
     playerCharacterId: null,
     turnHistory: [],
@@ -182,6 +195,8 @@ export type GameAction =
       truthLedger: TruthLedgerEntry[];
       /** The next knowledge store, computed by App.tsx from this turn's perceived digest + new Reports via knowledge/store.ts's pure ingestion (D21). */
       knowledge: KnowledgeClaim[];
+      /** The Director's committed intents for this turn (runNewTurn's updatedNpcIntents, 4C.3) - replaces the slice wholesale. */
+      npcIntents: NpcIntent[];
       turnNumber: number;
       turnHistory: TurnHistoryEntry[];
       gmMessage: Message;
@@ -287,6 +302,7 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         reports: action.reports,
         truthLedger: action.truthLedger,
         knowledge: action.knowledge,
+        npcIntents: action.npcIntents,
         turnNumber: action.turnNumber,
         // Older entries shed their full entity snapshots here - the one
         // commit point every turn passes through, so state and autosave
@@ -325,6 +341,9 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         // knowledge ingestion never commits, so restoring the pre-turn
         // store keeps the slice consistent with reports/truthLedger.
         knowledge: snapshot.knowledge ?? [],
+        // Optional field (4C.3) - same normalization; a failed turn never
+        // committed its Director output, so the pre-turn intents stand.
+        npcIntents: snapshot.npcIntents ?? [],
         turnNumber: snapshot.turnNumber,
         turnHistory: snapshot.turnHistory,
         eventHistory: snapshot.eventHistory,
@@ -403,6 +422,10 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         // Optional field (D21) - absent on saves from before the knowledge
         // store existed, so this normalizes it to an empty store.
         knowledge: s.knowledge ?? [],
+        // Optional field (4C.3) - absent on saves from before the Director's
+        // persistent intents existed, so this normalizes it to an empty
+        // list; the next turn's Director then rules everything 'new'.
+        npcIntents: s.npcIntents ?? [],
         // Optional field (D8) - absent on saves from before this field
         // existed, so this normalizes it to `null` rather than `undefined`
         // for InferredAmbitionState | null's sake.

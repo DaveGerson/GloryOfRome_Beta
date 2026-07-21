@@ -463,6 +463,16 @@ export interface TurnHistoryEntry {
    * only in the GM console, never player-facing.
    */
   perceivingNpcIds?: string[];
+  /**
+   * The Director's per-spotlight persistent intents for this turn (4C.3),
+   * as committed - the same bounded list fed into this turn's adjudicator
+   * and persisted on the reducer's `npcIntents` slice for the NEXT turn's
+   * Director input. Optional: entries persisted before the field existed
+   * (and turns where the Director named no spotlight intents) simply lack
+   * it. GM-PRIVATE (D4/D5) like the rest of an entry's simulation data -
+   * rendered only in the GM console, never player-facing.
+   */
+  npcIntents?: NpcIntent[];
   resolutionTrace?: ActionResolutionEvent; // The player action's trip through the resolution layer this turn (if consequential), see ActionResolutionEvent
   /**
    * The 32-bit seed of this turn's roll generator
@@ -482,8 +492,34 @@ export interface SpotlightEntity {
   reason: string;
 }
 
+/**
+ * The Director's continuity ruling on a spotlight intent (ROADMAP_PHASE_4.md
+ * 4C item 3): 'continue' carries the character's previous intent forward,
+ * 'pivot' redirects it because events made it obsolete or opened something
+ * better, 'new' means the character had no previous intent on record.
+ */
+export const NpcIntentContinuityEnum = ['continue', 'pivot', 'new'] as const;
+export type NpcIntentContinuity = typeof NpcIntentContinuityEnum[number];
+
+/**
+ * One spotlight NPC's persistent intent, emitted by the Director
+ * (storyRelevance call) each turn and persisted at turn commit so the NEXT
+ * turn's Director judges continuity against it - the 4C.3 continuity loop.
+ * GM-PRIVATE per DESIGN_DECISIONS.md D4/D5: intents are simulation
+ * direction, never player knowledge - they may render only in
+ * GameMasterScreen and feed only prompts under ai/.
+ */
+export interface NpcIntent {
+  entity_id: string;
+  /** ONE LINE: what this character is trying to accomplish next. */
+  intent: string;
+  continuity: NpcIntentContinuity;
+}
+
 export interface StoryRelevance {
   spotlight_entities: SpotlightEntity[];
+  /** Per-spotlight persistent intents (4C.3) - see NpcIntent above. */
+  spotlight_intents: NpcIntent[];
   add_entity_suggestion?: { description: string; reason: string; };
   remove_entity_suggestion?: { entity_id: string; reason: string; };
   add_location_suggestion?: { name: string; description: string; reason: string; };

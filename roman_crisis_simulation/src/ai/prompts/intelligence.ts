@@ -13,7 +13,7 @@
  * in ai/tools/intelligence.ts, split only where necessary.
  */
 
-import { Adjudication, Entity, WorldState, SimulationState } from '../../types';
+import { Adjudication, Entity, WorldState, SimulationState, NpcIntent } from '../../types';
 import type { ActionResolutionTier } from '../core/resolution';
 import { getLightEntityBrief } from './fragments';
 
@@ -152,9 +152,57 @@ export function buildInvestigationPrompt(
  */
 
 /**
- * PURPOSE: The "Director" call - pick 2-4 spotlight NPCs for this turn and
- * optionally suggest cast/location additions or removals to keep the story
- * fresh.
+ * Bounded slice of an NPC's memory lines fed into the Director's prompt:
+ * the LAST N entries of the perception-grounded memories stamped by
+ * ai/core/engine.ts's applyAdjudication (D10 - each line is something this
+ * character actually witnessed or heard from its own vantage). Bounded
+ * because Entity.memories holds up to MAX_ENTITY_MEMORIES entries per
+ * entity and the Director only needs recent context for its continuity
+ * ruling, not the whole remembered past.
+ */
+export const DIRECTOR_MEMORY_LINES = 5;
+
+/** One-line active-scheme summary for the Director's cast roster. */
+function schemeLine(entity: Entity): string {
+  return entity.active_scheme
+    ? `${entity.active_scheme.name}: ${entity.active_scheme.overall_goal}`
+    : 'none';
+}
+
+/**
+ * The Director's continuity input: the PREVIOUS turn's committed intents
+ * (the reducer's `npcIntents` slice, threaded through ai/core/turn.ts),
+ * each with its holder's active scheme and a DIRECTOR_MEMORY_LINES-bounded
+ * slice of that NPC's own perception-grounded memories - the Director
+ * judges 'continue'/'pivot' from what the CHARACTER experienced, not from
+ * the global record. Exported for direct prompt-lockstep testing.
+ */
+export function buildPreviousIntentsBlock(previousIntents: NpcIntent[], npcEntities: Entity[]): string {
+  if (previousIntents.length === 0) {
+    return `PREVIOUS TURN'S INTENTS: None on record - rule every spotlight intent this turn as 'new'.`;
+  }
+  const lines = previousIntents.map(prev => {
+    const entity = npcEntities.find(e => e.entity_id === prev.entity_id);
+    const scheme = entity ? `\n  Active scheme: ${schemeLine(entity)}` : '';
+    const memories = entity && entity.memories.length > 0
+      ? `\n  Recent memories (their own vantage, oldest first):\n${entity.memories
+          .slice(-DIRECTOR_MEMORY_LINES)
+          .map(m => `    - T${m.turn}: ${m.event_description}`)
+          .join('\n')}`
+      : '';
+    return `- ${prev.entity_id} was trying to: "${prev.intent}" (continuity last turn: ${prev.continuity})${scheme}${memories}`;
+  });
+  return `PREVIOUS TURN'S INTENTS (your own prior direction - judge each spotlight's continuity against these, informed by what each character has since witnessed):
+${lines.join('\n')}`;
+}
+
+/**
+ * PURPOSE: The "Director" call - pick 2-4 spotlight NPCs for this turn,
+ * emit a persistent one-line INTENT (+ continuity ruling against the
+ * previous turn's intents) for each spotlight, and optionally suggest
+ * cast/location additions or removals to keep the story fresh. The intents
+ * are the durable state of the 4C.3 continuity loop: committed at turn end,
+ * fed back in here next turn.
  * MODEL: pro (GEMINI_PRO).
  * CONSUMER: ai/core/turn.ts `runNewTurn`, step 0 (`getStoryRelevance` in
  * ai/tools/intelligence.ts).
@@ -164,14 +212,21 @@ export function buildInvestigationPrompt(
 export function buildStoryRelevancePrompt(
   turnNumber: number,
   prevTurnHeadlines: string[],
-  worldState: WorldState
+  worldState: WorldState,
+  npcEntities: Entity[],
+  previousIntents: NpcIntent[]
 ): { systemInstruction: string; prompt: string } {
   const systemInstruction = `
-    You are a master storyteller and game master for a Roman political simulation.
+    You are a master storyteller and game master for a Roman political simulation. You are the Director: you choose where the story's attention goes AND you carry each spotlight character's direction forward from week to week.
 
     Task: Analyze the situation and determine the narrative focus for the upcoming turn.
-    1.  **Spotlight Entities:** Identify 2-4 existing entities who are now critically important. Provide a brief reason for each.
-    2.  **Evolve The World (Optional):** To keep the story fresh, consider if the cast or setting should change.
+    1.  **Spotlight Entities:** Identify 2-4 existing entities who are now critically important. Provide a brief reason for each. Use the exact entity_ids from the CAST list.
+    2.  **Persistent Intents:** For EACH spotlight entity, emit exactly one intent entry: ONE LINE stating what this character is trying to accomplish next, plus a 'continuity' ruling against the PREVIOUS TURN'S INTENTS block:
+        - 'continue': the character keeps pursuing its previous intent (restate it, refined by what has happened since).
+        - 'pivot': the character abandons or redirects its previous intent because events made it obsolete or opened something better.
+        - 'new': the character has no previous intent on record.
+        Ground each intent in the character's active scheme and its recent memories - what the character itself witnessed or heard, not what you as narrator know. Intents are GM-private direction and never reach the player.
+    3.  **Evolve The World (Optional):** To keep the story fresh, consider if the cast or setting should change.
         - **Add Entity?** Is there a new character archetype missing that would create compelling conflict? (e.g., a populist tribune, a foreign envoy, a ruthless crime boss). If so, suggest adding ONE.
         - **Remove Entity?** Has an existing character become irrelevant or served their purpose? If so, suggest removing ONE to streamline the story.
         - **Add Location?** Would a new location open up strategic or narrative possibilities? (e.g., 'The Temple of Vesta', 'A Hidden Catacomb'). If so, suggest adding ONE.
@@ -182,11 +237,20 @@ export function buildStoryRelevancePrompt(
     Return a valid JSON object matching the schema.
     `;
 
+  const castLines = npcEntities
+    .filter(e => e.status === 'alive')
+    .map(e => `- ${e.entity_id} — ${e.name} (${e.position || e.entity_type}). Active scheme: ${schemeLine(e)}`);
+
   const prompt = `
     It is currently Turn ${turnNumber}. The political climate is ${worldState.political_climate}.
 
     Last turn's major events were:
     - ${prevTurnHeadlines.length > 0 ? prevTurnHeadlines.join('\n- ') : "The city was quiet."}
+
+    CAST (use these exact entity_ids for spotlight picks and intents):
+    ${castLines.length > 0 ? castLines.join('\n    ') : 'No living NPCs.'}
+
+    ${buildPreviousIntentsBlock(previousIntents, npcEntities)}
     `;
 
   return { systemInstruction, prompt };

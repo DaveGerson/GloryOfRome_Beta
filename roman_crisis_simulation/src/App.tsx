@@ -62,6 +62,7 @@ const App: React.FC = () => {
         reports,
         truthLedger,
         knowledge,
+        npcIntents,
         turnNumber,
         playerCharacterId,
         turnHistory,
@@ -247,6 +248,7 @@ const App: React.FC = () => {
         reports: state.reports,
         truthLedger: state.truthLedger,
         knowledge: state.knowledge,
+        npcIntents: state.npcIntents,
         turnNumber: state.turnNumber,
         playerCharacterId: state.playerCharacterId,
         turnHistory: state.turnHistory,
@@ -392,6 +394,7 @@ const App: React.FC = () => {
                 turnHistory,
                 reports,
                 truthLedger,
+                npcIntents,
                 interventionTextForTurn,
                 isMockMode,
                 metaNarrative,
@@ -461,6 +464,7 @@ const App: React.FC = () => {
                 reports: result.updatedReports,
                 truthLedger: result.updatedTruthLedger,
                 knowledge: newKnowledge,
+                npcIntents: result.updatedNpcIntents,
                 turnNumber: newTurnNumber,
                 turnHistory: newTurnHistory,
                 gmMessage,
@@ -502,6 +506,7 @@ const App: React.FC = () => {
                 reports: result.updatedReports,
                 truthLedger: result.updatedTruthLedger,
                 knowledge: newKnowledge,
+                npcIntents: result.updatedNpcIntents,
                 turnNumber: newTurnNumber,
                 turnHistory: newTurnHistory,
                 messages: [...messages, playerMessage, gmMessage, monologueMessage, ribbonMessage],
@@ -989,6 +994,7 @@ const App: React.FC = () => {
                 truthLedger={truthLedger}
                 reports={reports}
                 knowledge={knowledge}
+                npcIntents={npcIntents}
             />}
             {activeEvent && <EventModal event={activeEvent} onChoose={handleEventChoice} />}
             {showOnboarding && gameState === GameState.AWAITING_PLAYER_INPUT && (

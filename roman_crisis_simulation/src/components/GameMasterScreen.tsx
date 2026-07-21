@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { TurnHistoryEntry, Adjudication, Entity, Relationship, Memory, Scheme, RawCallRecord, WorldState, TruthLedgerEntry, Report } from '../types';
+import { TurnHistoryEntry, Adjudication, Entity, Relationship, Memory, Scheme, RawCallRecord, WorldState, TruthLedgerEntry, Report, NpcIntent } from '../types';
 import { classifyDelta, buildPerceivedDigest } from '../perception/visibility';
 import { KnowledgeClaim } from '../knowledge/store';
 import { InferredAmbitionState, SAVE_VERSION } from '../persistence/saveGame';
@@ -35,8 +35,40 @@ const SummaryView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => (
     </>
 );
 
-const ActionsView: React.FC<{ adjudication: Adjudication }> = ({ adjudication }) => (
+/**
+ * Renders one turn's Director intents + the adjudicator's entityActions
+ * side by side, plus the code-side [Director] consistency notes recorded
+ * when a spotlight's entityAction was missing for its intent (soft
+ * contract, ai/core/turn.ts::buildIntentConsistencyNotes - the notes live
+ * in gm_private, surfaced here where the actions they judge are shown).
+ * Intents are GM-private (D4/D5) - this console is their only rendered
+ * surface.
+ */
+const ActionsView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => {
+    const adjudication = entry.adjudication;
+    const directorNotes = adjudication.gm_private.filter(note => note.startsWith('[Director]'));
+    return (
     <>
+        {entry.npcIntents && entry.npcIntents.length > 0 && (
+            <div style={well}>
+                <span style={lbl}>Director Intents (durable, this turn)</span>
+                {entry.npcIntents.map((intent, index) => (
+                    <div key={index} style={{ fontSize: 14, marginTop: 4 }}>
+                        <span style={{ color: RED, fontFamily: MONO, fontSize: 13 }}>{intent.entity_id}</span>
+                        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: intent.continuity === 'continue' ? GREEN : GOLD, marginLeft: 10 }}>{intent.continuity}</span>
+                        <div style={{ fontStyle: 'italic', color: PARCH }}>“{intent.intent}”</div>
+                    </div>
+                ))}
+            </div>
+        )}
+        {directorNotes.length > 0 && (
+            <div style={{ ...well, border: '1px solid rgba(179,58,43,.45)' }}>
+                <span style={{ ...lbl, color: RED }}>Intent Consistency Notes</span>
+                {directorNotes.map((note, index) => (
+                    <div key={index} style={{ fontSize: 13, fontStyle: 'italic', color: DIM, marginTop: 4 }}>“{note}”</div>
+                ))}
+            </div>
+        )}
         {adjudication.entityActions.length > 0 ? (
             adjudication.entityActions.map((action, index) => (
                 <div key={index} style={well}>
@@ -52,7 +84,8 @@ const ActionsView: React.FC<{ adjudication: Adjudication }> = ({ adjudication })
             <p style={{ color: DIM, margin: 0 }}>No specific entity actions were recorded.</p>
         )}
     </>
-);
+    );
+};
 
 const DeltasView: React.FC<{ adjudication: Adjudication }> = ({ adjudication }) => (
     <>
@@ -423,7 +456,15 @@ const GameMasterScreen: React.FC<{
      * tuning; the player's own views over it are later stages.
      */
     knowledge?: KnowledgeClaim[];
-}> = ({ history, onClose, interventionText, onSetIntervention, playerCharacterId, worldState, turnNumber, inferredAmbition, pendingIntelligenceFallout, truthLedger, reports, knowledge }) => {
+    /**
+     * ROADMAP_PHASE_4.md 4C item 3 - the Director's CURRENT persistent
+     * intents (the reducer's npcIntents slice): what each spotlight NPC is
+     * durably trying to do right now, the D7 view of durable direction.
+     * GM-PRIVATE (D4/D5): this console is the only rendered surface allowed
+     * to show them. Optional - a legacy campaign simply has none yet.
+     */
+    npcIntents?: NpcIntent[];
+}> = ({ history, onClose, interventionText, onSetIntervention, playerCharacterId, worldState, turnNumber, inferredAmbition, pendingIntelligenceFallout, truthLedger, reports, knowledge, npcIntents }) => {
     const [activeTab, setActiveTab] = useState('summary');
     const [interventionInput, setInterventionInput] = useState(interventionText);
     const [showConfirmation, setShowConfirmation] = useState(false);
@@ -502,6 +543,26 @@ const GameMasterScreen: React.FC<{
                 )}
 
                 {/*
+                  ROADMAP_PHASE_4.md 4C item 3 (D7) - what each spotlight NPC
+                  is durably trying to do RIGHT NOW: the Director's committed
+                  intents from the latest turn, fed into the next turn's
+                  Director for its continuity ruling. GM-private (D4/D5);
+                  per-turn intent history lives in the 'actions' tab below.
+                */}
+                {npcIntents && npcIntents.length > 0 && (
+                    <div style={{ flex: 'none', ...well, fontSize: 14 }}>
+                        <span style={lbl}>Director Intents (current)</span>
+                        {npcIntents.map((intent, index) => (
+                            <div key={index} style={{ marginTop: 4 }}>
+                                <span style={{ color: RED, fontFamily: MONO, fontSize: 13 }}>{intent.entity_id}</span>
+                                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: intent.continuity === 'continue' ? GREEN : GOLD, marginLeft: 10 }}>{intent.continuity}</span>
+                                {' '}<span style={{ color: '#E3C766', fontStyle: 'italic' }}>“{intent.intent}”</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {/*
                   ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - the raw, mechanical
                   consequence text queued by a risky investigation (see
                   components/investigationLoop.ts) that hasn't yet been fed
@@ -576,7 +637,7 @@ const GameMasterScreen: React.FC<{
                                 {activeTab === 'entity states' && (entry.postTurnEntities
                                     ? <EntityStatesView entities={entry.postTurnEntities} />
                                     : <p style={{ color: DIM, margin: 0 }}>Entity snapshot trimmed for this older turn - only the most recent turns retain one.</p>)}
-                                {activeTab === 'actions' && <ActionsView adjudication={entry.adjudication} />}
+                                {activeTab === 'actions' && <ActionsView entry={entry} />}
                                 {activeTab === 'deltas' && <DeltasView adjudication={entry.adjudication} />}
                                 {activeTab === 'private' && <PrivateView adjudication={entry.adjudication} />}
                                 {activeTab === 'ground truth' && <GroundTruthView entry={entry} playerCharacterId={playerCharacterId} worldState={worldState} />}

@@ -1,6 +1,6 @@
 
 import { Type } from "@google/genai";
-import { EntityActionIntentEnum, EventDeltaTypeEnum } from '../../types';
+import { EntityActionIntentEnum, EventDeltaTypeEnum, NpcIntentContinuityEnum } from '../../types';
 
 const EntityActionSchema = {
     type: Type.OBJECT,
@@ -280,6 +280,19 @@ export const StoryRelevanceSchema = {
                 required: ['entity_id', 'reason']
             }
         },
+        spotlight_intents: {
+            type: Type.ARRAY,
+            description: "Exactly one persistent intent per spotlight entity, matched by entity_id. GM-private direction: this never reaches the player.",
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    entity_id: { type: Type.STRING, description: "The spotlight entity this intent belongs to - must match a spotlight_entities entry." },
+                    intent: { type: Type.STRING, description: "ONE LINE: what this character is trying to accomplish next." },
+                    continuity: { type: Type.STRING, enum: NpcIntentContinuityEnum, description: "'continue' if this carries the character's previous intent forward, 'pivot' if it redirects/abandons the previous intent, 'new' if the character had no previous intent on record." },
+                },
+                required: ['entity_id', 'intent', 'continuity']
+            }
+        },
         add_entity_suggestion: {
             type: Type.OBJECT,
             nullable: true,
@@ -318,7 +331,7 @@ export const StoryRelevanceSchema = {
             required: ['name', 'reason']
         }
     },
-    required: ['spotlight_entities']
+    required: ['spotlight_entities', 'spotlight_intents']
 };
 
 export const SimulationStateSchema = {

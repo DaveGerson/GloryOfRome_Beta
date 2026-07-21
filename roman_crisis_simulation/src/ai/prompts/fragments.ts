@@ -14,7 +14,7 @@
  * (function signatures, JSDoc) is new.
  */
 
-import { Entity, WorldState, SimulationState, StoryRelevance } from '../../types';
+import { Entity, WorldState, SimulationState, StoryRelevance, NpcIntent } from '../../types';
 
 /**
  * Full per-entity brief: goals/scheme/personality/skills/beliefs/relationships.
@@ -78,6 +78,25 @@ OTHER NPCS (Reactive Simulation):
 These entities should primarily react to the player's action or the actions of spotlight NPCs. They only act independently if strongly motivated.
 ${otherNpcs.map(getEntityBrief).join('\n')}
 ` : '';
+}
+
+/**
+ * The Director's per-spotlight intents block for the adjudication prompt
+ * (ROADMAP_PHASE_4.md 4C item 3). The two-phase adjudication prompt already
+ * demands proactive spotlight actions; this block gives those actions
+ * durable direction: each spotlight NPC's Phase 1 action must serve the
+ * one-line intent the Director committed for it. Empty/absent intents
+ * produce no block at all - the adjudicator behaves exactly as before the
+ * Director existed. GM-private data class (D4/D5): this text reaches only
+ * the adjudicator, whose player-adjacent output fields never restate it.
+ */
+export function buildDirectorIntentsBlock(npcIntents: NpcIntent[] | undefined): string {
+  if (!npcIntents || npcIntents.length === 0) return '';
+  return `
+SPOTLIGHT NPC INTENTS (the Director's durable direction for this turn):
+Each spotlight NPC below is durably trying to accomplish its stated intent. Their Phase 1 proactive actions MUST act in service of their stated intent - advance it, or react to whatever blocks it. Do not let a spotlight NPC drift onto unrelated business this turn. These intents are GM-private direction: never restate them in 'headlines' or any other player-visible text.
+${npcIntents.map(i => `- ${i.entity_id}: "${i.intent}" [${i.continuity}]`).join('\n')}
+`;
 }
 
 /** The GM-intervention directive block, shared by any prompt that should honor it. */

@@ -1,7 +1,7 @@
 
 // ai/mocks.ts
 
-import { Adjudication, Entity, Report, Scheme, SimulationState, StoryRelevance, TruthLedgerEntry, TurnHistoryEntry, WorldState, EventDelta, EntityStub } from '../types';
+import { Adjudication, Entity, NpcIntent, Report, Scheme, SimulationState, StoryRelevance, TruthLedgerEntry, TurnHistoryEntry, WorldState, EventDelta, EntityStub } from '../types';
 import { applyAdjudication, applyDeltas } from './core/engine';
 
 // --- MOCK DATA ---
@@ -228,13 +228,15 @@ export const mockRunNewTurn = async (
     gmInterventionText: string,
     metaNarrative: string,
     currentSimulationState: SimulationState,
-    currentTruthLedger: TruthLedgerEntry[] = []
+    currentTruthLedger: TruthLedgerEntry[] = [],
+    currentNpcIntents: NpcIntent[] = []
 ): Promise<{
     updatedEntities: Entity[],
     updatedWorldState: WorldState,
     updatedSimulationState: SimulationState,
     updatedReports: Report[],
     updatedTruthLedger: TruthLedgerEntry[],
+    updatedNpcIntents: NpcIntent[],
     narration: string,
     headlines: string[],
     suggestedActions: string[],
@@ -244,6 +246,11 @@ export const mockRunNewTurn = async (
     console.log("--- MOCK TURN RUN ---");
     console.log("GM Intervention Text:", gmInterventionText);
     console.log("Meta Narrative:", metaNarrative);
+
+    // Mock Director (4C.3): the previous turn's intents feed the continuity
+    // ruling, and this turn's intents flow out through updatedNpcIntents +
+    // the history entry - the same loop the real pipeline runs.
+    const storyRelevance = await mockGetStoryRelevance(turnNumber, currentNpcIntents);
 
     // Player-planted rumor (D19 "lies in play", adjudication contract): the
     // mock turn must exercise the planting path offline - origin_id MUST be
@@ -269,10 +276,10 @@ export const mockRunNewTurn = async (
 
     // Same perception context the real pipeline passes (ai/core/turn.ts):
     // the player is excluded from the NPC memory loop, and the mock
-    // conversation pair below stands in as the spotlight cast.
+    // Director's spotlight pair stands in as the spotlight cast.
     let { updatedEntities, updatedWorldState, updatedReports, updatedTruthLedger, perceivingNpcIds } = applyAdjudication(adjudication, currentEntities, currentWorldState, currentReports, currentTruthLedger, {
         playerEntityId: playerEntity.entity_id,
-        spotlightIds: ['maximinus_thrax', 'praetorian_guard'],
+        spotlightIds: storyRelevance.spotlight_entities.map(s => s.entity_id),
     });
 
     // MOCK CONVERSATION SIMULATION
@@ -309,7 +316,8 @@ export const mockRunNewTurn = async (
         adjudication,
         narration,
         postTurnEntities: updatedEntities,
-        perceivingNpcIds
+        perceivingNpcIds,
+        npcIntents: storyRelevance.spotlight_intents,
     };
 
     return {
@@ -318,6 +326,7 @@ export const mockRunNewTurn = async (
         updatedSimulationState: currentSimulationState,
         updatedReports,
         updatedTruthLedger,
+        updatedNpcIntents: storyRelevance.spotlight_intents,
         narration,
         headlines: adjudication.headlines,
         suggestedActions,
@@ -397,13 +406,28 @@ export const mockGetPlayerMonologue = async (player: Entity, turnHeadlines: stri
 };
 
 
-export const mockGetStoryRelevance = async (turnNumber: number): Promise<StoryRelevance> => {
+/** The mock Director's fixed one-line intents for the mock spotlight pair (4C.3). */
+const MOCK_SPOTLIGHT_INTENTS: Record<string, string> = {
+    maximinus_thrax: 'Turn the legions against the Emperor with a whisper campaign about his weakness.',
+    praetorian_guard: 'Extract the promised donative before pledging their swords to anyone.',
+};
+
+export const mockGetStoryRelevance = async (turnNumber: number, previousIntents: NpcIntent[] = []): Promise<StoryRelevance> => {
     console.log("--- MOCK STORY RELEVANCE ---");
+    // Continuity loop offline (4C.3): an NPC that already held an intent
+    // last turn is ruled 'continue', a freshly spotlighted one 'new' - so a
+    // mock campaign's second turn exercises the fed-back-in path for real.
+    const previousIds = new Set(previousIntents.map(p => p.entity_id));
     const relevance: StoryRelevance = {
         spotlight_entities: [
             { entity_id: 'maximinus_thrax', reason: 'His propaganda is causing instability.' },
             { entity_id: 'praetorian_guard', reason: 'Their loyalty is in question and is a major plot point.' }
         ],
+        spotlight_intents: ['maximinus_thrax', 'praetorian_guard'].map(entity_id => ({
+            entity_id,
+            intent: MOCK_SPOTLIGHT_INTENTS[entity_id],
+            continuity: previousIds.has(entity_id) ? 'continue' : 'new',
+        })),
         add_entity_suggestion: { description: 'A ruthless Suburra gang leader named Flavius Fulco who sees the chaos as an opportunity.', reason: 'Introduces a criminal element to complicate the political struggle.'},
         remove_entity_suggestion: { entity_id: 'lycinia_stolo', reason: 'Her role as an informant is less critical now that open conflict is brewing.'},
         add_location_suggestion: { name: 'Temple of Jupiter', description: 'The main religious site on the Capitoline Hill.', reason: 'Introduces a religious dimension to the conflict.'},

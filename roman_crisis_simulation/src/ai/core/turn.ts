@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent, TruthLedgerEntry } from '../../types';
+import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent, TruthLedgerEntry, NpcIntent, StoryRelevance, EntityAction } from '../../types';
 import { AdjudicationSchema } from './schemas';
 import { applyAdjudication, applyDeltas } from './engine';
 import { mockRunNewTurn } from "../mocks";
@@ -20,6 +20,46 @@ const ADJUDICATION_TEMPERATURE = 0.8;
 // Narration is pure prose/flavor text - a higher temperature rewards
 // creative, varied chronicling of the same underlying adjudication JSON.
 const NARRATION_TEMPERATURE = 1.0;
+
+/**
+ * Upper bound on the persisted per-turn intent list (4C.3): intents exist
+ * for spotlight NPCs only, and the Director is instructed to pick 2-4
+ * spotlights - so the durable slice stays small by construction; the cap is
+ * the code-side guarantee against a runaway response bloating the save.
+ */
+export const MAX_NPC_INTENTS = 4;
+
+/**
+ * Derives the DURABLE intent list from the Director's raw output: only
+ * intents whose entity_id is an actual spotlight pick survive (intents are
+ * per-spotlight by contract), capped at MAX_NPC_INTENTS in emission order.
+ * This filtered list is the single shape everything downstream consumes -
+ * the adjudication prompt's intents block, the code-side consistency check,
+ * the history entry, and the reducer's persisted `npcIntents` slice.
+ * Pure; exported for direct unit testing.
+ */
+export function selectDurableIntents(storyRelevance: StoryRelevance): NpcIntent[] {
+    const spotlightIds = new Set(storyRelevance.spotlight_entities.map(s => s.entity_id));
+    return (storyRelevance.spotlight_intents ?? [])
+        .filter(intent => spotlightIds.has(intent.entity_id))
+        .slice(0, MAX_NPC_INTENTS);
+}
+
+/**
+ * The SOFT entityActions-vs-intent contract (4C.3): every spotlight NPC
+ * holding a Director intent should have an entityAction this turn acting in
+ * service of it. A missing action is recorded as a gm_private note for the
+ * GM console - never a hard failure and never a forced/synthesized action,
+ * because the adjudicator legitimately folds some moves into deltas or
+ * narrative rather than a discrete entityAction entry. Pure; exported for
+ * direct unit testing.
+ */
+export function buildIntentConsistencyNotes(entityActions: EntityAction[], npcIntents: NpcIntent[]): string[] {
+    const actorIds = new Set(entityActions.map(action => action.id));
+    return npcIntents
+        .filter(intent => !actorIds.has(intent.entity_id))
+        .map(intent => `[Director] Spotlight ${intent.entity_id} holds intent "${intent.intent}" (${intent.continuity}) but has no entityAction this turn - soft contract, no action was forced.`);
+}
 
 /**
  * Every real step of `runNewTurn`'s pipeline that can trigger an `onStage`
@@ -99,6 +139,11 @@ export async function runNewTurn(
     // like currentReports/updatedReports; the engine appends one entry per
     // rumor delta (ai/core/engine.ts).
     currentTruthLedger: TruthLedgerEntry[],
+    // GM-PRIVATE (D4/D5, 4C.3): the PREVIOUS turn's committed Director
+    // intents (the reducer's `npcIntents` slice) - fed into this turn's
+    // Director input for its continuity ruling, replaced wholesale by this
+    // turn's `updatedNpcIntents` at commit.
+    currentNpcIntents: NpcIntent[],
     gmInterventionText: string,
     isMockMode: boolean,
     metaNarrative: string,
@@ -109,6 +154,7 @@ export async function runNewTurn(
     updatedSimulationState: SimulationState,
     updatedReports: Report[],
     updatedTruthLedger: TruthLedgerEntry[],
+    updatedNpcIntents: NpcIntent[],
     narration: string,
     headlines: string[],
     suggestedActions: string[],
@@ -118,7 +164,7 @@ export async function runNewTurn(
     if (isMockMode) {
         if(!mockRunNewTurn) throw new Error("Mock function 'mockRunNewTurn' is not implemented.");
         // FIX: Pass currentSimulationState to the mock function to align with its updated signature.
-        return mockRunNewTurn(playerIntent, playerEntity, turnNumber, currentEntities, currentWorldState, currentReports, gmInterventionText, metaNarrative, currentSimulationState, currentTruthLedger);
+        return mockRunNewTurn(playerIntent, playerEntity, turnNumber, currentEntities, currentWorldState, currentReports, gmInterventionText, metaNarrative, currentSimulationState, currentTruthLedger, currentNpcIntents);
     }
 
     // Bracket the whole turn pipeline so every AI call made below (across
@@ -149,9 +195,16 @@ export async function runNewTurn(
     options?.onStage?.('story_relevance');
     const npcEntities = currentEntities.filter(e => e.entity_id !== playerEntity.entity_id);
     const [storyRelevance, actionAssessment] = await Promise.all([
-        getStoryRelevance(ai, turnNumber, turnHistory.slice(-1)[0]?.adjudication.headlines || [], currentWorldState, isMockMode),
+        getStoryRelevance(ai, turnNumber, turnHistory.slice(-1)[0]?.adjudication.headlines || [], currentWorldState, npcEntities, currentNpcIntents, isMockMode),
         getActionAssessment(ai, playerEntity, playerIntent, currentWorldState, npcEntities, isMockMode),
     ]);
+
+    // *** THE DIRECTOR'S DURABLE INTENTS (4C.3) ***
+    // The single filtered/capped intent list every downstream consumer sees:
+    // the adjudication prompt's SPOTLIGHT NPC INTENTS block, the post-hoc
+    // consistency check below, the history entry, and (via the result) the
+    // reducer's persisted npcIntents slice that feeds NEXT turn's Director.
+    const npcIntents = selectDurableIntents(storyRelevance);
 
     // *** RESOLUTION LAYER (ROADMAP_0_MASTER_PLAN.md Phase 3 item 4) ***
     // The model NEVER decides whether the player's action succeeds - it only
@@ -217,6 +270,7 @@ export async function runNewTurn(
         storyRelevance,
         metaNarrative,
         playerActionOutcome,
+        npcIntents,
     });
 
     // 2. Get adjudication from AI
@@ -244,6 +298,16 @@ export async function runNewTurn(
             `[Resolution] Player action ("${playerIntent}", ${resolutionTrace.assessment.action_category}) - roll ${resolutionTrace.roll} + modifiers vs difficulty ${resolutionTrace.assessment.difficulty} -> margin ${resolutionTrace.margin.toFixed(1)} -> ${resolutionTrace.tier}.`
         );
     }
+
+    // *** ENTITY-ACTIONS-VS-INTENT CONSISTENCY (4C.3, soft contract) ***
+    // Validated post-hoc in code, against the adjudicator's OWN
+    // entityActions (before any private-conversation deltas are merged -
+    // that step never adds entityActions): a spotlight NPC holding a
+    // Director intent with no entityAction gets a gm_private note for the
+    // GM console. Never a hard failure - see buildIntentConsistencyNotes.
+    // gm_private is stripped before narration (ai/prompts/narration.ts), so
+    // these notes can never reach the player.
+    adjudication.gm_private.push(...buildIntentConsistencyNotes(adjudication.entityActions, npcIntents));
 
     // *** NEW STEP 2.5: SIMULATE OFF-SCREEN NPC CONVERSATION ***
     // Moved ahead of applyAdjudication (previously ran on post-applyAdjudication
@@ -456,6 +520,9 @@ export async function runNewTurn(
         resolutionTrace,
         turnSeed,
         perceivingNpcIds,
+        // Optional on the entry (save-compat): omitted entirely when the
+        // Director committed no spotlight intents this turn.
+        npcIntents: npcIntents.length > 0 ? npcIntents : undefined,
     };
 
     const result = {
@@ -464,6 +531,9 @@ export async function runNewTurn(
         updatedSimulationState, // Return the new state
         updatedReports,
         updatedTruthLedger,
+        // Replaces the persisted slice wholesale each commit - the Director's
+        // output IS the durable intent state (4C.3 continuity loop).
+        updatedNpcIntents: npcIntents,
         narration,
         headlines: transformedAdjudication.headlines,
         suggestedActions: suggestedActions.length > 0 ? suggestedActions : ["Consider your next move carefully.", "Consolidate your power.", "Seek new allies."],

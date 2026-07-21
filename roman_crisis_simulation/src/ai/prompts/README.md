@@ -136,6 +136,37 @@ narrates a pre-decided outcome.**
   functions in `ai/tools/intelligence.ts`, all of which follow the same
   pattern.)
 
+## The Director: persistent intents, fed back every turn
+
+`storyRelevance` (`intelligence.ts::buildStoryRelevancePrompt`) is the
+Director (ROADMAP_PHASE_4.md 4C item 3): besides spotlight picks and
+cast/location suggestions it emits `spotlight_intents` - one
+`{entity_id, intent, continuity}` per spotlight, where `intent` is a
+one-line statement of what that character is trying to accomplish next and
+`continuity` (`'continue' | 'pivot' | 'new'`) is ruled against the PREVIOUS
+turn's committed intents, which the prompt receives as an input block along
+with each holder's `active_scheme` and the last `DIRECTOR_MEMORY_LINES`
+of its perception-grounded memories (`Entity.memories` - the D10 stamp).
+
+- This is NOT a new model call: the existing `storyRelevance` call was
+  upgraded in place (latency discipline; the per-mind calls are a later
+  stage).
+- `ai/core/turn.ts::selectDurableIntents` filters the raw response to
+  actual spotlight picks and caps at `MAX_NPC_INTENTS`; that bounded list
+  is what the adjudication prompt's `SPOTLIGHT NPC INTENTS` block
+  (`fragments.ts::buildDirectorIntentsBlock`) consumes, what the history
+  entry records (`TurnHistoryEntry.npcIntents`, optional), and what the
+  reducer persists (`npcIntents` slice, optional in the save) to feed the
+  NEXT turn's Director - the continuity loop.
+- The adjudicator must have each spotlight act in service of its stated
+  intent; the contract is validated POST-HOC in code
+  (`ai/core/turn.ts::buildIntentConsistencyNotes`): a spotlight holding an
+  intent but no `entityAction` gets a `[Director]` `gm_private` note - a
+  soft contract, never a hard failure or a synthesized action.
+- Intents are GM-PRIVATE (D4/D5), same handling class as `gm_private`:
+  they render only in `GameMasterScreen` and feed only prompts under
+  `ai/` - never a player-facing surface.
+
 ## System vs. user split
 
 Every builder returns `{ systemInstruction, prompt }`:

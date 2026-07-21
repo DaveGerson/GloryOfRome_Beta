@@ -67,7 +67,7 @@ const simulationState: SimulationState = {
 // kept OUT of scope here: this file audits the NEW parallel section only,
 // and the conditional-stage logic upstream of it is untouched by this
 // refactor.
-const storyRelevanceJson = JSON.stringify({ spotlight_entities: [] });
+const storyRelevanceJson = JSON.stringify({ spotlight_entities: [], spotlight_intents: [] });
 
 // The resolution layer's assessment call (ROADMAP_0_MASTER_PLAN.md Phase 3
 // item 4) runs CONCURRENTLY with storyRelevance - see ai/core/turn.ts step 0.
@@ -140,6 +140,7 @@ type CallKind =
   | 'storyRelevance'
   | 'assessment'
   | 'adjudication'
+  | 'privateConversation'
   | 'mortalityValidation'
   | 'mortalityOutcome'
   | 'simulationState'
@@ -151,6 +152,7 @@ const ALL_KINDS: CallKind[] = [
   'storyRelevance',
   'assessment',
   'adjudication',
+  'privateConversation',
   'mortalityValidation',
   'mortalityOutcome',
   'simulationState',
@@ -170,6 +172,7 @@ function classify(systemInstruction: unknown): CallKind {
   if (s.includes('master storyteller and game master')) return 'storyRelevance';
   if (s.includes('Action Assessor')) return 'assessment';
   if (s.includes('Roman Crisis Adjudicator & Simulation Engine')) return 'adjudication';
+  if (s.includes('secret observer')) return 'privateConversation';
   if (s.includes('Mortality Validator')) return 'mortalityValidation';
   if (s.includes('Mortality Outcome Author')) return 'mortalityOutcome';
   if (s.includes('Roman historian analyzing the state of the Empire')) return 'simulationState';
@@ -266,6 +269,7 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
       [player],
       worldState,
       simulationState,
+      [],
       [],
       [],
       [],
@@ -383,6 +387,7 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
       [],
       [],
       [],
+      [],
       '',
       false,
       'Grim political thriller',
@@ -429,7 +434,7 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
 
     try {
       const turnPromise = runNewTurn(
-        h.ai, 'Address the Senate', player, 2, [player], worldState, simulationState, [], [], [], '', false, 'Grim political thriller'
+        h.ai, 'Address the Senate', player, 2, [player], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
       );
       turnPromise.catch(() => {}); // the turn's own rejection is handled deliberately - not what we're testing here
 
@@ -502,7 +507,7 @@ describe('ai/core/turn.ts runNewTurn - campaign truth-ledger threading (D11)', (
     h.response.relationshipUpdates.resolve(relationshipJson);
 
     const result = await runNewTurn(
-      h.ai, 'Hold court', player, 2, [player], worldState, simulationState, [], priorReports, priorLedger, '', false, 'Grim political thriller'
+      h.ai, 'Hold court', player, 2, [player], worldState, simulationState, [], priorReports, priorLedger, [], '', false, 'Grim political thriller'
     );
 
     // The prior campaign entry survives verbatim at the head of the ledger...
@@ -520,6 +525,119 @@ describe('ai/core/turn.ts runNewTurn - campaign truth-ledger threading (D11)', (
     // Inputs were never mutated.
     expect(priorLedger).toHaveLength(1);
     expect(priorReports).toHaveLength(1);
+  });
+});
+
+// --- Director continuity loop (ROADMAP_PHASE_4.md 4C item 3) --------------
+
+describe('ai/core/turn.ts runNewTurn - Director continuity loop (4C.3)', () => {
+  it('feeds prior npcIntents into the Director prompt, threads the Director\'s intents into the adjudication prompt, commits the durable slice, and notes a spotlight missing its entityAction', async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+    const thrax = makeEntity({ entity_id: 'npc_thrax', name: 'Maximinus Thrax' });
+    const guard = makeEntity({ entity_id: 'npc_guard', name: 'Praetorian Guard' });
+
+    // The reducer's persisted slice from LAST turn - what the loop feeds back in.
+    const priorIntents = [
+      { entity_id: 'npc_thrax', intent: 'Court the Rhine legions in secret', continuity: 'new' as const },
+    ];
+
+    // The Director's response: two spotlights with intents, plus one intent
+    // for a NON-spotlight entity that must never survive selection.
+    const directorJson = JSON.stringify({
+      spotlight_entities: [
+        { entity_id: 'npc_thrax', reason: 'Momentum.' },
+        { entity_id: 'npc_guard', reason: 'Wavering.' },
+      ],
+      spotlight_intents: [
+        { entity_id: 'npc_thrax', intent: 'March the Rhine legions on Rome', continuity: 'pivot' },
+        { entity_id: 'npc_guard', intent: 'Extract the donative before pledging swords', continuity: 'new' },
+        { entity_id: 'npc_offstage', intent: 'A stray non-spotlight intent', continuity: 'new' },
+      ],
+    });
+
+    // The adjudicator acts for thrax but NOT for the guard - the soft
+    // contract must record a [Director] gm_private note for the guard only.
+    const adjudicationWithOneActionJson = JSON.stringify({
+      turn: 2,
+      entityActions: [
+        { id: 'npc_thrax', intent: 'march', target: null, notes: 'The legions break camp.' },
+      ],
+      deltas: [],
+      headlines: ['The Rhine stirs.'],
+      gm_private: [],
+    });
+
+    h.response.storyRelevance.resolve(directorJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    h.response.adjudication.resolve(adjudicationWithOneActionJson);
+    // Both spotlights resolve to real entities, so the private-conversation
+    // step runs this turn - scripted to a no-op meeting.
+    h.response.privateConversation.resolve(JSON.stringify({ dialogueSnippet: 'They met briefly.', deltas: [] }));
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologueText);
+    h.response.narration.resolve(narrationFullText);
+    h.response.relationshipUpdates.resolve(relationshipJson);
+
+    const result = await runNewTurn(
+      h.ai, 'Hold court', player, 2, [player, thrax, guard], worldState, simulationState, [], [], [], priorIntents, '', false, 'Grim political thriller'
+    );
+
+    // (a) The loop's INPUT: the prior committed intent reached the Director's
+    // prompt verbatim, inside the previous-intents block, and the cast
+    // roster names the real entity ids.
+    const directorPrompt = h.promptsByKind.storyRelevance ?? '';
+    expect(directorPrompt).toContain("PREVIOUS TURN'S INTENTS");
+    expect(directorPrompt).toContain('Court the Rhine legions in secret');
+    expect(directorPrompt).toContain('npc_thrax');
+    expect(directorPrompt).toContain('npc_guard');
+
+    // (b) The adjudicator consumed the Director's intents as an input block
+    // carrying the act-in-service demand - only for actual spotlights.
+    const adjudicationPrompt = h.promptsByKind.adjudication ?? '';
+    expect(adjudicationPrompt).toContain('SPOTLIGHT NPC INTENTS');
+    expect(adjudicationPrompt).toContain('act in service of their stated intent');
+    expect(adjudicationPrompt).toContain('March the Rhine legions on Rome');
+    expect(adjudicationPrompt).not.toContain('A stray non-spotlight intent');
+
+    // (c) The loop's OUTPUT: the durable slice (filtered to spotlights, in
+    // emission order) lands on both the result and the history entry.
+    expect(result.updatedNpcIntents).toEqual([
+      { entity_id: 'npc_thrax', intent: 'March the Rhine legions on Rome', continuity: 'pivot' },
+      { entity_id: 'npc_guard', intent: 'Extract the donative before pledging swords', continuity: 'new' },
+    ]);
+    expect(result.newHistoryEntry.npcIntents).toEqual(result.updatedNpcIntents);
+
+    // (d) The soft consistency contract: exactly one note, for the guard,
+    // in gm_private (GM-only surface) - and the turn still succeeded.
+    const directorNotes = result.newHistoryEntry.adjudication.gm_private.filter(n => n.startsWith('[Director]'));
+    expect(directorNotes).toHaveLength(1);
+    expect(directorNotes[0]).toContain('npc_guard');
+    expect(directorNotes[0]).toContain('Extract the donative before pledging swords');
+  });
+
+  it('an empty Director intent list replaces the persisted slice with [] and omits npcIntents from the history entry', async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+
+    h.response.storyRelevance.resolve(storyRelevanceJson); // zero spotlights, zero intents
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    h.response.adjudication.resolve(adjudicationJson);
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologueText);
+    h.response.narration.resolve(narrationFullText);
+    h.response.relationshipUpdates.resolve(relationshipJson);
+
+    const priorIntents = [{ entity_id: 'npc_gone', intent: 'A stale direction', continuity: 'new' as const }];
+    const result = await runNewTurn(
+      h.ai, 'Hold court', player, 2, [player], worldState, simulationState, [], [], [], priorIntents, '', false, 'Grim political thriller'
+    );
+
+    // Replacement semantics: the Director's output IS the durable state.
+    expect(result.updatedNpcIntents).toEqual([]);
+    expect(result.newHistoryEntry.npcIntents).toBeUndefined();
+    // No intents -> no consistency notes.
+    expect(result.newHistoryEntry.adjudication.gm_private.some(n => n.startsWith('[Director]'))).toBe(false);
   });
 });
 
@@ -558,7 +676,7 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     });
 
     const turnPromise = runNewTurn(
-      h.ai, 'Give a rousing speech to the Senate', player, 2, [player], worldState, simulationState, [], [], [], '', false, 'Grim political thriller'
+      h.ai, 'Give a rousing speech to the Senate', player, 2, [player], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
     );
     turnPromise.catch(() => {});
 
@@ -619,7 +737,7 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     const randomSpy = vi.spyOn(Math, 'random');
 
     const turnPromise = runNewTurn(
-      h.ai, 'What news from the forum?', player, 2, [player], worldState, simulationState, [], [], [], '', false, 'Grim political thriller'
+      h.ai, 'What news from the forum?', player, 2, [player], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
     );
     turnPromise.catch(() => {});
 
@@ -720,7 +838,7 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     h.response.relationshipUpdates.resolve(relationshipJson);
 
     const result = await runNewTurn(
-      h.ai, 'Send the assassin after Rufus', player, 2, [player, npc], worldState, simulationState, [], [], [], '', false, 'Grim political thriller'
+      h.ai, 'Send the assassin after Rufus', player, 2, [player, npc], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
     );
 
     const entry = result.newHistoryEntry;

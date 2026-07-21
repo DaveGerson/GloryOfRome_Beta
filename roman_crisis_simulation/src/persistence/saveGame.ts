@@ -31,6 +31,7 @@ import type {
   TurnHistoryEntry,
   EventHistoryEntry,
   Message,
+  NpcIntent,
 } from '../types';
 import type { AmbitionInference } from '../ai/tools/ambition';
 import type { KnowledgeClaim } from '../knowledge/store';
@@ -113,6 +114,18 @@ export interface SaveGameState {
    * to `[]`). Bounded at knowledge/store.ts's MAX_KNOWLEDGE_CLAIMS.
    */
   knowledge?: KnowledgeClaim[];
+  /**
+   * ROADMAP_PHASE_4.md 4C item 3 - the Director's current per-spotlight
+   * persistent intents, replaced wholesale each turn commit and fed back
+   * into the next turn's Director (the continuity loop). Bounded at
+   * ai/core/turn.ts's MAX_NPC_INTENTS. Optional so `SAVE_VERSION` stays at
+   * 1: a pre-existing save with no such field loads cleanly and starts with
+   * an empty list (GAME_LOADED in state/gameReducer.ts falls back to `[]`).
+   * GM-PRIVATE data class (D4/D5), same handling as `truthLedger` above:
+   * persisting it is bookkeeping, never a license for a player-facing
+   * surface to read it.
+   */
+  npcIntents?: NpcIntent[];
 }
 
 /** The versioned envelope actually written to storage. */

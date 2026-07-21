@@ -116,7 +116,7 @@ describe('schema pair: rumor truth fields (is_true/origin_id)', () => {
       history: [],
       playerIntent: 'Hold court',
       gmInterventionText: '',
-      storyRelevance: { spotlight_entities: [] },
+      storyRelevance: { spotlight_entities: [], spotlight_intents: [] },
       metaNarrative: 'A succession crisis.',
     });
     expect(systemInstruction).toContain("'is_true'");
