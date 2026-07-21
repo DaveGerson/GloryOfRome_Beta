@@ -479,3 +479,32 @@ export const CharacterCreationEntitySchema = {
     },
     required: ['entity_id', 'name', 'entity_type', 'status', 'position', 'location', 'personality', 'beliefs', 'secrets', 'skills', 'current_state_narrative', 'short_term_goals', 'long_term_ambitions', 'active_scheme', 'resources', 'relationships', 'visibility_network', 'memories']
 };
+
+// --- Offline eval judge (eval/judge.ts, DESIGN_DECISIONS.md D18) -----------
+
+/** One judged axis: an integer score 1 (worst) to 5 (best) plus a short rationale. */
+const EvalJudgeAxisScoreSchema = {
+    type: Type.OBJECT,
+    properties: {
+        score: { type: Type.NUMBER, description: "Integer score from 1 (worst) to 5 (best) on this axis." },
+        rationale: { type: Type.STRING, description: "Short justification citing specifics from the turn under review." },
+    },
+    required: ['score', 'rationale'],
+};
+
+/**
+ * The offline eval judge call's Gemini response schema (eval/judge.ts,
+ * ai/prompts/evalJudge.ts). Exactly four fixed axes - mirrors
+ * `zEvalJudgeVerdict` in ai/core/zodSchemas.ts; keep the two in lockstep.
+ * Eval tooling only: this call is never made from app code.
+ */
+export const EvalJudgeVerdictSchema = {
+    type: Type.OBJECT,
+    properties: {
+        consequence_density: EvalJudgeAxisScoreSchema,
+        sim_state_consistency: EvalJudgeAxisScoreSchema,
+        schema_validity: EvalJudgeAxisScoreSchema,
+        information_asymmetry: EvalJudgeAxisScoreSchema,
+    },
+    required: ['consequence_density', 'sim_state_consistency', 'schema_validity', 'information_asymmetry'],
+};

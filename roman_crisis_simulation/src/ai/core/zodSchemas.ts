@@ -267,3 +267,24 @@ export const zEntityBatch = z.object({
 
 // --- Character creation (characterCreator.ts) -----------------------------
 // createCharacter's output is a single full Entity - `zEntity` above.
+
+// --- Offline eval judge (eval/judge.ts, DESIGN_DECISIONS.md D18) ----------
+
+/** One judged axis: an integer score 1 (worst) to 5 (best) plus a short rationale. */
+export const zEvalJudgeAxisScore = z.object({
+  score: z.number().int().min(1).max(5),
+  rationale: z.string(),
+}).passthrough();
+
+/**
+ * Validates the offline eval judge call's output (eval/judge.ts,
+ * ai/prompts/evalJudge.ts). Exactly four fixed axes - mirrors
+ * `EvalJudgeVerdictSchema` in ai/core/schemas.ts; keep the two in lockstep.
+ * Eval tooling only: this call is never made from app code.
+ */
+export const zEvalJudgeVerdict = z.object({
+  consequence_density: zEvalJudgeAxisScore,
+  sim_state_consistency: zEvalJudgeAxisScore,
+  schema_validity: zEvalJudgeAxisScore,
+  information_asymmetry: zEvalJudgeAxisScore,
+}).passthrough();
