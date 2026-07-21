@@ -5,8 +5,9 @@
 // You will need to set up a test runner in your project to execute these tests.
 import { describe, it, expect, beforeEach } from 'vitest';
 import { applyAdjudication } from '../ai/core/engine';
+import { applyEventChoiceDeltas } from '../events/engine';
 import { getMockInitialState } from './mockData';
-import { Entity, WorldState, Adjudication, Report } from '../types';
+import { Entity, WorldState, Adjudication, Report, PlayerEventChoice } from '../types';
 
 // Helper for deep copying state to ensure test isolation
 const deepCopy = <T>(obj: T): T => JSON.parse(JSON.stringify(obj));
@@ -546,5 +547,65 @@ describe('applyAdjudication', () => {
         expect(updatedEntities.find(e => e.entity_id === 'new_gladiator')).toBeDefined();
         expect(updatedEntities.find(e => e.entity_id === 'gaius_pontius_magnus')).toBeUndefined();
     });
+  });
+});
+
+// applyEventChoiceDeltas (events/engine.ts) shares applyDeltas' state-transition
+// logic for authored event choices; these tests cover the turnNumber param
+// specifically (the memory-stamp bug described above applyEventChoiceDeltas).
+describe('applyEventChoiceDeltas', () => {
+  let mockEntities: Entity[];
+  let mockWorldState: WorldState;
+
+  beforeEach(() => {
+    const initialState = getMockInitialState();
+    mockEntities = initialState.entities;
+    mockWorldState = initialState.worldState;
+  });
+
+  const baseChoice: PlayerEventChoice = {
+    text: 'Test choice',
+    description: 'A test event choice',
+    deltas: [],
+  };
+
+  it('falls back to currentWorldState.week for the memory stamp when turnNumber is omitted', () => {
+    const choice = deepCopy(baseChoice);
+    choice.deltas.push({
+      type: 'relation',
+      key: 'severus_alexander:maximinus_thrax:trust_level',
+      delta: -1,
+      reason: 'A cold dismissal',
+    });
+    const player = mockEntities.find(e => e.entity_id === 'severus_alexander')!;
+
+    const { updatedEntities } = applyEventChoiceDeltas(choice, player, mockEntities, mockWorldState);
+    const emperor = updatedEntities.find(e => e.entity_id === 'severus_alexander');
+
+    expect(emperor?.relationships['maximinus_thrax'].recent_interactions).toContain(
+      `Turn ${mockWorldState.week}: A cold dismissal`
+    );
+  });
+
+  it('stamps the memory with an explicitly-passed turnNumber instead of falling back to week', () => {
+    const choice = deepCopy(baseChoice);
+    choice.deltas.push({
+      type: 'relation',
+      key: 'severus_alexander:maximinus_thrax:trust_level',
+      delta: -1,
+      reason: 'A cold dismissal',
+    });
+    const player = mockEntities.find(e => e.entity_id === 'severus_alexander')!;
+    const explicitTurnNumber = 7; // deliberately different from mockWorldState.week (1)
+
+    const { updatedEntities } = applyEventChoiceDeltas(choice, player, mockEntities, mockWorldState, explicitTurnNumber);
+    const emperor = updatedEntities.find(e => e.entity_id === 'severus_alexander');
+
+    expect(emperor?.relationships['maximinus_thrax'].recent_interactions).toContain(
+      `Turn ${explicitTurnNumber}: A cold dismissal`
+    );
+    expect(emperor?.relationships['maximinus_thrax'].recent_interactions).not.toContain(
+      `Turn ${mockWorldState.week}: A cold dismissal`
+    );
   });
 });

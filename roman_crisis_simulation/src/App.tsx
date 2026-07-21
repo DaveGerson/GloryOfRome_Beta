@@ -729,7 +729,7 @@ const App: React.FC = () => {
             turnNumber: turnNumber,
         };
 
-        const { updatedEntities, updatedWorldState } = applyEventChoiceDeltas(choice, playerEntity, entities, worldState);
+        const { updatedEntities, updatedWorldState } = applyEventChoiceDeltas(choice, playerEntity, entities, worldState, turnNumber);
         const eventMessage: Message = { sender: 'gm', text: `**Event: ${activeEvent.title}**\nYou chose to: *${choice.text}*`};
         const newEventHistory = [...eventHistory, newEventHistoryEntry];
         const newTriggeredEventIds = [...triggeredEventIds, activeEvent.id];

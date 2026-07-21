@@ -15,16 +15,35 @@ This plan synthesizes the six domain roadmaps in this directory:
 
 Items below cite their source as `<Domain>-<Priority>` (e.g. `AI-P0.1` = Roadmap 2, initiative P0.1).
 
+## Status (July 2026)
+
+Phases 0–3 are shipped. PR #4 additionally landed a full design-system re-skin
+(LVX/NOX day/night themes, `gor-*` component classes, Tailwind removed) —
+not originally scoped in this plan, but folded in alongside the Phase 2/3
+engine work. The suite is 208 tests, all green, running in CI
+(`.github/workflows/ci.yml`) on every push.
+
+Phase 4 as drafted below is stale against the current code and has been
+re-planned: `PHASE_4_BRAINSTORM.md` holds the audited premises and decision
+record, the owner's rulings are `DESIGN_DECISIONS.md` D9–D18, and the
+superseding plan is `ROADMAP_PHASE_4.md`.
+
+The six domain roadmaps (`ROADMAP_1`–`ROADMAP_6`) are historical analyses of
+the pre-Phase-0 codebase. They are intentionally left un-updated — they're
+the diagnosis that produced this plan, not a live tracker — so read their
+line references and code claims as a snapshot of where the project used to
+be.
+
 ## The headline diagnosis (where all six roadmaps converge)
 
 Six independent analyses reached the same conclusion: **the engine already simulates the hard part — the game just hides it, can't be won, and can't survive a refresh.**
 
-1. **No stakes.** There is no win/loss anywhere; a dead player keeps taking turns (`engine.ts:217`, `App.tsx:90-149`). Flagged by Mechanics, Funness, UX.
-2. **No persistence.** All state is `useState` in `App.tsx`; any error says "Please refresh," which destroys the campaign. Flagged by *all six* domains — the single most-agreed-on fix in the project.
-3. **The drama is computed, then thrown away.** `SimulationState` is recomputed every turn and read by zero components; `adjudication.deltas` are rich and shown only in a debug screen; two tab files are 0 bytes; `deep_analyses` and `turnInvestigations` are wired and never consumed.
-4. **The AI pipeline is fragile and slow.** 6–7 sequential Gemini calls per turn, zero validation (`JSON.parse(...) as X`), zero retries, 3+ duplicate `cleanJson`s, model id hardcoded at ~10 sites, tens of seconds of dead air with no progress signal.
-5. **Stats are decorative.** No arithmetic reads any trait or skill; the only "dice roll" is a prose string inside a prompt (`intelligence.ts:108`).
-6. **No safety net.** The good test suite (`engine.test.ts`) cannot run: no `test` script, `jsdom` missing, `vitest` in the wrong dependency block, no CI. Plus a confirmed bug: `includes('dead')` never matches "died" (`engine.ts:219`).
+1. **No stakes.** There is no win/loss anywhere; a dead player keeps taking turns (`engine.ts:217`, `App.tsx:90-149`). Flagged by Mechanics, Funness, UX. *(since fixed — Phase 2: death is real via the mortality pipeline, `GameState.GAME_OVER` + `EpilogueScreen`; per D1 there's still no "win," survival-only by design.)*
+2. **No persistence.** All state is `useState` in `App.tsx`; any error says "Please refresh," which destroys the campaign. Flagged by *all six* domains — the single most-agreed-on fix in the project. *(since fixed — Phase 1: versioned save/load in `persistence/saveGame.ts` (`SAVE_VERSION`), non-destructive failure with a retry affordance instead of "please refresh".)*
+3. **The drama is computed, then thrown away.** `SimulationState` is recomputed every turn and read by zero components; `adjudication.deltas` are rich and shown only in a debug screen; two tab files are 0 bytes; `deep_analyses` and `turnInvestigations` are wired and never consumed. *(partially fixed — Phase 2/3: `WorldStateTab`/`CrisisBanner` surface `SimulationState`, and the investigation loop (`deep_analyses`/`turnInvestigations`) is closed. `RelationshipsTab.tsx` is still a 0-byte stub — that's Phase 4 work, not yet done.)*
+4. **The AI pipeline is fragile and slow.** 6–7 sequential Gemini calls per turn, zero validation (`JSON.parse(...) as X`), zero retries, 3+ duplicate `cleanJson`s, model id hardcoded at ~10 sites, tens of seconds of dead air with no progress signal. *(since fixed — Phase 1: single `ai/core/geminiService.ts` layer with one model constant, zod validation + schema-repair retry, backoff; Phase 3: streaming narration + staged turn theater + parallelized legs cut the dead air.)*
+5. **Stats are decorative.** No arithmetic reads any trait or skill; the only "dice roll" is a prose string inside a prompt (`intelligence.ts:108`). *(since fixed — Phase 3: `ai/core/resolution.ts` deterministic skill/trait-weighted checks with tiered outcomes; `ai/core/mortality.ts` for death saves/NPC fate. Rolls are not yet seeded/reproducible — that's Phase 4A work, `ROADMAP_PHASE_4.md`.)*
+6. **No safety net.** The good test suite (`engine.test.ts`) cannot run: no `test` script, `jsdom` missing, `vitest` in the wrong dependency block, no CI. Plus a confirmed bug: `includes('dead')` never matches "died" (`engine.ts:219`). *(since fixed — Phase 0/1: `test`/`typecheck` scripts + `jsdom` in `package.json`, `.github/workflows/ci.yml` running `npm ci && typecheck && test && build`; the string-parsing bug is gone, replaced by a structured `new_status` enum. Suite is now 208 tests, all green.)*
 
 The phases below fix these in dependency order, front-loading player-felt impact.
 
@@ -34,18 +53,18 @@ The phases below fix these in dependency order, front-loading player-felt impact
 
 Every item is <1 hour, independently shippable, and either fixes a lie or lays a foundation stone. Do them all in one sitting.
 
-- [ ] Add `"test": "vitest run"` + `"typecheck": "tsc --noEmit"` scripts; move `vitest` to `devDependencies`; add `jsdom`. Confirm `engine.test.ts` is green. *(MAINT-P0.1 down payment)*
-- [ ] Add `.gitignore` (`node_modules`, `.idea/`, `.env`, `dist`) + `git rm -r --cached .idea/`; add `.env.example`. *(MAINT quick wins)*
-- [ ] Stopgap the `died`/`dead` bug: `|| newStatus.includes('died')` at `engine.ts:219`. *(MAINT-P0.2 stopgap)*
-- [ ] Swap the weak inline JSON cleaner at `turn.ts:59` for `initiator.ts`'s brace-hunting `cleanJson` — protects the highest-stakes call today. *(AI quick win)*
-- [ ] Change the `App.tsx:146` error copy to stop saying "Please refresh"; log the real error; don't clear the player's input until the turn succeeds (stash `lastAction`). *(UX quick wins)*
-- [ ] Gate the startup `alert()` smoke test and Mock Mode toggle behind `import.meta.env.DEV`. *(UX-P0.4 down payment)*
-- [ ] Staged loading copy cycling in the `PROCESSING` placeholder ("Whispers cross the Senate floor…"). *(FUN-P2.2 stopgap until Phase 3)*
-- [ ] Render `simulationState.major_ongoing_crisis` as a banner when non-null. *(FUN-P0.2 down payment)*
-- [ ] `Promise.all` the NPC batch loop in `initiator.ts:193-207` — immediate world-gen speedup. *(TECH quick win)*
-- [ ] `beforeunload` warning so a tab-close prompts before nuking the session (dies in Phase 1 when saves land). *(TECH quick win)*
-- [ ] Fix the `Math.floor(week/4)+1` turn-label bug (`events/engine.ts:49`). *(MECH quick win)*
-- [ ] Update `turn_logic.md` to document the real 6–7-call pipeline. *(AI quick win)*
+- [x] Add `"test": "vitest run"` + `"typecheck": "tsc --noEmit"` scripts; move `vitest` to `devDependencies`; add `jsdom`. Confirm `engine.test.ts` is green. *(MAINT-P0.1 down payment)* — verified in `package.json`; suite is now 208 tests, all green.
+- [x] Add `.gitignore` (`node_modules`, `.idea/`, `.env`, `dist`) + `git rm -r --cached .idea/`; add `.env.example`. *(MAINT quick wins)* — verified: `.gitignore` covers all four, no `.idea/` tracked, `.env.example` present at repo root.
+- [x] Stopgap the `died`/`dead` bug: `|| newStatus.includes('died')` at `engine.ts:219`. *(MAINT-P0.2 stopgap)* — superseded by the full Phase 1 fix (structured `new_status` enum in `types.ts`), not just the substring stopgap.
+- [x] Swap the weak inline JSON cleaner at `turn.ts:59` for `initiator.ts`'s brace-hunting `cleanJson` — protects the highest-stakes call today. *(AI quick win)* — superseded by Phase 1's shared `ai/core/json.ts`, which `turn.ts` now goes through via `geminiService.ts`.
+- [x] Change the `App.tsx:146` error copy to stop saying "Please refresh"; log the real error; don't clear the player's input until the turn succeeds (stash `lastAction`). *(UX quick wins)* — verified: no "please refresh" copy remains; failed turns restore the action via a `retryAction` stash and offer a one-click Retry.
+- [x] Gate the startup `alert()` smoke test and Mock Mode toggle behind `import.meta.env.DEV`. *(UX-P0.4 down payment)* — verified in `App.tsx` and `components/Header.tsx`.
+- [x] Staged loading copy cycling in the `PROCESSING` placeholder ("Whispers cross the Senate floor…"). *(FUN-P2.2 stopgap until Phase 3)* — verified: `STAGE_STATUS_COPY` in `components/Chat.tsx`, later hooked up to real `onStage` events in Phase 3.
+- [x] Render `simulationState.major_ongoing_crisis` as a banner when non-null. *(FUN-P0.2 down payment)* — verified: `components/CrisisBanner.tsx`, wired in `App.tsx`.
+- [x] `Promise.all` the NPC batch loop in `initiator.ts:193-207` — immediate world-gen speedup. *(TECH quick win)* — verified in `ai/core/initiator.ts`.
+- [x] `beforeunload` warning so a tab-close prompts before nuking the session (dies in Phase 1 when saves land). *(TECH quick win)* — verified in `App.tsx`; superseded in spirit by Phase 1 persistence, but the listener is still in place.
+- [x] Fix the `Math.floor(week/4)+1` turn-label bug (`events/engine.ts:49`). *(MECH quick win)* — verified in `events/engine.ts`.
+- [x] Update `turn_logic.md` to document the real 6–7-call pipeline. *(AI quick win)* — verified: `ai/core/turn_logic.md` documents all 7 calls in detail. Note: it predates the Phase 2/3 additions (mortality, `resolution.ts`, streaming) and is now itself a historical snapshot, same as the six domain roadmaps.
 
 **Checkpoint:** tests run, the repo is hygienic, the worst first-run embarrassments are gone.
 

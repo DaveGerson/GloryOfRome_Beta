@@ -6,7 +6,7 @@
 // suite stays a pure unit test of perception/visibility.ts with no
 // dependency on ai/** or the rest of the mock data graph.
 import { describe, it, expect } from 'vitest';
-import { classifyDelta, buildPerceivedDigest } from '../perception/visibility';
+import { classifyDelta, buildPerceivedDigest, tabsForDelta } from '../perception/visibility';
 import { Entity, EventDelta, WorldState } from '../types';
 
 function makeEntity(overrides: Partial<Entity> & { entity_id: string; name: string }): Entity {
@@ -207,6 +207,50 @@ describe('classifyDelta', () => {
     expect(classifyDelta(add, player, entities, worldState).source).toBe('public');
     expect(classifyDelta(remove, player, entities, worldState).source).toBe('public');
   });
+
+  it('marks a world delta (WorldState macro field) as public per D5', () => {
+    // 'world' deltas change WorldState.economic_stability/political_climate,
+    // the two macro fields the Header displays unconditionally - same
+    // empire-macro-is-public treatment as rumor/add_region/remove_region.
+    const delta: EventDelta = {
+      type: 'world',
+      key: 'economic_stability',
+      delta: 0,
+      reason: 'Failing',
+    };
+    expect(classifyDelta(delta, player, entities, worldState)).toEqual({
+      visible: true,
+      source: 'public',
+    });
+  });
+
+  it('leaves a world delta with an unknown key invisible (the engine no-ops it)', () => {
+    // ai/core/engine.ts's 'world' case applies only the two macro keys and
+    // no-ops everything else - so an unknown-key delta changed nothing and
+    // must never be announced to the player as if it had.
+    const delta: EventDelta = {
+      type: 'world',
+      key: 'grain_reserves',
+      delta: 0,
+      reason: 'Depleted',
+    };
+    expect(classifyDelta(delta, player, entities, worldState)).toEqual({
+      visible: false,
+      source: null,
+    });
+  });
+});
+
+describe('tabsForDelta', () => {
+  it('pulses no tab for a world delta (the changed fields render in the Header, not a tab)', () => {
+    const delta: EventDelta = {
+      type: 'world',
+      key: 'political_climate',
+      delta: 0,
+      reason: 'Openly Hostile',
+    };
+    expect(tabsForDelta(delta)).toEqual([]);
+  });
 });
 
 describe('buildPerceivedDigest', () => {
@@ -230,5 +274,28 @@ describe('buildPerceivedDigest', () => {
       { type: 'relation', key: 'npc_a:npc_b:perceived_threat', delta: 3, reason: 'private assessment' },
     ];
     expect(buildPerceivedDigest(deltas, player, entities, worldState)).toEqual([]);
+  });
+
+  it('includes a world delta as a public change describing the new value', () => {
+    const deltas: EventDelta[] = [
+      { type: 'world', key: 'economic_stability', delta: 0, reason: 'Booming' },
+    ];
+    const digest = buildPerceivedDigest(deltas, player, entities, worldState);
+
+    expect(digest).toHaveLength(1);
+    expect(digest[0].source).toBe('public');
+    expect(digest[0].tabs).toEqual([]);
+    expect(digest[0].text).toContain("empire's economy is now Booming");
+  });
+
+  it('hedges the world-delta prose instead of printing a dangling value when reason is empty', () => {
+    const deltas: EventDelta[] = [
+      { type: 'world', key: 'political_climate', delta: 0, reason: '' },
+    ];
+    const digest = buildPerceivedDigest(deltas, player, entities, worldState);
+
+    expect(digest).toHaveLength(1);
+    expect(digest[0].text).toContain('political winds shift');
+    expect(digest[0].text).not.toContain('is now');
   });
 });

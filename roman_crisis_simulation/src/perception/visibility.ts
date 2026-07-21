@@ -125,11 +125,18 @@ function involvedOtherEntityIds(delta: EventDelta, player: Entity): string[] {
  *
  * 1. 'public' for rumor deltas (they exist specifically to arrive as
  *    reports - see ai/core/engine.ts's 'rumor' case, which converts them
- *    into Report objects), and for add_region/remove_region (the empire
- *    gaining or losing a whole region is empire-macro news, not a secret).
- *    Empire-level macro status more broadly (imperial_status, senate/
- *    military status, plebeian mood) is ALSO public per D5, but those live
- *    on SimulationState, not as EventDeltas - WorldStateTab surfaces them
+ *    into Report objects), for add_region/remove_region (the empire
+ *    gaining or losing a whole region is empire-macro news, not a secret),
+ *    and for 'world' deltas with a valid macro key (ai/core/engine.ts's
+ *    'world' case - changes to WorldState.economic_stability/
+ *    political_climate, the two macro fields the Header displays
+ *    unconditionally). A 'world' delta with any OTHER key is a no-op in
+ *    the engine - nothing changed, so it must never be announced; it
+ *    stays invisible. Empire-level macro status is public per D5 crude v1
+ *    regardless of which of these forms it takes. Empire-level macro
+ *    status more broadly (imperial_status, senate/military status,
+ *    plebeian mood) is ALSO public per D5, but those live on
+ *    SimulationState, not as EventDeltas - WorldStateTab surfaces them
  *    directly rather than through this function.
  *
  * 2. 'self' when the delta directly involves the player as its acting/
@@ -153,6 +160,12 @@ function involvedOtherEntityIds(delta: EventDelta, player: Entity): string[] {
  *
  * Otherwise the delta is invisible to the player.
  */
+/** The only WorldState macro fields a 'world' delta can legally change -
+ * mirrors ai/core/engine.ts's applyDeltas 'world' case, which no-ops any
+ * other key. Kept in lockstep with that case: a key outside this list
+ * changed nothing, so classifyDelta must leave it invisible. */
+const WORLD_MACRO_KEYS = ['economic_stability', 'political_climate'];
+
 export function classifyDelta(
   delta: EventDelta,
   player: Entity,
@@ -160,7 +173,12 @@ export function classifyDelta(
   worldState: WorldState
 ): Visibility {
   // --- Rule 1: public ---
-  if (delta.type === 'rumor' || delta.type === 'add_region' || delta.type === 'remove_region') {
+  if (
+    delta.type === 'rumor' ||
+    delta.type === 'add_region' ||
+    delta.type === 'remove_region' ||
+    (delta.type === 'world' && WORLD_MACRO_KEYS.includes(delta.key))
+  ) {
     return { visible: true, source: 'public' };
   }
 
@@ -230,6 +248,13 @@ export function tabsForDelta(delta: EventDelta): TabId[] {
     case 'add_region':
     case 'remove_region':
       return ['locations', 'world_state'];
+    case 'world':
+      // The two macro WorldState fields a 'world' delta can change render
+      // in the always-visible Header, not in any SidePanel tab (WorldStateTab
+      // surfaces SimulationState macro fields and region detail, not these) -
+      // so there is no tab to pulse. The change still reaches the player as a
+      // public digest line via classifyDelta/describeDelta.
+      return [];
     case 'rumor':
       return ['reports'];
     default:
@@ -270,6 +295,27 @@ function describeDelta(delta: EventDelta, player: Entity, entities: Entity[]): s
     case 'region': {
       const [regionName] = delta.key.split(':');
       return `${regionName}: ${delta.reason || 'the situation shifts'}.`;
+    }
+    case 'world': {
+      // 'key' is 'economic_stability' or 'political_climate' (the only two
+      // keys the engine applies - see WORLD_MACRO_KEYS); 'reason' is the new
+      // value, not narrative prose, for this delta type. Public per D5
+      // (Rule 1 above), so the phrasing states the new value outright rather
+      // than hedging the way witnessed/network lines do. An empty 'reason'
+      // falls back to hedged prose rather than printing "is now ." - and the
+      // final fallback (unknown key, unreachable via classifyDelta because
+      // the engine no-ops those) deliberately claims no specific change.
+      if (delta.key === 'economic_stability') {
+        return delta.reason
+          ? `Word spreads through every market: the empire's economy is now ${delta.reason}.`
+          : `Word spreads through every market: the empire's economic fortunes shift.`;
+      }
+      if (delta.key === 'political_climate') {
+        return delta.reason
+          ? `Word spreads through every forum: the political climate is now ${delta.reason}.`
+          : `Word spreads through every forum: the political winds shift.`;
+      }
+      return 'Talk of shifting fortunes crosses the empire.';
     }
     case 'rumor': {
       return `Rumor reaches you: "${delta.reason}"`;

@@ -1,5 +1,8 @@
 # Glory of Rome — UI Systems: Current State & Future Design
 
+> **Status (July 2026):** written before the Phase 2-3 engine work and the PR #4 design-system
+> re-skin; annotations below mark what has since shipped.
+
 This document is the comprehensive reference for the user interface of the Roman Crisis Simulation.
 It has two parts:
 
@@ -28,7 +31,7 @@ One top-level component owns essentially all game state.
 |---|---|
 | Framework | React 19 (`react`, `react-dom`) loaded via CDN import map in `index.html` |
 | Build tool | Vite 6 (`vite.config.ts`), TypeScript ~5.8, Vitest for tests |
-| Styling | Tailwind CSS via **CDN script** (`index.html:8`) + ~140 lines of hand-written CSS in `index.html` |
+| Styling | Tailwind CSS via **CDN script** (`index.html:8`) + ~140 lines of hand-written CSS in `index.html` *(STALE — Tailwind removed entirely; styling is now the `gor-*` design system in `design/` — tokens, `components.css`, plus a `nocturne.css` night skin, see 5.1-5.3)* |
 | Fonts | Google Fonts: *Cinzel* (body) and *Cinzel Decorative* (headings) |
 | State management | ~20 `useState` hooks in `App.tsx` — no Redux/Zustand/Context; props drilled into children |
 | Routing | None — screens are switched by the `GameState` enum |
@@ -55,7 +58,8 @@ SETUP ──(character chosen)──► AWAITING_PLAYER_INPUT ──(send action
 - `AWAITING_EVENT_CHOICE` — `EventModal` blocks the screen until a choice is made.
 
 Notably absent: a `GAME_OVER` state (flagged in `ROADMAP_4_FUNNESS.md` P0.1 — a dead player can
-keep taking turns).
+keep taking turns). *(SHIPPED — `GameState.GAME_OVER` now exists in `types.ts`; a dead player's
+turn routes there and renders `EpilogueScreen`, see 7.2)*
 
 ### 1.2 Layout
 
@@ -69,7 +73,7 @@ keep taking turns).
 ├─────────────────────────────────────┬────────────────────────┤
 │ Chat pane (w-2/3)                   │ SidePanel (w-1/3)      │
 │  • CharacterSelection (SETUP), or   │  • PlayerStatus card   │
-│  • Message stream (scrolling)       │  • 6-tab intelligence  │
+│  • Message stream (scrolling)       │  • 6-tab intelligence  │  *(STALE — now 7 tabs, see 3.5)*
 │  • Retry button / ActionPills       │    dashboard           │
 │  • ChatInput + GM LOG button        │                        │
 └─────────────────────────────────────┴────────────────────────┘
@@ -83,6 +87,12 @@ There is **no responsive/mobile layout** — the `w-2/3`/`w-1/3` split is hard-c
 ## 2. Visual Design System
 
 Defined entirely in `index.html` inline CSS plus Tailwind utility classes.
+*(STALE — the whole section below describes the pre-PR #4 look. The app has been re-skinned onto
+the `gor-*` design system (`design/tokens/*.css`, `design/components.css`, `design/styles.css`);
+`index.html` no longer carries any inline CSS or Tailwind. A second theme, Nox Romae
+(`design/nocturne.css`), ships alongside the day theme via an LVX/NOX switch — see 5.2/5.3. The
+token names, palette, and some component names below (`.roman-stone-panel`, etc.) no longer match
+the code; treat this section as historical intent, not current implementation.)*
 
 **Theme: "aged parchment & carved stone" Roman aesthetic.**
 
@@ -111,7 +121,10 @@ plaques.
 - Inline-SVG **Aquila (eagle) icon**, game title in decorative type.
 - World-state strip: **Year / Week / Economic Stability / Political Climate** (from `WorldState`).
   Note: the two meters currently never change — no delta type writes top-level `WorldState`
-  (see `ROADMAP_4_FUNNESS.md` §2).
+  (see `ROADMAP_4_FUNNESS.md` §2). *(STALE — a `'world'` delta type now writes
+  `economic_stability`/`political_climate` (`ai/core/engine.ts`'s `'world'` case, driven by the
+  adjudication prompt); the meters are live. They still render as plain text, not the trend
+  meters 6.5 proposes.)*
 - **Mock Mode** checkbox — dev-only (`import.meta.env.DEV` gated), routes all AI calls to mocks.
 
 ### 3.2 CrisisBanner — `components/CrisisBanner.tsx`
@@ -158,10 +171,17 @@ The primary game surface — the turn loop is conversational.
 ### 3.5 SidePanel — `components/SidePanel.tsx`
 The right-hand **intelligence dashboard** (1/3 width): a `PlayerStatus` card above a 6-tab
 switcher. Tab state is local; content scrolls independently.
+*(STALE — now a 7-tab switcher: World, Events, Reports, Chronicle, Personae, Empire, Assets
+(`SidePanel.tsx:21-29`), World State being the new, first/default tab. The tab bar also now has
+`role="tablist"`/`role="tab"` semantics and a per-tab "new intelligence" pulse indicator driven by
+`perception/visibility.ts` — see 10.1.)*
 
 #### PlayerStatus — `components/PlayerStatus.tsx`
 Name, position, **Current Goal** (first `short_term_goals` entry) and **Current State**
 (first two sentences of the character narrative), each with an `InfoTooltip`.
+
+*(SHIPPED — a new first tab, World State (`components/tabs/WorldStateTab.tsx`), is not listed
+here; it fills exactly the role 7.1's "Drama Meter" proposed — see 3.10 and 7.1.)*
 
 #### Tab: Events — `components/tabs/CurrentEventsTab.tsx`
 - Lists this turn's AI-generated headlines.
@@ -209,13 +229,16 @@ The deepest UI in the game — the espionage loop:
 Full-screen dark modal (`gm-panel-bg`, monospace) — part debug console, part director's booth:
 - **GM Intervention** — free-text directive injected into the next turn's adjudication prompt
   ("A plague breaks out in the Suburra."), with saved confirmation flash.
-- Six tabs over per-turn history (newest first):
+- Six tabs over per-turn history (newest first): *(STALE — now seven; a *Ground Truth* tab was
+  added between Private and Raw JSON, see below)*
   - *Summary* — player intent + generated narration.
   - *Entity States* — full post-turn dump per entity: status, location, resources, personality,
     skills, beliefs, secrets, active schemes (`SchemeDisplay`), last-3 memories, relationship axes.
   - *Actions* — NPC actions adjudicated this turn (intent/target/notes).
   - *Deltas* — structured state changes with reasons.
   - *Private* — GM-private notes.
+  - *Ground Truth* *(SHIPPED, new)* — side-by-side of raw ground truth vs. what
+    `perception/visibility.ts` would let the player perceive, for auditing the perception filter.
   - *Raw JSON* — captured raw AI calls (`RawCallRecord`: model, latency, attempts, validation
     status, full prompt/response) + parsed adjudication. This is the observability surface for the
     AI pipeline.
@@ -237,9 +260,14 @@ Full-screen dark modal (`gm-panel-bg`, monospace) — part debug console, part d
 
 ### 3.10 Dead / Placeholder Files
 - `components/tabs/WorldStateTab.tsx` — **0 bytes**, unimported (intended home of the
-  SimulationState "drama meter", `ROADMAP_4` P0.2).
+  SimulationState "drama meter", `ROADMAP_4` P0.2). *(SHIPPED — see
+  components/tabs/WorldStateTab.tsx; now 148 lines, wired into SidePanel as the World tab, see 3.5
+  and 7.1)*
 - `components/tabs/RelationshipsTab.tsx` — **0 bytes**, unimported (intended home of the
-  relationship map, `ROADMAP_3` P1.3a).
+  relationship map, `ROADMAP_3` P1.3a). *(Still true — still a 0-byte, unimported file as of July
+  2026; see 8.1. A relationship map is now committed for Phase 4B as a view over the
+  player-knowledge store — interpretation and hearsay only, never ground truth — per
+  `roadmaps/DESIGN_DECISIONS.md` D13 and `roadmaps/ROADMAP_PHASE_4.md`.)*
 
 ---
 
@@ -270,6 +298,11 @@ Three tiers, all in-fiction:
 Dev affordances (Mock Mode toggle, startup smoke test with `alert()`) are gated behind
 `import.meta.env.DEV`. The GM screen remains player-visible (deliberately, as an intervention
 tool) but reads as a debugger — rebranding is a roadmap item (`ROADMAP_3` P0.4 residue).
+*(STALE — the GM console is now hidden by default in every build; `Ctrl+Shift+G` toggles it
+(works in prod, not just DEV, "since the console itself is meant to stay reachable for tuning,
+just hidden by default" per `App.tsx`), with a dev-only checkbox in the Header as a discoverable
+backup. The "deliberately player-visible" framing is now "deliberately reachable, hidden by
+default." Rebranding (12.4) still hasn't happened.)*
 
 ### 4.5 Accessibility (current state)
 Present: `aria-live` on the message stream and typing indicator, `aria-label`s on inputs/buttons,
@@ -277,15 +310,26 @@ Present: `aria-live` on the message stream and typing indicator, `aria-label`s o
 Missing: dialog semantics (`role="dialog"`, `aria-modal`, focus trap, Escape) on both modals;
 `role="tablist"` on tab bars; keyboard navigation; reduced-motion support; color-only meaning in
 trust bars/stability colors; unsanitized `dangerouslySetInnerHTML` on LLM output.
+*(PARTIALLY SHIPPED — see 10.1: `GameMasterScreen` and `EventModal` now render `role="dialog"`
+`aria-modal="true"`, and both tab bars (`SidePanel`, `GameMasterScreen`) now have
+`role="tablist"`/`role="tab"`/`aria-selected`. Still missing: focus trap and Escape-to-close on
+both modals, and keyboard arrow-key navigation on the tab bars. `prefers-reduced-motion` is now
+respected for the tab pulse animation specifically (`SidePanel.tsx`), not audited elsewhere.)*
 
 ### 4.6 Known Structural Debt (UI-relevant)
 - Tailwind, React, and `@google/genai` load from **CDNs at runtime** (`index.html`) — no offline
   capability, styling depends on a third-party script tag, and the Vite bundle doesn't own deps.
+  *(PARTIALLY STALE — Tailwind is gone; the app no longer depends on a third-party styling CDN at
+  all (see 5.1, §2). React and `@google/genai` are still loaded via the `index.html` import map,
+  so the "Vite bundle doesn't own deps" debt still applies to those two.)*
 - The Gemini **API key is embedded client-side** (`vite.config.ts` define) — any public deploy
-  leaks it; a backend proxy is the real fix (`ROADMAP_3` P2.3 / `ROADMAP_5`).
+  leaks it; a backend proxy is the real fix (`ROADMAP_3` P2.3 / `ROADMAP_5`). *(Still true —
+  unchanged.)*
 - `App.tsx` is a ~575-line god component; every subsystem's state and handlers live there.
+  *(STALE figure — `App.tsx` is now ~971 lines with ~30 `useState` hooks; still a single
+  component with no `useReducer`/context, see 5.4.)*
 - Props drilling of the `ai` client + mock flag into leaf tabs couples presentation to the AI
-  layer.
+  layer. *(Still true — unchanged.)*
 
 ---
 
@@ -302,21 +346,32 @@ intelligence surfaces, then broaden into new capabilities.*
 into the Vite bundle with a proper `tailwind.config` (content scanning, purge). Extract the inline
 CSS from `index.html` into a real stylesheet/`@layer` setup. This unblocks everything below
 (plugins, tokens, tree-shaking, offline PWA) and removes a runtime dependency on third-party CDNs.
-*(= ROADMAP_3 P2.3a)*
+*(= ROADMAP_3 P2.3a)* *(PARTIALLY SHIPPED — Tailwind wasn't moved into the bundle, it was removed
+outright and replaced by the `gor-*` design system in `design/`; the inline CSS is out of
+`index.html`. React and `@google/genai` are still on the CDN import map, unmoved.)*
 
 **5.2 Design tokens & theme layer [P1 / S]** — Codify the existing parchment/stone/imperial-red
 language as CSS variables / Tailwind theme tokens (`--surface-stone`, `--accent-imperial`,
 `--text-carved`, spacing, border styles). Enables consistent reskins and the night-mode below.
+*(SHIPPED — see `design/tokens/{colors,typography,spacing,effects,fonts}.css`; token names differ
+from the ones sketched here (`--gold-500`, `--crimson-500`, `--tyrian-400`, etc.) but the layer
+exists and both themes below are built on it.)*
 
 **5.3 "Candlelit" dark mode [P2 / M]** — A second theme: dark marble, torchlight ambers, ivory
 text. Long narrative reading sessions benefit; the GM screen already proves the dark aesthetic
-works. Driven entirely by the token layer (5.2).
+works. Driven entirely by the token layer (5.2). *(SHIPPED — as "Nox Romae" (`design/nocturne.css`),
+toggled against the day theme via an LVX/NOX switch; lazy-loaded per `index.html`'s comment.)*
 
 **5.4 Component library & state refactor [P1 / M]** — Extract shared primitives (Panel, Button,
 Tab bar, Meter, Badge, Modal) into a `components/ui/` kit; migrate `App.tsx` state into a
 `useReducer` store or Zustand slice (game state, chat, intel, settings) so new screens (Epilogue,
 Map, Dossiers) don't each add another prop-drilling chain. Modals should share one accessible
 `<Dialog>` primitive (focus trap, Escape, `aria-modal`). *(enables ROADMAP_3 P2.2)*
+*(HALF SHIPPED — the component-library half is done: `components/ui/{Core,Brand,Feedback,Forms,
+Game}.tsx` covers Button/Card/Badge/Meter/Switch/Radio/Textarea/ActionPill/TypingIndicator etc.
+The state-refactor half did NOT ship: `App.tsx` is still ~30 `useState` hooks, no
+`useReducer`/context (see 4.6). No shared `<Dialog>` primitive exists either — `GameMasterScreen`
+and `EventModal` each roll their own `role="dialog"` markup, still without focus trap/Escape.)*
 
 **5.5 Safe rich-text rendering [P0 / S]** — Replace the bold-regex + `dangerouslySetInnerHTML`
 with a tiny markdown-subset renderer (escape HTML, then `**bold**`/`*italic*`/line breaks).
@@ -329,15 +384,22 @@ Prerequisite for richer narration formatting (headlines, quoted dialogue, letter
 progress bubble ("The Senate reacts…", "Your rivals move in the dark…", "The chronicler sets down
 the day…") driven by an `onStage` callback from `runNewTurn`, replacing the generic dot-loop.
 Add a subtle stage checklist so long waits show *motion*, not just animation. *(= ROADMAP_3 P0.1a)*
+*(SHIPPED — `ai/core/turn.ts` exports `TurnStage` and calls `options?.onStage?.(...)` at each
+pipeline step; `App.tsx`'s `turnStage` state drives `TypingIndicator`, see components/ui/Game.tsx.)*
 
 **6.2 Streaming narration [P0 / M]** — Stream the narration call token-by-token into the GM
 bubble (typewriter dispatch). This is where the drama lives; it converts the longest wait into
-suspense. *(= ROADMAP_3 P0.1b)*
+suspense. *(= ROADMAP_3 P0.1b)* *(SHIPPED — `App.tsx`'s `streamingNarration` state + `onNarrationChunk`
+callback feed `StreamingNarrationBubble` (`components/Chat.tsx`) during the narration call.)*
 
 **6.3 "What Changed This Turn" digest [P0 / M]** — Render `adjudication.deltas` as a compact,
 color-coded diff card between the player's action and the narration: "Trust with Maximinus −3 ·
 Denarii −20,000 · The Suburra → Riots". Pulse the affected SidePanel tab. Zero new AI calls — the
-data already exists. *(= ROADMAP_4 P0.3)*
+data already exists. *(= ROADMAP_4 P0.3)* *(SHIPPED — see components/DispatchesDigest.tsx +
+perception/visibility.ts's `buildPerceivedDigest`/`tabsForDelta`; `App.tsx` wires the result into
+both the digest card and `SidePanel`'s `pulsingTabs`. Note the digest is perception-filtered, not
+a raw delta dump, per the D5 "never omniscient" rule — see 8.1's cross-reference in
+`perception/visibility.ts`'s doc comment.)*
 
 **6.4 Delta micro-animations ("juice") [P1 / S]** — Animated count-up/down on resource numbers,
 trust-bar fill transitions, brief red/green flash on changed rows, tab-icon badges with change
@@ -346,6 +408,9 @@ counts. Pure presentation over existing state.
 **6.5 Live world meters [P1 / S]** — Once the `world` delta type unfreezes
 `economic_stability`/`political_climate` (*ROADMAP_4 P2.1*), upgrade the Header strip from plain
 text to compact trend meters (value + directional arrow + spark of recent history).
+*(PARTIALLY SHIPPED — the blocker is gone: the `'world'` delta type now unfreezes both fields
+(`ai/core/engine.ts`). `Header.tsx` still renders them as plain text `Stat` rows, not trend
+meters/arrows/sparkline — that visual upgrade is still open.)*
 
 ## 7. Surface the Drama (stakes, endings, tension)
 
@@ -353,11 +418,17 @@ text to compact trend meters (value + directional arrow + spark of recent histor
 `SimulationState` fields (imperial status, crisis, stability trend, …) with color-coded severity;
 escalate the CrisisBanner treatment when status turns catastrophic ("SUCCESSION CRISIS — THE
 THRONE IS VACANT"). Highest impact-per-hour in the codebase. *(= ROADMAP_4 P0.2)*
+*(SHIPPED — see components/tabs/WorldStateTab.tsx: imperial/senate/military/plebeian status +
+ongoing crisis, each severity-badged, plus a perception-filtered regional intelligence picture.
+CrisisBanner's own escalation treatment for catastrophic status was not separately verified.)*
 
 **7.2 Epilogue / Game Over screen [P0 / L]** — With `GameState.GAME_OVER` (*ROADMAP_4 P0.1*),
 build an `EpilogueScreen`: a Tacitus-style obituary generated from `turnHistory` + `eventHistory`,
 styled as a carved memorial stele — deified or damned. Include reign statistics (turns survived,
 crises weathered, schemes uncovered, betrayals suffered) and a "begin a new reign" path.
+*(SHIPPED — see components/EpilogueScreen.tsx: AI-generated obituary (with a static fallback
+epitaph for Mock Mode / fatal AI failure), reign stats, and inferred-ambition flavor. `App.tsx`
+routes to `GameState.GAME_OVER` on player death and renders it in place of the main game view.)*
 
 **7.3 Odds & stakes preview [P1 / M]** — When risk/reward gambles land (*ROADMAP_4 P1.2*), show
 pre-commit odds in the EventModal and on risky pills ("~70% the Guard holds"), and a dice-reveal
@@ -378,6 +449,11 @@ graph: nodes = characters (faction-colored, dead greyed), edge color = trust, th
 dependency, glyphs for threat/alignment. Click a node → jump to their dossier. Animate edge
 changes after each turn so betrayals are *watchable*. (SVG + a small force layout; no heavy dep
 needed at this entity count.) *(= ROADMAP_3 P1.3a)*
+*(Still not built — `RelationshipsTab.tsx` remains a 0-byte, unimported file as of July 2026. Now
+committed for Phase 4B, but NOT in this form: per `roadmaps/DESIGN_DECISIONS.md` D13 the map renders
+only what the player interprets and has heard (edges with provenance/age, sourced from the knowledge
+store — they can be wrong, not just stale), never ground-truth axis values. See
+`roadmaps/ROADMAP_PHASE_4.md` 4B.4 and the brainstorm's G6 for the reasoning.)*
 
 **8.2 Persistent dossiers [P1 / M]** — Promote per-NPC intel from component-local state to a
 persisted, accreting file per target: every uncovered belief/scheme/secret, raw-thought reads,
@@ -393,6 +469,9 @@ paranoia loop. *(= ROADMAP_3 P1.3b, ROADMAP_4 P1.3c)*
 card per turn (intent → narration excerpt → headline outcomes → event choices), styled as an
 illuminated manuscript with drop caps and turn-number folios. Reuses `turnHistory`; the GM screen
 keeps the raw view. *(= ROADMAP_3 P1.2)*
+*(Still not built — `ChronicleTab.tsx` (now 22 lines, re-skinned onto the `gor-*` tokens) is still
+a scripted-event choice log (turn, event title, chosen option), not the `turnHistory`-driven
+illuminated saga described here.)*
 
 **8.5 Interactive Empire map [P2 / L]** — Replace the Empire tab's card list with a stylized SVG
 map of Rome/the provinces: regions tinted by stability, faction-control banners, character markers,
@@ -405,6 +484,10 @@ accessible fallback view.
 `AWAITING_PLAYER_INPUT`: how turns work, what the tabs hold, what investigations/denarii buy.
 Seed 2–3 starter suggested actions before turn 1 so the input is never a blank page. Persist a
 "seen" flag. *(= ROADMAP_3 P1.4)*
+*(SHIPPED — see components/OnboardingOverlay.tsx (3-step, dismissable, in-fiction copy) +
+components/starterActions.ts's `deriveStarterActions` (pure function, 3 starter pills, no AI
+call), both wired from `App.tsx`'s `startGameWithCharacter`. The "seen" flag persists via
+`persistence/onboarding.ts`.)*
 
 **9.2 Codex / expanded glossary [P2 / M]** — Grow the two hard-coded `GlossaryTooltip` maps into
 a data-driven codex: historical terms, game concepts (trust axes, credibility, schemes), and
@@ -418,11 +501,17 @@ with actionable hints ("Spend an Investigation in Dramatis Personae to fill this
 **10.1 Dialog & tab semantics [P0 / S]** — `role="dialog"` + `aria-modal` + focus trap +
 Escape on both modals; `role="tablist"`/`tab`/`aria-selected` + arrow-key navigation on both tab
 bars. *(= ROADMAP_3 P2.2a)*
+*(PARTIALLY SHIPPED — `role="dialog"`/`aria-modal` now on `GameMasterScreen` and `EventModal`;
+`role="tablist"`/`role="tab"`/`aria-selected` now on both tab bars (`SidePanel`,
+`GameMasterScreen`). Still missing: focus trap, Escape-to-close, and arrow-key tab navigation.)*
 
 **10.2 Mobile / responsive layout [P1 / L]** — Below `md:`, collapse to a single column with a
 bottom switcher (Chat ↔ Intel); PlayerStatus becomes a collapsible summary bar; modals go
 full-screen; pills wrap into a horizontal scroller. The conversational core is naturally
 phone-shaped — this widens the audience considerably. *(= ROADMAP_3 P2.1)*
+*(Still not built — no responsive breakpoints/media queries found in `design/`; the layout is
+still the fixed flex-based 2:1 desktop split. Tailwind's `md:`/`w-2/3`/`w-1/3` are gone, replaced
+with inline `flex: 2`/`flex: 1` styles, but the fixed-split constraint itself is unchanged.)*
 
 **10.3 Inclusive meters [P2 / S]** — Add text/pattern redundancy to color-coded meters (trust,
 stability, credibility); respect `prefers-reduced-motion` for all entrance/typing animations;
@@ -458,6 +547,10 @@ believe what Maximinus did" viral artifact the Funness roadmap's vision calls fo
 
 **12.3 Settings surface [P1 / S]** — A small modal for: theme (5.3), audio (11.2), text size,
 reduced motion, streaming on/off, and (dev) mock mode — replacing the header checkbox.
+*(Still not built as a unified settings modal — no such component exists. Individual pieces are
+scattered instead: a fixed-position LVX/NOX toggle (`App.tsx`, bottom-right, player-facing) covers
+theme (5.3); Mock Mode is still a bare dev-only Header checkbox, now joined by a second dev-only
+GM Console checkbox. No audio/text-size/reduced-motion/streaming-toggle controls found anywhere.)*
 
 **12.4 GM screen as "Director's Booth" [P2 / M]** — Rebrand the player-facing half (Intervention,
 Summary, Entity States) as an intentional sandbox-director feature with in-theme framing
@@ -484,6 +577,11 @@ prompt evaluation alike.
 ---
 
 ## 14. Suggested Sequencing (UI work only)
+
+*(Status note, July 2026: most of Wave 1 shipped — 6.1, 6.2, 6.3, 7.1 are all done (see their
+entries above); 5.5 and 10.1's remaining pieces (focus trap/Escape/arrow-nav) have not. Wave 2 is
+partial — 7.2 and half of 5.4 shipped; 5.1's toolchain move is partial; 12.3 has not shipped. Wave
+3's 9.1 shipped; 8.1/8.2/8.3/8.4 have not. See each item's inline annotation above for specifics.)*
 
 | Wave | Items | Rationale |
 |---|---|---|
