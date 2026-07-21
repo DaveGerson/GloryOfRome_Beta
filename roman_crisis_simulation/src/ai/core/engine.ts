@@ -1,5 +1,6 @@
 import { Entity, WorldState, Adjudication, Report, EventDelta, Relationship, TruthLedgerEntry } from '../../types';
 import { SYSTEMIC_RESOURCES, applySystemicResourceRule } from './resources';
+import { buildNpcPerceptions, selectMemoryChanges, selectPerceivingNpcs } from '../../perception/npcPerception';
 
 // NOTE: The turn-adjudication prompt (formerly `compileContext` here) has
 // moved to `ai/prompts/adjudication.ts::buildAdjudicationPrompt`, and its
@@ -11,12 +12,14 @@ import { SYSTEMIC_RESOURCES, applySystemicResourceRule } from './resources';
 
 /**
  * Upper bound on an entity's `memories` list - the oldest entries are
- * dropped once a write would exceed it. Memories accrue on every headline
- * that names the entity and are persisted in the save, so they must be
- * bounded; the bound is deliberately generous because memories are
- * simulation context (they can inform prompts and future systems), not
- * disposable debug data - a cap tight enough to change what the model can
- * recall would be a mechanics change, which this is not.
+ * dropped once a write would exceed it. Memories accrue each turn from the
+ * entity's own perceived digest (perception/npcPerception.ts, itself
+ * per-turn-bounded by MAX_NPC_MEMORY_LINES_PER_TURN) and are persisted in
+ * the save, so they must be bounded; the bound is deliberately generous
+ * because memories are simulation context (they can inform prompts and
+ * future systems), not disposable debug data - a cap tight enough to
+ * change what the model can recall would be a mechanics change, which
+ * this is not.
  */
 export const MAX_ENTITY_MEMORIES = 40;
 
@@ -398,6 +401,24 @@ export function appendTruthLedgerEntries(
 }
 
 
+/**
+ * Inputs bounding the perception-grounded memory stamp in
+ * applyAdjudication. Both fields optional so pre-existing call sites keep
+ * working: with no playerEntityId, no viewer is excluded; with no
+ * spotlightIds, selection falls back to delta-involvement then roster
+ * order (perception/npcPerception.ts::selectPerceivingNpcs).
+ */
+export interface PerceptionStampContext {
+    /**
+     * The player's entity id - ALWAYS excluded from the perceiving loop.
+     * Player-side knowledge lives in the D21 knowledge store
+     * (knowledge/store.ts), never in Entity.memories stamping.
+     */
+    playerEntityId?: string;
+    /** Spotlight entity ids, first in line for the bounded perceiving set. */
+    spotlightIds?: string[];
+}
+
 export function applyAdjudication(
     adjudication: Adjudication,
     currentEntities: Entity[],
@@ -405,33 +426,57 @@ export function applyAdjudication(
     currentReports: Report[],
     // Optional so pre-ledger call sites keep working; they receive the
     // fresh entries appended onto an empty ledger.
-    currentTruthLedger: TruthLedgerEntry[] = []
-): { updatedEntities: Entity[], updatedWorldState: WorldState, updatedReports: Report[], updatedTruthLedger: TruthLedgerEntry[] } {
+    currentTruthLedger: TruthLedgerEntry[] = [],
+    perceptionContext: PerceptionStampContext = {}
+): { updatedEntities: Entity[], updatedWorldState: WorldState, updatedReports: Report[], updatedTruthLedger: TruthLedgerEntry[], perceivingNpcIds: string[] } {
 
     let { updatedEntities: entitiesAfterDeltas, updatedWorldState, newReports, newTruthLedgerEntries } = applyDeltas(adjudication.deltas, currentEntities, currentWorldState, adjudication.turn);
     const updatedReports = [...currentReports, ...newReports];
     const updatedTruthLedger = appendTruthLedgerEntries(currentTruthLedger, newTruthLedgerEntries);
 
-    // Handle non-delta updates like memories
-    adjudication.headlines.forEach(headline => {
-        entitiesAfterDeltas.forEach(entity => {
-            if (headline.toLowerCase().includes(entity.name.toLowerCase())) {
-                entity.memories.push({
-                    turn: adjudication.turn,
-                    event_description: headline,
-                    emotional_impact: "Notable",
-                    involved_entities: []
-                });
-                // Bounded at the write site: drop the oldest past
-                // MAX_ENTITY_MEMORIES. An over-long list from a save
-                // written before the bound is trimmed too, but only when
-                // this entity gains a new memory - untouched entities keep
-                // their legacy length.
-                if (entity.memories.length > MAX_ENTITY_MEMORIES) {
-                    entity.memories.splice(0, entity.memories.length - MAX_ENTITY_MEMORIES);
-                }
-            }
+    // Perception-grounded memory stamp (D5 generalized to any viewer, D10):
+    // each perceiving entity remembers ONLY what its own vantage point
+    // admits - witnessed at its location, its own shifts, heard through its
+    // visibility_network, or public news. An entity distant and unnetworked
+    // from an event holds NO memory of it. Classification runs against the
+    // post-delta roster/world so this turn's arrivals and region changes
+    // count, exactly as the player-side digest classifies (App.tsx). The
+    // per-viewer digests are derived here and discarded (never persisted);
+    // only the bounded memory entries and the perceiving-id list leave this
+    // function.
+    const perceivers = selectPerceivingNpcs(
+        entitiesAfterDeltas,
+        perceptionContext.playerEntityId,
+        perceptionContext.spotlightIds ?? [],
+        adjudication.deltas
+    );
+    const npcPerceptions = buildNpcPerceptions(adjudication.deltas, perceivers, entitiesAfterDeltas, updatedWorldState);
+    npcPerceptions.forEach(perception => {
+        const entity = entitiesAfterDeltas.find(e => e.entity_id === perception.entityId);
+        if (!entity) return;
+        selectMemoryChanges(perception.changes).forEach(change => {
+            entity.memories.push({
+                turn: adjudication.turn,
+                event_description: change.text,
+                emotional_impact: "Notable",
+                // The digest's subject id, when it names another roster
+                // entity - the viewer themself is implicit, and region/world
+                // subjects are not entities.
+                involved_entities:
+                    change.subject !== entity.entity_id &&
+                    entitiesAfterDeltas.some(e => e.entity_id === change.subject)
+                        ? [change.subject]
+                        : []
+            });
         });
+        // Bounded at the write site: drop the oldest past
+        // MAX_ENTITY_MEMORIES. An over-long list from a save written
+        // before the bound is trimmed too, but only when this entity
+        // gains a new memory - untouched entities keep their legacy
+        // length.
+        if (entity.memories.length > MAX_ENTITY_MEMORIES) {
+            entity.memories.splice(0, entity.memories.length - MAX_ENTITY_MEMORIES);
+        }
     });
 
     // Handle entity additions and removals
@@ -453,5 +498,11 @@ export function applyAdjudication(
         entitiesAfterDeltas.push(...adjudication.add_entities);
     }
 
-    return { updatedEntities: entitiesAfterDeltas, updatedWorldState, updatedReports, updatedTruthLedger };
+    return {
+        updatedEntities: entitiesAfterDeltas,
+        updatedWorldState,
+        updatedReports,
+        updatedTruthLedger,
+        perceivingNpcIds: perceivers.map(e => e.entity_id),
+    };
 }

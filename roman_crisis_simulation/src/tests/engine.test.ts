@@ -492,17 +492,80 @@ describe('applyAdjudication', () => {
     });
   });
 
-  // --- Headlines ---
-  describe('Headlines', () => {
-    it('should add a memory to an entity mentioned in a headline', () => {
+  // --- Perception-grounded memories ---
+  // Memory stamping follows each entity's OWN vantage (perception/
+  // npcPerception.ts over perception/visibility.ts's viewer-agnostic
+  // rules): an entity remembers only what it could witness, introspect,
+  // hear through its visibility_network, or pick up as public news.
+  // Fixture vantages (tests/mockData.ts): severus @ Palatine Hill with
+  // network [maximinus, gaius]; maximinus @ Praetorian Camp with network
+  // [severus]; gaius @ The Curia with network [severus, maximinus].
+  describe('Perception-grounded memories', () => {
+    // A 'world' macro delta is public to every viewer - the deterministic
+    // one-memory-per-entity write the cap tests below lean on.
+    const worldNewsDelta = { type: 'world', key: 'economic_stability', delta: 0, reason: 'Failing' } as const;
+    const WORLD_NEWS_LINE = "Word spreads through every market: the empire's economy is now Failing.";
+
+    it('stamps a memory only for entities whose vantage admits the event', () => {
         const adjudication = deepCopy(baseAdjudication);
-        adjudication.headlines.push("A shocking proclamation by Maximinus Thrax has stunned the city.");
+        // Gaius's own resource shift: 'self' for gaius, 'network' for
+        // severus (gaius is a contact), invisible to maximinus (gaius is
+        // neither at the Praetorian Camp nor in maximinus's network).
+        adjudication.deltas.push({ type: 'resource', key: 'gaius_pontius_magnus:denarii', delta: 1000, reason: 'A bribe collected' });
 
         const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
-        const entity = updatedEntities.find(e => e.entity_id === 'maximinus_thrax');
-        
-        expect(entity?.memories.length).toBe(1);
-        expect(entity?.memories[0].event_description).toBe("A shocking proclamation by Maximinus Thrax has stunned the city.");
+        const gaius = updatedEntities.find(e => e.entity_id === 'gaius_pontius_magnus')!;
+        const severus = updatedEntities.find(e => e.entity_id === 'severus_alexander')!;
+        const maximinus = updatedEntities.find(e => e.entity_id === 'maximinus_thrax')!;
+
+        expect(gaius.memories.length).toBe(1);
+        expect(gaius.memories[0].event_description).toBe('Your denarii grows.');
+        expect(gaius.memories[0].turn).toBe(adjudication.turn);
+        expect(severus.memories.length).toBe(1);
+        expect(severus.memories[0].event_description).toBe("Gaius Pontius Magnus's denarii grows.");
+        expect(severus.memories[0].involved_entities).toEqual(['gaius_pontius_magnus']);
+        expect(maximinus.memories.length).toBe(0);
+    });
+
+    it('does not stamp memories from headline name-matching (headlines are not perception)', () => {
+        const adjudication = deepCopy(baseAdjudication);
+        adjudication.headlines.push('A shocking proclamation by Maximinus Thrax has stunned the city.');
+
+        const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+
+        // A headline can name an entity the world over - being NAMED in
+        // news is not the same as an event reaching that entity's vantage.
+        // With no deltas, nothing was perceivable by anyone.
+        expect(updatedEntities.every(e => e.memories.length === 0)).toBe(true);
+    });
+
+    it('delivers public news into every perceiving entity\'s memories', () => {
+        const adjudication = deepCopy(baseAdjudication);
+        adjudication.deltas.push(deepCopy(worldNewsDelta));
+
+        const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+
+        for (const entity of updatedEntities) {
+            expect(entity.memories.length).toBe(1);
+            expect(entity.memories[0].event_description).toBe(WORLD_NEWS_LINE);
+        }
+    });
+
+    it('keeps the player\'s entity out of the memory loop when the perception context names them', () => {
+        const adjudication = deepCopy(baseAdjudication);
+        adjudication.deltas.push({ type: 'resource', key: 'gaius_pontius_magnus:denarii', delta: 1000, reason: 'A bribe collected' });
+
+        const { updatedEntities } = applyAdjudication(
+            adjudication, mockEntities, mockWorldState, mockReports, [],
+            { playerEntityId: 'severus_alexander' }
+        );
+        const severus = updatedEntities.find(e => e.entity_id === 'severus_alexander')!;
+        const gaius = updatedEntities.find(e => e.entity_id === 'gaius_pontius_magnus')!;
+
+        // Severus's network admits the event, but player knowledge lives in
+        // the D21 knowledge store - never in this loop.
+        expect(severus.memories.length).toBe(0);
+        expect(gaius.memories.length).toBe(1);
     });
 
     it(`caps memories at MAX_ENTITY_MEMORIES (${MAX_ENTITY_MEMORIES}), dropping the oldest and keeping the newest`, () => {
@@ -513,7 +576,7 @@ describe('applyAdjudication', () => {
         target.memories = Array.from({ length: MAX_ENTITY_MEMORIES }, (_, i) => makeMemory(i));
 
         const adjudication = deepCopy(baseAdjudication);
-        adjudication.headlines.push('Maximinus Thrax marches on Rome.');
+        adjudication.deltas.push(deepCopy(worldNewsDelta));
 
         const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
         const entity = updatedEntities.find(e => e.entity_id === 'maximinus_thrax')!;
@@ -522,8 +585,8 @@ describe('applyAdjudication', () => {
         // The oldest was dropped...
         expect(entity.memories[0].event_description).toBe('Old event 1');
         expect(entity.memories.some(m => m.event_description === 'Old event 0')).toBe(false);
-        // ...and the newest is the fresh headline memory.
-        expect(entity.memories[MAX_ENTITY_MEMORIES - 1].event_description).toBe('Maximinus Thrax marches on Rome.');
+        // ...and the newest is the fresh perceived memory.
+        expect(entity.memories[MAX_ENTITY_MEMORIES - 1].event_description).toBe(WORLD_NEWS_LINE);
     });
 
     it(`repairs a legacy over-long memory list (MAX + 20) down to exactly MAX in a single write, keeping the newest`, () => {
@@ -538,16 +601,16 @@ describe('applyAdjudication', () => {
         target.memories = Array.from({ length: MAX_ENTITY_MEMORIES + overflow }, (_, i) => makeMemory(i));
 
         const adjudication = deepCopy(baseAdjudication);
-        adjudication.headlines.push('Maximinus Thrax marches on Rome.');
+        adjudication.deltas.push(deepCopy(worldNewsDelta));
 
         const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
         const entity = updatedEntities.find(e => e.entity_id === 'maximinus_thrax')!;
 
         expect(entity.memories.length).toBe(MAX_ENTITY_MEMORIES);
         // The oldest (overflow + 1) entries are gone; the survivors start
-        // right after them and end with the fresh headline memory.
+        // right after them and end with the fresh perceived memory.
         expect(entity.memories[0].event_description).toBe(`Old event ${overflow + 1}`);
-        expect(entity.memories[MAX_ENTITY_MEMORIES - 1].event_description).toBe('Maximinus Thrax marches on Rome.');
+        expect(entity.memories[MAX_ENTITY_MEMORIES - 1].event_description).toBe(WORLD_NEWS_LINE);
     });
 
     it('does not drop anything when a memory write lands exactly on the cap', () => {
@@ -558,14 +621,14 @@ describe('applyAdjudication', () => {
         target.memories = Array.from({ length: MAX_ENTITY_MEMORIES - 1 }, (_, i) => makeMemory(i));
 
         const adjudication = deepCopy(baseAdjudication);
-        adjudication.headlines.push('Maximinus Thrax marches on Rome.');
+        adjudication.deltas.push(deepCopy(worldNewsDelta));
 
         const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
         const entity = updatedEntities.find(e => e.entity_id === 'maximinus_thrax')!;
 
         expect(entity.memories.length).toBe(MAX_ENTITY_MEMORIES);
         expect(entity.memories[0].event_description).toBe('Old event 0');
-        expect(entity.memories[MAX_ENTITY_MEMORIES - 1].event_description).toBe('Maximinus Thrax marches on Rome.');
+        expect(entity.memories[MAX_ENTITY_MEMORIES - 1].event_description).toBe(WORLD_NEWS_LINE);
     });
   });
 

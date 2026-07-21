@@ -449,6 +449,20 @@ export interface TurnHistoryEntry {
   postTurnEntities?: Entity[];
   rawCalls?: RawCallRecord[]; // Raw prompt/response capture for every AI call made this turn
   mortalityTrace?: MortalityEvent[]; // Every death claim this turn went through processMortality, see MortalityEvent
+  /**
+   * Entity ids selected as this turn's perceiving NPCs (bounded by
+   * MAX_PERCEIVING_NPCS - perception/npcPerception.ts), the viewers whose
+   * perception-grounded memories were stamped at commit. The per-NPC
+   * digests themselves are NEVER persisted (save-size bounding): the GM
+   * console re-derives them from this id list plus the entry's deltas and
+   * entity snapshot. Optional: entries persisted before the field existed
+   * lack it, and entries older than the snapshot window drop it alongside
+   * `postTurnEntities` (state/gameReducer.ts) - the derivation needs the
+   * snapshot, so the ids alone would be dead save weight. Per
+   * DESIGN_DECISIONS.md D4/D5 this is GM-side simulation data - rendered
+   * only in the GM console, never player-facing.
+   */
+  perceivingNpcIds?: string[];
   resolutionTrace?: ActionResolutionEvent; // The player action's trip through the resolution layer this turn (if consequential), see ActionResolutionEvent
   /**
    * The 32-bit seed of this turn's roll generator

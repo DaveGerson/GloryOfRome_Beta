@@ -1,15 +1,24 @@
 /**
  * Phase 2 perception layer (D5 in roadmaps/DESIGN_DECISIONS.md).
  *
- * The player is never omniscient. Every EventDelta produced by the
- * adjudicator is GROUND TRUTH - it describes what really happened in the
- * simulation, including things no living character in the story could
- * possibly know about yet (a rival's private scheme, a senator's shifting
- * loyalties three regions away). This module is the code-side filter that
- * decides which of those deltas the PLAYER's character would plausibly know
- * about, from their own vantage point, and turns the visible subset into
- * plain-language lines for the "Dispatches & Observations" digest and the
- * `WorldStateTab` intelligence picture.
+ * No viewer is omniscient. Every EventDelta produced by the adjudicator is
+ * GROUND TRUTH - it describes what really happened in the simulation,
+ * including things no living character in the story could possibly know
+ * about yet (a rival's private scheme, a senator's shifting loyalties three
+ * regions away). This module is the code-side filter that decides which of
+ * those deltas a given VIEWER would plausibly know about, from their own
+ * vantage point, and turns the visible subset into plain-language lines.
+ * When the viewer is the player, this feeds the "Dispatches & Observations"
+ * digest and the `WorldStateTab` intelligence picture; the same rules,
+ * applied per NPC viewer, bound what each NPC knows (D10 - see
+ * perception/npcPerception.ts).
+ *
+ * VIEWER-AGNOSTIC CONTRACT: every rule below reads ONLY the viewer's own
+ * identity, current location, and visibility_network, plus the
+ * unconditionally-public delta classes - nothing player-specific. Passing
+ * any Entity as the viewer yields that entity's honest vantage; the same
+ * delta may classify differently for two different viewers, and that
+ * asymmetry is the point.
  *
  * Per D5, fidelity is binary in this crude v1: a thing is either visible or
  * it isn't. There is no partial/unreliable information yet (that's a later
@@ -25,7 +34,7 @@
 
 import { Entity, EventDelta, EventDeltaType, WorldState } from '../types';
 
-/** How a visible change reached the player. `null` only ever pairs with
+/** How a visible change reached the viewer. `null` only ever pairs with
  * `visible: false` - there is no source for something nobody perceived. */
 export type PerceptionSource = 'self' | 'witnessed' | 'network' | 'public';
 
@@ -53,7 +62,7 @@ export type TabId =
  * `subject`/`deltaType`/`deltaKey` are provenance metadata for the D21
  * knowledge store (knowledge/store.ts), which builds its claim entities
  * from this already-D5-filtered output. They describe only what the
- * `text` line itself already conveys to the player (who the visible
+ * `text` line itself already conveys to the viewer (who the visible
  * change was about, and what kind of change it was) - never anything the
  * filter withheld, so carrying them here adds no leak surface.
  */
@@ -96,16 +105,16 @@ function entityLocation(id: string, entities: Entity[]): string | undefined {
 }
 
 /**
- * Entity ids "involved" in a delta, OTHER than the player. Used only for the
- * witnessed/network checks below. The player's own id is always excluded
- * here deliberately: checking whether the player is standing in their own
+ * Entity ids "involved" in a delta, OTHER than the viewer. Used only for the
+ * witnessed/network checks below. The viewer's own id is always excluded
+ * here deliberately: checking whether the viewer is standing in their own
  * current location, or is in their own visibility_network, is tautological
- * and would make every delta that merely references the player (e.g. an
+ * and would make every delta that merely references the viewer (e.g. an
  * NPC's relation delta targeting them) trivially "witnessed" - which is
- * exactly the leak D5 forbids (an NPC's opinion of you shifting is not
- * something you can introspect directly; see the 'self' rule below).
+ * exactly the leak D5 forbids (another mind's opinion of you shifting is
+ * not something you can introspect directly; see the 'self' rule below).
  */
-function involvedOtherEntityIds(delta: EventDelta, player: Entity): string[] {
+function involvedOtherEntityIds(delta: EventDelta, viewer: Entity): string[] {
   let ids: string[] = [];
   switch (delta.type) {
     case 'relation': {
@@ -130,11 +139,14 @@ function involvedOtherEntityIds(delta: EventDelta, player: Entity): string[] {
       // (rumor/add_region/remove_region).
       break;
   }
-  return ids.filter((id): id is string => !!id && id !== player.entity_id);
+  return ids.filter((id): id is string => !!id && id !== viewer.entity_id);
 }
 
 /**
- * Classifies a single EventDelta from the player's point of view.
+ * Classifies a single EventDelta from the viewer's point of view. The
+ * viewer may be ANY Entity - the player character or an NPC; the rules
+ * read only the viewer's identity, location, and visibility_network (see
+ * the module doc's viewer-agnostic contract).
  *
  * Rules (checked in this order - the first that matches wins):
  *
@@ -154,26 +166,28 @@ function involvedOtherEntityIds(delta: EventDelta, player: Entity): string[] {
  *    SimulationState, not as EventDeltas - WorldStateTab surfaces them
  *    directly rather than through this function.
  *
- * 2. 'self' when the delta directly involves the player as its acting/
+ * 2. 'self' when the delta directly involves the viewer as its acting/
  *    owning entity. For 'relation' deltas this is DIRECTIONAL: key
  *    'A:B:attr' represents A's perception of B, so it's 'self' only when
- *    the PLAYER is A (their own feelings shifting). An NPC's changed
- *    opinion OF the player (B === player) is explicitly NOT 'self' - the
- *    player has no direct line into another mind's private ledger; it only
- *    becomes knowable if witnessed or reported via the network (below).
+ *    the VIEWER is A (their own feelings shifting) - an NPC viewer's own
+ *    relation deltas are 'self' from their vantage exactly like the
+ *    player's. Another mind's changed opinion OF the viewer (B === viewer)
+ *    is explicitly NOT 'self' - no one has a direct line into another
+ *    mind's private ledger; it only becomes knowable if witnessed or
+ *    reported via the network (below).
  *
- * 3. 'witnessed' when an involved entity (excluding the player themself -
- *    see involvedOtherEntityIds) shares the player's current location, or
- *    (for 'region' deltas) the delta's region IS the player's current
- *    location. A 'status' delta that moves an entity INTO the player's
+ * 3. 'witnessed' when an involved entity (excluding the viewer themself -
+ *    see involvedOtherEntityIds) shares the viewer's current location, or
+ *    (for 'region' deltas) the delta's region IS the viewer's current
+ *    location. A 'status' delta that moves an entity INTO the viewer's
  *    region (new_location) also counts - you saw them arrive.
  *
- * 4. 'network' when an involved entity is one of the player's
+ * 4. 'network' when an involved entity is one of the viewer's
  *    visibility_network contacts, or (for 'region' deltas) one of those
  *    contacts is currently located in the targeted region - i.e. you have
  *    eyes there even if you aren't.
  *
- * Otherwise the delta is invisible to the player.
+ * Otherwise the delta is invisible to the viewer.
  */
 /** The only WorldState macro fields a 'world' delta can legally change -
  * mirrors ai/core/engine.ts's applyDeltas 'world' case, which no-ops any
@@ -183,7 +197,7 @@ const WORLD_MACRO_KEYS = ['economic_stability', 'political_climate'];
 
 export function classifyDelta(
   delta: EventDelta,
-  player: Entity,
+  viewer: Entity,
   entities: Entity[],
   worldState: WorldState
 ): Visibility {
@@ -200,7 +214,7 @@ export function classifyDelta(
   // --- Rule 2: self ---
   if (delta.type === 'relation') {
     const [a] = delta.key.split(':');
-    if (a === player.entity_id) return { visible: true, source: 'self' };
+    if (a === viewer.entity_id) return { visible: true, source: 'self' };
   } else if (
     delta.type === 'resource' ||
     delta.type === 'status' ||
@@ -208,7 +222,7 @@ export function classifyDelta(
     delta.type === 'faction'
   ) {
     const [entityId] = delta.key.split(':');
-    if (entityId === player.entity_id) return { visible: true, source: 'self' };
+    if (entityId === viewer.entity_id) return { visible: true, source: 'self' };
   }
   // 'region' deltas have no owning entity id, so 'self' never applies -
   // falls through to witnessed/network below.
@@ -216,12 +230,12 @@ export function classifyDelta(
   // --- Rule 3: witnessed ---
   if (delta.type === 'region') {
     const [regionName] = delta.key.split(':');
-    if (regionName === player.location) return { visible: true, source: 'witnessed' };
+    if (regionName === viewer.location) return { visible: true, source: 'witnessed' };
   } else {
-    const others = involvedOtherEntityIds(delta, player);
-    const atPlayerLocation = others.some(id => entityLocation(id, entities) === player.location);
-    const arrivesAtPlayerLocation = delta.type === 'status' && delta.new_location === player.location;
-    if (atPlayerLocation || arrivesAtPlayerLocation) {
+    const others = involvedOtherEntityIds(delta, viewer);
+    const atViewerLocation = others.some(id => entityLocation(id, entities) === viewer.location);
+    const arrivesAtViewerLocation = delta.type === 'status' && delta.new_location === viewer.location;
+    if (atViewerLocation || arrivesAtViewerLocation) {
       return { visible: true, source: 'witnessed' };
     }
   }
@@ -232,14 +246,14 @@ export function classifyDelta(
     // Guard against a malformed/unknown region key - only real regions can
     // have a network contact "in" them.
     if (worldState.regions[regionName]) {
-      const networkPresent = player.visibility_network.some(
+      const networkPresent = viewer.visibility_network.some(
         id => entityLocation(id, entities) === regionName
       );
       if (networkPresent) return { visible: true, source: 'network' };
     }
   } else {
-    const others = involvedOtherEntityIds(delta, player);
-    if (others.some(id => player.visibility_network.includes(id))) {
+    const others = involvedOtherEntityIds(delta, viewer);
+    if (others.some(id => viewer.visibility_network.includes(id))) {
       return { visible: true, source: 'network' };
     }
   }
@@ -307,15 +321,18 @@ function subjectForDelta(delta: EventDelta): string {
   }
 }
 
-function describeDelta(delta: EventDelta, player: Entity, entities: Entity[]): string {
+/** Renders a delta as a plain-language line from the viewer's vantage -
+ * second-person phrasing ("you"/"your") always addresses the viewer, so the
+ * same delta reads correctly whether the viewer is the player or an NPC. */
+function describeDelta(delta: EventDelta, viewer: Entity, entities: Entity[]): string {
   switch (delta.type) {
     case 'relation': {
       const [aId, bId, attr = 'trust_level'] = delta.key.split(':');
       const attrLabel = RELATION_ATTR_LABELS[attr] ?? attr.replace(/_/g, ' ');
-      if (aId === player.entity_id) {
+      if (aId === viewer.entity_id) {
         return `Your ${attrLabel} toward ${displayName(bId, entities)} shifts.`;
       }
-      if (bId === player.entity_id) {
+      if (bId === viewer.entity_id) {
         return `You sense ${displayName(aId, entities)}'s ${attrLabel} toward you shifting.`;
       }
       return `You notice ${displayName(aId, entities)}'s ${attrLabel} toward ${displayName(bId, entities)} shifting.`;
@@ -323,7 +340,7 @@ function describeDelta(delta: EventDelta, player: Entity, entities: Entity[]): s
     case 'status': {
       const [entityId] = delta.key.split(':');
       const statusLabel = delta.new_status ?? 'changed';
-      if (entityId === player.entity_id) {
+      if (entityId === viewer.entity_id) {
         return `Your own fate turns: you are now ${statusLabel}.`;
       }
       return `${displayName(entityId, entities)} is now ${statusLabel}.`;
@@ -332,7 +349,7 @@ function describeDelta(delta: EventDelta, player: Entity, entities: Entity[]): s
       const [entityId, resourceName] = delta.key.split(':');
       const direction = delta.delta > 0 ? 'grows' : delta.delta < 0 ? 'dwindles' : 'shifts';
       const resourceLabel = (resourceName ?? 'holdings').replace(/_/g, ' ');
-      if (entityId === player.entity_id) {
+      if (entityId === viewer.entity_id) {
         return `Your ${resourceLabel} ${direction}.`;
       }
       return `${displayName(entityId, entities)}'s ${resourceLabel} ${direction}.`;
@@ -395,24 +412,25 @@ function describeDelta(delta: EventDelta, player: Entity, entities: Entity[]): s
 }
 
 /**
- * Maps a turn's raw (ground-truth) deltas to the subset the player would
- * perceive, with friendly labels and a source tag - never raw global truth,
- * per D5. This is what feeds the "Dispatches & Observations" chat digest and
- * (indirectly, via the same classifyDelta rules) WorldStateTab's region
- * detail.
+ * Maps a turn's raw (ground-truth) deltas to the subset the given viewer
+ * would perceive, with friendly labels and a source tag - never raw global
+ * truth, per D5. With the player as viewer this feeds the "Dispatches &
+ * Observations" chat digest and (indirectly, via the same classifyDelta
+ * rules) WorldStateTab's region detail; with an NPC as viewer it is that
+ * NPC's bounded knowledge of the turn (perception/npcPerception.ts).
  */
 export function buildPerceivedDigest(
   deltas: EventDelta[],
-  player: Entity,
+  viewer: Entity,
   entities: Entity[],
   worldState: WorldState
 ): PerceivedChange[] {
   const changes: PerceivedChange[] = [];
   for (const delta of deltas) {
-    const { visible, source } = classifyDelta(delta, player, entities, worldState);
+    const { visible, source } = classifyDelta(delta, viewer, entities, worldState);
     if (!visible || !source) continue;
     changes.push({
-      text: describeDelta(delta, player, entities),
+      text: describeDelta(delta, viewer, entities),
       source,
       tabs: tabsForDelta(delta),
       subject: subjectForDelta(delta),

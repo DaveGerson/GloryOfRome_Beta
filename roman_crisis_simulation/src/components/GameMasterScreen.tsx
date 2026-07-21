@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { TurnHistoryEntry, Adjudication, Entity, Relationship, Memory, Scheme, RawCallRecord, WorldState, TruthLedgerEntry, Report } from '../types';
-import { classifyDelta } from '../perception/visibility';
+import { classifyDelta, buildPerceivedDigest } from '../perception/visibility';
 import { KnowledgeClaim } from '../knowledge/store';
 import { InferredAmbitionState, SAVE_VERSION } from '../persistence/saveGame';
 import { buildEvalCorpus, evalCorpusFilename } from '../persistence/evalCorpus';
@@ -20,7 +20,7 @@ const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
 const lbl: React.CSSProperties = { fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', color: DIM };
 const well: React.CSSProperties = { background: 'rgba(0,0,0,.32)', border: '1px solid rgba(201,162,39,.22)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' };
 
-const TABS = ['summary', 'entity states', 'actions', 'deltas', 'private', 'ground truth', 'truth ledger', 'player knowledge', 'raw json'];
+const TABS = ['summary', 'entity states', 'actions', 'deltas', 'private', 'ground truth', 'npc perception', 'truth ledger', 'player knowledge', 'raw json'];
 
 const SummaryView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => (
     <>
@@ -237,6 +237,67 @@ const GroundTruthView: React.FC<{
                     <p style={{ fontSize: 13, color: DIM, margin: '4px 0 0' }}>No mortality trace recorded for this turn (mortality pipeline not yet wired in, or nothing triggered it).</p>
                 )}
             </div>
+        </>
+    );
+};
+
+/**
+ * Per-NPC perception view (D7 + D10): what each of the turn's perceiving
+ * NPCs actually witnessed or heard - the instrument for tuning information
+ * asymmetry across the whole cast, alongside GroundTruthView's player-side
+ * diff. GM-console-only, like everything else on this screen (D4/D5): what
+ * an NPC knows is simulation data, not player knowledge.
+ *
+ * Digests are re-derived at render time from the entry's persisted
+ * `perceivingNpcIds` + deltas + entity snapshot (perception/visibility.ts's
+ * viewer-agnostic rules); per-NPC digests are never persisted in the save.
+ * An id absent from the snapshot (an entity removed later that same turn)
+ * is skipped.
+ */
+const NpcPerceptionView: React.FC<{
+    entry: TurnHistoryEntry;
+    worldState: WorldState;
+}> = ({ entry, worldState }) => {
+    const snapshotEntities = entry.postTurnEntities;
+    const perceivingIds = entry.perceivingNpcIds;
+
+    if (!snapshotEntities) {
+        return <p style={{ color: DIM, margin: 0 }}>Entity snapshot trimmed for this older turn - only the most recent turns retain one, and the per-NPC perception derivation needs the turn's own roster.</p>;
+    }
+    if (!perceivingIds) {
+        return <p style={{ color: DIM, margin: 0 }}>No perceiving-NPC set recorded for this turn.</p>;
+    }
+    if (perceivingIds.length === 0) {
+        return <p style={{ color: DIM, margin: 0 }}>No NPCs were selected to perceive this turn.</p>;
+    }
+    return (
+        <>
+            <p style={{ fontSize: 13, color: DIM, margin: '4px 0 8px' }}>
+                What each perceiving NPC actually witnessed or heard this turn - the same viewer-agnostic filter the player's digest runs through, applied from each NPC's own vantage. Their turn memories were stamped from these lines.
+            </p>
+            {perceivingIds.map(entityId => {
+                const npc = snapshotEntities.find(e => e.entity_id === entityId);
+                if (!npc) return null;
+                const changes = buildPerceivedDigest(entry.adjudication.deltas, npc, snapshotEntities, worldState);
+                return (
+                    <div key={entityId} style={well}>
+                        <span style={{ color: RED, fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14 }}>{npc.name}</span>
+                        <span style={{ color: DIM, fontSize: 13 }}> — {npc.location} · network: {npc.visibility_network.length > 0 ? npc.visibility_network.join(', ') : 'none'}</span>
+                        {changes.length === 0 ? (
+                            <div style={{ fontSize: 13, fontStyle: 'italic', color: 'rgba(169,154,118,.6)', marginTop: 4 }}>Perceived nothing this turn.</div>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 6 }}>
+                                {changes.map((change, index) => (
+                                    <div key={index} style={{ fontSize: 13, display: 'flex', gap: 10, alignItems: 'baseline' }}>
+                                        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: GREEN, flex: 'none', width: 74 }}>{change.source}</span>
+                                        <span style={{ color: PARCH }}>{change.text}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
         </>
     );
 };
@@ -519,6 +580,7 @@ const GameMasterScreen: React.FC<{
                                 {activeTab === 'deltas' && <DeltasView adjudication={entry.adjudication} />}
                                 {activeTab === 'private' && <PrivateView adjudication={entry.adjudication} />}
                                 {activeTab === 'ground truth' && <GroundTruthView entry={entry} playerCharacterId={playerCharacterId} worldState={worldState} />}
+                                {activeTab === 'npc perception' && <NpcPerceptionView entry={entry} worldState={worldState} />}
                                 {activeTab === 'raw json' && <RawJsonView adjudication={entry.adjudication} rawCalls={entry.rawCalls} />}
                             </div>
                         ))

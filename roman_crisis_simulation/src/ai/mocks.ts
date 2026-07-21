@@ -267,8 +267,14 @@ export const mockRunNewTurn = async (
         deltas: [...MOCK_ADJUDICATION.deltas, playerPlantedRumor],
     };
 
-    let { updatedEntities, updatedWorldState, updatedReports, updatedTruthLedger } = applyAdjudication(adjudication, currentEntities, currentWorldState, currentReports, currentTruthLedger);
-    
+    // Same perception context the real pipeline passes (ai/core/turn.ts):
+    // the player is excluded from the NPC memory loop, and the mock
+    // conversation pair below stands in as the spotlight cast.
+    let { updatedEntities, updatedWorldState, updatedReports, updatedTruthLedger, perceivingNpcIds } = applyAdjudication(adjudication, currentEntities, currentWorldState, currentReports, currentTruthLedger, {
+        playerEntityId: playerEntity.entity_id,
+        spotlightIds: ['maximinus_thrax', 'praetorian_guard'],
+    });
+
     // MOCK CONVERSATION SIMULATION
     const npc1 = updatedEntities.find(e => e.entity_id === 'maximinus_thrax');
     const npc2 = updatedEntities.find(e => e.entity_id === 'praetorian_guard');
@@ -302,7 +308,8 @@ export const mockRunNewTurn = async (
         playerIntent,
         adjudication,
         narration,
-        postTurnEntities: updatedEntities
+        postTurnEntities: updatedEntities,
+        perceivingNpcIds
     };
 
     return {

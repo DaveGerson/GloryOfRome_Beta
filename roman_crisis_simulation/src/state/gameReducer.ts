@@ -130,14 +130,17 @@ export const KEEP_FULL_SNAPSHOTS = 10;
 
 /**
  * Drops `postTurnEntities` from every entry older than the most recent
- * KEEP_FULL_SNAPSHOTS. Returns the input array unchanged (same reference)
- * when no entry needs trimming, matching the reducer's convention that
- * untouched slices keep their identity - which also makes it idempotent
- * and safe to apply more than once per commit. Exported because App.tsx
- * must apply it to the turn-commit history BEFORE building the autosave:
- * the reducer's own trim (TURN_COMMITTED below) only bounds in-memory
- * state, and an autosave built from the untrimmed array would persist
- * every snapshot - growing the save by one snapshot per session on
+ * KEEP_FULL_SNAPSHOTS, and `perceivingNpcIds` in lockstep with it: the GM
+ * console's per-NPC perception derivation needs the entry's own snapshot,
+ * so once the snapshot is trimmed the id list can serve nothing and must
+ * not keep accreting in the save. Returns the input array unchanged (same
+ * reference) when no entry needs trimming, matching the reducer's
+ * convention that untouched slices keep their identity - which also makes
+ * it idempotent and safe to apply more than once per commit. Exported
+ * because App.tsx must apply it to the turn-commit history BEFORE building
+ * the autosave: the reducer's own trim (TURN_COMMITTED below) only bounds
+ * in-memory state, and an autosave built from the untrimmed array would
+ * persist every snapshot - growing the save by one snapshot per session on
  * legacy-shaped saves that carry one on every entry.
  */
 export function withOldSnapshotsDropped(turnHistory: TurnHistoryEntry[]): TurnHistoryEntry[] {
@@ -145,9 +148,9 @@ export function withOldSnapshotsDropped(turnHistory: TurnHistoryEntry[]): TurnHi
   if (cutoff <= 0) return turnHistory;
   let changed = false;
   const trimmed = turnHistory.map((entry, index) => {
-    if (index >= cutoff || entry.postTurnEntities === undefined) return entry;
+    if (index >= cutoff || (entry.postTurnEntities === undefined && entry.perceivingNpcIds === undefined)) return entry;
     changed = true;
-    const { postTurnEntities, ...rest } = entry;
+    const { postTurnEntities, perceivingNpcIds, ...rest } = entry;
     return rest;
   });
   return changed ? trimmed : turnHistory;

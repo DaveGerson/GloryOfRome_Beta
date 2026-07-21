@@ -310,7 +310,20 @@ export async function runNewTurn(
     // of the three parallel legs below are launched, so `updatedEntities`/
     // `updatedWorldState`/`updatedReports` are fully settled, ordinary
     // (non-shared-with-anything-concurrent) values by the time they're read.
-    let { updatedEntities, updatedWorldState, updatedReports, updatedTruthLedger } = applyAdjudication(transformedAdjudication, currentEntities, currentWorldState, currentReports, currentTruthLedger);
+    // The perception context bounds the NPC-side memory stamp inside
+    // applyAdjudication (D5/D10): the player's entity stays out of that
+    // loop (player knowledge lives in the knowledge store), and the
+    // spotlight cast is first in line for the capped perceiving set. The
+    // per-NPC digests are derived and discarded there; `perceivingNpcIds`
+    // (recorded on the history entry below) is what lets the GM console
+    // re-derive them for display.
+    let { updatedEntities, updatedWorldState, updatedReports, updatedTruthLedger, perceivingNpcIds } = applyAdjudication(
+        transformedAdjudication, currentEntities, currentWorldState, currentReports, currentTruthLedger,
+        {
+            playerEntityId: playerEntity.entity_id,
+            spotlightIds: storyRelevance.spotlight_entities.map(s => s.entity_id),
+        }
+    );
     const updatedPlayerEntity = updatedEntities.find(e => e.entity_id === playerEntity.entity_id) || playerEntity;
     const recentPlayerIntents = turnHistory.map(h => h.playerIntent).slice(-6);
 
@@ -442,6 +455,7 @@ export async function runNewTurn(
         mortalityTrace: mortalityEvents.length > 0 ? mortalityEvents : undefined,
         resolutionTrace,
         turnSeed,
+        perceivingNpcIds,
     };
 
     const result = {

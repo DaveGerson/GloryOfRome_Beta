@@ -57,6 +57,9 @@ describe('components/GameMasterScreen - legacy-save smoke render', () => {
       // The campaign-wide tabs exist even when their slices are absent.
       expect(container.textContent).toContain('truth ledger');
       expect(container.textContent).toContain('player knowledge');
+      // The per-turn npc perception tab exists even for a legacy history
+      // whose entries carry no perceivingNpcIds.
+      expect(container.textContent).toContain('npc perception');
     } finally {
       await act(async () => {
         root.unmount();

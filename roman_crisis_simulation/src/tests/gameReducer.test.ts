@@ -33,6 +33,7 @@ function makeHistoryEntry(turnNumber: number): TurnHistoryEntry {
     },
     narration: `Narration ${turnNumber}`,
     postTurnEntities: [],
+    perceivingNpcIds: ['maximinus_thrax'],
   };
 }
 
@@ -236,8 +237,8 @@ describe('state/gameReducer', () => {
         const alreadyTrimmed = Array.from(
           { length: KEEP_FULL_SNAPSHOTS + 2 },
           (_, i) => {
-            const { postTurnEntities, ...rest } = makeHistoryEntry(i + 1);
-            return i < 2 ? rest : { ...rest, postTurnEntities };
+            const { postTurnEntities, perceivingNpcIds, ...rest } = makeHistoryEntry(i + 1);
+            return i < 2 ? rest : { ...rest, postTurnEntities, perceivingNpcIds };
           }
         );
         const action = { ...makeTurnCommit(state), turnHistory: alreadyTrimmed };
@@ -266,14 +267,19 @@ describe('state/gameReducer', () => {
       expect(trimmed).toHaveLength(KEEP_FULL_SNAPSHOTS + overflow);
       trimmed.forEach((entry, index) => {
         if (index < overflow) {
-          // The field is truly absent, not just undefined - the trimmed
-          // entry must not re-persist a snapshot key on the next save.
+          // The fields are truly absent, not just undefined - the trimmed
+          // entry must not re-persist a snapshot key on the next save. The
+          // perceiving-id list goes with the snapshot: the GM console's
+          // per-NPC perception derivation needs the snapshot, so the ids
+          // alone would be dead save weight.
           expect('postTurnEntities' in entry).toBe(false);
+          expect('perceivingNpcIds' in entry).toBe(false);
         } else {
           expect(entry.postTurnEntities).toBeDefined();
+          expect(entry.perceivingNpcIds).toBeDefined();
         }
       });
-      // Everything but the snapshot survives on trimmed entries.
+      // Everything else survives on trimmed entries.
       expect(trimmed[0].playerIntent).toBe('intent 1');
       expect(trimmed[0].narration).toBe('Narration 1');
     });
