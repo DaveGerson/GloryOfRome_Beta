@@ -2,6 +2,7 @@ import React from 'react';
 import { WorldState, RegionState, Entity } from '../../types';
 import GlossaryTooltip from '../GlossaryTooltip';
 import { Card } from '../ui/Core';
+import { isRegionKnownToPlayer } from './WorldStateTab';
 
 const locationGlossary = {
     'Palatine Hill': {
@@ -31,21 +32,39 @@ const statusTone = (stability: string): string => {
     return 'var(--text-body)';
 };
 
-const EmpireTab: React.FC<{ worldState: WorldState; entities: Entity[] }> = ({ worldState, entities }) => (
+/**
+ * D5 - the same locality/network sight rule as WorldStateTab
+ * (isRegionKnownToPlayer): full detail only for regions the player stands
+ * in or has network eyes on; everything else is a name and nothing more.
+ * Location lore (the glossary) stays on hidden rows - what the Palatine IS
+ * is common knowledge; what's happening there this week is not.
+ */
+const EmpireTab: React.FC<{ worldState: WorldState; entities: Entity[]; playerEntity: Entity | null }> = ({ worldState, entities, playerEntity }) => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <h3 className="gor-label" style={{ color: 'var(--crimson-500)' }}>Locations in Rome</h3>
         {Object.entries(worldState.regions).map(([name, region]: [string, RegionState]) => {
-            const charactersInLocation = entities.filter(e => e.location === name && e.entity_type === 'individual' && e.status === 'alive');
             const glossaryEntry = locationGlossary[name as keyof typeof locationGlossary];
+            const title = glossaryEntry ? (
+                <GlossaryTooltip description={glossaryEntry.description} wikiLink={glossaryEntry.wikiLink}>
+                    {name}
+                </GlossaryTooltip>
+            ) : name;
+            const known = playerEntity ? isRegionKnownToPlayer(name, playerEntity, entities) : false;
 
+            if (!known) {
+                return (
+                    <div key={name} className="gor-card" style={{ padding: '10px 14px', opacity: 0.6 }}>
+                        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 14, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>{title}</span>
+                        <p style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--text-muted)', margin: '3px 0 0' }}>Beyond your sight - no word has reached you from here.</p>
+                    </div>
+                );
+            }
+
+            const charactersInLocation = entities.filter(e => e.location === name && e.entity_type === 'individual' && e.status === 'alive');
             return (
                 <Card
                     key={name}
-                    title={glossaryEntry ? (
-                        <GlossaryTooltip description={glossaryEntry.description} wikiLink={glossaryEntry.wikiLink}>
-                            {name}
-                        </GlossaryTooltip>
-                    ) : name}
+                    title={title}
                     action={<span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 12, letterSpacing: '.08em', textTransform: 'uppercase', color: statusTone(region.stability) }}>{region.stability}</span>}
                 >
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 14 }}>

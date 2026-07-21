@@ -62,8 +62,10 @@ const MacroStatusRow: React.FC<{ label: string; value: string; severity: Severit
     </div>
 );
 
-/** Is `regionName` something the player has direct or networked sight into? */
-function isRegionKnownToPlayer(regionName: string, player: Entity, entities: Entity[]): boolean {
+/** Is `regionName` something the player has direct or networked sight into?
+ * Exported so EmpireTab applies the identical D5 locality/network rule -
+ * one sight rule, two views. */
+export function isRegionKnownToPlayer(regionName: string, player: Entity, entities: Entity[]): boolean {
     if (player.location === regionName) return true;
     return player.visibility_network.some(id => entities.find(e => e.entity_id === id)?.location === regionName);
 }

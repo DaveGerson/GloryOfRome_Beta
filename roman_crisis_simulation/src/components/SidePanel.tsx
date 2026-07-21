@@ -116,7 +116,7 @@ const SidePanel: React.FC<{
                     ai={ai}
                     isMockMode={isMockMode}
                 />}
-                {activeTab === 'locations' && <EmpireTab worldState={worldState} entities={entities} />}
+                {activeTab === 'locations' && <EmpireTab worldState={worldState} entities={entities} playerEntity={playerEntity} />}
                 {activeTab === 'resources' && <ResourcesTab playerEntity={playerEntity} />}
             </div>
         </aside>
