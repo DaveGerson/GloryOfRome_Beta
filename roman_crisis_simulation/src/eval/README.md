@@ -71,10 +71,12 @@ corpus export at all.
 
 ## The LLM judge (`eval/judge.ts`)
 
-Scores each turn 1-5 (+ rationale) on four fixed axes: consequence-density,
-sim-state consistency, schema validity, and information-asymmetry
+Scores each turn 1-5 (+ rationale) on five fixed axes: consequence-density,
+sim-state consistency, schema validity, information-asymmetry
 discipline (did anything reach a player surface its viewer could not
-know). Prompt: `ai/prompts/evalJudge.ts`; schemas:
+know), and character richness (do NPC actions read as motivated by their
+own bounded knowledge, memories, intents, and voice - continuity of self
+rather than plot convenience). Prompt: `ai/prompts/evalJudge.ts`; schemas:
 `EvalJudgeVerdictSchema` / `zEvalJudgeVerdict`. The judge sees GM-private
 ground truth by design - that is what the asymmetry axis checks against -
 and its scores are advisory tuning signal only: the judge is itself

@@ -20,7 +20,7 @@ import { useGame } from './state/GameContext';
 import { withOldSnapshotsDropped } from './state/gameReducer';
 import { createCharacter } from './ai/tools/characterCreator';
 import { inferAmbition } from './ai/tools/ambition';
-import { checkForTriggeredEvent, applyEventChoiceDeltas } from './events/engine';
+import { checkForTriggeredEvent, applyEventChoiceDeltas, recordEventFiring } from './events/engine';
 import { initiateWorld } from './ai/core/initiator';
 import { runSmokeTest } from './tests/smokeTest';
 import { AiServiceError, resetSessionCallLog } from './ai/core/geminiService';
@@ -84,6 +84,7 @@ const App: React.FC = () => {
         gmInterventionText,
         activeEvent,
         triggeredEventIds,
+        eventFirings,
         eventHistory,
         metaNarrative,
         inferredAmbition,
@@ -283,6 +284,7 @@ const App: React.FC = () => {
         metaNarrative: state.metaNarrative,
         messages: state.messages,
         triggeredEventIds: state.triggeredEventIds,
+        eventFirings: state.eventFirings,
         suggestedActions: state.suggestedActions,
         currentEvents: state.currentEvents,
         gmInterventionText: state.gmInterventionText,
@@ -356,7 +358,11 @@ const App: React.FC = () => {
 
     useEffect(() => {
         if (isCheckingEvents) {
-            const event = checkForTriggeredEvent(worldState, entities, triggeredEventIds, playerEntity);
+            // 4D.2 (D12): eligibility is decided by the per-event firing
+            // records (repeatable + cooldown), not the legacy string set;
+            // simulationState/turnNumber feed the sim-state-keyed triggers
+            // and the cooldown arithmetic.
+            const event = checkForTriggeredEvent(worldState, entities, eventFirings, playerEntity, simulationState, turnNumber);
             if (event) {
                 dispatch({ type: 'EVENT_TRIGGERED', event });
             } else {
@@ -364,7 +370,7 @@ const App: React.FC = () => {
             }
             setIsCheckingEvents(false); // Reset the flag
         }
-    }, [isCheckingEvents, worldState, entities, triggeredEventIds, playerEntity, dispatch]);
+    }, [isCheckingEvents, worldState, entities, eventFirings, playerEntity, simulationState, turnNumber, dispatch]);
 
     const executeTurn = useCallback(async (playerActionText: string) => {
         // TURN_STARTED enters PROCESSING, clears the suggested-action pills,
@@ -429,8 +435,10 @@ const App: React.FC = () => {
                 // (never from the mirroring React state), so the Fates
                 // selector takes effect on the NEXT turn with no
                 // executeTurn dependency on it (D23 - a user preference,
-                // not save state).
-                { onStage: setTurnStage, onNarrationChunk: setStreamingNarration, pacingPosture: getPacingPosture() }
+                // not save state). eventFirings (4D.2, D24) lets runNewTurn
+                // surface ripe/near authored events as GM-private
+                // HISTORICAL MATERIAL in the adjudication prompt.
+                { onStage: setTurnStage, onNarrationChunk: setStreamingNarration, pacingPosture: getPacingPosture(), eventFirings }
             );
 
             // COMMIT STATE
@@ -818,7 +826,11 @@ const App: React.FC = () => {
         const { updatedEntities, updatedWorldState } = applyEventChoiceDeltas(choice, playerEntity, entities, worldState, turnNumber);
         const eventMessage: Message = { sender: 'gm', text: `**Event: ${activeEvent.title}**\nYou chose to: *${choice.text}*`};
         const newEventHistory = [...eventHistory, newEventHistoryEntry];
-        const newTriggeredEventIds = [...triggeredEventIds, activeEvent.id];
+        // 4D.2 (D12): both bookkeeping shapes advance together - the legacy
+        // deduped ever-fired set (a repeat firing never duplicates its id)
+        // and the turn-stamped records the cooldown logic reads.
+        const { triggeredEventIds: newTriggeredEventIds, eventFirings: newEventFirings } =
+            recordEventFiring(triggeredEventIds, eventFirings, activeEvent.id, turnNumber);
 
         // The single atomic commit for this event choice
         // (state/gameReducer.ts's EVENT_CHOICE_APPLIED): deltas, chat log,
@@ -834,6 +846,7 @@ const App: React.FC = () => {
             eventMessage,
             eventHistory: newEventHistory,
             triggeredEventIds: newTriggeredEventIds,
+            eventFirings: newEventFirings,
         });
 
         // Autosave immediately after this commit (P0.2).
@@ -842,6 +855,7 @@ const App: React.FC = () => {
             worldState: updatedWorldState,
             eventHistory: newEventHistory,
             triggeredEventIds: newTriggeredEventIds,
+            eventFirings: newEventFirings,
             messages: [...messages, eventMessage],
         }));
 

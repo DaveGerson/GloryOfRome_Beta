@@ -326,13 +326,16 @@ export const zEvalJudgeAxisScore = z.object({
 
 /**
  * Validates the offline eval judge call's output (eval/judge.ts,
- * ai/prompts/evalJudge.ts). Exactly four fixed axes - mirrors
+ * ai/prompts/evalJudge.ts). Exactly five fixed axes - mirrors
  * `EvalJudgeVerdictSchema` in ai/core/schemas.ts; keep the two in lockstep.
- * Eval tooling only: this call is never made from app code.
+ * `character_richness` is the 4C richness axis (D10/D16): continuity of
+ * self over plot convenience. Eval tooling only: this call is never made
+ * from app code.
  */
 export const zEvalJudgeVerdict = z.object({
   consequence_density: zEvalJudgeAxisScore,
   sim_state_consistency: zEvalJudgeAxisScore,
   schema_validity: zEvalJudgeAxisScore,
   information_asymmetry: zEvalJudgeAxisScore,
+  character_richness: zEvalJudgeAxisScore,
 }).passthrough();

@@ -442,10 +442,11 @@ const WELL_FORMED_VERDICT: EvalJudgeVerdict = {
   sim_state_consistency: { score: 5, rationale: 'No contradiction with the given state.' },
   schema_validity: { score: 5, rationale: 'All fields used as intended.' },
   information_asymmetry: { score: 3, rationale: 'A gm_private motive is paraphrased in the narration.' },
+  character_richness: { score: 4, rationale: "Thrax's move follows from his own memories and stated intent." },
 };
 
 describe('eval judge scaffold', () => {
-  it('buildEvalJudgePrompt produces both parts, naming all four axes', () => {
+  it('buildEvalJudgePrompt produces both parts, naming all five axes', () => {
     const { systemInstruction, prompt } = buildEvalJudgePrompt({
       turnNumber: 3,
       playerIntent: 'Address the Senate.',
@@ -455,12 +456,31 @@ describe('eval judge scaffold', () => {
     });
 
     expect(systemInstruction.length).toBeGreaterThan(0);
-    for (const axis of ['consequence_density', 'sim_state_consistency', 'schema_validity', 'information_asymmetry']) {
+    for (const axis of ['consequence_density', 'sim_state_consistency', 'schema_validity', 'information_asymmetry', 'character_richness']) {
       expect(systemInstruction).toContain(axis);
     }
     expect(prompt).toContain('Address the Senate.');
     expect(prompt).toContain('The Curia falls silent');
     expect(prompt).toContain('GM-PRIVATE MORTALITY TRACE');
+  });
+
+  it('the fifth axis (4C richness) scores continuity of self, and the axis count is EXACTLY five (pin)', () => {
+    const { systemInstruction } = buildEvalJudgePrompt({
+      turnNumber: 3,
+      playerIntent: 'Address the Senate.',
+      adjudication: makeAdjudication(3),
+      narration: null,
+    });
+
+    expect(systemInstruction).toContain('EXACTLY these five axes');
+    expect(systemInstruction).toContain('exactly those five keys');
+    // The richness axis's substance: bounded knowledge, memories, intents,
+    // voice - continuity of self over plot convenience.
+    expect(systemInstruction).toContain("motivated by each character's OWN bounded knowledge, memories, stated intents, and voice");
+    expect(systemInstruction).toContain('continuity of self rather than plot convenience');
+    // Exactly five - no sixth axis has crept in.
+    expect(systemInstruction).toMatch(/^5\. 'character_richness'/m);
+    expect(systemInstruction).not.toMatch(/^6\./m);
   });
 
   it('zEvalJudgeVerdict accepts a well-formed verdict and rejects malformed ones', () => {
@@ -469,6 +489,12 @@ describe('eval judge scaffold', () => {
     const missingAxis = { ...WELL_FORMED_VERDICT } as Record<string, unknown>;
     delete missingAxis.schema_validity;
     expect(zEvalJudgeVerdict.safeParse(missingAxis).success).toBe(false);
+
+    // The fifth axis is REQUIRED like the original four - a four-axis
+    // verdict no longer validates (schema pair moved in lockstep).
+    const missingRichness = { ...WELL_FORMED_VERDICT } as Record<string, unknown>;
+    delete missingRichness.character_richness;
+    expect(zEvalJudgeVerdict.safeParse(missingRichness).success).toBe(false);
 
     const outOfRange = {
       ...WELL_FORMED_VERDICT,
@@ -498,5 +524,6 @@ describe('eval judge scaffold', () => {
     expect(text).toContain('Turn 3');
     expect(text).toContain('consequence-density: 4/5');
     expect(text).toContain('information-asymmetry discipline: 3/5');
+    expect(text).toContain('character richness: 4/5');
   });
 });

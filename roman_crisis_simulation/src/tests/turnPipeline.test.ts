@@ -925,4 +925,39 @@ describe('ai/core/turn.ts runNewTurn - pacing posture threading (4D.1, D23)', ()
     expect(sys).toContain('PACING JUDGMENT');
     expect(sys).toContain('PACING POSTURE - MEASURED (the default)');
   });
+
+  // --- HISTORICAL MATERIAL threading (ROADMAP_PHASE_4.md 4D item 2, D24) --
+
+  it('threads options.eventFirings into a GM-private HISTORICAL MATERIAL block when an authored trigger is ripe', async () => {
+    const h = createHarness(false);
+    const player = makeEntity(); // NOT an Emperor - triggers are role-agnostic (4D.2)
+    resolveWholePipeline(h);
+
+    // A failing economy makes grain_shortage's trigger fire for any player;
+    // empty bookkeeping means it has never fired, so it is RIPE.
+    await runNewTurn(
+      h.ai, 'Hold court', player, 2, [player], { ...worldState, economic_stability: 'Failing' },
+      simulationState, [], [], [], [], '', false, 'Grim political thriller',
+      { eventFirings: [] }
+    );
+
+    const adjudicationPrompt = h.promptsByKind.adjudication!;
+    expect(adjudicationPrompt).toContain('HISTORICAL MATERIAL');
+    expect(adjudicationPrompt).toContain('[RIPE] Grain Shortage in the Capital (grain_shortage)');
+    // The D24 preference contract rides with the material.
+    expect(adjudicationPrompt).toContain('PREFER weaving its premise');
+  });
+
+  it('omitted eventFirings produces no HISTORICAL MATERIAL block - the pre-4D.2 prompt shape', async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+    resolveWholePipeline(h);
+
+    await runNewTurn(
+      h.ai, 'Hold court', player, 2, [player], { ...worldState, economic_stability: 'Failing' },
+      simulationState, [], [], [], [], '', false, 'Grim political thriller'
+    );
+
+    expect(h.promptsByKind.adjudication!).not.toContain('HISTORICAL MATERIAL');
+  });
 });

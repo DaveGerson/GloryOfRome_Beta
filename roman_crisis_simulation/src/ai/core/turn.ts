@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent, TruthLedgerEntry, NpcIntent, NpcMindDecision, StoryRelevance, EntityAction, Memory, PacingPosture } from '../../types';
+import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent, TruthLedgerEntry, NpcIntent, NpcMindDecision, StoryRelevance, EntityAction, Memory, PacingPosture, EventFiringRecord } from '../../types';
 import { AdjudicationSchema } from './schemas';
 import { applyAdjudication, applyDeltas } from './engine';
 import { mockRunNewTurn } from "../mocks";
@@ -11,7 +11,8 @@ import { buildWorldSummary } from '../prompts/fragments';
 import { buildPerceivedDigest, PerceivedChange } from '../../perception/visibility';
 import { generateStructured, generateText, generateTextStream, GEMINI_PRO, beginTurnCapture, endTurnCapture } from './geminiService';
 import { zAdjudication } from './zodSchemas';
-import { buildAdjudicationPrompt, PlayerActionOutcomeContext } from '../prompts/adjudication';
+import { buildAdjudicationPrompt, PlayerActionOutcomeContext, HistoricalMaterialEntry } from '../prompts/adjudication';
+import { selectRipeEventMaterial } from '../../events/engine';
 import { buildNarrationPrompt, selectVoiceCast } from '../prompts/narration';
 import { processMortality, detectDeathClaims } from './mortality';
 import { createNarrationStreamGate } from './streamSplit';
@@ -230,6 +231,19 @@ export interface RunNewTurnOptions {
      * recorded per turn as a "[Pacing]" gm_private note (GM console only).
      */
     pacingPosture?: PacingPosture;
+    /**
+     * The campaign's per-event firing bookkeeping (ROADMAP_PHASE_4.md 4D
+     * item 2, D12/D24) - the reducer's `eventFirings` slice. When present,
+     * runNewTurn derives the ripe/near authored-event material
+     * (events/engine.ts::selectRipeEventMaterial) from the PRE-TURN state
+     * it already holds and renders it as the adjudication prompt's
+     * GM-private HISTORICAL MATERIAL block, giving the PACING JUDGMENT
+     * (D23) concrete historical currents to prefer when it tightens (D24).
+     * Absent means no block - the pre-4D.2 prompt shape, unchanged. Prompt
+     * material only: nothing here fires events, adds calls, or touches
+     * player-facing surfaces (D4/D5).
+     */
+    eventFirings?: EventFiringRecord[];
 }
 
 export async function runNewTurn(
@@ -416,6 +430,18 @@ export async function runNewTurn(
         npcMindResults.push(...settled.filter((decision): decision is NpcMindDecision => decision !== null));
     }
 
+    // *** HISTORICAL MATERIAL (4D.2, D12/D24) ***
+    // Authored events whose triggers are ripe or nearly due against the
+    // PRE-TURN state, offered to the adjudicator's PACING JUDGMENT as
+    // preferred payoff seeds. Derived only when the caller supplied the
+    // event bookkeeping (options.eventFirings) - legacy call sites see no
+    // block. Pure derivation, no model call; the modal event system in
+    // App.tsx remains the only thing that ever fires an event verbatim.
+    const historicalMaterial: HistoricalMaterialEntry[] | undefined = options?.eventFirings
+        ? selectRipeEventMaterial(currentWorldState, currentSimulationState, currentEntities, playerEntity, options.eventFirings, turnNumber)
+            .map(m => ({ id: m.event.id, title: m.event.title, premise: m.premise, status: m.status }))
+        : undefined;
+
     // 1. Compile context
     const recentHistory = turnHistory.slice(-6).map(h => `Turn ${h.turnNumber}: ${h.narration || h.adjudication.headlines.join('. ')}`);
     const { systemInstruction, prompt } = buildAdjudicationPrompt({
@@ -432,6 +458,7 @@ export async function runNewTurn(
         npcIntents,
         npcMindDecisions: npcMindResults,
         pacingPosture: options?.pacingPosture,
+        historicalMaterial,
     });
 
     // 2. Get adjudication from AI

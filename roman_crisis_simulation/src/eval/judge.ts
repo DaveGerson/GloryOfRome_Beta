@@ -38,9 +38,11 @@ export interface EvalJudgeVerdict {
   sim_state_consistency: EvalJudgeAxisScore;
   schema_validity: EvalJudgeAxisScore;
   information_asymmetry: EvalJudgeAxisScore;
+  /** The 4C richness axis (D10/D16): continuity of self over plot convenience. */
+  character_richness: EvalJudgeAxisScore;
 }
 
-/** Scores one corpus turn on the four fixed axes - see ai/prompts/evalJudge.ts. */
+/** Scores one corpus turn on the five fixed axes - see ai/prompts/evalJudge.ts. */
 export async function judgeTurn(ai: GeminiClient, turn: EvalCorpusTurn): Promise<EvalJudgeVerdict> {
   const { systemInstruction, prompt } = buildEvalJudgePrompt({
     turnNumber: turn.turnNumber,
@@ -69,5 +71,6 @@ export function formatJudgeVerdict(turnNumber: number, verdict: EvalJudgeVerdict
     line('sim-state consistency', verdict.sim_state_consistency),
     line('schema validity', verdict.schema_validity),
     line('information-asymmetry discipline', verdict.information_asymmetry),
+    line('character richness', verdict.character_richness),
   ].join('\n');
 }

@@ -539,9 +539,11 @@ const EvalJudgeAxisScoreSchema = {
 
 /**
  * The offline eval judge call's Gemini response schema (eval/judge.ts,
- * ai/prompts/evalJudge.ts). Exactly four fixed axes - mirrors
+ * ai/prompts/evalJudge.ts). Exactly five fixed axes - mirrors
  * `zEvalJudgeVerdict` in ai/core/zodSchemas.ts; keep the two in lockstep.
- * Eval tooling only: this call is never made from app code.
+ * `character_richness` is the 4C richness axis (D10/D16): continuity of
+ * self over plot convenience. Eval tooling only: this call is never made
+ * from app code.
  */
 export const EvalJudgeVerdictSchema = {
     type: Type.OBJECT,
@@ -550,6 +552,7 @@ export const EvalJudgeVerdictSchema = {
         sim_state_consistency: EvalJudgeAxisScoreSchema,
         schema_validity: EvalJudgeAxisScoreSchema,
         information_asymmetry: EvalJudgeAxisScoreSchema,
+        character_richness: EvalJudgeAxisScoreSchema,
     },
-    required: ['consequence_density', 'sim_state_consistency', 'schema_validity', 'information_asymmetry'],
+    required: ['consequence_density', 'sim_state_consistency', 'schema_validity', 'information_asymmetry', 'character_richness'],
 };

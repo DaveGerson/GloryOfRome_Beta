@@ -30,6 +30,7 @@ import type {
   TruthLedgerEntry,
   TurnHistoryEntry,
   EventHistoryEntry,
+  EventFiringRecord,
   Message,
   NpcIntent,
 } from '../types';
@@ -126,6 +127,18 @@ export interface SaveGameState {
    * surface to read it.
    */
   npcIntents?: NpcIntent[];
+  /**
+   * ROADMAP_PHASE_4.md 4D item 2 (D12) - per-event firing bookkeeping (last
+   * fired turn + count), the richer successor to `triggeredEventIds` that
+   * repeatable events' cooldowns require. BOTH shapes are written in
+   * lockstep (`triggeredEventIds` stays the legacy deduped ever-fired set).
+   * Optional so `SAVE_VERSION` stays at 1: a pre-existing save with no such
+   * field loads cleanly and GAME_LOADED (state/gameReducer.ts) normalizes
+   * the bookkeeping from `triggeredEventIds` alone
+   * (events/engine.ts::normalizeEventFirings - legacy ids are conservatively
+   * stamped with the loaded turn, so cooldowns restart from load).
+   */
+  eventFirings?: EventFiringRecord[];
 }
 
 /** The versioned envelope actually written to storage. */

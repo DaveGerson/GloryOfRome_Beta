@@ -250,6 +250,30 @@ describe('persistence/saveGame', () => {
     expect(loaded!.state.turnHistory[1].narration).toBe('Narration for turn 2');
   });
 
+  it('round-trips the optional event-firing bookkeeping (4D.2) beside the legacy triggeredEventIds, and its absence on a legacy save', () => {
+    const eventFirings = [
+      { eventId: 'grain_shortage', lastFiredTurn: 3, timesFired: 2 },
+      { eventId: 'gordian_stirrings', lastFiredTurn: 5, timesFired: 1 },
+    ];
+    saveGame(makeState({ turnNumber: 6, triggeredEventIds: ['grain_shortage', 'gordian_stirrings'], eventFirings }));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.eventFirings).toEqual(eventFirings);
+    // The legacy string set is still written in lockstep, deduped.
+    expect(loaded!.state.triggeredEventIds).toEqual(['grain_shortage', 'gordian_stirrings']);
+
+    // A save written without the field (pre-4D.2 campaign) loads with it
+    // simply absent - GAME_LOADED normalizes it from triggeredEventIds
+    // downstream (events/engine.ts::normalizeEventFirings).
+    localStorage.clear();
+    saveGame(makeState({ turnNumber: 2, triggeredEventIds: ['grain_shortage'] }));
+    const legacy = loadGame();
+    expect(legacy).not.toBeNull();
+    expect(legacy!.state.eventFirings).toBeUndefined();
+    expect(legacy!.state.triggeredEventIds).toEqual(['grain_shortage']);
+  });
+
   it('loads a stored v1 envelope that predates the knowledge store (field simply absent)', () => {
     // Written directly to storage, bypassing saveGame, to mirror a blob
     // persisted before the field existed.

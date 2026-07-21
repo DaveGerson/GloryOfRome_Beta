@@ -28,6 +28,7 @@ import {
   GameEvent,
   SimulationState,
   EventHistoryEntry,
+  EventFiringRecord,
   WorldState,
   TruthLedgerEntry,
   NpcIntent,
@@ -35,6 +36,7 @@ import {
 import type { SaveGameState, InferredAmbitionState } from '../persistence/saveGame';
 import type { KnowledgeClaim } from '../knowledge/store';
 import { INITIAL_WORLD_STATE, INITIAL_SIMULATION_STATE } from '../constants/baseScenario';
+import { normalizeEventFirings } from '../events/engine';
 import { clearFallout } from '../components/investigationLoop';
 
 export interface GameDomainState {
@@ -94,6 +96,15 @@ export interface GameDomainState {
   gmInterventionText: string;
   activeEvent: GameEvent | null;
   triggeredEventIds: string[];
+  /**
+   * ROADMAP_PHASE_4.md 4D item 2 (D12) - per-event firing bookkeeping
+   * (last fired turn + count), maintained in lockstep with the legacy
+   * `triggeredEventIds` set above (events/engine.ts::recordEventFiring).
+   * This is what repeatable events' cooldowns and the D24 ripe-material
+   * helper read; `triggeredEventIds` stays the deduped ever-fired set for
+   * save compatibility.
+   */
+  eventFirings: EventFiringRecord[];
   eventHistory: EventHistoryEntry[];
   metaNarrative: string;
   /**
@@ -125,6 +136,7 @@ export function createInitialGameState(): GameDomainState {
     gmInterventionText: '',
     activeEvent: null,
     triggeredEventIds: [],
+    eventFirings: [],
     eventHistory: [],
     metaNarrative: 'An imperial succession crisis in a crumbling empire teetering on the brink of civil war.',
     inferredAmbition: null,
@@ -230,6 +242,8 @@ export type GameAction =
       eventMessage: Message;
       eventHistory: EventHistoryEntry[];
       triggeredEventIds: string[];
+      /** Both bookkeeping shapes land together (4D.2) - callers build the pair via events/engine.ts::recordEventFiring. */
+      eventFirings: EventFiringRecord[];
     }
   /**
    * A brand-new campaign begins with the chosen/created character.
@@ -350,6 +364,11 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         turnHistory: snapshot.turnHistory,
         eventHistory: snapshot.eventHistory,
         triggeredEventIds: snapshot.triggeredEventIds,
+        // Optional field (4D.2) - snapshots built in-session always carry
+        // it, but a legacy-shaped snapshot normalizes exactly like
+        // GAME_LOADED below: bookkeeping is rebuilt from the string set,
+        // with cooldowns conservatively restarted at the snapshot's turn.
+        eventFirings: normalizeEventFirings(snapshot.triggeredEventIds, snapshot.eventFirings, snapshot.turnNumber),
         suggestedActions: snapshot.suggestedActions,
         currentEvents: snapshot.currentEvents,
         gmInterventionText: snapshot.gmInterventionText,
@@ -382,6 +401,7 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         messages: [...state.messages, action.eventMessage],
         eventHistory: action.eventHistory,
         triggeredEventIds: action.triggeredEventIds,
+        eventFirings: action.eventFirings,
         activeEvent: null,
         gameState: isPlayerDead(action.entities, state.playerCharacterId)
           ? GameState.GAME_OVER
@@ -415,6 +435,12 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         metaNarrative: s.metaNarrative,
         messages: s.messages,
         triggeredEventIds: s.triggeredEventIds,
+        // Optional field (4D.2) - absent on saves from before the richer
+        // bookkeeping existed; normalized from the legacy string set, with
+        // each legacy id conservatively stamped as fired at the loaded turn
+        // (a repeatable event's cooldown restarts from load; a fire-once
+        // event stays fired, exactly as before).
+        eventFirings: normalizeEventFirings(s.triggeredEventIds, s.eventFirings, s.turnNumber),
         suggestedActions: s.suggestedActions,
         currentEvents: s.currentEvents,
         gmInterventionText: s.gmInterventionText,

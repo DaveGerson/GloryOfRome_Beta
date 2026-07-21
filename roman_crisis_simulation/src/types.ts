@@ -609,13 +609,40 @@ export interface PlayerEventChoice {
 
 /**
  * A dynamic event that can be triggered by game state conditions.
+ *
+ * ROADMAP_PHASE_4.md 4D item 2 (D12/D24): authored events are payoff
+ * MATERIAL, not a fire-once trigger library. Triggers are role-agnostic
+ * predicates over world/sim state (no Emperor gates), and the optional
+ * `simulationState` parameter lets a trigger key off the empire-level
+ * meta-state; existing three-argument triggers remain assignable unchanged.
  */
 export interface GameEvent {
   id: string;
   title: string;
   description: string;
-  trigger: (worldState: WorldState, entities: Entity[], player: Entity | null) => boolean;
+  /**
+   * ONE LINE (4D.2, D24): the historical current this event embodies,
+   * phrased so the adjudicator can weave it into a turn as a premise (the
+   * HISTORICAL MATERIAL block, ai/prompts/adjudication.ts). GM-side prompt
+   * material only - never rendered to the player directly; the player sees
+   * `description` when the modal event system fires the event verbatim.
+   * Optional: an event without one falls back to its title in the block.
+   */
+  premise?: string;
+  trigger: (worldState: WorldState, entities: Entity[], player: Entity | null, simulationState?: SimulationState) => boolean;
   options: PlayerEventChoice[];
+  /**
+   * 4D.2 (D12): true means the event may fire again after `cooldownTurns`
+   * have elapsed since its last firing. Absent/false preserves the original
+   * fire-once contract.
+   */
+  repeatable?: boolean;
+  /**
+   * 4D.2 (D12): minimum turns between firings of a `repeatable` event -
+   * eligible again once (currentTurn - lastFiredTurn) >= cooldownTurns.
+   * Meaningful only with `repeatable`; absent means no cooldown.
+   */
+  cooldownTurns?: number;
 }
 
 /**
@@ -626,6 +653,23 @@ export interface EventHistoryEntry {
   eventTitle: string;
   choiceText: string;
   turnNumber: number;
+}
+
+/**
+ * Bookkeeping for one authored event's firings (ROADMAP_PHASE_4.md 4D item
+ * 2, D12) - the richer successor to the bare `triggeredEventIds` string
+ * list, needed because repeatable events must know WHEN they last fired for
+ * their cooldown. Persisted as a NEW optional save field alongside the
+ * legacy string[] (persistence/saveGame.ts): legacy saves without it load
+ * cleanly and are normalized from `triggeredEventIds`
+ * (events/engine.ts::normalizeEventFirings).
+ */
+export interface EventFiringRecord {
+  eventId: string;
+  /** The turn number at which the event last fired (its choice was applied). */
+  lastFiredTurn: number;
+  /** How many times the event has fired this campaign. */
+  timesFired: number;
 }
 
 /**

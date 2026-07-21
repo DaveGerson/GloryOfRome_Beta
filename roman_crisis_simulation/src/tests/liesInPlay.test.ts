@@ -229,7 +229,7 @@ describe('knowledge store: counterplay follow-ups continue the claim timeline (D
 });
 
 describe('eval judge: planted-rumor leakage joins the information-asymmetry axis', () => {
-  it('names planted-rumor leakage as a violation while keeping exactly the four axes', () => {
+  it('names planted-rumor leakage as a violation while keeping exactly the five axes', () => {
     const adjudication: Adjudication = { turn: 3, entityActions: [], deltas: [], headlines: [], gm_private: [] };
     const { systemInstruction } = buildEvalJudgePrompt({
       turnNumber: 3,
@@ -238,13 +238,14 @@ describe('eval judge: planted-rumor leakage joins the information-asymmetry axis
       narration: null,
     });
 
-    for (const axis of ['consequence_density', 'sim_state_consistency', 'schema_validity', 'information_asymmetry']) {
+    for (const axis of ['consequence_density', 'sim_state_consistency', 'schema_validity', 'information_asymmetry', 'character_richness']) {
       expect(systemInstruction).toContain(axis);
     }
     expect(systemInstruction).toContain('Planted-rumor leakage');
     expect(systemInstruction).toContain("reveals a rumor's truth status or that it was planted");
-    // Still EXACTLY four axes - the addition is a clarification, not a fifth axis.
-    expect(systemInstruction).toContain('EXACTLY these four axes');
-    expect(systemInstruction).not.toMatch(/^5\./m);
+    // EXACTLY five axes (character_richness closed the 4C pending item) -
+    // the leakage clause remains a clarification of axis 4, never an axis.
+    expect(systemInstruction).toContain('EXACTLY these five axes');
+    expect(systemInstruction).not.toMatch(/^6\./m);
   });
 });

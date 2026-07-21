@@ -442,6 +442,8 @@ describe('state/gameReducer', () => {
           { eventId: 'ev2', eventTitle: 'The Mutiny', choiceText: 'Pay the legions', turnNumber: state.turnNumber },
         ],
         triggeredEventIds: [...state.triggeredEventIds, 'ev2'],
+        // 4D.2 - both bookkeeping shapes land together (see recordEventFiring).
+        eventFirings: [...state.eventFirings, { eventId: 'ev2', lastFiredTurn: state.turnNumber, timesFired: 1 }],
       };
     }
 
@@ -459,6 +461,7 @@ describe('state/gameReducer', () => {
       expect(result.messages).toEqual([...state.messages, action.eventMessage]);
       expect(result.eventHistory).toBe(action.eventHistory);
       expect(result.triggeredEventIds).toBe(action.triggeredEventIds);
+      expect(result.eventFirings).toBe(action.eventFirings);
       expect(result.activeEvent).toBeNull();
       expect(result.gameState).toBe(GameState.AWAITING_PLAYER_INPUT);
       // An event choice never touches the turn pipeline's slices.

@@ -159,6 +159,43 @@ This outcome is FINAL. You decide HOW it manifests in the story - you do NOT dec
 `;
 }
 
+/**
+ * One authored event surfaced as GM-private payoff material
+ * (ROADMAP_PHASE_4.md 4D item 2, D12/D24) - the prompt-side shape of
+ * events/engine.ts's `RipeEventMaterial`, kept as a plain local interface so
+ * ai/prompts/ never imports from events/. `status` mirrors the helper's
+ * ruling: 'ripe' = due now (the modal system could fire it verbatim this
+ * turn), 'near' = its cooldown has a few turns left - foreshadow, don't
+ * pre-empt.
+ */
+export interface HistoricalMaterialEntry {
+  /** The authored event's id - GM bookkeeping reference only. */
+  id: string;
+  title: string;
+  /** ONE line: the historical current, ready to be woven as a premise. */
+  premise: string;
+  status: 'ripe' | 'near';
+}
+
+/**
+ * Builds the GM-private "HISTORICAL MATERIAL" block (4D.2, D24): the
+ * authored historical currents whose time has plausibly come, offered to
+ * the PACING JUDGMENT principle as PREFERRED payoff seeds over invented
+ * crises. Returns '' (no block at all) when the input is absent or empty -
+ * pre-4D call sites and quiet worlds see the prompt exactly as before.
+ * D4/D5: the material's provenance (that an authored library exists, its
+ * titles/ids) stays GM-private; only the woven-in events themselves may
+ * surface. Exported for direct unit testing.
+ */
+export function buildHistoricalMaterialBlock(material: HistoricalMaterialEntry[] | undefined): string {
+  if (!material || material.length === 0) return '';
+  return `
+HISTORICAL MATERIAL (GM-private authored payoff seeds - D12/D24):
+These authored historical currents fit the present state of the world - each is due now (RIPE) or nearly due (NEAR). When your PACING JUDGMENT says TIGHTEN and one of these historical currents is due, PREFER weaving its premise into the turn's events - adapted to the standing fiction, in your own words - over inventing an unrelated crisis (D24); otherwise craft a custom one. The modal event system may still fire a RIPE entry verbatim as the exception, not the model (D12) - so weave the premise, never pre-stage an entry's exact scripted confrontation and choices. A NEAR entry may only be foreshadowed. This block is GM-private material: never mention it, its titles or ids, or that anything here is authored in 'headlines', any delta's 'reason', or anything else player-facing.
+${material.map(m => `- [${m.status.toUpperCase()}] ${m.title} (${m.id}): ${m.premise}`).join('\n')}
+`;
+}
+
 export interface AdjudicationPromptInput {
   worldState: WorldState;
   simulationState: SimulationState;
@@ -196,6 +233,14 @@ export interface AdjudicationPromptInput {
    * pre-posture call sites and tests see the default contract unchanged.
    */
   pacingPosture?: PacingPosture;
+  /**
+   * Ripe/near authored payoff seeds (4D.2, D24) - ai/core/turn.ts derives
+   * them via events/engine.ts::selectRipeEventMaterial when the caller
+   * supplies the event bookkeeping. Optional: absent/empty means no
+   * HISTORICAL MATERIAL block and the prompt is byte-identical to the
+   * pre-4D.2 shape - see `buildHistoricalMaterialBlock`.
+   */
+  historicalMaterial?: HistoricalMaterialEntry[];
 }
 
 /** Builds the { systemInstruction, prompt } pair for the main turn adjudication call. */
@@ -204,6 +249,7 @@ export function buildAdjudicationPrompt(input: AdjudicationPromptInput): { syste
     worldState, simulationState, playerEntity, npcEntities, history,
     playerIntent, gmInterventionText, storyRelevance, metaNarrative,
     playerActionOutcome, npcIntents, npcMindDecisions, pacingPosture,
+    historicalMaterial,
   } = input;
 
   const spotlightIds = new Set(storyRelevance.spotlight_entities.map(s => s.entity_id));
@@ -230,7 +276,7 @@ ${buildNpcMindDecisionsBlock(npcMindDecisions)}
 ${buildOtherNpcsBlock(otherNpcs)}
 
 ${buildSecretSurvivorsBlock(npcEntities)}
-
+${buildHistoricalMaterialBlock(historicalMaterial)}
 PLAYER CHARACTER:
 Name: ${playerEntity.name} (ID: ${playerEntity.entity_id})
 Action this turn: "${playerIntent}"
