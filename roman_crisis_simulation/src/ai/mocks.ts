@@ -245,7 +245,27 @@ export const mockRunNewTurn = async (
     console.log("GM Intervention Text:", gmInterventionText);
     console.log("Meta Narrative:", metaNarrative);
 
-    const adjudication = { ...MOCK_ADJUDICATION, turn: turnNumber };
+    // Player-planted rumor (D19 "lies in play", adjudication contract): the
+    // mock turn must exercise the planting path offline - origin_id MUST be
+    // the player's own entity_id and is_true false, so the truth ledger
+    // records player authorship and the Report channel feeds the knowledge
+    // store. Built per-call (not in MOCK_ADJUDICATION) because the player's
+    // entity_id is only known here. The 'reason' text must read like any
+    // other rumor: player-visible wording never marks a rumor as planted or
+    // reveals its truth (D11).
+    const playerPlantedRumor: EventDelta = {
+        type: 'rumor',
+        key: 'maximinus_thrax',
+        delta: 0.5,
+        reason: 'Word in the taverns holds that Maximinus Thrax has been skimming the legions\' pay for himself.',
+        is_true: false,
+        origin_id: playerEntity.entity_id,
+    };
+    const adjudication = {
+        ...MOCK_ADJUDICATION,
+        turn: turnNumber,
+        deltas: [...MOCK_ADJUDICATION.deltas, playerPlantedRumor],
+    };
 
     let { updatedEntities, updatedWorldState, updatedReports, updatedTruthLedger } = applyAdjudication(adjudication, currentEntities, currentWorldState, currentReports, currentTruthLedger);
     

@@ -43,7 +43,7 @@ TASK: Score the turn on EXACTLY these four axes, each as an integer from 1 (wors
 1. 'consequence_density': consequence-density - how much real, concrete consequence the turn's output carries.
 2. 'sim_state_consistency': sim-state consistency - whether the turn's output is consistent with the simulation state it was given.
 3. 'schema_validity': schema validity - whether the structured output is well-formed and uses its fields as intended.
-4. 'information_asymmetry': information-asymmetry discipline - whether anything reached a player-facing surface (narration, headlines) that its viewer could not know (GM-private notes, secret truths, hidden rolls).
+4. 'information_asymmetry': information-asymmetry discipline - whether anything reached a player-facing surface (narration, headlines) that its viewer could not know (GM-private notes, secret truths, hidden rolls). Planted-rumor leakage counts here: any player-visible wording that reveals a rumor's truth status or that it was planted is a violation.
 
 OUTPUT: A single JSON object with exactly those four keys, each an object of the form {"score": <integer 1-5>, "rationale": "<short justification>"}. Do not include any explanatory text or markdown.
 `;
