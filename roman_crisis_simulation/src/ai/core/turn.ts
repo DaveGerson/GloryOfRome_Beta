@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent, TruthLedgerEntry, NpcIntent, NpcMindDecision, StoryRelevance, EntityAction, Memory } from '../../types';
+import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent, TruthLedgerEntry, NpcIntent, NpcMindDecision, StoryRelevance, EntityAction, Memory, PacingPosture } from '../../types';
 import { AdjudicationSchema } from './schemas';
 import { applyAdjudication, applyDeltas } from './engine';
 import { mockRunNewTurn } from "../mocks";
@@ -219,6 +219,17 @@ export interface RunNewTurnOptions {
      * option existed.
      */
     onNarrationChunk?: (textSoFar: string) => void;
+    /**
+     * The device-level pacing-posture preference (ROADMAP_PHASE_4.md 4D
+     * item 1, D23) - App.tsx reads it fresh from persistence/settings.ts at
+     * each turn's start and passes it here; it selects the posture line in
+     * the adjudication prompt's PACING JUDGMENT principle. Absent means
+     * 'balanced' (the default contract). Prompt wording is ALL it tunes:
+     * per D23 no code-side tension scalar, accumulator, or threshold exists
+     * anywhere in this pipeline - pacing is the adjudicator's own judgment,
+     * recorded per turn as a "[Pacing]" gm_private note (GM console only).
+     */
+    pacingPosture?: PacingPosture;
 }
 
 export async function runNewTurn(
@@ -420,6 +431,7 @@ export async function runNewTurn(
         playerActionOutcome,
         npcIntents,
         npcMindDecisions: npcMindResults,
+        pacingPosture: options?.pacingPosture,
     });
 
     // 2. Get adjudication from AI

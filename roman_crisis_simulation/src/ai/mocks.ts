@@ -301,6 +301,16 @@ export const mockRunNewTurn = async (
         ...MOCK_ADJUDICATION,
         turn: turnNumber,
         deltas: [...MOCK_ADJUDICATION.deltas, playerPlantedRumor],
+        // FRESH array, never the shared MOCK_ADJUDICATION.gm_private - the
+        // pushes below (and this pacing note) must not accumulate onto the
+        // module constant across turns. The mock adjudicator records its
+        // D23 pacing judgment every turn (ROADMAP_PHASE_4.md 4D item 1),
+        // default posture non-intervention, so the "[Pacing]" -> GM console
+        // loop is visible offline.
+        gm_private: [
+            ...MOCK_ADJUDICATION.gm_private,
+            '[Pacing] Letting the week breathe - the standing schemes are generating pressure on their own; no intervention needed.',
+        ],
     };
 
     // Same perception context the real pipeline passes (ai/core/turn.ts):

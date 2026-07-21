@@ -584,6 +584,21 @@ export interface StoryRelevance {
 }
 
 /**
+ * The pacing-posture preference (ROADMAP_PHASE_4.md 4D item 1, D23): how
+ * eagerly the adjudicator's PACING JUDGMENT principle steps in when the
+ * story slackens. 'restrained' intervenes rarely and lets long quiets
+ * stand; 'balanced' is the default contract as written; 'dramatic'
+ * tolerates fewer slack turns and tightens sooner. A device-level USER
+ * PREFERENCE persisted in localStorage (persistence/settings.ts), NEVER
+ * part of the save bundle. D23 bound: this enum tunes ONE line of prompt
+ * wording (ai/prompts/adjudication.ts) and nothing else - no code-side
+ * tension scalar, accumulator, or threshold machinery exists anywhere;
+ * pacing itself is the adjudicator's own intentional judgment.
+ */
+export const PacingPostureEnum = ['restrained', 'balanced', 'dramatic'] as const;
+export type PacingPosture = typeof PacingPostureEnum[number];
+
+/**
  * A choice a player can make in response to an event.
  */
 export interface PlayerEventChoice {

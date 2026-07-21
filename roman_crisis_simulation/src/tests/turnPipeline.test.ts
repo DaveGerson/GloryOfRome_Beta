@@ -873,3 +873,56 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     expect(rollD20(replayRng)).toBe(entry.mortalityTrace![0].roll);
   });
 });
+
+// --- Pacing posture threading (ROADMAP_PHASE_4.md 4D item 1, D23) ---------
+
+describe('ai/core/turn.ts runNewTurn - pacing posture threading (4D.1, D23)', () => {
+  /** The systemInstruction the fake client saw on its adjudication call. */
+  function adjudicationSystemInstruction(h: Harness): string {
+    const call = h.generateContent.mock.calls.find(
+      c => String((c[0] as { config?: Record<string, unknown> }).config?.systemInstruction).includes('Roman Crisis Adjudicator & Simulation Engine')
+    );
+    expect(call).toBeDefined();
+    return String((call![0] as { config?: Record<string, unknown> }).config?.systemInstruction);
+  }
+
+  function resolveWholePipeline(h: Harness): void {
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    h.response.adjudication.resolve(adjudicationJson);
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologueText);
+    h.response.narration.resolve(narrationFullText);
+    h.response.relationshipUpdates.resolve(relationshipJson);
+  }
+
+  it('threads options.pacingPosture into the adjudication system instruction\'s PACING JUDGMENT principle', async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+    resolveWholePipeline(h);
+
+    await runNewTurn(
+      h.ai, 'Hold court', player, 2, [player], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller',
+      { pacingPosture: 'dramatic' }
+    );
+
+    const sys = adjudicationSystemInstruction(h);
+    expect(sys).toContain('PACING JUDGMENT');
+    expect(sys).toContain('PACING POSTURE - EAGER');
+    expect(sys).not.toContain('PACING POSTURE - MEASURED');
+  });
+
+  it('omitted posture falls back to the balanced default contract - the pre-posture call shape', async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+    resolveWholePipeline(h);
+
+    await runNewTurn(
+      h.ai, 'Hold court', player, 2, [player], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
+    );
+
+    const sys = adjudicationSystemInstruction(h);
+    expect(sys).toContain('PACING JUDGMENT');
+    expect(sys).toContain('PACING POSTURE - MEASURED (the default)');
+  });
+});

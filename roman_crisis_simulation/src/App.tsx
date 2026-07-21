@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { GameState, Entity, PlayerCharacterOption, Message, InvestigationResult, PlayerEventChoice, EventHistoryEntry } from './types';
+import { GameState, Entity, PlayerCharacterOption, Message, InvestigationResult, PlayerEventChoice, EventHistoryEntry, PacingPosture } from './types';
 import { GoogleGenAI, Type } from "@google/genai";
 
 import Header from './components/Header';
@@ -26,6 +26,7 @@ import { runSmokeTest } from './tests/smokeTest';
 import { AiServiceError, resetSessionCallLog } from './ai/core/geminiService';
 import { saveGame, loadGame, clearSave, hasSave, updateSavedAmbition, SaveGameState, InferredAmbitionState } from './persistence/saveGame';
 import { hasSeenOnboarding, markOnboardingSeen } from './persistence/onboarding';
+import { getPacingPosture, setPacingPosture } from './persistence/settings';
 import { buildPerceivedDigest, TabId } from './perception/visibility';
 import { computeTurnKnowledge, computeInvestigationKnowledge } from './knowledge/commit';
 import { appendFallout, buildInterventionTextWithFallout, hasFallout } from './components/investigationLoop';
@@ -41,6 +42,19 @@ import nocturneUrl from './design/nocturne.css?url';
 // infers the player's apparent ambition fires, counted in COMMITTED turns
 // (the turn number just finished, not the upcoming one - see executeTurn).
 const AMBITION_INFERENCE_TURN_INTERVAL = 3;
+
+// ROADMAP_PHASE_4.md 4D item 1 (D23) - the Fates pacing selector's three
+// options, in-fiction labels for the PacingPosture enum. ONE unobtrusive
+// control beside the LVX/NOX toggle, deliberately NOT a settings surface
+// (a full settings surface is explicitly out of Phase 4 scope). Titles are
+// player-safe flavor only: they describe the felt pacing, never the
+// adjudicator/prompt mechanics behind it (D4/D5 - the player only ever
+// FEELS pacing).
+const FATES_OPTIONS: { posture: PacingPosture; label: string; title: string }[] = [
+    { posture: 'restrained', label: 'PATIENT', title: 'Patient Fates — long quiet weeks may stand' },
+    { posture: 'balanced', label: 'MEASURED', title: 'Measured Fates — fortune turns when the story calls for it' },
+    { posture: 'dramatic', label: 'EAGER', title: 'Eager Fates — the threads pull taut sooner' },
+];
 
 const App: React.FC = () => {
     // Every game-domain slice lives in the reducer behind GameContext
@@ -117,6 +131,19 @@ const App: React.FC = () => {
         }
         try { localStorage.setItem('gor-theme', isNox ? 'nox' : 'lux'); } catch { /* private mode */ }
     }, [isNox]);
+
+    // The Fates pacing posture (ROADMAP_PHASE_4.md 4D item 1, D23) - a
+    // device-level USER PREFERENCE beside the theme/onboarding keys
+    // (persistence/settings.ts), never part of the save bundle. This local
+    // state only mirrors localStorage for the selector's rendering:
+    // executeTurn re-reads the STORED value fresh at each turn's start, so
+    // a change takes effect on the next turn without touching executeTurn's
+    // dependency array.
+    const [pacingPosture, setPacingPostureState] = useState<PacingPosture>(() => getPacingPosture());
+    const handleSetPacingPosture = useCallback((posture: PacingPosture) => {
+        setPacingPostureState(posture);
+        setPacingPosture(posture);
+    }, []);
 
     // ROADMAP_0_MASTER_PLAN.md Phase 3 items 1-2 - the "thinking theater" and
     // streaming narration. Both are purely transient, in-flight-turn UI
@@ -398,7 +425,12 @@ const App: React.FC = () => {
                 interventionTextForTurn,
                 isMockMode,
                 metaNarrative,
-                { onStage: setTurnStage, onNarrationChunk: setStreamingNarration }
+                // pacingPosture is read fresh from localStorage each turn
+                // (never from the mirroring React state), so the Fates
+                // selector takes effect on the NEXT turn with no
+                // executeTurn dependency on it (D23 - a user preference,
+                // not save state).
+                { onStage: setTurnStage, onNarrationChunk: setStreamingNarration, pacingPosture: getPacingPosture() }
             );
 
             // COMMIT STATE
@@ -977,9 +1009,20 @@ const App: React.FC = () => {
                     </>
                 )}
             </main>
-            <div role="group" aria-label="Lighting: marble day or torchlit night" style={{ position: 'fixed', bottom: 14, right: 14, zIndex: 80, display: 'flex', border: '1px solid var(--border-strong)', borderRadius: 'var(--radius-sm)', overflow: 'hidden', boxShadow: 'var(--shadow-raised)', fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600, letterSpacing: '.14em' }}>
-                <button type="button" aria-pressed={!isNox} title="Marble — day" onClick={() => setIsNox(false)} style={{ padding: '6px 12px', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit', fontWeight: 'inherit', letterSpacing: 'inherit', background: !isNox ? 'var(--gold-600)' : 'var(--surface-card)', color: !isNox ? '#241C11' : 'var(--text-muted)' }}>LVX</button>
-                <button type="button" aria-pressed={isNox} title="Nox Romae — torchlit" onClick={() => setIsNox(true)} style={{ padding: '6px 12px', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit', fontWeight: 'inherit', letterSpacing: 'inherit', borderLeft: '1px solid var(--border-subtle)', background: isNox ? 'var(--gold-600)' : 'var(--surface-card)', color: isNox ? '#241C11' : 'var(--text-muted)' }}>NOX</button>
+            {/* Fixed bottom-right chrome: the Fates pacing selector (4D.1,
+                D23) beside the LVX/NOX lighting toggle. Both are device
+                preferences persisted in localStorage, never save state. */}
+            <div style={{ position: 'fixed', bottom: 14, right: 14, zIndex: 80, display: 'flex', gap: 10 }}>
+                <div role="group" aria-label="The Fates: how patiently fortune paces the story" style={{ display: 'flex', border: '1px solid var(--border-strong)', borderRadius: 'var(--radius-sm)', overflow: 'hidden', boxShadow: 'var(--shadow-raised)', fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600, letterSpacing: '.14em' }}>
+                    <span aria-hidden="true" style={{ padding: '6px 10px', background: 'var(--surface-card)', color: 'var(--gold-700)' }}>FATES</span>
+                    {FATES_OPTIONS.map(({ posture, label, title }) => (
+                        <button key={posture} type="button" aria-pressed={pacingPosture === posture} title={title} onClick={() => handleSetPacingPosture(posture)} style={{ padding: '6px 10px', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit', fontWeight: 'inherit', letterSpacing: 'inherit', borderLeft: '1px solid var(--border-subtle)', background: pacingPosture === posture ? 'var(--gold-600)' : 'var(--surface-card)', color: pacingPosture === posture ? '#241C11' : 'var(--text-muted)' }}>{label}</button>
+                    ))}
+                </div>
+                <div role="group" aria-label="Lighting: marble day or torchlit night" style={{ display: 'flex', border: '1px solid var(--border-strong)', borderRadius: 'var(--radius-sm)', overflow: 'hidden', boxShadow: 'var(--shadow-raised)', fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600, letterSpacing: '.14em' }}>
+                    <button type="button" aria-pressed={!isNox} title="Marble — day" onClick={() => setIsNox(false)} style={{ padding: '6px 12px', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit', fontWeight: 'inherit', letterSpacing: 'inherit', background: !isNox ? 'var(--gold-600)' : 'var(--surface-card)', color: !isNox ? '#241C11' : 'var(--text-muted)' }}>LVX</button>
+                    <button type="button" aria-pressed={isNox} title="Nox Romae — torchlit" onClick={() => setIsNox(true)} style={{ padding: '6px 12px', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit', fontWeight: 'inherit', letterSpacing: 'inherit', borderLeft: '1px solid var(--border-subtle)', background: isNox ? 'var(--gold-600)' : 'var(--surface-card)', color: isNox ? '#241C11' : 'var(--text-muted)' }}>NOX</button>
+                </div>
             </div>
             {isGmConsoleEnabled && isGmScreenVisible && <GameMasterScreen
                 history={turnHistory}

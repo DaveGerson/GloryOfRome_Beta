@@ -10,7 +10,9 @@
  *
  * This is a straight split of the former `ai/core/engine.ts::compileContext`
  * along the system/user boundary: the STABLE role, phase explanation, and
- * simulation rules/output contract (identical every turn) now live in
+ * simulation rules/output contract (identical every turn, up to the single
+ * device-preference posture line in PACING_POSTURE_LINES - see 4D.1/D23
+ * below) now live in
  * `systemInstruction`; the PER-TURN dynamic state (world summary, entity
  * briefs, player action, history, GM intervention, story-evolution
  * suggestions) lives in `prompt`. Wording is preserved verbatim from the
@@ -25,7 +27,7 @@
  * call sites.
  */
 
-import { Entity, WorldState, SimulationState, StoryRelevance, NpcIntent, NpcMindDecision } from '../../types';
+import { Entity, WorldState, SimulationState, StoryRelevance, NpcIntent, NpcMindDecision, PacingPosture } from '../../types';
 import type { ActionResolutionTier } from '../core/resolution';
 import {
   buildWorldSummary,
@@ -40,7 +42,28 @@ import {
   buildSecretSurvivorsBlock,
 } from './fragments';
 
-const ADJUDICATION_SYSTEM_INSTRUCTION = `
+/**
+ * The one posture line injected into the PACING JUDGMENT principle below
+ * (ROADMAP_PHASE_4.md 4D item 1, D23). Keyed by the device-level user
+ * preference (persistence/settings.ts), threaded here through runNewTurn's
+ * options; an absent input renders the 'balanced' line, so every
+ * pre-posture call site produces a byte-identical system instruction to an
+ * explicit 'balanced'. D23 bound: these lines are the ONLY thing the
+ * posture tunes - no code-side tension scalar, accumulator, or threshold
+ * machinery exists anywhere; pacing is the adjudicator's own judgment.
+ */
+const PACING_POSTURE_LINES: Record<PacingPosture, string> = {
+  restrained: 'PACING POSTURE - PATIENT: the player prefers a slow burn. Intervene rarely; let even long quiet stretches stand. Only a story gone truly inert over a sustained run of turns warrants tightening.',
+  balanced: 'PACING POSTURE - MEASURED (the default): weigh intervention exactly as stated above.',
+  dramatic: 'PACING POSTURE - EAGER: the player prefers a taut story. Tolerate fewer slack turns and tighten sooner - though even eager direction stays LIGHT and rooted in the standing fiction, never a bolt from the blue.',
+};
+
+/**
+ * The system instruction is stable per posture (three possible strings,
+ * one per PACING_POSTURE_LINES entry) - every other word is identical
+ * every turn; per-turn dynamic state lives in the user prompt only.
+ */
+const buildAdjudicationSystemInstruction = (pacingPosture: PacingPosture) => `
 ROLE: Roman Crisis Adjudicator & Simulation Engine
 You are a meticulous simulation engine. Your task is to perform a two-phase adjudication for the turn.
 
@@ -58,6 +81,11 @@ The final JSON output should be a single, unified adjudication combining both ph
 
 PRINCIPLES:
 - NARRATIVE DRIVE: Your primary goal is to create a dynamic, consequential story. Actions should have significant reactions, pushing the scenario towards climactic moments. Avoid static or "no change" outcomes. The world is on a knife's edge; reflect this in the adjudication.
+- PACING JUDGMENT (ROADMAP_PHASE_4.md 4D item 1, D23): You are also the story's pacer, and pacing is YOUR intentional judgment - no meter or score decides it for you. Each turn, weigh the story's recent rhythm - RECENT HISTORY, the spotlight intents and mind decisions, what the player has been attempting - and deliberately choose one of two stances:
+    - LET IT BREATHE (your default): the dramatic circumstances already in motion generate dynamics naturally, and quiet weeks are legitimate. NARRATIVE DRIVE above governs how consequentially you resolve what actually happens this turn; it does not oblige you to inject new pressure uninvited.
+    - TIGHTEN, with LIGHT direction, only when you judge the story requires it - stakes gone slack for several consecutive turns, threads left dangling unresolved. Light means: a scheme already in play ripens, latent pressure surfaces, a consequence already seeded arrives. Never an arbitrary bolt from the blue with no root in the standing fiction.
+    Record your pacing judgment EVERY turn as a 'gm_private' note prefixed "[Pacing]" (e.g. "[Pacing] letting the week breathe" or "[Pacing] tightening: Thrax's scheme ripens") - like everything in 'gm_private' it must never reach 'headlines', any delta's 'reason', or anything else player-facing; the player only ever FEELS the pacing.
+    ${PACING_POSTURE_LINES[pacingPosture]}
 - PERSONALITY & RELATIONSHIP DRIVEN AI: All NPC actions MUST be driven by their personality, relationships, and goals.
     - An honorable character (high honor) should avoid treachery. A paranoid character (high paranoia) might misinterpret neutral actions as hostile. Ambitious characters will take risks.
     - A character with high 'perceived_threat' from another should act defensively or preemptively against them.
@@ -160,6 +188,14 @@ export interface AdjudicationPromptInput {
    * serialized into the prompt.
    */
   npcMindDecisions?: NpcMindDecision[];
+  /**
+   * The device-level pacing-posture preference (4D.1, D23) - selects which
+   * PACING_POSTURE_LINES entry the system instruction's PACING JUDGMENT
+   * principle carries. Optional: absent means 'balanced', producing a
+   * byte-identical system instruction to passing 'balanced' explicitly, so
+   * pre-posture call sites and tests see the default contract unchanged.
+   */
+  pacingPosture?: PacingPosture;
 }
 
 /** Builds the { systemInstruction, prompt } pair for the main turn adjudication call. */
@@ -167,7 +203,7 @@ export function buildAdjudicationPrompt(input: AdjudicationPromptInput): { syste
   const {
     worldState, simulationState, playerEntity, npcEntities, history,
     playerIntent, gmInterventionText, storyRelevance, metaNarrative,
-    playerActionOutcome, npcIntents, npcMindDecisions,
+    playerActionOutcome, npcIntents, npcMindDecisions, pacingPosture,
   } = input;
 
   const spotlightIds = new Set(storyRelevance.spotlight_entities.map(s => s.entity_id));
@@ -205,5 +241,5 @@ ${buildGmInterventionBlock(gmInterventionText)}
 ${buildStoryEvolutionBlock(storyRelevance)}
 `;
 
-  return { systemInstruction: ADJUDICATION_SYSTEM_INSTRUCTION, prompt };
+  return { systemInstruction: buildAdjudicationSystemInstruction(pacingPosture ?? 'balanced'), prompt };
 }
