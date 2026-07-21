@@ -15,6 +15,7 @@ import {
 } from '../state/gameReducer';
 import { GameState, Message, TurnHistoryEntry, GameEvent } from '../types';
 import type { SaveGameState } from '../persistence/saveGame';
+import type { KnowledgeClaim } from '../knowledge/store';
 import { getMockInitialState } from './mockData';
 
 const PLAYER_ID = 'severus_alexander';
@@ -63,6 +64,18 @@ function withDeadPlayer(state: GameDomainState): GameDomainState['entities'] {
   return state.entities.map(e => (e.entity_id === PLAYER_ID ? { ...e, status: 'dead' as const } : e));
 }
 
+/** A minimal knowledge-store claim (D21) for slice-flow assertions. */
+function makeKnowledgeClaim(id: string, turn: number): KnowledgeClaim {
+  return {
+    id,
+    subject: 'maximinus_thrax',
+    claim: 'Thrax courts the Rhine legions',
+    claimKey: `report:maximinus_thrax:rumor:${id}`,
+    firstLearnedTurn: turn,
+    updates: [{ turn, source: 'rumor', text: 'Thrax courts the Rhine legions', credibility: 0.6 }],
+  };
+}
+
 function makeTurnCommit(state: GameDomainState, entities = state.entities): Extract<GameAction, { type: 'TURN_COMMITTED' }> {
   return {
     type: 'TURN_COMMITTED',
@@ -73,6 +86,7 @@ function makeTurnCommit(state: GameDomainState, entities = state.entities): Extr
     truthLedger: [
       { id: 'truth_1_1', turn: state.turnNumber, claim: 'A whispered lie', aboutId: 'severus_alexander', isTrue: false, reportId: 'report_1_1' },
     ],
+    knowledge: [makeKnowledgeClaim('claim_commit', state.turnNumber)],
     turnNumber: state.turnNumber + 1,
     turnHistory: [...state.turnHistory, makeHistoryEntry(state.turnNumber)],
     gmMessage: { sender: 'gm', text: 'The die is cast.' },
@@ -142,6 +156,7 @@ describe('state/gameReducer', () => {
       expect(result.simulationState).toBe(action.simulationState);
       expect(result.reports).toBe(action.reports);
       expect(result.truthLedger).toBe(action.truthLedger);
+      expect(result.knowledge).toBe(action.knowledge);
       expect(result.turnNumber).toBe(action.turnNumber);
       expect(result.turnHistory).toBe(action.turnHistory);
       expect(result.suggestedActions).toEqual(['New pill']);
@@ -347,6 +362,22 @@ describe('state/gameReducer', () => {
       const normalized = gameReducer(state, { type: 'TURN_ROLLED_BACK', snapshot: withoutLedger });
       expect(normalized.truthLedger).toEqual([]);
     });
+
+    it('restores the knowledge store from the snapshot, normalizing an absent field to an empty store (D21)', () => {
+      const state = makePlayingState({
+        knowledge: [makeKnowledgeClaim('claim_mid', 3)],
+      });
+      const withKnowledge = makeSaveState({
+        knowledge: [makeKnowledgeClaim('claim_pre', 2)],
+      });
+      const restored = gameReducer(state, { type: 'TURN_ROLLED_BACK', snapshot: withKnowledge });
+      expect(restored.knowledge).toEqual(withKnowledge.knowledge);
+
+      const withoutKnowledge = makeSaveState();
+      delete withoutKnowledge.knowledge;
+      const normalized = gameReducer(state, { type: 'TURN_ROLLED_BACK', snapshot: withoutKnowledge });
+      expect(normalized.knowledge).toEqual([]);
+    });
   });
 
   describe('EVENT_TRIGGERED', () => {
@@ -416,6 +447,7 @@ describe('state/gameReducer', () => {
         inferredAmbition: { apparent_ambition: 'Appears intent on seizing the purple.', confidence: 'high', asOfTurn: 6 },
         pendingIntelligenceFallout: ['Old fallout'],
         truthLedger: [{ id: 'truth_5_1', turn: 5, claim: 'A persisted lie', aboutId: 'severus_alexander', originId: 'maximinus_thrax', isTrue: false, reportId: 'report_5_1' }],
+        knowledge: [makeKnowledgeClaim('claim_loaded', 5)],
       });
       const result = gameReducer(state, { type: 'GAME_LOADED', save });
 
@@ -436,6 +468,7 @@ describe('state/gameReducer', () => {
       expect(result.inferredAmbition).toEqual(save.inferredAmbition);
       expect(result.pendingIntelligenceFallout).toEqual(['Old fallout']);
       expect(result.truthLedger).toEqual(save.truthLedger);
+      expect(result.knowledge).toEqual(save.knowledge);
       expect(result.gameState).toBe(GameState.AWAITING_PLAYER_INPUT);
     });
 
@@ -444,11 +477,14 @@ describe('state/gameReducer', () => {
       delete save.inferredAmbition;
       delete save.pendingIntelligenceFallout;
       delete save.truthLedger;
+      delete save.knowledge;
       const result = gameReducer(createInitialGameState(), { type: 'GAME_LOADED', save });
       expect(result.inferredAmbition).toBeNull();
       expect(result.pendingIntelligenceFallout).toEqual([]);
       // D11 - a legacy (pre-ledger) save starts with an empty truth ledger.
       expect(result.truthLedger).toEqual([]);
+      // D21 - a legacy (pre-knowledge-store) save starts with an empty store.
+      expect(result.knowledge).toEqual([]);
     });
 
     it('re-derives GAME_OVER from a save whose player is dead (D1 - GAME_OVER itself is never persisted)', () => {
@@ -504,18 +540,22 @@ describe('state/gameReducer', () => {
   });
 
   describe('INVESTIGATION_COMMITTED', () => {
-    it('lands the spend and the fallout append in one transition', () => {
-      const state = makePlayingState({ pendingIntelligenceFallout: [] });
+    it('lands the spend, the fallout append, and the knowledge ingestion in one transition', () => {
+      const state = makePlayingState({ pendingIntelligenceFallout: [], knowledge: [] });
       const spent = state.entities.map(e =>
         e.entity_id === PLAYER_ID ? { ...e, resources: { ...e.resources, investigations: 0 } } : e
       );
+      const nextKnowledge = [makeKnowledgeClaim('claim_reveal', state.turnNumber)];
       const result = gameReducer(state, {
         type: 'INVESTIGATION_COMMITTED',
         entities: spent,
         pendingIntelligenceFallout: ['The agent was seen.'],
+        knowledge: nextKnowledge,
       });
       expect(result.entities).toBe(spent);
       expect(result.pendingIntelligenceFallout).toEqual(['The agent was seen.']);
+      // D14/D21 - the bought reveal persists in the knowledge store slice.
+      expect(result.knowledge).toBe(nextKnowledge);
     });
   });
 

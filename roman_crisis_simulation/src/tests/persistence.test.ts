@@ -132,6 +132,51 @@ describe('persistence/saveGame', () => {
     expect(loaded!.state.truthLedger).toEqual(truthLedger);
   });
 
+  it('round-trips the optional player knowledge store (D21), including update timelines', () => {
+    const knowledge = [
+      {
+        id: 'claim_2_report:maximinus_thrax:rumor',
+        subject: 'maximinus_thrax',
+        claim: 'Thrax courts the Rhine legions',
+        claimKey: 'report:maximinus_thrax:rumor',
+        firstLearnedTurn: 2,
+        updates: [
+          { turn: 2, source: 'rumor' as const, text: 'Thrax courts the Rhine legions', credibility: 0.6 },
+          { turn: 4, source: 'rumor' as const, text: 'The legions now openly cheer Thrax', credibility: 0.8 },
+        ],
+      },
+      {
+        id: 'claim_3_digest:resource:severus_alexander:denarii',
+        subject: 'severus_alexander',
+        claim: 'Your denarii dwindles.',
+        claimKey: 'digest:resource:severus_alexander:denarii',
+        firstLearnedTurn: 3,
+        updates: [{ turn: 3, source: 'self' as const, text: 'Your denarii dwindles.' }],
+      },
+    ];
+    saveGame(makeState({ turnNumber: 5, knowledge }));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.knowledge).toEqual(knowledge);
+  });
+
+  it('loads a stored v1 envelope that predates the knowledge store (field simply absent)', () => {
+    // Written directly to storage, bypassing saveGame, to mirror a blob
+    // persisted before the field existed.
+    const envelope = {
+      version: SAVE_VERSION,
+      savedAt: new Date().toISOString(),
+      state: makeState({ turnNumber: 2 }),
+    };
+    localStorage.setItem('gloryOfRome:autosave', JSON.stringify(envelope));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.knowledge).toBeUndefined();
+    expect(loaded!.state.turnNumber).toBe(2);
+  });
+
   it('loads a stored v1 envelope that predates the truth ledger (field simply absent)', () => {
     // Written directly to storage, bypassing saveGame, to mirror a blob
     // persisted before the field existed.

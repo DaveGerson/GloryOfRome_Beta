@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { TurnHistoryEntry, Adjudication, Entity, Relationship, Memory, Scheme, RawCallRecord, WorldState, TruthLedgerEntry, Report } from '../types';
 import { classifyDelta } from '../perception/visibility';
+import { KnowledgeClaim } from '../knowledge/store';
 import { InferredAmbitionState, SAVE_VERSION } from '../persistence/saveGame';
 import { buildEvalCorpus, evalCorpusFilename } from '../persistence/evalCorpus';
 import { getSessionCallLog } from '../ai/core/geminiService';
@@ -19,7 +20,7 @@ const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
 const lbl: React.CSSProperties = { fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', color: DIM };
 const well: React.CSSProperties = { background: 'rgba(0,0,0,.32)', border: '1px solid rgba(201,162,39,.22)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' };
 
-const TABS = ['summary', 'entity states', 'actions', 'deltas', 'private', 'ground truth', 'truth ledger', 'raw json'];
+const TABS = ['summary', 'entity states', 'actions', 'deltas', 'private', 'ground truth', 'truth ledger', 'player knowledge', 'raw json'];
 
 const SummaryView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => (
     <>
@@ -283,6 +284,49 @@ const TruthLedgerView: React.FC<{ ledger: TruthLedgerEntry[]; reports: Report[] 
     </>
 );
 
+/**
+ * Read-only listing of the player knowledge store (ROADMAP_PHASE_4.md 4B
+ * item 2 / DESIGN_DECISIONS.md D21): every claim the player currently
+ * holds, with its full time-dated update timeline. This is the
+ * player-BELIEVED side of the D7 true-vs-believed instrument - tuned by
+ * eyeballing it against the truth-ledger tab next door. GM-side display of
+ * player-visible data (nothing here is GM-private; the store by
+ * construction carries no truth flags/origins). Campaign-wide like the
+ * truth ledger, newest-updated last in store order, rendered newest first.
+ */
+const PlayerKnowledgeView: React.FC<{ knowledge: KnowledgeClaim[] }> = ({ knowledge }) => (
+    <>
+        {knowledge.length === 0 ? (
+            <p style={{ color: DIM, margin: 0 }}>The player holds no recorded knowledge claims yet.</p>
+        ) : (
+            knowledge.slice().reverse().map(claim => (
+                <div key={claim.id} style={well}>
+                    <div style={{ display: 'flex', gap: 14, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                        <span style={{ ...lbl, color: GOLD }}>First learned turn {toRoman(claim.firstLearnedTurn)}</span>
+                        <span style={{ fontFamily: MONO, fontSize: 12, color: DIM }}>subject: {claim.subject}</span>
+                        <span style={{ fontFamily: MONO, fontSize: 12, color: DIM }}>key: {claim.claimKey}</span>
+                    </div>
+                    <div style={{ fontSize: 14, fontStyle: 'italic', color: PARCH, marginTop: 4 }}>“{claim.claim}”</div>
+                    <div style={{ fontSize: 12, marginTop: 6, borderTop: '1px solid rgba(201,162,39,.15)', paddingTop: 6 }}>
+                        <span style={lbl}>Updates ({claim.updates.length})</span>
+                        <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                            {claim.updates.slice().reverse().map((update, index) => (
+                                <li key={index} style={{ color: DIM, marginTop: 2 }}>
+                                    <span style={{ fontFamily: MONO, color: GREEN }}>T{update.turn} · {update.source}</span>
+                                    {typeof update.credibility === 'number' && (
+                                        <span style={{ fontFamily: MONO }}> · {(update.credibility * 100).toFixed(0)}% credible</span>
+                                    )}
+                                    {' '}<span style={{ fontStyle: 'italic', color: PARCH }}>“{update.text}”</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                </div>
+            ))
+        )}
+    </>
+);
+
 const GameMasterScreen: React.FC<{
     history: TurnHistoryEntry[];
     onClose: () => void;
@@ -311,7 +355,14 @@ const GameMasterScreen: React.FC<{
     truthLedger?: TruthLedgerEntry[];
     /** The full report log, used by TruthLedgerView to show the credibility the player saw for each ledger entry. */
     reports?: Report[];
-}> = ({ history, onClose, interventionText, onSetIntervention, playerCharacterId, worldState, turnNumber, inferredAmbition, pendingIntelligenceFallout, truthLedger, reports }) => {
+    /**
+     * ROADMAP_PHASE_4.md 4B item 2 / D21 - the player knowledge store, the
+     * believed side of the D7 true-vs-believed instrument (see
+     * PlayerKnowledgeView above). Player-visible data shown GM-side for
+     * tuning; the player's own views over it are later stages.
+     */
+    knowledge?: KnowledgeClaim[];
+}> = ({ history, onClose, interventionText, onSetIntervention, playerCharacterId, worldState, turnNumber, inferredAmbition, pendingIntelligenceFallout, truthLedger, reports, knowledge }) => {
     const [activeTab, setActiveTab] = useState('summary');
     const [interventionInput, setInterventionInput] = useState(interventionText);
     const [showConfirmation, setShowConfirmation] = useState(false);
@@ -442,9 +493,11 @@ const GameMasterScreen: React.FC<{
                 </div>
 
                 <div style={{ flex: 1, overflowY: 'auto', paddingRight: 6, display: 'flex', flexDirection: 'column', gap: 20, color: PARCH }}>
-                    {/* The truth ledger is one campaign-wide bounded collection (D11), not per-turn data - rendered once, outside the per-turn loop below. */}
+                    {/* The truth ledger and the player knowledge store are each one campaign-wide bounded collection (D11/D21), not per-turn data - rendered once, outside the per-turn loop below. */}
                     {activeTab === 'truth ledger' ? (
                         <TruthLedgerView ledger={truthLedger ?? []} reports={reports ?? []} />
+                    ) : activeTab === 'player knowledge' ? (
+                        <PlayerKnowledgeView knowledge={knowledge ?? []} />
                     ) : history.length === 0 ? (
                         <p style={{ color: DIM }}>No turns have been processed yet.</p>
                     ) : (

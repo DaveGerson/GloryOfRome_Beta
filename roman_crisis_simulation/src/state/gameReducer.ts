@@ -32,6 +32,7 @@ import {
   TruthLedgerEntry,
 } from '../types';
 import type { SaveGameState, InferredAmbitionState } from '../persistence/saveGame';
+import type { KnowledgeClaim } from '../knowledge/store';
 import { INITIAL_WORLD_STATE, INITIAL_SIMULATION_STATE } from '../constants/baseScenario';
 import { clearFallout } from '../components/investigationLoop';
 
@@ -53,6 +54,18 @@ export interface GameDomainState {
    * view (D7) - never on any player-facing surface.
    */
   truthLedger: TruthLedgerEntry[];
+  /**
+   * ROADMAP_PHASE_4.md 4B item 2 / DESIGN_DECISIONS.md D21 - the player
+   * knowledge store: claim entities with time-dated update histories,
+   * built EXCLUSIVELY from perception-filtered channels (the perceived
+   * digest, Reports, investigation reveals - see knowledge/store.ts). The
+   * opposite handling class from `truthLedger` above: this slice records
+   * what the PLAYER believes and must never contain ground truth they
+   * couldn't know (no `is_true`/`origin_id`/`secret_truth` data, ever).
+   * App.tsx computes the next store via the pure ingestion functions and
+   * commits it here atomically (TURN_COMMITTED / INVESTIGATION_COMMITTED).
+   */
+  knowledge: KnowledgeClaim[];
   turnNumber: number;
   playerCharacterId: string | null;
   turnHistory: TurnHistoryEntry[];
@@ -91,6 +104,7 @@ export function createInitialGameState(): GameDomainState {
     simulationState: INITIAL_SIMULATION_STATE,
     reports: [],
     truthLedger: [],
+    knowledge: [],
     turnNumber: 1,
     playerCharacterId: null,
     turnHistory: [],
@@ -163,6 +177,8 @@ export type GameAction =
       simulationState: SimulationState;
       reports: Report[];
       truthLedger: TruthLedgerEntry[];
+      /** The next knowledge store, computed by App.tsx from this turn's perceived digest + new Reports via knowledge/store.ts's pure ingestion (D21). */
+      knowledge: KnowledgeClaim[];
       turnNumber: number;
       turnHistory: TurnHistoryEntry[];
       gmMessage: Message;
@@ -215,11 +231,13 @@ export type GameAction =
   | { type: 'RESOURCE_SPENT'; entities: Entity[] }
   /**
    * One investigation reveal = one atomic commit: the spend, any blackmail
-   * filing (secrets), and the fallout-queue append MUST land in a single
+   * filing (secrets), the fallout-queue append, and the knowledge-store
+   * ingestion of the revealed intel (D14/D21 - bought intel persists
+   * instead of evaporating with the component) MUST land in a single
    * state transition - split across separate commits, whichever landed last
    * would silently revert the others' fields in the autosave.
    */
-  | { type: 'INVESTIGATION_COMMITTED'; entities: Entity[]; pendingIntelligenceFallout: string[] }
+  | { type: 'INVESTIGATION_COMMITTED'; entities: Entity[]; pendingIntelligenceFallout: string[]; knowledge: KnowledgeClaim[] }
   /** GM-console operator authored (or cleared) the intervention text. */
   | { type: 'GM_INTERVENTION_SET'; text: string }
   /** DESIGN_DECISIONS.md D8 - a periodic ambition inference resolved. */
@@ -265,6 +283,7 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         simulationState: action.simulationState,
         reports: action.reports,
         truthLedger: action.truthLedger,
+        knowledge: action.knowledge,
         turnNumber: action.turnNumber,
         // Older entries shed their full entity snapshots here - the one
         // commit point every turn passes through, so state and autosave
@@ -299,6 +318,10 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         // Optional field (D11) - a pre-ledger snapshot restores to an empty
         // ledger, same normalization as GAME_LOADED below.
         truthLedger: snapshot.truthLedger ?? [],
+        // Optional field (D21) - same normalization; a failed turn's
+        // knowledge ingestion never commits, so restoring the pre-turn
+        // store keeps the slice consistent with reports/truthLedger.
+        knowledge: snapshot.knowledge ?? [],
         turnNumber: snapshot.turnNumber,
         turnHistory: snapshot.turnHistory,
         eventHistory: snapshot.eventHistory,
@@ -374,6 +397,9 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         // Optional field (D11) - absent on saves from before the truth
         // ledger existed, so this normalizes it to an empty ledger.
         truthLedger: s.truthLedger ?? [],
+        // Optional field (D21) - absent on saves from before the knowledge
+        // store existed, so this normalizes it to an empty store.
+        knowledge: s.knowledge ?? [],
         // Optional field (D8) - absent on saves from before this field
         // existed, so this normalizes it to `null` rather than `undefined`
         // for InferredAmbitionState | null's sake.
@@ -402,6 +428,7 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         ...state,
         entities: action.entities,
         pendingIntelligenceFallout: action.pendingIntelligenceFallout,
+        knowledge: action.knowledge,
       };
 
     case 'GM_INTERVENTION_SET':

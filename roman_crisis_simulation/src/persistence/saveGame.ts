@@ -33,6 +33,7 @@ import type {
   Message,
 } from '../types';
 import type { AmbitionInference } from '../ai/tools/ambition';
+import type { KnowledgeClaim } from '../knowledge/store';
 
 /** Bump this whenever `SaveGameState`'s shape changes in a backwards-incompatible way. */
 export const SAVE_VERSION = 1 as const;
@@ -101,6 +102,17 @@ export interface SaveGameState {
    * a license for a player-facing surface to read it.
    */
   truthLedger?: TruthLedgerEntry[];
+  /**
+   * ROADMAP_PHASE_4.md 4B item 2 / DESIGN_DECISIONS.md D21 - the player
+   * knowledge store (knowledge/store.ts): claim entities with time-dated
+   * update histories, built only from perception-filtered channels. The
+   * player-belief counterpart to `truthLedger` above - by construction it
+   * carries no GM-private truth data. Optional so `SAVE_VERSION` stays at
+   * 1: a pre-existing save with no such field loads cleanly and starts
+   * with an empty store (GAME_LOADED in state/gameReducer.ts falls back
+   * to `[]`). Bounded at knowledge/store.ts's MAX_KNOWLEDGE_CLAIMS.
+   */
+  knowledge?: KnowledgeClaim[];
 }
 
 /** The versioned envelope actually written to storage. */

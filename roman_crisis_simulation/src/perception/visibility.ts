@@ -23,7 +23,7 @@
  * task brief for why.
  */
 
-import { Entity, EventDelta, WorldState } from '../types';
+import { Entity, EventDelta, EventDeltaType, WorldState } from '../types';
 
 /** How a visible change reached the player. `null` only ever pairs with
  * `visible: false` - there is no source for something nobody perceived. */
@@ -47,11 +47,26 @@ export type TabId =
   | 'resources'
   | 'world_state';
 
-/** One perceived-and-labeled change, ready for display. */
+/**
+ * One perceived-and-labeled change, ready for display.
+ *
+ * `subject`/`deltaType`/`deltaKey` are provenance metadata for the D21
+ * knowledge store (knowledge/store.ts), which builds its claim entities
+ * from this already-D5-filtered output. They describe only what the
+ * `text` line itself already conveys to the player (who the visible
+ * change was about, and what kind of change it was) - never anything the
+ * filter withheld, so carrying them here adds no leak surface.
+ */
 export interface PerceivedChange {
   text: string;
   source: PerceptionSource;
   tabs: TabId[];
+  /** The entity id, region id, or 'world' this change is about - see subjectForDelta. */
+  subject: string;
+  /** The underlying delta's type - lets the knowledge store treat channels differently (e.g. rumors are ingested from Reports, not from their digest line). */
+  deltaType: EventDeltaType;
+  /** The underlying delta's raw key (e.g. 'A:B:trust_level') - the knowledge store's deterministic claim-matching granularity. */
+  deltaKey: string;
 }
 
 /** Shown in place of the digest when nothing beyond the player's own
@@ -262,6 +277,36 @@ export function tabsForDelta(delta: EventDelta): TabId[] {
   }
 }
 
+/**
+ * The entity id, region id, or 'world' a delta is ABOUT, for the knowledge
+ * store's claim subjects. Mirrors the key conventions classifyDelta/
+ * describeDelta already rely on: 'relation' keys are 'A:B:attr' (the claim
+ * is about A, whose stance shifted); 'resource'/'status'/'scheme'/'faction'
+ * keys lead with the owning entity id; 'region'/'add_region'/'remove_region'
+ * keys are region names; 'rumor' keys are the entity/region the rumor is
+ * about; 'world' deltas are empire-macro and have no narrower subject.
+ */
+function subjectForDelta(delta: EventDelta): string {
+  switch (delta.type) {
+    case 'relation':
+    case 'resource':
+    case 'status':
+    case 'scheme':
+    case 'faction':
+    case 'region': {
+      const [first] = delta.key.split(':');
+      return first || 'world';
+    }
+    case 'rumor':
+    case 'add_region':
+    case 'remove_region':
+      return delta.key || 'world';
+    case 'world':
+    default:
+      return 'world';
+  }
+}
+
 function describeDelta(delta: EventDelta, player: Entity, entities: Entity[]): string {
   switch (delta.type) {
     case 'relation': {
@@ -370,6 +415,9 @@ export function buildPerceivedDigest(
       text: describeDelta(delta, player, entities),
       source,
       tabs: tabsForDelta(delta),
+      subject: subjectForDelta(delta),
+      deltaType: delta.type,
+      deltaKey: delta.key,
     });
   }
   return changes;

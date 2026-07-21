@@ -298,4 +298,25 @@ describe('buildPerceivedDigest', () => {
     expect(digest[0].text).toContain('political winds shift');
     expect(digest[0].text).not.toContain('is now');
   });
+
+  it('tags every entry with the provenance metadata the knowledge store matches on (subject/deltaType/deltaKey)', () => {
+    const deltas: EventDelta[] = [
+      { type: 'relation', key: 'player:npc_a:trust_level', delta: -1, reason: 'tense' },
+      { type: 'world', key: 'economic_stability', delta: 0, reason: 'Booming' },
+      { type: 'rumor', key: 'npc_a', delta: 0.5, reason: 'Some say Maximinus plots' },
+    ];
+    const digest = buildPerceivedDigest(deltas, player, entities, worldState);
+
+    expect(digest).toHaveLength(3);
+    // relation 'A:B:attr' is about A, whose stance shifted.
+    expect(digest[0].subject).toBe('player');
+    expect(digest[0].deltaType).toBe('relation');
+    expect(digest[0].deltaKey).toBe('player:npc_a:trust_level');
+    // world deltas are empire-macro: no narrower subject exists.
+    expect(digest[1].subject).toBe('world');
+    expect(digest[1].deltaType).toBe('world');
+    // rumor keys are the entity/region the rumor is about.
+    expect(digest[2].subject).toBe('npc_a');
+    expect(digest[2].deltaType).toBe('rumor');
+  });
 });
