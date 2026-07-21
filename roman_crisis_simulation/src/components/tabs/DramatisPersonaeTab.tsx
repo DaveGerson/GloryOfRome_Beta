@@ -157,13 +157,12 @@ const DeepAnalysisSection: React.FC<{
 const EntityDetails: React.FC<{
     entity: Entity;
     playerEntity: Entity;
-    onSpendInvestigation: (cost: number) => void;
     onSpendDeepAnalysis: (cost: number) => void;
-    onNewInvestigationResult: (result: InvestigationResult) => void;
-    onAddSecretAsResource: (targetId: string, secrets: string[]) => void;
+    /** One atomic callback per investigation reveal - spend + blackmail + fallout in a single state/save pass (see App.tsx's handleInvestigationOutcome). */
+    onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult) => void;
     ai: GoogleGenAI;
     isMockMode: boolean;
-}> = ({ entity, playerEntity, onSpendInvestigation, onSpendDeepAnalysis, onNewInvestigationResult, onAddSecretAsResource, ai, isMockMode }) => {
+}> = ({ entity, playerEntity, onSpendDeepAnalysis, onInvestigationOutcome, ai, isMockMode }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [uncoveredIntel, setUncoveredIntel] = useState<UncoveredIntel>({});
     const [loadingState, setLoadingState] = useState<string | null>(null);
@@ -201,11 +200,11 @@ const EntityDetails: React.FC<{
                     if ((playerEntity.resources.investigations as number) >= 1) {
                         const result = await getInvestigationResult(ai, target, playerEntity, true, isMockMode, type);
                         setUncoveredIntel(prev => ({ ...prev, [type]: result.reportData }));
-                        onSpendInvestigation(1);
-                        onNewInvestigationResult({ target_id: target.entity_id, report: result.report, consequences: result.consequences });
-                        if (type === 'secrets' && result.reportData && Array.isArray(result.reportData)) {
-                            onAddSecretAsResource(target.entity_id, result.reportData as string[]);
-                        }
+                        // One atomic callback: the spend, any blackmail filing,
+                        // and the fallout append land in a single App-side
+                        // state/save pass - sequential per-concern callbacks
+                        // rebuilt the save from stale closures and lost fields.
+                        onInvestigationOutcome(type, target.entity_id, result.reportData, 1, { target_id: target.entity_id, report: result.report, consequences: result.consequences });
                     }
                     break;
                 }
@@ -317,10 +316,9 @@ const FactionSection: React.FC<{
     faction: Entity,
     members: Entity[],
     playerEntity: Entity,
-    onSpendInvestigation: (cost: number) => void;
     onSpendDeepAnalysis: (cost: number) => void;
-    onNewInvestigationResult: (result: InvestigationResult) => void;
-    onAddSecretAsResource: (targetId: string, secrets: string[]) => void;
+    /** One atomic callback per investigation reveal - spend + blackmail + fallout in a single state/save pass (see App.tsx's handleInvestigationOutcome). */
+    onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult) => void;
     ai: GoogleGenAI;
     isMockMode: boolean;
 }> = ({ faction, members, playerEntity, ...wiring }) => {
@@ -352,10 +350,9 @@ const FactionSection: React.FC<{
 const DramatisPersonaeTab: React.FC<{
     playerEntity: Entity | null;
     entities: Entity[];
-    onSpendInvestigation: (cost: number) => void;
     onSpendDeepAnalysis: (cost: number) => void;
-    onNewInvestigationResult: (result: InvestigationResult) => void;
-    onAddSecretAsResource: (targetId: string, secrets: string[]) => void;
+    /** One atomic callback per investigation reveal - spend + blackmail + fallout in a single state/save pass (see App.tsx's handleInvestigationOutcome). */
+    onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult) => void;
     ai: GoogleGenAI;
     isMockMode: boolean;
 }> = ({ playerEntity, entities, ...wiring }) => {

@@ -36,10 +36,9 @@ const SidePanel: React.FC<{
     worldState: WorldState;
     simulationState: SimulationState;
     reports: Report[];
-    onSpendInvestigation: (cost: number) => void;
     onSpendDeepAnalysis: (cost: number) => void;
-    onNewInvestigationResult: (result: InvestigationResult) => void;
-    onAddSecretAsResource: (targetId: string, secrets: string[]) => void;
+    /** One atomic callback per investigation reveal - spend + blackmail + fallout in a single state/save pass (see App.tsx's handleInvestigationOutcome). */
+    onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult) => void;
     ai: GoogleGenAI;
     isMockMode: boolean;
     eventHistory: EventHistoryEntry[];
@@ -50,7 +49,7 @@ const SidePanel: React.FC<{
      * filter didn't already let through - this set is built strictly from
      * buildPerceivedDigest's output, never raw deltas. */
     pulsingTabs: Set<TabId>;
-}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, onSpendInvestigation, onSpendDeepAnalysis, onNewInvestigationResult, onAddSecretAsResource, ai, isMockMode, eventHistory, pulsingTabs }) => {
+}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, onSpendDeepAnalysis, onInvestigationOutcome, ai, isMockMode, eventHistory, pulsingTabs }) => {
     const [activeTab, setActiveTab] = useState<TabId>('world_state');
     // Tabs the player has already looked at since the current pulsingTabs
     // set arrived - clicking a pulsing tab dismisses its own pulse
@@ -112,10 +111,8 @@ const SidePanel: React.FC<{
                 {activeTab === 'dramatis_personae' && <DramatisPersonaeTab
                     playerEntity={playerEntity}
                     entities={entities}
-                    onSpendInvestigation={onSpendInvestigation}
                     onSpendDeepAnalysis={onSpendDeepAnalysis}
-                    onNewInvestigationResult={onNewInvestigationResult}
-                    onAddSecretAsResource={onAddSecretAsResource}
+                    onInvestigationOutcome={onInvestigationOutcome}
                     ai={ai}
                     isMockMode={isMockMode}
                 />}

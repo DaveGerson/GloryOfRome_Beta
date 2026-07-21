@@ -664,38 +664,48 @@ const App: React.FC = () => {
         saveGame(buildSaveState({ entities: newEntities }));
     };
 
-    const handleAddSecretAsResource = (targetId: string, secrets: string[]) => {
+    // One reveal = one atomic commit. The investigation spend, any blackmail
+    // filing (secrets), and the fallout-queue append MUST all land in a
+    // single state+save pass: the previous per-concern handlers (spend /
+    // blackmail / fallout) each rebuilt the whole save bundle from stale
+    // closures, so whichever ran last silently reverted the others' fields -
+    // the spend vanished from the save on any secrets reveal, and on ANY
+    // reveal that carried consequences.
+    //
+    // The fallout half keeps ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 /
+    // DESIGN_DECISIONS.md D5 semantics verbatim: queue the consequence for
+    // the next turn (components/investigationLoop.ts), surface only a
+    // subtle in-fiction hint now - the raw text is GM-console-only
+    // (GameMasterScreen's "Pending Intelligence Fallout" line) until next
+    // turn's narration reinterprets it.
+    const handleInvestigationOutcome = (
+        kind: 'beliefs' | 'scheme' | 'secrets',
+        targetId: string,
+        reportData: unknown,
+        cost: number,
+        result: InvestigationResult,
+    ) => {
         const newEntities = entities.map(e => {
             if (e.entity_id === playerCharacterId) {
                 const newResources = {...e.resources};
-                const resourceKey = `blackmail_on_${targetId}`;
-                const existingSecrets = (newResources[resourceKey] as string[]) || [];
-                const newSecretSet = new Set([...existingSecrets, ...secrets]);
-                newResources[resourceKey] = Array.from(newSecretSet);
+                const currentInv = (newResources.investigations as number) || 0;
+                newResources.investigations = Math.max(0, currentInv - cost);
+                if (kind === 'secrets' && Array.isArray(reportData)) {
+                    const resourceKey = `blackmail_on_${targetId}`;
+                    const existingSecrets = (newResources[resourceKey] as string[]) || [];
+                    newResources[resourceKey] = Array.from(new Set([...existingSecrets, ...(reportData as string[])]));
+                }
                 return {...e, resources: newResources};
             }
             return e;
         });
-        setEntities(newEntities);
-        saveGame(buildSaveState({ entities: newEntities }));
-    };
-
-    // ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - queues any risky
-    // investigation's consequence for the next turn (see
-    // components/investigationLoop.ts and executeTurn's
-    // interventionTextForTurn above), and - per DESIGN_DECISIONS.md D5 (the
-    // player is never omniscient) - surfaces only a subtle, in-fiction hint
-    // right now, never the mechanical consequence text itself. That text
-    // only ever reaches a player-facing surface once it's been reinterpreted
-    // through next turn's narration/dispatches; the GM console
-    // (GameMasterScreen's "Pending Intelligence Fallout" line) is the one
-    // place it's shown verbatim.
-    const handleNewInvestigationResult = (result: InvestigationResult) => {
         const nextFallout = appendFallout(pendingIntelligenceFallout, result);
+
+        setEntities(newEntities);
         if (nextFallout !== pendingIntelligenceFallout) {
             setPendingIntelligenceFallout(nextFallout);
-            saveGame(buildSaveState({ pendingIntelligenceFallout: nextFallout }));
         }
+        saveGame(buildSaveState({ entities: newEntities, pendingIntelligenceFallout: nextFallout }));
 
         if (hasFallout(result.consequences)) {
             addMessage({
@@ -927,10 +937,8 @@ const App: React.FC = () => {
                             worldState={worldState}
                             simulationState={simulationState}
                             reports={reports}
-                            onSpendInvestigation={(cost) => handleSpendResource('investigations', cost)}
                             onSpendDeepAnalysis={(cost) => handleSpendResource('deep_analyses', cost)}
-                            onNewInvestigationResult={handleNewInvestigationResult}
-                            onAddSecretAsResource={handleAddSecretAsResource}
+                            onInvestigationOutcome={handleInvestigationOutcome}
                             ai={aiRef.current}
                             isMockMode={isMockMode}
                             eventHistory={eventHistory}
