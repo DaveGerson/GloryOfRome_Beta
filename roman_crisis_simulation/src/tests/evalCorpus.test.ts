@@ -109,6 +109,18 @@ describe('persistence/evalCorpus buildEvalCorpus', () => {
     expect(corpus.turns[0].adjudication.gm_private).toEqual(['Private note 1']);
   });
 
+  it('excludes postTurnEntities from every corpus turn, even when the history entry carries one', () => {
+    const entry = makeFullEntry(1);
+    expect(entry.postTurnEntities).toBeDefined();
+
+    const corpus = buildEvalCorpus([entry, makeLegacyEntry(2)], [], META);
+
+    // Promised by persistence/evalCorpus.ts: full entity snapshots would
+    // dwarf the prompt/response data the corpus exists to carry.
+    expect('postTurnEntities' in corpus.turns[0]).toBe(false);
+    expect('postTurnEntities' in corpus.turns[1]).toBe(false);
+  });
+
   it('carries prompt text and system instruction on raw calls when they were recorded', () => {
     const corpus = buildEvalCorpus([makeFullEntry(1)], [], META);
 

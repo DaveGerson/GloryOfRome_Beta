@@ -370,8 +370,10 @@ export interface ActionResolutionEvent {
    * carry their own seed (player-triggered investigations,
    * `ai/tools/intelligence.ts::getInvestigationResult`). A turn's own
    * action roll instead draws from the per-turn generator whose seed is the
-   * history entry's `turnSeed`. GM-console-only, like every other field
-   * here (D4).
+   * history entry's `turnSeed`. An investigation's trace is returned to the
+   * caller but not yet persisted or surfaced anywhere - its intended home
+   * is the Phase 4B dossier store (roadmaps/ROADMAP_PHASE_4.md). Per D4 it
+   * must never reach a player-facing surface either way.
    */
   seed?: number;
 }

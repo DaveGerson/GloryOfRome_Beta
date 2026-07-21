@@ -11,6 +11,7 @@ import {
   GameDomainState,
   GameAction,
   KEEP_FULL_SNAPSHOTS,
+  withOldSnapshotsDropped,
 } from '../state/gameReducer';
 import { GameState, Message, TurnHistoryEntry, GameEvent } from '../types';
 import type { SaveGameState } from '../persistence/saveGame';
@@ -225,6 +226,54 @@ describe('state/gameReducer', () => {
 
         expect(result.turnHistory).toBe(alreadyTrimmed);
       });
+    });
+  });
+
+  // App.tsx applies this same function to the commit's history array BEFORE
+  // the TURN_COMMITTED dispatch AND the autosave, so what the reducer trims
+  // and what localStorage persists are the identical bounded array. These
+  // direct tests pin the two properties that contract leans on.
+  describe('withOldSnapshotsDropped (direct)', () => {
+    it('trims a legacy-shaped array (snapshot on every entry, far past the window) to the window in ONE pass', () => {
+      const overflow = 20;
+      const legacy = Array.from(
+        { length: KEEP_FULL_SNAPSHOTS + overflow },
+        (_, i) => makeHistoryEntry(i + 1)
+      );
+      legacy.forEach(entry => expect(entry.postTurnEntities).toBeDefined());
+
+      const trimmed = withOldSnapshotsDropped(legacy);
+
+      expect(trimmed).toHaveLength(KEEP_FULL_SNAPSHOTS + overflow);
+      trimmed.forEach((entry, index) => {
+        if (index < overflow) {
+          // The field is truly absent, not just undefined - the trimmed
+          // entry must not re-persist a snapshot key on the next save.
+          expect('postTurnEntities' in entry).toBe(false);
+        } else {
+          expect(entry.postTurnEntities).toBeDefined();
+        }
+      });
+      // Everything but the snapshot survives on trimmed entries.
+      expect(trimmed[0].playerIntent).toBe('intent 1');
+      expect(trimmed[0].narration).toBe('Narration 1');
+    });
+
+    it('is idempotent: re-applying to an already-trimmed array returns the SAME reference', () => {
+      const legacy = Array.from(
+        { length: KEEP_FULL_SNAPSHOTS + 5 },
+        (_, i) => makeHistoryEntry(i + 1)
+      );
+      const once = withOldSnapshotsDropped(legacy);
+      const twice = withOldSnapshotsDropped(once);
+
+      expect(once).not.toBe(legacy);
+      expect(twice).toBe(once);
+    });
+
+    it('returns the input reference untouched when the array fits inside the window', () => {
+      const short = Array.from({ length: KEEP_FULL_SNAPSHOTS }, (_, i) => makeHistoryEntry(i + 1));
+      expect(withOldSnapshotsDropped(short)).toBe(short);
     });
   });
 

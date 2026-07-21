@@ -107,9 +107,15 @@ export const KEEP_FULL_SNAPSHOTS = 10;
  * Drops `postTurnEntities` from every entry older than the most recent
  * KEEP_FULL_SNAPSHOTS. Returns the input array unchanged (same reference)
  * when no entry needs trimming, matching the reducer's convention that
- * untouched slices keep their identity.
+ * untouched slices keep their identity - which also makes it idempotent
+ * and safe to apply more than once per commit. Exported because App.tsx
+ * must apply it to the turn-commit history BEFORE building the autosave:
+ * the reducer's own trim (TURN_COMMITTED below) only bounds in-memory
+ * state, and an autosave built from the untrimmed array would persist
+ * every snapshot - growing the save by one snapshot per session on
+ * legacy-shaped saves that carry one on every entry.
  */
-function withOldSnapshotsDropped(turnHistory: TurnHistoryEntry[]): TurnHistoryEntry[] {
+export function withOldSnapshotsDropped(turnHistory: TurnHistoryEntry[]): TurnHistoryEntry[] {
   const cutoff = turnHistory.length - KEEP_FULL_SNAPSHOTS;
   if (cutoff <= 0) return turnHistory;
   let changed = false;
@@ -249,7 +255,11 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         turnNumber: action.turnNumber,
         // Older entries shed their full entity snapshots here - the one
         // commit point every turn passes through, so state and autosave
-        // always carry the identical bounded shape.
+        // always carry the identical bounded shape. App.tsx applies the
+        // same (idempotent) trim to this array before dispatching, since
+        // the autosave is built from the array directly, not from the
+        // state this reducer returns; this application stays as the
+        // in-memory backstop.
         turnHistory: withOldSnapshotsDropped(action.turnHistory),
         messages: [...state.messages, action.gmMessage, action.monologueMessage, action.ribbonMessage],
         suggestedActions: action.suggestedActions,

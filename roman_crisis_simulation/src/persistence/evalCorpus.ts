@@ -46,7 +46,12 @@ export interface EvalCorpusTurn {
   playerIntent: string;
   narration: string | null;
   adjudication: Adjudication;
-  /** Every captured call this turn made, prompt text and system instruction included when recorded. */
+  /**
+   * The calls captured during this turn's bracket, prompt text and system
+   * instruction included when recorded. Attribution is by bracket timing
+   * (ai/core/geminiService.ts::beginTurnCapture/endTurnCapture), so an
+   * out-of-band call that happens to resolve mid-turn can appear here too.
+   */
   rawCalls: RawCallRecord[];
   turnSeed: number | null;
   resolutionTrace: ActionResolutionEvent | null;

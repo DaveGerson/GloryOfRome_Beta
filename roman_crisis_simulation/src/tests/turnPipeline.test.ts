@@ -598,6 +598,23 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
   });
 
   it('records turnSeed on the history entry, and the same seed replays every roll the turn made - action roll first, then the mortality roll', async () => {
+    // Pin the seed's entropy draw so turnSeed - and therefore BOTH rolls -
+    // are exact known values, not merely self-consistent. A replay-only
+    // assertion has a 1-in-20 false pass if the mortality leg stops drawing
+    // from the turn's seeded generator (e.g. regresses to Math.random or a
+    // fresh generator, whose first draw the pinned entropy also fixes);
+    // asserting the generator's exact SECOND draw fails deterministically.
+    const SEED_ENTROPY = 0.123456789;
+    vi.spyOn(Math, 'random').mockReturnValue(SEED_ENTROPY);
+    const expectedSeed = Math.floor(SEED_ENTROPY * 0x100000000) >>> 0; // generateSeed's math
+    const expectedRng = createSeededRng(expectedSeed);
+    const expectedActionRoll = rollD20(expectedRng); // draw 1
+    const expectedMortalityRoll = rollD20(expectedRng); // draw 2
+    // Guards on the chosen entropy: the regressions this test exists to
+    // catch must not coincidentally produce the expected second draw.
+    expect(expectedMortalityRoll).not.toBe(expectedActionRoll); // fresh-generator regression
+    expect(expectedMortalityRoll).not.toBe(Math.floor(SEED_ENTROPY * 20) + 1); // raw-Math.random regression
+
     const h = createHarness(false);
     const player = makeEntity();
     const npc = makeEntity({ entity_id: 'npc_1', name: 'Senator Rufus' });
@@ -623,11 +640,11 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
       gm_private: [],
     });
 
-    // Pre-resolve every response the pipeline could need. The turn seed is
-    // real entropy here (Math.random unmocked), so which fate band the
-    // mortality roll lands in - and therefore whether the mortality OUTCOME
-    // call fires at all - is not known up front; its response is queued
-    // either way and simply goes unused when the band needs no content.
+    // Pre-resolve every response the pipeline could need. The pinned seed
+    // makes the mortality roll's fate band deterministic, but the OUTCOME
+    // response stays queued regardless - it simply goes unused when the
+    // band needs no content, keeping this block agnostic to the exact
+    // entropy value chosen above.
     h.response.storyRelevance.resolve(storyRelevanceJson);
     h.response.assessment.resolve(consequentialAssessmentJson);
     h.response.adjudication.resolve(adjudicationWithDeathJson);
@@ -647,16 +664,15 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     );
 
     const entry = result.newHistoryEntry;
-    expect(typeof entry.turnSeed).toBe('number');
-    expect(Number.isInteger(entry.turnSeed)).toBe(true);
-    expect(entry.turnSeed!).toBeGreaterThanOrEqual(0);
-    expect(entry.turnSeed!).toBeLessThan(2 ** 32);
+    expect(entry.turnSeed).toBe(expectedSeed);
 
+    // Exact values, not just replay consistency: the action roll must be
+    // the turn generator's first draw and the mortality roll its second.
     expect(entry.resolutionTrace).toBeDefined();
+    expect(entry.resolutionTrace!.roll).toBe(expectedActionRoll);
     expect(entry.mortalityTrace).toHaveLength(1);
     expect(entry.mortalityTrace![0]).toMatchObject({ entity_id: 'npc_1', valid: true });
-    expect(entry.mortalityTrace![0].roll).toBeGreaterThanOrEqual(1);
-    expect(entry.mortalityTrace![0].roll).toBeLessThanOrEqual(20);
+    expect(entry.mortalityTrace![0].roll).toBe(expectedMortalityRoll);
 
     // Replay: rebuilding the generator from the persisted seed reproduces
     // the turn's recorded rolls in draw order.

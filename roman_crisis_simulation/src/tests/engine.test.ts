@@ -526,6 +526,30 @@ describe('applyAdjudication', () => {
         expect(entity.memories[MAX_ENTITY_MEMORIES - 1].event_description).toBe('Maximinus Thrax marches on Rome.');
     });
 
+    it(`repairs a legacy over-long memory list (MAX + 20) down to exactly MAX in a single write, keeping the newest`, () => {
+        // A save written before the bound existed can carry far more than
+        // MAX_ENTITY_MEMORIES; one new write must trim all the way down,
+        // not just by one - pins the splice(0, length - MAX) math.
+        const overflow = 20;
+        const makeMemory = (i: number): Memory => ({
+            turn: i, event_description: `Old event ${i}`, emotional_impact: 'Notable', involved_entities: [],
+        });
+        const target = mockEntities.find(e => e.entity_id === 'maximinus_thrax')!;
+        target.memories = Array.from({ length: MAX_ENTITY_MEMORIES + overflow }, (_, i) => makeMemory(i));
+
+        const adjudication = deepCopy(baseAdjudication);
+        adjudication.headlines.push('Maximinus Thrax marches on Rome.');
+
+        const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+        const entity = updatedEntities.find(e => e.entity_id === 'maximinus_thrax')!;
+
+        expect(entity.memories.length).toBe(MAX_ENTITY_MEMORIES);
+        // The oldest (overflow + 1) entries are gone; the survivors start
+        // right after them and end with the fresh headline memory.
+        expect(entity.memories[0].event_description).toBe(`Old event ${overflow + 1}`);
+        expect(entity.memories[MAX_ENTITY_MEMORIES - 1].event_description).toBe('Maximinus Thrax marches on Rome.');
+    });
+
     it('does not drop anything when a memory write lands exactly on the cap', () => {
         const makeMemory = (i: number): Memory => ({
             turn: i, event_description: `Old event ${i}`, emotional_impact: 'Notable', involved_entities: [],
@@ -569,6 +593,31 @@ describe('applyAdjudication', () => {
         expect(interactions[0]).toBe('Turn 1: old interaction 1');
         expect(interactions).not.toContain('Turn 0: old interaction 0');
         // ...and the newest is the fresh interaction line.
+        expect(interactions[MAX_RECENT_INTERACTIONS - 1]).toBe('Turn 1: A public insult');
+    });
+
+    it(`repairs a legacy over-long interaction list (MAX + 20) down to exactly MAX in a single write, keeping the newest`, () => {
+        // Same legacy-repair contract as the memories cap: one new write
+        // trims an over-long pre-bound list all the way to the cap.
+        const overflow = 20;
+        const emperor = mockEntities.find(e => e.entity_id === 'severus_alexander')!;
+        emperor.relationships['maximinus_thrax'].recent_interactions =
+            Array.from({ length: MAX_RECENT_INTERACTIONS + overflow }, (_, i) => `Turn ${i}: old interaction ${i}`);
+
+        const adjudication = deepCopy(baseAdjudication);
+        adjudication.deltas.push({
+            type: 'relation',
+            key: 'severus_alexander:maximinus_thrax:trust_level',
+            delta: -1,
+            reason: 'A public insult',
+        });
+
+        const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+        const interactions = updatedEntities.find(e => e.entity_id === 'severus_alexander')!
+            .relationships['maximinus_thrax'].recent_interactions;
+
+        expect(interactions.length).toBe(MAX_RECENT_INTERACTIONS);
+        expect(interactions[0]).toBe(`Turn ${overflow + 1}: old interaction ${overflow + 1}`);
         expect(interactions[MAX_RECENT_INTERACTIONS - 1]).toBe('Turn 1: A public insult');
     });
 

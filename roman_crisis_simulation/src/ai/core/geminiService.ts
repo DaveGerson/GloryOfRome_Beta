@@ -91,18 +91,32 @@ export interface ThinkingConfigLike {
  *     JSON, or (when a zodSchema was supplied) failed schema validation
  *     even after the repair-retry. Retrying the exact same request is
  *     unlikely to help without a different prompt/approach.
+ *
+ * `message` must never contain raw model output: App.tsx surfaces it
+ * verbatim in player-facing chat on a fatal error, and for
+ * adjudication-family calls the raw text can carry gm_private material
+ * (DESIGN_DECISIONS.md D4/D5). Diagnostic snippets of the offending output
+ * go in `debugSnippet` instead.
  */
 export class AiServiceError extends Error {
   readonly kind: 'transient' | 'fatal';
   readonly callName: string;
   readonly cause?: unknown;
+  /**
+   * Truncated snippet of the offending raw model output (or parse-failure
+   * detail quoting it), for GM/console-side diagnostics only. Deliberately
+   * kept OFF `message` - see the class doc above - so no player-facing
+   * surface may ever render this field or fold it into display text.
+   */
+  readonly debugSnippet?: string;
 
-  constructor(kind: 'transient' | 'fatal', callName: string, message: string, cause?: unknown) {
+  constructor(kind: 'transient' | 'fatal', callName: string, message: string, cause?: unknown, debugSnippet?: string) {
     super(message);
     this.name = 'AiServiceError';
     this.kind = kind;
     this.callName = callName;
     this.cause = cause;
+    this.debugSnippet = debugSnippet;
   }
 }
 
@@ -376,11 +390,17 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
         currentPrompt = `${req.prompt}${formatRepairSuffix([`(unparseable JSON: ${message})`])}`;
         continue;
       }
+      // The parse error's message quotes the offending model text
+      // (ai/core/json.ts::parseModelJson) - console + debugSnippet only,
+      // never the thrown message (see AiServiceError's doc).
+      const parseDetail = e instanceof Error ? e.message : String(e);
+      console.error(`Gemini call '${callName}' returned unparseable JSON even after a repair retry:`, parseDetail);
       throw new AiServiceError(
         'fatal',
         callName,
-        `Gemini call '${callName}' returned unparseable JSON even after a repair retry: ${e instanceof Error ? e.message : String(e)}`,
-        e
+        `Gemini call '${callName}' returned unparseable JSON even after a repair retry.`,
+        e,
+        parseDetail
       );
     }
 
@@ -433,11 +453,16 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
       continue;
     }
 
+    // Schema paths are safe to surface; the raw output itself is console +
+    // debugSnippet only, never the thrown message (see AiServiceError's doc).
+    const offendingSnippet = truncateForCapture(network.text).slice(0, 300);
+    console.error(`Gemini call '${callName}' violated its schema at [${issuePaths.join(', ')}] even after a repair retry. Offending output:`, offendingSnippet);
     throw new AiServiceError(
       'fatal',
       callName,
-      `Gemini call '${callName}' violated its schema at [${issuePaths.join(', ')}] even after a repair retry. Offending output: ${truncateForCapture(network.text).slice(0, 300)}`,
-      result.error
+      `Gemini call '${callName}' violated its schema at [${issuePaths.join(', ')}] even after a repair retry.`,
+      result.error,
+      offendingSnippet
     );
   }
 

@@ -17,12 +17,13 @@ import { ALL_INITIAL_ENTITIES } from './constants/baseScenario';
 import { runNewTurn, TurnStage } from './ai/core/turn';
 import { WorldState } from './types';
 import { useGame } from './state/GameContext';
+import { withOldSnapshotsDropped } from './state/gameReducer';
 import { createCharacter } from './ai/tools/characterCreator';
 import { inferAmbition } from './ai/tools/ambition';
 import { checkForTriggeredEvent, applyEventChoiceDeltas } from './events/engine';
 import { initiateWorld } from './ai/core/initiator';
 import { runSmokeTest } from './tests/smokeTest';
-import { AiServiceError } from './ai/core/geminiService';
+import { AiServiceError, resetSessionCallLog } from './ai/core/geminiService';
 import { saveGame, loadGame, clearSave, hasSave, updateSavedAmbition, SaveGameState, InferredAmbitionState } from './persistence/saveGame';
 import { hasSeenOnboarding, markOnboardingSeen } from './persistence/onboarding';
 import { buildPerceivedDigest, TabId } from './perception/visibility';
@@ -400,7 +401,15 @@ const App: React.FC = () => {
             })();
             // Add post-turn entity state to history for GM view
             const historyEntryWithState = { ...result.newHistoryEntry, postTurnEntities: result.updatedEntities };
-            const newTurnHistory = [...turnHistory, historyEntryWithState];
+            // Bound the snapshot window HERE, once, because this same array
+            // feeds BOTH the TURN_COMMITTED dispatch and the autosave below -
+            // the reducer's own trim only bounds in-memory state, so an
+            // autosave built from the raw array would persist every snapshot
+            // (and re-persist all of a legacy save's per-entry snapshots each
+            // session). Applying it here also self-heals such legacy saves on
+            // their first commit; the reducer's trim is idempotent on the
+            // already-bounded array.
+            const newTurnHistory = withOldSnapshotsDropped([...turnHistory, historyEntryWithState]);
             const newTurnNumber = turnNumber + 1;
             const gmMessage: Message = { sender: 'gm', text: result.narration };
             const monologueMessage: Message = { sender: 'player_monologue', text: result.playerMonologue };
@@ -612,6 +621,12 @@ const App: React.FC = () => {
     };
 
     const handleSelectCharacter = (option: PlayerCharacterOption) => {
+        // The session call log (ai/core/geminiService.ts) is per-campaign-
+        // session: reset it at every campaign boundary, BEFORE the new
+        // campaign's first AI call, so calls from a previous campaign in the
+        // same tab can't contaminate this campaign's eval-corpus export.
+        // Same constraint in handleCustomCreation and handleContinue.
+        resetSessionCallLog();
         const playerEntity = ALL_INITIAL_ENTITIES.find(e => e.entity_id === option.entity_id);
         if(playerEntity) {
             startGameWithCharacter(playerEntity, JSON.parse(JSON.stringify(ALL_INITIAL_ENTITIES)));
@@ -619,6 +634,10 @@ const App: React.FC = () => {
     };
 
     const handleCustomCreation = async ({ description, metaNarrative: newMetaNarrative, useCustomGamestate }: { description: string, metaNarrative?: string, useCustomGamestate: boolean }) => {
+        // Per-campaign-session log (see handleSelectCharacter). Reset here -
+        // not in startGameWithCharacter - so the world/character-generation
+        // calls made just below already belong to the NEW campaign's log.
+        resetSessionCallLog();
         if (useCustomGamestate && newMetaNarrative) {
             // New world generation logic
             const { worldState: newWorldState, entities: newEntities, playerCharacterId: newPlayerId } = await initiateWorld(aiRef.current, newMetaNarrative, description, isMockMode);
@@ -752,6 +771,10 @@ const App: React.FC = () => {
             setSavedGameInfo(null);
             return;
         }
+        // Per-campaign-session log (see handleSelectCharacter): the loaded
+        // campaign starts a fresh session log, dropping any calls a prior
+        // campaign made in this tab.
+        resetSessionCallLog();
         // GAME_LOADED (state/gameReducer.ts) restores the whole campaign in
         // one state transition: it normalizes the optional save fields
         // (inferredAmbition, pendingIntelligenceFallout - absent on older

@@ -150,8 +150,11 @@ export function applyDeltas(
                         if (!rel.recent_interactions.some(interaction => interaction.endsWith(delta.reason))) {
                             rel.recent_interactions.push(`Turn ${turnNumber}: ${delta.reason}`);
                             // Bounded at the write site: drop the oldest past
-                            // MAX_RECENT_INTERACTIONS (also trims over-long
-                            // lists from saves written before the bound).
+                            // MAX_RECENT_INTERACTIONS. An over-long list from
+                            // a save written before the bound is trimmed too,
+                            // but only when this relationship logs a new
+                            // interaction - untouched relationships keep
+                            // their legacy length.
                             if (rel.recent_interactions.length > MAX_RECENT_INTERACTIONS) {
                                 rel.recent_interactions.splice(0, rel.recent_interactions.length - MAX_RECENT_INTERACTIONS);
                             }
@@ -350,8 +353,10 @@ export function applyAdjudication(
                     involved_entities: []
                 });
                 // Bounded at the write site: drop the oldest past
-                // MAX_ENTITY_MEMORIES (also trims over-long lists from
-                // saves written before the bound).
+                // MAX_ENTITY_MEMORIES. An over-long list from a save
+                // written before the bound is trimmed too, but only when
+                // this entity gains a new memory - untouched entities keep
+                // their legacy length.
                 if (entity.memories.length > MAX_ENTITY_MEMORIES) {
                     entity.memories.splice(0, entity.memories.length - MAX_ENTITY_MEMORIES);
                 }

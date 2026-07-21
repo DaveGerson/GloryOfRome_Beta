@@ -293,7 +293,10 @@ const GameMasterScreen: React.FC<{
         anchor.href = url;
         anchor.download = evalCorpusFilename(turnNumber);
         anchor.click();
-        URL.revokeObjectURL(url);
+        // The browser fetches the blob URL asynchronously after click();
+        // revoking synchronously can abort the download (Firefox/Safari),
+        // so revocation must be deferred past the fetch.
+        setTimeout(() => URL.revokeObjectURL(url), 10_000);
     };
 
     return (

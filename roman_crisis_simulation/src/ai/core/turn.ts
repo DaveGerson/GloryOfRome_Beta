@@ -441,9 +441,10 @@ export async function runNewTurn(
         newHistoryEntry,
     };
 
-    console.log("--- RUN NEW TURN OUTPUT ---");
-    console.log(JSON.stringify(result, null, 2));
-
+    // Never dump `result` to the console: it carries the turn's full raw-call
+    // capture (prompts/system instructions), gm_private notes, and the turn
+    // seed - GM-only data (DESIGN_DECISIONS.md D4/D5) whose sanctioned
+    // channels are the GM console and the eval-corpus export.
     return result;
     } catch (e) {
         // Drain the in-flight capture buffer so a failed turn's partial raw

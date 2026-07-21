@@ -12,6 +12,8 @@ import {
   evaluateCorpus,
   assertEvalCorpusShape,
   formatCorpusReport,
+  STRUCTURED_CALL_SCHEMAS,
+  PROSE_CALL_NAMES,
 } from '../eval/harness';
 import { judgeTurn, formatJudgeVerdict, EvalJudgeVerdict } from '../eval/judge';
 import { buildEvalJudgePrompt } from '../ai/prompts/evalJudge';
@@ -147,6 +149,61 @@ describe('eval/harness checkRawCallSchema', () => {
       makeRawCall('entityBatch:NPCs_1', JSON.stringify({ entities: [MOCK_ENTITIES[1]] }))
     );
     expect(check.status).toBe('valid');
+  });
+});
+
+// --- Call-name inventory drift ---------------------------------------------
+
+describe('eval/harness call-name inventory (drift guard)', () => {
+  // The EXACT callName values production code passes to geminiService. If a
+  // rename in one of the files below trips this test, update BOTH that file
+  // and STRUCTURED_CALL_SCHEMAS / PROSE_CALL_NAMES in eval/harness.ts - at
+  // runtime an unmapped name only downgrades that call's checks to
+  // 'skipped_unknown', so nothing else would catch the drift.
+  const EMITTED_STRUCTURED_CALL_NAMES = [
+    'adjudication', // ai/core/turn.ts
+    'assessment', // ai/tools/assessment.ts
+    'storyRelevance', // ai/tools/intelligence.ts
+    'updatedSimulationState', // ai/tools/intelligence.ts
+    'relationshipUpdates', // ai/tools/intelligence.ts
+    'privateConversation', // ai/tools/intelligence.ts
+    'investigation', // ai/tools/intelligence.ts
+    'mortalityValidation', // ai/core/mortality.ts
+    'mortalityOutcome', // ai/core/mortality.ts
+    'scenarioStructure', // ai/core/initiator.ts
+    'characterCreation', // ai/tools/characterCreator.ts
+    'ambitionInference', // ai/tools/ambition.ts
+    // 'entityBatch:<batchName>' (ai/core/initiator.ts) is deliberately not
+    // listed: its callName is suffixed per batch and resolved by
+    // schemaForCallName's prefix rule, covered by its own test above.
+  ];
+  const EMITTED_PROSE_CALL_NAMES = [
+    'narration', // ai/core/turn.ts
+    'playerMonologue', // ai/tools/intelligence.ts
+    'clarification', // ai/tools/intelligence.ts
+    'rawThoughts', // ai/tools/intelligence.ts
+    'deepAnalysis', // ai/tools/intelligence.ts
+    'epilogue', // components/EpilogueScreen.tsx
+  ];
+
+  it('STRUCTURED_CALL_SCHEMAS keys exactly equal the structured call names the app emits', () => {
+    expect(Object.keys(STRUCTURED_CALL_SCHEMAS).sort()).toEqual([...EMITTED_STRUCTURED_CALL_NAMES].sort());
+  });
+
+  it('PROSE_CALL_NAMES exactly equals the prose call names the app emits', () => {
+    expect([...PROSE_CALL_NAMES].sort()).toEqual([...EMITTED_PROSE_CALL_NAMES].sort());
+  });
+
+  it('no call name is claimed as both structured and prose', () => {
+    for (const name of Object.keys(STRUCTURED_CALL_SCHEMAS)) {
+      expect(PROSE_CALL_NAMES.has(name)).toBe(false);
+    }
+  });
+
+  it('every emitted structured name resolves to a schema (none silently skipped_unknown)', () => {
+    for (const name of EMITTED_STRUCTURED_CALL_NAMES) {
+      expect(schemaForCallName(name), name).not.toBeNull();
+    }
   });
 });
 

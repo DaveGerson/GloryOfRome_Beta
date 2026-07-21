@@ -45,11 +45,13 @@ import { zAmbitionInference } from '../ai/tools/ambition';
 
 /**
  * Explicit callName -> zod schema map for every STRUCTURED call family in
- * ai/prompts/README.md's inventory. Kept as a literal map (not derived)
- * so a renamed call or schema fails loudly here instead of silently
- * downgrading its checks to 'skipped_unknown'. `entityBatch` is absent on
- * purpose - its runtime callName is suffixed per batch (e.g.
- * `entityBatch:NPCs_1`), handled by `schemaForCallName` below.
+ * ai/prompts/README.md's inventory. At runtime an unmapped callName only
+ * downgrades its checks to 'skipped_unknown' - nothing here detects a
+ * renamed production call by itself. The drift test in
+ * tests/evalHarness.test.ts pins these keys (plus PROSE_CALL_NAMES) to the
+ * exact call names the app emits, so a rename must update both sides.
+ * `entityBatch` is absent on purpose - its runtime callName is suffixed per
+ * batch (e.g. `entityBatch:NPCs_1`), handled by `schemaForCallName` below.
  */
 export const STRUCTURED_CALL_SCHEMAS: Record<string, ZodType<any, any, any>> = {
   assessment: zActionAssessment,

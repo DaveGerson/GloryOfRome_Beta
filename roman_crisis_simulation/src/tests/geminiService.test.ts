@@ -146,6 +146,70 @@ describe('geminiService', () => {
       expect(result).toEqual({ x: 3, y: 4 });
       expect(generateContent).toHaveBeenCalledTimes(2);
     });
+
+    // App.tsx surfaces a fatal AiServiceError's `message` verbatim in
+    // player-facing chat, and for adjudication-family calls the raw model
+    // output can carry gm_private material (D4/D5) - so the message must
+    // stay free of it, with the snippet only on `debugSnippet`.
+    it('keeps the raw model output out of the schema-violation error message, carrying it on debugSnippet', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const offending = '{"x": "SECRET_GM_PLOT_DETAIL"}';
+        const generateContent = vi.fn().mockResolvedValue({ text: offending });
+        const ai = makeMockAi(generateContent);
+
+        let caught: unknown;
+        try {
+          await generateStructured<{ x: number; y: number }>(ai, {
+            callName: 'test-message-leak',
+            model: 'test-model',
+            prompt: 'give me a point',
+            zodSchema: zPoint,
+          });
+        } catch (e) {
+          caught = e;
+        }
+
+        expect(caught).toBeInstanceOf(AiServiceError);
+        const err = caught as AiServiceError;
+        expect(err.kind).toBe('fatal');
+        // The violated paths ARE surfaced; the raw output is not.
+        expect(err.message).toContain('violated its schema');
+        expect(err.message).not.toContain('SECRET_GM_PLOT_DETAIL');
+        expect(err.debugSnippet).toContain('SECRET_GM_PLOT_DETAIL');
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+
+    it('keeps the raw model output out of the unparseable-JSON error message, carrying the parse detail on debugSnippet', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const generateContent = vi.fn().mockResolvedValue({ text: 'SECRET_GM_PLOT_DETAIL {{{' });
+        const ai = makeMockAi(generateContent);
+
+        let caught: unknown;
+        try {
+          await generateStructured<{ x: number; y: number }>(ai, {
+            callName: 'test-parse-leak',
+            model: 'test-model',
+            prompt: 'give me a point',
+            zodSchema: zPoint,
+          });
+        } catch (e) {
+          caught = e;
+        }
+
+        expect(caught).toBeInstanceOf(AiServiceError);
+        const err = caught as AiServiceError;
+        expect(err.kind).toBe('fatal');
+        expect(err.message).toContain('unparseable JSON');
+        expect(err.message).not.toContain('SECRET_GM_PLOT_DETAIL');
+        expect(err.debugSnippet).toContain('SECRET_GM_PLOT_DETAIL');
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
   });
 
   describe('transient retry/backoff path', () => {
@@ -521,9 +585,9 @@ describe('geminiService', () => {
   });
 
   describe('AiServiceError typing', () => {
-    it('carries kind, callName, message, and cause', () => {
+    it('carries kind, callName, message, cause, and the optional debugSnippet', () => {
       const cause = new Error('underlying');
-      const err = new AiServiceError('fatal', 'my-call', 'something broke', cause);
+      const err = new AiServiceError('fatal', 'my-call', 'something broke', cause, 'offending output');
       expect(err).toBeInstanceOf(Error);
       expect(err).toBeInstanceOf(AiServiceError);
       expect(err.name).toBe('AiServiceError');
@@ -531,6 +595,10 @@ describe('geminiService', () => {
       expect(err.callName).toBe('my-call');
       expect(err.message).toBe('something broke');
       expect(err.cause).toBe(cause);
+      expect(err.debugSnippet).toBe('offending output');
+
+      const bare = new AiServiceError('transient', 'my-call', 'timed out');
+      expect(bare.debugSnippet).toBeUndefined();
     });
   });
 });
