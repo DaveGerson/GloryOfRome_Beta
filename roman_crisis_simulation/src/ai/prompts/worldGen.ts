@@ -73,6 +73,7 @@ export function buildEntityBatchPrompt(
     4.  **Resources:** Create unique, thematic resources.
     5.  **Location:** Place them in one of the regions defined in the World State.
     6.  **Memories:** Start with empty arrays.
+    7.  **Voice & Epithet:** Give EVERY entity (the player included) a 'voice' - a COMPACT speech-style directive for how they talk and think (e.g. "clipped soldier's Latin, contempt for senatorial flourish") - and an 'epithet', a SHORT public byname (e.g. "the Thracian"). Keep both short and make each voice DISTINCT from the others'; for a collective entity (a faction, a guard, a mob) a group voice and collective epithet are fine.
 
     **CRITICAL OUTPUT RULES:**
     - Output pure JSON only.

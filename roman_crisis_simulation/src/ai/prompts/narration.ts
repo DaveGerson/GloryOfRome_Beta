@@ -54,6 +54,61 @@ export function sanitizeAdjudicationForNarration(adjudication: Adjudication): Om
 }
 
 /**
+ * Cap on the narration prompt's voice-cast lines (4C.5): the block is
+ * BOUNDED by construction - spotlight cast plus this turn's acting entities
+ * only, never the whole roster - and this cap is the code-side guarantee
+ * against a runaway entityActions list bloating the prompt.
+ */
+export const MAX_VOICE_CAST = 8;
+
+/**
+ * Picks the entities whose voice/epithet lines the narration prompt may
+ * carry (4C.5): spotlight ids FIRST (the Director's importance ranking),
+ * then this turn's entityAction actor ids, deduped, resolved against the
+ * roster, capped at MAX_VOICE_CAST. Deliberately NOT the whole roster -
+ * the voice block is texture for the characters actually on stage this
+ * turn. Entities without voice AND epithet still count against nothing:
+ * they are dropped before the cap so a largely-legacy roster never crowds
+ * out the few entities that do carry flavor. Pure; exported for direct
+ * unit testing.
+ */
+export function selectVoiceCast(spotlightIds: string[], actorIds: string[], entities: Entity[]): Entity[] {
+  const byId = new Map(entities.map(e => [e.entity_id, e]));
+  const picked: Entity[] = [];
+  const seen = new Set<string>();
+  for (const id of [...spotlightIds, ...actorIds]) {
+    if (picked.length >= MAX_VOICE_CAST) break;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const entity = byId.get(id);
+    if (!entity || (!entity.voice && !entity.epithet)) continue;
+    picked.push(entity);
+  }
+  return picked;
+}
+
+/**
+ * The narration prompt's CAST VOICES block (4C.5): one line per on-stage
+ * character carrying a voice and/or epithet, plus the guidance to let named
+ * characters SOUND distinct when quoted. Reads ONLY name/epithet/voice -
+ * never secrets, schemes, or any GM-private field - so it is safe for this
+ * player-facing prompt by construction. Absent fields emit NOTHING (never
+ * the string "undefined"); an all-legacy cast emits no block at all.
+ * Exported for direct unit testing.
+ */
+export function buildVoiceCastBlock(cast: Entity[]): string {
+  const lines = cast
+    .filter(e => e.voice || e.epithet)
+    .map(e => `- ${e.name}${e.epithet ? ` "${e.epithet}"` : ''}${e.voice ? `: ${e.voice}` : ''}`);
+  if (lines.length === 0) return '';
+  return `
+CAST VOICES (speech-style notes for this turn's named characters - flavor only):
+When you quote or closely paraphrase a character listed here, let them SOUND like themselves per their voice note - distinct registers, never interchangeable prose. Epithets are public bynames you may use as texture. These notes style HOW people speak; they never add events, facts, or knowledge beyond the Adjudication JSON.
+${lines.join('\n')}
+`;
+}
+
+/**
  * PURPOSE: Narrate the turn's events from the player's vantage point and
  * suggest 3 next actions.
  * MODEL: pro (GEMINI_PRO).
@@ -81,7 +136,12 @@ export function buildNarrationPrompt(
   updatedPlayerEntity: Entity,
   playerIntent: string,
   adjudication: Adjudication,
-  mortalityDirectives: string[] = []
+  mortalityDirectives: string[] = [],
+  // 4C.5: the bounded on-stage cast whose voice/epithet lines the prompt
+  // may carry - callers pass `selectVoiceCast`'s output (spotlight +
+  // involved entities only, never the whole roster). Defaults to [] so
+  // legacy call sites/tests behave exactly as before the block existed.
+  voiceCast: Entity[] = []
 ): { systemInstruction: string; prompt: string } {
   const systemInstruction = `
 ROLE: Chronicler of the Empire & Intelligence Briefer
@@ -113,7 +173,7 @@ ${JSON.stringify(sanitizeEntityForNarration(updatedPlayerEntity), null, 2)}
 
 PLAYER'S ACTION THIS TURN:
 "${playerIntent}"
-
+${buildVoiceCastBlock(voiceCast)}
 ADJUDICATION JSON (all events of the turn):
 ${JSON.stringify(sanitizeAdjudicationForNarration(adjudication), null, 2)}
 ${mortalityBlock}`;

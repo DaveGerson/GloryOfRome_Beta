@@ -181,6 +181,37 @@ describe('persistence/saveGame', () => {
     expect(legacy!.state.npcIntents).toBeUndefined();
   });
 
+  it('round-trips the optional voice/epithet on entities (4C.5), alongside legacy entities that lack them', () => {
+    const baseEntity = {
+      entity_id: 'maximinus_thrax',
+      name: 'Maximinus Thrax',
+      entity_type: 'individual' as const,
+      status: 'alive' as const,
+      location: 'Praetorian Camp',
+      relationships: {},
+      memories: [],
+      resources: {},
+      visibility_network: [],
+      current_state_narrative: 'A giant of a man.',
+      short_term_goals: [],
+      long_term_ambitions: [],
+    };
+    const flavored = {
+      ...baseEntity,
+      voice: "clipped soldier's Latin, contempt for senatorial flourish",
+      epithet: 'the Thracian',
+    };
+    const legacy = { ...baseEntity, entity_id: 'severus_alexander', name: 'Severus Alexander' }; // pre-4C.5 entity shape
+    saveGame(makeState({ turnNumber: 3, entities: [flavored, legacy] }));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.entities[0].voice).toBe("clipped soldier's Latin, contempt for senatorial flourish");
+    expect(loaded!.state.entities[0].epithet).toBe('the Thracian');
+    expect(loaded!.state.entities[1].voice).toBeUndefined();
+    expect(loaded!.state.entities[1].epithet).toBeUndefined();
+  });
+
   it('round-trips the optional npcIntents on history entries, alongside entries that lack it', () => {
     const withIntents: TurnHistoryEntry = {
       ...makeHistoryEntry(1, false),

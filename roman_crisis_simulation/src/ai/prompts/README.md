@@ -210,6 +210,35 @@ latency leg D16 sanctions).
   `selectMindEntities` + the self-brief - see the seam notes in
   `ai/core/turn.ts` and `ai/tools/npcMind.ts`. Not built yet.
 
+## Voice & epithet: minds and narration speak in character
+
+`Entity.voice` (a compact speech-style directive, e.g. "clipped soldier's
+Latin, contempt for senatorial flourish") and `Entity.epithet` (a short
+public byname, e.g. "the Thracian") are OPTIONAL narrative-flavor fields
+(ROADMAP_PHASE_4.md 4C item 5, D10) - kept in lockstep across `types.ts`,
+`ai/core/schemas.ts` (`EntitySchema`/`CharacterCreationEntitySchema`), and
+`ai/core/zodSchemas.ts` (`zEntity`). Not GM-private: an epithet is public
+texture. Production and consumption:
+
+- **Produced** by `worldGen.ts::buildEntityBatchPrompt` (requirement 7) and
+  `characterCreation.ts` (instruction 13); authored by hand for the base
+  cast in `constants/baseScenario.ts` (all entities carry both) and the
+  mock entities in `ai/mocks.ts`.
+- **Consumed** in exactly three places, each with a different slice:
+  - `npcMind.ts::buildMindSelfBrief` - the character's OWN voice + epithet,
+    so `chosen_action`/`private_reasoning` read in character.
+  - `narration.ts::buildVoiceCastBlock` - voice + epithet for the BOUNDED
+    on-stage cast only (`selectVoiceCast`: spotlight picks + this turn's
+    acting entities, capped at `MAX_VOICE_CAST`, never the whole roster),
+    with guidance to let quoted characters sound distinct.
+  - `fragments.ts::getEntityBrief` - the epithet ONLY (one token of public
+    flavor for the adjudicator); voice directives stay out of the
+    omniscient briefs to save context.
+- Because the fields are optional, every builder emits NOTHING for an
+  absent field - a legacy entity/save renders exactly as before the fields
+  existed, and the literal string "undefined" must never appear
+  (pinned by tests/voice.test.ts).
+
 ## System vs. user split
 
 Every builder returns `{ systemInstruction, prompt }`:

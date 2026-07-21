@@ -95,6 +95,11 @@ export const EntitySchema = {
         entity_type: { type: Type.STRING, enum: ['individual', 'group', 'faction'] },
         status: { type: Type.STRING, enum: ['alive', 'dead', 'exiled', 'missing'] },
         position: { type: Type.STRING, nullable: true },
+        // 4C.5 narrative flavor - OPTIONAL (never in `required` below, for
+        // save/legacy compatibility); mirrors types.ts's Entity.voice/epithet
+        // and zEntity in ai/core/zodSchemas.ts - keep all three in lockstep.
+        voice: { type: Type.STRING, nullable: true, description: "OPTIONAL narrative flavor: a COMPACT speech-style directive for how this character talks and thinks (e.g. \"clipped soldier's Latin, contempt for senatorial flourish\"). One short clause or two; for a collective entity (faction, guard, mob) a group voice is fine." },
+        epithet: { type: Type.STRING, nullable: true, description: "OPTIONAL narrative flavor: a SHORT public byname the street knows this character by (e.g. \"the Thracian\"). A few words, without the character's name itself." },
         location: { type: Type.STRING },
         personality: { ...PersonalityTraitsSchema, nullable: true },
         faction_id: { type: Type.STRING, nullable: true },
@@ -468,6 +473,10 @@ export const CharacterCreationEntitySchema = {
         entity_type: { type: Type.STRING, description: "Should be 'individual'." },
         status: { type: Type.STRING, description: "Should be 'alive'." },
         position: { type: Type.STRING, description: "The character's job or title." },
+        // 4C.5 narrative flavor - optional here as everywhere (never in
+        // `required`), but the character-creation prompt asks for both.
+        voice: { type: Type.STRING, nullable: true, description: "A COMPACT speech-style directive for how this character talks and thinks (e.g. \"clipped soldier's Latin, contempt for senatorial flourish\"). One short clause or two." },
+        epithet: { type: Type.STRING, nullable: true, description: "A SHORT public byname the street knows this character by (e.g. \"the Thracian\"). A few words, without the character's name itself." },
         location: { type: Type.STRING, description: "The character's starting location from this list: Palatine Hill, The Curia, Praetorian Camp, The Suburra." },
         faction_id: { type: Type.STRING, description: "Optional. Assign to 'senatorial_party' or 'military_cabal' if appropriate, otherwise omit." },
         personality: PersonalityTraitsSchema,

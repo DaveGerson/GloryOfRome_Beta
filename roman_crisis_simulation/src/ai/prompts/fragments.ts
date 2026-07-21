@@ -29,6 +29,13 @@ import { Entity, WorldState, SimulationState, StoryRelevance, NpcIntent, NpcMind
  * the model reason about a character's actual competence. A handful of
  * short tokens per entity; trivial prompt-size impact even across a full
  * cast of NPCs.
+ *
+ * `epithet` ONLY, never `voice` (4C.5): the epithet is one token of public
+ * flavor riding the name; voice directives deliberately stay OUT of the
+ * omniscient briefs to save context - they feed only the character's own
+ * mind prompt (ai/prompts/npcMind.ts) and the narration prompt's bounded
+ * voice-cast block (ai/prompts/narration.ts). Both fields are OPTIONAL: a
+ * legacy entity without them renders exactly as before (never "undefined").
  */
 export function getEntityBrief(entity: Entity): string {
   const relationships = Object.values(entity.relationships)
@@ -38,7 +45,7 @@ export function getEntityBrief(entity: Entity): string {
   const skills = entity.skills ? `Skills: ${Object.entries(entity.skills).map(([name, value]) => `${name}:${value}`).join(', ')}` : '';
   const beliefs = entity.beliefs ? `Beliefs: ${entity.beliefs.join('; ')}` : '';
   const scheme = entity.active_scheme ? `Active Scheme: ${JSON.stringify(entity.active_scheme)}` : '';
-  return `${entity.name} (${entity.position || entity.entity_type}) [Status: ${entity.status}, Location: ${entity.location}] Goals: ${entity.short_term_goals.join(', ')}. ${scheme}. ${personality}. ${skills}. ${beliefs}. Relationships: ${relationships}`;
+  return `${entity.name}${entity.epithet ? ` "${entity.epithet}"` : ''} (${entity.position || entity.entity_type}) [Status: ${entity.status}, Location: ${entity.location}] Goals: ${entity.short_term_goals.join(', ')}. ${scheme}. ${personality}. ${skills}. ${beliefs}. Relationships: ${relationships}`;
 }
 
 /**

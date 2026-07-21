@@ -102,6 +102,28 @@ export interface Entity {
   entity_type: 'individual' | 'group' | 'faction';
   status: 'alive' | 'dead' | 'exiled' | 'missing';
   position?: string;
+  /**
+   * NARRATIVE FLAVOR (ROADMAP_PHASE_4.md 4C item 5, D10): a compact
+   * speech-style directive for how this character talks and thinks (e.g.
+   * "clipped soldier's Latin, contempt for senatorial flourish"). For a
+   * collective entity (faction, guard, mob) a group voice is fine. NOT
+   * GM-private - it is texture, not secret state - but by design it feeds
+   * only the character's OWN mind prompt (ai/prompts/npcMind.ts) and the
+   * narration prompt's bounded voice-cast block (ai/prompts/narration.ts);
+   * it stays OUT of the omniscient adjudicator briefs
+   * (ai/prompts/fragments.ts::getEntityBrief) to save context. OPTIONAL for
+   * save compatibility: legacy entities/saves without it must load and flow
+   * through every prompt builder emitting nothing (never "undefined").
+   */
+  voice?: string;
+  /**
+   * NARRATIVE FLAVOR (4C.5): a short public byname (e.g. "the Thracian").
+   * Public texture - how the street speaks of them - so unlike `voice` it
+   * MAY ride wherever the name does, including the adjudicator briefs
+   * (fragments.ts::getEntityBrief carries the epithet only, one token of
+   * flavor). OPTIONAL for save compatibility, same rule as `voice`.
+   */
+  epithet?: string;
   location: string;
   personality?: PersonalityTraits;
   faction_id?: string;

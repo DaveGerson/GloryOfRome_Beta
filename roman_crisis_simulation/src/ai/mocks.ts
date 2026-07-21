@@ -12,6 +12,10 @@ const MOCK_NEW_MOBSTER: Entity = {
     entity_type: "individual",
     status: "alive",
     position: "Suburra Gang Leader",
+    // 4C.5 narrative flavor - mock entities carry voice/epithet like real
+    // worldgen output does.
+    voice: "Suburra gutter cant; menace delivered smiling",
+    epithet: "the Collector",
     location: "The Suburra",
     personality: { ambition: 8, paranoia: 7, loyalty: 3, cunning: 8, honor: 2 },
     beliefs: ["Coin is the only true emperor.", "Fear is a more reliable tool than loyalty."],
@@ -80,6 +84,8 @@ const MOCK_NEW_CHARACTER: Entity = {
     entity_type: "individual",
     status: "alive",
     position: "Veteran Centurion",
+    voice: "terse parade-ground Latin; oaths kept, words rationed",
+    epithet: "Old Parthica",
     location: "The Suburra",
     personality: { ambition: 4, paranoia: 6, loyalty: 8, cunning: 5, honor: 9 },
     beliefs: ["The old ways are the best ways.", "A soldier's loyalty is to his legion, then to Rome."],
@@ -122,6 +128,8 @@ const MOCK_CUSTOM_WORLD_STATE: WorldState = {
 const MOCK_CUSTOM_ENTITIES: Entity[] = [
     {
       entity_id: "legatus_draco", name: "Legatus Draco", entity_type: "individual", status: "alive", position: "Commander of the Ninth Legion", location: "Eboracum Fortress",
+      voice: "clipped command Latin worn thin by fog and losses",
+      epithet: "the Dragon of Eboracum",
       short_term_goals: ["Suppress local cults", "Maintain discipline"], long_term_ambitions: ["Survive the winter"],
       current_state_narrative: "A grim, pragmatic commander haunted by the disappearance of patrols in the moors.",
       relationships: { "mock_player_character": { entity_id: "mock_player_character", relationship_type: "subordinate", trust_level: 5, recent_interactions: [] } },
@@ -129,6 +137,8 @@ const MOCK_CUSTOM_ENTITIES: Entity[] = [
     },
     {
       entity_id: "morwen", name: "Morwen", entity_type: "individual", status: "alive", position: "Priestess of the Old Gods", location: "Misty Moors",
+      voice: "lilting oracular cadence; speaks in omens, never plainly",
+      epithet: "the Moor-Witch",
       short_term_goals: ["Drive the Romans out"], long_term_ambitions: ["Awaken a slumbering horror"],
       current_state_narrative: "A mysterious figure who commands the loyalty of the local tribes and seems to wield strange powers.",
       relationships: { "mock_player_character": { entity_id: "mock_player_character", relationship_type: "enemy", trust_level: -8, recent_interactions: [] } },
@@ -142,6 +152,8 @@ const MOCK_PLAYER_IN_CUSTOM_WORLD: Entity = {
     entity_type: "individual",
     status: "alive",
     position: "Inquisitor and Exorcist",
+    voice: "measured inquisitor's Latin; liturgical certainty over doubt",
+    epithet: "the Lantern-Bearer",
     location: "Eboracum Fortress",
     personality: { ambition: 5, paranoia: 8, loyalty: 7, cunning: 6, honor: 6 },
     beliefs: ["The darkness must be fought with iron and faith.", "There are truths man was not meant to know."],

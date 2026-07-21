@@ -12,7 +12,7 @@ import { buildPerceivedDigest, PerceivedChange } from '../../perception/visibili
 import { generateStructured, generateText, generateTextStream, GEMINI_PRO, beginTurnCapture, endTurnCapture } from './geminiService';
 import { zAdjudication } from './zodSchemas';
 import { buildAdjudicationPrompt, PlayerActionOutcomeContext } from '../prompts/adjudication';
-import { buildNarrationPrompt } from '../prompts/narration';
+import { buildNarrationPrompt, selectVoiceCast } from '../prompts/narration';
 import { processMortality, detectDeathClaims } from './mortality';
 import { createNarrationStreamGate } from './streamSplit';
 import { rollD20, resolveAction, derivePersonalityModifier, deriveOppositionModifier, createSeededRng, generateSeed } from './resolution';
@@ -612,7 +612,17 @@ export async function runNewTurn(
     options?.onStage?.('narration');
     const narrationStreamGate = createNarrationStreamGate();
     const mortalityDirectives = mortalityEvents.map(ev => `- ${ev.entity_name} (${ev.entity_id}): ${ev.outcomeSummary}`);
-    const narrationPrompt = buildNarrationPrompt(metaNarrative, updatedPlayerEntity, playerIntent, transformedAdjudication, mortalityDirectives);
+    // 4C.5: the narration prompt's voice-cast block is BOUNDED to the
+    // characters actually on stage this turn - the Director's spotlight
+    // picks plus the adjudication's acting entities, resolved against the
+    // post-apply roster (so entities added this turn can carry their voice)
+    // and capped inside selectVoiceCast. Never the whole roster.
+    const voiceCast = selectVoiceCast(
+        storyRelevance.spotlight_entities.map(s => s.entity_id),
+        transformedAdjudication.entityActions.map(a => a.id),
+        updatedEntities
+    );
+    const narrationPrompt = buildNarrationPrompt(metaNarrative, updatedPlayerEntity, playerIntent, transformedAdjudication, mortalityDirectives, voiceCast);
     const narrationRequest = {
         callName: 'narration',
         model: GEMINI_PRO,

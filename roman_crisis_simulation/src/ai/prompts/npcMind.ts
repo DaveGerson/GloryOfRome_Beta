@@ -100,7 +100,14 @@ export interface NpcMindPromptInput {
  */
 export function buildMindSelfBrief(self: Entity): string {
   const lines: string[] = [];
-  lines.push(`You are ${self.name}${self.position ? `, ${self.position}` : ''} (entity_id: ${self.entity_id}), currently at ${self.location}.`);
+  // 4C.5: the epithet joins the identity line and the voice directive gets
+  // its own line, so chosen_action/private_reasoning read in character.
+  // Both OPTIONAL (legacy entities lack them): an absent field emits
+  // NOTHING - never the string "undefined".
+  lines.push(`You are ${self.name}${self.epithet ? ` "${self.epithet}"` : ''}${self.position ? `, ${self.position}` : ''} (entity_id: ${self.entity_id}), currently at ${self.location}.`);
+  if (self.voice) {
+    lines.push(`Your voice - think and speak in this register through every word of your response: ${self.voice}.`);
+  }
   if (self.personality) {
     lines.push(`Your nature (1-10): ambition ${self.personality.ambition}, paranoia ${self.personality.paranoia}, loyalty ${self.personality.loyalty}, cunning ${self.personality.cunning}, honor ${self.personality.honor}.`);
   }

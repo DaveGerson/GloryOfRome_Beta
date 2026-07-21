@@ -86,6 +86,12 @@ export const zEntity = z.object({
   entity_type: z.enum(['individual', 'group', 'faction']),
   status: z.enum(['alive', 'dead', 'exiled', 'missing']),
   position: z.string().nullable().optional(),
+  // 4C.5 narrative flavor (types.ts's Entity.voice/epithet). Nullable AND
+  // optional so legacy entities/saves without them - and model responses
+  // that omit or null them - all validate; keep in lockstep with
+  // EntitySchema in ai/core/schemas.ts.
+  voice: z.string().nullable().optional(),
+  epithet: z.string().nullable().optional(),
   location: z.string(),
   personality: zPersonalityTraits.nullable().optional(),
   faction_id: z.string().nullable().optional(),
