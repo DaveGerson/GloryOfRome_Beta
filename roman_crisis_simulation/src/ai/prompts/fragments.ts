@@ -14,7 +14,7 @@
  * (function signatures, JSDoc) is new.
  */
 
-import { Entity, WorldState, SimulationState, StoryRelevance, NpcIntent } from '../../types';
+import { Entity, WorldState, SimulationState, StoryRelevance, NpcIntent, NpcMindDecision } from '../../types';
 
 /**
  * Full per-entity brief: goals/scheme/personality/skills/beliefs/relationships.
@@ -96,6 +96,29 @@ export function buildDirectorIntentsBlock(npcIntents: NpcIntent[] | undefined): 
 SPOTLIGHT NPC INTENTS (the Director's durable direction for this turn):
 Each spotlight NPC below is durably trying to accomplish its stated intent. Their Phase 1 proactive actions MUST act in service of their stated intent - advance it, or react to whatever blocks it. Do not let a spotlight NPC drift onto unrelated business this turn. These intents are GM-private direction: never restate them in 'headlines' or any other player-visible text.
 ${npcIntents.map(i => `- ${i.entity_id}: "${i.intent}" [${i.continuity}]`).join('\n')}
+`;
+}
+
+/**
+ * The minds' decisions block for the adjudication prompt (ROADMAP_PHASE_4.md
+ * 4C item 4). Each spotlight character whose mind call succeeded has ALREADY
+ * chosen its move; the adjudicator's contract is to have that character act
+ * it out and resolve conflicts/consequences - it still owns all deltas.
+ * DELIBERATELY passes only entity_id/chosen_action/method: the mind's
+ * `private_reasoning` never enters the adjudicator's context (it doesn't
+ * need their inner monologue - keeps its context lean, and preserves the
+ * seam where a mind can be wrong about itself). Empty/absent decisions
+ * produce no block at all; spotlights without a decision fall back to the
+ * Director-intents block above, exactly the pre-minds behavior. GM-private
+ * data class (D4/D5): this text reaches only the adjudicator, whose
+ * player-adjacent output fields never restate it.
+ */
+export function buildNpcMindDecisionsBlock(decisions: NpcMindDecision[] | undefined): string {
+  if (!decisions || decisions.length === 0) return '';
+  return `
+SPOTLIGHT NPC DECISIONS (each character's own mind has already chosen its move this turn):
+Each entry below is what that character has DECIDED to do this week, in their own head. That spotlight NPC's Phase 1 proactive action MUST be this chosen action, carried out by the stated method - you decide how it plays out, resolve conflicts between characters' decisions, and still own every delta and consequence; do not substitute a different move for them. A character may be wrong about the world or about themselves - let the outcome reflect reality, not their confidence. Spotlight NPCs with no entry here act on their Director intent above, as before. These decisions are GM-private: never restate them in 'headlines' or any other player-visible text.
+${decisions.map(d => `- ${d.entity_id} chose to: "${d.chosen_action}" — method: ${d.method}`).join('\n')}
 `;
 }
 

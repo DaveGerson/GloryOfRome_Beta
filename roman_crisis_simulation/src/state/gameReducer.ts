@@ -143,10 +143,12 @@ export const KEEP_FULL_SNAPSHOTS = 10;
 
 /**
  * Drops `postTurnEntities` from every entry older than the most recent
- * KEEP_FULL_SNAPSHOTS, and `perceivingNpcIds` in lockstep with it: the GM
- * console's per-NPC perception derivation needs the entry's own snapshot,
- * so once the snapshot is trimmed the id list can serve nothing and must
- * not keep accreting in the save. Returns the input array unchanged (same
+ * KEEP_FULL_SNAPSHOTS, and `perceivingNpcIds` + `npcMindResults` in
+ * lockstep with it: the GM console's per-NPC perception derivation needs
+ * the entry's own snapshot, so once the snapshot is trimmed the id list can
+ * serve nothing, and the mind decisions (4C.4) share the same bounded
+ * recent-window contract - GM-private per-turn tuning data must not keep
+ * accreting in the save. Returns the input array unchanged (same
  * reference) when no entry needs trimming, matching the reducer's
  * convention that untouched slices keep their identity - which also makes
  * it idempotent and safe to apply more than once per commit. Exported
@@ -161,9 +163,9 @@ export function withOldSnapshotsDropped(turnHistory: TurnHistoryEntry[]): TurnHi
   if (cutoff <= 0) return turnHistory;
   let changed = false;
   const trimmed = turnHistory.map((entry, index) => {
-    if (index >= cutoff || (entry.postTurnEntities === undefined && entry.perceivingNpcIds === undefined)) return entry;
+    if (index >= cutoff || (entry.postTurnEntities === undefined && entry.perceivingNpcIds === undefined && entry.npcMindResults === undefined)) return entry;
     changed = true;
-    const { postTurnEntities, perceivingNpcIds, ...rest } = entry;
+    const { postTurnEntities, perceivingNpcIds, npcMindResults, ...rest } = entry;
     return rest;
   });
   return changed ? trimmed : turnHistory;

@@ -11,6 +11,7 @@ import { Button } from './ui/Core';
 // pipeline just entered, replacing the old timer-based random rotation.
 const STAGE_STATUS_COPY: Record<TurnStage, string> = {
     story_relevance: 'The chronicler surveys the week…',
+    npc_minds: 'Behind shuttered doors, minds settle on their designs…',
     adjudication: 'Your rivals move in the dark…',
     private_conversation: 'Two figures withdraw behind a curtain…',
     mortality: 'The Fates weigh a life…',

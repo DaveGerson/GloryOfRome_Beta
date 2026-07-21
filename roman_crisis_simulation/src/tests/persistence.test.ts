@@ -195,6 +195,30 @@ describe('persistence/saveGame', () => {
     expect(loaded!.state.turnHistory[1].npcIntents).toBeUndefined();
   });
 
+  it('round-trips the optional npcMindResults on history entries (4C.4), alongside entries that lack it', () => {
+    const withMinds: TurnHistoryEntry = {
+      ...makeHistoryEntry(1, false),
+      npcMindResults: [
+        {
+          entity_id: 'maximinus_thrax',
+          chosen_action: 'Muster the Rhine veterans and march.',
+          method: 'Night marches, paid scouts.',
+          private_reasoning: 'The purple is within reach - and my own men must never see me hesitate.',
+          scheme_adjustment: 'Recruitment complete; the march begins.',
+        },
+      ],
+    };
+    const withoutMinds = makeHistoryEntry(2, false); // pre-minds entry shape
+    saveGame(makeState({ turnNumber: 3, turnHistory: [withMinds, withoutMinds] }));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.turnHistory[0].npcMindResults).toEqual(withMinds.npcMindResults);
+    expect(loaded!.state.turnHistory[1].npcMindResults).toBeUndefined();
+    // The legacy-shaped entry is otherwise untouched.
+    expect(loaded!.state.turnHistory[1].narration).toBe('Narration for turn 2');
+  });
+
   it('loads a stored v1 envelope that predates the knowledge store (field simply absent)', () => {
     // Written directly to storage, bypassing saveGame, to mirror a blob
     // persisted before the field existed.

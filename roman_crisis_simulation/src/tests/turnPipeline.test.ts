@@ -139,6 +139,7 @@ async function tick(times = 20): Promise<void> {
 type CallKind =
   | 'storyRelevance'
   | 'assessment'
+  | 'npcMind'
   | 'adjudication'
   | 'privateConversation'
   | 'mortalityValidation'
@@ -151,6 +152,7 @@ type CallKind =
 const ALL_KINDS: CallKind[] = [
   'storyRelevance',
   'assessment',
+  'npcMind',
   'adjudication',
   'privateConversation',
   'mortalityValidation',
@@ -171,6 +173,7 @@ function classify(systemInstruction: unknown): CallKind {
   const s = typeof systemInstruction === 'string' ? systemInstruction : '';
   if (s.includes('master storyteller and game master')) return 'storyRelevance';
   if (s.includes('Action Assessor')) return 'assessment';
+  if (s.includes("character's own private mind")) return 'npcMind';
   if (s.includes('Roman Crisis Adjudicator & Simulation Engine')) return 'adjudication';
   if (s.includes('secret observer')) return 'privateConversation';
   if (s.includes('Mortality Validator')) return 'mortalityValidation';
@@ -570,6 +573,17 @@ describe('ai/core/turn.ts runNewTurn - Director continuity loop (4C.3)', () => {
 
     h.response.storyRelevance.resolve(directorJson);
     h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    // Two spotlights -> two mind calls (4C.4). The harness holds ONE
+    // deferred per kind, so both minds receive this same decision JSON; the
+    // pipeline normalizes each decision's entity_id to the character it
+    // actually asked, which is all this test needs (the mind feature's own
+    // assertions live in tests/npcMinds.test.ts).
+    h.response.npcMind.resolve(JSON.stringify({
+      entity_id: 'npc_thrax',
+      chosen_action: 'Rally the Rhine veterans to my standard.',
+      method: 'Camp fires, oaths, and donatives.',
+      private_reasoning: 'The purple is within reach.',
+    }));
     h.response.adjudication.resolve(adjudicationWithOneActionJson);
     // Both spotlights resolve to real entities, so the private-conversation
     // step runs this turn - scripted to a no-op meeting.

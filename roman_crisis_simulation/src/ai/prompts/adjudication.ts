@@ -25,13 +25,14 @@
  * call sites.
  */
 
-import { Entity, WorldState, SimulationState, StoryRelevance, NpcIntent } from '../../types';
+import { Entity, WorldState, SimulationState, StoryRelevance, NpcIntent, NpcMindDecision } from '../../types';
 import type { ActionResolutionTier } from '../core/resolution';
 import {
   buildWorldSummary,
   buildSpotlightBlock,
   buildOtherNpcsBlock,
   buildDirectorIntentsBlock,
+  buildNpcMindDecisionsBlock,
   buildGmInterventionBlock,
   buildStoryEvolutionBlock,
   buildMetaNarrativeBlock,
@@ -148,6 +149,16 @@ export interface AdjudicationPromptInput {
    * no SPOTLIGHT NPC INTENTS block (see `buildDirectorIntentsBlock`).
    */
   npcIntents?: NpcIntent[];
+  /**
+   * The minds' decisions for this turn (4C.4) - one entry per spotlight
+   * character whose mind call succeeded, at most MAX_MINDS_PER_TURN
+   * (ai/prompts/npcMind.ts). Optional so pre-minds constructions keep
+   * working; absent/empty means no SPOTLIGHT NPC DECISIONS block and every
+   * spotlight falls back to its Director intent alone (see
+   * `buildNpcMindDecisionsBlock`). `private_reasoning` is deliberately never
+   * serialized into the prompt.
+   */
+  npcMindDecisions?: NpcMindDecision[];
 }
 
 /** Builds the { systemInstruction, prompt } pair for the main turn adjudication call. */
@@ -155,7 +166,7 @@ export function buildAdjudicationPrompt(input: AdjudicationPromptInput): { syste
   const {
     worldState, simulationState, playerEntity, npcEntities, history,
     playerIntent, gmInterventionText, storyRelevance, metaNarrative,
-    playerActionOutcome, npcIntents,
+    playerActionOutcome, npcIntents, npcMindDecisions,
   } = input;
 
   const spotlightIds = new Set(storyRelevance.spotlight_entities.map(s => s.entity_id));
@@ -178,6 +189,7 @@ ${history.length > 0 ? history.join('\n') : "No recent events of note."}
 
 ${buildSpotlightBlock(spotlightNpcs)}
 ${buildDirectorIntentsBlock(npcIntents)}
+${buildNpcMindDecisionsBlock(npcMindDecisions)}
 ${buildOtherNpcsBlock(otherNpcs)}
 
 ${buildSecretSurvivorsBlock(npcEntities)}

@@ -473,6 +473,18 @@ export interface TurnHistoryEntry {
    * rendered only in the GM console, never player-facing.
    */
   npcIntents?: NpcIntent[];
+  /**
+   * The per-spotlight mind decisions this turn (ROADMAP_PHASE_4.md 4C item
+   * 4) - at most MAX_MINDS_PER_TURN entries (ai/prompts/npcMind.ts), as fed
+   * to the adjudicator (minus `private_reasoning`, which only the GM console
+   * ever renders). Optional: entries persisted before minds existed (and
+   * turns with no mind-eligible spotlight) simply lack it, and entries older
+   * than the snapshot window drop it alongside `postTurnEntities`/
+   * `perceivingNpcIds` (state/gameReducer.ts) so the save stays bounded.
+   * GM-PRIVATE (D4/D5): rendered only in the GM console, never
+   * player-facing.
+   */
+  npcMindResults?: NpcMindDecision[];
   resolutionTrace?: ActionResolutionEvent; // The player action's trip through the resolution layer this turn (if consequential), see ActionResolutionEvent
   /**
    * The 32-bit seed of this turn's roll generator
@@ -514,6 +526,29 @@ export interface NpcIntent {
   /** ONE LINE: what this character is trying to accomplish next. */
   intent: string;
   continuity: NpcIntentContinuity;
+}
+
+/**
+ * One spotlight NPC's mind decision (ROADMAP_PHASE_4.md 4C item 4, D10/D22):
+ * the structured output of that character's own per-turn mind call
+ * (ai/prompts/npcMind.ts / ai/tools/npcMind.ts), decided from the
+ * character's BOUNDED knowledge only. GM-PRIVATE per DESIGN_DECISIONS.md
+ * D4/D5, same handling class as `gm_private`/`NpcIntent`: mind decisions -
+ * and especially `private_reasoning` - may render only in GameMasterScreen
+ * and feed only prompts under ai/, never any player-facing surface. The
+ * adjudication prompt receives entity_id/chosen_action/method ONLY - never
+ * `private_reasoning` (ai/prompts/fragments.ts::buildNpcMindDecisionsBlock).
+ */
+export interface NpcMindDecision {
+  entity_id: string;
+  /** ONE concrete act the character takes this turn, in prose. */
+  chosen_action: string;
+  /** HOW the character goes about it - brief. */
+  method: string;
+  /** The character's true, first-person thinking behind the move. GM-private even among GM data: never fed back into the adjudicator. */
+  private_reasoning: string;
+  /** Optional: how the character's active scheme shifts in their own mind this turn. Absent/null when the scheme stands unchanged. */
+  scheme_adjustment?: string | null;
 }
 
 export interface StoryRelevance {

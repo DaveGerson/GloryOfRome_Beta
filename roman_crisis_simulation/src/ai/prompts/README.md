@@ -16,6 +16,7 @@ one of the builders below.
 | `narration` | `narration.ts::buildNarrationPrompt` | pro | - (prose) | - | `turn.ts` step 5 |
 | `playerMonologue` | `narration.ts::buildPlayerMonologuePrompt` | flash | - (prose) | - | `turn.ts` step 4 |
 | `storyRelevance` | `intelligence.ts::buildStoryRelevancePrompt` | pro | `zStoryRelevance` | `StoryRelevanceSchema` | `turn.ts` step 0 (Director) |
+| `npcMind` | `npcMind.ts::buildNpcMindPrompt` | flash | `zNpcMindDecision` | `NpcMindDecisionSchema` | `turn.ts` step 1.5 (per-spotlight minds, between the Director and adjudication - up to `MAX_MINDS_PER_TURN` in one `Promise.all`) |
 | `updatedSimulationState` | `intelligence.ts::buildSimulationStateUpdatePrompt` | pro | `zSimulationState` | `SimulationStateSchema` | `turn.ts` step 2.5 |
 | `relationshipUpdates` | `intelligence.ts::buildRelationshipUpdatesPrompt` | pro | `zRelationshipDeltas` | `RelationshipDeltasSchema` | `turn.ts` step 5.5 |
 | `privateConversation` | `intelligence.ts::buildPrivateConversationPrompt` | pro | `zConversationSimulation` | `ConversationSimulationSchema` | `turn.ts` step 2.5 (off-screen sim) |
@@ -44,7 +45,9 @@ separate wrapper.
 
 (`entityBatch` runs once per parallel NPC batch at runtime; its actual
 `callName` is suffixed per batch, e.g. `entityBatch:Player`,
-`entityBatch:NPCs_1` - see `ai/core/initiator.ts::generateEntityBatch`.)
+`entityBatch:NPCs_1` - see `ai/core/initiator.ts::generateEntityBatch`.
+`npcMind` follows the same convention, suffixed per character, e.g.
+`npcMind:maximinus_thrax` - see `ai/tools/npcMind.ts`.)
 
 `fragments.ts` holds the shared, reusable text builders (entity briefs,
 world-state summary, GM-intervention block, story-evolution block,
@@ -166,6 +169,46 @@ of its perception-grounded memories (`Entity.memories` - the D10 stamp).
 - Intents are GM-PRIVATE (D4/D5), same handling class as `gm_private`:
   they render only in `GameMasterScreen` and feed only prompts under
   `ai/` - never a player-facing surface.
+
+## The minds: bounded knowledge, decisions the adjudicator acts out
+
+`npcMind` (`npcMind.ts::buildNpcMindPrompt`, consumed by
+`ai/tools/npcMind.ts::getNpcMindDecision`) is the 4C.4 mind call
+(DESIGN_DECISIONS.md D10/D22): each spotlight character - alive,
+non-player, up to `MAX_MINDS_PER_TURN`, selected by
+`ai/core/turn.ts::selectMindEntities` - is addressed IN CHARACTER on the
+flash tier and decides its own move for the turn, all minds launched in a
+single `Promise.all` between the Director and adjudication (the one added
+latency leg D16 sanctions).
+
+- **THE ASYMMETRY CONTRACT (the point):** a mind's prompt may contain ONLY
+  what that character plausibly knows - its own full brief (own secrets,
+  scheme, personality, skills, beliefs, relationships), its own memories,
+  its own perceived digest of the previous turn's events
+  (`perception/visibility.ts` run from ITS vantage), its own Director
+  intent, and public knowledge (headlines + the D5-public macro world
+  summary). NEVER another character's secrets, `active_scheme`,
+  `gm_private`, `secret_truth`, rumor truth flags, or the player's private
+  data. `npcMind.ts::buildMindSelfBrief` is a DEDICATED builder for
+  exactly this reason - the omniscient adjudicator fragments
+  (`fragments.ts::getEntityBrief` etc.) must never be reused for a mind.
+  Pinned by tests/npcMinds.test.ts.
+- The adjudicator receives the decisions via
+  `fragments.ts::buildNpcMindDecisionsBlock` - entity_id, chosen_action,
+  method ONLY, never `private_reasoning` (lean context, and a mind may be
+  wrong about itself). Contract: a spotlight with a decision acts it out;
+  the adjudicator resolves conflicts/consequences and still owns all
+  deltas. Spotlights without a decision (cap overflow, or a failed mind
+  call - caught per-mind, `[Mind]` gm_private note, never a turn failure)
+  fall back to the Director-intents block, the pre-minds behavior.
+- Mind outputs are GM-PRIVATE (D4/D5): the full decisions (reasoning
+  included) render only in `GameMasterScreen` (the turn's
+  `npcMindResults`, trimmed with the snapshot window) and feed only
+  prompts under `ai/`.
+- **D22 grouping seam:** one mind per spotlight CHARACTER today; grouping
+  minds per set/faction later (the sanctioned cost lever) changes only
+  `selectMindEntities` + the self-brief - see the seam notes in
+  `ai/core/turn.ts` and `ai/tools/npcMind.ts`. Not built yet.
 
 ## System vs. user split
 

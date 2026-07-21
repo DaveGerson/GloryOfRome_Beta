@@ -150,6 +150,24 @@ describe('eval/harness checkRawCallSchema', () => {
     );
     expect(check.status).toBe('valid');
   });
+
+  it('maps suffixed npcMind call names (4C.4) to the mind decision schema', () => {
+    expect(schemaForCallName('npcMind:maximinus_thrax')).not.toBeNull();
+    const check = checkRawCallSchema(
+      makeRawCall('npcMind:maximinus_thrax', JSON.stringify({
+        entity_id: 'maximinus_thrax',
+        chosen_action: 'March south.',
+        method: 'By night.',
+        private_reasoning: 'The purple calls.',
+      }))
+    );
+    expect(check.status).toBe('valid');
+    // A decision missing a required field is a schema violation, not skipped.
+    const broken = checkRawCallSchema(
+      makeRawCall('npcMind:maximinus_thrax', JSON.stringify({ entity_id: 'maximinus_thrax' }))
+    );
+    expect(broken.status).toBe('schema_violation');
+  });
 });
 
 // --- Call-name inventory drift ---------------------------------------------
@@ -173,9 +191,10 @@ describe('eval/harness call-name inventory (drift guard)', () => {
     'scenarioStructure', // ai/core/initiator.ts
     'characterCreation', // ai/tools/characterCreator.ts
     'ambitionInference', // ai/tools/ambition.ts
-    // 'entityBatch:<batchName>' (ai/core/initiator.ts) is deliberately not
-    // listed: its callName is suffixed per batch and resolved by
-    // schemaForCallName's prefix rule, covered by its own test above.
+    // 'entityBatch:<batchName>' (ai/core/initiator.ts) and
+    // 'npcMind:<entity_id>' (ai/tools/npcMind.ts) are deliberately not
+    // listed: their callNames are suffixed at runtime and resolved by
+    // schemaForCallName's prefix rules, covered by their own tests above.
   ];
   const EMITTED_PROSE_CALL_NAMES = [
     'narration', // ai/core/turn.ts

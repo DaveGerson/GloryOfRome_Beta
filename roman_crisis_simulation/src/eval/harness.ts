@@ -34,6 +34,7 @@ import {
   zInvestigationResult,
   zMortalityOutcome,
   zMortalityValidation,
+  zNpcMindDecision,
   zRelationshipDeltas,
   zScenarioStructure,
   zSimulationState,
@@ -50,8 +51,9 @@ import { zAmbitionInference } from '../ai/tools/ambition';
  * renamed production call by itself. The drift test in
  * tests/evalHarness.test.ts pins these keys (plus PROSE_CALL_NAMES) to the
  * exact call names the app emits, so a rename must update both sides.
- * `entityBatch` is absent on purpose - its runtime callName is suffixed per
- * batch (e.g. `entityBatch:NPCs_1`), handled by `schemaForCallName` below.
+ * `entityBatch` and `npcMind` are absent on purpose - their runtime
+ * callNames are suffixed (e.g. `entityBatch:NPCs_1`,
+ * `npcMind:maximinus_thrax`), handled by `schemaForCallName` below.
  */
 export const STRUCTURED_CALL_SCHEMAS: Record<string, ZodType<any, any, any>> = {
   assessment: zActionAssessment,
@@ -81,6 +83,9 @@ export const PROSE_CALL_NAMES: ReadonlySet<string> = new Set([
 /** Resolves a captured callName to its zod schema, or null when no mapping exists. */
 export function schemaForCallName(callName: string): ZodType<any, any, any> | null {
   if (callName === 'entityBatch' || callName.startsWith('entityBatch:')) return zEntityBatch;
+  // Per-spotlight mind calls (4C.4) are suffixed per character, e.g.
+  // 'npcMind:maximinus_thrax' - same convention as entityBatch above.
+  if (callName === 'npcMind' || callName.startsWith('npcMind:')) return zNpcMindDecision;
   return STRUCTURED_CALL_SCHEMAS[callName] ?? null;
 }
 

@@ -1,8 +1,9 @@
 
 // ai/mocks.ts
 
-import { Adjudication, Entity, NpcIntent, Report, Scheme, SimulationState, StoryRelevance, TruthLedgerEntry, TurnHistoryEntry, WorldState, EventDelta, EntityStub } from '../types';
+import { Adjudication, Entity, NpcIntent, NpcMindDecision, Report, Scheme, SimulationState, StoryRelevance, TruthLedgerEntry, TurnHistoryEntry, WorldState, EventDelta, EntityStub } from '../types';
 import { applyAdjudication, applyDeltas } from './core/engine';
+import { MAX_MINDS_PER_TURN } from './prompts/npcMind';
 
 // --- MOCK DATA ---
 const MOCK_NEW_MOBSTER: Entity = {
@@ -252,6 +253,22 @@ export const mockRunNewTurn = async (
     // the history entry - the same loop the real pipeline runs.
     const storyRelevance = await mockGetStoryRelevance(turnNumber, currentNpcIntents);
 
+    // Mock minds (4C.4): one decision per mock spotlight that resolves to a
+    // living, non-player roster entity, bounded like the real pipeline
+    // (selectMindEntities in ai/core/turn.ts) - so the mind -> adjudicator
+    // loop runs offline end-to-end and the GM console's Mind Decisions view
+    // has real data in mock mode.
+    const mindDecisions: NpcMindDecision[] = [];
+    for (const spotlight of storyRelevance.spotlight_entities) {
+        if (mindDecisions.length >= MAX_MINDS_PER_TURN) break;
+        const mindEntity = currentEntities.find(e => e.entity_id === spotlight.entity_id && e.status === 'alive');
+        if (!mindEntity || mindEntity.entity_id === playerEntity.entity_id) continue;
+        mindDecisions.push(await mockGetNpcMindDecision(
+            mindEntity,
+            storyRelevance.spotlight_intents.find(i => i.entity_id === spotlight.entity_id)
+        ));
+    }
+
     // Player-planted rumor (D19 "lies in play", adjudication contract): the
     // mock turn must exercise the planting path offline - origin_id MUST be
     // the player's own entity_id and is_true false, so the truth ledger
@@ -318,6 +335,7 @@ export const mockRunNewTurn = async (
         postTurnEntities: updatedEntities,
         perceivingNpcIds,
         npcIntents: storyRelevance.spotlight_intents,
+        npcMindResults: mindDecisions.length > 0 ? mindDecisions : undefined,
     };
 
     return {
@@ -410,6 +428,41 @@ export const mockGetPlayerMonologue = async (player: Entity, turnHeadlines: stri
 const MOCK_SPOTLIGHT_INTENTS: Record<string, string> = {
     maximinus_thrax: 'Turn the legions against the Emperor with a whisper campaign about his weakness.',
     praetorian_guard: 'Extract the promised donative before pledging their swords to anyone.',
+};
+
+/** Canned mind decisions for the mock spotlight pair (4C.4) - fixed so the offline loop is deterministic and inspectable in the GM console. */
+const MOCK_MIND_DECISIONS: Record<string, Omit<NpcMindDecision, 'entity_id'>> = {
+    maximinus_thrax: {
+        chosen_action: '(Mock) Dispatch trusted centurions through the camps at night to swear the wavering cohorts to my cause.',
+        method: '(Mock) Oaths over wine, sweetened with promises of double pay under a soldier-emperor.',
+        private_reasoning: '(Mock) The boy-emperor buys loyalty he cannot keep. Every denarius he promises the Praetorians is a week I gain to make the legions mine.',
+        scheme_adjustment: '(Mock) The whisper campaign has done its work - the scheme advances from rumor to recruitment.',
+    },
+    praetorian_guard: {
+        chosen_action: '(Mock) Send a deputation to the Palatine demanding the promised donative in coin, not words.',
+        method: '(Mock) Formal petition by day; quiet talk with Thrax\'s men by night, keeping every option paid for.',
+        private_reasoning: '(Mock) Emperors come and go; the Guard endures. Whoever pays first owns our swords this season - and both suitors should believe they are winning us.',
+    },
+};
+
+/**
+ * Mock per-spotlight mind decision (4C.4): fixed canned decisions for the
+ * mock spotlight pair, a generic in-character fallback for anyone else -
+ * so the mind -> adjudicator loop runs offline end-to-end regardless of
+ * roster. GM-private data like the real thing (D4/D5).
+ */
+export const mockGetNpcMindDecision = async (self: Entity, directorIntent?: NpcIntent): Promise<NpcMindDecision> => {
+    console.log(`--- MOCK NPC MIND for ${self.name} ---`);
+    const canned = MOCK_MIND_DECISIONS[self.entity_id];
+    if (canned) return { entity_id: self.entity_id, ...canned };
+    return {
+        entity_id: self.entity_id,
+        chosen_action: `(Mock) ${self.name} moves carefully to advance their own position this week.`,
+        method: '(Mock) Quiet words, quieter coin.',
+        private_reasoning: directorIntent
+            ? `(Mock) My resolve holds: ${directorIntent.intent}`
+            : `(Mock) I keep my own counsel and watch for an opening.`,
+    };
 };
 
 export const mockGetStoryRelevance = async (turnNumber: number, previousIntents: NpcIntent[] = []): Promise<StoryRelevance> => {

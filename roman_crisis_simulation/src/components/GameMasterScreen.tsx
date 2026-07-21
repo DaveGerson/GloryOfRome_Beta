@@ -36,17 +36,18 @@ const SummaryView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => (
 );
 
 /**
- * Renders one turn's Director intents + the adjudicator's entityActions
- * side by side, plus the code-side [Director] consistency notes recorded
- * when a spotlight's entityAction was missing for its intent (soft
- * contract, ai/core/turn.ts::buildIntentConsistencyNotes - the notes live
- * in gm_private, surfaced here where the actions they judge are shown).
- * Intents are GM-private (D4/D5) - this console is their only rendered
- * surface.
+ * Renders one turn's Director intents, the per-spotlight MIND decisions
+ * (ROADMAP_PHASE_4.md 4C item 4 - chosen action, method, and the
+ * private_reasoning that is the D7 tuning payoff; this console is the ONLY
+ * rendered surface for a mind's inner monologue, D4/D5), and the
+ * adjudicator's entityActions side by side, plus the code-side [Director]/
+ * [Mind] notes recorded in gm_private (soft contracts,
+ * ai/core/turn.ts::buildIntentConsistencyNotes + the per-mind failure
+ * catch - surfaced here where the actions they judge are shown).
  */
 const ActionsView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => {
     const adjudication = entry.adjudication;
-    const directorNotes = adjudication.gm_private.filter(note => note.startsWith('[Director]'));
+    const directorNotes = adjudication.gm_private.filter(note => note.startsWith('[Director]') || note.startsWith('[Mind]'));
     return (
     <>
         {entry.npcIntents && entry.npcIntents.length > 0 && (
@@ -61,9 +62,25 @@ const ActionsView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => {
                 ))}
             </div>
         )}
+        {entry.npcMindResults && entry.npcMindResults.length > 0 && (
+            <div style={well}>
+                <span style={lbl}>Mind Decisions (each character's own move, this turn)</span>
+                {entry.npcMindResults.map((decision, index) => (
+                    <div key={index} style={{ fontSize: 14, marginTop: 6 }}>
+                        <span style={{ color: RED, fontFamily: MONO, fontSize: 13 }}>{decision.entity_id}</span>
+                        <div style={{ color: PARCH, marginTop: 2 }}><strong style={{ color: DIM }}>Chose:</strong> {decision.chosen_action}</div>
+                        <div style={{ color: PARCH }}><strong style={{ color: DIM }}>Method:</strong> {decision.method}</div>
+                        <div style={{ fontStyle: 'italic', color: DIM }}><strong style={{ color: DIM, fontStyle: 'normal' }}>Private reasoning:</strong> “{decision.private_reasoning}”</div>
+                        {decision.scheme_adjustment && (
+                            <div style={{ color: '#E3C766', fontStyle: 'italic' }}><strong style={{ color: DIM, fontStyle: 'normal' }}>Scheme shift:</strong> {decision.scheme_adjustment}</div>
+                        )}
+                    </div>
+                ))}
+            </div>
+        )}
         {directorNotes.length > 0 && (
             <div style={{ ...well, border: '1px solid rgba(179,58,43,.45)' }}>
-                <span style={{ ...lbl, color: RED }}>Intent Consistency Notes</span>
+                <span style={{ ...lbl, color: RED }}>Director & Mind Notes</span>
                 {directorNotes.map((note, index) => (
                     <div key={index} style={{ fontSize: 13, fontStyle: 'italic', color: DIM, marginTop: 4 }}>“{note}”</div>
                 ))}

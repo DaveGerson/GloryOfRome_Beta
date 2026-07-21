@@ -264,6 +264,23 @@ export const zMortalityOutcome = z.object({
   outcomes: z.array(zMortalityOutcomeEntry),
 }).passthrough();
 
+// --- NPC minds (ai/tools/npcMind.ts, ROADMAP_PHASE_4.md 4C item 4, D10/D22) --
+
+/**
+ * Validates one per-spotlight mind call's output (ai/tools/npcMind.ts).
+ * Mirrors `NpcMindDecisionSchema` in ai/core/schemas.ts and
+ * `NpcMindDecision` in types.ts - keep all three in lockstep. GM-private
+ * data class (D4/D5): `private_reasoning` renders only in GameMasterScreen
+ * and is never fed to the adjudicator.
+ */
+export const zNpcMindDecision = z.object({
+  entity_id: z.string(),
+  chosen_action: z.string(),
+  method: z.string(),
+  private_reasoning: z.string(),
+  scheme_adjustment: z.string().nullable().optional(),
+}).passthrough();
+
 // --- Resolution layer: action assessment (ai/tools/assessment.ts, ROADMAP_0_MASTER_PLAN.md Phase 3 item 4) --
 
 /** Validates the action-assessment call's output (ai/tools/assessment.ts). */

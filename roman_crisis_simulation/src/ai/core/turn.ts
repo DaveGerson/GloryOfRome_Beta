@@ -1,10 +1,14 @@
 import { GoogleGenAI } from "@google/genai";
-import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent, TruthLedgerEntry, NpcIntent, StoryRelevance, EntityAction } from '../../types';
+import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent, TruthLedgerEntry, NpcIntent, NpcMindDecision, StoryRelevance, EntityAction } from '../../types';
 import { AdjudicationSchema } from './schemas';
 import { applyAdjudication, applyDeltas } from './engine';
 import { mockRunNewTurn } from "../mocks";
 import { getPlayerMonologue, getStoryRelevance, getUpdatedSimulationState, getRelationshipUpdates, simulatePrivateConversation } from '../tools/intelligence';
 import { getActionAssessment } from '../tools/assessment';
+import { getNpcMindDecision } from '../tools/npcMind';
+import { MAX_MINDS_PER_TURN } from '../prompts/npcMind';
+import { buildWorldSummary } from '../prompts/fragments';
+import { buildPerceivedDigest } from '../../perception/visibility';
 import { generateStructured, generateText, generateTextStream, GEMINI_PRO, beginTurnCapture, endTurnCapture } from './geminiService';
 import { zAdjudication } from './zodSchemas';
 import { buildAdjudicationPrompt, PlayerActionOutcomeContext } from '../prompts/adjudication';
@@ -46,6 +50,37 @@ export function selectDurableIntents(storyRelevance: StoryRelevance): NpcIntent[
 }
 
 /**
+ * Picks which spotlight characters get a mind call this turn (4C.4, D22):
+ * the Director's spotlight picks in spotlight order (its picks are its
+ * importance ranking), resolved against the pre-turn roster - ALIVE,
+ * non-player entities only, deduped, capped at MAX_MINDS_PER_TURN
+ * (ai/prompts/npcMind.ts). Ids that resolve to nothing are skipped, never
+ * padded around.
+ *
+ * D22 GROUPING SEAM: one mind per spotlight CHARACTER today. When minds are
+ * later grouped per set/faction (the sanctioned cost lever - factions that
+ * act as a bloc may become one collective mind), THIS function is the seam:
+ * it would return mind GROUPS (each carrying one or more member entities)
+ * instead of individual entities, and buildNpcMindPrompt's self-brief would
+ * grow a collective form. Nothing downstream assumes one-entity-per-mind
+ * beyond what this function hands it. Pure; exported for direct unit
+ * testing.
+ */
+export function selectMindEntities(storyRelevance: StoryRelevance, entities: Entity[], playerEntityId: string): Entity[] {
+    const byId = new Map(entities.map(e => [e.entity_id, e]));
+    const picked: Entity[] = [];
+    const pickedIds = new Set<string>();
+    for (const spotlight of storyRelevance.spotlight_entities) {
+        if (picked.length >= MAX_MINDS_PER_TURN) break;
+        const entity = byId.get(spotlight.entity_id);
+        if (!entity || entity.status !== 'alive' || entity.entity_id === playerEntityId || pickedIds.has(entity.entity_id)) continue;
+        pickedIds.add(entity.entity_id);
+        picked.push(entity);
+    }
+    return picked;
+}
+
+/**
  * The SOFT entityActions-vs-intent contract (4C.3): every spotlight NPC
  * holding a Director intent should have an entityAction this turn acting in
  * service of it. A missing action is recorded as a gm_private note for the
@@ -69,6 +104,10 @@ export function buildIntentConsistencyNotes(entityActions: EntityAction[], npcIn
  * simulation-state call, see step 2.7's comment). Two stages are
  * conditional and simply never fire their notification when the underlying
  * step doesn't run this turn (see the call sites below for exactly why):
+ *  - `npc_minds`: only when at least one spotlight pick resolves to a
+ *    living, non-player roster entity (see `selectMindEntities`) - up to
+ *    MAX_MINDS_PER_TURN flash-tier mind calls in one Promise.all, the one
+ *    added latency leg between the Director and adjudication (4C.4, D16).
  *  - `private_conversation`: only when story relevance names >=2 spotlight
  *    entities that both resolve to real, currently-known entities.
  *  - `mortality`: only when at least one delta in the adjudication (as
@@ -102,6 +141,7 @@ export function buildIntentConsistencyNotes(entityActions: EntityAction[], npcIn
  */
 export type TurnStage =
     | 'story_relevance'
+    | 'npc_minds'
     | 'adjudication'
     | 'private_conversation'
     | 'mortality'
@@ -257,6 +297,50 @@ export async function runNewTurn(
         };
     }
 
+    // *** STEP 1.5: NPC MINDS (4C.4, D10/D22) ***
+    // One flash-tier mind call per mind-eligible spotlight character (see
+    // selectMindEntities - alive, non-player, capped at MAX_MINDS_PER_TURN),
+    // all launched in a single Promise.all: the ONE added latency leg
+    // between the Director and adjudication that D16 sanctions. Each mind's
+    // prompt carries ONLY that character's bounded knowledge (its own brief/
+    // memories, its own perceived digest of the PREVIOUS turn's events from
+    // the pre-turn roster, its Director intent, and public headlines/macro
+    // state - see ai/prompts/npcMind.ts's asymmetry contract). SOFT
+    // DEGRADATION: a mind-call failure never fails the turn - it is caught
+    // per-mind, recorded as a [Mind] gm_private note (pushed onto the
+    // adjudication below, once it exists), and that spotlight simply falls
+    // back to its Director intent alone in the adjudication prompt.
+    const mindNpcs = selectMindEntities(storyRelevance, currentEntities, playerEntity.entity_id);
+    const npcMindResults: NpcMindDecision[] = [];
+    const mindFailureNotes: string[] = [];
+    if (mindNpcs.length > 0) {
+        options?.onStage?.('npc_minds');
+        const previousEntry = turnHistory.slice(-1)[0];
+        const previousDeltas = previousEntry?.adjudication.deltas ?? [];
+        const publicHeadlines = previousEntry?.adjudication.headlines ?? [];
+        const worldSummary = buildWorldSummary(currentWorldState);
+        const intentByEntity = new Map(npcIntents.map(intent => [intent.entity_id, intent]));
+        const settled = await Promise.all(mindNpcs.map(async (npc): Promise<NpcMindDecision | null> => {
+            try {
+                return await getNpcMindDecision(ai, {
+                    self: npc,
+                    directorIntent: intentByEntity.get(npc.entity_id),
+                    // The character's own vantage on last week's ground truth
+                    // - the same viewer-agnostic filter the memory stamp and
+                    // the player digest use (perception/visibility.ts).
+                    perceivedChanges: buildPerceivedDigest(previousDeltas, npc, currentEntities, currentWorldState),
+                    publicHeadlines,
+                    worldSummary,
+                    turnNumber,
+                }, isMockMode);
+            } catch (e) {
+                mindFailureNotes.push(`[Mind] ${npc.entity_id}'s mind call failed (${e instanceof Error ? e.message : String(e)}) - proceeding without it; the adjudicator falls back to this spotlight's Director intent alone.`);
+                return null;
+            }
+        }));
+        npcMindResults.push(...settled.filter((decision): decision is NpcMindDecision => decision !== null));
+    }
+
     // 1. Compile context
     const recentHistory = turnHistory.slice(-6).map(h => `Turn ${h.turnNumber}: ${h.narration || h.adjudication.headlines.join('. ')}`);
     const { systemInstruction, prompt } = buildAdjudicationPrompt({
@@ -271,6 +355,7 @@ export async function runNewTurn(
         metaNarrative,
         playerActionOutcome,
         npcIntents,
+        npcMindDecisions: npcMindResults,
     });
 
     // 2. Get adjudication from AI
@@ -308,6 +393,12 @@ export async function runNewTurn(
     // gm_private is stripped before narration (ai/prompts/narration.ts), so
     // these notes can never reach the player.
     adjudication.gm_private.push(...buildIntentConsistencyNotes(adjudication.entityActions, npcIntents));
+
+    // Mind-call soft-degradation notes (4C.4): recorded per failed mind in
+    // step 1.5 above, attached here once the adjudication object exists -
+    // gm_private is GM-console-only (stripped before narration), so the
+    // failure is visible for tuning without ever reaching the player.
+    adjudication.gm_private.push(...mindFailureNotes);
 
     // *** NEW STEP 2.5: SIMULATE OFF-SCREEN NPC CONVERSATION ***
     // Moved ahead of applyAdjudication (previously ran on post-applyAdjudication
@@ -523,6 +614,11 @@ export async function runNewTurn(
         // Optional on the entry (save-compat): omitted entirely when the
         // Director committed no spotlight intents this turn.
         npcIntents: npcIntents.length > 0 ? npcIntents : undefined,
+        // Optional (save-compat), bounded at MAX_MINDS_PER_TURN by
+        // construction: this turn's mind decisions, private_reasoning
+        // included - GM-console-only (D4/D5), trimmed with the snapshot
+        // window like perceivingNpcIds (state/gameReducer.ts).
+        npcMindResults: npcMindResults.length > 0 ? npcMindResults : undefined,
     };
 
     const result = {

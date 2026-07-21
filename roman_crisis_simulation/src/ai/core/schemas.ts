@@ -391,6 +391,27 @@ export const MortalityOutcomeSchema = {
     required: ['outcomes'],
 };
 
+// --- NPC minds (ai/tools/npcMind.ts, ROADMAP_PHASE_4.md 4C item 4, D10/D22) --
+
+/**
+ * The per-spotlight mind call's Gemini response schema (ai/tools/npcMind.ts,
+ * ai/prompts/npcMind.ts). Mirrors `zNpcMindDecision` in
+ * ai/core/zodSchemas.ts and `NpcMindDecision` in types.ts; keep all three in
+ * lockstep. The whole object is GM-private (D4/D5) - `private_reasoning` in
+ * particular never reaches the adjudication prompt or any player surface.
+ */
+export const NpcMindDecisionSchema = {
+    type: Type.OBJECT,
+    properties: {
+        entity_id: { type: Type.STRING, description: "Your own entity_id, exactly as given in your brief." },
+        chosen_action: { type: Type.STRING, description: "ONE concrete act you take this week, in prose - a single decisive move, not a list of options." },
+        method: { type: Type.STRING, description: "HOW you carry the act out, briefly - the means, the timing, the cover." },
+        private_reasoning: { type: Type.STRING, description: "Your true, first-person thinking behind the move - the honest why, including anything you would never say aloud. No one in the world ever hears this." },
+        scheme_adjustment: { type: Type.STRING, nullable: true, description: "OPTIONAL: if this week's events shift your active scheme in your own mind (a step completed, failed, or redirected), one line on how. Omit/null if your scheme stands unchanged." },
+    },
+    required: ['entity_id', 'chosen_action', 'method', 'private_reasoning'],
+};
+
 // --- Resolution layer: action assessment (ai/tools/assessment.ts, ROADMAP_0_MASTER_PLAN.md Phase 3 item 4) --
 
 /** The action-assessment call's Gemini response schema (ai/tools/assessment.ts). */
