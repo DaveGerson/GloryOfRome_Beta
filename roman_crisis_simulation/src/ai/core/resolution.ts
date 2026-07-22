@@ -21,7 +21,8 @@
  *
  * Every `resolve*` function below is a PURE function over an
  * already-rolled value, so every band is exhaustively unit-testable
- * without touching randomness. Only `rollD20` touches `Math.random`. The
+ * without touching randomness. Only `rollD20` (via its default source) and
+ * `generateSeed` touch `Math.random`. The
  * modifier helpers (`derivePersonalityModifier`, `deriveOppositionModifier`,
  * `deriveInvestigationDifficulty`) are ALSO pure - they turn game state
  * (personality traits, a directional relationship, a target's profile)
@@ -38,17 +39,56 @@
 
 import { Entity, PersonalityTraits, Relationship } from '../../types';
 
+// --- Seeded randomness ---------------------------------------------------
+
 /**
- * Rolls a d20 (1-20 inclusive). Uses `Math.random()` directly - fine for
- * now, since mortality rolls don't need to be reproducible across runs.
- * Seeding (so a whole turn/campaign replays deterministically) is deferred
- * to when Phase 3 builds out the rest of the resolution layer; when that
- * lands, route this through a seeded generator instead of `Math.random` so
- * mortality rolls join the same deterministic story as every other roll
- * this module will eventually resolve.
+ * A random source: returns a float in [0, 1), `Math.random`-compatible.
+ * Roll-producing entry points accept one so a caller can supply a seeded
+ * generator (`createSeededRng`) and make every draw it feeds replayable
+ * from a single recorded seed.
  */
-export function rollD20(): number {
-    return Math.floor(Math.random() * 20) + 1;
+export type Rng = () => number;
+
+/**
+ * Creates a deterministic PRNG (mulberry32) over a 32-bit seed: the same
+ * seed always yields the same sequence, on every platform, with no
+ * dependencies. Statistical quality is ample for d20 rolls - the property
+ * that matters is reproducibility: a recorded seed replays every draw made
+ * from its generator, in order.
+ */
+export function createSeededRng(seed: number): Rng {
+    let state = seed >>> 0;
+    return () => {
+        state = (state + 0x6d2b79f5) >>> 0;
+        let t = state;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+/**
+ * Draws a fresh 32-bit unsigned seed for `createSeededRng`. `Math.random`
+ * is an acceptable entropy source here: the seed's job is to be RECORDED
+ * (so the draws made from its generator can be replayed), not to be
+ * unpredictable.
+ */
+export function generateSeed(): number {
+    return Math.floor(Math.random() * 0x100000000) >>> 0;
+}
+
+/**
+ * Rolls a d20 (1-20 inclusive) from the given random source. Without an
+ * `rng` it draws from `Math.random` - a non-reproducible roll. Pass a
+ * `createSeededRng` generator to make the roll replayable: ai/core/turn.ts
+ * threads one per-turn generator through every roll a turn makes (recording
+ * its seed on the turn's history entry), and ai/tools/intelligence.ts gives
+ * each investigation its own (recording it on the investigation's
+ * resolution trace). Per DESIGN_DECISIONS.md D4, the roll - and any seed
+ * behind it - is never shown to the player either way.
+ */
+export function rollD20(rng: Rng = Math.random): number {
+    return Math.floor(rng() * 20) + 1;
 }
 
 function assertValidRoll(fnName: string, roll: number): void {

@@ -91,24 +91,52 @@ export interface ThinkingConfigLike {
  *     JSON, or (when a zodSchema was supplied) failed schema validation
  *     even after the repair-retry. Retrying the exact same request is
  *     unlikely to help without a different prompt/approach.
+ *
+ * `message` must never contain raw model output: App.tsx surfaces it
+ * verbatim in player-facing chat on a fatal error, and for
+ * adjudication-family calls the raw text can carry gm_private material
+ * (DESIGN_DECISIONS.md D4/D5). Diagnostic snippets of the offending output
+ * go in `debugSnippet` instead.
  */
 export class AiServiceError extends Error {
   readonly kind: 'transient' | 'fatal';
   readonly callName: string;
   readonly cause?: unknown;
+  /**
+   * Truncated snippet of the offending raw model output (or parse-failure
+   * detail quoting it), for GM/console-side diagnostics only. Deliberately
+   * kept OFF `message` - see the class doc above - so no player-facing
+   * surface may ever render this field or fold it into display text.
+   */
+  readonly debugSnippet?: string;
 
-  constructor(kind: 'transient' | 'fatal', callName: string, message: string, cause?: unknown) {
+  constructor(kind: 'transient' | 'fatal', callName: string, message: string, cause?: unknown, debugSnippet?: string) {
     super(message);
     this.name = 'AiServiceError';
     this.kind = kind;
     this.callName = callName;
     this.cause = cause;
+    this.debugSnippet = debugSnippet;
   }
 }
 
 const MAX_ATTEMPTS = 3;
 const BASE_BACKOFF_MS = 1000; // ~1s / 2s / 4s before jitter
 const MAX_RAW_RESPONSE_CHARS = 20_000;
+/**
+ * Cap on captured prompt/system-instruction text per record. Generous on
+ * purpose - the capture exists so a call can be replayed/evaluated verbatim,
+ * so truncation should only ever fire on a pathological outlier.
+ */
+export const MAX_CAPTURED_PROMPT_CHARS = 50_000;
+/**
+ * Bound on the session-wide call log below; oldest records are evicted
+ * first. Sized for the 4C pipeline: up to MAX_MINDS_PER_TURN extra
+ * flash-tier mind calls per turn churn the log ~25% faster than the
+ * pre-minds pipeline did, and the eval-corpus export (D18) rides this log -
+ * the window must keep covering a comparable number of turns.
+ */
+export const MAX_SESSION_CALL_RECORDS = 800;
 
 /**
  * Detects whether an error from the network/SDK layer is worth retrying:
@@ -137,22 +165,33 @@ function jitteredBackoffMs(attempt: number): number {
   return Math.max(0, Math.round(base + jitter));
 }
 
-function truncateForCapture(text: string): string {
-  if (text.length <= MAX_RAW_RESPONSE_CHARS) return text;
-  return `${text.slice(0, MAX_RAW_RESPONSE_CHARS)}... [truncated, ${text.length} total chars]`;
+function truncateForCapture(text: string, maxChars: number = MAX_RAW_RESPONSE_CHARS): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}... [truncated, ${text.length} total chars]`;
 }
 
 // --- Raw call capture -------------------------------------------------
 //
-// A turn makes several sequential AI calls (adjudication, narration,
-// relationship updates, etc). `beginTurnCapture`/`endTurnCapture` let
-// turn.ts bracket the whole pipeline and collect every call made in
-// between into one array, without threading a capture parameter through
-// every intelligence.ts/turn.ts function signature. Calls made outside a
-// begin/end bracket (e.g. DramatisPersonaeTab's ad-hoc investigation
-// calls) simply aren't captured - there's no turn to attach them to.
+// Two channels, both GM-console/eval-side only - captured prompts and
+// responses must never reach a player-facing surface (DESIGN_DECISIONS.md
+// D4/D5) and must never be written into the persisted save blob (saves stay
+// lean per D18; persistence/saveGame.ts strips the text fields on
+// serialize):
+//
+//  - Turn bracket: a turn makes several sequential AI calls (adjudication,
+//    narration, relationship updates, etc). `beginTurnCapture`/
+//    `endTurnCapture` let turn.ts bracket the whole pipeline and collect
+//    every call made in between into one array, without threading a
+//    capture parameter through every intelligence.ts/turn.ts function
+//    signature.
+//  - Session log: EVERY call - bracketed or not (e.g. DramatisPersonaeTab's
+//    ad-hoc investigation calls, clarifications, deep analysis, ambition
+//    inference, the epilogue) - is also appended to a module-level,
+//    session-scoped log bounded at MAX_SESSION_CALL_RECORDS (oldest
+//    evicted first). In-memory only; it does not survive a reload.
 
 let activeCapture: RawCallRecord[] | null = null;
+let sessionCallLog: RawCallRecord[] = [];
 
 /** Starts collecting raw call records for the current turn. */
 export function beginTurnCapture(): void {
@@ -166,9 +205,33 @@ export function endTurnCapture(): RawCallRecord[] {
   return records;
 }
 
+/** Snapshot (oldest first) of the bounded session-wide call log. */
+export function getSessionCallLog(): RawCallRecord[] {
+  return [...sessionCallLog];
+}
+
+/** Empties the session-wide call log. Does not touch an active turn bracket. */
+export function resetSessionCallLog(): void {
+  sessionCallLog = [];
+}
+
 function recordCall(record: RawCallRecord): void {
+  const bounded: RawCallRecord = {
+    ...record,
+    rawResponse: truncateForCapture(record.rawResponse),
+  };
+  if (bounded.promptText !== undefined) {
+    bounded.promptText = truncateForCapture(bounded.promptText, MAX_CAPTURED_PROMPT_CHARS);
+  }
+  if (bounded.systemInstruction !== undefined) {
+    bounded.systemInstruction = truncateForCapture(bounded.systemInstruction, MAX_CAPTURED_PROMPT_CHARS);
+  }
+  sessionCallLog.push(bounded);
+  if (sessionCallLog.length > MAX_SESSION_CALL_RECORDS) {
+    sessionCallLog.splice(0, sessionCallLog.length - MAX_SESSION_CALL_RECORDS);
+  }
   if (activeCapture) {
-    activeCapture.push({ ...record, rawResponse: truncateForCapture(record.rawResponse) });
+    activeCapture.push(bounded);
   }
 }
 
@@ -323,6 +386,8 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
         latencyMs: network.latencyMs,
         attempts: network.attempts,
         promptChars: currentPrompt.length,
+        promptText: currentPrompt,
+        systemInstruction: req.systemInstruction,
         rawResponse: network.text,
         validated: false,
       });
@@ -331,11 +396,17 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
         currentPrompt = `${req.prompt}${formatRepairSuffix([`(unparseable JSON: ${message})`])}`;
         continue;
       }
+      // The parse error's message quotes the offending model text
+      // (ai/core/json.ts::parseModelJson) - console + debugSnippet only,
+      // never the thrown message (see AiServiceError's doc).
+      const parseDetail = e instanceof Error ? e.message : String(e);
+      console.error(`Gemini call '${callName}' returned unparseable JSON even after a repair retry:`, parseDetail);
       throw new AiServiceError(
         'fatal',
         callName,
-        `Gemini call '${callName}' returned unparseable JSON even after a repair retry: ${e instanceof Error ? e.message : String(e)}`,
-        e
+        `Gemini call '${callName}' returned unparseable JSON even after a repair retry.`,
+        e,
+        parseDetail
       );
     }
 
@@ -346,6 +417,8 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
         latencyMs: network.latencyMs,
         attempts: network.attempts,
         promptChars: currentPrompt.length,
+        promptText: currentPrompt,
+        systemInstruction: req.systemInstruction,
         rawResponse: network.text,
         validated: true,
       });
@@ -360,6 +433,8 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
         latencyMs: network.latencyMs,
         attempts: network.attempts,
         promptChars: currentPrompt.length,
+        promptText: currentPrompt,
+        systemInstruction: req.systemInstruction,
         rawResponse: network.text,
         validated: true,
       });
@@ -373,6 +448,8 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
       latencyMs: network.latencyMs,
       attempts: network.attempts,
       promptChars: currentPrompt.length,
+      promptText: currentPrompt,
+      systemInstruction: req.systemInstruction,
       rawResponse: network.text,
       validated: false,
     });
@@ -382,11 +459,16 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
       continue;
     }
 
+    // Schema paths are safe to surface; the raw output itself is console +
+    // debugSnippet only, never the thrown message (see AiServiceError's doc).
+    const offendingSnippet = truncateForCapture(network.text).slice(0, 300);
+    console.error(`Gemini call '${callName}' violated its schema at [${issuePaths.join(', ')}] even after a repair retry. Offending output:`, offendingSnippet);
     throw new AiServiceError(
       'fatal',
       callName,
-      `Gemini call '${callName}' violated its schema at [${issuePaths.join(', ')}] even after a repair retry. Offending output: ${truncateForCapture(network.text).slice(0, 300)}`,
-      result.error
+      `Gemini call '${callName}' violated its schema at [${issuePaths.join(', ')}] even after a repair retry.`,
+      result.error,
+      offendingSnippet
     );
   }
 
@@ -429,6 +511,8 @@ export async function generateText(ai: GeminiClient, req: GenerateTextRequest): 
     latencyMs: network.latencyMs,
     attempts: network.attempts,
     promptChars: req.prompt.length,
+    promptText: req.prompt,
+    systemInstruction: req.systemInstruction,
     rawResponse: network.text,
     validated: true,
   });
@@ -518,6 +602,8 @@ export async function generateTextStream(
     latencyMs: Date.now() - totalStart,
     attempts,
     promptChars: req.prompt.length,
+    promptText: req.prompt,
+    systemInstruction: req.systemInstruction,
     rawResponse: textSoFar,
     validated: true,
   });

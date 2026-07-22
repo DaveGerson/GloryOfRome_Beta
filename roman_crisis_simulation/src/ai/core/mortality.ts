@@ -32,6 +32,7 @@ import {
   resolveNpcFate,
   PlayerDeathSaveOutcome,
   NpcFateOutcome,
+  Rng,
 } from './resolution';
 import { getEntityBrief } from '../prompts/fragments';
 import { buildMortalityValidationPrompt, buildMortalityOutcomePrompt } from '../prompts/mortality';
@@ -123,6 +124,12 @@ export function partitionOutcomeDeltas(deltas: EventDelta[]): { safe: EventDelta
  * call `processMortality` directly with `isMockMode: false` and a stub
  * `GeminiClient` (see tests/mortality.test.ts) rather than relying on the
  * isMockMode branch here.
+ *
+ * `rng` (optional): the random source every fate roll draws from. Callers
+ * that need the rolls reproducible pass a seeded generator (ai/core/turn.ts
+ * passes its per-turn `createSeededRng` generator, whose seed is recorded
+ * on the turn's history entry); when omitted, rolls fall back to
+ * `Math.random` and are not replayable.
  */
 export async function processMortality(
   ai: GeminiClient,
@@ -130,7 +137,8 @@ export async function processMortality(
   entities: Entity[],
   playerId: string,
   turnNumber: number,
-  isMockMode: boolean
+  isMockMode: boolean,
+  rng?: Rng
 ): Promise<{ transformedAdjudication: Adjudication; mortalityEvents: MortalityEvent[] }> {
   if (isMockMode) {
     return { transformedAdjudication: adjudication, mortalityEvents: [] };
@@ -183,7 +191,7 @@ export async function processMortality(
       return { claim, originalCause, valid, reasoning };
     }
 
-    const roll = rollD20();
+    const roll = rollD20(rng);
     const outcome = claim.isPlayer ? resolvePlayerDeathSave(roll) : resolveNpcFate(roll);
     return { claim, originalCause, valid, reasoning, roll, outcome };
   });

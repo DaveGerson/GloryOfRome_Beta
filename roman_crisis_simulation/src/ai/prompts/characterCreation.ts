@@ -27,6 +27,7 @@ const CHARACTER_CREATION_SYSTEM_INSTRUCTION = `You are a game master for a polit
 10. Define their 'personality' traits on a scale of 1-10.
 11. Create plausible 'beliefs', 'secrets', and 'skills' that match their description.
 12. The 'memories' array must be present and empty.
+13. Give the character a 'voice' - a COMPACT speech-style directive for how they talk and think (e.g. "clipped soldier's Latin, contempt for senatorial flourish") - and an 'epithet', a SHORT public byname (e.g. "the Thracian"). Keep both short, fitting the player's description.
 
 **CRITICAL JSON FORMATTING RULES:**
 Your response MUST be a perfectly valid JSON object that adheres to the schema. Ensure all quotes inside strings are escaped (e.g., \\"). Do not use trailing commas.`;

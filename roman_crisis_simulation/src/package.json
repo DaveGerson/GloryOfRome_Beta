@@ -8,6 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "eval": "vitest run --config vitest.eval.config.ts",
+    "test:journeys": "vitest run --config vitest.journeys.config.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

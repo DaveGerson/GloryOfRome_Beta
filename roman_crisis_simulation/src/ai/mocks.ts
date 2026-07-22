@@ -1,8 +1,9 @@
 
 // ai/mocks.ts
 
-import { Adjudication, Entity, Report, Scheme, SimulationState, StoryRelevance, TurnHistoryEntry, WorldState, EventDelta, EntityStub } from '../types';
+import { Adjudication, Entity, NpcIntent, NpcMindDecision, Report, SimulationState, StoryRelevance, TruthLedgerEntry, TurnHistoryEntry, WorldState, EventDelta, EntityStub } from '../types';
 import { applyAdjudication, applyDeltas } from './core/engine';
+import { MAX_MINDS_PER_TURN } from './prompts/npcMind';
 
 // --- MOCK DATA ---
 const MOCK_NEW_MOBSTER: Entity = {
@@ -11,6 +12,10 @@ const MOCK_NEW_MOBSTER: Entity = {
     entity_type: "individual",
     status: "alive",
     position: "Suburra Gang Leader",
+    // 4C.5 narrative flavor - mock entities carry voice/epithet like real
+    // worldgen output does.
+    voice: "Suburra gutter cant; menace delivered smiling",
+    epithet: "the Collector",
     location: "The Suburra",
     personality: { ambition: 8, paranoia: 7, loyalty: 3, cunning: 8, honor: 2 },
     beliefs: ["Coin is the only true emperor.", "Fear is a more reliable tool than loyalty."],
@@ -56,7 +61,12 @@ const MOCK_ADJUDICATION: Adjudication = {
   deltas: [
     { type: 'resource', key: 'maximinus_thrax:legion_support', delta: 2, reason: 'Successful propaganda campaign.' },
     { type: 'relation', key: 'severus_alexander:maximinus_thrax', delta: -1, reason: 'Slandered by military propaganda.' },
-    { type: 'rumor', key: 'severus_alexander', delta: 0.6, reason: 'The Emperor is said to be considering a peaceful tribute to the Germans, angering the legions.' },
+    // Rumor deltas carry the GM-private truth-ledger fields (D11): the
+    // adjudicator rules on every rumor's actual truth and names its origin
+    // when attributable - here, a lie planted by Thrax's propaganda. The
+    // NON-private 'topic' (D29) keeps this claim distinct from any other
+    // rumor about the Emperor.
+    { type: 'rumor', key: 'severus_alexander', delta: 0.6, reason: 'The Emperor is said to be considering a peaceful tribute to the Germans, angering the legions.', is_true: false, origin_id: 'maximinus_thrax', topic: 'german-tribute' },
     { type: 'relation', key: 'severus_alexander:praetorian_guard', delta: 1, reason: 'Promised a donative.' },
     { type: 'add_region', key: 'Temple of Jupiter', delta: 0, reason: '{"stability":"Stable","controlling_faction":null,"current_events":["Priests conduct rituals to placate the gods amidst the political turmoil."]}' },
     // Demonstrates the structured status-delta contract (MAINT-P0.2): 'reason'
@@ -76,6 +86,8 @@ const MOCK_NEW_CHARACTER: Entity = {
     entity_type: "individual",
     status: "alive",
     position: "Veteran Centurion",
+    voice: "terse parade-ground Latin; oaths kept, words rationed",
+    epithet: "Old Parthica",
     location: "The Suburra",
     personality: { ambition: 4, paranoia: 6, loyalty: 8, cunning: 5, honor: 9 },
     beliefs: ["The old ways are the best ways.", "A soldier's loyalty is to his legion, then to Rome."],
@@ -118,6 +130,8 @@ const MOCK_CUSTOM_WORLD_STATE: WorldState = {
 const MOCK_CUSTOM_ENTITIES: Entity[] = [
     {
       entity_id: "legatus_draco", name: "Legatus Draco", entity_type: "individual", status: "alive", position: "Commander of the Ninth Legion", location: "Eboracum Fortress",
+      voice: "clipped command Latin worn thin by fog and losses",
+      epithet: "the Dragon of Eboracum",
       short_term_goals: ["Suppress local cults", "Maintain discipline"], long_term_ambitions: ["Survive the winter"],
       current_state_narrative: "A grim, pragmatic commander haunted by the disappearance of patrols in the moors.",
       relationships: { "mock_player_character": { entity_id: "mock_player_character", relationship_type: "subordinate", trust_level: 5, recent_interactions: [] } },
@@ -125,6 +139,8 @@ const MOCK_CUSTOM_ENTITIES: Entity[] = [
     },
     {
       entity_id: "morwen", name: "Morwen", entity_type: "individual", status: "alive", position: "Priestess of the Old Gods", location: "Misty Moors",
+      voice: "lilting oracular cadence; speaks in omens, never plainly",
+      epithet: "the Moor-Witch",
       short_term_goals: ["Drive the Romans out"], long_term_ambitions: ["Awaken a slumbering horror"],
       current_state_narrative: "A mysterious figure who commands the loyalty of the local tribes and seems to wield strange powers.",
       relationships: { "mock_player_character": { entity_id: "mock_player_character", relationship_type: "enemy", trust_level: -8, recent_interactions: [] } },
@@ -138,6 +154,8 @@ const MOCK_PLAYER_IN_CUSTOM_WORLD: Entity = {
     entity_type: "individual",
     status: "alive",
     position: "Inquisitor and Exorcist",
+    voice: "measured inquisitor's Latin; liturgical certainty over doubt",
+    epithet: "the Lantern-Bearer",
     location: "Eboracum Fortress",
     personality: { ambition: 5, paranoia: 8, loyalty: 7, cunning: 6, honor: 6 },
     beliefs: ["The darkness must be fought with iron and faith.", "There are truths man was not meant to know."],
@@ -224,12 +242,16 @@ export const mockRunNewTurn = async (
     currentReports: Report[],
     gmInterventionText: string,
     metaNarrative: string,
-    currentSimulationState: SimulationState
+    currentSimulationState: SimulationState,
+    currentTruthLedger: TruthLedgerEntry[] = [],
+    currentNpcIntents: NpcIntent[] = []
 ): Promise<{
     updatedEntities: Entity[],
     updatedWorldState: WorldState,
     updatedSimulationState: SimulationState,
     updatedReports: Report[],
+    updatedTruthLedger: TruthLedgerEntry[],
+    updatedNpcIntents: NpcIntent[],
     narration: string,
     headlines: string[],
     suggestedActions: string[],
@@ -240,10 +262,71 @@ export const mockRunNewTurn = async (
     console.log("GM Intervention Text:", gmInterventionText);
     console.log("Meta Narrative:", metaNarrative);
 
-    const adjudication = { ...MOCK_ADJUDICATION, turn: turnNumber };
-    
-    let { updatedEntities, updatedWorldState, updatedReports } = applyAdjudication(adjudication, currentEntities, currentWorldState, currentReports);
-    
+    // Mock Director (4C.3): the previous turn's intents feed the continuity
+    // ruling, and this turn's intents flow out through updatedNpcIntents +
+    // the history entry - the same loop the real pipeline runs.
+    const storyRelevance = await mockGetStoryRelevance(turnNumber, currentNpcIntents);
+
+    // Mock minds (4C.4): one decision per mock spotlight that resolves to a
+    // living, non-player roster entity, bounded like the real pipeline
+    // (selectMindEntities in ai/core/turn.ts) - so the mind -> adjudicator
+    // loop runs offline end-to-end and the GM console's Mind Decisions view
+    // has real data in mock mode.
+    const mindDecisions: NpcMindDecision[] = [];
+    for (const spotlight of storyRelevance.spotlight_entities) {
+        if (mindDecisions.length >= MAX_MINDS_PER_TURN) break;
+        const mindEntity = currentEntities.find(e => e.entity_id === spotlight.entity_id && e.status === 'alive');
+        if (!mindEntity || mindEntity.entity_id === playerEntity.entity_id) continue;
+        mindDecisions.push(await mockGetNpcMindDecision(
+            mindEntity,
+            storyRelevance.spotlight_intents.find(i => i.entity_id === spotlight.entity_id)
+        ));
+    }
+
+    // Player-planted rumor (D19 "lies in play", adjudication contract): the
+    // mock turn must exercise the planting path offline - origin_id MUST be
+    // the player's own entity_id and is_true false, so the truth ledger
+    // records player authorship and the Report channel feeds the knowledge
+    // store. Built per-call (not in MOCK_ADJUDICATION) because the player's
+    // entity_id is only known here. The 'reason' text must read like any
+    // other rumor: player-visible wording never marks a rumor as planted or
+    // reveals its truth (D11).
+    const playerPlantedRumor: EventDelta = {
+        type: 'rumor',
+        key: 'maximinus_thrax',
+        delta: 0.5,
+        reason: 'Word in the taverns holds that Maximinus Thrax has been skimming the legions\' pay for himself.',
+        is_true: false,
+        origin_id: playerEntity.entity_id,
+        // NON-private D29 topic: the matter this rumor concerns, so it keys as
+        // its own knowledge claim distinct from other talk about Thrax.
+        topic: 'legion-pay',
+    };
+    const adjudication = {
+        ...MOCK_ADJUDICATION,
+        turn: turnNumber,
+        deltas: [...MOCK_ADJUDICATION.deltas, playerPlantedRumor],
+        // FRESH array, never the shared MOCK_ADJUDICATION.gm_private - the
+        // pushes below (and this pacing note) must not accumulate onto the
+        // module constant across turns. The mock adjudicator records its
+        // D23 pacing judgment every turn (ROADMAP_PHASE_4.md 4D item 1),
+        // default posture non-intervention, so the "[Pacing]" -> GM console
+        // loop is visible offline.
+        gm_private: [
+            ...MOCK_ADJUDICATION.gm_private,
+            '[Pacing] Letting the week breathe - the standing schemes are generating pressure on their own; no intervention needed.',
+        ],
+    };
+
+    // Same perception context the real pipeline passes (ai/core/turn.ts):
+    // the player is excluded from the NPC memory loop, and the mock
+    // Director's spotlight pair stands in as the spotlight cast.
+    let { updatedEntities, updatedWorldState, updatedReports, updatedTruthLedger, perceivingNpcIds } = applyAdjudication(adjudication, currentEntities, currentWorldState, currentReports, currentTruthLedger, {
+        playerEntityId: playerEntity.entity_id,
+        spotlightIds: storyRelevance.spotlight_entities.map(s => s.entity_id),
+        turnNumber,
+    });
+
     // MOCK CONVERSATION SIMULATION
     const npc1 = updatedEntities.find(e => e.entity_id === 'maximinus_thrax');
     const npc2 = updatedEntities.find(e => e.entity_id === 'praetorian_guard');
@@ -277,7 +360,10 @@ export const mockRunNewTurn = async (
         playerIntent,
         adjudication,
         narration,
-        postTurnEntities: updatedEntities
+        postTurnEntities: updatedEntities,
+        perceivingNpcIds,
+        npcIntents: storyRelevance.spotlight_intents,
+        npcMindResults: mindDecisions.length > 0 ? mindDecisions : undefined,
     };
 
     return {
@@ -285,6 +371,8 @@ export const mockRunNewTurn = async (
         updatedWorldState,
         updatedSimulationState: currentSimulationState,
         updatedReports,
+        updatedTruthLedger,
+        updatedNpcIntents: storyRelevance.spotlight_intents,
         narration,
         headlines: adjudication.headlines,
         suggestedActions,
@@ -326,15 +414,16 @@ export const mockGetInvestigationResult = async (target: Entity, isRisky: boolea
             reportText = `We've uncovered some of ${target.name}'s core beliefs. They seem to be a military pragmatist.`;
             break;
         case 'scheme':
-            reportData = {
-                name: "(Mock) The Thracian Coup",
-                overall_goal: "To seize the imperial throne.",
-                steps: [
-                    { objective: "Undermine the emperor.", status: 'in_progress' },
-                    { objective: "Bribe the Praetorians.", status: 'pending' },
-                ]
-            } as Scheme;
-            reportText = `We've confirmed ${target.name}'s active scheme. They are planning a coup.`;
+            // D28: a scheme investigation returns partial CLUES, never the
+            // whole plot (no scheme title, no step list). The clues are
+            // fragments; the narrative report is the agent's read of where
+            // they point, surfaced as the earned nature only once enough PAID
+            // clues have accrued to cross the reveal threshold.
+            reportData = [
+                `(Mock) Coded letters keep passing to the frontier garrisons.`,
+                `(Mock) Coin is quietly moving toward the legions, not the treasury.`,
+            ];
+            reportText = `(Mock) Piece by piece it takes shape: ${target.name} is bending the frontier legions toward a reckoning with the throne.`;
             break;
         case 'secrets':
         default:
@@ -364,13 +453,63 @@ export const mockGetPlayerMonologue = async (player: Entity, turnHeadlines: stri
 };
 
 
-export const mockGetStoryRelevance = async (turnNumber: number): Promise<StoryRelevance> => {
+/** The mock Director's fixed one-line intents for the mock spotlight pair (4C.3). */
+const MOCK_SPOTLIGHT_INTENTS: Record<string, string> = {
+    maximinus_thrax: 'Turn the legions against the Emperor with a whisper campaign about his weakness.',
+    praetorian_guard: 'Extract the promised donative before pledging their swords to anyone.',
+};
+
+/** Canned mind decisions for the mock spotlight pair (4C.4) - fixed so the offline loop is deterministic and inspectable in the GM console. */
+const MOCK_MIND_DECISIONS: Record<string, Omit<NpcMindDecision, 'entity_id'>> = {
+    maximinus_thrax: {
+        chosen_action: '(Mock) Dispatch trusted centurions through the camps at night to swear the wavering cohorts to my cause.',
+        method: '(Mock) Oaths over wine, sweetened with promises of double pay under a soldier-emperor.',
+        private_reasoning: '(Mock) The boy-emperor buys loyalty he cannot keep. Every denarius he promises the Praetorians is a week I gain to make the legions mine.',
+        scheme_adjustment: '(Mock) The whisper campaign has done its work - the scheme advances from rumor to recruitment.',
+    },
+    praetorian_guard: {
+        chosen_action: '(Mock) Send a deputation to the Palatine demanding the promised donative in coin, not words.',
+        method: '(Mock) Formal petition by day; quiet talk with Thrax\'s men by night, keeping every option paid for.',
+        private_reasoning: '(Mock) Emperors come and go; the Guard endures. Whoever pays first owns our swords this season - and both suitors should believe they are winning us.',
+    },
+};
+
+/**
+ * Mock per-spotlight mind decision (4C.4): fixed canned decisions for the
+ * mock spotlight pair, a generic in-character fallback for anyone else -
+ * so the mind -> adjudicator loop runs offline end-to-end regardless of
+ * roster. GM-private data like the real thing (D4/D5).
+ */
+export const mockGetNpcMindDecision = async (self: Entity, directorIntent?: NpcIntent): Promise<NpcMindDecision> => {
+    console.log(`--- MOCK NPC MIND for ${self.name} ---`);
+    const canned = MOCK_MIND_DECISIONS[self.entity_id];
+    if (canned) return { entity_id: self.entity_id, ...canned };
+    return {
+        entity_id: self.entity_id,
+        chosen_action: `(Mock) ${self.name} moves carefully to advance their own position this week.`,
+        method: '(Mock) Quiet words, quieter coin.',
+        private_reasoning: directorIntent
+            ? `(Mock) My resolve holds: ${directorIntent.intent}`
+            : `(Mock) I keep my own counsel and watch for an opening.`,
+    };
+};
+
+export const mockGetStoryRelevance = async (turnNumber: number, previousIntents: NpcIntent[] = []): Promise<StoryRelevance> => {
     console.log("--- MOCK STORY RELEVANCE ---");
+    // Continuity loop offline (4C.3): an NPC that already held an intent
+    // last turn is ruled 'continue', a freshly spotlighted one 'new' - so a
+    // mock campaign's second turn exercises the fed-back-in path for real.
+    const previousIds = new Set(previousIntents.map(p => p.entity_id));
     const relevance: StoryRelevance = {
         spotlight_entities: [
             { entity_id: 'maximinus_thrax', reason: 'His propaganda is causing instability.' },
             { entity_id: 'praetorian_guard', reason: 'Their loyalty is in question and is a major plot point.' }
         ],
+        spotlight_intents: ['maximinus_thrax', 'praetorian_guard'].map(entity_id => ({
+            entity_id,
+            intent: MOCK_SPOTLIGHT_INTENTS[entity_id],
+            continuity: previousIds.has(entity_id) ? 'continue' : 'new',
+        })),
         add_entity_suggestion: { description: 'A ruthless Suburra gang leader named Flavius Fulco who sees the chaos as an opportunity.', reason: 'Introduces a criminal element to complicate the political struggle.'},
         remove_entity_suggestion: { entity_id: 'lycinia_stolo', reason: 'Her role as an informant is less critical now that open conflict is brewing.'},
         add_location_suggestion: { name: 'Temple of Jupiter', description: 'The main religious site on the Capitoline Hill.', reason: 'Introduces a religious dimension to the conflict.'},

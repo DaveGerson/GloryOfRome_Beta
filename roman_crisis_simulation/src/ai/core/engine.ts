@@ -1,5 +1,6 @@
-import { Entity, WorldState, Adjudication, Report, EventDelta, Relationship } from '../../types';
+import { Entity, WorldState, Adjudication, Report, EventDelta, Relationship, TruthLedgerEntry } from '../../types';
 import { SYSTEMIC_RESOURCES, applySystemicResourceRule } from './resources';
+import { buildNpcPerceptions, selectMemoryChanges, selectPerceivingNpcs } from '../../perception/npcPerception';
 
 // NOTE: The turn-adjudication prompt (formerly `compileContext` here) has
 // moved to `ai/prompts/adjudication.ts::buildAdjudicationPrompt`, and its
@@ -8,6 +9,39 @@ import { SYSTEMIC_RESOURCES, applySystemicResourceRule } from './resources';
 // ai/prompts/README.md). This file stays pure state-transition logic - see
 // ROADMAP_6_MAINTAINABILITY.md's note that `engine.ts` is "pure and
 // testable" and should stay that way.
+
+/**
+ * Upper bound on an entity's `memories` list - the oldest entries are
+ * dropped once a write would exceed it. Memories accrue each turn from the
+ * entity's own perceived digest (perception/npcPerception.ts, itself
+ * per-turn-bounded by MAX_NPC_MEMORY_LINES_PER_TURN) and are persisted in
+ * the save, so they must be bounded; the bound is deliberately generous
+ * because memories are simulation context (they can inform prompts and
+ * future systems), not disposable debug data - a cap tight enough to
+ * change what the model can recall would be a mechanics change, which
+ * this is not.
+ */
+export const MAX_ENTITY_MEMORIES = 40;
+
+/**
+ * Upper bound on a relationship's `recent_interactions` list - the oldest
+ * entries are dropped once a write would exceed it. One line is appended
+ * per relation delta and persisted in the save, so an active relationship
+ * grows without limit otherwise. The field's contract is "recent": only
+ * the newest window is meaningful, so dropping the oldest preserves its
+ * semantics for every consumer.
+ */
+export const MAX_RECENT_INTERACTIONS = 20;
+
+/**
+ * Upper bound on the GM-private truth ledger (DESIGN_DECISIONS.md D11) -
+ * the oldest entries are dropped once an append would exceed it. One entry
+ * is written per rumor delta and persisted in the save, so the ledger must
+ * be bounded like every other accreting slice; the bound is deliberately
+ * generous because the ledger is the GM console's true-vs-believed tuning
+ * record, not disposable debug data.
+ */
+export const MAX_TRUTH_LEDGER_ENTRIES = 200;
 
 /**
  * The free-text death-phrase heuristic, used only when a 'status' delta
@@ -49,10 +83,16 @@ export function applyDeltas(
     currentEntities: Entity[],
     currentWorldState: WorldState,
     turnNumber: number
-): { updatedEntities: Entity[], updatedWorldState: WorldState, newReports: Report[] } {
+): { updatedEntities: Entity[], updatedWorldState: WorldState, newReports: Report[], newTruthLedgerEntries: TruthLedgerEntry[] } {
     const updatedEntities: Entity[] = JSON.parse(JSON.stringify(currentEntities));
     const updatedWorldState: WorldState = JSON.parse(JSON.stringify(currentWorldState));
     const newReports: Report[] = [];
+    const newTruthLedgerEntries: TruthLedgerEntry[] = [];
+    // Per-call sequence for rumor report/ledger ids: Date.now() alone can
+    // collide when one turn emits several rumors in the same millisecond,
+    // and each ledger entry's reportId link requires the Report id to be
+    // unique within the turn.
+    let rumorSeq = 0;
 
     deltas.forEach(delta => {
         try {
@@ -128,6 +168,15 @@ export function applyDeltas(
 
                         if (!rel.recent_interactions.some(interaction => interaction.endsWith(delta.reason))) {
                             rel.recent_interactions.push(`Turn ${turnNumber}: ${delta.reason}`);
+                            // Bounded at the write site: drop the oldest past
+                            // MAX_RECENT_INTERACTIONS. An over-long list from
+                            // a save written before the bound is trimmed too,
+                            // but only when this relationship logs a new
+                            // interaction - untouched relationships keep
+                            // their legacy length.
+                            if (rel.recent_interactions.length > MAX_RECENT_INTERACTIONS) {
+                                rel.recent_interactions.splice(0, rel.recent_interactions.length - MAX_RECENT_INTERACTIONS);
+                            }
                         }
                     }
                     break;
@@ -228,15 +277,60 @@ export function applyDeltas(
                     break;
                 }
                 case 'rumor': {
+                    rumorSeq += 1;
+                    // TURN PROVENANCE CONSTRAINT: when this runs under
+                    // applyAdjudication, `turnNumber` is `adjudication.turn` -
+                    // a model-echoed field - so the Report's and ledger
+                    // entry's `turn` stamps record the turn the ADJUDICATION
+                    // claims, not the App's authoritative counter. The GM
+                    // console reads these stamps as-is; the player knowledge
+                    // store does NOT trust them - knowledge/commit.ts stamps
+                    // claim updates with the authoritative turn instead.
                     const newReport: Report = {
-                        id: `report_${turnNumber}_${Date.now()}`,
+                        id: `report_${turnNumber}_${Date.now()}_${rumorSeq}`,
                         turn: turnNumber,
                         source: 'rumor',
                         about: delta.key, // entity or region id
                         claim: delta.reason,
                         credibility: Math.max(0.0, Math.min(1.0, delta.delta))
                     };
+                    // D29 NON-private categorization: `topic` keeps distinct
+                    // matters about one subject on distinct knowledge claims,
+                    // `stance` carries a counterplay follow-up's corroborate/
+                    // contradict relation. Copied field by field (never
+                    // spread) so the GM-private is_true/origin_id on the delta
+                    // can never ride onto the player-facing Report.
+                    if (typeof delta.topic === 'string' && delta.topic.trim().length > 0) {
+                        newReport.topic = delta.topic;
+                    }
+                    if (delta.stance === 'corroborates' || delta.stance === 'contradicts') {
+                        newReport.stance = delta.stance;
+                    }
                     newReports.push(newReport);
+
+                    // GM-PRIVATE truth ledger (DESIGN_DECISIONS.md D11): every
+                    // rumor is recorded with its actual truth disposition,
+                    // alongside the Report the player sees. The adjudication
+                    // prompt demands `is_true` on every rumor delta; when the
+                    // model omits it anyway, the entry defaults to true and is
+                    // flagged `assumed` so the GM console can surface the
+                    // failure - the engine never invents a lie on its own.
+                    const hasDisposition = typeof delta.is_true === 'boolean';
+                    const ledgerEntry: TruthLedgerEntry = {
+                        id: `truth_${turnNumber}_${Date.now()}_${rumorSeq}`,
+                        turn: turnNumber,
+                        claim: delta.reason,
+                        aboutId: delta.key,
+                        isTrue: hasDisposition ? delta.is_true as boolean : true,
+                        reportId: newReport.id,
+                    };
+                    if (typeof delta.origin_id === 'string' && delta.origin_id.length > 0) {
+                        ledgerEntry.originId = delta.origin_id;
+                    }
+                    if (!hasDisposition) {
+                        ledgerEntry.assumed = true;
+                    }
+                    newTruthLedgerEntries.push(ledgerEntry);
                     break;
                 }
                 case 'scheme': {
@@ -298,37 +392,134 @@ export function applyDeltas(
         }
     });
 
-    return { updatedEntities, updatedWorldState, newReports };
+    return { updatedEntities, updatedWorldState, newReports, newTruthLedgerEntries };
 }
 
+/**
+ * Appends fresh truth-ledger entries onto the existing ledger, dropping the
+ * oldest entries past MAX_TRUTH_LEDGER_ENTRIES. Pure - returns a new array
+ * (or the input reference when there is nothing to append).
+ */
+export function appendTruthLedgerEntries(
+    currentTruthLedger: TruthLedgerEntry[],
+    newEntries: TruthLedgerEntry[]
+): TruthLedgerEntry[] {
+    if (newEntries.length === 0) return currentTruthLedger;
+    const combined = [...currentTruthLedger, ...newEntries];
+    if (combined.length > MAX_TRUTH_LEDGER_ENTRIES) {
+        return combined.slice(combined.length - MAX_TRUTH_LEDGER_ENTRIES);
+    }
+    return combined;
+}
+
+
+/**
+ * Inputs bounding the perception-grounded memory stamp in
+ * applyAdjudication. Both fields optional so pre-existing call sites keep
+ * working: with no playerEntityId, no viewer is excluded; with no
+ * spotlightIds, selection falls back to delta-involvement then roster
+ * order (perception/npcPerception.ts::selectPerceivingNpcs).
+ */
+export interface PerceptionStampContext {
+    /**
+     * The player's entity id - ALWAYS excluded from the perceiving loop.
+     * Player-side knowledge lives in the D21 knowledge store
+     * (knowledge/store.ts), never in Entity.memories stamping.
+     */
+    playerEntityId?: string;
+    /** Spotlight entity ids, first in line for the bounded perceiving set. */
+    spotlightIds?: string[];
+    /**
+     * The App's AUTHORITATIVE turn counter for the turn being applied
+     * (threaded from runNewTurn, which receives it from App.tsx). Used for
+     * the memory stamp's `turn` field INSTEAD of the model-echoed
+     * `adjudication.turn`: a model that mislabels its turn must not skew
+     * memory provenance (the same rule knowledge/commit.ts states for the
+     * player-side knowledge stamps). Optional so legacy call sites keep
+     * working; absent, the stamp falls back to `adjudication.turn` - the
+     * pre-existing behavior. Report/truth-ledger `turn` stamps are a
+     * separate, documented case - see applyDeltas' 'rumor' branch.
+     */
+    turnNumber?: number;
+}
 
 export function applyAdjudication(
     adjudication: Adjudication,
     currentEntities: Entity[],
     currentWorldState: WorldState,
-    currentReports: Report[]
-): { updatedEntities: Entity[], updatedWorldState: WorldState, updatedReports: Report[] } {
-    
-    let { updatedEntities: entitiesAfterDeltas, updatedWorldState, newReports } = applyDeltas(adjudication.deltas, currentEntities, currentWorldState, adjudication.turn);
-    const updatedReports = [...currentReports, ...newReports];
+    currentReports: Report[],
+    // Optional so pre-ledger call sites keep working; they receive the
+    // fresh entries appended onto an empty ledger.
+    currentTruthLedger: TruthLedgerEntry[] = [],
+    perceptionContext: PerceptionStampContext = {}
+): { updatedEntities: Entity[], updatedWorldState: WorldState, updatedReports: Report[], updatedTruthLedger: TruthLedgerEntry[], perceivingNpcIds: string[] } {
 
-    // Handle non-delta updates like memories
-    adjudication.headlines.forEach(headline => {
-        entitiesAfterDeltas.forEach(entity => {
-            if (headline.toLowerCase().includes(entity.name.toLowerCase())) {
-                entity.memories.push({
-                    turn: adjudication.turn,
-                    event_description: headline,
-                    emotional_impact: "Notable",
-                    involved_entities: [] 
-                });
-            }
+    let { updatedEntities: entitiesAfterDeltas, updatedWorldState, newReports, newTruthLedgerEntries } = applyDeltas(adjudication.deltas, currentEntities, currentWorldState, adjudication.turn);
+    const updatedReports = [...currentReports, ...newReports];
+    const updatedTruthLedger = appendTruthLedgerEntries(currentTruthLedger, newTruthLedgerEntries);
+
+    // Perception-grounded memory stamp (D5 generalized to any viewer, D10):
+    // each perceiving entity remembers ONLY what its own vantage point
+    // admits - witnessed at its location, its own shifts, heard through its
+    // visibility_network, or public news. An entity distant and unnetworked
+    // from an event holds NO memory of it. Classification runs against the
+    // post-delta roster/world so this turn's arrivals and region changes
+    // count, exactly as the player-side digest classifies (App.tsx). The
+    // per-viewer digests are derived here and discarded (never persisted);
+    // only the bounded memory entries and the perceiving-id list leave this
+    // function.
+    const perceivers = selectPerceivingNpcs(
+        entitiesAfterDeltas,
+        perceptionContext.playerEntityId,
+        perceptionContext.spotlightIds ?? [],
+        adjudication.deltas
+    );
+    const npcPerceptions = buildNpcPerceptions(adjudication.deltas, perceivers, entitiesAfterDeltas, updatedWorldState);
+    // Memory stamps use the AUTHORITATIVE turn counter when the caller
+    // provides one (see PerceptionStampContext.turnNumber) - never trusting
+    // the model-echoed `adjudication.turn` for provenance when the real
+    // counter is available.
+    const stampTurn = perceptionContext.turnNumber ?? adjudication.turn;
+    npcPerceptions.forEach(perception => {
+        const entity = entitiesAfterDeltas.find(e => e.entity_id === perception.entityId);
+        if (!entity) return;
+        selectMemoryChanges(perception.changes).forEach(change => {
+            entity.memories.push({
+                turn: stampTurn,
+                event_description: change.text,
+                emotional_impact: "Notable",
+                // The digest's subject id, when it names another roster
+                // entity - the viewer themself is implicit, and region/world
+                // subjects are not entities.
+                involved_entities:
+                    change.subject !== entity.entity_id &&
+                    entitiesAfterDeltas.some(e => e.entity_id === change.subject)
+                        ? [change.subject]
+                        : []
+            });
         });
+        // Bounded at the write site: drop the oldest past
+        // MAX_ENTITY_MEMORIES. An over-long list from a save written
+        // before the bound is trimmed too, but only when this entity
+        // gains a new memory - untouched entities keep their legacy
+        // length.
+        if (entity.memories.length > MAX_ENTITY_MEMORIES) {
+            entity.memories.splice(0, entity.memories.length - MAX_ENTITY_MEMORIES);
+        }
     });
 
     // Handle entity additions and removals
     if (adjudication.remove_entities && adjudication.remove_entities.length > 0) {
-        const idsToRemove = new Set(adjudication.remove_entities);
+        // D1/D2: the player's own entity may leave play ONLY through the
+        // mortality pipeline (validation + death save + GAME_OVER), never a
+        // raw remove_entities - dropping it here would blank the player's
+        // dossier with no game-over or epilogue. Guard the player's id out;
+        // if a response names it, record the refusal for the GM console.
+        const playerId = perceptionContext.playerEntityId;
+        if (playerId && adjudication.remove_entities.includes(playerId)) {
+            adjudication.gm_private.push(`[Engine] Refused to remove the player entity '${playerId}' via remove_entities - player exit belongs to the mortality pipeline alone.`);
+        }
+        const idsToRemove = new Set(adjudication.remove_entities.filter(id => id !== playerId));
         entitiesAfterDeltas = entitiesAfterDeltas.filter(e => !idsToRemove.has(e.entity_id));
         
         // Clean up dangling relationships
@@ -345,5 +536,11 @@ export function applyAdjudication(
         entitiesAfterDeltas.push(...adjudication.add_entities);
     }
 
-    return { updatedEntities: entitiesAfterDeltas, updatedWorldState, updatedReports };
+    return {
+        updatedEntities: entitiesAfterDeltas,
+        updatedWorldState,
+        updatedReports,
+        updatedTruthLedger,
+        perceivingNpcIds: perceivers.map(e => e.entity_id),
+    };
 }

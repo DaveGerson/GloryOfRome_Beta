@@ -102,6 +102,28 @@ export interface Entity {
   entity_type: 'individual' | 'group' | 'faction';
   status: 'alive' | 'dead' | 'exiled' | 'missing';
   position?: string;
+  /**
+   * NARRATIVE FLAVOR (ROADMAP_PHASE_4.md 4C item 5, D10): a compact
+   * speech-style directive for how this character talks and thinks (e.g.
+   * "clipped soldier's Latin, contempt for senatorial flourish"). For a
+   * collective entity (faction, guard, mob) a group voice is fine. NOT
+   * GM-private - it is texture, not secret state - but by design it feeds
+   * only the character's OWN mind prompt (ai/prompts/npcMind.ts) and the
+   * narration prompt's bounded voice-cast block (ai/prompts/narration.ts);
+   * it stays OUT of the omniscient adjudicator briefs
+   * (ai/prompts/fragments.ts::getEntityBrief) to save context. OPTIONAL for
+   * save compatibility: legacy entities/saves without it must load and flow
+   * through every prompt builder emitting nothing (never "undefined").
+   */
+  voice?: string;
+  /**
+   * NARRATIVE FLAVOR (4C.5): a short public byname (e.g. "the Thracian").
+   * Public texture - how the street speaks of them - so unlike `voice` it
+   * MAY ride wherever the name does, including the adjudicator briefs
+   * (fragments.ts::getEntityBrief carries the epithet only, one token of
+   * flavor). OPTIONAL for save compatibility, same rule as `voice`.
+   */
+  epithet?: string;
   location: string;
   personality?: PersonalityTraits;
   faction_id?: string;
@@ -192,6 +214,17 @@ export const ReportSourceEnum = ['scout', 'spy', 'merchant', 'messenger', 'rumor
 export type ReportSource = typeof ReportSourceEnum[number];
 
 /**
+ * A rumor follow-up's stance toward the claim it continues (D29): whether it
+ * BACKS the running claim or REFUTES it. Structural metadata, not truth data
+ * (a refutation of a true rumor and a corroboration of a false one are both
+ * allowed) - it never states or implies a claim's actual disposition, so it
+ * is player-safe and rides on the Report. Absent = an ordinary emission that
+ * simply continues its subject+topic timeline.
+ */
+export const RumorStanceEnum = ['corroborates', 'contradicts'] as const;
+export type RumorStance = typeof RumorStanceEnum[number];
+
+/**
  * An action chosen for an actor, as determined by the adjudication model.
  */
 export interface EntityAction {
@@ -239,6 +272,43 @@ export interface EventDelta {
      * See the leak-prevention notes on `Entity.secret_truth` above.
      */
     secret_truth?: Entity['secret_truth'];
+    /**
+     * 'rumor' deltas only, GM-PRIVATE (DESIGN_DECISIONS.md D11 - same
+     * handling class as `secret_truth`): whether the rumor's claim is
+     * actually true in the simulation's reality. The adjudicator is
+     * required by its prompt to rule true or false on EVERY rumor delta -
+     * there is no "unknown" class; the GM defines reality. Optional in the
+     * type only as a defensive matter: when the model omits it despite the
+     * prompt, ai/core/engine.ts records the ledger entry with
+     * `isTrue: true` and `assumed: true` rather than silently inventing a
+     * lie. This field must NEVER reach a player-facing surface - it is
+     * stripped before the narration prompt (ai/prompts/narration.ts) and
+     * may render only in GameMasterScreen.
+     */
+    is_true?: boolean;
+    /**
+     * 'rumor' deltas only, GM-PRIVATE (same handling class as
+     * `secret_truth`/`is_true` above): the entity_id of whoever originated
+     * or is spreading the rumor. Omitted/empty when the rumor is organic
+     * (no single attributable source). Renders only in GameMasterScreen.
+     */
+    origin_id?: string;
+    /**
+     * 'rumor' deltas only (D29): a short lowercase slug naming WHAT about the
+     * subject the claim concerns (e.g. 'health', 'tribute', 'succession-plot').
+     * Distinct matters about one subject carry distinct topics so they stay
+     * separate claims (the fix for flat-list over-merging); a follow-up about
+     * the SAME matter reuses the SAME topic. Player-safe categorization, never
+     * truth: unlike is_true/origin_id this may reach player-facing surfaces.
+     */
+    topic?: string;
+    /**
+     * 'rumor' deltas only (D29): a counterplay follow-up's stance toward the
+     * claim it continues - 'corroborates' backs it, 'contradicts' refutes it.
+     * Structural metadata, never a truth ruling; player-safe. Omit on a first
+     * emission or an ordinary restatement.
+     */
+    stance?: RumorStance;
 }
 
 /**
@@ -252,6 +322,46 @@ export interface Report {
     about: string; // entity or region id
     claim: string;
     credibility: number; // 0.0 to 1.0
+    /**
+     * D29 topic slug, present on rumor-sourced reports: the categorization
+     * that keeps distinct matters about one subject on distinct claims in the
+     * knowledge graph. Player-safe (never truth); optional so non-rumor
+     * reports and legacy data need not carry it.
+     */
+    topic?: string;
+    /** D29 counterplay stance carried through from the rumor delta; player-safe structural metadata. */
+    stance?: RumorStance;
+}
+
+/**
+ * GM-PRIVATE truth-ledger record (DESIGN_DECISIONS.md D11): the engine's
+ * own bookkeeping of what every sourced claim's actual truth is, so a
+ * falsehood is only ever presented knowingly and trackably. One entry is
+ * written per rumor delta by ai/core/engine.ts, alongside the Report the
+ * player sees (`reportId` links the two). This is the same handling class
+ * as `Entity.secret_truth`: it may be read ONLY by GameMasterScreen (the
+ * true-vs-believed view, D7) and code under ai/ - never by any
+ * player-facing surface.
+ */
+export interface TruthLedgerEntry {
+    id: string;
+    turn: number;
+    claim: string;
+    /** The entity or region id the claim is about (the rumor delta's key). */
+    aboutId: string;
+    /** Who originated/spreads the claim; absent when organic/unattributable. */
+    originId?: string;
+    /** The claim's ACTUAL truth in the simulation's reality (D11: always ruled, never unknown). */
+    isTrue: boolean;
+    /** The id of the Report the player saw for this claim. */
+    reportId: string;
+    /**
+     * Set when the adjudicator omitted the truth disposition despite the
+     * prompt demanding one - `isTrue` then defaults to true (the engine
+     * never invents a lie on its own) and this flag lets the GM console
+     * surface the failure for tuning.
+     */
+    assumed?: boolean;
 }
 
 /**
@@ -292,6 +402,17 @@ export interface RawCallRecord {
   promptChars: number;
   rawResponse: string; // capped at ~20k chars, see geminiService.ts
   validated: boolean; // true if JSON parsing (and zod validation, if requested) succeeded
+  /**
+   * The full prompt text as sent (capped at MAX_CAPTURED_PROMPT_CHARS, see
+   * geminiService.ts). Session-side capture for the GM console and
+   * eval/tuning export only - never rendered on a player-facing surface
+   * (D4/D5), and never written into the persisted save blob (saves stay
+   * lean per DESIGN_DECISIONS.md D18; persistence/saveGame.ts strips it on
+   * serialize). Optional: records loaded from older saves lack it.
+   */
+  promptText?: string;
+  /** The call's system instruction, if any - same caps, visibility, and persistence rules as `promptText`. */
+  systemInstruction?: string;
 }
 
 /**
@@ -352,6 +473,19 @@ export interface ActionResolutionEvent {
   margin: number;
   /** The resolved outcome tier - see `ai/core/resolution.ts::resolveAction`. */
   tier: 'critical_failure' | 'failure' | 'partial_success' | 'success' | 'critical_success';
+  /**
+   * The 32-bit seed of the dedicated seeded generator
+   * (`ai/core/resolution.ts::createSeededRng`) whose first draw produced
+   * `roll` - present only for resolutions that run OUTSIDE a turn and so
+   * carry their own seed (player-triggered investigations,
+   * `ai/tools/intelligence.ts::getInvestigationResult`). A turn's own
+   * action roll instead draws from the per-turn generator whose seed is the
+   * history entry's `turnSeed`. An investigation's trace is returned to the
+   * caller but not yet persisted or surfaced anywhere - its intended home
+   * is the Phase 4B dossier store (roadmaps/ROADMAP_PHASE_4.md). Per D4 it
+   * must never reach a player-facing surface either way.
+   */
+  seed?: number;
 }
 
 /**
@@ -362,10 +496,65 @@ export interface TurnHistoryEntry {
   playerIntent: string;
   adjudication: Adjudication;
   narration?: string; // Optional narrated text
-  postTurnEntities: Entity[];
+  /**
+   * Deep copy of the full entity roster as of this turn's commit - the
+   * dominant per-turn share of the save blob. Present only on the most
+   * recent KEEP_FULL_SNAPSHOTS entries (state/gameReducer.ts): each turn
+   * commit drops it from entries older than that window. Saves written
+   * while the field was required carry it on every entry, so both shapes
+   * load; every consumer must tolerate its absence on older entries.
+   */
+  postTurnEntities?: Entity[];
   rawCalls?: RawCallRecord[]; // Raw prompt/response capture for every AI call made this turn
   mortalityTrace?: MortalityEvent[]; // Every death claim this turn went through processMortality, see MortalityEvent
+  /**
+   * Entity ids selected as this turn's perceiving NPCs (bounded by
+   * MAX_PERCEIVING_NPCS - perception/npcPerception.ts), the viewers whose
+   * perception-grounded memories were stamped at commit. The per-NPC
+   * digests themselves are NEVER persisted (save-size bounding): the GM
+   * console re-derives them from this id list plus the entry's deltas and
+   * entity snapshot. Optional: entries persisted before the field existed
+   * lack it, and entries older than the snapshot window drop it alongside
+   * `postTurnEntities` (state/gameReducer.ts) - the derivation needs the
+   * snapshot, so the ids alone would be dead save weight. Per
+   * DESIGN_DECISIONS.md D4/D5 this is GM-side simulation data - rendered
+   * only in the GM console, never player-facing.
+   */
+  perceivingNpcIds?: string[];
+  /**
+   * The Director's per-spotlight persistent intents for this turn (4C.3),
+   * as committed - the same bounded list fed into this turn's adjudicator
+   * and persisted on the reducer's `npcIntents` slice for the NEXT turn's
+   * Director input. Optional: entries persisted before the field existed
+   * (and turns where the Director named no spotlight intents) simply lack
+   * it. GM-PRIVATE (D4/D5) like the rest of an entry's simulation data -
+   * rendered only in the GM console, never player-facing.
+   */
+  npcIntents?: NpcIntent[];
+  /**
+   * The per-spotlight mind decisions this turn (ROADMAP_PHASE_4.md 4C item
+   * 4) - at most MAX_MINDS_PER_TURN entries (ai/prompts/npcMind.ts), as fed
+   * to the adjudicator (minus `private_reasoning`, which only the GM console
+   * ever renders). Optional: entries persisted before minds existed (and
+   * turns with no mind-eligible spotlight) simply lack it, and entries older
+   * than the snapshot window drop it alongside `postTurnEntities`/
+   * `perceivingNpcIds` (state/gameReducer.ts) so the save stays bounded.
+   * GM-PRIVATE (D4/D5): rendered only in the GM console, never
+   * player-facing.
+   */
+  npcMindResults?: NpcMindDecision[];
   resolutionTrace?: ActionResolutionEvent; // The player action's trip through the resolution layer this turn (if consequential), see ActionResolutionEvent
+  /**
+   * The 32-bit seed of this turn's roll generator
+   * (`ai/core/resolution.ts::createSeededRng`). Every hidden roll the turn
+   * made draws from that one generator in a fixed order - the player
+   * action's resolution roll first (when consequential), then each
+   * mortality roll in claim order - so the recorded seed replays the
+   * turn's dice exactly. Optional: entries persisted before this field
+   * existed (and mock-mode turns) simply lack it. Per DESIGN_DECISIONS.md
+   * D4 it is GM-console-only, never rendered on any player-facing surface.
+   */
+  turnSeed?: number;
 }
 
 export interface SpotlightEntity {
@@ -373,13 +562,77 @@ export interface SpotlightEntity {
   reason: string;
 }
 
+/**
+ * The Director's continuity ruling on a spotlight intent (ROADMAP_PHASE_4.md
+ * 4C item 3): 'continue' carries the character's previous intent forward,
+ * 'pivot' redirects it because events made it obsolete or opened something
+ * better, 'new' means the character had no previous intent on record.
+ */
+export const NpcIntentContinuityEnum = ['continue', 'pivot', 'new'] as const;
+export type NpcIntentContinuity = typeof NpcIntentContinuityEnum[number];
+
+/**
+ * One spotlight NPC's persistent intent, emitted by the Director
+ * (storyRelevance call) each turn and persisted at turn commit so the NEXT
+ * turn's Director judges continuity against it - the 4C.3 continuity loop.
+ * GM-PRIVATE per DESIGN_DECISIONS.md D4/D5: intents are simulation
+ * direction, never player knowledge - they may render only in
+ * GameMasterScreen and feed only prompts under ai/.
+ */
+export interface NpcIntent {
+  entity_id: string;
+  /** ONE LINE: what this character is trying to accomplish next. */
+  intent: string;
+  continuity: NpcIntentContinuity;
+}
+
+/**
+ * One spotlight NPC's mind decision (ROADMAP_PHASE_4.md 4C item 4, D10/D22):
+ * the structured output of that character's own per-turn mind call
+ * (ai/prompts/npcMind.ts / ai/tools/npcMind.ts), decided from the
+ * character's BOUNDED knowledge only. GM-PRIVATE per DESIGN_DECISIONS.md
+ * D4/D5, same handling class as `gm_private`/`NpcIntent`: mind decisions -
+ * and especially `private_reasoning` - may render only in GameMasterScreen
+ * and feed only prompts under ai/, never any player-facing surface. The
+ * adjudication prompt receives entity_id/chosen_action/method ONLY - never
+ * `private_reasoning` (ai/prompts/fragments.ts::buildNpcMindDecisionsBlock).
+ */
+export interface NpcMindDecision {
+  entity_id: string;
+  /** ONE concrete act the character takes this turn, in prose. */
+  chosen_action: string;
+  /** HOW the character goes about it - brief. */
+  method: string;
+  /** The character's true, first-person thinking behind the move. GM-private even among GM data: never fed back into the adjudicator. */
+  private_reasoning: string;
+  /** Optional: how the character's active scheme shifts in their own mind this turn. Absent/null when the scheme stands unchanged. */
+  scheme_adjustment?: string | null;
+}
+
 export interface StoryRelevance {
   spotlight_entities: SpotlightEntity[];
+  /** Per-spotlight persistent intents (4C.3) - see NpcIntent above. */
+  spotlight_intents: NpcIntent[];
   add_entity_suggestion?: { description: string; reason: string; };
   remove_entity_suggestion?: { entity_id: string; reason: string; };
   add_location_suggestion?: { name: string; description: string; reason: string; };
   remove_location_suggestion?: { name: string; reason: string; };
 }
+
+/**
+ * The pacing-posture preference (ROADMAP_PHASE_4.md 4D item 1, D23): how
+ * eagerly the adjudicator's PACING JUDGMENT principle steps in when the
+ * story slackens. 'restrained' intervenes rarely and lets long quiets
+ * stand; 'balanced' is the default contract as written; 'dramatic'
+ * tolerates fewer slack turns and tightens sooner. A device-level USER
+ * PREFERENCE persisted in localStorage (persistence/settings.ts), NEVER
+ * part of the save bundle. D23 bound: this enum tunes ONE line of prompt
+ * wording (ai/prompts/adjudication.ts) and nothing else - no code-side
+ * tension scalar, accumulator, or threshold machinery exists anywhere;
+ * pacing itself is the adjudicator's own intentional judgment.
+ */
+export const PacingPostureEnum = ['restrained', 'balanced', 'dramatic'] as const;
+export type PacingPosture = typeof PacingPostureEnum[number];
 
 /**
  * A choice a player can make in response to an event.
@@ -392,13 +645,40 @@ export interface PlayerEventChoice {
 
 /**
  * A dynamic event that can be triggered by game state conditions.
+ *
+ * ROADMAP_PHASE_4.md 4D item 2 (D12/D24): authored events are payoff
+ * MATERIAL, not a fire-once trigger library. Triggers are role-agnostic
+ * predicates over world/sim state (no Emperor gates), and the optional
+ * `simulationState` parameter lets a trigger key off the empire-level
+ * meta-state; existing three-argument triggers remain assignable unchanged.
  */
 export interface GameEvent {
   id: string;
   title: string;
   description: string;
-  trigger: (worldState: WorldState, entities: Entity[], player: Entity | null) => boolean;
+  /**
+   * ONE LINE (4D.2, D24): the historical current this event embodies,
+   * phrased so the adjudicator can weave it into a turn as a premise (the
+   * HISTORICAL MATERIAL block, ai/prompts/adjudication.ts). GM-side prompt
+   * material only - never rendered to the player directly; the player sees
+   * `description` when the modal event system fires the event verbatim.
+   * Optional: an event without one falls back to its title in the block.
+   */
+  premise?: string;
+  trigger: (worldState: WorldState, entities: Entity[], player: Entity | null, simulationState?: SimulationState) => boolean;
   options: PlayerEventChoice[];
+  /**
+   * 4D.2 (D12): true means the event may fire again after `cooldownTurns`
+   * have elapsed since its last firing. Absent/false preserves the original
+   * fire-once contract.
+   */
+  repeatable?: boolean;
+  /**
+   * 4D.2 (D12): minimum turns between firings of a `repeatable` event -
+   * eligible again once (currentTurn - lastFiredTurn) >= cooldownTurns.
+   * Meaningful only with `repeatable`; absent means no cooldown.
+   */
+  cooldownTurns?: number;
 }
 
 /**
@@ -409,6 +689,23 @@ export interface EventHistoryEntry {
   eventTitle: string;
   choiceText: string;
   turnNumber: number;
+}
+
+/**
+ * Bookkeeping for one authored event's firings (ROADMAP_PHASE_4.md 4D item
+ * 2, D12) - the richer successor to the bare `triggeredEventIds` string
+ * list, needed because repeatable events must know WHEN they last fired for
+ * their cooldown. Persisted as a NEW optional save field alongside the
+ * legacy string[] (persistence/saveGame.ts): legacy saves without it load
+ * cleanly and are normalized from `triggeredEventIds`
+ * (events/engine.ts::normalizeEventFirings).
+ */
+export interface EventFiringRecord {
+  eventId: string;
+  /** The turn number at which the event last fired (its choice was applied). */
+  lastFiredTurn: number;
+  /** How many times the event has fired this campaign. */
+  timesFired: number;
 }
 
 /**

@@ -1,17 +1,22 @@
 import { GoogleGenAI } from "@google/genai";
-import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent } from '../../types';
+import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent, TruthLedgerEntry, NpcIntent, NpcMindDecision, StoryRelevance, EntityAction, Memory, PacingPosture, EventFiringRecord, EventDelta, Scheme, SchemeStep } from '../../types';
 import { AdjudicationSchema } from './schemas';
 import { applyAdjudication, applyDeltas } from './engine';
 import { mockRunNewTurn } from "../mocks";
 import { getPlayerMonologue, getStoryRelevance, getUpdatedSimulationState, getRelationshipUpdates, simulatePrivateConversation } from '../tools/intelligence';
 import { getActionAssessment } from '../tools/assessment';
+import { getNpcMindDecision } from '../tools/npcMind';
+import { MAX_MINDS_PER_TURN } from '../prompts/npcMind';
+import { buildWorldSummary } from '../prompts/fragments';
+import { buildPerceivedDigest, PerceivedChange } from '../../perception/visibility';
 import { generateStructured, generateText, generateTextStream, GEMINI_PRO, beginTurnCapture, endTurnCapture } from './geminiService';
 import { zAdjudication } from './zodSchemas';
-import { buildAdjudicationPrompt, PlayerActionOutcomeContext } from '../prompts/adjudication';
-import { buildNarrationPrompt } from '../prompts/narration';
+import { buildAdjudicationPrompt, PlayerActionOutcomeContext, HistoricalMaterialEntry } from '../prompts/adjudication';
+import { selectRipeEventMaterial } from '../../events/engine';
+import { buildNarrationPrompt, selectVoiceCast } from '../prompts/narration';
 import { processMortality, detectDeathClaims } from './mortality';
 import { createNarrationStreamGate } from './streamSplit';
-import { rollD20, resolveAction, derivePersonalityModifier, deriveOppositionModifier } from './resolution';
+import { rollD20, resolveAction, derivePersonalityModifier, deriveOppositionModifier, createSeededRng, generateSeed } from './resolution';
 
 // Adjudication is the highest-stakes, most consequence-dense call of the
 // turn - a moderate temperature keeps outcomes varied without letting the
@@ -22,6 +27,212 @@ const ADJUDICATION_TEMPERATURE = 0.8;
 const NARRATION_TEMPERATURE = 1.0;
 
 /**
+ * Upper bound on the persisted per-turn intent list (4C.3): intents exist
+ * for spotlight NPCs only, and the Director is instructed to pick 2-4
+ * spotlights - so the durable slice stays small by construction; the cap is
+ * the code-side guarantee against a runaway response bloating the save.
+ */
+export const MAX_NPC_INTENTS = 4;
+
+/**
+ * Derives the DURABLE intent list from the Director's raw output: an intent
+ * survives only when its entity_id is BOTH an actual spotlight pick AND an
+ * entity that is alive in the current roster (intents are per-spotlight by
+ * contract, and a durable intent may never ride on someone who cannot act),
+ * deduped to ONE intent per entity_id keeping the FIRST emitted, capped at
+ * MAX_NPC_INTENTS in emission order. The alive gate is load-bearing: a
+ * spotlight id can name an NPC who is dead/exiled/missing (or absent) in
+ * state, and an intent committed on such an id would be persisted and fed to
+ * the NEXT turn's Director and adjudicator as live direction for a corpse -
+ * the adjudicator's own spotlight block already renders only alive NPCs, so
+ * a dead-id intent could never earn an entityAction and would just accrete
+ * as phantom direction. The dedupe is load-bearing too: the Director's
+ * contract is exactly one intent per spotlight, and without it a duplicate
+ * would crowd the cap, list twice in the adjudication prompt's intents
+ * block, and disagree with the mind handoff (whose Map lookup keeps only one
+ * entry per entity) about WHICH intent stands - first-wins makes every
+ * consumer see the same one. This filtered list is the single shape
+ * everything downstream consumes - the adjudication prompt's intents block,
+ * the code-side consistency check, the history entry, and the reducer's
+ * persisted `npcIntents` slice. Pure; exported for direct unit testing.
+ */
+export function selectDurableIntents(storyRelevance: StoryRelevance, roster: readonly Pick<Entity, 'entity_id' | 'status'>[]): NpcIntent[] {
+    const spotlightIds = new Set(storyRelevance.spotlight_entities.map(s => s.entity_id));
+    const aliveIds = new Set(roster.filter(e => e.status === 'alive').map(e => e.entity_id));
+    const seen = new Set<string>();
+    const durable: NpcIntent[] = [];
+    for (const intent of storyRelevance.spotlight_intents ?? []) {
+        if (!spotlightIds.has(intent.entity_id) || !aliveIds.has(intent.entity_id) || seen.has(intent.entity_id)) continue;
+        seen.add(intent.entity_id);
+        durable.push(intent);
+    }
+    return durable.slice(0, MAX_NPC_INTENTS);
+}
+
+/**
+ * GM-private trace for the silent-wipe edge (4C.3): the Director emitted a
+ * schema-valid intent list, spotlights exist, and yet EVERY intent failed
+ * selectDurableIntents' gate (mismatched entity_ids, or spotlights that are
+ * not alive in the current roster) - selectDurableIntents then commits []
+ * wholesale and next turn's Director is told "None on record" with no trace
+ * of why. This note records the discard for the GM console
+ * (same soft-contract style as buildIntentConsistencyNotes); it changes no
+ * behavior. Returns [] in every non-wipe case, including the legitimate
+ * empty-emission and no-spotlight cases. Pure; exported for direct unit
+ * testing.
+ */
+export function buildIntentDiscardNotes(storyRelevance: StoryRelevance, durableIntents: NpcIntent[]): string[] {
+    const emitted = storyRelevance.spotlight_intents ?? [];
+    if (emitted.length === 0 || durableIntents.length > 0 || storyRelevance.spotlight_entities.length === 0) return [];
+    return [
+        `[Director] All ${emitted.length} emitted intent(s) were discarded: none named a live spotlight pick (intents for ${emitted.map(i => i.entity_id).join(', ')}; spotlights ${storyRelevance.spotlight_entities.map(s => s.entity_id).join(', ')}). Nothing was committed, so next turn's Director will see "None on record" - soft contract, nothing was forced.`,
+    ];
+}
+
+/**
+ * Drops the perceived-digest lines a mind prompt would otherwise show
+ * TWICE (4C.4): the previous turn's memory stamp (ai/core/engine.ts) and
+ * the mind-input digest both render the same deltas through
+ * perception/visibility.ts's describeDelta, so a line stamped into this
+ * NPC's memories last turn re-derives byte-identical here. Only lines whose
+ * text matches a memory entry stamped with the PREVIOUS turn's number are
+ * dropped (an older turn's identical text describes a different event and
+ * must not suppress a fresh line). Lines the stamp dropped survive - the
+ * per-turn MAX_NPC_MEMORY_LINES_PER_TURN cap, and viewers excluded from
+ * the perceiving set entirely (MAX_PERCEIVING_NPCS), for whom this digest
+ * is the only channel. Pure; exported for direct unit testing.
+ */
+export function selectUnrememberedChanges(
+    changes: PerceivedChange[],
+    memories: Memory[],
+    previousTurnNumber: number | undefined
+): PerceivedChange[] {
+    if (previousTurnNumber === undefined) return changes;
+    const remembered = new Set(
+        memories.filter(m => m.turn === previousTurnNumber).map(m => m.event_description)
+    );
+    if (remembered.size === 0) return changes;
+    return changes.filter(change => !remembered.has(change.text));
+}
+
+/**
+ * Picks which spotlight characters get a mind call this turn (4C.4, D22):
+ * the Director's spotlight picks in spotlight order (its picks are its
+ * importance ranking), resolved against the pre-turn roster - ALIVE,
+ * non-player entities only, deduped, capped at MAX_MINDS_PER_TURN
+ * (ai/prompts/npcMind.ts). Ids that resolve to nothing are skipped, never
+ * padded around.
+ *
+ * D22 GROUPING SEAM: one mind per spotlight CHARACTER today. When minds are
+ * later grouped per set/faction (the sanctioned cost lever - factions that
+ * act as a bloc may become one collective mind), THIS function is the seam:
+ * it would return mind GROUPS (each carrying one or more member entities)
+ * instead of individual entities, and buildNpcMindPrompt's self-brief would
+ * grow a collective form. Nothing downstream assumes one-entity-per-mind
+ * beyond what this function hands it. Pure; exported for direct unit
+ * testing.
+ */
+export function selectMindEntities(storyRelevance: StoryRelevance, entities: Entity[], playerEntityId: string): Entity[] {
+    const byId = new Map(entities.map(e => [e.entity_id, e]));
+    const picked: Entity[] = [];
+    const pickedIds = new Set<string>();
+    for (const spotlight of storyRelevance.spotlight_entities) {
+        if (picked.length >= MAX_MINDS_PER_TURN) break;
+        const entity = byId.get(spotlight.entity_id);
+        if (!entity || entity.status !== 'alive' || entity.entity_id === playerEntityId || pickedIds.has(entity.entity_id)) continue;
+        pickedIds.add(entity.entity_id);
+        picked.push(entity);
+    }
+    return picked;
+}
+
+/**
+ * Upper bound on an `active_scheme`'s `steps` list once a mind-driven
+ * evolution (D30) appends to it: past this cap the OLDEST steps are dropped.
+ * A scheme's earliest phases are typically already completed, so the plan's
+ * next moves are the load-bearing ones for what the character does now. The
+ * bound is deliberately generous - the adjudicator authors ~3-5-step schemes
+ * (see DYNAMIC SCHEMES in ai/prompts/adjudication.ts), so this only ever
+ * bites a long-running spotlight whose own mind keeps evolving its plan turn
+ * after turn; without it, a persisted field would grow without limit.
+ */
+export const MAX_SCHEME_STEPS = 8;
+
+/**
+ * D30: reconstructs a COMPLETE, parseable `Scheme` from an entity's CURRENT
+ * `active_scheme` by folding the mind's one-line `scheme_adjustment` in as a
+ * new in_progress step. This is the exact shape ai/core/engine.ts's 'scheme'
+ * case REPLACES `active_scheme` with (it JSON.parses `delta.reason` as a full
+ * Scheme object) - the mind returns a one-liner, not a full object, so
+ * representing that note as the plan's next step keeps `active_scheme`
+ * faithful to its existing shape and never corrupts engine.ts's parsing. An
+ * entity with no prior scheme is SEEDED from the note (a minded character may
+ * establish a scheme, not only evolve one). Steps are capped at
+ * MAX_SCHEME_STEPS, dropping oldest. Pure; exported for direct unit testing.
+ */
+export function evolveSchemeFromAdjustment(current: Scheme | undefined, adjustment: string): Scheme {
+    const note = adjustment.trim();
+    const newStep: SchemeStep = { objective: note, status: 'in_progress' };
+    if (!current) {
+        return { name: 'Evolving design', overall_goal: note, steps: [newStep] };
+    }
+    const steps = [...current.steps, newStep];
+    return {
+        name: current.name,
+        overall_goal: current.overall_goal,
+        steps: steps.length > MAX_SCHEME_STEPS ? steps.slice(steps.length - MAX_SCHEME_STEPS) : steps,
+    };
+}
+
+/**
+ * D30: turns each spotlight mind's own `scheme_adjustment` into a committed
+ * 'scheme' delta EVOLVING that entity's `active_scheme` - the character's
+ * interior plan belongs to its own mind, not the adjudicator. One delta per
+ * mind decision carrying a non-empty `scheme_adjustment` whose entity_id
+ * resolves in `entities`; the delta's `key` is that entity_id, `delta` is 0,
+ * and `reason` is a JSON string of the reconstructed Scheme (the exact
+ * contract ai/core/engine.ts's 'scheme' case parses). Evolution is computed
+ * from the PRE-TURN `active_scheme` in `entities`, so the mind evolves the
+ * character's OWN standing plan regardless of any scheme delta the
+ * adjudicator emitted the same turn (that one is deduped away at the call
+ * site - a minded entity's scheme is owned by its mind). Pure; exported for
+ * direct unit testing.
+ */
+export function buildMindSchemeDeltas(decisions: NpcMindDecision[], entities: Entity[]): EventDelta[] {
+    const byId = new Map(entities.map(e => [e.entity_id, e]));
+    const deltas: EventDelta[] = [];
+    for (const decision of decisions) {
+        const note = decision.scheme_adjustment?.trim();
+        if (!note) continue;
+        const entity = byId.get(decision.entity_id);
+        if (!entity) continue;
+        deltas.push({
+            type: 'scheme',
+            key: decision.entity_id,
+            delta: 0,
+            reason: JSON.stringify(evolveSchemeFromAdjustment(entity.active_scheme, note)),
+        });
+    }
+    return deltas;
+}
+
+/**
+ * The SOFT entityActions-vs-intent contract (4C.3): every spotlight NPC
+ * holding a Director intent should have an entityAction this turn acting in
+ * service of it. A missing action is recorded as a gm_private note for the
+ * GM console - never a hard failure and never a forced/synthesized action,
+ * because the adjudicator legitimately folds some moves into deltas or
+ * narrative rather than a discrete entityAction entry. Pure; exported for
+ * direct unit testing.
+ */
+export function buildIntentConsistencyNotes(entityActions: EntityAction[], npcIntents: NpcIntent[]): string[] {
+    const actorIds = new Set(entityActions.map(action => action.id));
+    return npcIntents
+        .filter(intent => !actorIds.has(intent.entity_id))
+        .map(intent => `[Director] Spotlight ${intent.entity_id} holds intent "${intent.intent}" (${intent.continuity}) but has no entityAction this turn - soft contract, no action was forced.`);
+}
+
+/**
  * Every real step of `runNewTurn`'s pipeline that can trigger an `onStage`
  * notification (ROADMAP_0_MASTER_PLAN.md Phase 3 item 1), named in the
  * EXACT order they run below - note `mortality` runs before
@@ -29,6 +240,10 @@ const NARRATION_TEMPERATURE = 1.0;
  * simulation-state call, see step 2.7's comment). Two stages are
  * conditional and simply never fire their notification when the underlying
  * step doesn't run this turn (see the call sites below for exactly why):
+ *  - `npc_minds`: only when at least one spotlight pick resolves to a
+ *    living, non-player roster entity (see `selectMindEntities`) - up to
+ *    MAX_MINDS_PER_TURN flash-tier mind calls in one Promise.all, the one
+ *    added latency leg between the Director and adjudication (4C.4, D16).
  *  - `private_conversation`: only when story relevance names >=2 spotlight
  *    entities that both resolve to real, currently-known entities.
  *  - `mortality`: only when at least one delta in the adjudication (as
@@ -62,6 +277,7 @@ const NARRATION_TEMPERATURE = 1.0;
  */
 export type TurnStage =
     | 'story_relevance'
+    | 'npc_minds'
     | 'adjudication'
     | 'private_conversation'
     | 'mortality'
@@ -83,6 +299,30 @@ export interface RunNewTurnOptions {
      * option existed.
      */
     onNarrationChunk?: (textSoFar: string) => void;
+    /**
+     * The device-level pacing-posture preference (ROADMAP_PHASE_4.md 4D
+     * item 1, D23) - App.tsx reads it fresh from persistence/settings.ts at
+     * each turn's start and passes it here; it selects the posture line in
+     * the adjudication prompt's PACING JUDGMENT principle. Absent means
+     * 'balanced' (the default contract). Prompt wording is ALL it tunes:
+     * per D23 no code-side tension scalar, accumulator, or threshold exists
+     * anywhere in this pipeline - pacing is the adjudicator's own judgment,
+     * recorded per turn as a "[Pacing]" gm_private note (GM console only).
+     */
+    pacingPosture?: PacingPosture;
+    /**
+     * The campaign's per-event firing bookkeeping (ROADMAP_PHASE_4.md 4D
+     * item 2, D12/D24) - the reducer's `eventFirings` slice. When present,
+     * runNewTurn derives the ripe/near authored-event material
+     * (events/engine.ts::selectRipeEventMaterial) from the PRE-TURN state
+     * it already holds and renders it as the adjudication prompt's
+     * GM-private HISTORICAL MATERIAL block, giving the PACING JUDGMENT
+     * (D23) concrete historical currents to prefer when it tightens (D24).
+     * Absent means no block - the pre-4D.2 prompt shape, unchanged. Prompt
+     * material only: nothing here fires events, adds calls, or touches
+     * player-facing surfaces (D4/D5).
+     */
+    eventFirings?: EventFiringRecord[];
 }
 
 export async function runNewTurn(
@@ -95,6 +335,15 @@ export async function runNewTurn(
     currentSimulationState: SimulationState,
     turnHistory: TurnHistoryEntry[],
     currentReports: Report[],
+    // GM-PRIVATE (DESIGN_DECISIONS.md D11): flows current -> updated exactly
+    // like currentReports/updatedReports; the engine appends one entry per
+    // rumor delta (ai/core/engine.ts).
+    currentTruthLedger: TruthLedgerEntry[],
+    // GM-PRIVATE (D4/D5, 4C.3): the PREVIOUS turn's committed Director
+    // intents (the reducer's `npcIntents` slice) - fed into this turn's
+    // Director input for its continuity ruling, replaced wholesale by this
+    // turn's `updatedNpcIntents` at commit.
+    currentNpcIntents: NpcIntent[],
     gmInterventionText: string,
     isMockMode: boolean,
     metaNarrative: string,
@@ -104,6 +353,8 @@ export async function runNewTurn(
     updatedWorldState: WorldState,
     updatedSimulationState: SimulationState,
     updatedReports: Report[],
+    updatedTruthLedger: TruthLedgerEntry[],
+    updatedNpcIntents: NpcIntent[],
     narration: string,
     headlines: string[],
     suggestedActions: string[],
@@ -113,13 +364,23 @@ export async function runNewTurn(
     if (isMockMode) {
         if(!mockRunNewTurn) throw new Error("Mock function 'mockRunNewTurn' is not implemented.");
         // FIX: Pass currentSimulationState to the mock function to align with its updated signature.
-        return mockRunNewTurn(playerIntent, playerEntity, turnNumber, currentEntities, currentWorldState, currentReports, gmInterventionText, metaNarrative, currentSimulationState);
+        return mockRunNewTurn(playerIntent, playerEntity, turnNumber, currentEntities, currentWorldState, currentReports, gmInterventionText, metaNarrative, currentSimulationState, currentTruthLedger, currentNpcIntents);
     }
 
     // Bracket the whole turn pipeline so every AI call made below (across
     // turn.ts and ai/tools/intelligence.ts) is captured for the GM screen's
     // raw-call log. See ai/core/geminiService.ts.
     beginTurnCapture();
+
+    // One seed per turn: every hidden roll this pipeline makes draws from
+    // this single seeded generator, in a fixed order - the player action's
+    // resolution roll first (when consequential), then each mortality roll
+    // in claim order - so recording `turnSeed` on the history entry below
+    // replays the turn's dice exactly (see createSeededRng in
+    // ai/core/resolution.ts). Per DESIGN_DECISIONS.md D4 the seed is
+    // GM-console data, never player-facing.
+    const turnSeed = generateSeed();
+    const turnRng = createSeededRng(turnSeed);
 
     try {
     // 0. Determine story relevance (Director spotlight-picking) AND assess
@@ -134,9 +395,16 @@ export async function runNewTurn(
     options?.onStage?.('story_relevance');
     const npcEntities = currentEntities.filter(e => e.entity_id !== playerEntity.entity_id);
     const [storyRelevance, actionAssessment] = await Promise.all([
-        getStoryRelevance(ai, turnNumber, turnHistory.slice(-1)[0]?.adjudication.headlines || [], currentWorldState, isMockMode),
+        getStoryRelevance(ai, turnNumber, turnHistory.slice(-1)[0]?.adjudication.headlines || [], currentWorldState, npcEntities, currentNpcIntents, isMockMode),
         getActionAssessment(ai, playerEntity, playerIntent, currentWorldState, npcEntities, isMockMode),
     ]);
+
+    // *** THE DIRECTOR'S DURABLE INTENTS (4C.3) ***
+    // The single filtered/capped intent list every downstream consumer sees:
+    // the adjudication prompt's SPOTLIGHT NPC INTENTS block, the post-hoc
+    // consistency check below, the history entry, and (via the result) the
+    // reducer's persisted npcIntents slice that feeds NEXT turn's Director.
+    const npcIntents = selectDurableIntents(storyRelevance, currentEntities);
 
     // *** RESOLUTION LAYER (ROADMAP_0_MASTER_PLAN.md Phase 3 item 4) ***
     // The model NEVER decides whether the player's action succeeds - it only
@@ -172,7 +440,7 @@ export async function runNewTurn(
         const oppositionModifier = deriveOppositionModifier({ relationshipTowardActor });
 
         const resolution = resolveAction({
-            roll: rollD20(),
+            roll: rollD20(turnRng),
             relevantSkillValue,
             personalityModifier,
             oppositionModifier,
@@ -189,6 +457,70 @@ export async function runNewTurn(
         };
     }
 
+    // *** STEP 1.5: NPC MINDS (4C.4, D10/D22) ***
+    // One flash-tier mind call per mind-eligible spotlight character (see
+    // selectMindEntities - alive, non-player, capped at MAX_MINDS_PER_TURN),
+    // all launched in a single Promise.all: the ONE added latency leg
+    // between the Director and adjudication that D16 sanctions. Each mind's
+    // prompt carries ONLY that character's bounded knowledge (its own brief/
+    // memories, its own perceived digest of the PREVIOUS turn's events from
+    // the pre-turn roster, its Director intent, and public headlines/macro
+    // state - see ai/prompts/npcMind.ts's asymmetry contract). SOFT
+    // DEGRADATION: a mind-call failure never fails the turn - it is caught
+    // per-mind, recorded as a [Mind] gm_private note (pushed onto the
+    // adjudication below, once it exists), and that spotlight simply falls
+    // back to its Director intent alone in the adjudication prompt.
+    const mindNpcs = selectMindEntities(storyRelevance, currentEntities, playerEntity.entity_id);
+    const npcMindResults: NpcMindDecision[] = [];
+    const mindFailureNotes: string[] = [];
+    if (mindNpcs.length > 0) {
+        options?.onStage?.('npc_minds');
+        const previousEntry = turnHistory.slice(-1)[0];
+        const previousDeltas = previousEntry?.adjudication.deltas ?? [];
+        const publicHeadlines = previousEntry?.adjudication.headlines ?? [];
+        const worldSummary = buildWorldSummary(currentWorldState);
+        const intentByEntity = new Map(npcIntents.map(intent => [intent.entity_id, intent]));
+        const settled = await Promise.all(mindNpcs.map(async (npc): Promise<NpcMindDecision | null> => {
+            try {
+                return await getNpcMindDecision(ai, {
+                    self: npc,
+                    directorIntent: intentByEntity.get(npc.entity_id),
+                    // The character's own vantage on last week's ground truth
+                    // - the same viewer-agnostic filter the memory stamp and
+                    // the player digest use (perception/visibility.ts) -
+                    // minus the lines the previous turn's memory stamp
+                    // already put in this character's memories, which the
+                    // mind prompt renders separately (see
+                    // selectUnrememberedChanges above).
+                    perceivedChanges: selectUnrememberedChanges(
+                        buildPerceivedDigest(previousDeltas, npc, currentEntities, currentWorldState),
+                        npc.memories,
+                        previousEntry?.turnNumber
+                    ),
+                    publicHeadlines,
+                    worldSummary,
+                    turnNumber,
+                }, isMockMode);
+            } catch (e) {
+                mindFailureNotes.push(`[Mind] ${npc.entity_id}'s mind call failed (${e instanceof Error ? e.message : String(e)}) - proceeding without it; the adjudicator falls back to this spotlight's Director intent alone.`);
+                return null;
+            }
+        }));
+        npcMindResults.push(...settled.filter((decision): decision is NpcMindDecision => decision !== null));
+    }
+
+    // *** HISTORICAL MATERIAL (4D.2, D12/D24) ***
+    // Authored events whose triggers are ripe or nearly due against the
+    // PRE-TURN state, offered to the adjudicator's PACING JUDGMENT as
+    // preferred payoff seeds. Derived only when the caller supplied the
+    // event bookkeeping (options.eventFirings) - legacy call sites see no
+    // block. Pure derivation, no model call; the modal event system in
+    // App.tsx remains the only thing that ever fires an event verbatim.
+    const historicalMaterial: HistoricalMaterialEntry[] | undefined = options?.eventFirings
+        ? selectRipeEventMaterial(currentWorldState, currentSimulationState, currentEntities, playerEntity, options.eventFirings, turnNumber)
+            .map(m => ({ id: m.event.id, title: m.event.title, premise: m.premise, status: m.status }))
+        : undefined;
+
     // 1. Compile context
     const recentHistory = turnHistory.slice(-6).map(h => `Turn ${h.turnNumber}: ${h.narration || h.adjudication.headlines.join('. ')}`);
     const { systemInstruction, prompt } = buildAdjudicationPrompt({
@@ -202,6 +534,10 @@ export async function runNewTurn(
         storyRelevance,
         metaNarrative,
         playerActionOutcome,
+        npcIntents,
+        npcMindDecisions: npcMindResults,
+        pacingPosture: options?.pacingPosture,
+        historicalMaterial,
     });
 
     // 2. Get adjudication from AI
@@ -230,6 +566,25 @@ export async function runNewTurn(
         );
     }
 
+    // *** ENTITY-ACTIONS-VS-INTENT CONSISTENCY (4C.3, soft contract) ***
+    // Validated post-hoc in code, against the adjudicator's OWN
+    // entityActions (before any private-conversation deltas are merged -
+    // that step never adds entityActions): a spotlight NPC holding a
+    // Director intent with no entityAction gets a gm_private note for the
+    // GM console. Never a hard failure - see buildIntentConsistencyNotes.
+    // gm_private is stripped before narration (ai/prompts/narration.ts), so
+    // these notes can never reach the player. The discard note records the
+    // silent-wipe edge (all emitted intents failed the spotlight filter) so
+    // the GM console can see why next turn's Director holds no record.
+    adjudication.gm_private.push(...buildIntentConsistencyNotes(adjudication.entityActions, npcIntents));
+    adjudication.gm_private.push(...buildIntentDiscardNotes(storyRelevance, npcIntents));
+
+    // Mind-call soft-degradation notes (4C.4): recorded per failed mind in
+    // step 1.5 above, attached here once the adjudication object exists -
+    // gm_private is GM-console-only (stripped before narration), so the
+    // failure is visible for tuning without ever reaching the player.
+    adjudication.gm_private.push(...mindFailureNotes);
+
     // *** NEW STEP 2.5: SIMULATE OFF-SCREEN NPC CONVERSATION ***
     // Moved ahead of applyAdjudication (previously ran on post-applyAdjudication
     // `updatedEntities`) so its deltas can be merged into `adjudication.deltas`
@@ -239,6 +594,13 @@ export async function runNewTurn(
     // are looked up from the pre-turn `currentEntities` snapshot rather than
     // the post-adjudication one - a minor behavioral shift, traded for a
     // single unified death-claim scan below instead of two.
+    //
+    // ORDER (D30): this merge runs BEFORE the mind-driven scheme dedup below,
+    // so a 'scheme' delta this conversation emits for a MINDED entity lands in
+    // adjudication.deltas in time to be superseded by that entity's own mind
+    // evolution - the same dedup that catches the adjudicator's scheme delta.
+    // A minded entity's interior plan is owned by its mind, never by an
+    // off-screen conversation.
     if (storyRelevance.spotlight_entities.length >= 2) {
         const npc1Id = storyRelevance.spotlight_entities[0].entity_id;
         const npc2Id = storyRelevance.spotlight_entities[1].entity_id;
@@ -259,6 +621,44 @@ export async function runNewTurn(
                 adjudication.deltas.push(...conversationResult.deltas);
                 adjudication.gm_private.push(`[Secret Meeting] ${conversationResult.dialogueSnippet}`);
             }
+        }
+    }
+
+    // *** D30: MINDS CONTINUOUSLY EVOLVE THEIR OWN SCHEMES ***
+    // A spotlight NPC's mind DRIVES its own active_scheme's evolution
+    // (DESIGN_DECISIONS.md D30): where its decision returned a
+    // scheme_adjustment, that is the CHARACTER'S own evolving intent - applied
+    // as its own 'scheme' delta, not left as a hint the adjudicator may
+    // discard (the pre-D30 wiring). DIRECTION PRECEDENCE, extended to scheme
+    // OWNERSHIP: for a MINDED entity its own mind-driven scheme evolution WINS
+    // over ANY competing 'scheme' delta for that SAME entity this turn,
+    // whatever its source - the adjudicator (told not to emit one) OR the
+    // off-screen private conversation merged just above. This dedup is the
+    // single enforcement point and runs AFTER that merge precisely so it
+    // catches BOTH sources: it strips every 'scheme' delta whose key is a
+    // mind-evolved entity, then appends the mind's own, so the entity's scheme
+    // is never double-applied or overwritten. The adjudicator still OWNS
+    // 'scheme' deltas for every NON-minded entity (the DYNAMIC SCHEMES rule)
+    // and owns action OUTCOMES in the shared world for everyone. These deltas
+    // are folded into adjudication.deltas HERE - before processMortality (a
+    // deep clone that preserves non-death deltas) and before applyAdjudication
+    // (step 3) - so they are committed and applied exactly ONCE, flowing
+    // through D28 perception like any other 'scheme' delta: a witness senses
+    // only 'something afoot', never the scheme's name
+    // (perception/visibility.ts::describeDelta).
+    const mindSchemeDeltas = buildMindSchemeDeltas(npcMindResults, currentEntities);
+    if (mindSchemeDeltas.length > 0) {
+        const mindEvolvedIds = new Set(mindSchemeDeltas.map(d => d.key));
+        const supersededIds = adjudication.deltas
+            .filter(d => d.type === 'scheme' && mindEvolvedIds.has(d.key))
+            .map(d => d.key);
+        adjudication.deltas = adjudication.deltas.filter(d => !(d.type === 'scheme' && mindEvolvedIds.has(d.key)));
+        adjudication.deltas.push(...mindSchemeDeltas);
+        for (const id of mindEvolvedIds) {
+            adjudication.gm_private.push(`[Mind] ${id} evolved its own active_scheme this turn - applied as the character's own scheme (DIRECTION PRECEDENCE: a minded entity's interior plan is owned by its mind, not the adjudicator or a private conversation).`);
+        }
+        if (supersededIds.length > 0) {
+            adjudication.gm_private.push(`[Mind] Superseded ${supersededIds.length} competing 'scheme' delta(s) for mind-evolved entities (${supersededIds.join(', ')}) - the entity's own mind owns its scheme evolution this turn; no double-application or overwrite.`);
         }
     }
 
@@ -286,7 +686,8 @@ export async function runNewTurn(
         currentEntities,
         playerEntity.entity_id,
         turnNumber,
-        isMockMode
+        isMockMode,
+        turnRng
     );
 
     // 3. Apply the (mortality-transformed) adjudication to get new state.
@@ -294,7 +695,24 @@ export async function runNewTurn(
     // of the three parallel legs below are launched, so `updatedEntities`/
     // `updatedWorldState`/`updatedReports` are fully settled, ordinary
     // (non-shared-with-anything-concurrent) values by the time they're read.
-    let { updatedEntities, updatedWorldState, updatedReports } = applyAdjudication(transformedAdjudication, currentEntities, currentWorldState, currentReports);
+    // The perception context bounds the NPC-side memory stamp inside
+    // applyAdjudication (D5/D10): the player's entity stays out of that
+    // loop (player knowledge lives in the knowledge store), and the
+    // spotlight cast is first in line for the capped perceiving set. The
+    // per-NPC digests are derived and discarded there; `perceivingNpcIds`
+    // (recorded on the history entry below) is what lets the GM console
+    // re-derive them for display.
+    let { updatedEntities, updatedWorldState, updatedReports, updatedTruthLedger, perceivingNpcIds } = applyAdjudication(
+        transformedAdjudication, currentEntities, currentWorldState, currentReports, currentTruthLedger,
+        {
+            playerEntityId: playerEntity.entity_id,
+            spotlightIds: storyRelevance.spotlight_entities.map(s => s.entity_id),
+            // The App's authoritative counter - the memory stamp's `turn`
+            // provenance, never the model-echoed adjudication.turn (see
+            // PerceptionStampContext in ai/core/engine.ts).
+            turnNumber,
+        }
+    );
     const updatedPlayerEntity = updatedEntities.find(e => e.entity_id === playerEntity.entity_id) || playerEntity;
     const recentPlayerIntents = turnHistory.map(h => h.playerIntent).slice(-6);
 
@@ -356,8 +774,28 @@ export async function runNewTurn(
     // without ever seeing GM-private ground truth (DESIGN_DECISIONS.md D3/D4).
     options?.onStage?.('narration');
     const narrationStreamGate = createNarrationStreamGate();
-    const mortalityDirectives = mortalityEvents.map(ev => `- ${ev.entity_name} (${ev.entity_id}): ${ev.outcomeSummary}`);
-    const narrationPrompt = buildNarrationPrompt(metaNarrative, updatedPlayerEntity, playerIntent, transformedAdjudication, mortalityDirectives);
+    // Only VALID mortality events become narration directives (D4). An
+    // invalidated claim's `outcomeSummary` is "Death claim invalidated -
+    // <validation reasoning>", and that validator reasoning is GM-only
+    // (recorded in gm_private / the mortalityTrace, never player-facing) -
+    // forwarding it here would leak it into this player-output-bound prompt.
+    // The invalidated claim's diegetically-rewritten delta `reason` (set in
+    // ai/core/mortality.ts) already carries what the player should read, and
+    // rides into the prompt via the sanitized adjudication like any delta.
+    const mortalityDirectives = mortalityEvents
+        .filter(ev => ev.valid)
+        .map(ev => `- ${ev.entity_name} (${ev.entity_id}): ${ev.outcomeSummary}`);
+    // 4C.5: the narration prompt's voice-cast block is BOUNDED to the
+    // characters actually on stage this turn - the Director's spotlight
+    // picks plus the adjudication's acting entities, resolved against the
+    // post-apply roster (so entities added this turn can carry their voice)
+    // and capped inside selectVoiceCast. Never the whole roster.
+    const voiceCast = selectVoiceCast(
+        storyRelevance.spotlight_entities.map(s => s.entity_id),
+        transformedAdjudication.entityActions.map(a => a.id),
+        updatedEntities
+    );
+    const narrationPrompt = buildNarrationPrompt(metaNarrative, updatedPlayerEntity, playerIntent, transformedAdjudication, mortalityDirectives, voiceCast);
     const narrationRequest = {
         callName: 'narration',
         model: GEMINI_PRO,
@@ -397,10 +835,51 @@ export async function runNewTurn(
 
     // 5.5 Get and apply relationship updates based on narrative
     options?.onStage?.('relationship_updates');
-    const relationshipDeltas = await getRelationshipUpdates(ai, narration, transformedAdjudication.headlines, updatedEntities, isMockMode);
-    if (relationshipDeltas && relationshipDeltas.length > 0) {
+    const relationshipUpdateResult = await getRelationshipUpdates(ai, narration, transformedAdjudication.headlines, updatedEntities, isMockMode);
+    // CONTRACT ENFORCEMENT: this call's contract is 'relation' deltas ONLY
+    // (buildRelationshipUpdatesPrompt asks for nothing else), but the schema
+    // pair it validates against (zRelationshipDeltas / RelationshipDeltasSchema)
+    // structurally accepts every EventDelta type. A non-'relation' delta that
+    // slipped through would be applied here OUTSIDE the pipelines that make
+    // other delta types safe: a 'rumor' would reach the player un-ledgered
+    // (no truth-ledger entry, D11/D26), and a 'status' change would bypass
+    // the mortality pipeline entirely (D2/D3). Filter to 'relation' BEFORE
+    // apply/merge; every other delta is dropped and its discard traced in
+    // gm_private (GM-only surface, D4/D5).
+    const relationshipDeltas = (relationshipUpdateResult ?? []).filter(d => d.type === 'relation');
+    const discardedRelationshipDeltas = (relationshipUpdateResult ?? []).filter(d => d.type !== 'relation');
+    if (discardedRelationshipDeltas.length > 0) {
+        transformedAdjudication.gm_private.push(
+            `[Narrative Analyst] Dropped ${discardedRelationshipDeltas.length} non-relation delta(s) from the relationship-update call (contract is 'relation' only; these would bypass the ledger/mortality pipelines): ${discardedRelationshipDeltas.map(d => `${d.type}:${d.key}`).join(', ')}.`
+        );
+    }
+    if (relationshipDeltas.length > 0) {
+        // DISCARD CONSTRAINT: only `updatedEntities` is taken from this
+        // applyDeltas call - any newReports/newTruthLedgerEntries it returns
+        // are dropped, AFTER updatedReports/updatedTruthLedger were already
+        // settled above. The filter above guarantees these are 'relation'
+        // deltas only, and 'relation' deltas mint no Reports or ledger
+        // entries, so nothing is lost by the discard. If this step ever
+        // legitimately applied rumor-bearing or systemic-resource deltas,
+        // their Report/ledger output would have to be threaded into
+        // updatedReports/updatedTruthLedger rather than discarded here.
         const { updatedEntities: entitiesAfterRelationshipUpdates } = applyDeltas(relationshipDeltas, updatedEntities, updatedWorldState, turnNumber);
         updatedEntities = entitiesAfterRelationshipUpdates;
+        // Merge the just-applied deltas into the COMMITTED adjudication so
+        // they are part of the turn's ground-truth record. They are applied
+        // to state exactly ONCE (the applyDeltas call above): nothing after
+        // this point applies transformedAdjudication.deltas again -
+        // applyAdjudication already ran at step 3, and the committed entry's
+        // deltas feed only derivations (the player digest + knowledge
+        // ingestion in App.tsx, the GM console's views, and next turn's NPC
+        // mind digests), which classify them under the normal D5 rules
+        // (self/witnessed/network/invisible) like any other delta. The NPC
+        // memory stamp inside applyAdjudication ran BEFORE this step, so
+        // these deltas are never stamped as memories this turn - an accepted
+        // one-turn lag: next turn's minds still receive them through the
+        // re-derived digest of this entry (selectUnrememberedChanges keeps
+        // un-stamped lines).
+        transformedAdjudication.deltas.push(...relationshipDeltas);
         // Log this change for debugging.
         transformedAdjudication.gm_private.push(`[Narrative Analyst] Applied ${relationshipDeltas.length} relationship delta(s) based on turn events.`);
     }
@@ -415,6 +894,16 @@ export async function runNewTurn(
         rawCalls: endTurnCapture(),
         mortalityTrace: mortalityEvents.length > 0 ? mortalityEvents : undefined,
         resolutionTrace,
+        turnSeed,
+        perceivingNpcIds,
+        // Optional on the entry (save-compat): omitted entirely when the
+        // Director committed no spotlight intents this turn.
+        npcIntents: npcIntents.length > 0 ? npcIntents : undefined,
+        // Optional (save-compat), bounded at MAX_MINDS_PER_TURN by
+        // construction: this turn's mind decisions, private_reasoning
+        // included - GM-console-only (D4/D5), trimmed with the snapshot
+        // window like perceivingNpcIds (state/gameReducer.ts).
+        npcMindResults: npcMindResults.length > 0 ? npcMindResults : undefined,
     };
 
     const result = {
@@ -422,6 +911,10 @@ export async function runNewTurn(
         updatedWorldState,
         updatedSimulationState, // Return the new state
         updatedReports,
+        updatedTruthLedger,
+        // Replaces the persisted slice wholesale each commit - the Director's
+        // output IS the durable intent state (4C.3 continuity loop).
+        updatedNpcIntents: npcIntents,
         narration,
         headlines: transformedAdjudication.headlines,
         suggestedActions: suggestedActions.length > 0 ? suggestedActions : ["Consider your next move carefully.", "Consolidate your power.", "Seek new allies."],
@@ -429,9 +922,10 @@ export async function runNewTurn(
         newHistoryEntry,
     };
 
-    console.log("--- RUN NEW TURN OUTPUT ---");
-    console.log(JSON.stringify(result, null, 2));
-
+    // Never dump `result` to the console: it carries the turn's full raw-call
+    // capture (prompts/system instructions), gm_private notes, and the turn
+    // seed - GM-only data (DESIGN_DECISIONS.md D4/D5) whose sanctioned
+    // channels are the GM console and the eval-corpus export.
     return result;
     } catch (e) {
         // Drain the in-flight capture buffer so a failed turn's partial raw

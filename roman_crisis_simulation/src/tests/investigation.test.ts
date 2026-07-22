@@ -13,6 +13,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { GoogleGenAI } from '@google/genai';
 import { getInvestigationResult } from '../ai/tools/intelligence';
 import { endTurnCapture } from '../ai/core/geminiService';
+import { rollD20, createSeededRng } from '../ai/core/resolution';
 import type { Entity } from '../types';
 
 function makeEntity(overrides: Partial<Entity> = {}): Entity {
@@ -48,9 +49,17 @@ function makePlayer(overrides: Partial<Entity> = {}): Entity {
   return makeEntity({ entity_id: 'player_1', name: 'Gaius Investigator', ...overrides });
 }
 
-/** Mocks Math.random so rollD20() (ai/core/resolution.ts) returns exactly `roll` - mirrors tests/mortality.test.ts's identical helper. */
+/**
+ * Mocks Math.random so the investigation's seed (generateSeed,
+ * ai/core/resolution.ts) becomes one whose seeded generator's FIRST d20
+ * draw is exactly `roll`. Searches the (dense) low seed space for such a
+ * seed, then pins Math.random to the value generateSeed floors back to it -
+ * mirrors tests/turnPipeline.test.ts's identical helper.
+ */
 function mockRoll(roll: number) {
-  return vi.spyOn(Math, 'random').mockReturnValue((roll - 1) / 20);
+  let seed = 0;
+  while (rollD20(createSeededRng(seed)) !== roll) seed++;
+  return vi.spyOn(Math, 'random').mockReturnValue(seed / 2 ** 32);
 }
 
 /** A minimal mock GeminiClient (structurally a GoogleGenAI) that returns `responseJson` for the single `investigation` call getInvestigationResult makes. */
@@ -164,5 +173,42 @@ describe('ai/tools/intelligence.ts getInvestigationResult - resolution layer wir
     expect(generateContent).not.toHaveBeenCalled();
     expect(randomSpy).not.toHaveBeenCalled();
     expect(result.report).toBeTruthy();
+    // No roll happened, so there is no resolution trace (and no seed) to record.
+    expect(result.resolutionTrace).toBeUndefined();
+  });
+
+  it('records a resolutionTrace carrying the investigation\'s own seed, and replaying the seed reproduces the recorded roll', async () => {
+    // Math.random is deliberately UNMOCKED: the seed is real entropy, and
+    // the reproducibility contract must hold for whatever seed was drawn.
+    const { ai } = makeMockAi({ reportData: ['A secret.'], report: 'Report.', consequences: null });
+
+    const result = await getInvestigationResult(ai, makeBaselineTarget(), makePlayer(), false, false, 'secrets');
+
+    const trace = result.resolutionTrace;
+    expect(trace).toBeDefined();
+    expect(typeof trace!.seed).toBe('number');
+    expect(Number.isInteger(trace!.seed)).toBe(true);
+    expect(trace!.seed!).toBeGreaterThanOrEqual(0);
+    expect(trace!.seed!).toBeLessThan(2 ** 32);
+    // The investigation's roll is its dedicated generator's first draw:
+    // rebuilding the generator from the recorded seed reproduces it.
+    expect(rollD20(createSeededRng(trace!.seed!))).toBe(trace!.roll);
+    // The synthetic assessment mirrors the fixed check an investigation is.
+    expect(trace!.assessment).toMatchObject({
+      is_consequential: true,
+      action_category: 'secrets investigation',
+      relevant_skill: 'intrigue',
+      difficulty: 12,
+      opposing_entity_id: 'target_1',
+    });
+  });
+
+  it('trace mechanics (roll/total/margin/tier) match the pre-decided resolution fed to the prompt', async () => {
+    mockRoll(18); // difficulty 12 (isRisky=false), no skills/personality/relationship -> total 18, margin 6 -> 'success'
+    const { ai } = makeMockAi({ reportData: ['A secret.'], report: 'Report.', consequences: null });
+
+    const result = await getInvestigationResult(ai, makeBaselineTarget(), makePlayer(), false, false, 'secrets');
+
+    expect(result.resolutionTrace).toMatchObject({ roll: 18, total: 18, margin: 6, tier: 'success' });
   });
 });

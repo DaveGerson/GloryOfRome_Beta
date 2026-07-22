@@ -1,5 +1,16 @@
 # **Turn Structure and Mechanics: A Deep Dive**
 
+> ## ⚠️ STALE DOCUMENT
+> This walkthrough predates the resolution layer (hidden action rolls),
+> the mortality pipeline, the Director's persistent intents, the per-turn
+> NPC mind calls, the perception/knowledge layers, and the pipeline's
+> parallelized legs — its step ordering and its "6–7 Gemini calls per
+> turn" accounting no longer match the code. **The accurate pipeline
+> record is `ai/prompts/README.md`** (one entry per call, in order, with
+> models and consumers); `ai/core/turn.ts`'s own comments document the
+> exact stage sequence. The prose below is kept for the player-implication
+> commentary only.
+
 The core of the Roman Crisis Simulation is its turn-based engine, where each turn simulates one tumultuous week in Rome. A turn is not just a simple "player move, computer move" sequence. Instead, it's a comprehensive simulation where the player's actions happen concurrently with the schemes and reactions of every other character in the world. This creates a dynamic and unpredictable narrative.
 
 Here is a detailed, step-by-step breakdown of how a single turn unfolds, both mechanically and from a player's perspective.

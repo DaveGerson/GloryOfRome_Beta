@@ -26,6 +26,8 @@ import { z } from 'zod';
 import {
   EntityActionIntentEnum,
   EventDeltaTypeEnum,
+  NpcIntentContinuityEnum,
+  RumorStanceEnum,
 } from '../../types';
 
 // --- Entity sub-schemas (types.ts mirror) --------------------------------
@@ -85,6 +87,12 @@ export const zEntity = z.object({
   entity_type: z.enum(['individual', 'group', 'faction']),
   status: z.enum(['alive', 'dead', 'exiled', 'missing']),
   position: z.string().nullable().optional(),
+  // 4C.5 narrative flavor (types.ts's Entity.voice/epithet). Nullable AND
+  // optional so legacy entities/saves without them - and model responses
+  // that omit or null them - all validate; keep in lockstep with
+  // EntitySchema in ai/core/schemas.ts.
+  voice: z.string().nullable().optional(),
+  epithet: z.string().nullable().optional(),
   location: z.string(),
   personality: zPersonalityTraits.nullable().optional(),
   faction_id: z.string().nullable().optional(),
@@ -139,6 +147,24 @@ export const zEventDelta = z.object({
   // ai/prompts/adjudication.ts for how these are produced/consumed.
   new_status: z.enum(['alive', 'dead', 'exiled', 'missing']).nullable().optional(),
   new_location: z.string().nullable().optional(),
+  // 'rumor' deltas only, GM-PRIVATE (DESIGN_DECISIONS.md D11 - same
+  // handling class as secret_truth): the claim's actual truth disposition
+  // and originating entity. The adjudication prompt demands is_true on
+  // every rumor; nullable/optional here so non-rumor deltas need not carry
+  // them and so an omission fails soft into the engine's assumed-true
+  // fallback (ai/core/engine.ts) instead of failing the whole turn. See
+  // types.ts's EventDelta for the leak-prevention contract.
+  is_true: z.boolean().nullable().optional(),
+  origin_id: z.string().nullable().optional(),
+  // 'rumor' deltas only (D29), NOT private: `topic` is the categorization
+  // slug that keeps distinct matters about one subject on distinct claims;
+  // `stance` marks a counterplay follow-up as corroborating or contradicting
+  // the claim it continues. The adjudication prompt demands `topic` on every
+  // rumor; nullable/optional here so non-rumor deltas need not carry them and
+  // an omission fails soft (the knowledge store defaults an absent topic)
+  // rather than failing the turn. See types.ts's EventDelta.
+  topic: z.string().nullable().optional(),
+  stance: z.enum(RumorStanceEnum).nullable().optional(),
 }).passthrough();
 
 export const zEntityAction = z.object({
@@ -159,12 +185,27 @@ export const zAdjudication = z.object({
   remove_entities: z.array(z.string()).nullable().optional(),
 }).passthrough();
 
-/** Validates getStoryRelevance's output (intelligence.ts). */
+/**
+ * One spotlight NPC's persistent intent from the Director (4C.3) - mirrors
+ * types.ts's NpcIntent. GM-private data class (D4/D5): consumed only by
+ * ai/** prompts and the GM console.
+ */
+export const zNpcIntent = z.object({
+  entity_id: z.string(),
+  intent: z.string(),
+  continuity: z.enum(NpcIntentContinuityEnum),
+}).passthrough();
+
+/** Validates getStoryRelevance's (the Director's) output (intelligence.ts). */
 export const zStoryRelevance = z.object({
   spotlight_entities: z.array(z.object({
     entity_id: z.string(),
     reason: z.string(),
   }).passthrough()),
+  // Required, like spotlight_entities: the intents are the durable state the
+  // continuity loop (ai/core/turn.ts) commits every turn - an omission is a
+  // structural failure the repair-retry should catch, not a silent no-op.
+  spotlight_intents: z.array(zNpcIntent),
   add_entity_suggestion: z.object({
     description: z.string(),
     reason: z.string(),
@@ -205,10 +246,11 @@ export const zConversationSimulation = z.object({
 }).passthrough();
 
 /** Validates getInvestigationResult's output (intelligence.ts). `reportData`
- * is either a string list (secrets/beliefs) or a full Scheme object,
- * depending on the requested `subject`. */
+ * is a string list for every subject: findings for secrets/beliefs, and for
+ * 'scheme' a list of partial clues (D28 - a scheme investigation returns
+ * fragments, never the whole Scheme object). */
 export const zInvestigationResult = z.object({
-  reportData: z.union([z.array(z.string()), zScheme]),
+  reportData: z.array(z.string()),
   report: z.string(),
   consequences: z.string().nullable(),
 }).passthrough();
@@ -239,6 +281,23 @@ export const zMortalityOutcome = z.object({
   outcomes: z.array(zMortalityOutcomeEntry),
 }).passthrough();
 
+// --- NPC minds (ai/tools/npcMind.ts, ROADMAP_PHASE_4.md 4C item 4, D10/D22) --
+
+/**
+ * Validates one per-spotlight mind call's output (ai/tools/npcMind.ts).
+ * Mirrors `NpcMindDecisionSchema` in ai/core/schemas.ts and
+ * `NpcMindDecision` in types.ts - keep all three in lockstep. GM-private
+ * data class (D4/D5): `private_reasoning` renders only in GameMasterScreen
+ * and is never fed to the adjudicator.
+ */
+export const zNpcMindDecision = z.object({
+  entity_id: z.string(),
+  chosen_action: z.string(),
+  method: z.string(),
+  private_reasoning: z.string(),
+  scheme_adjustment: z.string().nullable().optional(),
+}).passthrough();
+
 // --- Resolution layer: action assessment (ai/tools/assessment.ts, ROADMAP_0_MASTER_PLAN.md Phase 3 item 4) --
 
 /** Validates the action-assessment call's output (ai/tools/assessment.ts). */
@@ -267,3 +326,27 @@ export const zEntityBatch = z.object({
 
 // --- Character creation (characterCreator.ts) -----------------------------
 // createCharacter's output is a single full Entity - `zEntity` above.
+
+// --- Offline eval judge (eval/judge.ts, DESIGN_DECISIONS.md D18) ----------
+
+/** One judged axis: an integer score 1 (worst) to 5 (best) plus a short rationale. */
+export const zEvalJudgeAxisScore = z.object({
+  score: z.number().int().min(1).max(5),
+  rationale: z.string(),
+}).passthrough();
+
+/**
+ * Validates the offline eval judge call's output (eval/judge.ts,
+ * ai/prompts/evalJudge.ts). Exactly five fixed axes - mirrors
+ * `EvalJudgeVerdictSchema` in ai/core/schemas.ts; keep the two in lockstep.
+ * `character_richness` is the 4C richness axis (D10/D16): continuity of
+ * self over plot convenience. Eval tooling only: this call is never made
+ * from app code.
+ */
+export const zEvalJudgeVerdict = z.object({
+  consequence_density: zEvalJudgeAxisScore,
+  sim_state_consistency: zEvalJudgeAxisScore,
+  schema_validity: zEvalJudgeAxisScore,
+  information_asymmetry: zEvalJudgeAxisScore,
+  character_richness: zEvalJudgeAxisScore,
+}).passthrough();

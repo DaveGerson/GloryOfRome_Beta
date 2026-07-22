@@ -10,6 +10,7 @@ import ResourcesTab from './tabs/ResourcesTab';
 import ChronicleTab from './tabs/ChronicleTab';
 import WorldStateTab from './tabs/WorldStateTab';
 import { TabId } from '../perception/visibility';
+import type { KnowledgeClaim } from '../knowledge/store';
 
 /**
  * The intelligence dashboard — player dossier header, Tyrian-pennant tab bar,
@@ -36,6 +37,10 @@ const SidePanel: React.FC<{
     worldState: WorldState;
     simulationState: SimulationState;
     reports: Report[];
+    /** The player knowledge store - the D14/D27 dossier read model over it prices held-dossier refreshes in DramatisPersonaeTab. */
+    knowledge: KnowledgeClaim[];
+    /** The App's authoritative turn counter - the staleness clock D27 prices a dossier refresh against. */
+    turnNumber: number;
     onSpendDeepAnalysis: (cost: number) => void;
     /** One atomic callback per investigation reveal - spend + blackmail + fallout in a single state/save pass (see App.tsx's handleInvestigationOutcome). */
     onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult) => void;
@@ -49,7 +54,7 @@ const SidePanel: React.FC<{
      * filter didn't already let through - this set is built strictly from
      * buildPerceivedDigest's output, never raw deltas. */
     pulsingTabs: Set<TabId>;
-}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, onSpendDeepAnalysis, onInvestigationOutcome, ai, isMockMode, eventHistory, pulsingTabs }) => {
+}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, ai, isMockMode, eventHistory, pulsingTabs }) => {
     const [activeTab, setActiveTab] = useState<TabId>('world_state');
     // Tabs the player has already looked at since the current pulsingTabs
     // set arrived - clicking a pulsing tab dismisses its own pulse
@@ -111,6 +116,8 @@ const SidePanel: React.FC<{
                 {activeTab === 'dramatis_personae' && <DramatisPersonaeTab
                     playerEntity={playerEntity}
                     entities={entities}
+                    knowledge={knowledge}
+                    turnNumber={turnNumber}
                     onSpendDeepAnalysis={onSpendDeepAnalysis}
                     onInvestigationOutcome={onInvestigationOutcome}
                     ai={ai}

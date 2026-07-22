@@ -53,6 +53,8 @@ function makeRawCall(callName: string): RawCallRecord {
     latencyMs: 100,
     attempts: 1,
     promptChars: 1000,
+    promptText: `full prompt for ${callName}: ${'p'.repeat(500)}`,
+    systemInstruction: `system instruction for ${callName}`,
     rawResponse: 'x'.repeat(1000),
     validated: true,
   };
@@ -102,6 +104,345 @@ describe('persistence/saveGame', () => {
   it('hasSave returns false when nothing has been saved', () => {
     expect(hasSave()).toBe(false);
     expect(loadGame()).toBeNull();
+  });
+
+  it('round-trips the optional turnSeed on history entries, alongside entries that lack it', () => {
+    const seeded: TurnHistoryEntry = { ...makeHistoryEntry(1, false), turnSeed: 123456789 };
+    const unseeded = makeHistoryEntry(2, false); // no turnSeed - same shape older entries have
+    saveGame(makeState({ turnNumber: 3, turnHistory: [seeded, unseeded] }));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.turnHistory[0].turnSeed).toBe(123456789);
+    expect(loaded!.state.turnHistory[1].turnSeed).toBeUndefined();
+    // Everything else about the seedless entry is untouched.
+    expect(loaded!.state.turnHistory[1].narration).toBe('Narration for turn 2');
+    expect(loaded!.state.turnHistory[1].adjudication.headlines).toEqual(['Headline 2']);
+  });
+
+  it('round-trips the optional GM-private truth ledger (D11), including origin/assumed markers', () => {
+    const truthLedger = [
+      { id: 'truth_2_1', turn: 2, claim: 'The Emperor plans tribute', aboutId: 'severus_alexander', originId: 'maximinus_thrax', isTrue: false, reportId: 'report_2_1' },
+      { id: 'truth_3_1', turn: 3, claim: 'Grain stores run low', aboutId: 'The Suburra', isTrue: true, reportId: 'report_3_1', assumed: true },
+    ];
+    saveGame(makeState({ turnNumber: 4, truthLedger }));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.truthLedger).toEqual(truthLedger);
+  });
+
+  it('round-trips the optional player knowledge store (D21), including update timelines', () => {
+    const knowledge = [
+      {
+        id: 'claim_2_report:maximinus_thrax:rumor',
+        subject: 'maximinus_thrax',
+        claim: 'Thrax courts the Rhine legions',
+        claimKey: 'report:maximinus_thrax:rumor',
+        firstLearnedTurn: 2,
+        updates: [
+          { turn: 2, source: 'rumor' as const, text: 'Thrax courts the Rhine legions', credibility: 0.6 },
+          { turn: 4, source: 'rumor' as const, text: 'The legions now openly cheer Thrax', credibility: 0.8 },
+        ],
+      },
+      {
+        id: 'claim_3_digest:resource:severus_alexander:denarii',
+        subject: 'severus_alexander',
+        claim: 'Your denarii dwindles.',
+        claimKey: 'digest:resource:severus_alexander:denarii',
+        firstLearnedTurn: 3,
+        updates: [{ turn: 3, source: 'self' as const, text: 'Your denarii dwindles.' }],
+      },
+    ];
+    saveGame(makeState({ turnNumber: 5, knowledge }));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.knowledge).toEqual(knowledge);
+  });
+
+  it('round-trips the optional Director intents slice (4C.3), and their absence on a pre-Director save', () => {
+    const npcIntents = [
+      { entity_id: 'maximinus_thrax', intent: 'Court the Rhine legions for a march on Rome', continuity: 'continue' as const },
+      { entity_id: 'praetorian_guard', intent: 'Extract the donative before pledging swords', continuity: 'new' as const },
+    ];
+    saveGame(makeState({ turnNumber: 6, npcIntents }));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.npcIntents).toEqual(npcIntents);
+
+    // A save written without the field (pre-Director campaign) loads with it
+    // simply absent - GAME_LOADED normalizes absent -> [] downstream.
+    localStorage.clear();
+    saveGame(makeState({ turnNumber: 2 }));
+    const legacy = loadGame();
+    expect(legacy).not.toBeNull();
+    expect(legacy!.state.npcIntents).toBeUndefined();
+  });
+
+  it('round-trips the optional voice/epithet on entities (4C.5), alongside legacy entities that lack them', () => {
+    const baseEntity = {
+      entity_id: 'maximinus_thrax',
+      name: 'Maximinus Thrax',
+      entity_type: 'individual' as const,
+      status: 'alive' as const,
+      location: 'Praetorian Camp',
+      relationships: {},
+      memories: [],
+      resources: {},
+      visibility_network: [],
+      current_state_narrative: 'A giant of a man.',
+      short_term_goals: [],
+      long_term_ambitions: [],
+    };
+    const flavored = {
+      ...baseEntity,
+      voice: "clipped soldier's Latin, contempt for senatorial flourish",
+      epithet: 'the Thracian',
+    };
+    const legacy = { ...baseEntity, entity_id: 'severus_alexander', name: 'Severus Alexander' }; // pre-4C.5 entity shape
+    saveGame(makeState({ turnNumber: 3, entities: [flavored, legacy] }));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.entities[0].voice).toBe("clipped soldier's Latin, contempt for senatorial flourish");
+    expect(loaded!.state.entities[0].epithet).toBe('the Thracian');
+    expect(loaded!.state.entities[1].voice).toBeUndefined();
+    expect(loaded!.state.entities[1].epithet).toBeUndefined();
+  });
+
+  it('round-trips the optional npcIntents on history entries, alongside entries that lack it', () => {
+    const withIntents: TurnHistoryEntry = {
+      ...makeHistoryEntry(1, false),
+      npcIntents: [{ entity_id: 'maximinus_thrax', intent: 'March on Rome', continuity: 'pivot' }],
+    };
+    const withoutIntents = makeHistoryEntry(2, false); // pre-Director entry shape
+    saveGame(makeState({ turnNumber: 3, turnHistory: [withIntents, withoutIntents] }));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.turnHistory[0].npcIntents).toEqual(withIntents.npcIntents);
+    expect(loaded!.state.turnHistory[1].npcIntents).toBeUndefined();
+  });
+
+  it('round-trips the optional npcMindResults on history entries (4C.4), alongside entries that lack it', () => {
+    const withMinds: TurnHistoryEntry = {
+      ...makeHistoryEntry(1, false),
+      npcMindResults: [
+        {
+          entity_id: 'maximinus_thrax',
+          chosen_action: 'Muster the Rhine veterans and march.',
+          method: 'Night marches, paid scouts.',
+          private_reasoning: 'The purple is within reach - and my own men must never see me hesitate.',
+          scheme_adjustment: 'Recruitment complete; the march begins.',
+        },
+      ],
+    };
+    const withoutMinds = makeHistoryEntry(2, false); // pre-minds entry shape
+    saveGame(makeState({ turnNumber: 3, turnHistory: [withMinds, withoutMinds] }));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.turnHistory[0].npcMindResults).toEqual(withMinds.npcMindResults);
+    expect(loaded!.state.turnHistory[1].npcMindResults).toBeUndefined();
+    // The legacy-shaped entry is otherwise untouched.
+    expect(loaded!.state.turnHistory[1].narration).toBe('Narration for turn 2');
+  });
+
+  it('round-trips the optional event-firing bookkeeping (4D.2) beside the legacy triggeredEventIds, and its absence on a legacy save', () => {
+    const eventFirings = [
+      { eventId: 'grain_shortage', lastFiredTurn: 3, timesFired: 2 },
+      { eventId: 'gordian_stirrings', lastFiredTurn: 5, timesFired: 1 },
+    ];
+    saveGame(makeState({ turnNumber: 6, triggeredEventIds: ['grain_shortage', 'gordian_stirrings'], eventFirings }));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.eventFirings).toEqual(eventFirings);
+    // The legacy string set is still written in lockstep, deduped.
+    expect(loaded!.state.triggeredEventIds).toEqual(['grain_shortage', 'gordian_stirrings']);
+
+    // A save written without the field (pre-4D.2 campaign) loads with it
+    // simply absent - GAME_LOADED normalizes it from triggeredEventIds
+    // downstream (events/engine.ts::normalizeEventFirings).
+    localStorage.clear();
+    saveGame(makeState({ turnNumber: 2, triggeredEventIds: ['grain_shortage'] }));
+    const legacy = loadGame();
+    expect(legacy).not.toBeNull();
+    expect(legacy!.state.eventFirings).toBeUndefined();
+    expect(legacy!.state.triggeredEventIds).toEqual(['grain_shortage']);
+  });
+
+  it('loads a stored v1 envelope that predates the knowledge store (field simply absent)', () => {
+    // Written directly to storage, bypassing saveGame, to mirror a blob
+    // persisted before the field existed.
+    const envelope = {
+      version: SAVE_VERSION,
+      savedAt: new Date().toISOString(),
+      state: makeState({ turnNumber: 2 }),
+    };
+    localStorage.setItem('gloryOfRome:autosave', JSON.stringify(envelope));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.knowledge).toBeUndefined();
+    expect(loaded!.state.turnNumber).toBe(2);
+  });
+
+  it('loads a stored v1 envelope that predates the truth ledger (field simply absent)', () => {
+    // Written directly to storage, bypassing saveGame, to mirror a blob
+    // persisted before the field existed.
+    const envelope = {
+      version: SAVE_VERSION,
+      savedAt: new Date().toISOString(),
+      state: makeState({ turnNumber: 2 }),
+    };
+    localStorage.setItem('gloryOfRome:autosave', JSON.stringify(envelope));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.truthLedger).toBeUndefined();
+    expect(loaded!.state.turnNumber).toBe(2);
+  });
+
+  it('round-trips history entries with and without the optional postTurnEntities snapshot', () => {
+    const { postTurnEntities, ...withoutSnapshot } = makeHistoryEntry(1, false);
+    const withSnapshot: TurnHistoryEntry = { ...makeHistoryEntry(2, false), postTurnEntities: [] };
+    saveGame(makeState({ turnNumber: 3, turnHistory: [withoutSnapshot, withSnapshot] }));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.turnHistory[0].postTurnEntities).toBeUndefined();
+    expect(loaded!.state.turnHistory[1].postTurnEntities).toEqual([]);
+    // Everything else about the snapshotless entry is untouched.
+    expect(loaded!.state.turnHistory[0].narration).toBe('Narration for turn 1');
+    expect(loaded!.state.turnHistory[0].adjudication.headlines).toEqual(['Headline 1']);
+  });
+
+  it('loads a stored v1 envelope whose history entries all carry full snapshots (pre-optional shape)', () => {
+    // Written directly to storage, bypassing saveGame, to mirror a blob
+    // persisted while the field was required on every entry.
+    const envelope = {
+      version: SAVE_VERSION,
+      savedAt: new Date().toISOString(),
+      state: makeState({
+        turnNumber: 3,
+        turnHistory: [makeHistoryEntry(1, false), makeHistoryEntry(2, false)],
+      }),
+    };
+    localStorage.setItem('gloryOfRome:autosave', JSON.stringify(envelope));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.turnHistory).toHaveLength(2);
+    expect(loaded!.state.turnHistory[0].postTurnEntities).toEqual([]);
+    expect(loaded!.state.turnHistory[1].postTurnEntities).toEqual([]);
+  });
+
+  it('loads a stored v1 envelope whose history entries predate turnSeed', () => {
+    // Written directly to storage, bypassing saveGame, to mirror a blob
+    // persisted before the field existed.
+    const envelope = {
+      version: SAVE_VERSION,
+      savedAt: new Date().toISOString(),
+      state: makeState({ turnNumber: 2, turnHistory: [makeHistoryEntry(1, false)] }),
+    };
+    localStorage.setItem('gloryOfRome:autosave', JSON.stringify(envelope));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.turnHistory).toHaveLength(1);
+    expect(loaded!.state.turnHistory[0].turnSeed).toBeUndefined();
+    expect(loaded!.state.turnHistory[0].playerIntent).toBe('do thing 1');
+  });
+
+  describe('lean saves - captured prompt text never persisted', () => {
+    it('strips promptText/systemInstruction from every persisted rawCall, keeping rawResponse and metadata', () => {
+      const turnHistory = [makeHistoryEntry(1, true), makeHistoryEntry(2, true)];
+      const state = makeState({ turnNumber: 3, turnHistory });
+
+      saveGame(state);
+
+      // The serialized blob carries no captured prompt text anywhere.
+      const raw = localStorage.getItem('gloryOfRome:autosave')!;
+      expect(raw).not.toContain('promptText');
+      expect(raw).not.toContain('systemInstruction');
+      expect(raw).not.toContain('full prompt for');
+
+      // rawResponse persistence is unchanged: EVERY entry keeps its rawCalls.
+      const loaded = loadGame();
+      expect(loaded).not.toBeNull();
+      for (const entry of loaded!.state.turnHistory) {
+        expect(entry.rawCalls).toHaveLength(2);
+        for (const call of entry.rawCalls!) {
+          expect(call.promptText).toBeUndefined();
+          expect(call.systemInstruction).toBeUndefined();
+          expect(call.rawResponse).toBe('x'.repeat(1000));
+          expect(call.promptChars).toBe(1000);
+        }
+      }
+
+      // The in-memory records the caller handed in keep their full text.
+      expect(state.turnHistory[0].rawCalls![0].promptText).toContain('full prompt for');
+      expect(state.turnHistory[0].rawCalls![0].systemInstruction).toContain('system instruction for');
+    });
+
+    it('keeps the prompt text out of the blob on the oversize-retry path too', () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      let calls = 0;
+      const realSetItem = Storage.prototype.setItem;
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+        this: Storage,
+        key: string,
+        value: string
+      ) {
+        calls++;
+        if (calls === 1) {
+          throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+        }
+        return realSetItem.call(this, key, value);
+      });
+
+      saveGame(makeState({ turnNumber: 3, turnHistory: [makeHistoryEntry(1, true), makeHistoryEntry(2, true)] }));
+
+      const raw = localStorage.getItem('gloryOfRome:autosave')!;
+      expect(raw).not.toContain('promptText');
+      expect(raw).not.toContain('systemInstruction');
+      // The retry's existing behavior is intact: only the newest entry keeps rawCalls.
+      const loaded = loadGame();
+      expect(loaded!.state.turnHistory[0].rawCalls).toBeUndefined();
+      expect(loaded!.state.turnHistory[1].rawCalls).toHaveLength(2);
+    });
+
+    it('loads a stored v1 envelope whose rawCalls predate promptText/systemInstruction', () => {
+      // Written directly to storage, bypassing saveGame, to mirror a blob
+      // persisted before the fields existed.
+      const legacyCall = {
+        callName: 'adjudication',
+        model: 'gemini-3-pro-preview',
+        latencyMs: 100,
+        attempts: 1,
+        promptChars: 1000,
+        rawResponse: 'x'.repeat(1000),
+        validated: true,
+      };
+      const envelope = {
+        version: SAVE_VERSION,
+        savedAt: new Date().toISOString(),
+        state: makeState({
+          turnNumber: 2,
+          turnHistory: [{ ...makeHistoryEntry(1, false), rawCalls: [legacyCall] }],
+        }),
+      };
+      localStorage.setItem('gloryOfRome:autosave', JSON.stringify(envelope));
+
+      const loaded = loadGame();
+      expect(loaded).not.toBeNull();
+      expect(loaded!.state.turnHistory[0].rawCalls).toHaveLength(1);
+      expect(loaded!.state.turnHistory[0].rawCalls![0]).toEqual(legacyCall);
+      expect(loaded!.state.turnHistory[0].rawCalls![0].promptText).toBeUndefined();
+    });
   });
 
   describe('updateSavedAmbition (stale-autosave race guard)', () => {

@@ -16,6 +16,7 @@ one of the builders below.
 | `narration` | `narration.ts::buildNarrationPrompt` | pro | - (prose) | - | `turn.ts` step 5 |
 | `playerMonologue` | `narration.ts::buildPlayerMonologuePrompt` | flash | - (prose) | - | `turn.ts` step 4 |
 | `storyRelevance` | `intelligence.ts::buildStoryRelevancePrompt` | pro | `zStoryRelevance` | `StoryRelevanceSchema` | `turn.ts` step 0 (Director) |
+| `npcMind` | `npcMind.ts::buildNpcMindPrompt` | flash | `zNpcMindDecision` | `NpcMindDecisionSchema` | `turn.ts` step 1.5 (per-spotlight minds, between the Director and adjudication - up to `MAX_MINDS_PER_TURN` in one `Promise.all`) |
 | `updatedSimulationState` | `intelligence.ts::buildSimulationStateUpdatePrompt` | pro | `zSimulationState` | `SimulationStateSchema` | `turn.ts` step 2.5 |
 | `relationshipUpdates` | `intelligence.ts::buildRelationshipUpdatesPrompt` | pro | `zRelationshipDeltas` | `RelationshipDeltasSchema` | `turn.ts` step 5.5 |
 | `privateConversation` | `intelligence.ts::buildPrivateConversationPrompt` | pro | `zConversationSimulation` | `ConversationSimulationSchema` | `turn.ts` step 2.5 (off-screen sim) |
@@ -30,6 +31,7 @@ one of the builders below.
 | `characterCreation` | `characterCreation.ts::buildCharacterCreationPrompt` | pro | `zEntity` | `CharacterCreationEntitySchema` | Player character creation |
 | `ambitionInference` | `ambition.ts::buildAmbitionInferencePrompt` | flash | `zAmbitionInference` (local to `ai/tools/ambition.ts`) | `AmbitionInferenceSchema` (local to `ai/tools/ambition.ts`) | `App.tsx` `executeTurn`, every 3rd committed turn (D8, fire-and-forget) |
 | `epilogue` | `epilogue.ts::buildEpiloguePrompt` | pro | - (prose) | - | `components/EpilogueScreen.tsx`, once per run on `GameState.GAME_OVER` |
+| `evalJudge` | `evalJudge.ts::buildEvalJudgePrompt` | flash | `zEvalJudgeVerdict` | `EvalJudgeVerdictSchema` | Offline eval runner ONLY (`eval/judge.ts::judgeTurn` via `npm run eval`, D18) - never called from app code, and only invoked when a real API key is present |
 
 `ambitionInference`'s zod/Gemini schemas are deliberately NOT in
 `ai/core/zodSchemas.ts`/`ai/core/schemas.ts` - they're small, stable, and
@@ -43,7 +45,9 @@ separate wrapper.
 
 (`entityBatch` runs once per parallel NPC batch at runtime; its actual
 `callName` is suffixed per batch, e.g. `entityBatch:Player`,
-`entityBatch:NPCs_1` - see `ai/core/initiator.ts::generateEntityBatch`.)
+`entityBatch:NPCs_1` - see `ai/core/initiator.ts::generateEntityBatch`.
+`npcMind` follows the same convention, suffixed per character, e.g.
+`npcMind:maximinus_thrax` - see `ai/tools/npcMind.ts`.)
 
 `fragments.ts` holds the shared, reusable text builders (entity briefs,
 world-state summary, GM-intervention block, story-evolution block,
@@ -134,6 +138,121 @@ narrates a pre-decided outcome.**
   `turn.ts`'s call site, kept only for parity with its sibling `get*`
   functions in `ai/tools/intelligence.ts`, all of which follow the same
   pattern.)
+
+## The Director: persistent intents, fed back every turn
+
+`storyRelevance` (`intelligence.ts::buildStoryRelevancePrompt`) is the
+Director (ROADMAP_PHASE_4.md 4C item 3): besides spotlight picks and
+cast/location suggestions it emits `spotlight_intents` - one
+`{entity_id, intent, continuity}` per spotlight, where `intent` is a
+one-line statement of what that character is trying to accomplish next and
+`continuity` (`'continue' | 'pivot' | 'new'`) is ruled against the PREVIOUS
+turn's committed intents, which the prompt receives as an input block along
+with each holder's `active_scheme` and the last `DIRECTOR_MEMORY_LINES`
+of its perception-grounded memories (`Entity.memories` - the D10 stamp).
+
+- This is NOT a new model call: the existing `storyRelevance` call was
+  upgraded in place (latency discipline; the per-mind calls are a later
+  stage).
+- `ai/core/turn.ts::selectDurableIntents` filters the raw response to
+  spotlight picks that are ALSO alive in the current roster (a dead/absent
+  id may never carry durable direction) and caps at `MAX_NPC_INTENTS`; that bounded list
+  is what the adjudication prompt's `SPOTLIGHT NPC INTENTS` block
+  (`fragments.ts::buildDirectorIntentsBlock`) consumes, what the history
+  entry records (`TurnHistoryEntry.npcIntents`, optional), and what the
+  reducer persists (`npcIntents` slice, optional in the save) to feed the
+  NEXT turn's Director - the continuity loop.
+- The adjudicator must have each spotlight act in service of its stated
+  intent; the contract is validated POST-HOC in code
+  (`ai/core/turn.ts::buildIntentConsistencyNotes`): a spotlight holding an
+  intent but no `entityAction` gets a `[Director]` `gm_private` note - a
+  soft contract, never a hard failure or a synthesized action.
+- Intents are GM-PRIVATE (D4/D5), same handling class as `gm_private`:
+  they render only in `GameMasterScreen` and feed only prompts under
+  `ai/` - never a player-facing surface.
+
+## The minds: bounded knowledge, decisions the adjudicator acts out
+
+`npcMind` (`npcMind.ts::buildNpcMindPrompt`, consumed by
+`ai/tools/npcMind.ts::getNpcMindDecision`) is the 4C.4 mind call
+(DESIGN_DECISIONS.md D10/D22): each spotlight character - alive,
+non-player, up to `MAX_MINDS_PER_TURN`, selected by
+`ai/core/turn.ts::selectMindEntities` - is addressed IN CHARACTER on the
+flash tier and decides its own move for the turn, all minds launched in a
+single `Promise.all` between the Director and adjudication (the one added
+latency leg D16 sanctions).
+
+- **THE ASYMMETRY CONTRACT (the point):** a mind's prompt may contain ONLY
+  what that character plausibly knows - its own full brief (own secrets,
+  scheme, personality, skills, beliefs, relationships), its own memories,
+  its own perceived digest of the previous turn's events
+  (`perception/visibility.ts` run from ITS vantage), its own Director
+  intent, and public knowledge (headlines + the D5-public macro world
+  summary). NEVER another character's secrets, `active_scheme`,
+  `gm_private`, `secret_truth`, rumor truth flags, or the player's private
+  data. `npcMind.ts::buildMindSelfBrief` is a DEDICATED builder for
+  exactly this reason - the omniscient adjudicator fragments
+  (`fragments.ts::getEntityBrief` etc.) must never be reused for a mind.
+  Pinned by tests/npcMinds.test.ts.
+- The adjudicator receives the decisions via
+  `fragments.ts::buildNpcMindDecisionsBlock` - entity_id, chosen_action,
+  method ONLY, never `private_reasoning` (lean context, and a mind may be
+  wrong about itself). Contract: a spotlight with a decision acts it out;
+  the adjudicator resolves conflicts/consequences and still owns all
+  deltas. Spotlights without a decision (cap overflow, or a failed mind
+  call - caught per-mind, `[Mind]` gm_private note, never a turn failure)
+  fall back to the Director-intents block, the pre-minds behavior.
+- Mind outputs are GM-PRIVATE (D4/D5): the full decisions (reasoning
+  included) render only in `GameMasterScreen` (the turn's
+  `npcMindResults`, trimmed with the snapshot window) and feed only
+  prompts under `ai/`.
+- **D30 - a mind's `scheme_adjustment` is LOAD-BEARING:** it is the
+  character's own evolving intent, not a hint the adjudicator may discard.
+  After the adjudication call, `ai/core/turn.ts::buildMindSchemeDeltas`
+  turns each mind's non-empty `scheme_adjustment` into a committed 'scheme'
+  delta evolving THAT entity's own `active_scheme`
+  (`evolveSchemeFromAdjustment` folds the one-liner in as the plan's next
+  step, capped at `MAX_SCHEME_STEPS`, so engine.ts's `JSON.parse` of a full
+  `Scheme` never breaks). SCHEME OWNERSHIP precedence: for a minded entity
+  its own mind owns the evolution, so any competing adjudicator 'scheme'
+  delta for the same entity is deduped away (no double-application) and the
+  adjudication prompt's DYNAMIC SCHEMES rule tells the adjudicator not to
+  emit one; the adjudicator still owns every NON-minded entity's scheme and
+  all action outcomes. The applied delta flows through `applyDeltas` and D28
+  perception like any other (a witness senses only 'something afoot').
+- **D22 grouping seam:** one mind per spotlight CHARACTER today; grouping
+  minds per set/faction later (the sanctioned cost lever) changes only
+  `selectMindEntities` + the self-brief - see the seam notes in
+  `ai/core/turn.ts` and `ai/tools/npcMind.ts`. Not built yet.
+
+## Voice & epithet: minds and narration speak in character
+
+`Entity.voice` (a compact speech-style directive, e.g. "clipped soldier's
+Latin, contempt for senatorial flourish") and `Entity.epithet` (a short
+public byname, e.g. "the Thracian") are OPTIONAL narrative-flavor fields
+(ROADMAP_PHASE_4.md 4C item 5, D10) - kept in lockstep across `types.ts`,
+`ai/core/schemas.ts` (`EntitySchema`/`CharacterCreationEntitySchema`), and
+`ai/core/zodSchemas.ts` (`zEntity`). Not GM-private: an epithet is public
+texture. Production and consumption:
+
+- **Produced** by `worldGen.ts::buildEntityBatchPrompt` (requirement 7) and
+  `characterCreation.ts` (instruction 13); authored by hand for the base
+  cast in `constants/baseScenario.ts` (all entities carry both) and the
+  mock entities in `ai/mocks.ts`.
+- **Consumed** in exactly three places, each with a different slice:
+  - `npcMind.ts::buildMindSelfBrief` - the character's OWN voice + epithet,
+    so `chosen_action`/`private_reasoning` read in character.
+  - `narration.ts::buildVoiceCastBlock` - voice + epithet for the BOUNDED
+    on-stage cast only (`selectVoiceCast`: spotlight picks + this turn's
+    acting entities, capped at `MAX_VOICE_CAST`, never the whole roster),
+    with guidance to let quoted characters sound distinct.
+  - `fragments.ts::getEntityBrief` - the epithet ONLY (one token of public
+    flavor for the adjudicator); voice directives stay out of the
+    omniscient briefs to save context.
+- Because the fields are optional, every builder emits NOTHING for an
+  absent field - a legacy entity/save renders exactly as before the fields
+  existed, and the literal string "undefined" must never appear
+  (pinned by tests/voice.test.ts).
 
 ## System vs. user split
 

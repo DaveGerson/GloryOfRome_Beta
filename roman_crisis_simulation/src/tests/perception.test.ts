@@ -6,7 +6,7 @@
 // suite stays a pure unit test of perception/visibility.ts with no
 // dependency on ai/** or the rest of the mock data graph.
 import { describe, it, expect } from 'vitest';
-import { classifyDelta, buildPerceivedDigest } from '../perception/visibility';
+import { classifyDelta, buildPerceivedDigest, tabsForDelta } from '../perception/visibility';
 import { Entity, EventDelta, WorldState } from '../types';
 
 function makeEntity(overrides: Partial<Entity> & { entity_id: string; name: string }): Entity {
@@ -207,6 +207,50 @@ describe('classifyDelta', () => {
     expect(classifyDelta(add, player, entities, worldState).source).toBe('public');
     expect(classifyDelta(remove, player, entities, worldState).source).toBe('public');
   });
+
+  it('marks a world delta (WorldState macro field) as public per D5', () => {
+    // 'world' deltas change WorldState.economic_stability/political_climate,
+    // the two macro fields the Header displays unconditionally - same
+    // empire-macro-is-public treatment as rumor/add_region/remove_region.
+    const delta: EventDelta = {
+      type: 'world',
+      key: 'economic_stability',
+      delta: 0,
+      reason: 'Failing',
+    };
+    expect(classifyDelta(delta, player, entities, worldState)).toEqual({
+      visible: true,
+      source: 'public',
+    });
+  });
+
+  it('leaves a world delta with an unknown key invisible (the engine no-ops it)', () => {
+    // ai/core/engine.ts's 'world' case applies only the two macro keys and
+    // no-ops everything else - so an unknown-key delta changed nothing and
+    // must never be announced to the player as if it had.
+    const delta: EventDelta = {
+      type: 'world',
+      key: 'grain_reserves',
+      delta: 0,
+      reason: 'Depleted',
+    };
+    expect(classifyDelta(delta, player, entities, worldState)).toEqual({
+      visible: false,
+      source: null,
+    });
+  });
+});
+
+describe('tabsForDelta', () => {
+  it('pulses no tab for a world delta (the changed fields render in the Header, not a tab)', () => {
+    const delta: EventDelta = {
+      type: 'world',
+      key: 'political_climate',
+      delta: 0,
+      reason: 'Openly Hostile',
+    };
+    expect(tabsForDelta(delta)).toEqual([]);
+  });
 });
 
 describe('buildPerceivedDigest', () => {
@@ -225,10 +269,80 @@ describe('buildPerceivedDigest', () => {
     expect(digest[1].text).toContain('Rumor reaches you');
   });
 
+  it('renders a witnessed scheme as bare "plotting something" - never the scheme name or nature (D28)', () => {
+    // The delta carries the full active_scheme in its reason, exactly as the
+    // engine would; a witness must learn only THAT the schemer is at work.
+    const schemeReason = JSON.stringify({
+      name: 'Operation Tyrian Dawn',
+      overall_goal: 'seize the throne by poisoning the Emperor',
+      steps: [{ objective: 'obtain the toxin', status: 'in_progress' }],
+    });
+    const deltas: EventDelta[] = [
+      // npcAtPlayerLocation shares the player's location => witnessed.
+      { type: 'scheme', key: 'npc_local', delta: 0, reason: schemeReason },
+    ];
+    const digest = buildPerceivedDigest(deltas, player, entities, worldState);
+
+    expect(digest).toHaveLength(1);
+    expect(digest[0].source).toBe('witnessed');
+    expect(digest[0].subject).toBe('npc_local');
+    expect(digest[0].deltaType).toBe('scheme');
+    expect(digest[0].text).toBe('You sense Local Courtier is plotting something.');
+    // No fragment of the scheme's name or nature may reach the player line
+    // (and, since memories are stamped from this exact text, the cast either).
+    expect(digest[0].text).not.toContain('Tyrian');
+    expect(digest[0].text).not.toContain('throne');
+    expect(digest[0].text).not.toContain('toxin');
+  });
+
   it('returns an empty digest when nothing in the turn was perceptible', () => {
     const deltas: EventDelta[] = [
       { type: 'relation', key: 'npc_a:npc_b:perceived_threat', delta: 3, reason: 'private assessment' },
     ];
     expect(buildPerceivedDigest(deltas, player, entities, worldState)).toEqual([]);
+  });
+
+  it('includes a world delta as a public change describing the new value', () => {
+    const deltas: EventDelta[] = [
+      { type: 'world', key: 'economic_stability', delta: 0, reason: 'Booming' },
+    ];
+    const digest = buildPerceivedDigest(deltas, player, entities, worldState);
+
+    expect(digest).toHaveLength(1);
+    expect(digest[0].source).toBe('public');
+    expect(digest[0].tabs).toEqual([]);
+    expect(digest[0].text).toContain("empire's economy is now Booming");
+  });
+
+  it('hedges the world-delta prose instead of printing a dangling value when reason is empty', () => {
+    const deltas: EventDelta[] = [
+      { type: 'world', key: 'political_climate', delta: 0, reason: '' },
+    ];
+    const digest = buildPerceivedDigest(deltas, player, entities, worldState);
+
+    expect(digest).toHaveLength(1);
+    expect(digest[0].text).toContain('political winds shift');
+    expect(digest[0].text).not.toContain('is now');
+  });
+
+  it('tags every entry with the provenance metadata the knowledge store matches on (subject/deltaType/deltaKey)', () => {
+    const deltas: EventDelta[] = [
+      { type: 'relation', key: 'player:npc_a:trust_level', delta: -1, reason: 'tense' },
+      { type: 'world', key: 'economic_stability', delta: 0, reason: 'Booming' },
+      { type: 'rumor', key: 'npc_a', delta: 0.5, reason: 'Some say Maximinus plots' },
+    ];
+    const digest = buildPerceivedDigest(deltas, player, entities, worldState);
+
+    expect(digest).toHaveLength(3);
+    // relation 'A:B:attr' is about A, whose stance shifted.
+    expect(digest[0].subject).toBe('player');
+    expect(digest[0].deltaType).toBe('relation');
+    expect(digest[0].deltaKey).toBe('player:npc_a:trust_level');
+    // world deltas are empire-macro: no narrower subject exists.
+    expect(digest[1].subject).toBe('world');
+    expect(digest[1].deltaType).toBe('world');
+    // rumor keys are the entity/region the rumor is about.
+    expect(digest[2].subject).toBe('npc_a');
+    expect(digest[2].deltaType).toBe('rumor');
   });
 });

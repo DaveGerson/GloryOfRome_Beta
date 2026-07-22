@@ -7,6 +7,7 @@
  */
 
 import { Adjudication, Entity } from '../../types';
+import { REDACTED_SCHEME_REASON } from './fragments';
 
 /**
  * Strips GM-only / secret-survival state from an Entity before it's
@@ -37,14 +38,85 @@ export function sanitizeEntityForNarration(entity: Entity): Omit<Entity, 'secret
  * enforcement point; `getEntityBrief`/`getLightEntityBrief` (fragments.ts)
  * never serialize `secret_truth` either, and a dead-but-secretly-alive NPC
  * always shows `status: 'dead'` there, exactly as the public record says.
+ *
+ * The same per-delta stripping covers a rumor delta's `is_true`/`origin_id`
+ * (DESIGN_DECISIONS.md D11 - the truth-ledger fields, same GM-private
+ * handling class as `secret_truth`): the narrator must present a rumor at
+ * its stated credibility with no knowledge of whether it is actually a
+ * lie, or the disposition could color player-facing prose.
+ *
+ * A 'scheme' delta's `reason` is the entity's full active_scheme JSON (name,
+ * goal, steps) - GM-private under D28 (perception reveals only THAT a design
+ * shifted, never its nature). Its reason is REPLACED here with the opaque
+ * REDACTED_SCHEME_REASON marker so the narrator learns only that a private
+ * design moved and narrates the turn's VISIBLE actions from the other deltas,
+ * never the interior plan. Only the string embedded in this player-facing
+ * prompt is redacted - the committed delta the engine parses is untouched.
  */
 export function sanitizeAdjudicationForNarration(adjudication: Adjudication): Omit<Adjudication, 'gm_private'> {
   const { gm_private, add_entities, deltas, ...rest } = adjudication;
   return {
     ...rest,
-    deltas: deltas.map(({ secret_truth, ...delta }) => delta),
+    deltas: deltas.map(({ secret_truth, is_true, origin_id, ...delta }) =>
+      delta.type === 'scheme' ? { ...delta, reason: REDACTED_SCHEME_REASON } : delta
+    ),
     add_entities: add_entities?.map(sanitizeEntityForNarration) as Entity[] | undefined,
   };
+}
+
+/**
+ * Cap on the narration prompt's voice-cast lines (4C.5): the block is
+ * BOUNDED by construction - spotlight cast plus this turn's acting entities
+ * only, never the whole roster - and this cap is the code-side guarantee
+ * against a runaway entityActions list bloating the prompt.
+ */
+export const MAX_VOICE_CAST = 8;
+
+/**
+ * Picks the entities whose voice/epithet lines the narration prompt may
+ * carry (4C.5): spotlight ids FIRST (the Director's importance ranking),
+ * then this turn's entityAction actor ids, deduped, resolved against the
+ * roster, capped at MAX_VOICE_CAST. Deliberately NOT the whole roster -
+ * the voice block is texture for the characters actually on stage this
+ * turn. Entities without voice AND epithet still count against nothing:
+ * they are dropped before the cap so a largely-legacy roster never crowds
+ * out the few entities that do carry flavor. Pure; exported for direct
+ * unit testing.
+ */
+export function selectVoiceCast(spotlightIds: string[], actorIds: string[], entities: Entity[]): Entity[] {
+  const byId = new Map(entities.map(e => [e.entity_id, e]));
+  const picked: Entity[] = [];
+  const seen = new Set<string>();
+  for (const id of [...spotlightIds, ...actorIds]) {
+    if (picked.length >= MAX_VOICE_CAST) break;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const entity = byId.get(id);
+    if (!entity || (!entity.voice && !entity.epithet)) continue;
+    picked.push(entity);
+  }
+  return picked;
+}
+
+/**
+ * The narration prompt's CAST VOICES block (4C.5): one line per on-stage
+ * character carrying a voice and/or epithet, plus the guidance to let named
+ * characters SOUND distinct when quoted. Reads ONLY name/epithet/voice -
+ * never secrets, schemes, or any GM-private field - so it is safe for this
+ * player-facing prompt by construction. Absent fields emit NOTHING (never
+ * the string "undefined"); an all-legacy cast emits no block at all.
+ * Exported for direct unit testing.
+ */
+export function buildVoiceCastBlock(cast: Entity[]): string {
+  const lines = cast
+    .filter(e => e.voice || e.epithet)
+    .map(e => `- ${e.name}${e.epithet ? ` "${e.epithet}"` : ''}${e.voice ? `: ${e.voice}` : ''}`);
+  if (lines.length === 0) return '';
+  return `
+CAST VOICES (speech-style notes for this turn's named characters - flavor only):
+When you quote or closely paraphrase a character listed here, let them SOUND like themselves per their voice note - distinct registers, never interchangeable prose. Epithets are public bynames you may use as texture. These notes style HOW people speak; they never add events, facts, or knowledge beyond the Adjudication JSON.
+${lines.join('\n')}
+`;
 }
 
 /**
@@ -75,7 +147,12 @@ export function buildNarrationPrompt(
   updatedPlayerEntity: Entity,
   playerIntent: string,
   adjudication: Adjudication,
-  mortalityDirectives: string[] = []
+  mortalityDirectives: string[] = [],
+  // 4C.5: the bounded on-stage cast whose voice/epithet lines the prompt
+  // may carry - callers pass `selectVoiceCast`'s output (spotlight +
+  // involved entities only, never the whole roster). Defaults to [] so
+  // legacy call sites/tests behave exactly as before the block existed.
+  voiceCast: Entity[] = []
 ): { systemInstruction: string; prompt: string } {
   const systemInstruction = `
 ROLE: Chronicler of the Empire & Intelligence Briefer
@@ -87,6 +164,7 @@ Task:
     b.  **Observed & Reported Events:** Describe other major events from the adjudication (headlines, key NPC actions) BUT strictly from the player's vantage point. Consider their location, allies, and spies.
     c.  **Source Information:** For any information the player didn't witness directly, you MUST state how they learned of it. Be specific and creative. Examples: "A panicked messenger arrives...", "Whispers in the Senate, relayed by your ally Gaius Pontius, suggest...", "A coded message from your spymaster reveals...". This makes information potentially unreliable.
     d.  **Tone:** Maintain a tone of Tacitus meets field report. Focus on concrete outcomes. Do not invent new facts not present in the Adjudication JSON.
+    e.  **Moment Line (ROADMAP_PHASE_4.md 4D item 3):** When a named character's scheme visibly culminates or detonates this turn - look at the Adjudication JSON's 'scheme' deltas and headline events for a plan coming to fruition or to ruin - give that character ONE short signature spoken line, quoted in their own voice (per CAST VOICES when present): the line a chronicler would set down. At most one line per character, and only at a true culmination - never for routine scheming - and the line must reveal nothing beyond what the Adjudication JSON already states.
 
 2.  **Suggest Next Actions:** After the narration, on new lines, suggest exactly 3 brief, interesting, actionable next steps for the player, each prefixed with "SUGGESTION:". The suggestions should be tailored to the player's character, goals, and the new situation.
 
@@ -107,7 +185,7 @@ ${JSON.stringify(sanitizeEntityForNarration(updatedPlayerEntity), null, 2)}
 
 PLAYER'S ACTION THIS TURN:
 "${playerIntent}"
-
+${buildVoiceCastBlock(voiceCast)}
 ADJUDICATION JSON (all events of the turn):
 ${JSON.stringify(sanitizeAdjudicationForNarration(adjudication), null, 2)}
 ${mortalityBlock}`;

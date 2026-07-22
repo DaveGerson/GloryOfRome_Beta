@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { GameState, Entity, PlayerCharacterOption, Message, TurnHistoryEntry, InvestigationResult, Report, GameEvent, PlayerEventChoice, SimulationState, EventHistoryEntry } from './types';
+import { GameState, Entity, PlayerCharacterOption, Message, InvestigationResult, PlayerEventChoice, EventHistoryEntry, PacingPosture } from './types';
 import { GoogleGenAI, Type } from "@google/genai";
 
 import Header from './components/Header';
@@ -13,19 +13,23 @@ import EventModal from './components/EventModal';
 import EpilogueScreen from './components/EpilogueScreen';
 import OnboardingOverlay from './components/OnboardingOverlay';
 import { deriveStarterActions } from './components/starterActions';
-import { ALL_INITIAL_ENTITIES, INITIAL_WORLD_STATE, INITIAL_SIMULATION_STATE } from './constants/baseScenario';
+import { ALL_INITIAL_ENTITIES } from './constants/baseScenario';
 import { runNewTurn, TurnStage } from './ai/core/turn';
 import { WorldState } from './types';
+import { useGame } from './state/GameContext';
+import { withOldSnapshotsDropped } from './state/gameReducer';
 import { createCharacter } from './ai/tools/characterCreator';
 import { inferAmbition } from './ai/tools/ambition';
-import { checkForTriggeredEvent, applyEventChoiceDeltas } from './events/engine';
+import { checkForTriggeredEvent, applyEventChoiceDeltas, recordEventFiring } from './events/engine';
 import { initiateWorld } from './ai/core/initiator';
 import { runSmokeTest } from './tests/smokeTest';
-import { AiServiceError } from './ai/core/geminiService';
+import { AiServiceError, resetSessionCallLog } from './ai/core/geminiService';
 import { saveGame, loadGame, clearSave, hasSave, updateSavedAmbition, SaveGameState, InferredAmbitionState } from './persistence/saveGame';
 import { hasSeenOnboarding, markOnboardingSeen } from './persistence/onboarding';
+import { getPacingPosture, setPacingPosture } from './persistence/settings';
 import { buildPerceivedDigest, TabId } from './perception/visibility';
-import { appendFallout, clearFallout, buildInterventionTextWithFallout, hasFallout } from './components/investigationLoop';
+import { computeTurnKnowledge, computeInvestigationKnowledge } from './knowledge/commit';
+import { appendFallout, buildInterventionTextWithFallout, hasFallout } from './components/investigationLoop';
 import { Button } from './components/ui/Core';
 import { Tooltip } from './components/ui/Feedback';
 import { toRoman } from './components/ui/Brand';
@@ -39,20 +43,54 @@ import nocturneUrl from './design/nocturne.css?url';
 // (the turn number just finished, not the upcoming one - see executeTurn).
 const AMBITION_INFERENCE_TURN_INTERVAL = 3;
 
+// ROADMAP_PHASE_4.md 4D item 1 (D23) - the Fates pacing selector's three
+// options, in-fiction labels for the PacingPosture enum. ONE unobtrusive
+// control beside the LVX/NOX toggle, deliberately NOT a settings surface
+// (a full settings surface is explicitly out of Phase 4 scope). Titles are
+// player-safe flavor only: they describe the felt pacing, never the
+// adjudicator/prompt mechanics behind it (D4/D5 - the player only ever
+// FEELS pacing).
+const FATES_OPTIONS: { posture: PacingPosture; label: string; title: string }[] = [
+    { posture: 'restrained', label: 'PATIENT', title: 'Patient Fates — long quiet weeks may stand' },
+    { posture: 'balanced', label: 'MEASURED', title: 'Measured Fates — fortune turns when the story calls for it' },
+    { posture: 'dramatic', label: 'EAGER', title: 'Eager Fates — the threads pull taut sooner' },
+];
+
 const App: React.FC = () => {
-    const [gameState, setGameState] = useState<GameState>(GameState.SETUP);
-    const [messages, setMessages] = useState<Message[]>([]);
+    // Every game-domain slice lives in the reducer behind GameContext
+    // (state/gameReducer.ts, DESIGN_DECISIONS.md D17) - in particular, every
+    // slice buildSaveState persists MUST come from there, never from a local
+    // useState. App.tsx stays the composition root: children receive plain
+    // props, never the context itself. Only transient, presentation-only
+    // state (input box, modal flags, streaming text, theme, retry
+    // affordances) may live in the local useState hooks below.
+    const { state, dispatch } = useGame();
+    const {
+        gameState,
+        messages,
+        suggestedActions,
+        currentEvents,
+        entities,
+        worldState,
+        simulationState,
+        reports,
+        truthLedger,
+        knowledge,
+        npcIntents,
+        turnNumber,
+        playerCharacterId,
+        turnHistory,
+        pendingIntelligenceFallout,
+        gmInterventionText,
+        activeEvent,
+        triggeredEventIds,
+        eventFirings,
+        eventHistory,
+        metaNarrative,
+        inferredAmbition,
+    } = state;
+
     const [inputValue, setInputValue] = useState('');
-    const [suggestedActions, setSuggestedActions] = useState<string[]>([]);
-    const [currentEvents, setCurrentEvents] = useState<string[]>([]);
-    
-    const [entities, setEntities] = useState<Entity[]>([]);
-    const [worldState, setWorldState] = useState<WorldState>(INITIAL_WORLD_STATE);
-    const [simulationState, setSimulationState] = useState<SimulationState>(INITIAL_SIMULATION_STATE);
-    const [reports, setReports] = useState<Report[]>([]);
-    const [turnNumber, setTurnNumber] = useState<number>(1);
-    const [playerCharacterId, setPlayerCharacterId] = useState<string | null>(null);
-    const [turnHistory, setTurnHistory] = useState<TurnHistoryEntry[]>([]);
     const [isGmScreenVisible, setIsGmScreenVisible] = useState(false);
     // D7 - the GM console (log/debugger) stays in the codebase permanently
     // but is hidden by default for a clean player view. This is the runtime
@@ -60,30 +98,12 @@ const App: React.FC = () => {
     // (see the effect below) and, in dev builds, a small Header checkbox both
     // flip it. Deliberately not persisted - every fresh session starts hidden.
     const [isGmConsoleEnabled, setIsGmConsoleEnabled] = useState(false);
-    // ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - the investigation-consequence
-    // queue (components/investigationLoop.ts). Replaces the old
-    // `turnInvestigations: InvestigationResult[]` state, which stashed full
-    // investigation results and cleared them every turn WITHOUT ever
-    // feeding the `consequences` string back into the world - the exact
-    // "wired and never consumed" dead loop the roadmap calls out. This
-    // holds just the pending, not-yet-narrated consequence strings; it's
-    // appended to by handleNewInvestigationResult, prepended onto
-    // `gmInterventionText` for the next `runNewTurn` call (see
-    // `executeTurn`), and only cleared once that turn actually commits -
-    // NOT on a failed/rolled-back turn, so a retry still carries it.
-    const [pendingIntelligenceFallout, setPendingIntelligenceFallout] = useState<string[]>([]);
-    const [gmInterventionText, setGmInterventionText] = useState<string>('');
     const [isMockMode, setIsMockMode] = useState(false);
-    const [activeEvent, setActiveEvent] = useState<GameEvent | null>(null);
-    const [triggeredEventIds, setTriggeredEventIds] = useState<string[]>([]);
-    const [eventHistory, setEventHistory] = useState<EventHistoryEntry[]>([]);
+    // Set when a turn commits with the player still alive; an effect below
+    // then runs the authored-event trigger check against the freshly
+    // committed state and resolves the phase to AWAITING_EVENT_CHOICE or
+    // AWAITING_PLAYER_INPUT. Transient orchestration only - never saved.
     const [isCheckingEvents, setIsCheckingEvents] = useState(false);
-    const [metaNarrative, setMetaNarrative] = useState<string>('An imperial succession crisis in a crumbling empire teetering on the brink of civil war.');
-    // DESIGN_DECISIONS.md D8 - the latest "apparent ambition" reading, if any
-    // has been computed yet this campaign. GM-console/epilogue only (see
-    // GameMasterScreen's "Apparent Ambition" line and EpilogueScreen) -
-    // never rendered as a player-facing goal UI.
-    const [inferredAmbition, setInferredAmbition] = useState<InferredAmbitionState | null>(null);
 
     // Transient UI state for the persistence/retry flow (P0.2/P0.3 - see
     // ROADMAP_3_UX_INTERACTIONS.md and ROADMAP_5_TECH_PERFORMANCE.md). Never
@@ -113,6 +133,19 @@ const App: React.FC = () => {
         try { localStorage.setItem('gor-theme', isNox ? 'nox' : 'lux'); } catch { /* private mode */ }
     }, [isNox]);
 
+    // The Fates pacing posture (ROADMAP_PHASE_4.md 4D item 1, D23) - a
+    // device-level USER PREFERENCE beside the theme/onboarding keys
+    // (persistence/settings.ts), never part of the save bundle. This local
+    // state only mirrors localStorage for the selector's rendering:
+    // executeTurn re-reads the STORED value fresh at each turn's start, so
+    // a change takes effect on the next turn without touching executeTurn's
+    // dependency array.
+    const [pacingPosture, setPacingPostureState] = useState<PacingPosture>(() => getPacingPosture());
+    const handleSetPacingPosture = useCallback((posture: PacingPosture) => {
+        setPacingPostureState(posture);
+        setPacingPosture(posture);
+    }, []);
+
     // ROADMAP_0_MASTER_PLAN.md Phase 3 items 1-2 - the "thinking theater" and
     // streaming narration. Both are purely transient, in-flight-turn UI
     // state, never part of the save bundle: `turnStage` drives the themed
@@ -135,7 +168,13 @@ const App: React.FC = () => {
     const [showOnboarding, setShowOnboarding] = useState(false);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
-    const aiRef = useRef(new GoogleGenAI({apiKey: process.env.API_KEY}));
+    // A real key is required only for REAL turns. The SDK constructor throws
+    // in a browser when the key is unset, which would crash the app before
+    // character select even in Mock Mode (which exists precisely to run
+    // keyless). Fall back to a sentinel so the app always boots; Mock Mode
+    // never calls the API, and a real turn with the sentinel fails at call
+    // time with an auth error - the correct signal to set a key.
+    const aiRef = useRef(new GoogleGenAI({apiKey: process.env.API_KEY || 'NO_API_KEY_SET'}));
     // Snapshot of the committed game state taken right before a turn's AI
     // calls kick off, so a mid-turn failure can be rolled back to explicitly
     // rather than relying on "we just never committed" (P0.2/P0.4 - a
@@ -206,13 +245,17 @@ const App: React.FC = () => {
     // a reload with no extra save-format changes. Uses that turn's OWN
     // postTurnEntities for the player's location/network, since either can
     // change turn to turn.
+    // The newest entry always retains its snapshot (the reducer's
+    // KEEP_FULL_SNAPSHOTS window keeps at least the most recent entry), but
+    // the field is optional on TurnHistoryEntry, so both reads guard for
+    // absence rather than assuming it.
     const lastTurn = turnHistory.length > 0 ? turnHistory[turnHistory.length - 1] : null;
     const lastTurnPlayer = useMemo(
-        () => lastTurn?.postTurnEntities.find(e => e.entity_id === playerCharacterId) ?? null,
+        () => lastTurn?.postTurnEntities?.find(e => e.entity_id === playerCharacterId) ?? null,
         [lastTurn, playerCharacterId]
     );
     const lastTurnPerceivedChanges = useMemo(
-        () => (lastTurn && lastTurnPlayer)
+        () => (lastTurn?.postTurnEntities && lastTurnPlayer)
             ? buildPerceivedDigest(lastTurn.adjudication.deltas, lastTurnPlayer, lastTurn.postTurnEntities, worldState)
             : [],
         [lastTurn, lastTurnPlayer, worldState]
@@ -227,30 +270,34 @@ const App: React.FC = () => {
     }, [lastTurnPerceivedChanges]);
 
     // Builds the full persistable game-state bundle from current state,
-    // optionally overriding fields with just-computed values (state setters
-    // are async, so a caller that just committed new values must pass them
-    // explicitly rather than reading the stale closure). See
-    // persistence/saveGame.ts for exactly which App.tsx state this does (and
-    // doesn't) include, and why.
+    // optionally overriding fields with just-computed values (a dispatch
+    // doesn't change this render's state object, so a caller that just
+    // committed new values must pass them explicitly rather than reading
+    // the stale closure). See persistence/saveGame.ts for exactly which
+    // game state this does (and doesn't) include, and why.
     const buildSaveState = useCallback((overrides: Partial<SaveGameState> = {}): SaveGameState => ({
-        entities,
-        worldState,
-        simulationState,
-        reports,
-        turnNumber,
-        playerCharacterId,
-        turnHistory,
-        eventHistory,
-        metaNarrative,
-        messages,
-        triggeredEventIds,
-        suggestedActions,
-        currentEvents,
-        gmInterventionText,
-        inferredAmbition,
-        pendingIntelligenceFallout,
+        entities: state.entities,
+        worldState: state.worldState,
+        simulationState: state.simulationState,
+        reports: state.reports,
+        truthLedger: state.truthLedger,
+        knowledge: state.knowledge,
+        npcIntents: state.npcIntents,
+        turnNumber: state.turnNumber,
+        playerCharacterId: state.playerCharacterId,
+        turnHistory: state.turnHistory,
+        eventHistory: state.eventHistory,
+        metaNarrative: state.metaNarrative,
+        messages: state.messages,
+        triggeredEventIds: state.triggeredEventIds,
+        eventFirings: state.eventFirings,
+        suggestedActions: state.suggestedActions,
+        currentEvents: state.currentEvents,
+        gmInterventionText: state.gmInterventionText,
+        inferredAmbition: state.inferredAmbition,
+        pendingIntelligenceFallout: state.pendingIntelligenceFallout,
         ...overrides,
-    }), [entities, worldState, simulationState, reports, turnNumber, playerCharacterId, turnHistory, eventHistory, metaNarrative, messages, triggeredEventIds, suggestedActions, currentEvents, gmInterventionText, inferredAmbition, pendingIntelligenceFallout]);
+    }), [state]);
 
     // On mount, check for an existing autosave so CharacterSelection can
     // offer a "Continue your reign" card instead of forcing a fresh start.
@@ -312,25 +359,39 @@ const App: React.FC = () => {
     }, [isGmConsoleEnabled]);
 
     const addMessage = useCallback((message: Message) => {
-        setMessages(prev => [...prev, message]);
-    }, []);
+        dispatch({ type: 'MESSAGE_ADDED', message });
+    }, [dispatch]);
 
     useEffect(() => {
         if (isCheckingEvents) {
-            const event = checkForTriggeredEvent(worldState, entities, triggeredEventIds, playerEntity);
+            // 4D.2 (D12): eligibility is decided by the per-event firing
+            // records (repeatable + cooldown), not the legacy string set;
+            // simulationState/turnNumber feed the sim-state-keyed triggers
+            // and the cooldown arithmetic.
+            // Known coordination gap: nothing suppresses a verbatim modal
+            // fire for a premise the adjudicator wove into the turn that
+            // just committed - "verbatim as the exception" (D12) is held
+            // only by trigger rarity and cooldowns. The prompt's
+            // never-pre-stage clause keeps content from duplicating, but a
+            // same-turn weave-then-modal double-hit is possible; a
+            // suppression gate is an owner-ruling candidate.
+            const event = checkForTriggeredEvent(worldState, entities, eventFirings, playerEntity, simulationState, turnNumber);
             if (event) {
-                setActiveEvent(event);
-                setGameState(GameState.AWAITING_EVENT_CHOICE);
+                dispatch({ type: 'EVENT_TRIGGERED', event });
             } else {
-                setGameState(GameState.AWAITING_PLAYER_INPUT);
+                dispatch({ type: 'GAME_STATE_SET', gameState: GameState.AWAITING_PLAYER_INPUT });
             }
             setIsCheckingEvents(false); // Reset the flag
         }
-    }, [isCheckingEvents, worldState, entities, triggeredEventIds, playerEntity]);
+    }, [isCheckingEvents, worldState, entities, eventFirings, playerEntity, simulationState, turnNumber, dispatch]);
 
     const executeTurn = useCallback(async (playerActionText: string) => {
-        setGameState(GameState.PROCESSING);
-        setSuggestedActions([]);
+        // TURN_STARTED enters PROCESSING, clears the suggested-action pills,
+        // and puts the player's message into the chat log - nothing else, so
+        // the pre-turn snapshot below describes exactly the committed state
+        // plus that message.
+        const playerMessage: Message = { sender: 'player', text: playerActionText };
+        dispatch({ type: 'TURN_STARTED', playerMessage });
         // Any in-flight retry affordance is superseded by this attempt (fresh
         // or re-run) - it'll be recreated below if this attempt also fails.
         setRetryAction(null);
@@ -340,13 +401,10 @@ const App: React.FC = () => {
         setTurnStage(null);
         setStreamingNarration('');
 
-        const playerMessage: Message = { sender: 'player', text: playerActionText };
-        addMessage(playerMessage);
-
         const playerEntity = entities.find(e => e.entity_id === playerCharacterId);
         if (!playerEntity) {
             addMessage({ sender: 'gm', text: "Error: Player character not found."});
-            setGameState(GameState.AWAITING_PLAYER_INPUT);
+            dispatch({ type: 'GAME_STATE_SET', gameState: GameState.AWAITING_PLAYER_INPUT });
             setInputValue(playerActionText);
             return;
         }
@@ -381,10 +439,19 @@ const App: React.FC = () => {
                 simulationState, // Pass the new state here
                 turnHistory,
                 reports,
+                truthLedger,
+                npcIntents,
                 interventionTextForTurn,
                 isMockMode,
                 metaNarrative,
-                { onStage: setTurnStage, onNarrationChunk: setStreamingNarration }
+                // pacingPosture is read fresh from localStorage each turn
+                // (never from the mirroring React state), so the Fates
+                // selector takes effect on the NEXT turn with no
+                // executeTurn dependency on it (D23 - a user preference,
+                // not save state). eventFirings (4D.2, D24) lets runNewTurn
+                // surface ripe/near authored events as GM-private
+                // HISTORICAL MATERIAL in the adjudication prompt.
+                { onStage: setTurnStage, onNarrationChunk: setStreamingNarration, pacingPosture: getPacingPosture(), eventFirings }
             );
 
             // COMMIT STATE
@@ -396,33 +463,69 @@ const App: React.FC = () => {
             })();
             // Add post-turn entity state to history for GM view
             const historyEntryWithState = { ...result.newHistoryEntry, postTurnEntities: result.updatedEntities };
-            const newTurnHistory = [...turnHistory, historyEntryWithState];
+            // Bound the snapshot window HERE, once, because this same array
+            // feeds BOTH the TURN_COMMITTED dispatch and the autosave below -
+            // the reducer's own trim only bounds in-memory state, so an
+            // autosave built from the raw array would persist every snapshot
+            // (and re-persist all of a legacy save's per-entry snapshots each
+            // session). Applying it here also self-heals such legacy saves on
+            // their first commit; the reducer's trim is idempotent on the
+            // already-bounded array.
+            const newTurnHistory = withOldSnapshotsDropped([...turnHistory, historyEntryWithState]);
             const newTurnNumber = turnNumber + 1;
+
+            // D21 knowledge-store ingestion (knowledge/commit.ts): the next
+            // store is computed from the SAME D5-filtered digest the player
+            // is about to see (the identical buildPerceivedDigest inputs the
+            // lastTurnPerceivedChanges memo will re-derive from this history
+            // entry) plus this turn's NEW Reports - never from raw deltas or
+            // anything GM-private. The helper owns the new-report id filter
+            // and stamps every update with the authoritative `turnNumber`
+            // (never a model-authored turn field). Committed atomically with
+            // the rest of the turn below, so a rolled-back turn ingests
+            // nothing.
+            const playerAfterTurn = result.updatedEntities.find(e => e.entity_id === playerCharacterId) ?? null;
+            const perceivedThisTurn = playerAfterTurn
+                ? buildPerceivedDigest(historyEntryWithState.adjudication.deltas, playerAfterTurn, result.updatedEntities, newWorldState)
+                : [];
+            const newKnowledge = computeTurnKnowledge({
+                prev: knowledge,
+                perceivedChanges: perceivedThisTurn,
+                reportsBefore: reports,
+                reportsAfter: result.updatedReports,
+                turnNumber,
+            });
             const gmMessage: Message = { sender: 'gm', text: result.narration };
             const monologueMessage: Message = { sender: 'player_monologue', text: result.playerMonologue };
             // Week-advance ribbon written into the stream once the turn commits
             // (rendered as a TurnRibbon divider, not a speech bubble).
             const ribbonMessage: Message = { sender: 'ribbon', text: `Week ${toRoman(newWorldState.week)} · The chronicler sets down the day` };
 
-            setEntities(result.updatedEntities);
-            setReports(result.updatedReports);
-            setSimulationState(result.updatedSimulationState); // Set the returned state
-            setWorldState(newWorldState);
-            setTurnHistory(newTurnHistory);
-            setTurnNumber(newTurnNumber);
-
-            addMessage(gmMessage);
-            addMessage(monologueMessage);
-            addMessage(ribbonMessage);
-            setSuggestedActions(result.suggestedActions);
-            setCurrentEvents(result.headlines);
-            // ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - the fallout queue is
-            // "consumed" only here, once the turn that was handed
-            // `interventionTextForTurn` (built from it, above) has actually
-            // committed. A failed/rolled-back attempt never reaches this
-            // line, so the queue survives untouched for a retry.
-            setPendingIntelligenceFallout(clearFallout());
-            setGmInterventionText(''); // Clear intervention after it's used
+            // The single atomic commit for this turn (state/gameReducer.ts's
+            // TURN_COMMITTED): entities, world, history, chat log, pills and
+            // headlines - plus consuming the fallout queue and the GM
+            // intervention text this turn was handed (`interventionTextForTurn`,
+            // built from them above) - land in ONE state transition. A
+            // failed/rolled-back attempt never dispatches this, so both
+            // survive untouched for a retry. If the player died this turn,
+            // the reducer resolves the phase straight to GAME_OVER (D1).
+            dispatch({
+                type: 'TURN_COMMITTED',
+                entities: result.updatedEntities,
+                worldState: newWorldState,
+                simulationState: result.updatedSimulationState,
+                reports: result.updatedReports,
+                truthLedger: result.updatedTruthLedger,
+                knowledge: newKnowledge,
+                npcIntents: result.updatedNpcIntents,
+                turnNumber: newTurnNumber,
+                turnHistory: newTurnHistory,
+                gmMessage,
+                monologueMessage,
+                ribbonMessage,
+                suggestedActions: result.suggestedActions,
+                currentEvents: result.headlines,
+            });
             // The final, parsed narration message above now replaces the
             // transient streaming bubble - clear the thinking-theater state
             // so it can't linger into the next AWAITING_PLAYER_INPUT render.
@@ -432,16 +535,15 @@ const App: React.FC = () => {
             // DESIGN_DECISIONS.md D1 - survival-only: ONLY the player's own
             // death ends the run. Once it does, skip the event-trigger check
             // entirely (an event modal popping over a terminal epilogue
-            // makes no sense) and go straight to GameState.GAME_OVER -
-            // App.tsx's render then swaps the whole chat pane for
-            // EpilogueScreen. Exile/missing are NOT terminal (see
-            // isPlayerExiledOrMissing above) - only 'dead' triggers this.
+            // makes no sense) - TURN_COMMITTED above already resolved the
+            // phase to GameState.GAME_OVER, and App.tsx's render then swaps
+            // the whole chat pane for EpilogueScreen. Exile/missing are NOT
+            // terminal (see isPlayerExiledOrMissing above) - only 'dead'
+            // triggers this.
             const updatedPlayerEntity = result.updatedEntities.find(e => e.entity_id === playerCharacterId);
             const diedThisTurn = updatedPlayerEntity?.status === 'dead';
 
-            if (diedThisTurn) {
-                setGameState(GameState.GAME_OVER);
-            } else {
+            if (!diedThisTurn) {
                 // Flag that the turn is over and events should be checked
                 setIsCheckingEvents(true);
             }
@@ -455,6 +557,9 @@ const App: React.FC = () => {
                 worldState: newWorldState,
                 simulationState: result.updatedSimulationState,
                 reports: result.updatedReports,
+                truthLedger: result.updatedTruthLedger,
+                knowledge: newKnowledge,
+                npcIntents: result.updatedNpcIntents,
                 turnNumber: newTurnNumber,
                 turnHistory: newTurnHistory,
                 messages: [...messages, playerMessage, gmMessage, monologueMessage, ribbonMessage],
@@ -481,7 +586,7 @@ const App: React.FC = () => {
                 inferAmbition(aiRef.current, updatedPlayerEntity, recentIntents, recentHeadlines, isMockMode)
                     .then(inference => {
                         const nextAmbition: InferredAmbitionState = { ...inference, asOfTurn: ambitionTurnNumber };
-                        setInferredAmbition(nextAmbition);
+                        dispatch({ type: 'AMBITION_INFERRED', inferredAmbition: nextAmbition });
                         // Persist by PATCHING only the ambition field into
                         // whatever autosave is newest at the moment this
                         // resolves. A full saveGame(buildSaveState(...)) here
@@ -533,36 +638,20 @@ const App: React.FC = () => {
             // was committed yet, but restore explicitly (rather than relying
             // on that invariant) so a future change to the commit ordering
             // can't silently leave the game half-updated after a failure.
-            // `messages` is deliberately excluded here - the player's message
-            // and the GM's error notice above should stay in the chat log.
+            // `messages` is deliberately excluded from the rollback - the
+            // player's message and the GM's error notice above should stay
+            // in the chat log (see TURN_ROLLED_BACK in state/gameReducer.ts
+            // for exactly which fields are and aren't restored).
             const snapshot = preTurnSnapshotRef.current;
             if (snapshot) {
-                setEntities(snapshot.entities);
-                setWorldState(snapshot.worldState);
-                setSimulationState(snapshot.simulationState);
-                setReports(snapshot.reports);
-                setTurnNumber(snapshot.turnNumber);
-                setTurnHistory(snapshot.turnHistory);
-                setEventHistory(snapshot.eventHistory);
-                setTriggeredEventIds(snapshot.triggeredEventIds);
-                setSuggestedActions(snapshot.suggestedActions);
-                setCurrentEvents(snapshot.currentEvents);
-                setGmInterventionText(snapshot.gmInterventionText);
-                // ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - the fallout
-                // queue was never actually cleared on this path (that only
-                // happens in the success branch above), so this is a no-op
-                // in practice today - restored explicitly anyway, for the
-                // same "don't rely on the invariant" reason as every other
-                // field here. Guarantees a failed/rolled-back turn's
-                // pending fallout survives intact for a retry.
-                setPendingIntelligenceFallout(snapshot.pendingIntelligenceFallout ?? []);
+                dispatch({ type: 'TURN_ROLLED_BACK', snapshot });
             }
 
-            setGameState(GameState.AWAITING_PLAYER_INPUT);
+            dispatch({ type: 'GAME_STATE_SET', gameState: GameState.AWAITING_PLAYER_INPUT });
             // Restore the player's action so they can retry without retyping it.
             setInputValue(playerActionText);
         }
-    }, [entities, playerCharacterId, turnNumber, worldState, simulationState, reports, turnHistory, messages, addMessage, gmInterventionText, isMockMode, metaNarrative, buildSaveState, pendingIntelligenceFallout]);
+    }, [state, addMessage, isMockMode, buildSaveState, dispatch]);
 
     const handleSendMessage = () => {
         const text = inputValue.trim();
@@ -579,27 +668,25 @@ const App: React.FC = () => {
         const resolvedWorldState = initialWorldState ?? worldState;
         const resolvedMetaNarrative = initialMetaNarrative ?? metaNarrative;
 
-        setEntities(allInitialEntities);
-        if (initialWorldState) {
-            setWorldState(initialWorldState);
-        }
-        if (initialMetaNarrative) {
-            setMetaNarrative(initialMetaNarrative);
-        }
-        setPlayerCharacterId(characterEntity.entity_id);
-        setGameState(GameState.AWAITING_PLAYER_INPUT);
-
         const introMessage: Message = {
             sender: 'gm',
             text: `You have chosen to be **${characterEntity.name}**.\n\n${characterEntity.current_state_narrative}\n\nThe world holds its breath. What is your first action?`
         };
-        addMessage(introMessage);
 
         // ROADMAP_0_MASTER_PLAN.md Phase 3 item 6 - seed the suggested-action
         // pills from the chosen character's own goals (pure, no AI call - see
         // components/starterActions.ts) so turn 1 isn't a blank page.
         const starterActions = deriveStarterActions(characterEntity);
-        setSuggestedActions(starterActions);
+
+        dispatch({
+            type: 'GAME_STARTED',
+            entities: allInitialEntities,
+            playerCharacterId: characterEntity.entity_id,
+            introMessage,
+            suggestedActions: starterActions,
+            worldState: initialWorldState,
+            metaNarrative: initialMetaNarrative,
+        });
 
         // Show the first-turn onboarding overlay exactly once ever, on
         // whichever device/browser hasn't dismissed it yet - covers both a
@@ -624,6 +711,12 @@ const App: React.FC = () => {
     };
 
     const handleSelectCharacter = (option: PlayerCharacterOption) => {
+        // The session call log (ai/core/geminiService.ts) is per-campaign-
+        // session: reset it at every campaign boundary, BEFORE the new
+        // campaign's first AI call, so calls from a previous campaign in the
+        // same tab can't contaminate this campaign's eval-corpus export.
+        // Same constraint in handleCustomCreation and handleContinue.
+        resetSessionCallLog();
         const playerEntity = ALL_INITIAL_ENTITIES.find(e => e.entity_id === option.entity_id);
         if(playerEntity) {
             startGameWithCharacter(playerEntity, JSON.parse(JSON.stringify(ALL_INITIAL_ENTITIES)));
@@ -631,6 +724,10 @@ const App: React.FC = () => {
     };
 
     const handleCustomCreation = async ({ description, metaNarrative: newMetaNarrative, useCustomGamestate }: { description: string, metaNarrative?: string, useCustomGamestate: boolean }) => {
+        // Per-campaign-session log (see handleSelectCharacter). Reset here -
+        // not in startGameWithCharacter - so the world/character-generation
+        // calls made just below already belong to the NEW campaign's log.
+        resetSessionCallLog();
         if (useCustomGamestate && newMetaNarrative) {
             // New world generation logic
             const { worldState: newWorldState, entities: newEntities, playerCharacterId: newPlayerId } = await initiateWorld(aiRef.current, newMetaNarrative, description, isMockMode);
@@ -660,7 +757,7 @@ const App: React.FC = () => {
             }
             return e;
         });
-        setEntities(newEntities);
+        dispatch({ type: 'RESOURCE_SPENT', entities: newEntities });
         saveGame(buildSaveState({ entities: newEntities }));
     };
 
@@ -700,12 +797,22 @@ const App: React.FC = () => {
             return e;
         });
         const nextFallout = appendFallout(pendingIntelligenceFallout, result);
+        // D14/D21 - the bought reveal is ingested into the knowledge store
+        // (knowledge/commit.ts) in the SAME atomic commit as the spend, so
+        // the intel finally persists (in state and in the save) instead of
+        // evaporating with DramatisPersonaeTab's component-local display
+        // state. Only the player-facing report text is ingested - never the
+        // resolution trace or anything GM-private.
+        const nextKnowledge = computeInvestigationKnowledge({
+            prev: knowledge,
+            targetId,
+            kind,
+            reportText: result.report,
+            turnNumber,
+        });
 
-        setEntities(newEntities);
-        if (nextFallout !== pendingIntelligenceFallout) {
-            setPendingIntelligenceFallout(nextFallout);
-        }
-        saveGame(buildSaveState({ entities: newEntities, pendingIntelligenceFallout: nextFallout }));
+        dispatch({ type: 'INVESTIGATION_COMMITTED', entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge });
+        saveGame(buildSaveState({ entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge }));
 
         if (hasFallout(result.consequences)) {
             addMessage({
@@ -716,7 +823,7 @@ const App: React.FC = () => {
     };
 
     const handleSetIntervention = (text: string) => {
-        setGmInterventionText(text);
+        dispatch({ type: 'GM_INTERVENTION_SET', text });
     };
     
     const handleEventChoice = useCallback((choice: PlayerEventChoice) => {
@@ -729,31 +836,31 @@ const App: React.FC = () => {
             turnNumber: turnNumber,
         };
 
-        const { updatedEntities, updatedWorldState } = applyEventChoiceDeltas(choice, playerEntity, entities, worldState);
+        const { updatedEntities, updatedWorldState } = applyEventChoiceDeltas(choice, playerEntity, entities, worldState, turnNumber);
         const eventMessage: Message = { sender: 'gm', text: `**Event: ${activeEvent.title}**\nYou chose to: *${choice.text}*`};
         const newEventHistory = [...eventHistory, newEventHistoryEntry];
-        const newTriggeredEventIds = [...triggeredEventIds, activeEvent.id];
+        // 4D.2 (D12): both bookkeeping shapes advance together - the legacy
+        // deduped ever-fired set (a repeat firing never duplicates its id)
+        // and the turn-stamped records the cooldown logic reads.
+        const { triggeredEventIds: newTriggeredEventIds, eventFirings: newEventFirings } =
+            recordEventFiring(triggeredEventIds, eventFirings, activeEvent.id, turnNumber);
 
-        // Commit state changes from event
-        setEntities(updatedEntities);
-        setWorldState(updatedWorldState);
-
-        // Log the event and choice
-        addMessage(eventMessage);
-
-        // Add to event history
-        setEventHistory(newEventHistory);
-
-        // Mark event as seen and close modal
-        setTriggeredEventIds(newTriggeredEventIds);
-        setActiveEvent(null);
-
-        // DESIGN_DECISIONS.md D1 - an authored event choice's deltas can also
-        // kill the player (applyEventChoiceDeltas), not just the adjudicated
-        // turn pipeline - so this path needs the exact same GAME_OVER check
-        // as executeTurn's commit above.
-        const updatedPlayerEntity = updatedEntities.find(e => e.entity_id === playerCharacterId);
-        setGameState(updatedPlayerEntity?.status === 'dead' ? GameState.GAME_OVER : GameState.AWAITING_PLAYER_INPUT);
+        // The single atomic commit for this event choice
+        // (state/gameReducer.ts's EVENT_CHOICE_APPLIED): deltas, chat log,
+        // event history, seen-ids and modal close land in one state
+        // transition. DESIGN_DECISIONS.md D1 - an authored event choice's
+        // deltas can also kill the player (applyEventChoiceDeltas), not just
+        // the adjudicated turn pipeline - the reducer applies the exact same
+        // GAME_OVER check as TURN_COMMITTED.
+        dispatch({
+            type: 'EVENT_CHOICE_APPLIED',
+            entities: updatedEntities,
+            worldState: updatedWorldState,
+            eventMessage,
+            eventHistory: newEventHistory,
+            triggeredEventIds: newTriggeredEventIds,
+            eventFirings: newEventFirings,
+        });
 
         // Autosave immediately after this commit (P0.2).
         saveGame(buildSaveState({
@@ -761,10 +868,11 @@ const App: React.FC = () => {
             worldState: updatedWorldState,
             eventHistory: newEventHistory,
             triggeredEventIds: newTriggeredEventIds,
+            eventFirings: newEventFirings,
             messages: [...messages, eventMessage],
         }));
 
-    }, [activeEvent, entities, worldState, addMessage, playerEntity, playerCharacterId, turnNumber, eventHistory, triggeredEventIds, messages, buildSaveState]);
+    }, [state, playerEntity, buildSaveState, dispatch]);
 
     const handleContinue = useCallback(() => {
         const save = loadGame();
@@ -772,39 +880,20 @@ const App: React.FC = () => {
             setSavedGameInfo(null);
             return;
         }
-        const s = save.state;
-        setEntities(s.entities);
-        setWorldState(s.worldState);
-        setSimulationState(s.simulationState);
-        setReports(s.reports);
-        setTurnNumber(s.turnNumber);
-        setPlayerCharacterId(s.playerCharacterId);
-        setTurnHistory(s.turnHistory);
-        setEventHistory(s.eventHistory);
-        setMetaNarrative(s.metaNarrative);
-        setMessages(s.messages);
-        setTriggeredEventIds(s.triggeredEventIds);
-        setSuggestedActions(s.suggestedActions);
-        setCurrentEvents(s.currentEvents);
-        setGmInterventionText(s.gmInterventionText);
-        // Optional field (D8) - absent on saves from before this field
-        // existed, so this normalizes it to `null` rather than `undefined`
-        // for InferredAmbitionState | null's sake.
-        setInferredAmbition(s.inferredAmbition ?? null);
-        // Optional field (Phase 3 item 5) - absent on saves from before the
-        // investigation-fallout queue existed, so this normalizes it to an
-        // empty queue rather than `undefined`.
-        setPendingIntelligenceFallout(s.pendingIntelligenceFallout ?? []);
-
-        // A save can legitimately be reloaded while the last-loaded run had
-        // already ended (the player closed/refreshed the tab on the epilogue
-        // screen - GAME_OVER itself is never persisted, only the underlying
-        // entities are). Re-derive the terminal state from the loaded player
-        // entity's status rather than assuming a continued save always means
-        // "still playable" (DESIGN_DECISIONS.md D1 - only death is terminal).
-        const loadedPlayer = s.entities.find(e => e.entity_id === s.playerCharacterId);
-        setGameState(loadedPlayer?.status === 'dead' ? GameState.GAME_OVER : GameState.AWAITING_PLAYER_INPUT);
-    }, []);
+        // Per-campaign-session log (see handleSelectCharacter): the loaded
+        // campaign starts a fresh session log, dropping any calls a prior
+        // campaign made in this tab.
+        resetSessionCallLog();
+        // GAME_LOADED (state/gameReducer.ts) restores the whole campaign in
+        // one state transition: it normalizes the optional save fields
+        // (inferredAmbition, pendingIntelligenceFallout - absent on older
+        // saves) and re-derives the terminal state from the loaded player
+        // entity's status (DESIGN_DECISIONS.md D1 - only death is terminal;
+        // GAME_OVER itself is never persisted, only the underlying entities
+        // are, and a save CAN legitimately be reloaded on an already-ended
+        // run when the player closed the tab on the epilogue screen).
+        dispatch({ type: 'GAME_LOADED', save: save.state });
+    }, [dispatch]);
 
     const handleStartAnew = useCallback(() => {
         clearSave();
@@ -937,6 +1026,8 @@ const App: React.FC = () => {
                             worldState={worldState}
                             simulationState={simulationState}
                             reports={reports}
+                            knowledge={knowledge}
+                            turnNumber={turnNumber}
                             onSpendDeepAnalysis={(cost) => handleSpendResource('deep_analyses', cost)}
                             onInvestigationOutcome={handleInvestigationOutcome}
                             ai={aiRef.current}
@@ -947,9 +1038,20 @@ const App: React.FC = () => {
                     </>
                 )}
             </main>
-            <div role="group" aria-label="Lighting: marble day or torchlit night" style={{ position: 'fixed', bottom: 14, right: 14, zIndex: 80, display: 'flex', border: '1px solid var(--border-strong)', borderRadius: 'var(--radius-sm)', overflow: 'hidden', boxShadow: 'var(--shadow-raised)', fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600, letterSpacing: '.14em' }}>
-                <button type="button" aria-pressed={!isNox} title="Marble — day" onClick={() => setIsNox(false)} style={{ padding: '6px 12px', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit', fontWeight: 'inherit', letterSpacing: 'inherit', background: !isNox ? 'var(--gold-600)' : 'var(--surface-card)', color: !isNox ? '#241C11' : 'var(--text-muted)' }}>LVX</button>
-                <button type="button" aria-pressed={isNox} title="Nox Romae — torchlit" onClick={() => setIsNox(true)} style={{ padding: '6px 12px', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit', fontWeight: 'inherit', letterSpacing: 'inherit', borderLeft: '1px solid var(--border-subtle)', background: isNox ? 'var(--gold-600)' : 'var(--surface-card)', color: isNox ? '#241C11' : 'var(--text-muted)' }}>NOX</button>
+            {/* Fixed bottom-right chrome: the Fates pacing selector (4D.1,
+                D23) beside the LVX/NOX lighting toggle. Both are device
+                preferences persisted in localStorage, never save state. */}
+            <div style={{ position: 'fixed', bottom: 14, right: 14, zIndex: 80, display: 'flex', gap: 10 }}>
+                <div role="group" aria-label="The Fates: how patiently fortune paces the story" style={{ display: 'flex', border: '1px solid var(--border-strong)', borderRadius: 'var(--radius-sm)', overflow: 'hidden', boxShadow: 'var(--shadow-raised)', fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600, letterSpacing: '.14em' }}>
+                    <span aria-hidden="true" style={{ padding: '6px 10px', background: 'var(--surface-card)', color: 'var(--gold-700)' }}>FATES</span>
+                    {FATES_OPTIONS.map(({ posture, label, title }) => (
+                        <button key={posture} type="button" aria-pressed={pacingPosture === posture} title={title} onClick={() => handleSetPacingPosture(posture)} style={{ padding: '6px 10px', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit', fontWeight: 'inherit', letterSpacing: 'inherit', borderLeft: '1px solid var(--border-subtle)', background: pacingPosture === posture ? 'var(--gold-600)' : 'var(--surface-card)', color: pacingPosture === posture ? '#241C11' : 'var(--text-muted)' }}>{label}</button>
+                    ))}
+                </div>
+                <div role="group" aria-label="Lighting: marble day or torchlit night" style={{ display: 'flex', border: '1px solid var(--border-strong)', borderRadius: 'var(--radius-sm)', overflow: 'hidden', boxShadow: 'var(--shadow-raised)', fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600, letterSpacing: '.14em' }}>
+                    <button type="button" aria-pressed={!isNox} title="Marble — day" onClick={() => setIsNox(false)} style={{ padding: '6px 12px', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit', fontWeight: 'inherit', letterSpacing: 'inherit', background: !isNox ? 'var(--gold-600)' : 'var(--surface-card)', color: !isNox ? '#241C11' : 'var(--text-muted)' }}>LVX</button>
+                    <button type="button" aria-pressed={isNox} title="Nox Romae — torchlit" onClick={() => setIsNox(true)} style={{ padding: '6px 12px', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit', fontWeight: 'inherit', letterSpacing: 'inherit', borderLeft: '1px solid var(--border-subtle)', background: isNox ? 'var(--gold-600)' : 'var(--surface-card)', color: isNox ? '#241C11' : 'var(--text-muted)' }}>NOX</button>
+                </div>
             </div>
             {isGmConsoleEnabled && isGmScreenVisible && <GameMasterScreen
                 history={turnHistory}
@@ -958,8 +1060,13 @@ const App: React.FC = () => {
                 onSetIntervention={handleSetIntervention}
                 playerCharacterId={playerCharacterId}
                 worldState={worldState}
+                turnNumber={turnNumber}
                 inferredAmbition={inferredAmbition}
                 pendingIntelligenceFallout={pendingIntelligenceFallout}
+                truthLedger={truthLedger}
+                reports={reports}
+                knowledge={knowledge}
+                npcIntents={npcIntents}
             />}
             {activeEvent && <EventModal event={activeEvent} onChoose={handleEventChoice} />}
             {showOnboarding && gameState === GameState.AWAITING_PLAYER_INPUT && (

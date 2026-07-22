@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { Entity, WorldState, StoryRelevance, Adjudication, SimulationState, EventDelta } from '../../types';
+import { Entity, WorldState, StoryRelevance, Adjudication, SimulationState, EventDelta, ActionResolutionEvent, NpcIntent } from '../../types';
 import { mockGetClarificationOnEvent, mockGetRawThoughts, mockGetDeepAnalysis, mockGetInvestigationResult, mockGetPlayerMonologue, mockGetStoryRelevance, mockSimulatePrivateConversation } from '../mocks';
 import { RelationshipDeltasSchema, ConversationSimulationSchema, StoryRelevanceSchema, SimulationStateSchema, buildInvestigationResultSchema } from '../core/schemas';
 import { generateStructured, generateText, GEMINI_PRO, GEMINI_FLASH } from '../core/geminiService';
@@ -11,6 +11,8 @@ import {
     deriveOppositionModifier,
     deriveInvestigationDifficulty,
     ActionResolutionTier,
+    createSeededRng,
+    generateSeed,
 } from '../core/resolution';
 import {
     buildClarificationPrompt,
@@ -72,7 +74,7 @@ function isFailureTier(tier: ActionResolutionTier): tier is 'critical_failure' |
     return tier === 'critical_failure' || tier === 'failure';
 }
 
-export const getInvestigationResult = async (ai: GoogleGenAI, target: Entity, player: Entity, isRisky: boolean, isMockMode: boolean, subject: 'secrets' | 'beliefs' | 'scheme' = 'secrets'): Promise<{ report: string, consequences: string | null, reportData: any }> => {
+export const getInvestigationResult = async (ai: GoogleGenAI, target: Entity, player: Entity, isRisky: boolean, isMockMode: boolean, subject: 'secrets' | 'beliefs' | 'scheme' = 'secrets'): Promise<{ report: string, consequences: string | null, reportData: any, resolutionTrace?: ActionResolutionEvent }> => {
     if (isMockMode) {
         if(!mockGetInvestigationResult) throw new Error("Mock function 'mockGetInvestigationResult' is not implemented.");
         return mockGetInvestigationResult(target, isRisky, subject);
@@ -85,6 +87,17 @@ export const getInvestigationResult = async (ai: GoogleGenAI, target: Entity, pl
     // pre-decided tier. No assessment call is needed here (unlike the main
     // turn's player action): an investigation is always a real, consequential
     // 'intrigue' check, so it always rolls.
+    //
+    // Investigations run OUTSIDE the turn pipeline (player-triggered from
+    // the UI), so each gets its OWN 32-bit seed rather than drawing from a
+    // turn's generator; the seed is recorded on the returned
+    // `resolutionTrace` so the roll is replayable
+    // (ai/core/resolution.ts::createSeededRng). The trace - seed, roll,
+    // tier, all of it - is GM-console-only data (DESIGN_DECISIONS.md D4):
+    // callers must never render it, or anything derived from it, on a
+    // player-facing surface.
+    const seed = generateSeed();
+    const rng = createSeededRng(seed);
     const relevantSkillValue = player.skills?.intrigue ?? null;
     const personalityModifier = derivePersonalityModifier({
         personality: player.personality,
@@ -98,12 +111,32 @@ export const getInvestigationResult = async (ai: GoogleGenAI, target: Entity, pl
     const difficulty = isRisky ? baseDifficulty + RISKY_INVESTIGATION_DIFFICULTY_BONUS : baseDifficulty;
 
     const resolution = resolveAction({
-        roll: rollD20(),
+        roll: rollD20(rng),
         relevantSkillValue,
         personalityModifier,
         oppositionModifier,
         difficulty,
     });
+
+    // The `assessment` block mirrors what the main turn's assessment call
+    // would have said about this fixed check (see ActionResolutionEvent in
+    // types.ts) - investigations make no assessment call, since they are
+    // always a consequential 'intrigue' roll.
+    const resolutionTrace: ActionResolutionEvent = {
+        assessment: {
+            is_consequential: true,
+            action_category: `${subject} investigation`,
+            relevant_skill: 'intrigue',
+            difficulty,
+            opposing_entity_id: target.entity_id,
+            rationale: "Investigations always roll: a fixed intrigue check against the target's derived difficulty.",
+        },
+        roll: resolution.roll,
+        total: resolution.total,
+        margin: resolution.margin,
+        tier: resolution.tier,
+        seed,
+    };
 
     const { systemInstruction, prompt } = buildInvestigationPrompt(target, player, subject, resolution.tier);
     const result = await generateStructured<{ report: string, consequences: string | null, reportData: any }>(ai, {
@@ -125,7 +158,7 @@ export const getInvestigationResult = async (ai: GoogleGenAI, target: Entity, pl
         ? (result.consequences ?? DEFAULT_INVESTIGATION_CONSEQUENCE[resolution.tier])
         : (resolution.tier === 'partial_success' ? result.consequences : null);
 
-    return { report: result.report, consequences, reportData: result.reportData };
+    return { report: result.report, consequences, reportData: result.reportData, resolutionTrace };
 };
 
 export const getPlayerMonologue = async (ai: GoogleGenAI, player: Entity, turnHeadlines: string[], recentPlayerIntents: string[], isMockMode: boolean): Promise<string> => {
@@ -139,13 +172,13 @@ export const getPlayerMonologue = async (ai: GoogleGenAI, player: Entity, turnHe
     return text || "I am contemplative.";
 };
 
-export const getStoryRelevance = async (ai: GoogleGenAI, turnNumber: number, prevTurnHeadlines: string[], worldState: WorldState, isMockMode: boolean): Promise<StoryRelevance> => {
+export const getStoryRelevance = async (ai: GoogleGenAI, turnNumber: number, prevTurnHeadlines: string[], worldState: WorldState, npcEntities: Entity[], previousIntents: NpcIntent[], isMockMode: boolean): Promise<StoryRelevance> => {
     if (isMockMode) {
         if (!mockGetStoryRelevance) throw new Error("Mock function 'mockGetStoryRelevance' is not implemented.");
-        return mockGetStoryRelevance(turnNumber);
+        return mockGetStoryRelevance(turnNumber, previousIntents);
     }
 
-    const { systemInstruction, prompt } = buildStoryRelevancePrompt(turnNumber, prevTurnHeadlines, worldState);
+    const { systemInstruction, prompt } = buildStoryRelevancePrompt(turnNumber, prevTurnHeadlines, worldState, npcEntities, previousIntents);
     return generateStructured<StoryRelevance>(ai, {
         callName: 'storyRelevance',
         model: GEMINI_PRO,

@@ -27,11 +27,15 @@ import type {
   WorldState,
   SimulationState,
   Report,
+  TruthLedgerEntry,
   TurnHistoryEntry,
   EventHistoryEntry,
+  EventFiringRecord,
   Message,
+  NpcIntent,
 } from '../types';
 import type { AmbitionInference } from '../ai/tools/ambition';
+import type { KnowledgeClaim } from '../knowledge/store';
 
 /** Bump this whenever `SaveGameState`'s shape changes in a backwards-incompatible way. */
 export const SAVE_VERSION = 1 as const;
@@ -89,6 +93,52 @@ export interface SaveGameState {
    * actually commits.
    */
   pendingIntelligenceFallout?: string[];
+  /**
+   * DESIGN_DECISIONS.md D11 - the GM-private truth ledger (one entry per
+   * rumor: actual truth disposition + origin, bounded at
+   * ai/core/engine.ts's MAX_TRUTH_LEDGER_ENTRIES). Optional so
+   * `SAVE_VERSION` stays at 1: a pre-existing save with no such field
+   * loads cleanly and starts with an empty ledger (GAME_LOADED in
+   * state/gameReducer.ts falls back to `[]`). GM-console-only data, same
+   * handling class as `secret_truth` - persisting it is bookkeeping, never
+   * a license for a player-facing surface to read it.
+   */
+  truthLedger?: TruthLedgerEntry[];
+  /**
+   * ROADMAP_PHASE_4.md 4B item 2 / DESIGN_DECISIONS.md D21 - the player
+   * knowledge store (knowledge/store.ts): claim entities with time-dated
+   * update histories, built only from perception-filtered channels. The
+   * player-belief counterpart to `truthLedger` above - by construction it
+   * carries no GM-private truth data. Optional so `SAVE_VERSION` stays at
+   * 1: a pre-existing save with no such field loads cleanly and starts
+   * with an empty store (GAME_LOADED in state/gameReducer.ts falls back
+   * to `[]`). Bounded at knowledge/store.ts's MAX_KNOWLEDGE_CLAIMS.
+   */
+  knowledge?: KnowledgeClaim[];
+  /**
+   * ROADMAP_PHASE_4.md 4C item 3 - the Director's current per-spotlight
+   * persistent intents, replaced wholesale each turn commit and fed back
+   * into the next turn's Director (the continuity loop). Bounded at
+   * ai/core/turn.ts's MAX_NPC_INTENTS. Optional so `SAVE_VERSION` stays at
+   * 1: a pre-existing save with no such field loads cleanly and starts with
+   * an empty list (GAME_LOADED in state/gameReducer.ts falls back to `[]`).
+   * GM-PRIVATE data class (D4/D5), same handling as `truthLedger` above:
+   * persisting it is bookkeeping, never a license for a player-facing
+   * surface to read it.
+   */
+  npcIntents?: NpcIntent[];
+  /**
+   * ROADMAP_PHASE_4.md 4D item 2 (D12) - per-event firing bookkeeping (last
+   * fired turn + count), the richer successor to `triggeredEventIds` that
+   * repeatable events' cooldowns require. BOTH shapes are written in
+   * lockstep (`triggeredEventIds` stays the legacy deduped ever-fired set).
+   * Optional so `SAVE_VERSION` stays at 1: a pre-existing save with no such
+   * field loads cleanly and GAME_LOADED (state/gameReducer.ts) normalizes
+   * the bookkeeping from `triggeredEventIds` alone
+   * (events/engine.ts::normalizeEventFirings - legacy ids are conservatively
+   * stamped with the loaded turn, so cooldowns restart from load).
+   */
+  eventFirings?: EventFiringRecord[];
 }
 
 /** The versioned envelope actually written to storage. */
@@ -116,6 +166,25 @@ function stripOldRawCalls(turnHistory: TurnHistoryEntry[]): TurnHistoryEntry[] {
   });
 }
 
+/**
+ * Strips the captured prompt/system-instruction text from every rawCall
+ * record before serialization. Call capture is session-side only
+ * (DESIGN_DECISIONS.md D18: saves stay lean) - the persisted blob keeps each
+ * record's `rawResponse`/metadata for the GM screen's raw-JSON tab, but the
+ * full prompt text must never be written to storage. The in-memory records
+ * are left untouched (new entry/record objects are built), so the GM console
+ * and session-side export keep the full text.
+ */
+function stripCapturedCallText(turnHistory: TurnHistoryEntry[]): TurnHistoryEntry[] {
+  return turnHistory.map(entry => {
+    if (!entry.rawCalls) return entry;
+    return {
+      ...entry,
+      rawCalls: entry.rawCalls.map(({ promptText, systemInstruction, ...rest }) => rest),
+    };
+  });
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -139,10 +208,17 @@ function looksLikeSaveGame(value: unknown): value is SaveGame {
  * autosave is silently skipped - the in-memory game is unaffected.
  */
 export function saveGame(state: SaveGameState): void {
+  // Persisted saves never carry captured prompt text, regardless of size -
+  // see stripCapturedCallText.
+  const leanState: SaveGameState = {
+    ...state,
+    turnHistory: stripCapturedCallText(state.turnHistory),
+  };
+
   const envelope: SaveGame = {
     version: SAVE_VERSION,
     savedAt: new Date().toISOString(),
-    state,
+    state: leanState,
   };
 
   try {
@@ -156,8 +232,8 @@ export function saveGame(state: SaveGameState): void {
     const strippedEnvelope: SaveGame = {
       ...envelope,
       state: {
-        ...state,
-        turnHistory: stripOldRawCalls(state.turnHistory),
+        ...leanState,
+        turnHistory: stripOldRawCalls(leanState.turnHistory),
       },
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(strippedEnvelope));

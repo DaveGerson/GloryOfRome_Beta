@@ -3,6 +3,10 @@ import { Entity, WorldState, SimulationState } from '../types';
 export const FACTIONS_INITIAL: Entity[] = [
     {
         entity_id: "senatorial_party", name: "Senatorial Party", entity_type: "faction", status: "alive", location: "The Curia",
+        // Group voice (4C.5): a faction speaks as a bloc. Epithet from the
+        // latus clavus, the broad purple stripe of senatorial rank.
+        voice: "measured curial consensus-speak; precedent invoked, blame diffused",
+        epithet: "the Broad Stripes",
         short_term_goals: ["Uphold senatorial authority", "Limit the power of 'barracks emperors'"],
         long_term_ambitions: ["Restore the Republic in all but name"],
         current_state_narrative: "A coalition of traditionalist senators who believe that only their ancient institution can guide Rome through the coming storm. They are wealthy and influential, but lack direct military power.",
@@ -16,6 +20,8 @@ export const FACTIONS_INITIAL: Entity[] = [
     },
     {
         entity_id: "military_cabal", name: "Military Cabal", entity_type: "faction", status: "alive", location: "Praetorian Camp",
+        voice: "blunt camp Latin; pay, steel, and loyalty counted like rations",
+        epithet: "the Men of the Camps",
         short_term_goals: ["Secure overdue pay for the legions", "Install a strong military leader as emperor"],
         long_term_ambitions: ["Ensure the army is the ultimate power in the Empire"],
         current_state_narrative: "A loose alliance of powerful commanders, now centered in Rome itself. Disgusted with the weak, civilian leadership, they are popular with the troops and represent an immediate military threat to the established order.",
@@ -32,6 +38,10 @@ export const FACTIONS_INITIAL: Entity[] = [
 export const ROME_INITIAL_STATE: Entity[] = [
     {
         entity_id: "severus_alexander", name: "Severus Alexander", entity_type: "individual", status: "alive", position: "Emperor", location: "Palatine Hill",
+        // 4C.5: what the legions muttered about him historically - crowned at
+        // thirteen, still under his mother's hand.
+        voice: "earnest, Greek-schooled courtesy; hedges commands into appeals",
+        epithet: "the Boy Emperor",
         personality: { ambition: 5, paranoia: 6, loyalty: 7, cunning: 4, honor: 8 },
         beliefs: ["The Senate is a vital part of Roman governance", "A just ruler must be merciful", "Peace through diplomacy is preferable to war"],
         secrets: ["Fears his mother's control is absolute", "Doubts his own ability to lead the legions"],
@@ -59,6 +69,10 @@ export const ROME_INITIAL_STATE: Entity[] = [
     },
     {
         entity_id: "maximinus_thrax", name: "Maximinus Thrax", entity_type: "individual", status: "alive", position: "General of the Legions", location: "Praetorian Camp", faction_id: "military_cabal",
+        // 4C.5: "Thrax" IS the epithet - the Thracian herdsman risen through
+        // the ranks, and never allowed to forget it.
+        voice: "clipped soldier's Latin, contempt for senatorial flourish",
+        epithet: "the Thracian",
         personality: { ambition: 9, paranoia: 5, loyalty: 4, cunning: 6, honor: 3 },
         beliefs: ["Only the strong deserve to rule", "The Senate is a den of corrupt old fools", "The army is the heart of Rome"],
         secrets: ["Is illiterate and ashamed of it", "Fears being assassinated by his own men if he shows weakness"],
@@ -83,7 +97,11 @@ export const ROME_INITIAL_STATE: Entity[] = [
         visibility_network: ["severus_alexander", "roman_senate", "senatorial_party"]
     },
     {
-        entity_id: "praetorian_guard", name: "Praetorian Guard", entity_type: "group", status: "alive", location: "Praetorian Camp", short_term_goals: ["Assess loyalty of potential leaders", "Secure a massive pay bonus"], long_term_ambitions: ["Ensure their position as kingmakers"],
+        entity_id: "praetorian_guard", name: "Praetorian Guard", entity_type: "group", status: "alive", location: "Praetorian Camp",
+        // Group voice (4C.5): the Guard speaks as one restless barracks.
+        voice: "barracks bark and grumbled oaths; every grievance priced in denarii",
+        epithet: "the Kingmakers",
+        short_term_goals: ["Assess loyalty of potential leaders", "Secure a massive pay bonus"], long_term_ambitions: ["Ensure their position as kingmakers"],
         current_state_narrative: "The elite guard grows restless. With Maximinus Thrax and his legions in their camp, their loyalty to the Emperor is weaker than ever. They sense an opportunity for immense profit and power.",
         relationships: {
             "severus_alexander": { entity_id: "severus_alexander", relationship_type: "protector/antagonist", trust_level: -2, respect_level: 2, perceived_threat: 3, ideological_alignment: 2, dependency_level: 8, recent_interactions: [] },
@@ -94,6 +112,10 @@ export const ROME_INITIAL_STATE: Entity[] = [
     },
     {
         entity_id: "roman_senate", name: "Roman Senate", entity_type: "group", status: "alive", location: "The Curia", faction_id: "senatorial_party",
+        // Group voice (4C.5). Epithet: patres conscripti, the Senate's
+        // historical form of address.
+        voice: "droning collective oratory; the ancestors recited to mask present fear",
+        epithet: "the Conscript Fathers",
         short_term_goals: ["Preserve traditional power", "Denounce Maximinus Thrax"], long_term_ambitions: ["Restore the power and prestige of the Senate"],
         current_state_narrative: "A body of old, proud men who feel their influence waning. They are terrified by the military presence in the city and desperately seek a way to reassert their authority.",
         relationships: {
@@ -105,6 +127,9 @@ export const ROME_INITIAL_STATE: Entity[] = [
     },
     {
         entity_id: "julia_mamaea", name: "Julia Mamaea", entity_type: "individual", status: "alive", position: "Regent", location: "Palatine Hill",
+        // 4C.5: from her historical title mater castrorum (mother of the camp).
+        voice: "soft courtly diction with iron beneath; questions that are commands",
+        epithet: "Mother of the Camp",
         personality: { ambition: 8, paranoia: 7, loyalty: 9, cunning: 8, honor: 4 },
         beliefs: ["My son is the rightful emperor", "Power is maintained through careful manipulation, not brute force", "No one can be trusted except family"],
         secrets: ["Has a private treasury unknown to the state", "Is actively seeking a diplomatic solution with the Germans, against the army's wishes"],
@@ -128,6 +153,8 @@ export const ROME_INITIAL_STATE: Entity[] = [
     },
     {
         entity_id: "gaius_pontius_magnus", name: "Gaius Pontius Magnus", entity_type: "individual", status: "alive", position: "Senior Senator", location: "The Curia", faction_id: "senatorial_party",
+        voice: "rolling Ciceronian periods; contempt dressed as courtesy",
+        epithet: "the Voice of the Curia",
         personality: { ambition: 7, paranoia: 5, loyalty: 6, cunning: 7, honor: 7 },
         beliefs: ["The Senate is the only legitimate source of power", "Tradition and law must be upheld at all costs", "The 'new men' of the army are a cancer on the state"],
         secrets: ["Has bribed other senators for their loyalty", "Secretly despises the Emperor as a weak puppet"],
@@ -157,6 +184,9 @@ export const ROME_INITIAL_STATE: Entity[] = [
     },
     {
         entity_id: "lycinia_stolo", name: "Lycinia Stolo", entity_type: "individual", status: "alive", position: "Informant Broker", location: "The Suburra",
+        // 4C.5: epithet echoes her scheme, "The Vulture's Feast".
+        voice: "low, quick trader's whisper; every fact weighed, priced, sold twice",
+        epithet: "the Vulture of the Suburra",
         personality: { ambition: 6, paranoia: 8, loyalty: 2, cunning: 9, honor: 1 },
         beliefs: ["Information is the only true currency", "Loyalty is for fools; survival is everything", "Chaos is a ladder"],
         secrets: ["Knows the identity of a traitor in the Senate", "Has blackmail material on a Praetorian officer"],
