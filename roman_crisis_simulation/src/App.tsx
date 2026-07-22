@@ -12,6 +12,7 @@ import GameMasterScreen from './components/GameMasterScreen';
 import EventModal from './components/EventModal';
 import EpilogueScreen from './components/EpilogueScreen';
 import OnboardingOverlay from './components/OnboardingOverlay';
+import SettingsMenu from './components/SettingsMenu';
 import { deriveStarterActions } from './components/starterActions';
 import { ALL_INITIAL_ENTITIES } from './constants/baseScenario';
 import { runNewTurn, TurnStage } from './ai/core/turn';
@@ -27,6 +28,11 @@ import { AiServiceError, resetSessionCallLog } from './ai/core/geminiService';
 import { saveGame, loadGame, clearSave, hasSave, updateSavedAmbition, SaveGameState, InferredAmbitionState } from './persistence/saveGame';
 import { hasSeenOnboarding, markOnboardingSeen } from './persistence/onboarding';
 import { getPacingPosture, setPacingPosture } from './persistence/settings';
+import { getApiKey, setApiKey, clearApiKey, resolveApiKey } from './persistence/apiKey';
+import {
+    getGmConsoleEnabled, setGmConsoleEnabled,
+    getGmInterventionEnabled, setGmInterventionEnabled,
+} from './persistence/uiPrefs';
 import { buildPerceivedDigest, TabId } from './perception/visibility';
 import { computeTurnKnowledge, computeInvestigationKnowledge } from './knowledge/commit';
 import { appendFallout, buildInterventionTextWithFallout, hasFallout } from './components/investigationLoop';
@@ -55,6 +61,24 @@ const FATES_OPTIONS: { posture: PacingPosture; label: string; title: string }[] 
     { posture: 'balanced', label: 'MEASURED', title: 'Measured Fates — fortune turns when the story calls for it' },
     { posture: 'dramatic', label: 'EAGER', title: 'Eager Fates — the threads pull taut sooner' },
 ];
+
+/**
+ * DESIGN_DECISIONS.md D34 - the owner's local-dev convenience: read
+ * `GEMINI_API_KEY` from `.env` exactly the way vite.config.ts's now
+ * dev-server-only `define` block injects it, so the owner never has to
+ * touch the configuration menu on their own machine. `import.meta.env.DEV`
+ * is a build-time-known boolean literal ('DEV' is Vite's own static
+ * constant, not this app's custom define) - a production build inlines it
+ * to `false`, so this whole branch is unreachable at runtime and gets
+ * dropped by the bundler, meaning `process` (which doesn't exist as a
+ * browser global) is never referenced by shipped code. `typeof process`
+ * is a second, purely defensive guard against the same failure mode were
+ * that branch ever to survive into a build.
+ */
+function readDevApiKey(): string | undefined {
+    if (!import.meta.env.DEV) return undefined;
+    return typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : undefined;
+}
 
 const App: React.FC = () => {
     // Every game-domain slice lives in the reducer behind GameContext
@@ -98,6 +122,31 @@ const App: React.FC = () => {
     // (see the effect below) and, in dev builds, a small Header checkbox both
     // flip it. Deliberately not persisted - every fresh session starts hidden.
     const [isGmConsoleEnabled, setIsGmConsoleEnabled] = useState(false);
+    // DESIGN_DECISIONS.md D33 - whether the GM console is available AT ALL,
+    // a device preference (persistence/uiPrefs.ts) distinct from
+    // `isGmConsoleEnabled` above (whether it's currently toggled ON for
+    // this session). Defaults true ("available"), so out of the box
+    // nothing about the Ctrl+Shift+G/dev-checkbox behavior above changes.
+    // When false, the effect below turns the hotkey into a no-op and this
+    // also forces `isGmConsoleEnabled` off (see handleSetGmConsoleAvailable).
+    const [gmConsoleAvailable, setGmConsoleAvailableState] = useState<boolean>(() => getGmConsoleEnabled());
+    const handleSetGmConsoleAvailable = useCallback((enabled: boolean) => {
+        setGmConsoleAvailableState(enabled);
+        setGmConsoleEnabled(enabled);
+        if (!enabled) setIsGmConsoleEnabled(false);
+    }, []);
+    // DESIGN_DECISIONS.md D32 - whether GM Intervention's free-text input is
+    // available at all (persistence/uiPrefs.ts), same device-preference
+    // mold as above. Defaults true; passed straight through to
+    // GameMasterScreen, which does the actual UI gating.
+    const [gmInterventionAvailable, setGmInterventionAvailableState] = useState<boolean>(() => getGmInterventionEnabled());
+    const handleSetGmInterventionAvailable = useCallback((enabled: boolean) => {
+        setGmInterventionAvailableState(enabled);
+        setGmInterventionEnabled(enabled);
+    }, []);
+    // D31 - the configuration menu's own open/closed flag. Purely transient
+    // UI state, never part of the save bundle.
+    const [isSettingsMenuOpen, setIsSettingsMenuOpen] = useState(false);
     const [isMockMode, setIsMockMode] = useState(false);
     // Set when a turn commits with the player still alive; an effect below
     // then runs the authored-event trigger check against the freshly
@@ -168,13 +217,37 @@ const App: React.FC = () => {
     const [showOnboarding, setShowOnboarding] = useState(false);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    // DESIGN_DECISIONS.md D34 - bring-your-own-key. The player's own key
+    // (persistence/apiKey.ts, entered via SettingsMenu) takes priority over
+    // the dev-mode `.env` convenience (readDevApiKey, above); resolveApiKey
+    // returns null when neither is set. Mirrors localStorage in local state
+    // exactly like `pacingPosture` above, so saving/clearing a key in the
+    // menu re-renders with the fresh value.
+    const [userApiKey, setUserApiKeyState] = useState<string | null>(() => getApiKey());
+    const resolvedApiKey = useMemo(() => resolveApiKey(userApiKey, readDevApiKey()), [userApiKey]);
+    const handleSaveApiKey = useCallback((key: string) => {
+        setApiKey(key);
+        setUserApiKeyState(key);
+    }, []);
+    const handleClearApiKey = useCallback(() => {
+        clearApiKey();
+        setUserApiKeyState(null);
+    }, []);
     // A real key is required only for REAL turns. The SDK constructor throws
     // in a browser when the key is unset, which would crash the app before
     // character select even in Mock Mode (which exists precisely to run
     // keyless). Fall back to a sentinel so the app always boots; Mock Mode
-    // never calls the API, and a real turn with the sentinel fails at call
-    // time with an auth error - the correct signal to set a key.
-    const aiRef = useRef(new GoogleGenAI({apiKey: process.env.API_KEY || 'NO_API_KEY_SET'}));
+    // never calls the API, and executeTurn below short-circuits a real turn
+    // with no key at all before ever reaching the network (see its
+    // resolvedApiKey guard) rather than letting the sentinel hit an auth
+    // error. Rebuilt (not a stable ref) whenever the resolved key changes,
+    // so saving a new key in the configuration menu takes effect on the
+    // very next AI call - an in-flight turn already holds the OLD client in
+    // its own closure and simply finishes on it, which is fine.
+    const ai = useMemo(
+        () => new GoogleGenAI({ apiKey: resolvedApiKey || 'NO_API_KEY_SET' }),
+        [resolvedApiKey]
+    );
     // Snapshot of the committed game state taken right before a turn's AI
     // calls kick off, so a mid-turn failure can be rolled back to explicitly
     // rather than relying on "we just never committed" (P0.2/P0.4 - a
@@ -339,17 +412,19 @@ const App: React.FC = () => {
     // availability (separate from whether the screen is currently open -
     // see isGmScreenVisible). Works in every build, not just dev, since the
     // console itself is meant to stay reachable for tuning, just hidden by
-    // default.
+    // default. D33 - a no-op entirely when `gmConsoleAvailable` (the
+    // configuration menu's toggle) is false.
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.ctrlKey && event.shiftKey && (event.key === 'G' || event.key === 'g')) {
                 event.preventDefault();
+                if (!gmConsoleAvailable) return;
                 setIsGmConsoleEnabled(prev => !prev);
             }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, []);
+    }, [gmConsoleAvailable]);
 
     // If the console is toggled off (keyboard or the dev Header checkbox)
     // while the screen happens to be open, close it too - "hidden by
@@ -409,6 +484,23 @@ const App: React.FC = () => {
             return;
         }
 
+        // DESIGN_DECISIONS.md D34 - Mock Mode keeps booting and playing
+        // keyless exactly as before (commit 894f469); a REAL turn with
+        // neither a player key nor a dev key resolved (see `ai` above)
+        // would otherwise hit the network with the 'NO_API_KEY_SET'
+        // sentinel and surface a raw provider auth error. Catching it here
+        // instead - before any AI call - keeps the message small,
+        // player-facing-safe, and pointed at the one thing that fixes it.
+        if (!isMockMode && !resolvedApiKey) {
+            addMessage({
+                sender: 'gm',
+                text: "The Fates need your own voice to speak through the ether — add your Gemini API key in the configuration menu (⚙ Settings, top-left) to take a real turn. Mock Mode remains free to explore without one.",
+            });
+            dispatch({ type: 'GAME_STATE_SET', gameState: GameState.AWAITING_PLAYER_INPUT });
+            setInputValue(playerActionText);
+            return;
+        }
+
         // Snapshot the committed game state as it stands right before this
         // turn's AI calls kick off. State is only ever committed at the very
         // end of the try block below (after every AI call has succeeded), so
@@ -430,7 +522,7 @@ const App: React.FC = () => {
 
         try {
             const result = await runNewTurn(
-                aiRef.current,
+                ai,
                 playerActionText,
                 playerEntity,
                 turnNumber,
@@ -583,7 +675,7 @@ const App: React.FC = () => {
                 const recentIntents = newTurnHistory.map(h => h.playerIntent).slice(-6);
                 const recentHeadlines = newTurnHistory.slice(-3).flatMap(h => h.adjudication.headlines);
                 const ambitionTurnNumber = turnNumber;
-                inferAmbition(aiRef.current, updatedPlayerEntity, recentIntents, recentHeadlines, isMockMode)
+                inferAmbition(ai, updatedPlayerEntity, recentIntents, recentHeadlines, isMockMode)
                     .then(inference => {
                         const nextAmbition: InferredAmbitionState = { ...inference, asOfTurn: ambitionTurnNumber };
                         dispatch({ type: 'AMBITION_INFERRED', inferredAmbition: nextAmbition });
@@ -651,7 +743,7 @@ const App: React.FC = () => {
             // Restore the player's action so they can retry without retyping it.
             setInputValue(playerActionText);
         }
-    }, [state, addMessage, isMockMode, buildSaveState, dispatch]);
+    }, [state, addMessage, isMockMode, buildSaveState, dispatch, ai, resolvedApiKey]);
 
     const handleSendMessage = () => {
         const text = inputValue.trim();
@@ -730,7 +822,7 @@ const App: React.FC = () => {
         resetSessionCallLog();
         if (useCustomGamestate && newMetaNarrative) {
             // New world generation logic
-            const { worldState: newWorldState, entities: newEntities, playerCharacterId: newPlayerId } = await initiateWorld(aiRef.current, newMetaNarrative, description, isMockMode);
+            const { worldState: newWorldState, entities: newEntities, playerCharacterId: newPlayerId } = await initiateWorld(ai, newMetaNarrative, description, isMockMode);
             const playerChar = newEntities.find(e => e.entity_id === newPlayerId);
             if (playerChar) {
                 startGameWithCharacter(playerChar, newEntities, newWorldState, newMetaNarrative);
@@ -739,7 +831,7 @@ const App: React.FC = () => {
             }
         } else {
             // Existing custom character in default world
-            const newCharacter = await createCharacter(aiRef.current, description, isMockMode);
+            const newCharacter = await createCharacter(ai, description, isMockMode);
             const finalEntities = ALL_INITIAL_ENTITIES.find(e => e.entity_id === newCharacter.entity_id) 
                 ? ALL_INITIAL_ENTITIES.map(e => e.entity_id === newCharacter.entity_id ? newCharacter : e)
                 : [...ALL_INITIAL_ENTITIES, newCharacter];
@@ -915,7 +1007,8 @@ const App: React.FC = () => {
                 isMockMode={isMockMode}
                 setIsMockMode={setIsMockMode}
                 isGmConsoleEnabled={isGmConsoleEnabled}
-                setIsGmConsoleEnabled={setIsGmConsoleEnabled}
+                setIsGmConsoleEnabled={(enabled) => { if (gmConsoleAvailable) setIsGmConsoleEnabled(enabled); }}
+                onOpenSettings={() => setIsSettingsMenuOpen(true)}
             />
             {gameState !== GameState.GAME_OVER && <CrisisBanner crisis={simulationState.major_ongoing_crisis} />}
             {/*
@@ -948,7 +1041,7 @@ const App: React.FC = () => {
                         eventHistory={eventHistory}
                         metaNarrative={metaNarrative}
                         inferredAmbition={inferredAmbition}
-                        ai={aiRef.current}
+                        ai={ai}
                         isMockMode={isMockMode}
                     />
                 ) : (
@@ -1030,7 +1123,7 @@ const App: React.FC = () => {
                             turnNumber={turnNumber}
                             onSpendDeepAnalysis={(cost) => handleSpendResource('deep_analyses', cost)}
                             onInvestigationOutcome={handleInvestigationOutcome}
-                            ai={aiRef.current}
+                            ai={ai}
                             isMockMode={isMockMode}
                             eventHistory={eventHistory}
                             pulsingTabs={pulsingTabs}
@@ -1067,10 +1160,25 @@ const App: React.FC = () => {
                 reports={reports}
                 knowledge={knowledge}
                 npcIntents={npcIntents}
+                gmInterventionEnabled={gmInterventionAvailable}
             />}
             {activeEvent && <EventModal event={activeEvent} onChoose={handleEventChoice} />}
             {showOnboarding && gameState === GameState.AWAITING_PLAYER_INPUT && (
                 <OnboardingOverlay isOpen={showOnboarding} onClose={handleCloseOnboarding} />
+            )}
+            {isSettingsMenuOpen && (
+                <SettingsMenu
+                    onClose={() => setIsSettingsMenuOpen(false)}
+                    apiKey={userApiKey}
+                    onSaveApiKey={handleSaveApiKey}
+                    onClearApiKey={handleClearApiKey}
+                    pacingPosture={pacingPosture}
+                    onSetPacingPosture={handleSetPacingPosture}
+                    gmConsoleEnabled={gmConsoleAvailable}
+                    onSetGmConsoleEnabled={handleSetGmConsoleAvailable}
+                    gmInterventionEnabled={gmInterventionAvailable}
+                    onSetGmInterventionEnabled={handleSetGmInterventionAvailable}
+                />
             )}
         </div>
     );

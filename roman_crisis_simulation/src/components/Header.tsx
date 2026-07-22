@@ -36,9 +36,18 @@ const Header: React.FC<{
      */
     isGmConsoleEnabled: boolean,
     setIsGmConsoleEnabled: (enabled: boolean) => void,
-}> = ({ worldState, isMockMode, setIsMockMode, isGmConsoleEnabled, setIsGmConsoleEnabled }) => (
+    /** D31 - opens the configuration menu (components/SettingsMenu.tsx). Always visible, unlike the dev-only switches to its right. */
+    onOpenSettings: () => void,
+}> = ({ worldState, isMockMode, setIsMockMode, isGmConsoleEnabled, setIsGmConsoleEnabled, onOpenSettings }) => (
     <header style={{ position: 'relative', textAlign: 'center', padding: '14px 24px 13px', borderBottom: '1px solid #38122A', background: 'var(--dentil) left bottom/100% 4px no-repeat, linear-gradient(180deg,#7E3A5E,#5E2246 55%,#43172F)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,.15), 0 2px 6px rgba(74,56,20,.35)', flex: 'none' }}>
         <span aria-hidden="true" style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 3, background: 'linear-gradient(180deg,#E8C959,#A5831D)' }}></span>
+        <button
+            type="button"
+            onClick={onOpenSettings}
+            aria-label="Open configuration menu"
+            title="Configuration — API key, pacing, GM console"
+            style={{ position: 'absolute', top: 12, left: 14, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'rgba(0,0,0,.28)', border: '1px solid rgba(232,201,89,.3)', borderRadius: 'var(--radius-sm)', color: '#D8B98A', fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 11, letterSpacing: '.12em', textTransform: 'uppercase', cursor: 'pointer' }}
+        >⚙ Settings</button>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 26 }}>
             <Medallion size={68} />
             <div>
