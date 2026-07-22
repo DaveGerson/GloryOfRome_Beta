@@ -298,3 +298,52 @@ applied as that entity's own scheme, not merely a hint the adjudicator
 may discard. The adjudicator still owns the *outcomes* of actions in the
 shared world; the character's interior plan belongs to its mind.
 *Revises:* the earlier hint-only wiring of the mind's `scheme_adjustment`.
+
+---
+
+Rulings D31–D34 are the Phase 5 round (July 2026): ship-gate decisions for
+a public build, answering the Phase 5 grill (GM-intervention gating, GM
+console exposure, and the public key/cost model). D31 amends the Phase 4
+out-of-scope list (a settings surface is now sanctioned); D33 refines D7;
+D34 supersedes the master plan's Phase 5.1 API-key proxy.
+
+## D31 — A configuration menu is sanctioned
+The game gets a user-facing configuration menu. This supersedes the Phase 4
+"full settings surface stays out of scope" exclusion (G14). Initial
+contents: the D23 pacing posture (already stored device-side in
+`persistence/settings.ts`, until now with no UI surfacing it), the GM
+intervention toggle (D32), the GM console availability toggle (D33), and
+the player's own Gemini API key (D34). Configuration values are
+device/browser preferences in the `persistence/settings.ts` /
+`persistence/onboarding.ts` mold — never campaign state, never part of the
+save blob.
+
+## D32 — GM Intervention stays free, with a configuration toggle
+GM Intervention (free-text reality editing) is NOT gated behind a cost —
+there is no "Fortuna's Favor" economy for now. It remains free and open,
+with a configuration-menu toggle controlling whether it is available
+(default: available, preserving current behavior). A costed miracle
+mechanic remains open future design — parked in the backlog, not rejected.
+*Answers:* the master plan's Phase 5.5 ship decision.
+
+## D33 — GM console availability is a configuration option
+The GM console (Ctrl+Shift+G) stays, and whether it is available becomes an
+option in the configuration menu (default: available and hidden until
+toggled — current behavior). When disabled, the hotkey and the GM LOG
+affordance do nothing.
+*Refines:* D7 — still never env-gated away; availability is now a
+user-visible preference rather than only a hotkey.
+
+## D34 — Bring-your-own-key is the default interaction path
+The game is primarily built for the owner's personal use, and the default,
+preferred way to run it is with the player's OWN Gemini API key, entered in
+the configuration menu and stored device-side (localStorage) — never
+bundled into the build, never written to the save blob, never included in
+any export or captured call record. This supersedes the Phase 5.1
+serverless API-key proxy: there is no server component; the deploy
+blocker/billing leak is closed by removing the build-time key injection
+from production builds entirely (a dev-mode-only convenience may keep
+reading `GEMINI_API_KEY` from `.env` for local development). No public
+turn quota is needed — each player pays their own way. An owner-funded
+hosted mode (proxy + quota policy + in-fiction limit framing) is parked in
+the backlog.

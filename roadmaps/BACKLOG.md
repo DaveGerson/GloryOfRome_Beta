@@ -119,6 +119,27 @@ self-numbers, or fold them into sourced/interpretive framing (the D13/D25
 no-bare-numbers spirit). Not a bug — a consistency call. Surfaced by the
 close-out UI pass.
 
+### B9 — Owner-funded hosted mode (key proxy + quota policy)
+Superseded-for-now by D34 (bring-your-own-key is the default path; no server
+component). If the game ever ships with the owner's key footing the bill for
+visitors: a serverless pass-through proxy holding `GEMINI_API_KEY` (strict
+model-endpoint allowlist, SSE passthrough for streaming), plus the quota
+policy design that was deliberately not ruled on in the Phase 5 grill —
+per-session/IP turn caps, in-fiction limit framing ("The Fates rest —
+return at dawn"), and whether public turns stay pro-tier (D16's
+slower-and-better instinct says yes; cap turns instead of downgrading).
+
+### B10 — "Fortuna's Favor" — costed GM intervention as a player mechanic
+Parked by D32 (intervention stays free, toggleable). If it ever becomes a
+player-facing miracle system, the open design from the Phase 5 grill: cost
+source (denarii via temple rites rides D6 and the T1 anti-minting friction;
+an earned "Pietas" resource risks quest-log smell under D8; free-but-visible
+makes every use spawn omens in the rumor graph that NPCs react to — a
+denarii + omens hybrid was the leading candidate); scope bounds (probability
+nudges compose with `resolution.ts` seeded rolls per invariant 11; raw fact
+edits need fiat-truth handling in the D11 ledger to avoid breaking D26's
+honest window); and who "witnessed" a miracle, for the perception layer.
+
 ---
 
 ## Veto queue (authored content awaiting owner review)
