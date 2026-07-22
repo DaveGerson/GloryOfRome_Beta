@@ -110,6 +110,28 @@ const INVESTIGATION_TIER_GUIDANCE: Record<ActionResolutionTier, string> = {
 };
 
 /**
+ * How firmly the player's OWN agent stands behind what the investigation
+ * turned up, keyed off the already-rolled resolution tier. This is the
+ * verification-framing half of DESIGN_DECISIONS.md D26: an investigation
+ * result is never a system-authoritative "confirmed" - it is the agent's
+ * SOURCED confidence, which the player may choose to distrust. A low tier
+ * yields intel the agent could barely stand up; a high tier, intel the agent
+ * vouches for. Ordered by confidence (a low tier is never framed as more
+ * certain than a high one) and carries no number. Exported for lockstep
+ * testing against the builder below.
+ */
+export function agentConfidenceFraming(tier: ActionResolutionTier): string {
+  const framing: Record<ActionResolutionTier, string> = {
+    critical_failure: 'your agent came away with next to nothing and cannot vouch for a word of it',
+    failure: 'your agent is doubtful and could stand up little of what they gleaned',
+    partial_success: 'your agent is fairly sure of the gist but will not swear to every particular',
+    success: 'your agent is confident in what they gathered',
+    critical_success: 'your agent is certain of this, and turned up more than you asked',
+  };
+  return framing[tier];
+}
+
+/**
  * PURPOSE: Generate the results of an investigation into a target's
  * secrets/beliefs/scheme, including a narrative report and possible
  * negative consequences, CONSISTENT with an already-rolled resolution tier.
@@ -128,7 +150,7 @@ export function buildInvestigationPrompt(
 
     **Task:** Generate a JSON object with the results.
     1.  **reportData:** Based on the target's profile, generate a plausible list of ${subject} (or a full Scheme object if the subject is 'scheme'). This is the raw data.
-    2.  **report:** Write a brief, narrative report for your master summarizing what you found, consistent with the outcome below.
+    2.  **report:** Write a brief, narrative report for your master summarizing what you found, consistent with the outcome below. Frame every finding as YOUR AGENT'S OWN read that the master may choose to distrust - ${agentConfidenceFraming(tier)}. Never present a finding as a confirmed, settled fact: it is your agent's sourced judgment, its reliability set by how well they fared, not a certainty the report itself guarantees.
     3.  **consequences:** The investigation's outcome has ALREADY been mechanically decided by a hidden roll (you do not decide it, only write consistent report content) as: ${tier.toUpperCase()}. ${INVESTIGATION_TIER_GUIDANCE[tier]}
 
     **CRITICAL JSON FORMATTING RULES:**
