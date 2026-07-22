@@ -51,7 +51,9 @@ describe('knowledge/commit computeTurnKnowledge', () => {
     expect(store).toHaveLength(2);
     expect(store.map(c => c.claimKey).sort()).toEqual([
       'digest:resource:severus_alexander:denarii',
-      'report:maximinus_thrax:rumor',
+      // D29 report key now carries the topic; an un-topiced fixture Report
+      // defaults to 'general'.
+      'report:maximinus_thrax:general:rumor',
     ]);
   });
 

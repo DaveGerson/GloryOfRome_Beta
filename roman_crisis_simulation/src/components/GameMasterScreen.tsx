@@ -417,38 +417,61 @@ const TruthLedgerView: React.FC<{ ledger: TruthLedgerEntry[]; reports: Report[] 
  * construction carries no truth flags/origins). Campaign-wide like the
  * truth ledger, newest-updated last in store order, rendered newest first.
  */
-const PlayerKnowledgeView: React.FC<{ knowledge: KnowledgeClaim[] }> = ({ knowledge }) => (
-    <>
-        {knowledge.length === 0 ? (
-            <p style={{ color: DIM, margin: 0 }}>The player holds no recorded knowledge claims yet.</p>
-        ) : (
-            knowledge.slice().reverse().map(claim => (
-                <div key={claim.id} style={well}>
-                    <div style={{ display: 'flex', gap: 14, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                        <span style={{ ...lbl, color: GOLD }}>First learned turn {toRoman(claim.firstLearnedTurn)}</span>
-                        <span style={{ fontFamily: MONO, fontSize: 12, color: DIM }}>subject: {claim.subject}</span>
-                        <span style={{ fontFamily: MONO, fontSize: 12, color: DIM }}>key: {claim.claimKey}</span>
+const PlayerKnowledgeView: React.FC<{ knowledge: KnowledgeClaim[] }> = ({ knowledge }) => {
+    // D29 - resolve an edge's target claim id to a readable subject/topic
+    // label so the graph is legible in the console (falls back to the raw id
+    // if the target was evicted, though edges are pruned on eviction).
+    const labelFor = (id: string): string => {
+        const target = knowledge.find(c => c.id === id);
+        return target ? `${target.subject}${target.topic ? ` · ${target.topic}` : ''}` : id;
+    };
+    return (
+        <>
+            {knowledge.length === 0 ? (
+                <p style={{ color: DIM, margin: 0 }}>The player holds no recorded knowledge claims yet.</p>
+            ) : (
+                knowledge.slice().reverse().map(claim => (
+                    <div key={claim.id} style={well}>
+                        <div style={{ display: 'flex', gap: 14, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                            <span style={{ ...lbl, color: GOLD }}>First learned turn {toRoman(claim.firstLearnedTurn)}</span>
+                            <span style={{ fontFamily: MONO, fontSize: 12, color: DIM }}>subject: {claim.subject}</span>
+                            {claim.topic && <span style={{ fontFamily: MONO, fontSize: 12, color: DIM }}>topic: {claim.topic}</span>}
+                            <span style={{ fontFamily: MONO, fontSize: 12, color: DIM }}>key: {claim.claimKey}</span>
+                        </div>
+                        <div style={{ fontSize: 14, fontStyle: 'italic', color: PARCH, marginTop: 4 }}>“{claim.claim}”</div>
+                        <div style={{ fontSize: 12, marginTop: 6, borderTop: '1px solid rgba(201,162,39,.15)', paddingTop: 6 }}>
+                            <span style={lbl}>Updates ({claim.updates.length})</span>
+                            <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                                {claim.updates.slice().reverse().map((update, index) => (
+                                    <li key={index} style={{ color: DIM, marginTop: 2 }}>
+                                        <span style={{ fontFamily: MONO, color: GREEN }}>T{update.turn} · {update.source}</span>
+                                        {typeof update.credibility === 'number' && (
+                                            <span style={{ fontFamily: MONO }}> · {(update.credibility * 100).toFixed(0)}% credible</span>
+                                        )}
+                                        {' '}<span style={{ fontStyle: 'italic', color: PARCH }}>“{update.text}”</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                        {claim.edges && claim.edges.length > 0 && (
+                            <div style={{ fontSize: 12, marginTop: 6, borderTop: '1px solid rgba(201,162,39,.15)', paddingTop: 6 }}>
+                                <span style={lbl}>Links ({claim.edges.length})</span>
+                                <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                                    {claim.edges.map((edge, index) => (
+                                        <li key={index} style={{ color: DIM, marginTop: 2 }}>
+                                            <span style={{ fontFamily: MONO, color: GOLD }}>{edge.type}</span>
+                                            {' → '}<span style={{ color: PARCH }}>{labelFor(edge.to)}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
                     </div>
-                    <div style={{ fontSize: 14, fontStyle: 'italic', color: PARCH, marginTop: 4 }}>“{claim.claim}”</div>
-                    <div style={{ fontSize: 12, marginTop: 6, borderTop: '1px solid rgba(201,162,39,.15)', paddingTop: 6 }}>
-                        <span style={lbl}>Updates ({claim.updates.length})</span>
-                        <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
-                            {claim.updates.slice().reverse().map((update, index) => (
-                                <li key={index} style={{ color: DIM, marginTop: 2 }}>
-                                    <span style={{ fontFamily: MONO, color: GREEN }}>T{update.turn} · {update.source}</span>
-                                    {typeof update.credibility === 'number' && (
-                                        <span style={{ fontFamily: MONO }}> · {(update.credibility * 100).toFixed(0)}% credible</span>
-                                    )}
-                                    {' '}<span style={{ fontStyle: 'italic', color: PARCH }}>“{update.text}”</span>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-                </div>
-            ))
-        )}
-    </>
-);
+                ))
+            )}
+        </>
+    );
+};
 
 const GameMasterScreen: React.FC<{
     history: TurnHistoryEntry[];

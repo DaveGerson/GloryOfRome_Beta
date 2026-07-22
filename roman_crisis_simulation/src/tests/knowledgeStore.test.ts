@@ -13,9 +13,11 @@ import {
   KnowledgeClaim,
   MAX_KNOWLEDGE_CLAIMS,
   MAX_UPDATES_PER_CLAIM,
+  MAX_EDGES_PER_CLAIM,
   ingestPerceivedChanges,
   ingestReports,
   ingestInvestigationReveal,
+  normalizeTopic,
 } from '../knowledge/store';
 import type { PerceivedChange } from '../perception/visibility';
 import type { Report } from '../types';
@@ -115,7 +117,7 @@ describe('knowledge/store', () => {
       const claim = store[0];
       expect(claim.subject).toBe('maximinus_thrax');
       expect(claim.claim).toBe('Thrax courts the Rhine legions');
-      expect(claim.claimKey).toBe('report:maximinus_thrax:rumor');
+      expect(claim.claimKey).toBe('report:maximinus_thrax:general:rumor');
       expect(claim.firstLearnedTurn).toBe(2);
       expect(claim.updates).toEqual([
         { turn: 2, source: 'rumor', text: 'Thrax courts the Rhine legions', credibility: 0.6 },
@@ -269,6 +271,98 @@ describe('knowledge/store', () => {
       // The origin stays frozen even after its update object rolled off.
       expect(claim.claim).toBe('restatement 1');
       expect(claim.firstLearnedTurn).toBe(1);
+    });
+  });
+
+  describe('topic keying + graph edges (D29)', () => {
+    it('opens TWO claims for two DIFFERENT topics about the same subject (the over-merge is fixed)', () => {
+      const first = ingestReports([], [makeReport({ topic: 'health', claim: 'Thrax is gravely ill' })]);
+      const second = ingestReports(first, [
+        makeReport({ id: 'report_3_1', turn: 3, topic: 'succession-plot', claim: 'Thrax courts the succession' }),
+      ]);
+
+      expect(second).toHaveLength(2);
+      expect(second.map(c => c.claimKey)).toEqual([
+        'report:maximinus_thrax:health:rumor',
+        'report:maximinus_thrax:succession-plot:rumor',
+      ]);
+      // The newer claim links back to the older as 'about' the same subject.
+      expect(second[1].edges).toEqual([{ to: second[0].id, type: 'about' }]);
+      // The first-opened claim has no priors, so no outgoing edges.
+      expect(second[0].edges).toBeUndefined();
+    });
+
+    it('continues ONE timeline when the same subject+topic is restated', () => {
+      const first = ingestReports([], [makeReport({ topic: 'health', claim: 'Thrax is gravely ill' })]);
+      const second = ingestReports(first, [
+        makeReport({ id: 'report_4_1', turn: 4, topic: 'health', claim: 'The fever worsens' }),
+      ]);
+
+      expect(second).toHaveLength(1);
+      expect(second[0].topic).toBe('health');
+      expect(second[0].updates.map(u => u.turn)).toEqual([2, 4]);
+      expect(second[0].claim).toBe('Thrax is gravely ill'); // frozen origin
+    });
+
+    it("records a 'corroborates' edge between two DIFFERENT sources on the same subject+topic", () => {
+      const first = ingestReports([], [makeReport({ topic: 'health' })]); // source 'rumor'
+      const second = ingestReports(first, [
+        makeReport({ id: 'report_3_1', turn: 3, source: 'scout', topic: 'health' }),
+      ]);
+
+      expect(second).toHaveLength(2);
+      expect(second[1].edges).toEqual([{ to: second[0].id, type: 'corroborates' }]);
+    });
+
+    it("forks a distinct node and records a 'contradicts' edge for an explicitly contradicting update, leaving the original timeline untouched", () => {
+      const first = ingestReports([], [makeReport({ topic: 'health', claim: 'Thrax is gravely ill' })]);
+      const second = ingestReports(first, [
+        makeReport({
+          id: 'report_5_1', turn: 5, topic: 'health', stance: 'contradicts',
+          claim: 'Thrax was seen drilling the legions, hale and whole',
+        }),
+      ]);
+
+      expect(second).toHaveLength(2);
+      const original = second[0];
+      const fork = second[1];
+      // The disputed claim's timeline is NOT appended to - the refutation is
+      // its own node, not swallowed into what it disputes.
+      expect(original.updates).toHaveLength(1);
+      expect(fork.claimKey).toBe('report:maximinus_thrax:health:rumor#c0');
+      expect(fork.edges).toEqual([{ to: original.id, type: 'contradicts' }]);
+    });
+
+    it("records a 'derives-from' edge from a bought investigation reveal to a prior rumor about the same subject", () => {
+      const afterRumor = ingestReports([], [makeReport({ topic: 'health' })]);
+      const withReveal = ingestInvestigationReveal(afterRumor, {
+        targetId: 'maximinus_thrax', kind: 'secrets', text: 'He hides a pact with the Rhine legions.', turn: 7,
+      });
+
+      expect(withReveal).toHaveLength(2);
+      expect(withReveal[1].edges).toEqual([{ to: afterRumor[0].id, type: 'derives-from' }]);
+    });
+
+    it(`bounds a claim's outgoing edges at MAX_EDGES_PER_CLAIM (${MAX_EDGES_PER_CLAIM})`, () => {
+      let store: KnowledgeClaim[] = [];
+      for (let i = 0; i < MAX_EDGES_PER_CLAIM + 2; i++) {
+        store = ingestReports(store, [makeReport({ id: `report_${i}`, turn: i + 1, topic: `topic-${i}` })]);
+      }
+      // One more claim about the SAME subject: it would link to every prior,
+      // but only the newest MAX_EDGES_PER_CLAIM survive.
+      store = ingestReports(store, [makeReport({ id: 'report_final', turn: 100, topic: 'final-topic' })]);
+
+      const finalClaim = store[store.length - 1];
+      expect(finalClaim.edges).toHaveLength(MAX_EDGES_PER_CLAIM);
+    });
+  });
+
+  describe('normalizeTopic (pure helper, D29)', () => {
+    it('slugifies to a stable lowercase-hyphenated form and defaults empty/missing input to general', () => {
+      expect(normalizeTopic('Succession Plot!')).toBe('succession-plot');
+      expect(normalizeTopic('  Legion  Loyalty  ')).toBe('legion-loyalty');
+      expect(normalizeTopic('')).toBe('general');
+      expect(normalizeTopic(undefined)).toBe('general');
     });
   });
 

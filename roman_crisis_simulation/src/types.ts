@@ -214,6 +214,17 @@ export const ReportSourceEnum = ['scout', 'spy', 'merchant', 'messenger', 'rumor
 export type ReportSource = typeof ReportSourceEnum[number];
 
 /**
+ * A rumor follow-up's stance toward the claim it continues (D29): whether it
+ * BACKS the running claim or REFUTES it. Structural metadata, not truth data
+ * (a refutation of a true rumor and a corroboration of a false one are both
+ * allowed) - it never states or implies a claim's actual disposition, so it
+ * is player-safe and rides on the Report. Absent = an ordinary emission that
+ * simply continues its subject+topic timeline.
+ */
+export const RumorStanceEnum = ['corroborates', 'contradicts'] as const;
+export type RumorStance = typeof RumorStanceEnum[number];
+
+/**
  * An action chosen for an actor, as determined by the adjudication model.
  */
 export interface EntityAction {
@@ -282,6 +293,22 @@ export interface EventDelta {
      * (no single attributable source). Renders only in GameMasterScreen.
      */
     origin_id?: string;
+    /**
+     * 'rumor' deltas only (D29): a short lowercase slug naming WHAT about the
+     * subject the claim concerns (e.g. 'health', 'tribute', 'succession-plot').
+     * Distinct matters about one subject carry distinct topics so they stay
+     * separate claims (the fix for flat-list over-merging); a follow-up about
+     * the SAME matter reuses the SAME topic. Player-safe categorization, never
+     * truth: unlike is_true/origin_id this may reach player-facing surfaces.
+     */
+    topic?: string;
+    /**
+     * 'rumor' deltas only (D29): a counterplay follow-up's stance toward the
+     * claim it continues - 'corroborates' backs it, 'contradicts' refutes it.
+     * Structural metadata, never a truth ruling; player-safe. Omit on a first
+     * emission or an ordinary restatement.
+     */
+    stance?: RumorStance;
 }
 
 /**
@@ -295,6 +322,15 @@ export interface Report {
     about: string; // entity or region id
     claim: string;
     credibility: number; // 0.0 to 1.0
+    /**
+     * D29 topic slug, present on rumor-sourced reports: the categorization
+     * that keeps distinct matters about one subject on distinct claims in the
+     * knowledge graph. Player-safe (never truth); optional so non-rumor
+     * reports and legacy data need not carry it.
+     */
+    topic?: string;
+    /** D29 counterplay stance carried through from the rumor delta; player-safe structural metadata. */
+    stance?: RumorStance;
 }
 
 /**

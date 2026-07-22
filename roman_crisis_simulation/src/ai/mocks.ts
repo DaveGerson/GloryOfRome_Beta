@@ -63,8 +63,10 @@ const MOCK_ADJUDICATION: Adjudication = {
     { type: 'relation', key: 'severus_alexander:maximinus_thrax', delta: -1, reason: 'Slandered by military propaganda.' },
     // Rumor deltas carry the GM-private truth-ledger fields (D11): the
     // adjudicator rules on every rumor's actual truth and names its origin
-    // when attributable - here, a lie planted by Thrax's propaganda.
-    { type: 'rumor', key: 'severus_alexander', delta: 0.6, reason: 'The Emperor is said to be considering a peaceful tribute to the Germans, angering the legions.', is_true: false, origin_id: 'maximinus_thrax' },
+    // when attributable - here, a lie planted by Thrax's propaganda. The
+    // NON-private 'topic' (D29) keeps this claim distinct from any other
+    // rumor about the Emperor.
+    { type: 'rumor', key: 'severus_alexander', delta: 0.6, reason: 'The Emperor is said to be considering a peaceful tribute to the Germans, angering the legions.', is_true: false, origin_id: 'maximinus_thrax', topic: 'german-tribute' },
     { type: 'relation', key: 'severus_alexander:praetorian_guard', delta: 1, reason: 'Promised a donative.' },
     { type: 'add_region', key: 'Temple of Jupiter', delta: 0, reason: '{"stability":"Stable","controlling_faction":null,"current_events":["Priests conduct rituals to placate the gods amidst the political turmoil."]}' },
     // Demonstrates the structured status-delta contract (MAINT-P0.2): 'reason'
@@ -296,6 +298,9 @@ export const mockRunNewTurn = async (
         reason: 'Word in the taverns holds that Maximinus Thrax has been skimming the legions\' pay for himself.',
         is_true: false,
         origin_id: playerEntity.entity_id,
+        // NON-private D29 topic: the matter this rumor concerns, so it keys as
+        // its own knowledge claim distinct from other talk about Thrax.
+        topic: 'legion-pay',
     };
     const adjudication = {
         ...MOCK_ADJUDICATION,

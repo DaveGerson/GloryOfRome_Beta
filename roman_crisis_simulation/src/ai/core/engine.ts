@@ -294,6 +294,18 @@ export function applyDeltas(
                         claim: delta.reason,
                         credibility: Math.max(0.0, Math.min(1.0, delta.delta))
                     };
+                    // D29 NON-private categorization: `topic` keeps distinct
+                    // matters about one subject on distinct knowledge claims,
+                    // `stance` carries a counterplay follow-up's corroborate/
+                    // contradict relation. Copied field by field (never
+                    // spread) so the GM-private is_true/origin_id on the delta
+                    // can never ride onto the player-facing Report.
+                    if (typeof delta.topic === 'string' && delta.topic.trim().length > 0) {
+                        newReport.topic = delta.topic;
+                    }
+                    if (delta.stance === 'corroborates' || delta.stance === 'contradicts') {
+                        newReport.stance = delta.stance;
+                    }
                     newReports.push(newReport);
 
                     // GM-PRIVATE truth ledger (DESIGN_DECISIONS.md D11): every

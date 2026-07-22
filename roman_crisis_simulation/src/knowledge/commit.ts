@@ -9,6 +9,12 @@
  * Same discipline as knowledge/store.ts: pure (no React, no AI imports),
  * inputs in, next store out, nothing mutated.
  *
+ * D29 keying/edges live entirely in knowledge/store.ts: a Report already
+ * carries its `topic`/`stance`, so the store computes the subject+topic key
+ * and the structural graph edges off the Reports these helpers forward -
+ * this glue needs no change for the graph, only the report-id filtering and
+ * turn-stamp rules below.
+ *
  * TURN-STAMP PROVENANCE: every update committed through these helpers is
  * stamped with the App's AUTHORITATIVE turn counter (`turnNumber`), never a
  * model-authored turn field. A Report's own `turn` descends from the

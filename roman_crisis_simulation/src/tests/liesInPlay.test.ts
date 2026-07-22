@@ -160,7 +160,7 @@ describe('mock mode: the player-planted rumor path is exercisable offline', () =
     const first = await runMockTurn(4);
     let store = ingestReports([], first.updatedReports);
 
-    const plantedClaim = store.find(c => c.claimKey === 'report:maximinus_thrax:rumor');
+    const plantedClaim = store.find(c => c.claimKey === 'report:maximinus_thrax:legion-pay:rumor');
     expect(plantedClaim).toBeDefined();
     expect(plantedClaim!.subject).toBe('maximinus_thrax');
     expect(plantedClaim!.firstLearnedTurn).toBe(4);
@@ -184,7 +184,7 @@ describe('mock mode: the player-planted rumor path is exercisable offline', () =
       turnNumber: 5,
     });
 
-    const continued = store.find(c => c.claimKey === 'report:maximinus_thrax:rumor')!;
+    const continued = store.find(c => c.claimKey === 'report:maximinus_thrax:legion-pay:rumor')!;
     expect(continued.firstLearnedTurn).toBe(4); // frozen at first arrival
     expect(continued.updates).toHaveLength(2);
     expect(continued.updates[1].turn).toBe(5);

@@ -27,6 +27,7 @@ import {
   EntityActionIntentEnum,
   EventDeltaTypeEnum,
   NpcIntentContinuityEnum,
+  RumorStanceEnum,
 } from '../../types';
 
 // --- Entity sub-schemas (types.ts mirror) --------------------------------
@@ -155,6 +156,15 @@ export const zEventDelta = z.object({
   // types.ts's EventDelta for the leak-prevention contract.
   is_true: z.boolean().nullable().optional(),
   origin_id: z.string().nullable().optional(),
+  // 'rumor' deltas only (D29), NOT private: `topic` is the categorization
+  // slug that keeps distinct matters about one subject on distinct claims;
+  // `stance` marks a counterplay follow-up as corroborating or contradicting
+  // the claim it continues. The adjudication prompt demands `topic` on every
+  // rumor; nullable/optional here so non-rumor deltas need not carry them and
+  // an omission fails soft (the knowledge store defaults an absent topic)
+  // rather than failing the turn. See types.ts's EventDelta.
+  topic: z.string().nullable().optional(),
+  stance: z.enum(RumorStanceEnum).nullable().optional(),
 }).passthrough();
 
 export const zEntityAction = z.object({

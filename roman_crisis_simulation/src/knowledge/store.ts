@@ -1,12 +1,15 @@
 /**
- * knowledge/store.ts - the player knowledge store: information as a living
- * entity (roadmaps/ROADMAP_PHASE_4.md 4B item 2; DESIGN_DECISIONS.md D21).
+ * knowledge/store.ts - the player knowledge GRAPH: information as a living
+ * entity (roadmaps/ROADMAP_PHASE_4.md 4B item 2; DESIGN_DECISIONS.md D21,
+ * D29).
  *
- * Each unit here is a CLAIM entity: something the player has come to
+ * Each NODE here is a CLAIM entity: something the player has come to
  * believe, stamped with when it was first learned and accreting time-dated
  * updates as the same information is re-reported or re-acquired (D21 - the
  * player sees a claim's evolution, not just its first arrival; D14 - each
- * update stays frozen at its stamp while the claim keeps living).
+ * update stays frozen at its stamp while the claim keeps living). Claims
+ * carry deterministic EDGES to other claims (D29), turning the flat list
+ * into a graph the later intelligence surfaces can traverse.
  *
  * HARD INVARIANT (D5/D21): this store records what the PLAYER perceives -
  * it must NEVER contain ground truth the player couldn't know. It is built
@@ -14,7 +17,7 @@
  *   (a) the perceived digest (perception/visibility.ts::buildPerceivedDigest
  *       output - already D5-filtered, provenance-tagged);
  *   (b) Reports (types.ts::Report - the player-visible rumor/report channel,
- *       which carries source + credibility and no truth data);
+ *       which carries source + credibility + topic and no truth data);
  *   (c) investigation reveals (the report text the player paid for).
  * Nothing here may ever read the truth ledger, `is_true`/`origin_id` rumor
  * fields, or `secret_truth` - those are GM-private (D11), and the ingestion
@@ -32,29 +35,45 @@
  * fuzzy text matching): every ingested artifact computes a `claimKey`, and
  * a new artifact CONTINUES an existing claim (appends an update) iff its
  * claimKey exactly equals that claim's; otherwise it OPENS a new claim.
- * Keys are channel-prefixed so the three channels can never cross-match:
+ * Keys are channel-prefixed so the three channels can never cross-match, and
+ * carry the artifact's TOPIC so distinct matters about one subject stay on
+ * distinct claims (D29 - the fix for the flat-list over-merge):
  *   - digest:  `digest:{deltaType}:{deltaKey}`  (same kind of change about
  *     the same delta key - e.g. the same relationship attribute, the same
- *     entity's fate, the same resource - reads as continuing content)
- *   - reports: `report:{about}:{source}`        (the same source family
- *     re-reporting about the same subject is the rumor mill re-reporting)
- *   - investigation: `investigation:{targetId}:{kind}` (re-buying the same
- *     aspect of the same target refreshes the same dossier claim, D14)
- * V1 COARSENESS, stated plainly: every production rumor Report carries
- * source 'rumor' (ai/core/engine.ts's rumor case), so ALL rumors about the
- * same subject land on ONE claim timeline. That merging is deliberately
- * load-bearing for D19 counterplay - a follow-up reusing the original
- * rumor's key reads as the mill re-reporting on the same matter - but it
- * also over-merges: two UNRELATED rumors about the same subject share a
- * timeline, and will until a finer matching key (per-storyline rather than
- * per-subject) ships with the rumor-feed stage. Changing the matching rule
- * is an owner-visible design decision at that stage, not a tweak to make
- * here. A different source FAMILY about the same subject (e.g. 'spy' vs
- * 'rumor') does still open a separate claim.
+ *     entity's fate, the same resource - reads as continuing content; the
+ *     deltaType already is the topic of the change)
+ *   - reports: `report:{about}:{topic}:{source}` (the same source family
+ *     re-reporting on the same TOPIC about the same subject is the rumor
+ *     mill re-reporting; a rumor about a DIFFERENT topic of the same subject
+ *     opens its own claim - the over-merge fix)
+ *   - investigation: `investigation:{targetId}:{kind}` (the kind is the
+ *     topic; re-buying the same aspect refreshes the same dossier claim, D14)
+ * A rumor Report with `stance: 'contradicts'` (a counterplay refutation)
+ * always FORKS a distinct claim node even when its base key matches, so the
+ * refutation is a separate node linked by a 'contradicts' edge rather than
+ * silently swallowed into the timeline it disputes.
+ *
+ * EDGES (D29, structural + deterministic only - no AI inference here): when a
+ * claim OPENS, one edge is recorded from it to each pre-existing claim about
+ * the SAME subject (bounded by MAX_EDGES_PER_CLAIM), typed by structure:
+ *   - 'corroborates' - two report-channel claims on the same subject+topic
+ *     from DIFFERENT sources (independent word on the same matter; the D25
+ *     "corroborating sources are the signal" relation)
+ *   - 'contradicts'  - the incoming rumor explicitly carried
+ *     stance:'contradicts' and the prior claim shares its subject+topic
+ *   - 'derives-from' - an investigation reveal opening about a subject the
+ *     player already held rumor/observation claims on (the bought dossier
+ *     follows from that prior trail)
+ *   - 'about'        - the fallback: two claims about the same entity by a
+ *     different topic or a different channel (same subject, different facet)
+ * Edges are stored outgoing on the newer claim (the older node is reachable
+ * from the newer); the symmetric relations read the same in either
+ * direction, 'derives-from' points newer->older. Edges whose target is
+ * evicted are pruned so the graph never dangles.
  */
 
 import type { PerceivedChange, PerceptionSource } from '../perception/visibility';
-import type { Report, ReportSource } from '../types';
+import type { Report, ReportSource, RumorStance } from '../types';
 
 /**
  * Where a knowledge update came from. Reuses the two provenance
@@ -66,6 +85,19 @@ import type { Report, ReportSource } from '../types';
  */
 export type KnowledgeSource = PerceptionSource | ReportSource;
 
+/** The three provenance channels, one per ingestion function; also the claimKey prefix. */
+export type KnowledgeChannel = 'digest' | 'report' | 'investigation';
+
+/** The deterministic edge relations between claims (D29). */
+export type KnowledgeEdgeType = 'about' | 'corroborates' | 'contradicts' | 'derives-from';
+
+/** One directed structural edge from a claim to another claim (by id). */
+export interface KnowledgeEdge {
+  /** The id of the claim this edge points to. */
+  to: string;
+  type: KnowledgeEdgeType;
+}
+
 /** One time-dated arrival of information on a claim (D21). Frozen at its stamp once recorded (D14). */
 export interface KnowledgeUpdate {
   turn: number;
@@ -76,21 +108,36 @@ export interface KnowledgeUpdate {
 }
 
 /**
- * A claim entity - one piece of living information the player holds.
- * `claim` and `firstLearnedTurn` are frozen at first arrival; `updates`
- * accretes every arrival INCLUDING the first (so `updates[0]` is the
- * original learning and the array is the claim's full visible timeline).
+ * A claim entity - one node of living information the player holds.
+ * `claim`, `firstLearnedTurn`, `subject` and `topic` are frozen at first
+ * arrival; `updates` accretes every arrival INCLUDING the first (so
+ * `updates[0]` is the original learning and the array is the claim's full
+ * visible timeline).
  */
 export interface KnowledgeClaim {
   id: string;
   /** The entity id, region id, or 'world' the claim is about. */
   subject: string;
-  /** The claim's text as first learned - frozen; restatements land in `updates`. */
+  /**
+   * The claim's text as first learned - frozen; restatements land in `updates`.
+   */
   claim: string;
+  /**
+   * D29 topic slug: WHAT about the subject this claim concerns. Frozen at
+   * open. Optional in the type (new persisted field - legacy saves predate
+   * it) but always populated by the ingestion functions below.
+   */
+  topic?: string;
   /** The deterministic matching key (see the MATCHING RULE above). */
   claimKey: string;
   firstLearnedTurn: number;
   updates: KnowledgeUpdate[];
+  /**
+   * D29 structural edges to other claims, computed deterministically when
+   * this claim opened. Optional (new persisted field; legacy saves and
+   * edge-less claims omit it) and bounded by MAX_EDGES_PER_CLAIM.
+   */
+  edges?: KnowledgeEdge[];
 }
 
 /**
@@ -111,6 +158,41 @@ export const MAX_KNOWLEDGE_CLAIMS = 300;
  */
 export const MAX_UPDATES_PER_CLAIM = 30;
 
+/**
+ * Upper bound on structural edges recorded on any one claim (D29). A subject
+ * with a very busy graph (many topics, many sources) would otherwise let one
+ * new claim link to unboundedly many priors; the newest-updated same-subject
+ * claims are linked first and the rest are dropped. Save-bounding rationale
+ * again - edges persist with the claim.
+ */
+export const MAX_EDGES_PER_CLAIM = 8;
+
+/** Longest topic slug kept; longer input is truncated (see normalizeTopic). */
+export const MAX_TOPIC_LEN = 40;
+
+/**
+ * Reduces a raw topic string to a stable, key-safe slug: lowercase, spaces
+ * and punctuation collapsed to single hyphens, bounded length. An empty or
+ * missing topic defaults to 'general' so a rumor whose topic the model
+ * omitted still keys deterministically (it merges under 'general' - the old
+ * subject-wide behavior, only for un-topiced input). Pure and total.
+ */
+export function normalizeTopic(raw?: string): string {
+  const slug = (raw ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, MAX_TOPIC_LEN)
+    .replace(/-+$/g, '');
+  return slug.length > 0 ? slug : 'general';
+}
+
+/** The channel a stored claim belongs to, read from its claimKey prefix. */
+function channelOf(claim: KnowledgeClaim): KnowledgeChannel {
+  const prefix = claim.claimKey.split(':', 1)[0];
+  return prefix === 'digest' || prefix === 'investigation' ? prefix : 'report';
+}
+
 /** The turn a claim last gained an update - the eviction ordering key. */
 function lastUpdatedTurn(claim: KnowledgeClaim): number {
   return claim.updates.length > 0
@@ -118,7 +200,12 @@ function lastUpdatedTurn(claim: KnowledgeClaim): number {
     : claim.firstLearnedTurn;
 }
 
-/** Drops the oldest-updated claims past MAX_KNOWLEDGE_CLAIMS, preserving the survivors' order. Returns the input reference when nothing needs evicting. */
+/**
+ * Drops the oldest-updated claims past MAX_KNOWLEDGE_CLAIMS, preserving the
+ * survivors' order, then prunes any edge whose target was evicted so the
+ * graph never dangles (D29). Returns the input reference when nothing needs
+ * evicting.
+ */
 function evictOverCap(store: KnowledgeClaim[]): KnowledgeClaim[] {
   if (store.length <= MAX_KNOWLEDGE_CLAIMS) return store;
   const excess = store.length - MAX_KNOWLEDGE_CLAIMS;
@@ -129,17 +216,63 @@ function evictOverCap(store: KnowledgeClaim[]): KnowledgeClaim[] {
       .slice(0, excess)
       .map(([, index]) => index)
   );
-  return store.filter((_, index) => !evictIndices.has(index));
+  const survivors = store.filter((_, index) => !evictIndices.has(index));
+  const survivorIds = new Set(survivors.map(c => c.id));
+  return survivors.map(claim => {
+    if (!claim.edges || claim.edges.every(e => survivorIds.has(e.to))) return claim;
+    const kept = claim.edges.filter(e => survivorIds.has(e.to));
+    const { edges: _dropped, ...rest } = claim;
+    return kept.length > 0 ? { ...rest, edges: kept } : rest;
+  });
 }
 
 /** The one artifact shape upsertClaim ingests - already reduced to exactly the fields the store may hold. */
 interface IngestArtifact {
   claimKey: string;
   subject: string;
+  topic: string;
+  channel: KnowledgeChannel;
   text: string;
   turn: number;
   source: KnowledgeSource;
   credibility?: number;
+  /** 'contradicts' forces a distinct claim node and a 'contradicts' edge (D29). */
+  stance?: RumorStance;
+}
+
+/**
+ * Computes the structural edges (D29) for a claim OPENING with the given
+ * subject/topic/channel/stance, against the claims already in `store`. Pure,
+ * deterministic, bounded by MAX_EDGES_PER_CLAIM (newest-updated priors
+ * linked first). See the EDGES section of the module doc for the typing
+ * rules.
+ */
+function computeEdges(
+  store: KnowledgeClaim[],
+  opening: { subject: string; topic: string; channel: KnowledgeChannel; stance?: RumorStance }
+): KnowledgeEdge[] {
+  const { subject, topic, channel, stance } = opening;
+  const priors = store
+    .filter(c => c.subject === subject)
+    .slice()
+    .sort((a, b) => lastUpdatedTurn(b) - lastUpdatedTurn(a))
+    .slice(0, MAX_EDGES_PER_CLAIM);
+
+  const edges: KnowledgeEdge[] = [];
+  for (const prior of priors) {
+    const priorChannel = channelOf(prior);
+    const sameTopic = typeof prior.topic === 'string' && prior.topic === topic;
+    let type: KnowledgeEdgeType;
+    if (channel === 'report' && priorChannel === 'report' && sameTopic) {
+      type = stance === 'contradicts' ? 'contradicts' : 'corroborates';
+    } else if (channel === 'investigation' && priorChannel !== 'investigation') {
+      type = 'derives-from';
+    } else {
+      type = 'about';
+    }
+    edges.push({ to: prior.id, type });
+  }
+  return edges;
 }
 
 /**
@@ -158,7 +291,10 @@ function upsertClaim(store: KnowledgeClaim[], artifact: IngestArtifact): Knowled
     update.credibility = artifact.credibility;
   }
 
-  const existingIndex = store.findIndex(claim => claim.claimKey === artifact.claimKey);
+  // A counterplay contradiction is a distinct node, never a continuation of
+  // the timeline it disputes - so it never matches an existing key (D29).
+  const forceNew = artifact.stance === 'contradicts';
+  const existingIndex = forceNew ? -1 : store.findIndex(claim => claim.claimKey === artifact.claimKey);
   if (existingIndex >= 0) {
     const existing = store[existingIndex];
     const next = [...store];
@@ -171,17 +307,38 @@ function upsertClaim(store: KnowledgeClaim[], artifact: IngestArtifact): Knowled
     return next;
   }
 
+  // A forced fork gets a disambiguated key so it is its own node and a later
+  // restatement of the ORIGINAL still continues the original, not the fork.
+  let claimKey = artifact.claimKey;
+  if (forceNew) {
+    // Count only prior forks of this base key (the base-keyed original keeps
+    // its plain key), so forks number #c0, #c1, ... and never collide.
+    const forkCount = store.filter(c => c.claimKey.startsWith(`${artifact.claimKey}#c`)).length;
+    claimKey = `${artifact.claimKey}#c${forkCount}`;
+  }
+
+  const edges = computeEdges(store, {
+    subject: artifact.subject,
+    topic: artifact.topic,
+    channel: artifact.channel,
+    stance: artifact.stance,
+  });
+
   const newClaim: KnowledgeClaim = {
-    // claimKey is unique within the store at any moment (the findIndex
-    // above), and a re-created key after eviction lands on a later turn -
-    // so turn+claimKey is a sufficient, deterministic id.
-    id: `claim_${artifact.turn}_${artifact.claimKey}`,
+    // claimKey is unique within the store at any moment (the findIndex above
+    // / the fork disambiguator), and a re-created key after eviction lands on
+    // a later turn - so turn+claimKey is a sufficient, deterministic id.
+    id: `claim_${artifact.turn}_${claimKey}`,
     subject: artifact.subject,
     claim: artifact.text,
-    claimKey: artifact.claimKey,
+    topic: artifact.topic,
+    claimKey,
     firstLearnedTurn: artifact.turn,
     updates: [update],
   };
+  if (edges.length > 0) {
+    newClaim.edges = edges;
+  }
   return evictOverCap([...store, newClaim]);
 }
 
@@ -192,8 +349,8 @@ function upsertClaim(store: KnowledgeClaim[], artifact: IngestArtifact): Knowled
  *
  * Rumor-type digest entries are SKIPPED here deliberately: every rumor
  * delta also becomes a Report (ai/core/engine.ts), and Reports are the
- * canonical rumor channel for this store (they carry source + credibility;
- * the digest line is presentation). Ingesting both would double every
+ * canonical rumor channel for this store (they carry source + credibility +
+ * topic; the digest line is presentation). Ingesting both would double every
  * rumor.
  *
  * Returns the input store reference when nothing was ingested.
@@ -207,8 +364,12 @@ export function ingestPerceivedChanges(
   for (const change of changes) {
     if (change.deltaType === 'rumor') continue;
     next = upsertClaim(next, {
+      // The digest key keeps its established shape (the deltaType already is
+      // the topic of the change); topic is set for edge/graph uniformity.
       claimKey: `digest:${change.deltaType}:${change.deltaKey}`,
       subject: change.subject,
+      topic: normalizeTopic(change.deltaType),
+      channel: 'digest',
       text: change.text,
       turn,
       source: change.source,
@@ -229,24 +390,29 @@ export function ingestPerceivedChanges(
  * authoritative turn counter here - a model that mislabels its turn must
  * not skew the claim timeline (see knowledge/commit.ts).
  *
- * Leak guard (D5/D11): only the five whitelisted fields below are read off
- * each Report. A Report never legitimately carries truth-ledger data
+ * Leak guard (D5/D11): only the whitelisted fields below are read off each
+ * Report. A Report never legitimately carries truth-ledger data
  * (`is_true`/`origin_id` live on rumor DELTAS and the GM ledger, not on
  * Reports), but even a polluted object cannot leak extra keys through this
- * field-by-field copy.
+ * field-by-field copy. `topic`/`stance` are player-safe D29 categorization.
  *
  * Returns the input store reference when handed no reports.
  */
 export function ingestReports(store: KnowledgeClaim[], newReports: Report[], atTurn?: number): KnowledgeClaim[] {
   let next = store;
   for (const report of newReports) {
+    const topic = normalizeTopic(report.topic);
+    const stance = report.stance === 'corroborates' || report.stance === 'contradicts' ? report.stance : undefined;
     next = upsertClaim(next, {
-      claimKey: `report:${report.about}:${report.source}`,
+      claimKey: `report:${report.about}:${topic}:${report.source}`,
       subject: report.about,
+      topic,
+      channel: 'report',
       text: report.claim,
       turn: typeof atTurn === 'number' ? atTurn : report.turn,
       source: report.source,
       credibility: report.credibility,
+      stance,
     });
   }
   return next;
@@ -262,7 +428,7 @@ export type InvestigationKind = 'beliefs' | 'scheme' | 'secrets';
  * it (D14's direction; the dossier VIEW over these claims is a later
  * stage). Re-investigating the same target's same aspect appends a freshly
  * stamped update to the same claim - the earlier reveal stays frozen at
- * its own stamp (D14).
+ * its own stamp (D14). The reveal kind IS the claim's topic (D29).
  */
 export function ingestInvestigationReveal(
   store: KnowledgeClaim[],
@@ -271,6 +437,8 @@ export function ingestInvestigationReveal(
   return upsertClaim(store, {
     claimKey: `investigation:${reveal.targetId}:${reveal.kind}`,
     subject: reveal.targetId,
+    topic: normalizeTopic(reveal.kind),
+    channel: 'investigation',
     text: reveal.text,
     turn: reveal.turn,
     source: 'spy',
