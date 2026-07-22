@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { WaxSeal } from './ui/Brand';
+import { createFocusTrap, FocusTrap } from './ui/focusTrap';
 
 /**
  * components/OnboardingOverlay.tsx
@@ -55,33 +56,38 @@ const STEPS: readonly OnboardingStep[] = [
   },
 ];
 
-const FOCUSABLE_SELECTOR =
-  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
-
 /** The chat input's element id (see components/Chat.tsx's ChatInput) - focus returns here on close. */
 const CHAT_INPUT_ELEMENT_ID = 'chat-input';
 
 const OnboardingOverlay: React.FC<OnboardingOverlayProps> = ({ isOpen, onClose }) => {
   const [step, setStep] = useState(0);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const trapRef = useRef<FocusTrap | null>(null);
 
   // Never resume mid-sequence - every time the overlay opens it starts at step 1.
   useEffect(() => {
     if (isOpen) setStep(0);
   }, [isOpen]);
 
-  // Focus the dialog on open; on close (isOpen -> false, or unmount), return
-  // focus to the chat input specifically, per spec - falling back to
-  // whatever previously had focus if the input isn't on the page for some
-  // reason.
+  // Focus the dialog on open (components/ui/focusTrap.ts's `activate` -
+  // remembers whatever was focused beforehand and moves focus in); on close
+  // (isOpen -> false, or unmount), return focus to the chat input
+  // specifically, per spec - falling back to the trap's own remembered
+  // element (`release`) if the input isn't on the page for some reason.
   useEffect(() => {
-    if (!isOpen) return;
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    dialogRef.current?.focus();
+    if (!isOpen || !dialogRef.current) return;
+    const trap = createFocusTrap(dialogRef.current);
+    trapRef.current = trap;
+    trap.activate();
 
     return () => {
       const chatInput = document.getElementById(CHAT_INPUT_ELEMENT_ID) as HTMLElement | null;
-      (chatInput ?? previouslyFocused)?.focus();
+      if (chatInput) {
+        chatInput.focus();
+      } else {
+        trap.release();
+      }
+      trapRef.current = null;
     };
   }, [isOpen]);
 
@@ -105,24 +111,10 @@ const OnboardingOverlay: React.FC<OnboardingOverlayProps> = ({ isOpen, onClose }
       return;
     }
 
-    if (event.key !== 'Tab' || !dialogRef.current) return;
-
-    // Simple focus trap: keep Tab/Shift+Tab cycling within the dialog.
-    const focusable: HTMLElement[] = [];
-    dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR).forEach(el => {
-      if (!el.hasAttribute('disabled')) focusable.push(el);
-    });
-    if (focusable.length === 0) return;
-
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
+    // Tab/Shift+Tab containment is the focus trap's concern, not this
+    // component's - Escape-to-close stays here (this dialog has a close
+    // affordance; see EventModal.tsx for one that deliberately doesn't).
+    trapRef.current?.handleKeyDown(event);
   };
 
   return (

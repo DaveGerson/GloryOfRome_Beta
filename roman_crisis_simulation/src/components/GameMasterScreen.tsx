@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { TurnHistoryEntry, Adjudication, Entity, Relationship, Memory, Scheme, RawCallRecord, WorldState, TruthLedgerEntry, Report, NpcIntent } from '../types';
 import { classifyDelta, buildPerceivedDigest } from '../perception/visibility';
 import { KnowledgeClaim } from '../knowledge/store';
@@ -6,6 +6,7 @@ import { InferredAmbitionState, SAVE_VERSION } from '../persistence/saveGame';
 import { buildEvalCorpus, evalCorpusFilename } from '../persistence/evalCorpus';
 import { getSessionCallLog } from '../ai/core/geminiService';
 import { toRoman } from './ui/Brand';
+import { createFocusTrap, FocusTrap } from './ui/focusTrap';
 
 /**
  * Game Master Tools — "the Fates' ledger": a dark tablinum modal over the
@@ -547,12 +548,37 @@ const GameMasterScreen: React.FC<{
     const [activeTab, setActiveTab] = useState('summary');
     const [interventionInput, setInterventionInput] = useState(interventionText);
     const [showConfirmation, setShowConfirmation] = useState(false);
+    const dialogRef = useRef<HTMLDivElement>(null);
+    const trapRef = useRef<FocusTrap | null>(null);
 
     useEffect(() => {
         if (!showConfirmation) return;
         const t = setTimeout(() => setShowConfirmation(false), 3000);
         return () => clearTimeout(t);
     }, [showConfirmation]);
+
+    // Focus the dialog on open, restore to the invoker (the "GM Log"
+    // button) on close - same components/ui/focusTrap.ts contract as every
+    // other gor-dialog-shaped overlay.
+    useEffect(() => {
+        if (!dialogRef.current) return;
+        const trap = createFocusTrap(dialogRef.current);
+        trapRef.current = trap;
+        trap.activate();
+        return () => {
+            trap.release();
+            trapRef.current = null;
+        };
+    }, []);
+
+    const handleDialogKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            onClose();
+            return;
+        }
+        trapRef.current?.handleKeyDown(event);
+    };
 
     const handleSetIntervention = () => {
         onSetIntervention(interventionInput);
@@ -591,10 +617,18 @@ const GameMasterScreen: React.FC<{
 
     return (
         <div className="gor-dialog-backdrop">
-            <div role="dialog" aria-modal="true" aria-label="Game Master Tools" style={{ width: 'min(1060px, calc(100% - 48px))', height: 'calc(100% - 56px)', display: 'flex', flexDirection: 'column', background: 'var(--dentil) left top/100% 4px no-repeat, linear-gradient(180deg,#2A231A,#161209 60%,#131009)', border: '1px solid rgba(201,162,39,.45)', clipPath: 'var(--chamfer-lg)', filter: 'drop-shadow(0 24px 60px rgba(0,0,0,.55))', padding: '20px 24px 18px', gap: 12, boxSizing: 'border-box' }}>
+            <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="gm-screen-title"
+                tabIndex={-1}
+                onKeyDown={handleDialogKeyDown}
+                style={{ width: 'min(1060px, calc(100% - 48px))', height: 'calc(100% - 56px)', display: 'flex', flexDirection: 'column', background: 'var(--dentil) left top/100% 4px no-repeat, linear-gradient(180deg,#2A231A,#161209 60%,#131009)', border: '1px solid rgba(201,162,39,.45)', clipPath: 'var(--chamfer-lg)', filter: 'drop-shadow(0 24px 60px rgba(0,0,0,.55))', padding: '20px 24px 18px', gap: 12, boxSizing: 'border-box' }}
+            >
                 <div style={{ flex: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, borderBottom: '1px solid rgba(201,162,39,.25)', paddingBottom: 12 }}>
                     <div>
-                        <h2 style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 26, color: GOLD, textShadow: '0 2px 3px rgba(0,0,0,.6)', margin: 0 }}>Game Master Tools</h2>
+                        <h2 id="gm-screen-title" style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 26, color: GOLD, textShadow: '0 2px 3px rgba(0,0,0,.6)', margin: 0 }}>Game Master Tools</h2>
                         <span style={{ ...lbl, letterSpacing: '.24em' }}>The Fates' ledger — every thread measured, every die recorded</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

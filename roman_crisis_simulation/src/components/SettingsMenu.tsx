@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { PacingPosture } from '../types';
 import { Card, Button } from './ui/Core';
 import { Switch } from './ui/Forms';
+import { createFocusTrap, FocusTrap } from './ui/focusTrap';
 
 /**
  * ROADMAP_0_MASTER_PLAN.md Phase 5 (DESIGN_DECISIONS.md D31) - the FATES
@@ -54,12 +55,36 @@ const SettingsMenu: React.FC<{
     const [keyInput, setKeyInput] = useState(apiKey ?? '');
     const [showKey, setShowKey] = useState(false);
     const [savedFlash, setSavedFlash] = useState(false);
+    const dialogRef = useRef<HTMLDivElement>(null);
+    const trapRef = useRef<FocusTrap | null>(null);
 
     useEffect(() => {
         if (!savedFlash) return;
         const t = setTimeout(() => setSavedFlash(false), 2200);
         return () => clearTimeout(t);
     }, [savedFlash]);
+
+    // Focus the dialog on open, restore to the invoker on close - same
+    // components/ui/focusTrap.ts contract as every other gor-dialog.
+    useEffect(() => {
+        if (!dialogRef.current) return;
+        const trap = createFocusTrap(dialogRef.current);
+        trapRef.current = trap;
+        trap.activate();
+        return () => {
+            trap.release();
+            trapRef.current = null;
+        };
+    }, []);
+
+    const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            onClose();
+            return;
+        }
+        trapRef.current?.handleKeyDown(event);
+    };
 
     const handleSaveKey = () => {
         const trimmed = keyInput.trim();
@@ -76,9 +101,18 @@ const SettingsMenu: React.FC<{
 
     return (
         <div className="gor-dialog-backdrop">
-            <div className="gor-dialog" role="dialog" aria-modal="true" aria-label="Configuration" style={{ maxWidth: 560 }}>
+            <div
+                ref={dialogRef}
+                className="gor-dialog"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="settings-menu-title"
+                tabIndex={-1}
+                onKeyDown={handleKeyDown}
+                style={{ maxWidth: 560 }}
+            >
                 <div className="gor-dialog-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                    <h2 style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 27, color: 'var(--tyrian-600)' }}>Configuration</h2>
+                    <h2 id="settings-menu-title" style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 27, color: 'var(--tyrian-600)' }}>Configuration</h2>
                     <button
                         type="button"
                         onClick={onClose}
