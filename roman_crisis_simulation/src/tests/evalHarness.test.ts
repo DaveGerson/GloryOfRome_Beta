@@ -464,6 +464,45 @@ describe('eval judge scaffold', () => {
     expect(prompt).toContain('GM-PRIVATE MORTALITY TRACE');
   });
 
+  it('buildEvalJudgePrompt renders the Director intents and NPC mind decisions (private_reasoning included) so axes 4-5 have data', () => {
+    const { prompt } = buildEvalJudgePrompt({
+      turnNumber: 3,
+      playerIntent: 'Address the Senate.',
+      adjudication: makeAdjudication(3),
+      narration: null,
+      npcIntents: [{ entity_id: 'maximinus_thrax', intent: 'March the Rhine legions on Rome', continuity: 'pivot' }],
+      npcMindResults: [{
+        entity_id: 'maximinus_thrax',
+        chosen_action: 'Rally the veterans to my standard.',
+        method: 'Oaths and donatives.',
+        private_reasoning: 'The purple is within reach.',
+        scheme_adjustment: null,
+      }],
+    });
+
+    // Axis 4 (information-asymmetry) needs the intents - each is fed to that
+    // character's mind as its own thought; axis 5 (richness) needs the mind
+    // decisions, private_reasoning included (both are GM-side artifacts).
+    expect(prompt).toContain('DIRECTOR INTENTS');
+    expect(prompt).toContain('March the Rhine legions on Rome');
+    expect(prompt).toContain('NPC MIND DECISIONS');
+    expect(prompt).toContain('The purple is within reach.');
+  });
+
+  it('buildEvalJudgePrompt renders explicit placeholders when a turn carried no intents or minds', () => {
+    const { prompt } = buildEvalJudgePrompt({
+      turnNumber: 3,
+      playerIntent: 'Wait and watch.',
+      adjudication: makeAdjudication(3),
+      narration: null,
+      npcIntents: null,
+      npcMindResults: null,
+    });
+
+    expect(prompt).toContain('(no spotlight intents this turn)');
+    expect(prompt).toContain('(no NPC minds ran this turn)');
+  });
+
   it('the fifth axis (4C richness) scores continuity of self, and the axis count is EXACTLY five (pin)', () => {
     const { systemInstruction } = buildEvalJudgePrompt({
       turnNumber: 3,

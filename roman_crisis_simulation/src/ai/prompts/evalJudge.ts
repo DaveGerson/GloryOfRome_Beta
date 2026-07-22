@@ -22,7 +22,7 @@
  * the corpus itself: never rendered on a player-facing surface (D4/D5).
  */
 
-import { Adjudication, MortalityEvent } from '../../types';
+import { Adjudication, MortalityEvent, NpcIntent, NpcMindDecision } from '../../types';
 
 export interface EvalJudgePromptInput {
   turnNumber: number;
@@ -33,6 +33,19 @@ export interface EvalJudgePromptInput {
   narration: string | null;
   /** GM-private mortality trace for the turn, when any death claim was processed. */
   mortalityTrace?: MortalityEvent[] | null;
+  /**
+   * GM-private Director intents committed this turn - what axis 4 checks for
+   * out-of-vantage knowledge (an intent is handed to the character's mind as
+   * its own thought) and axis 5 checks NPC moves against. Absent/null when
+   * the turn named no spotlight intents.
+   */
+  npcIntents?: NpcIntent[] | null;
+  /**
+   * GM-private per-spotlight mind decisions this turn, `private_reasoning`
+   * included - the first-person reasoning axes 4 and 5 score against. Absent/
+   * null when no mind-eligible spotlight ran this turn.
+   */
+  npcMindResults?: NpcMindDecision[] | null;
 }
 
 const EVAL_JUDGE_SYSTEM_INSTRUCTION = `
@@ -53,7 +66,7 @@ OUTPUT: A single JSON object with exactly those five keys, each an object of the
 
 /** Builds the { systemInstruction, prompt } pair for the offline eval judge call. */
 export function buildEvalJudgePrompt(input: EvalJudgePromptInput): { systemInstruction: string; prompt: string } {
-  const { turnNumber, playerIntent, adjudication, narration, mortalityTrace } = input;
+  const { turnNumber, playerIntent, adjudication, narration, mortalityTrace, npcIntents, npcMindResults } = input;
 
   const prompt = `
 TURN UNDER REVIEW: ${turnNumber}
@@ -72,6 +85,12 @@ ${JSON.stringify(adjudication, null, 2)}
 
 GM-PRIVATE MORTALITY TRACE:
 ${mortalityTrace && mortalityTrace.length > 0 ? JSON.stringify(mortalityTrace, null, 2) : '(no death claims this turn)'}
+
+GM-PRIVATE DIRECTOR INTENTS (each is fed to that character's mind verbatim as its own thought - score axes 4 and 5 against them):
+${npcIntents && npcIntents.length > 0 ? JSON.stringify(npcIntents, null, 2) : '(no spotlight intents this turn)'}
+
+GM-PRIVATE NPC MIND DECISIONS (each character's own bounded-knowledge decision this turn, private_reasoning included - the substance axes 4 and 5 judge):
+${npcMindResults && npcMindResults.length > 0 ? JSON.stringify(npcMindResults, null, 2) : '(no NPC minds ran this turn)'}
 `;
 
   return { systemInstruction: EVAL_JUDGE_SYSTEM_INSTRUCTION, prompt };

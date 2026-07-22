@@ -35,26 +35,34 @@ const NARRATION_TEMPERATURE = 1.0;
 export const MAX_NPC_INTENTS = 4;
 
 /**
- * Derives the DURABLE intent list from the Director's raw output: only
- * intents whose entity_id is an actual spotlight pick survive (intents are
- * per-spotlight by contract), deduped to ONE intent per entity_id keeping
- * the FIRST emitted, capped at MAX_NPC_INTENTS in emission order. The
- * dedupe is load-bearing: the Director's contract is exactly one intent
- * per spotlight, and without it a duplicate would crowd the cap, list
- * twice in the adjudication prompt's intents block, and disagree with the
- * mind handoff (whose Map lookup keeps only one entry per entity) about
- * WHICH intent stands - first-wins makes every consumer see the same one.
- * This filtered list is the single shape everything downstream consumes -
- * the adjudication prompt's intents block, the code-side consistency check,
- * the history entry, and the reducer's persisted `npcIntents` slice.
- * Pure; exported for direct unit testing.
+ * Derives the DURABLE intent list from the Director's raw output: an intent
+ * survives only when its entity_id is BOTH an actual spotlight pick AND an
+ * entity that is alive in the current roster (intents are per-spotlight by
+ * contract, and a durable intent may never ride on someone who cannot act),
+ * deduped to ONE intent per entity_id keeping the FIRST emitted, capped at
+ * MAX_NPC_INTENTS in emission order. The alive gate is load-bearing: a
+ * spotlight id can name an NPC who is dead/exiled/missing (or absent) in
+ * state, and an intent committed on such an id would be persisted and fed to
+ * the NEXT turn's Director and adjudicator as live direction for a corpse -
+ * the adjudicator's own spotlight block already renders only alive NPCs, so
+ * a dead-id intent could never earn an entityAction and would just accrete
+ * as phantom direction. The dedupe is load-bearing too: the Director's
+ * contract is exactly one intent per spotlight, and without it a duplicate
+ * would crowd the cap, list twice in the adjudication prompt's intents
+ * block, and disagree with the mind handoff (whose Map lookup keeps only one
+ * entry per entity) about WHICH intent stands - first-wins makes every
+ * consumer see the same one. This filtered list is the single shape
+ * everything downstream consumes - the adjudication prompt's intents block,
+ * the code-side consistency check, the history entry, and the reducer's
+ * persisted `npcIntents` slice. Pure; exported for direct unit testing.
  */
-export function selectDurableIntents(storyRelevance: StoryRelevance): NpcIntent[] {
+export function selectDurableIntents(storyRelevance: StoryRelevance, roster: readonly Pick<Entity, 'entity_id' | 'status'>[]): NpcIntent[] {
     const spotlightIds = new Set(storyRelevance.spotlight_entities.map(s => s.entity_id));
+    const aliveIds = new Set(roster.filter(e => e.status === 'alive').map(e => e.entity_id));
     const seen = new Set<string>();
     const durable: NpcIntent[] = [];
     for (const intent of storyRelevance.spotlight_intents ?? []) {
-        if (!spotlightIds.has(intent.entity_id) || seen.has(intent.entity_id)) continue;
+        if (!spotlightIds.has(intent.entity_id) || !aliveIds.has(intent.entity_id) || seen.has(intent.entity_id)) continue;
         seen.add(intent.entity_id);
         durable.push(intent);
     }
@@ -64,9 +72,10 @@ export function selectDurableIntents(storyRelevance: StoryRelevance): NpcIntent[
 /**
  * GM-private trace for the silent-wipe edge (4C.3): the Director emitted a
  * schema-valid intent list, spotlights exist, and yet EVERY intent failed
- * the spotlight filter (mismatched entity_ids) - selectDurableIntents then
- * commits [] wholesale and next turn's Director is told "None on record"
- * with no trace of why. This note records the discard for the GM console
+ * selectDurableIntents' gate (mismatched entity_ids, or spotlights that are
+ * not alive in the current roster) - selectDurableIntents then commits []
+ * wholesale and next turn's Director is told "None on record" with no trace
+ * of why. This note records the discard for the GM console
  * (same soft-contract style as buildIntentConsistencyNotes); it changes no
  * behavior. Returns [] in every non-wipe case, including the legitimate
  * empty-emission and no-spotlight cases. Pure; exported for direct unit
@@ -76,7 +85,7 @@ export function buildIntentDiscardNotes(storyRelevance: StoryRelevance, durableI
     const emitted = storyRelevance.spotlight_intents ?? [];
     if (emitted.length === 0 || durableIntents.length > 0 || storyRelevance.spotlight_entities.length === 0) return [];
     return [
-        `[Director] All ${emitted.length} emitted intent(s) were discarded: none named a spotlight pick (intents for ${emitted.map(i => i.entity_id).join(', ')}; spotlights ${storyRelevance.spotlight_entities.map(s => s.entity_id).join(', ')}). Nothing was committed, so next turn's Director will see "None on record" - soft contract, nothing was forced.`,
+        `[Director] All ${emitted.length} emitted intent(s) were discarded: none named a live spotlight pick (intents for ${emitted.map(i => i.entity_id).join(', ')}; spotlights ${storyRelevance.spotlight_entities.map(s => s.entity_id).join(', ')}). Nothing was committed, so next turn's Director will see "None on record" - soft contract, nothing was forced.`,
     ];
 }
 
@@ -325,7 +334,7 @@ export async function runNewTurn(
     // the adjudication prompt's SPOTLIGHT NPC INTENTS block, the post-hoc
     // consistency check below, the history entry, and (via the result) the
     // reducer's persisted npcIntents slice that feeds NEXT turn's Director.
-    const npcIntents = selectDurableIntents(storyRelevance);
+    const npcIntents = selectDurableIntents(storyRelevance, currentEntities);
 
     // *** RESOLUTION LAYER (ROADMAP_0_MASTER_PLAN.md Phase 3 item 4) ***
     // The model NEVER decides whether the player's action succeeds - it only
@@ -701,18 +710,34 @@ export async function runNewTurn(
 
     // 5.5 Get and apply relationship updates based on narrative
     options?.onStage?.('relationship_updates');
-    const relationshipDeltas = await getRelationshipUpdates(ai, narration, transformedAdjudication.headlines, updatedEntities, isMockMode);
-    if (relationshipDeltas && relationshipDeltas.length > 0) {
+    const relationshipUpdateResult = await getRelationshipUpdates(ai, narration, transformedAdjudication.headlines, updatedEntities, isMockMode);
+    // CONTRACT ENFORCEMENT: this call's contract is 'relation' deltas ONLY
+    // (buildRelationshipUpdatesPrompt asks for nothing else), but the schema
+    // pair it validates against (zRelationshipDeltas / RelationshipDeltasSchema)
+    // structurally accepts every EventDelta type. A non-'relation' delta that
+    // slipped through would be applied here OUTSIDE the pipelines that make
+    // other delta types safe: a 'rumor' would reach the player un-ledgered
+    // (no truth-ledger entry, D11/D26), and a 'status' change would bypass
+    // the mortality pipeline entirely (D2/D3). Filter to 'relation' BEFORE
+    // apply/merge; every other delta is dropped and its discard traced in
+    // gm_private (GM-only surface, D4/D5).
+    const relationshipDeltas = (relationshipUpdateResult ?? []).filter(d => d.type === 'relation');
+    const discardedRelationshipDeltas = (relationshipUpdateResult ?? []).filter(d => d.type !== 'relation');
+    if (discardedRelationshipDeltas.length > 0) {
+        transformedAdjudication.gm_private.push(
+            `[Narrative Analyst] Dropped ${discardedRelationshipDeltas.length} non-relation delta(s) from the relationship-update call (contract is 'relation' only; these would bypass the ledger/mortality pipelines): ${discardedRelationshipDeltas.map(d => `${d.type}:${d.key}`).join(', ')}.`
+        );
+    }
+    if (relationshipDeltas.length > 0) {
         // DISCARD CONSTRAINT: only `updatedEntities` is taken from this
         // applyDeltas call - any newReports/newTruthLedgerEntries it returns
         // are dropped, AFTER updatedReports/updatedTruthLedger were already
-        // settled above. Safe today because this call site's contract is
-        // 'relation' deltas only (buildRelationshipUpdatesPrompt instructs
-        // the model to emit nothing else), and 'relation' deltas mint no
-        // Reports or ledger entries. If this step ever legitimately applied
-        // rumor-bearing or systemic-resource deltas, their Report/ledger
-        // output would have to be threaded into updatedReports/
-        // updatedTruthLedger rather than discarded here.
+        // settled above. The filter above guarantees these are 'relation'
+        // deltas only, and 'relation' deltas mint no Reports or ledger
+        // entries, so nothing is lost by the discard. If this step ever
+        // legitimately applied rumor-bearing or systemic-resource deltas,
+        // their Report/ledger output would have to be threaded into
+        // updatedReports/updatedTruthLedger rather than discarded here.
         const { updatedEntities: entitiesAfterRelationshipUpdates } = applyDeltas(relationshipDeltas, updatedEntities, updatedWorldState, turnNumber);
         updatedEntities = entitiesAfterRelationshipUpdates;
         // Merge the just-applied deltas into the COMMITTED adjudication so

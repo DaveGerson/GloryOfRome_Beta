@@ -531,6 +531,68 @@ describe('ai/core/turn.ts runNewTurn - campaign truth-ledger threading (D11)', (
   });
 });
 
+// --- Relationship-update contract enforcement (D2/D11/D26) ----------------
+
+describe("ai/core/turn.ts runNewTurn - step 5.5 keeps only 'relation' deltas", () => {
+  it("applies the 'relation' delta but DROPS non-relation deltas from the relationship-update call - no ledger/report leak, no mortality bypass, discard traced in gm_private", async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+    const rival = makeEntity({ entity_id: 'npc_rival', name: 'Senator Rival' });
+
+    // The relationship-update call's schema (zRelationshipDeltas) structurally
+    // accepts every EventDelta type, so it CAN return a mixed bag: one
+    // legitimate 'relation' delta plus a 'rumor' and a 'status:dead' its
+    // contract forbids. Only the relation delta may survive - the rumor must
+    // never mint a truth-ledger/report entry (D11/D26) and the status must
+    // never kill the rival (that pipeline is mortality's alone, D2).
+    const mixedRelationshipJson = JSON.stringify({
+      deltas: [
+        { type: 'relation', key: 'npc_rival:player_1:trust_level', delta: -3, reason: 'The rival reads the move as a threat.' },
+        { type: 'rumor', key: 'player_1', delta: 0.7, reason: 'It is whispered the Emperor poisoned his brother.', is_true: false, origin_id: 'npc_rival' },
+        { type: 'status', key: 'npc_rival', delta: 0, reason: 'Struck down off-page.', new_status: 'dead' },
+      ],
+    });
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    h.response.adjudication.resolve(adjudicationJson); // base deltas: one resource, no rumor/status
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologueText);
+    h.response.narration.resolve(narrationFullText);
+    h.response.relationshipUpdates.resolve(mixedRelationshipJson);
+
+    const result = await runNewTurn(
+      h.ai, 'Snub the Senate', player, 2, [player, rival], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
+    );
+
+    // The 'relation' delta was applied to state AND merged into the committed
+    // ground-truth record.
+    const committedDeltas = result.newHistoryEntry.adjudication.deltas;
+    expect(committedDeltas.some(d => d.type === 'relation' && d.key === 'npc_rival:player_1:trust_level')).toBe(true);
+    expect(result.updatedEntities.find(e => e.entity_id === 'npc_rival')?.relationships['player_1']?.trust_level).toBe(-3);
+
+    // The non-relation deltas were dropped from the committed record entirely.
+    expect(committedDeltas.some(d => d.type === 'rumor')).toBe(false);
+    expect(committedDeltas.some(d => d.type === 'status')).toBe(false);
+
+    // No un-ledgered rumor reached the player surface: the dropped rumor minted
+    // no ledger entry and no Report (the base adjudication carried neither).
+    expect(result.updatedTruthLedger).toEqual([]);
+    expect(result.updatedReports).toEqual([]);
+    expect(result.headlines).not.toContain('It is whispered the Emperor poisoned his brother.');
+
+    // No mortality bypass: the 'status:dead' never touched the roster - the
+    // rival is still alive.
+    expect(result.updatedEntities.find(e => e.entity_id === 'npc_rival')?.status).toBe('alive');
+
+    // The discard is traced for the GM console only (D4/D5), naming the types.
+    const discardNote = result.newHistoryEntry.adjudication.gm_private.find(n => n.includes('Dropped 2 non-relation delta(s)'));
+    expect(discardNote).toBeDefined();
+    expect(discardNote).toContain('rumor:player_1');
+    expect(discardNote).toContain('status:npc_rival');
+  });
+});
+
 // --- Director continuity loop (ROADMAP_PHASE_4.md 4C item 3) --------------
 
 describe('ai/core/turn.ts runNewTurn - Director continuity loop (4C.3)', () => {

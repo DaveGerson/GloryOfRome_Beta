@@ -29,6 +29,8 @@ import type {
   ActionResolutionEvent,
   Adjudication,
   MortalityEvent,
+  NpcIntent,
+  NpcMindDecision,
   RawCallRecord,
   TruthLedgerEntry,
   TurnHistoryEntry,
@@ -58,6 +60,24 @@ export interface EvalCorpusTurn {
   turnSeed: number | null;
   resolutionTrace: ActionResolutionEvent | null;
   mortalityTrace: MortalityEvent[] | null;
+  /**
+   * The Director's per-spotlight intents committed this turn, verbatim from
+   * the history entry (absent -> null, fixed shape). GM-side data the judge
+   * needs: axis 4 (information-asymmetry) checks whether an intent references
+   * knowledge its character could not have - that text is fed to the
+   * character's mind as its own thought - and axis 5 (character richness)
+   * checks whether the turn's NPC moves follow from those stated intents.
+   */
+  npcIntents: NpcIntent[] | null;
+  /**
+   * This turn's per-spotlight mind decisions, verbatim from the history entry
+   * (absent -> null, fixed shape) - `private_reasoning` included. The corpus
+   * and the judge are both GM-console-only artifacts (D18/D4/D5), so the
+   * full mind decision (the character's own first-person thinking, method,
+   * and scheme adjustment) may live here: it is exactly the input axes 4 and
+   * 5 score against and it never touches a player-facing surface.
+   */
+  npcMindResults: NpcMindDecision[] | null;
 }
 
 /**
@@ -109,6 +129,8 @@ export function buildEvalCorpus(
       turnSeed: entry.turnSeed ?? null,
       resolutionTrace: entry.resolutionTrace ?? null,
       mortalityTrace: entry.mortalityTrace ?? null,
+      npcIntents: entry.npcIntents ?? null,
+      npcMindResults: entry.npcMindResults ?? null,
     })),
     sessionCallLog: [...sessionCallLog],
   };

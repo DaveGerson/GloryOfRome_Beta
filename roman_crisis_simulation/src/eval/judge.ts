@@ -50,6 +50,8 @@ export async function judgeTurn(ai: GeminiClient, turn: EvalCorpusTurn): Promise
     adjudication: turn.adjudication,
     narration: turn.narration,
     mortalityTrace: turn.mortalityTrace,
+    npcIntents: turn.npcIntents,
+    npcMindResults: turn.npcMindResults,
   });
 
   return generateStructured<EvalJudgeVerdict>(ai, {

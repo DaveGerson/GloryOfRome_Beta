@@ -77,6 +77,14 @@ function makeFullEntry(turnNumber: number): TurnHistoryEntry {
     mortalityTrace: makeMortalityTrace(),
     resolutionTrace: makeResolutionTrace(),
     turnSeed: 987654321,
+    npcIntents: [{ entity_id: 'maximinus_thrax', intent: 'Court the Rhine legions', continuity: 'new' }],
+    npcMindResults: [{
+      entity_id: 'maximinus_thrax',
+      chosen_action: 'Rally the Danube veterans to my standard.',
+      method: 'Camp fires, oaths, and donatives.',
+      private_reasoning: 'The purple is within reach.',
+      scheme_adjustment: null,
+    }],
   };
 }
 
@@ -143,6 +151,18 @@ describe('persistence/evalCorpus buildEvalCorpus', () => {
     expect(turn.mortalityTrace).toEqual(makeMortalityTrace());
   });
 
+  it('carries the Director intents and NPC mind decisions (GM-side, private_reasoning included) so the judge can score axes 4 and 5', () => {
+    const corpus = buildEvalCorpus([makeFullEntry(4)], [], META);
+
+    const turn = corpus.turns[0];
+    expect(turn.npcIntents).toEqual([{ entity_id: 'maximinus_thrax', intent: 'Court the Rhine legions', continuity: 'new' }]);
+    expect(turn.npcMindResults).toHaveLength(1);
+    // The corpus is a GM-console-only export (D18), so the mind's first-person
+    // reasoning rides along - it is exactly what the character-richness axis
+    // scores against and it never reaches a player-facing surface.
+    expect(turn.npcMindResults?.[0].private_reasoning).toBe('The purple is within reach.');
+  });
+
   it('normalizes legacy entries that lack the optional fields', () => {
     const corpus = buildEvalCorpus([makeLegacyEntry(1)], [], META);
 
@@ -152,6 +172,8 @@ describe('persistence/evalCorpus buildEvalCorpus', () => {
     expect(turn.turnSeed).toBeNull();
     expect(turn.resolutionTrace).toBeNull();
     expect(turn.mortalityTrace).toBeNull();
+    expect(turn.npcIntents).toBeNull();
+    expect(turn.npcMindResults).toBeNull();
     // Raw calls without captured prompt text pass through untouched too.
     const noText = buildEvalCorpus(
       [{ ...makeLegacyEntry(2), rawCalls: [makeRawCall('adjudication', false)] }],

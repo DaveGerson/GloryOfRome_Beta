@@ -44,6 +44,15 @@ function makeRelevance(overrides: Partial<StoryRelevance> = {}): StoryRelevance 
   };
 }
 
+/**
+ * Minimal roster rows for selectDurableIntents' alive gate - it reads only
+ * entity_id + status. Every id passed here is marked alive; a test that
+ * needs a non-alive entity builds its own rows inline.
+ */
+function aliveRoster(...ids: string[]): { entity_id: string; status: Entity['status'] }[] {
+  return ids.map(entity_id => ({ entity_id, status: 'alive' }));
+}
+
 // --- schema pair (zod + Gemini responseSchema, lockstep) -------------------
 
 describe('Director schema pair: spotlight_intents in zStoryRelevance + StoryRelevanceSchema (lockstep)', () => {
@@ -253,7 +262,7 @@ describe('buildAdjudicationPrompt: the Director intents block (prompt lockstep)'
 
 // --- durable-intent selection + the soft consistency contract --------------
 
-describe('selectDurableIntents: spotlights only, capped (4C.3)', () => {
+describe('selectDurableIntents: spotlights only, alive-gated, capped (4C.3)', () => {
   it('drops intents whose entity is not a spotlight pick', () => {
     const relevance = makeRelevance({
       spotlight_entities: [{ entity_id: 'a', reason: 'r' }],
@@ -262,9 +271,36 @@ describe('selectDurableIntents: spotlights only, capped (4C.3)', () => {
         makeIntent({ entity_id: 'offstage', intent: 'Dropped' }),
       ],
     });
-    const durable = selectDurableIntents(relevance);
+    const durable = selectDurableIntents(relevance, aliveRoster('a', 'offstage'));
     expect(durable).toHaveLength(1);
     expect(durable[0].intent).toBe('Kept');
+  });
+
+  it('drops an intent whose spotlighted entity is not alive in the roster - a just-died NPC carries no durable intent', () => {
+    const relevance = makeRelevance({
+      spotlight_entities: [
+        { entity_id: 'alive_one', reason: 'r' },
+        { entity_id: 'dead_one', reason: 'r' },
+        { entity_id: 'exiled_one', reason: 'r' },
+        { entity_id: 'ghost', reason: 'r' },
+      ],
+      spotlight_intents: [
+        makeIntent({ entity_id: 'alive_one', intent: 'Kept' }),
+        makeIntent({ entity_id: 'dead_one', intent: 'Dropped - died this turn' }),
+        makeIntent({ entity_id: 'exiled_one', intent: 'Dropped - exiled' }),
+        makeIntent({ entity_id: 'ghost', intent: 'Dropped - absent from roster entirely' }),
+      ],
+    });
+    // dead_one/exiled_one ARE spotlight picks, but the roster shows them not
+    // alive; ghost is absent from the roster. Only the alive spotlight's
+    // intent may become durable direction fed to the next turn.
+    const roster: { entity_id: string; status: Entity['status'] }[] = [
+      { entity_id: 'alive_one', status: 'alive' },
+      { entity_id: 'dead_one', status: 'dead' },
+      { entity_id: 'exiled_one', status: 'exiled' },
+    ];
+    const durable = selectDurableIntents(relevance, roster);
+    expect(durable.map(i => i.entity_id)).toEqual(['alive_one']);
   });
 
   it('caps at MAX_NPC_INTENTS in emission order', () => {
@@ -273,7 +309,7 @@ describe('selectDurableIntents: spotlights only, capped (4C.3)', () => {
       spotlight_entities: ids.map(id => ({ entity_id: id, reason: 'r' })),
       spotlight_intents: ids.map(id => makeIntent({ entity_id: id, intent: `Intent of ${id}` })),
     });
-    const durable = selectDurableIntents(relevance);
+    const durable = selectDurableIntents(relevance, aliveRoster(...ids));
     expect(durable).toHaveLength(MAX_NPC_INTENTS);
     expect(durable.map(i => i.entity_id)).toEqual(ids.slice(0, MAX_NPC_INTENTS));
   });
@@ -294,7 +330,7 @@ describe('selectDurableIntents: spotlights only, capped (4C.3)', () => {
         makeIntent({ entity_id: 'd', intent: 'For d' }),
       ],
     });
-    const durable = selectDurableIntents(relevance);
+    const durable = selectDurableIntents(relevance, aliveRoster('a', 'b', 'c', 'd'));
     // Without the dedupe, a's duplicate would consume a cap slot and push
     // d's intent out; with it, all four spotlights keep one intent each.
     expect(durable.map(i => i.entity_id)).toEqual(['a', 'b', 'c', 'd']);
@@ -311,7 +347,7 @@ describe('buildIntentDiscardNotes: the silent-wipe trace (4C.3)', () => {
         makeIntent({ entity_id: 'ghost_2', intent: 'y' }),
       ],
     });
-    const durable = selectDurableIntents(relevance);
+    const durable = selectDurableIntents(relevance, aliveRoster('a'));
     expect(durable).toEqual([]);
     const notes = buildIntentDiscardNotes(relevance, durable);
     expect(notes).toHaveLength(1);
@@ -324,14 +360,14 @@ describe('buildIntentDiscardNotes: the silent-wipe trace (4C.3)', () => {
   it('records nothing when any intent survives, when none were emitted, or when no spotlights exist', () => {
     // A surviving intent: no wipe happened.
     const surviving = makeRelevance();
-    expect(buildIntentDiscardNotes(surviving, selectDurableIntents(surviving))).toEqual([]);
+    expect(buildIntentDiscardNotes(surviving, selectDurableIntents(surviving, aliveRoster('maximinus_thrax')))).toEqual([]);
     // Legitimate empty emission: nothing was discarded.
     const empty = makeRelevance({ spotlight_intents: [] });
-    expect(buildIntentDiscardNotes(empty, selectDurableIntents(empty))).toEqual([]);
+    expect(buildIntentDiscardNotes(empty, selectDurableIntents(empty, aliveRoster('maximinus_thrax')))).toEqual([]);
     // No spotlights at all: the filter dropping everything is the contract,
     // not a wipe worth tracing.
     const noSpotlights = makeRelevance({ spotlight_entities: [], spotlight_intents: [makeIntent()] });
-    expect(buildIntentDiscardNotes(noSpotlights, selectDurableIntents(noSpotlights))).toEqual([]);
+    expect(buildIntentDiscardNotes(noSpotlights, selectDurableIntents(noSpotlights, aliveRoster('maximinus_thrax')))).toEqual([]);
   });
 });
 

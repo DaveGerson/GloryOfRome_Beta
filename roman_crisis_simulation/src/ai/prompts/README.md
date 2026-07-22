@@ -155,7 +155,8 @@ of its perception-grounded memories (`Entity.memories` - the D10 stamp).
   upgraded in place (latency discipline; the per-mind calls are a later
   stage).
 - `ai/core/turn.ts::selectDurableIntents` filters the raw response to
-  actual spotlight picks and caps at `MAX_NPC_INTENTS`; that bounded list
+  spotlight picks that are ALSO alive in the current roster (a dead/absent
+  id may never carry durable direction) and caps at `MAX_NPC_INTENTS`; that bounded list
   is what the adjudication prompt's `SPOTLIGHT NPC INTENTS` block
   (`fragments.ts::buildDirectorIntentsBlock`) consumes, what the history
   entry records (`TurnHistoryEntry.npcIntents`, optional), and what the
