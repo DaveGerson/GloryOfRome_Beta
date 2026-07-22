@@ -16,7 +16,9 @@ develop programatic rules for.
   analyses it was built from, `DESIGN_DECISIONS.md` (binding owner rulings), the
   Phase 4 audit/decision record (`PHASE_4_BRAINSTORM.md`), and the current plan
   (`ROADMAP_PHASE_4.md`).
-- `DesignDocs/` — UI specs, wireframes, and design notes.
+- `DesignDocs/` — UI specs, wireframes, and design notes. `DesignDocs/archive/` holds
+  superseded pre-implementation design history (an abandoned Python/CLI design) — see
+  `DesignDocs/archive/README.md`.
 
 ## Running it
 
