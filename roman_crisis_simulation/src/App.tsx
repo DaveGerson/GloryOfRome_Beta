@@ -1020,6 +1020,8 @@ const App: React.FC = () => {
                             worldState={worldState}
                             simulationState={simulationState}
                             reports={reports}
+                            knowledge={knowledge}
+                            turnNumber={turnNumber}
                             onSpendDeepAnalysis={(cost) => handleSpendResource('deep_analyses', cost)}
                             onInvestigationOutcome={handleInvestigationOutcome}
                             ai={aiRef.current}

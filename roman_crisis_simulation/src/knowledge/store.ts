@@ -556,6 +556,108 @@ function resolveSchemeDiscovery(
 }
 
 /**
+ * One held DOSSIER aspect on a target (D14/D27): the frozen snapshot the
+ * player holds for a single investigation aspect of one entity, stamped with
+ * WHEN it was first learned and when it was last refreshed, plus the source
+ * of the latest reading. Derived from the store, never stored separately -
+ * this is a read model over the investigation/scheme claims about a subject.
+ */
+export interface DossierEntry {
+  /** The aspect held - an investigation kind (D14 dossier) or 'scheme' (D28 clue trail). */
+  kind: InvestigationKind;
+  /** D29 topic slug of the underlying claim (the reveal kind for investigations, 'scheme' for schemes). */
+  topic: string;
+  /** The freshest frozen reading held for this aspect - the snapshot as last refreshed (D14). */
+  latestText: string;
+  /** The turn this aspect was FIRST acquired - frozen origin (D14/D21). */
+  firstLearnedTurn: number;
+  /**
+   * The turn this aspect was last refreshed (the newest update's stamp). This
+   * is the staleness clock D27 prices against: turnsSinceLastRefresh =
+   * currentTurn - lastRefreshedTurn.
+   */
+  lastRefreshedTurn: number;
+  /** The source of the latest reading (D5/D25 provenance the player judges trust by). */
+  source: KnowledgeSource;
+  /** D28 scheme-discovery bookkeeping - present ONLY on the 'scheme' aspect. */
+  schemeDiscovery?: SchemeDiscovery;
+}
+
+/**
+ * The per-target dossier: everything the player HOLDS on one entity through
+ * paid investigation, as of when (D14). A pure read model - the frozen
+ * snapshots stay in the underlying claims, this just gathers them per target.
+ */
+export interface Dossier {
+  subject: string;
+  entries: DossierEntry[];
+  /**
+   * The most recent refresh across all held aspects, or undefined when the
+   * dossier is empty (the player holds nothing on this target yet). The
+   * "as of when" of the freshest thing on file.
+   */
+  lastRefreshedTurn?: number;
+}
+
+/**
+ * The investigation/scheme aspect a claim represents, read from its claimKey,
+ * or undefined for a non-dossier claim (digest/report). Deterministic, no AI:
+ *   - `investigation:{subject}:{kind}` -> that kind (beliefs | secrets)
+ *   - `scheme:{subject}`               -> 'scheme'
+ */
+function dossierKindOf(claim: KnowledgeClaim): InvestigationKind | undefined {
+  const parts = claim.claimKey.split(':');
+  if (parts[0] === 'scheme') return 'scheme';
+  if (parts[0] === 'investigation') {
+    const kind = parts[2];
+    if (kind === 'beliefs' || kind === 'secrets' || kind === 'scheme') return kind;
+  }
+  return undefined;
+}
+
+/**
+ * Derives the DOSSIER the player holds on `subject` (D14/D27): the frozen
+ * per-aspect snapshots gathered from the investigation and scheme claims
+ * about that subject, each stamped with its first-learned and last-refreshed
+ * turns and the source of the latest reading. Pure - it reads the store and
+ * builds a view, mutating nothing; digest and report claims are ignored (a
+ * dossier is what you PAID to hold, per D14). This is the "what do I hold on
+ * entity X, as of when" accessor D27's refresh pricing keys off - a caller
+ * finds the entry for the aspect it is about to re-buy, reads its
+ * lastRefreshedTurn, and prices the refresh with
+ * dossierCost.ts::computeRefreshCost. A subject with no held dossier returns
+ * an empty entries list (the caller then charges first-acquisition price).
+ */
+export function deriveDossier(store: KnowledgeClaim[], subject: string): Dossier {
+  const entries: DossierEntry[] = [];
+  for (const claim of store) {
+    if (claim.subject !== subject) continue;
+    const kind = dossierKindOf(claim);
+    if (!kind) continue;
+    const latest = claim.updates[claim.updates.length - 1];
+    // A claim always carries at least its opening update; guard anyway so the
+    // accessor stays total against a malformed (e.g. hand-edited save) claim.
+    if (!latest) continue;
+    const entry: DossierEntry = {
+      kind,
+      topic: claim.topic ?? kind,
+      latestText: latest.text,
+      firstLearnedTurn: claim.firstLearnedTurn,
+      lastRefreshedTurn: latest.turn,
+      source: latest.source,
+    };
+    if (claim.schemeDiscovery) entry.schemeDiscovery = claim.schemeDiscovery;
+    entries.push(entry);
+  }
+  const lastRefreshedTurn = entries.length > 0
+    ? Math.max(...entries.map(e => e.lastRefreshedTurn))
+    : undefined;
+  const dossier: Dossier = { subject, entries };
+  if (typeof lastRefreshedTurn === 'number') dossier.lastRefreshedTurn = lastRefreshedTurn;
+  return dossier;
+}
+
+/**
  * Adds one clue to a schemer's unified scheme-discovery claim (D28), opening
  * it on the first clue. Both a proximity SIGHTING (a witnessed 'scheme'
  * digest entry) and a bought INVESTIGATION feed this one claim - keyed

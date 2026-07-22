@@ -18,6 +18,7 @@ import {
   ingestReports,
   ingestInvestigationReveal,
   ingestSchemeClue,
+  deriveDossier,
   SCHEME_CLUES_TO_REVEAL,
   SCHEME_CLUE_LINE,
   SCHEME_NATURE_UNSYNTHESIZED,
@@ -348,6 +349,80 @@ describe('knowledge/store', () => {
       const claim = store[0];
       expect(claim.schemeDiscovery?.revealed).toBe(true);
       expect(claim.schemeDiscovery?.nature).toBe(SCHEME_NATURE_UNSYNTHESIZED);
+    });
+  });
+
+  describe('deriveDossier (per-target held-intel read model, D14/D27)', () => {
+    it('returns an empty dossier for a target the player holds nothing on', () => {
+      expect(deriveDossier([], 'maximinus_thrax')).toEqual({ subject: 'maximinus_thrax', entries: [] });
+    });
+
+    it('ignores digest and report claims - a dossier is only what was PAID to hold (D14)', () => {
+      let store = ingestPerceivedChanges(
+        [],
+        [makeChange({ deltaType: 'status', deltaKey: 'maximinus_thrax', subject: 'maximinus_thrax', text: 'Maximinus Thrax is now exiled.' })],
+        2
+      );
+      store = ingestReports(store, [makeReport()]); // a rumor about the same subject
+      const dossier = deriveDossier(store, 'maximinus_thrax');
+      expect(dossier.entries).toEqual([]);
+      expect(dossier.lastRefreshedTurn).toBeUndefined();
+    });
+
+    it('gathers each held aspect stamped with first-learned + last-refreshed turns and the latest source', () => {
+      let store = ingestInvestigationReveal([], {
+        targetId: 'maximinus_thrax', kind: 'beliefs', text: 'He believes strength confers legitimacy.', turn: 4,
+      });
+      store = ingestInvestigationReveal(store, {
+        targetId: 'maximinus_thrax', kind: 'secrets', text: 'He hides a pact with the Rhine legions.', turn: 6,
+      });
+
+      const dossier = deriveDossier(store, 'maximinus_thrax');
+      expect(dossier.subject).toBe('maximinus_thrax');
+      // The freshest thing on file (secrets, turn 6) sets the dossier's "as of".
+      expect(dossier.lastRefreshedTurn).toBe(6);
+
+      const beliefs = dossier.entries.find(e => e.kind === 'beliefs');
+      expect(beliefs).toMatchObject({
+        kind: 'beliefs', topic: 'beliefs', firstLearnedTurn: 4, lastRefreshedTurn: 4, source: 'spy',
+        latestText: 'He believes strength confers legitimacy.',
+      });
+      const secrets = dossier.entries.find(e => e.kind === 'secrets');
+      expect(secrets).toMatchObject({ kind: 'secrets', firstLearnedTurn: 6, lastRefreshedTurn: 6 });
+    });
+
+    it('a re-investigated aspect keeps its frozen origin but advances last-refreshed to the newest reveal (D14)', () => {
+      let store = ingestInvestigationReveal([], {
+        targetId: 'maximinus_thrax', kind: 'beliefs', text: 'He believes strength confers legitimacy.', turn: 4,
+      });
+      store = ingestInvestigationReveal(store, {
+        targetId: 'maximinus_thrax', kind: 'beliefs', text: 'He now doubts the Senate will bend.', turn: 9,
+      });
+
+      const beliefs = deriveDossier(store, 'maximinus_thrax').entries.find(e => e.kind === 'beliefs');
+      expect(beliefs?.firstLearnedTurn).toBe(4); // frozen origin
+      expect(beliefs?.lastRefreshedTurn).toBe(9); // the staleness clock advances
+      expect(beliefs?.latestText).toBe('He now doubts the Senate will bend.'); // the freshest snapshot
+    });
+
+    it('surfaces a scheme aspect (D28) with its discovery bookkeeping and last-clue turn', () => {
+      const store = ingestSchemeClue([], {
+        schemerId: 'maximinus_thrax', turn: 3, source: 'witnessed', text: 'You sense Maximinus Thrax is plotting something.',
+      });
+      const scheme = deriveDossier(store, 'maximinus_thrax').entries.find(e => e.kind === 'scheme');
+      expect(scheme).toMatchObject({ kind: 'scheme', topic: 'scheme', lastRefreshedTurn: 3 });
+      expect(scheme?.schemeDiscovery).toEqual({ clues: 1, revealed: false });
+    });
+
+    it('scopes strictly to the requested subject', () => {
+      let store = ingestInvestigationReveal([], {
+        targetId: 'maximinus_thrax', kind: 'beliefs', text: 'A belief.', turn: 4,
+      });
+      store = ingestInvestigationReveal(store, {
+        targetId: 'gordian', kind: 'beliefs', text: 'Another belief.', turn: 5,
+      });
+      expect(deriveDossier(store, 'maximinus_thrax').entries).toHaveLength(1);
+      expect(deriveDossier(store, 'gordian').entries[0].lastRefreshedTurn).toBe(5);
     });
   });
 

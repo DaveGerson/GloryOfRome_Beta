@@ -7,6 +7,38 @@ import GlossaryTooltip from '../GlossaryTooltip';
 import { Card, Button } from '../ui/Core';
 import { TrustBar } from '../ui/Game';
 import { toRoman } from '../ui/Brand';
+import { deriveDossier, InvestigationKind, KnowledgeClaim } from '../../knowledge/store';
+import { computeRefreshCost } from '../../knowledge/dossierCost';
+
+/**
+ * DESIGN_DECISIONS.md D14 - the full first-acquisition price of one
+ * investigation aspect, in the `investigations` resource. A REFRESH of an
+ * aspect the player already holds a dossier on is discounted from this by
+ * staleness (D27) - see priceInvestigation below.
+ */
+const FIRST_INVESTIGATION_COST = 1;
+
+/**
+ * Prices one investigation aspect against what the player already holds on a
+ * target (D14/D27). First acquisition (no dossier on file for this aspect) is
+ * full price; a refresh is the staleness-decayed price, rounded to a whole
+ * `investigations` unit because the currency is integer (see
+ * knowledge/dossierCost.ts's INTEGER CURRENCIES note - at unit price this is
+ * a free warm top-up vs. full-price cold re-acquisition). `held` drives the
+ * Reveal-vs-Refresh label and never reads any credibility number (D25).
+ */
+function priceInvestigation(
+  knowledge: KnowledgeClaim[],
+  targetId: string,
+  kind: InvestigationKind,
+  turnNumber: number
+): { cost: number; held: boolean } {
+  const entry = deriveDossier(knowledge, targetId).entries.find(e => e.kind === kind);
+  if (!entry) return { cost: FIRST_INVESTIGATION_COST, held: false };
+  const turnsSinceLastRefresh = Math.max(0, turnNumber - entry.lastRefreshedTurn);
+  const cost = Math.round(computeRefreshCost(FIRST_INVESTIGATION_COST, turnsSinceLastRefresh));
+  return { cost, held: true };
+}
 
 type UncoveredIntel = {
     secrets?: string[];
@@ -63,12 +95,14 @@ const IntelSection: React.FC<{
     cost: number;
     resourceName: string;
     resourceCount: number;
+    /** True once the player holds a persisted dossier on this aspect (D14): the button reads "Refresh", priced by staleness (D27), not "Reveal". */
+    held: boolean;
     uncoveredData: string[] | Scheme | undefined;
     onUncover: () => void;
     isLoading: boolean;
     tooltip: string;
     footnote?: React.ReactNode;
-}> = ({ title, cost, resourceName, resourceCount, uncoveredData, onUncover, isLoading, tooltip, footnote }) => {
+}> = ({ title, cost, resourceName, resourceCount, held, uncoveredData, onUncover, isLoading, tooltip, footnote }) => {
 
     const renderContent = () => {
         if (isLoading) {
@@ -91,11 +125,17 @@ const IntelSection: React.FC<{
                 </div>
             );
         }
+        // D27: a held dossier is REFRESHED (staleness-priced), not revealed
+        // afresh; a warm file can round to a free top-up (cost 0), which the
+        // Roman-numeral price can't render (toRoman floors to I), so it reads
+        // "Free". Only a spend AMOUNT is ever shown - never a credibility
+        // number (D25).
+        const verb = held ? 'Refresh' : 'Reveal';
         return (
             <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                <span style={quiet}>[ Unknown ]</span>
+                <span style={quiet}>{held ? '[ On file — may be stale ]' : '[ Unknown ]'}</span>
                 <Button size="sm" variant="secondary" onClick={onUncover} disabled={resourceCount < cost || isLoading}>
-                    Reveal · {toRoman(cost)} {resourceName}
+                    {cost <= 0 ? `${verb} · Free` : `${verb} · ${toRoman(cost)} ${resourceName}`}
                 </Button>
             </span>
         );
@@ -157,17 +197,27 @@ const DeepAnalysisSection: React.FC<{
 const EntityDetails: React.FC<{
     entity: Entity;
     playerEntity: Entity;
+    /** The player knowledge store - the held-dossier read model that prices refreshes by staleness (D14/D27). */
+    knowledge: KnowledgeClaim[];
+    /** The App's authoritative turn counter - the staleness clock a refresh is priced against (D27). */
+    turnNumber: number;
     onSpendDeepAnalysis: (cost: number) => void;
     /** One atomic callback per investigation reveal - spend + blackmail + fallout in a single state/save pass (see App.tsx's handleInvestigationOutcome). */
     onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult) => void;
     ai: GoogleGenAI;
     isMockMode: boolean;
-}> = ({ entity, playerEntity, onSpendDeepAnalysis, onInvestigationOutcome, ai, isMockMode }) => {
+}> = ({ entity, playerEntity, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, ai, isMockMode }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [uncoveredIntel, setUncoveredIntel] = useState<UncoveredIntel>({});
     const [loadingState, setLoadingState] = useState<string | null>(null);
 
     const playerRelationship = playerEntity.relationships[entity.entity_id];
+
+    // D14/D27: price each aspect against the dossier already on file for this
+    // target. First acquisition is full price; a held dossier is a
+    // staleness-decayed refresh. Computed from the current knowledge store so
+    // display and spend agree (the same price flows to onInvestigationOutcome).
+    const price = (kind: InvestigationKind) => priceInvestigation(knowledge, entity.entity_id, kind, turnNumber);
 
     const handleRequest = async (type: 'secrets' | 'beliefs' | 'scheme' | 'raw_thoughts' | 'deep_analysis', target: Entity) => {
         if (!playerEntity) return;
@@ -197,14 +247,20 @@ const EntityDetails: React.FC<{
                 case 'beliefs':
                 case 'secrets':
                 case 'scheme': {
-                    if ((playerEntity.resources.investigations as number) >= 1) {
+                    // D27: charge the staleness-priced cost for a held dossier,
+                    // full first-acquisition price otherwise - the SAME
+                    // `investigations` resource either way (D27 never switches
+                    // currency). Priced at click from the current store so it
+                    // matches the label the player saw.
+                    const { cost } = price(type);
+                    if ((playerEntity.resources.investigations as number) >= cost) {
                         const result = await getInvestigationResult(ai, target, playerEntity, true, isMockMode, type);
                         setUncoveredIntel(prev => ({ ...prev, [type]: result.reportData }));
                         // One atomic callback: the spend, any blackmail filing,
                         // and the fallout append land in a single App-side
                         // state/save pass - sequential per-concern callbacks
                         // rebuilt the save from stale closures and lost fields.
-                        onInvestigationOutcome(type, target.entity_id, result.reportData, 1, { target_id: target.entity_id, report: result.report, consequences: result.consequences });
+                        onInvestigationOutcome(type, target.entity_id, result.reportData, cost, { target_id: target.entity_id, report: result.report, consequences: result.consequences });
                     }
                     break;
                 }
@@ -269,7 +325,7 @@ const EntityDetails: React.FC<{
                         <span className="gor-label" style={{ color: 'var(--tyrian-500)' }}>Intelligence Briefing</span>
                         <IntelSection
                             title="Beliefs"
-                            cost={1}
+                            {...price('beliefs')}
                             resourceName="Inv."
                             resourceCount={investigations}
                             uncoveredData={uncoveredIntel.beliefs}
@@ -279,7 +335,7 @@ const EntityDetails: React.FC<{
                         />
                         <IntelSection
                             title="Active Scheme"
-                            cost={1}
+                            {...price('scheme')}
                             resourceName="Inv."
                             resourceCount={investigations}
                             uncoveredData={uncoveredIntel.scheme}
@@ -289,7 +345,7 @@ const EntityDetails: React.FC<{
                         />
                         <IntelSection
                             title="Secrets"
-                            cost={1}
+                            {...price('secrets')}
                             resourceName="Inv."
                             resourceCount={investigations}
                             uncoveredData={uncoveredIntel.secrets}
@@ -316,6 +372,10 @@ const FactionSection: React.FC<{
     faction: Entity,
     members: Entity[],
     playerEntity: Entity,
+    /** Forwarded to EntityDetails to price held-dossier refreshes by staleness (D14/D27). */
+    knowledge: KnowledgeClaim[];
+    /** Forwarded to EntityDetails - the staleness clock a refresh is priced against (D27). */
+    turnNumber: number;
     onSpendDeepAnalysis: (cost: number) => void;
     /** One atomic callback per investigation reveal - spend + blackmail + fallout in a single state/save pass (see App.tsx's handleInvestigationOutcome). */
     onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult) => void;
@@ -350,6 +410,10 @@ const FactionSection: React.FC<{
 const DramatisPersonaeTab: React.FC<{
     playerEntity: Entity | null;
     entities: Entity[];
+    /** The player knowledge store - prices held-dossier refreshes by staleness (D14/D27); forwarded down to each EntityDetails. */
+    knowledge: KnowledgeClaim[];
+    /** The App's authoritative turn counter - the staleness clock a refresh is priced against (D27). */
+    turnNumber: number;
     onSpendDeepAnalysis: (cost: number) => void;
     /** One atomic callback per investigation reveal - spend + blackmail + fallout in a single state/save pass (see App.tsx's handleInvestigationOutcome). */
     onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult) => void;
