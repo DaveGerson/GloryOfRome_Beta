@@ -206,6 +206,20 @@ latency leg D16 sanctions).
   included) render only in `GameMasterScreen` (the turn's
   `npcMindResults`, trimmed with the snapshot window) and feed only
   prompts under `ai/`.
+- **D30 - a mind's `scheme_adjustment` is LOAD-BEARING:** it is the
+  character's own evolving intent, not a hint the adjudicator may discard.
+  After the adjudication call, `ai/core/turn.ts::buildMindSchemeDeltas`
+  turns each mind's non-empty `scheme_adjustment` into a committed 'scheme'
+  delta evolving THAT entity's own `active_scheme`
+  (`evolveSchemeFromAdjustment` folds the one-liner in as the plan's next
+  step, capped at `MAX_SCHEME_STEPS`, so engine.ts's `JSON.parse` of a full
+  `Scheme` never breaks). SCHEME OWNERSHIP precedence: for a minded entity
+  its own mind owns the evolution, so any competing adjudicator 'scheme'
+  delta for the same entity is deduped away (no double-application) and the
+  adjudication prompt's DYNAMIC SCHEMES rule tells the adjudicator not to
+  emit one; the adjudicator still owns every NON-minded entity's scheme and
+  all action outcomes. The applied delta flows through `applyDeltas` and D28
+  perception like any other (a witness senses only 'something afoot').
 - **D22 grouping seam:** one mind per spotlight CHARACTER today; grouping
   minds per set/faction later (the sanctioned cost lever) changes only
   `selectMindEntities` + the self-brief - see the seam notes in

@@ -153,7 +153,7 @@ OUTPUT: a single JSON object per the schema, no explanatory text or markdown:
 - "chosen_action": ONE concrete act you take this week, in prose - a single decisive move, not a list of options.
 - "method": HOW you carry it out, briefly.
 - "private_reasoning": your true thinking, first person - the honest why behind the move, including anything you would never say aloud. No one in the world ever hears this.
-- "scheme_adjustment": OPTIONAL - if this week's events shift your active scheme (a step completed, failed, or redirected), one line on how; omit or null if your scheme stands unchanged.
+- "scheme_adjustment": OPTIONAL - if this week's events shift your active scheme (a step completed, failed, or redirected), one line on how it now stands. This is YOUR own plan and this shift takes effect as your scheme this week - it is not a suggestion for someone else to weigh. Omit or null ONLY if your scheme stands wholly unchanged.
 `;
 
   const memoryLines = self.memories

@@ -25,7 +25,8 @@ import { zNpcMindDecision } from '../ai/core/zodSchemas';
 import { NpcMindDecisionSchema } from '../ai/core/schemas';
 import { buildNpcMindPrompt, buildMindSelfBrief, MAX_MINDS_PER_TURN, MIND_MEMORY_LINES } from '../ai/prompts/npcMind';
 import { buildNpcMindDecisionsBlock } from '../ai/prompts/fragments';
-import { runNewTurn, selectMindEntities, selectUnrememberedChanges } from '../ai/core/turn';
+import { runNewTurn, selectMindEntities, selectUnrememberedChanges, evolveSchemeFromAdjustment, buildMindSchemeDeltas, MAX_SCHEME_STEPS } from '../ai/core/turn';
+import { applyDeltas } from '../ai/core/engine';
 import { MAX_NPC_MEMORY_LINES_PER_TURN } from '../perception/npcPerception';
 import { buildPerceivedDigest, type PerceivedChange } from '../perception/visibility';
 import { endTurnCapture } from '../ai/core/geminiService';
@@ -33,7 +34,7 @@ import { withOldSnapshotsDropped, KEEP_FULL_SNAPSHOTS } from '../state/gameReduc
 import { mockRunNewTurn, mockGetNpcMindDecision } from '../ai/mocks';
 import { getMockInitialState } from './mockData';
 import { ALL_INITIAL_ENTITIES, INITIAL_WORLD_STATE } from '../constants/baseScenario';
-import type { Entity, NpcMindDecision, SimulationState, StoryRelevance, TurnHistoryEntry, WorldState } from '../types';
+import type { Entity, EventDelta, NpcMindDecision, Scheme, SimulationState, StoryRelevance, TurnHistoryEntry, WorldState } from '../types';
 
 // --- fixtures --------------------------------------------------------------
 
@@ -672,11 +673,14 @@ describe('runNewTurn npc_minds: per-mind failure degrades softly', () => {
     // intents block - the adjudicator falls back to it alone.
     expect(adjudicationPrompt).toContain('Slip the toxin into the palace kitchens');
 
-    // The failure is recorded as a GM-private note (GM console only).
-    const mindNotes = result.newHistoryEntry.adjudication.gm_private.filter(n => n.startsWith('[Mind]'));
-    expect(mindNotes).toHaveLength(1);
-    expect(mindNotes[0]).toContain('npc_venena');
-    expect(mindNotes[0]).toContain('Director intent alone');
+    // The failure is recorded as a GM-private note (GM console only). Filter
+    // to the FAILURE note specifically: the surviving Thrax mind returned a
+    // scheme_adjustment (thraxDecisionJson), which now also emits a [Mind]
+    // note for its applied scheme evolution (D30) - a different [Mind] note.
+    const failureNotes = result.newHistoryEntry.adjudication.gm_private.filter(n => n.startsWith('[Mind]') && n.includes('mind call failed'));
+    expect(failureNotes).toHaveLength(1);
+    expect(failureNotes[0]).toContain('npc_venena');
+    expect(failureNotes[0]).toContain('Director intent alone');
 
     // Only the surviving decision is on the entry.
     expect(result.newHistoryEntry.npcMindResults).toHaveLength(1);
@@ -794,12 +798,15 @@ describe('buildNpcMindDecisionsBlock: decisions in, reasoning never', () => {
     expect(block).toContain('public manifestation may and should surface in headlines');
   });
 
-  it('rides scheme_adjustment along as a labeled HINT (minds propose, the adjudicator disposes) - absent when the mind omitted it', () => {
+  it("renders scheme_adjustment as the character's OWN evolving scheme (D30, load-bearing) and forbids a competing adjudicator scheme delta - absent when the mind omitted it", () => {
     const withHint = buildNpcMindDecisionsBlock([
       { entity_id: 'npc_a', chosen_action: 'Seize the granary', method: 'At dawn', private_reasoning: 'r', scheme_adjustment: 'The granary step is done; next, the docks.' },
     ]);
     expect(withHint).toContain('their scheme shifts: "The granary step is done; next, the docks."');
-    expect(withHint).toContain('minds propose, you dispose');
+    // D30: the shift is the character's own evolving scheme, owned by its
+    // mind; the adjudicator must not emit a competing 'scheme' delta for it.
+    expect(withHint).toContain('owned by its mind');
+    expect(withHint).toContain("do NOT emit a 'scheme' delta for such an entity");
     const withoutHint = buildNpcMindDecisionsBlock([
       { entity_id: 'npc_a', chosen_action: 'Seize the granary', method: 'At dawn', private_reasoning: 'r' },
     ]);
@@ -809,6 +816,164 @@ describe('buildNpcMindDecisionsBlock: decisions in, reasoning never', () => {
       { entity_id: 'npc_a', chosen_action: 'Seize the granary', method: 'At dawn', private_reasoning: 'r', scheme_adjustment: null },
     ]);
     expect(withNull).not.toContain('their scheme shifts:');
+  });
+});
+
+// --- D30: minds continuously evolve their own schemes -----------------------
+
+describe('D30: a mind evolves its OWN active_scheme (load-bearing scheme_adjustment)', () => {
+  describe('evolveSchemeFromAdjustment: a faithful, engine-parseable Scheme evolution', () => {
+    it("folds the one-liner in as the plan's next in_progress step, preserving name/goal/prior steps", () => {
+      const current: Scheme = { name: 'The Thracian Ascent', overall_goal: 'Take the purple.', steps: [{ objective: 'Win the Rhine legions', status: 'in_progress' }] };
+      const evolved = evolveSchemeFromAdjustment(current, '  The recruitment is done; the march begins.  ');
+      expect(evolved.name).toBe('The Thracian Ascent');
+      expect(evolved.overall_goal).toBe('Take the purple.');
+      expect(evolved.steps).toEqual([
+        { objective: 'Win the Rhine legions', status: 'in_progress' },
+        // Trimmed, appended as the plan's next step.
+        { objective: 'The recruitment is done; the march begins.', status: 'in_progress' },
+      ]);
+    });
+
+    it('seeds a minimal, valid Scheme when the entity has no prior scheme', () => {
+      const seeded = evolveSchemeFromAdjustment(undefined, 'Begin buying silence in the Subura.');
+      expect(seeded.steps).toEqual([{ objective: 'Begin buying silence in the Subura.', status: 'in_progress' }]);
+      expect(seeded.overall_goal).toBe('Begin buying silence in the Subura.');
+      expect(seeded.name.length).toBeGreaterThan(0);
+    });
+
+    it('caps steps at MAX_SCHEME_STEPS, dropping the oldest', () => {
+      const steps = Array.from({ length: MAX_SCHEME_STEPS }, (_, i) => ({ objective: `step ${i}`, status: 'completed' as const }));
+      const evolved = evolveSchemeFromAdjustment({ name: 'Long Game', overall_goal: 'Endure.', steps }, 'the newest move');
+      expect(evolved.steps).toHaveLength(MAX_SCHEME_STEPS);
+      // Oldest ('step 0') dropped; the newest note is last.
+      expect(evolved.steps[0].objective).toBe('step 1');
+      expect(evolved.steps.at(-1)?.objective).toBe('the newest move');
+    });
+  });
+
+  describe('buildMindSchemeDeltas: one committed, engine-parseable scheme delta per evolving mind', () => {
+    const cast: Entity[] = [
+      makeEntity({ entity_id: 'npc_thrax', name: 'Maximinus Thrax', active_scheme: { name: 'The Thracian Ascent', overall_goal: 'Take the purple.', steps: [{ objective: 'Win the Rhine legions', status: 'in_progress' }] } }),
+      makeEntity({ entity_id: 'npc_venena', name: 'Livia Venena' }),
+    ];
+
+    it('emits a 0-delta scheme delta keyed by entity_id whose reason is a JSON Scheme; skips blank/absent adjustments and unknown ids', () => {
+      const decisions: NpcMindDecision[] = [
+        { entity_id: 'npc_thrax', chosen_action: 'March', method: 'fast', private_reasoning: 'r', scheme_adjustment: 'The march begins.' },
+        { entity_id: 'npc_venena', chosen_action: 'Wait', method: 'quiet', private_reasoning: 'r' }, // no adjustment -> no delta
+        { entity_id: 'npc_thrax', chosen_action: 'x', method: 'y', private_reasoning: 'r', scheme_adjustment: '   ' }, // blank -> no delta
+        { entity_id: 'npc_ghost', chosen_action: 'x', method: 'y', private_reasoning: 'r', scheme_adjustment: 'evolve' }, // not in roster -> no delta
+      ];
+      const deltas = buildMindSchemeDeltas(decisions, cast);
+      expect(deltas).toHaveLength(1);
+      expect(deltas[0]).toMatchObject({ type: 'scheme', key: 'npc_thrax', delta: 0 });
+      const parsed = JSON.parse(deltas[0].reason) as Scheme;
+      expect(parsed.name).toBe('The Thracian Ascent');
+      expect(parsed.steps.at(-1)?.objective).toBe('The march begins.');
+    });
+
+    it('the emitted delta parses through engine.ts applyDeltas and updates active_scheme (parsing not broken)', () => {
+      const deltas = buildMindSchemeDeltas(
+        [{ entity_id: 'npc_thrax', chosen_action: 'March', method: 'fast', private_reasoning: 'r', scheme_adjustment: 'The march begins.' }],
+        cast
+      );
+      const { updatedEntities } = applyDeltas(deltas, cast, WORLD_STATE, 5);
+      const thrax = updatedEntities.find(e => e.entity_id === 'npc_thrax')!;
+      expect(thrax.active_scheme?.name).toBe('The Thracian Ascent');
+      expect(thrax.active_scheme?.steps.map(s => s.objective)).toContain('The march begins.');
+    });
+  });
+
+  describe('runNewTurn: the mind-driven scheme evolution is committed and applied once', () => {
+    it("a mind's scheme_adjustment produces a committed 'scheme' delta that evolves ONLY that entity's active_scheme, with a [Mind] note", async () => {
+      const harness = createMindHarness(baseResponses());
+      const result = await runAsymmetryTurn(harness);
+
+      // Thrax's mind returned a scheme_adjustment (thraxDecisionJson); Venena's did not.
+      const schemeDeltas = result.newHistoryEntry.adjudication.deltas.filter((d: EventDelta) => d.type === 'scheme');
+      const thraxScheme = schemeDeltas.filter((d: EventDelta) => d.key === 'npc_thrax');
+      expect(thraxScheme).toHaveLength(1);
+      const parsed = JSON.parse(thraxScheme[0].reason) as Scheme;
+      expect(parsed.name).toBe(OWN_SCHEME_NAME);
+      expect(parsed.steps.at(-1)?.objective).toBe('The recruitment step is complete; the march begins.');
+      // No scheme delta for Venena (she evolved nothing this turn).
+      expect(schemeDeltas.some((d: EventDelta) => d.key === 'npc_venena')).toBe(false);
+
+      // Applied to state: Thrax's own active_scheme carries the new step.
+      const thrax = result.updatedEntities.find(e => e.entity_id === 'npc_thrax')!;
+      expect(thrax.active_scheme?.name).toBe(OWN_SCHEME_NAME);
+      expect(thrax.active_scheme?.steps.map(s => s.objective)).toContain('The recruitment step is complete; the march begins.');
+
+      // A GM-private [Mind] note records the applied evolution (GM console only).
+      const mindNotes = result.newHistoryEntry.adjudication.gm_private.filter(n => n.startsWith('[Mind]'));
+      expect(mindNotes.some(n => n.includes('npc_thrax') && n.includes('active_scheme'))).toBe(true);
+    });
+
+    it('precedence/dedup: the mind wins over a competing adjudicator scheme delta for the same entity; the adjudicator still owns non-minded (and non-evolving minded) entities schemes', async () => {
+      const responses = baseResponses();
+      responses.adjudication = JSON.stringify({
+        turn: 5,
+        entityActions: [],
+        deltas: [
+          // Same entity whose mind evolved its scheme -> superseded (no double-apply).
+          { type: 'scheme', key: 'npc_thrax', delta: 0, reason: JSON.stringify({ name: 'Adjudicator Override', overall_goal: "Not the mind's plan.", steps: [] }) },
+          // A minded entity whose mind did NOT evolve -> adjudicator keeps ownership.
+          { type: 'scheme', key: 'npc_venena', delta: 0, reason: JSON.stringify({ name: 'Venena Adjudicator Scheme', overall_goal: 'Poison on.', steps: [] }) },
+          // A non-minded bystander -> adjudicator owns it (DYNAMIC SCHEMES).
+          { type: 'scheme', key: 'npc_bystander', delta: 0, reason: JSON.stringify({ name: 'Bystander Scheme', overall_goal: 'Watch.', steps: [] }) },
+        ],
+        headlines: ['The Rhine stirs.'],
+        gm_private: [],
+      });
+      const harness = createMindHarness(responses);
+      const { player, npcA, npcB } = makeAsymmetryCast();
+      const bystander = makeEntity({ entity_id: 'npc_bystander', name: 'A Bystander', location: 'Palatine Hill' });
+      const result = await runNewTurn(
+        harness.ai, 'Hold court', player, 5, [player, npcA, npcB, bystander], WORLD_STATE, SIM_STATE,
+        [makePreviousEntry()], [], [], [], '', false, 'Grim political thriller'
+      );
+
+      const schemeDeltas = result.newHistoryEntry.adjudication.deltas.filter((d: EventDelta) => d.type === 'scheme');
+      // Exactly one scheme delta for Thrax: the mind's, not the adjudicator's override.
+      const thraxScheme = schemeDeltas.filter((d: EventDelta) => d.key === 'npc_thrax');
+      expect(thraxScheme).toHaveLength(1);
+      expect((JSON.parse(thraxScheme[0].reason) as Scheme).name).toBe(OWN_SCHEME_NAME);
+      expect(thraxScheme[0].reason).not.toContain('Adjudicator Override');
+      // Applied once: Thrax's scheme is the mind's evolution, never the override.
+      const thrax = result.updatedEntities.find(e => e.entity_id === 'npc_thrax')!;
+      expect(thrax.active_scheme?.name).toBe(OWN_SCHEME_NAME);
+
+      // Venena (minded, no scheme_adjustment) keeps the ADJUDICATOR's scheme.
+      const venena = result.updatedEntities.find(e => e.entity_id === 'npc_venena')!;
+      expect(venena.active_scheme?.name).toBe('Venena Adjudicator Scheme');
+      // Bystander (non-minded) keeps the ADJUDICATOR's scheme (DYNAMIC SCHEMES).
+      const byst = result.updatedEntities.find(e => e.entity_id === 'npc_bystander')!;
+      expect(byst.active_scheme?.name).toBe('Bystander Scheme');
+
+      // The supersession is traced for the GM console (D4/D5 - GM-only).
+      const mindNotes = result.newHistoryEntry.adjudication.gm_private.filter(n => n.startsWith('[Mind]'));
+      expect(mindNotes.some(n => n.includes('Superseded') && n.includes('npc_thrax'))).toBe(true);
+    });
+
+    it('D28: the mind-applied scheme reaches a co-located witness only as "something afoot", never its name or nature', () => {
+      // The committed scheme delta a mind evolution produces...
+      const cast: Entity[] = [
+        makeEntity({ entity_id: 'npc_thrax', name: 'Maximinus Thrax', location: 'Praetorian Camp', active_scheme: { name: OWN_SCHEME_NAME, overall_goal: 'Take the purple.', steps: [] } }),
+      ];
+      const [schemeDelta] = buildMindSchemeDeltas(
+        [{ entity_id: 'npc_thrax', chosen_action: 'March', method: 'fast', private_reasoning: 'r', scheme_adjustment: 'The recruitment step is complete; the march begins.' }],
+        cast
+      );
+      // ...perceived by a witness standing in the same camp.
+      const witness = makeEntity({ entity_id: 'npc_watch', name: 'A Sentry', location: 'Praetorian Camp' });
+      const digest = buildPerceivedDigest([schemeDelta], witness, [...cast, witness], WORLD_STATE);
+      const line = digest.find(c => c.deltaKey === 'npc_thrax');
+      expect(line?.text).toBe('You sense Maximinus Thrax is plotting something.');
+      // Neither the scheme's NAME nor the evolution note ever leaks (D28).
+      expect(line?.text).not.toContain(OWN_SCHEME_NAME);
+      expect(line?.text).not.toContain('recruitment step');
+    });
   });
 });
 

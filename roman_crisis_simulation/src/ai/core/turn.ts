@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent, TruthLedgerEntry, NpcIntent, NpcMindDecision, StoryRelevance, EntityAction, Memory, PacingPosture, EventFiringRecord } from '../../types';
+import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent, TruthLedgerEntry, NpcIntent, NpcMindDecision, StoryRelevance, EntityAction, Memory, PacingPosture, EventFiringRecord, EventDelta, Scheme, SchemeStep } from '../../types';
 import { AdjudicationSchema } from './schemas';
 import { applyAdjudication, applyDeltas } from './engine';
 import { mockRunNewTurn } from "../mocks";
@@ -144,6 +144,76 @@ export function selectMindEntities(storyRelevance: StoryRelevance, entities: Ent
         picked.push(entity);
     }
     return picked;
+}
+
+/**
+ * Upper bound on an `active_scheme`'s `steps` list once a mind-driven
+ * evolution (D30) appends to it: past this cap the OLDEST steps are dropped.
+ * A scheme's earliest phases are typically already completed, so the plan's
+ * next moves are the load-bearing ones for what the character does now. The
+ * bound is deliberately generous - the adjudicator authors ~3-5-step schemes
+ * (see DYNAMIC SCHEMES in ai/prompts/adjudication.ts), so this only ever
+ * bites a long-running spotlight whose own mind keeps evolving its plan turn
+ * after turn; without it, a persisted field would grow without limit.
+ */
+export const MAX_SCHEME_STEPS = 8;
+
+/**
+ * D30: reconstructs a COMPLETE, parseable `Scheme` from an entity's CURRENT
+ * `active_scheme` by folding the mind's one-line `scheme_adjustment` in as a
+ * new in_progress step. This is the exact shape ai/core/engine.ts's 'scheme'
+ * case REPLACES `active_scheme` with (it JSON.parses `delta.reason` as a full
+ * Scheme object) - the mind returns a one-liner, not a full object, so
+ * representing that note as the plan's next step keeps `active_scheme`
+ * faithful to its existing shape and never corrupts engine.ts's parsing. An
+ * entity with no prior scheme is SEEDED from the note (a minded character may
+ * establish a scheme, not only evolve one). Steps are capped at
+ * MAX_SCHEME_STEPS, dropping oldest. Pure; exported for direct unit testing.
+ */
+export function evolveSchemeFromAdjustment(current: Scheme | undefined, adjustment: string): Scheme {
+    const note = adjustment.trim();
+    const newStep: SchemeStep = { objective: note, status: 'in_progress' };
+    if (!current) {
+        return { name: 'Evolving design', overall_goal: note, steps: [newStep] };
+    }
+    const steps = [...current.steps, newStep];
+    return {
+        name: current.name,
+        overall_goal: current.overall_goal,
+        steps: steps.length > MAX_SCHEME_STEPS ? steps.slice(steps.length - MAX_SCHEME_STEPS) : steps,
+    };
+}
+
+/**
+ * D30: turns each spotlight mind's own `scheme_adjustment` into a committed
+ * 'scheme' delta EVOLVING that entity's `active_scheme` - the character's
+ * interior plan belongs to its own mind, not the adjudicator. One delta per
+ * mind decision carrying a non-empty `scheme_adjustment` whose entity_id
+ * resolves in `entities`; the delta's `key` is that entity_id, `delta` is 0,
+ * and `reason` is a JSON string of the reconstructed Scheme (the exact
+ * contract ai/core/engine.ts's 'scheme' case parses). Evolution is computed
+ * from the PRE-TURN `active_scheme` in `entities`, so the mind evolves the
+ * character's OWN standing plan regardless of any scheme delta the
+ * adjudicator emitted the same turn (that one is deduped away at the call
+ * site - a minded entity's scheme is owned by its mind). Pure; exported for
+ * direct unit testing.
+ */
+export function buildMindSchemeDeltas(decisions: NpcMindDecision[], entities: Entity[]): EventDelta[] {
+    const byId = new Map(entities.map(e => [e.entity_id, e]));
+    const deltas: EventDelta[] = [];
+    for (const decision of decisions) {
+        const note = decision.scheme_adjustment?.trim();
+        if (!note) continue;
+        const entity = byId.get(decision.entity_id);
+        if (!entity) continue;
+        deltas.push({
+            type: 'scheme',
+            key: decision.entity_id,
+            delta: 0,
+            reason: JSON.stringify(evolveSchemeFromAdjustment(entity.active_scheme, note)),
+        });
+    }
+    return deltas;
 }
 
 /**
@@ -514,6 +584,41 @@ export async function runNewTurn(
     // gm_private is GM-console-only (stripped before narration), so the
     // failure is visible for tuning without ever reaching the player.
     adjudication.gm_private.push(...mindFailureNotes);
+
+    // *** D30: MINDS CONTINUOUSLY EVOLVE THEIR OWN SCHEMES ***
+    // A spotlight NPC's mind DRIVES its own active_scheme's evolution
+    // (DESIGN_DECISIONS.md D30): where its decision returned a
+    // scheme_adjustment, that is the CHARACTER'S own evolving intent - applied
+    // as its own 'scheme' delta, not left as a hint the adjudicator may
+    // discard (the pre-D30 wiring). DIRECTION PRECEDENCE, extended to scheme
+    // OWNERSHIP: for a MINDED entity its own mind-driven scheme evolution WINS
+    // over any 'scheme' delta the adjudicator emitted for that SAME entity
+    // this turn - the adjudication prompt is told not to emit one, and here we
+    // ENFORCE the dedup in code (belt and suspenders) so the entity's scheme
+    // is never double-applied (once mind-driven, once by the adjudicator). The
+    // adjudicator still OWNS 'scheme' deltas for every NON-minded entity (the
+    // DYNAMIC SCHEMES rule) and owns action OUTCOMES in the shared world for
+    // everyone. These deltas are folded into adjudication.deltas HERE - before
+    // processMortality (a deep clone that preserves non-death deltas) and
+    // before applyAdjudication (step 3) - so they are committed and applied
+    // exactly ONCE, flowing through D28 perception like any other 'scheme'
+    // delta: a witness senses only 'something afoot', never the scheme's name
+    // (perception/visibility.ts::describeDelta).
+    const mindSchemeDeltas = buildMindSchemeDeltas(npcMindResults, currentEntities);
+    if (mindSchemeDeltas.length > 0) {
+        const mindEvolvedIds = new Set(mindSchemeDeltas.map(d => d.key));
+        const supersededIds = adjudication.deltas
+            .filter(d => d.type === 'scheme' && mindEvolvedIds.has(d.key))
+            .map(d => d.key);
+        adjudication.deltas = adjudication.deltas.filter(d => !(d.type === 'scheme' && mindEvolvedIds.has(d.key)));
+        adjudication.deltas.push(...mindSchemeDeltas);
+        for (const id of mindEvolvedIds) {
+            adjudication.gm_private.push(`[Mind] ${id} evolved its own active_scheme this turn - applied as the character's own scheme (DIRECTION PRECEDENCE: a minded entity's interior plan is owned by its mind, not the adjudicator).`);
+        }
+        if (supersededIds.length > 0) {
+            adjudication.gm_private.push(`[Mind] Superseded ${supersededIds.length} adjudicator 'scheme' delta(s) for mind-evolved entities (${supersededIds.join(', ')}) - the entity's own mind owns its scheme evolution this turn; no double-application.`);
+        }
+    }
 
     // *** NEW STEP 2.5: SIMULATE OFF-SCREEN NPC CONVERSATION ***
     // Moved ahead of applyAdjudication (previously ran on post-applyAdjudication

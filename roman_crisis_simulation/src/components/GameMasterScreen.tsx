@@ -72,7 +72,11 @@ const ActionsView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => {
                         <div style={{ color: PARCH }}><strong style={{ color: DIM }}>Method:</strong> {decision.method}</div>
                         <div style={{ fontStyle: 'italic', color: DIM }}><strong style={{ color: DIM, fontStyle: 'normal' }}>Private reasoning:</strong> “{decision.private_reasoning}”</div>
                         {decision.scheme_adjustment && (
-                            <div style={{ color: '#E3C766', fontStyle: 'italic' }}><strong style={{ color: DIM, fontStyle: 'normal' }}>Scheme shift:</strong> {decision.scheme_adjustment}</div>
+                            // D30: the mind's scheme_adjustment is applied as this
+                            // entity's own active_scheme evolution (see the applied
+                            // 'scheme' delta and the [Mind] note below, and the
+                            // post-turn Scheme in the state view).
+                            <div style={{ color: '#E3C766', fontStyle: 'italic' }}><strong style={{ color: DIM, fontStyle: 'normal' }}>Scheme shift (applied as their own scheme):</strong> {decision.scheme_adjustment}</div>
                         )}
                     </div>
                 ))}

@@ -120,9 +120,14 @@ ${npcIntents.map(i => `- ${i.entity_id}: "${i.intent}" [${i.continuity}]`).join(
  * OVERRIDES that NPC's Director intent and the generic scheme rules, and
  * the block forbids additional independent scheme-actions for a character
  * listed in it - the decided move IS that character's proactive move.
- * A decision's optional `scheme_adjustment` rides along as a HINT only:
- * minds propose, the adjudicator disposes - it still owns every 'scheme'
- * delta (the arbitration principle).
+ * A decision's optional `scheme_adjustment` is LOAD-BEARING (D30): it is the
+ * character's own evolving intent, applied code-side as that entity's own
+ * `active_scheme` evolution (ai/core/turn.ts::buildMindSchemeDeltas) and
+ * deduped against any competing adjudicator 'scheme' delta for the same
+ * entity. The adjudicator is therefore told NOT to emit a 'scheme' delta for
+ * such an entity - a minded entity's interior plan is owned by its own mind;
+ * the adjudicator still owns every OTHER entity's scheme deltas (DYNAMIC
+ * SCHEMES) and all action outcomes in the shared world.
  * DELIBERATELY passes only entity_id/chosen_action/method (+ the optional
  * scheme hint): the mind's `private_reasoning` never enters the
  * adjudicator's context (it doesn't need their inner monologue - keeps its
@@ -137,7 +142,7 @@ export function buildNpcMindDecisionsBlock(decisions: NpcMindDecision[] | undefi
   if (!decisions || decisions.length === 0) return '';
   return `
 SPOTLIGHT NPC DECISIONS (each character's own mind has already chosen its move this turn):
-Each entry below is what that character has DECIDED to do this week, in their own head. That spotlight NPC's Phase 1 proactive action MUST be this chosen action, carried out by the stated method - you decide how it plays out, resolve conflicts between characters' decisions, and still own every delta and consequence; do not substitute a different move for them, and do NOT generate additional, independent scheme-advancing actions for a character listed here - the chosen action IS that character's proactive move this turn. Per DIRECTION PRECEDENCE (mind decision > Director intent > generic scheme rules), an entry here governs even where it departs from that NPC's intent or scheme. A character may be wrong about the world or about themselves - let the outcome reflect reality, not their confidence. Where an entry notes "their scheme shifts", that is the character's own proposed adjustment - a HINT you may honor by emitting your own 'scheme' delta for them, or disregard: minds propose, you dispose. Spotlight NPCs with no entry here act on their Director intent above, as before. These decisions are GM-private: never restate them in 'headlines' or any other player-visible text. What is private is the provenance - that a mind chose, its wording. The chosen action, once acted out, is a real event: its public manifestation may and should surface in headlines and NPC reactions as usual.
+Each entry below is what that character has DECIDED to do this week, in their own head. That spotlight NPC's Phase 1 proactive action MUST be this chosen action, carried out by the stated method - you decide how it plays out, resolve conflicts between characters' decisions, and still own every delta and consequence; do not substitute a different move for them, and do NOT generate additional, independent scheme-advancing actions for a character listed here - the chosen action IS that character's proactive move this turn. Per DIRECTION PRECEDENCE (mind decision > Director intent > generic scheme rules), an entry here governs even where it departs from that NPC's intent or scheme. A character may be wrong about the world or about themselves - let the outcome reflect reality, not their confidence. Where an entry notes "their scheme shifts", that is the character's OWN evolving intent, and its own 'active_scheme' is ALREADY being evolved by that change this turn (a minded entity's interior plan is owned by its mind) - do NOT emit a 'scheme' delta for such an entity; one you emit would be redundant and discarded. Spotlight NPCs with no entry here act on their Director intent above, as before. These decisions are GM-private: never restate them in 'headlines' or any other player-visible text. What is private is the provenance - that a mind chose, its wording. The chosen action, once acted out, is a real event: its public manifestation may and should surface in headlines and NPC reactions as usual.
 ${decisions.map(d => `- ${d.entity_id} chose to: "${d.chosen_action}" — method: ${d.method}${d.scheme_adjustment ? ` — their scheme shifts: "${d.scheme_adjustment}"` : ''}`).join('\n')}
 `;
 }
