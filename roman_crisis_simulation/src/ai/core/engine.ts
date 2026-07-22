@@ -510,7 +510,16 @@ export function applyAdjudication(
 
     // Handle entity additions and removals
     if (adjudication.remove_entities && adjudication.remove_entities.length > 0) {
-        const idsToRemove = new Set(adjudication.remove_entities);
+        // D1/D2: the player's own entity may leave play ONLY through the
+        // mortality pipeline (validation + death save + GAME_OVER), never a
+        // raw remove_entities - dropping it here would blank the player's
+        // dossier with no game-over or epilogue. Guard the player's id out;
+        // if a response names it, record the refusal for the GM console.
+        const playerId = perceptionContext.playerEntityId;
+        if (playerId && adjudication.remove_entities.includes(playerId)) {
+            adjudication.gm_private.push(`[Engine] Refused to remove the player entity '${playerId}' via remove_entities - player exit belongs to the mortality pipeline alone.`);
+        }
+        const idsToRemove = new Set(adjudication.remove_entities.filter(id => id !== playerId));
         entitiesAfterDeltas = entitiesAfterDeltas.filter(e => !idsToRemove.has(e.entity_id));
         
         // Clean up dangling relationships

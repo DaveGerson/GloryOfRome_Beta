@@ -168,7 +168,13 @@ const App: React.FC = () => {
     const [showOnboarding, setShowOnboarding] = useState(false);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
-    const aiRef = useRef(new GoogleGenAI({apiKey: process.env.API_KEY}));
+    // A real key is required only for REAL turns. The SDK constructor throws
+    // in a browser when the key is unset, which would crash the app before
+    // character select even in Mock Mode (which exists precisely to run
+    // keyless). Fall back to a sentinel so the app always boots; Mock Mode
+    // never calls the API, and a real turn with the sentinel fails at call
+    // time with an auth error - the correct signal to set a key.
+    const aiRef = useRef(new GoogleGenAI({apiKey: process.env.API_KEY || 'NO_API_KEY_SET'}));
     // Snapshot of the committed game state taken right before a turn's AI
     // calls kick off, so a mid-turn failure can be rolled back to explicitly
     // rather than relying on "we just never committed" (P0.2/P0.4 - a

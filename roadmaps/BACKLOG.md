@@ -103,6 +103,21 @@ actor in its own right.
 - `economic_stability` free-string triggers can go dormant when the model
   writes a synonym ("Collapsing" vs "Failing") — no canonical vocabulary
   enforced, so some authored events may never fire.
+- A presumed-dead NPC keeps its `active_scheme` as GM ground truth (never
+  leaked to the player; pinned by the `mortalityFates` journey). Kept as-is;
+  if a future fix clears it on revival, update that journey's expectation.
+  Related to the `secret_truth`-not-cleared-on-revival item above.
+
+### B8 — Raw relationship numbers on the Personae tab  *(ruling needed)*
+`DramatisPersonaeTab` renders the player's own Trust/Respect/Threat/
+Alignment/Dependency toward each NPC as raw signed numbers + bars
+(`TrustBar`). These are the player's OWN relationship reads (arguably D5
+'self'-visible, so legitimate) — but they are the kind of raw ground-truth
+number D13's relationship map is meant to reframe as interpretation with
+provenance. Decide when B2's relationship map is built: keep the raw
+self-numbers, or fold them into sourced/interpretive framing (the D13/D25
+no-bare-numbers spirit). Not a bug — a consistency call. Surfaced by the
+close-out UI pass.
 
 ---
 

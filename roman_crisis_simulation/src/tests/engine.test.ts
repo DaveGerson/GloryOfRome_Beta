@@ -32,6 +32,35 @@ describe('applyAdjudication', () => {
     gm_private: [],
   };
 
+  // --- Player-removal guard (D1/D2) ---
+  describe('remove_entities player guard', () => {
+    it('never removes the player entity even when the response names it, and records the refusal', () => {
+      const adjudication = deepCopy(baseAdjudication);
+      adjudication.remove_entities = ['severus_alexander'];
+
+      const { updatedEntities } = applyAdjudication(
+        adjudication, mockEntities, mockWorldState, mockReports, [],
+        { playerEntityId: 'severus_alexander' }
+      );
+
+      expect(updatedEntities.some(e => e.entity_id === 'severus_alexander')).toBe(true);
+      expect(adjudication.gm_private.some(n => n.includes('Refused to remove the player'))).toBe(true);
+    });
+
+    it('still removes a non-player entity named in remove_entities', () => {
+      const adjudication = deepCopy(baseAdjudication);
+      adjudication.remove_entities = ['maximinus_thrax'];
+
+      const { updatedEntities } = applyAdjudication(
+        adjudication, mockEntities, mockWorldState, mockReports, [],
+        { playerEntityId: 'severus_alexander' }
+      );
+
+      expect(updatedEntities.some(e => e.entity_id === 'maximinus_thrax')).toBe(false);
+      expect(updatedEntities.some(e => e.entity_id === 'severus_alexander')).toBe(true);
+    });
+  });
+
   // --- Resource Deltas ---
   describe('Resource Deltas', () => {
     it('should add a resource to an entity', () => {
