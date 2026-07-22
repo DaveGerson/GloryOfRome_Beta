@@ -72,13 +72,13 @@ threshold). The forward direction is the fuller detective loop: unravel
 accumulated clues to *deduce* a scheme's true nature, rather than a threshold
 flip.
 
-### B4 — Journey smoke-harness integration
-Fable designed and prototyped a user-journey smoke harness (driving the real
-turn pipeline via scripted fake clients, with six per-turn invariants incl. a
-whole-journey GM-private leak scan). The prototype was built in a worktree off
-a pre-Phase-4 snapshot — reconcile it to current HEAD and integrate as an
-on-demand `test:journeys` suite (separate from `npm test`). It's the
-end-to-end guard the unit suite structurally can't provide.
+### B4 — Journey smoke-harness integration  *(LANDED)*
+Done: the multi-turn journey suite runs the real turn pipeline via scripted
+fake clients (`tests/journeys/` — quietReign, schemeWar, mortalityFates,
+saveReload — over `harness.ts`), invoked on demand as `npm run test:journeys`
+(separate from `npm test`). Landed in the pre-Phase-5 close-out (commit
+`0831889`). Kept here as memory; new substrate paths should gain journey
+coverage as they land.
 
 ### B5 — Golden turns + judge calibration
 The eval judge (5 axes incl. `character_richness`) is wired but uncalibrated.
@@ -107,6 +107,13 @@ actor in its own right.
   leaked to the player; pinned by the `mortalityFates` journey). Kept as-is;
   if a future fix clears it on revival, update that journey's expectation.
   Related to the `secret_truth`-not-cleared-on-revival item above.
+- *(Phase 5 adversarial-review flags, July 2026:)* Chat now renders HTML
+  entities literally (`&amp;` shows as `&amp;`) since the
+  escape-by-construction fix — if the model emits entities often, add a
+  decode-then-escape single pass in `components/textFormat.ts`. Ctrl+Shift+G
+  still `preventDefault`s when the GM console is disabled in settings
+  (keystroke swallowed, nothing shown). `ROADMAP_6_MAINTAINABILITY.md`
+  references a pre-archive DesignDocs path (historical doc, cosmetic).
 
 ### B8 — Raw relationship numbers on the Personae tab  *(ruling needed)*
 `DramatisPersonaeTab` renders the player's own Trust/Respect/Threat/
