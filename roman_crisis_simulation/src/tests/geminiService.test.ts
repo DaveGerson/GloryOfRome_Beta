@@ -13,6 +13,11 @@ import {
   resetSessionCallLog,
   MAX_SESSION_CALL_RECORDS,
   MAX_CAPTURED_PROMPT_CHARS,
+  GEMINI_PRO,
+  GEMINI_PRO_FALLBACK,
+  GEMINI_FLASH,
+  resetProFallback,
+  isProFallbackActive,
 } from '../ai/core/geminiService';
 
 /** Minimal mock client matching GeminiClient's structural shape. */
@@ -599,6 +604,289 @@ describe('geminiService', () => {
 
       const bare = new AiServiceError('transient', 'my-call', 'timed out');
       expect(bare.debugSnippet).toBeUndefined();
+    });
+  });
+
+  describe('pro-tier model fallback (GEMINI_PRO -> GEMINI_PRO_FALLBACK)', () => {
+    beforeEach(() => {
+      resetProFallback();
+      resetSessionCallLog();
+    });
+
+    afterEach(() => {
+      resetProFallback();
+      resetSessionCallLog();
+      endTurnCapture(); // Drain any capture left active by a test that forgot to end it.
+    });
+
+    it('falls back once to GEMINI_PRO_FALLBACK when GEMINI_PRO 404s, and succeeds', async () => {
+      const notFound = new ApiError({ status: 404, message: 'models/gemini-3-pro-preview is not found' });
+      const generateContent = vi.fn()
+        .mockRejectedValueOnce(notFound)
+        .mockResolvedValueOnce({ text: '{"ok":1}' });
+      const ai = makeMockAi(generateContent);
+
+      const result = await generateStructured<{ ok: number }>(ai, {
+        callName: 'test-pro-fallback',
+        model: GEMINI_PRO,
+        prompt: 'adjudicate',
+      });
+
+      expect(result).toEqual({ ok: 1 });
+      expect(generateContent).toHaveBeenCalledTimes(2);
+      expect(generateContent.mock.calls[0][0].model).toBe(GEMINI_PRO);
+      expect(generateContent.mock.calls[1][0].model).toBe(GEMINI_PRO_FALLBACK);
+      expect(isProFallbackActive()).toBe(true);
+    });
+
+    it('records the model actually used (the fallback) in the RawCallRecord', async () => {
+      const notFound = new ApiError({ status: 404, message: 'models/gemini-3-pro-preview is not found' });
+      const generateContent = vi.fn()
+        .mockRejectedValueOnce(notFound)
+        .mockResolvedValueOnce({ text: '{"ok":1}' });
+      const ai = makeMockAi(generateContent);
+
+      await generateStructured<{ ok: number }>(ai, {
+        callName: 'test-pro-fallback-record',
+        model: GEMINI_PRO,
+        prompt: 'adjudicate',
+      });
+
+      const log = getSessionCallLog();
+      expect(log).toHaveLength(1);
+      expect(log[0].model).toBe(GEMINI_PRO_FALLBACK);
+    });
+
+    it('sticks to the fallback for a later pro-tier call - no further 404 attempt against the preview id', async () => {
+      const notFound = new ApiError({ status: 404, message: 'models/gemini-3-pro-preview is not found' });
+      const generateContent = vi.fn()
+        .mockRejectedValueOnce(notFound)
+        .mockResolvedValueOnce({ text: '{"ok":1}' });
+      const ai = makeMockAi(generateContent);
+
+      await generateStructured<{ ok: number }>(ai, { callName: 'first', model: GEMINI_PRO, prompt: 'p1' });
+      expect(isProFallbackActive()).toBe(true);
+
+      generateContent.mockClear();
+      generateContent.mockResolvedValueOnce({ text: '{"ok":2}' });
+
+      const second = await generateStructured<{ ok: number }>(ai, { callName: 'second', model: GEMINI_PRO, prompt: 'p2' });
+
+      expect(second).toEqual({ ok: 2 });
+      // Exactly one call, straight on the fallback - the preview id is never retried.
+      expect(generateContent).toHaveBeenCalledTimes(1);
+      expect(generateContent.mock.calls[0][0].model).toBe(GEMINI_PRO_FALLBACK);
+    });
+
+    it('resetProFallback clears stickiness - a later pro call retries the preview id again', async () => {
+      const notFound = new ApiError({ status: 404, message: 'models/gemini-3-pro-preview is not found' });
+      const generateContent = vi.fn()
+        .mockRejectedValueOnce(notFound)
+        .mockResolvedValueOnce({ text: '{"ok":1}' });
+      const ai = makeMockAi(generateContent);
+
+      await generateStructured<{ ok: number }>(ai, { callName: 'first', model: GEMINI_PRO, prompt: 'p1' });
+      expect(isProFallbackActive()).toBe(true);
+
+      resetProFallback();
+      expect(isProFallbackActive()).toBe(false);
+
+      generateContent.mockClear();
+      generateContent.mockResolvedValueOnce({ text: '{"ok":2}' });
+
+      const second = await generateStructured<{ ok: number }>(ai, { callName: 'second', model: GEMINI_PRO, prompt: 'p2' });
+
+      expect(second).toEqual({ ok: 2 });
+      expect(generateContent).toHaveBeenCalledTimes(1);
+      expect(generateContent.mock.calls[0][0].model).toBe(GEMINI_PRO);
+    });
+
+    it.each([
+      ['NOT_FOUND', 'models/gemini-3-pro-preview is NOT_FOUND'],
+      ['is not found', 'models/gemini-3-pro-preview is not found'],
+    ])('detects a model-unavailable 404 whose message reads "%s"', async (_label, message) => {
+      const notFound = new ApiError({ status: 404, message });
+      const generateContent = vi.fn()
+        .mockRejectedValueOnce(notFound)
+        .mockResolvedValueOnce({ text: '{"ok":1}' });
+      const ai = makeMockAi(generateContent);
+
+      const result = await generateStructured<{ ok: number }>(ai, {
+        callName: 'test-detect',
+        model: GEMINI_PRO,
+        prompt: 'p',
+      });
+
+      expect(result).toEqual({ ok: 1 });
+      expect(generateContent).toHaveBeenCalledTimes(2);
+      expect(generateContent.mock.calls[1][0].model).toBe(GEMINI_PRO_FALLBACK);
+    });
+
+    describe('negatives: transient/fatal errors on GEMINI_PRO never trigger the fallback', () => {
+      beforeEach(() => {
+        vi.useFakeTimers();
+      });
+
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it('429 retries transiently 3x, every attempt on GEMINI_PRO, no switch', async () => {
+        const rateLimited = new ApiError({ status: 429, message: 'Too Many Requests' });
+        const generateContent = vi.fn().mockRejectedValue(rateLimited);
+        const ai = makeMockAi(generateContent);
+
+        const resultPromise = generateText(ai, { callName: 'test-429-no-switch', model: GEMINI_PRO, prompt: 'p' });
+        resultPromise.catch(() => {});
+
+        await vi.advanceTimersByTimeAsync(30_000);
+
+        await expect(resultPromise).rejects.toMatchObject({ name: 'AiServiceError', kind: 'transient' });
+        expect(generateContent).toHaveBeenCalledTimes(3); // MAX_ATTEMPTS
+        for (const call of generateContent.mock.calls) {
+          expect(call[0].model).toBe(GEMINI_PRO);
+        }
+        expect(isProFallbackActive()).toBe(false);
+      });
+
+      it('500 retries transiently 3x, every attempt on GEMINI_PRO, no switch', async () => {
+        const serverError = new ApiError({ status: 500, message: 'Internal Server Error' });
+        const generateContent = vi.fn().mockRejectedValue(serverError);
+        const ai = makeMockAi(generateContent);
+
+        const resultPromise = generateText(ai, { callName: 'test-500-no-switch', model: GEMINI_PRO, prompt: 'p' });
+        resultPromise.catch(() => {});
+
+        await vi.advanceTimersByTimeAsync(30_000);
+
+        await expect(resultPromise).rejects.toMatchObject({ name: 'AiServiceError', kind: 'transient' });
+        expect(generateContent).toHaveBeenCalledTimes(3); // MAX_ATTEMPTS
+        for (const call of generateContent.mock.calls) {
+          expect(call[0].model).toBe(GEMINI_PRO);
+        }
+        expect(isProFallbackActive()).toBe(false);
+      });
+
+      it('400 is fatal on the first attempt, no switch', async () => {
+        const badRequest = new ApiError({ status: 400, message: 'Bad Request' });
+        const generateContent = vi.fn().mockRejectedValue(badRequest);
+        const ai = makeMockAi(generateContent);
+
+        await expect(
+          generateText(ai, { callName: 'test-400-no-switch', model: GEMINI_PRO, prompt: 'p' })
+        ).rejects.toMatchObject({ name: 'AiServiceError', kind: 'fatal' });
+
+        expect(generateContent).toHaveBeenCalledTimes(1);
+        expect(generateContent.mock.calls[0][0].model).toBe(GEMINI_PRO);
+        expect(isProFallbackActive()).toBe(false);
+      });
+    });
+
+    it('a zod schema violation goes through the repair-retry on GEMINI_PRO, never the fallback', async () => {
+      const zPoint = z.object({ x: z.number(), y: z.number() });
+      const generateContent = vi.fn()
+        .mockResolvedValueOnce({ text: '{"x": 1}' }) // missing "y" - fails zod
+        .mockResolvedValueOnce({ text: '{"x": 1, "y": 2}' });
+      const ai = makeMockAi(generateContent);
+
+      const result = await generateStructured<{ x: number; y: number }>(ai, {
+        callName: 'test-zod-no-switch',
+        model: GEMINI_PRO,
+        prompt: 'give me a point',
+        zodSchema: zPoint,
+      });
+
+      expect(result).toEqual({ x: 1, y: 2 });
+      expect(generateContent).toHaveBeenCalledTimes(2);
+      expect(generateContent.mock.calls[0][0].model).toBe(GEMINI_PRO);
+      expect(generateContent.mock.calls[1][0].model).toBe(GEMINI_PRO);
+      expect(isProFallbackActive()).toBe(false);
+    });
+
+    it('unparseable JSON goes through the repair-retry on GEMINI_PRO, never the fallback', async () => {
+      const generateContent = vi.fn()
+        .mockResolvedValueOnce({ text: 'not json at all {{{' })
+        .mockResolvedValueOnce({ text: '{"x": 3, "y": 4}' });
+      const ai = makeMockAi(generateContent);
+
+      const result = await generateStructured<{ x: number; y: number }>(ai, {
+        callName: 'test-parse-no-switch',
+        model: GEMINI_PRO,
+        prompt: 'give me a point',
+      });
+
+      expect(result).toEqual({ x: 3, y: 4 });
+      expect(generateContent).toHaveBeenCalledTimes(2);
+      expect(generateContent.mock.calls[0][0].model).toBe(GEMINI_PRO);
+      expect(generateContent.mock.calls[1][0].model).toBe(GEMINI_PRO);
+      expect(isProFallbackActive()).toBe(false);
+    });
+
+    it('a 404 on GEMINI_FLASH does not substitute the pro fallback (it keys on the preview id, not any 404)', async () => {
+      const notFound = new ApiError({ status: 404, message: 'models/gemini-2.5-flash is not found' });
+      const generateContent = vi.fn().mockRejectedValue(notFound);
+      const ai = makeMockAi(generateContent);
+
+      await expect(
+        generateText(ai, { callName: 'test-flash-404', model: GEMINI_FLASH, prompt: 'p' })
+      ).rejects.toMatchObject({ name: 'AiServiceError', kind: 'fatal' });
+
+      expect(generateContent).toHaveBeenCalledTimes(1);
+      expect(generateContent.mock.calls[0][0].model).toBe(GEMINI_FLASH);
+      expect(isProFallbackActive()).toBe(false);
+    });
+
+    it('surfaces the error when the fallback attempt itself also fails (attempted once, no infinite loop)', async () => {
+      const notFound = new ApiError({ status: 404, message: 'models/gemini-3-pro-preview is not found' });
+      const serverError = new ApiError({ status: 500, message: 'Internal Server Error' });
+      const generateContent = vi.fn()
+        .mockRejectedValueOnce(notFound)
+        .mockRejectedValueOnce(serverError);
+      const ai = makeMockAi(generateContent);
+
+      await expect(
+        generateText(ai, { callName: 'test-fallback-also-fails', model: GEMINI_PRO, prompt: 'p' })
+      ).rejects.toMatchObject({ name: 'AiServiceError', kind: 'transient' });
+
+      // Exactly 2 network calls total (preview + one fallback attempt) - no retry loop on the fallback itself.
+      expect(generateContent).toHaveBeenCalledTimes(2);
+      expect(generateContent.mock.calls[0][0].model).toBe(GEMINI_PRO);
+      expect(generateContent.mock.calls[1][0].model).toBe(GEMINI_PRO_FALLBACK);
+    });
+
+    it('generateText also gets the pro-tier fallback (the substitution lives in the shared request path)', async () => {
+      const notFound = new ApiError({ status: 404, message: 'models/gemini-3-pro-preview is not found' });
+      const generateContent = vi.fn()
+        .mockRejectedValueOnce(notFound)
+        .mockResolvedValueOnce({ text: 'Recovered narration text' });
+      const ai = makeMockAi(generateContent);
+
+      const result = await generateText(ai, { callName: 'test-text-fallback', model: GEMINI_PRO, prompt: 'narrate' });
+
+      expect(result).toBe('Recovered narration text');
+      expect(generateContent).toHaveBeenCalledTimes(2);
+      expect(generateContent.mock.calls[1][0].model).toBe(GEMINI_PRO_FALLBACK);
+    });
+
+    it('generateTextStream acquisition also gets the pro-tier fallback (narration streams on GEMINI_PRO)', async () => {
+      const notFound = new ApiError({ status: 404, message: 'models/gemini-3-pro-preview is not found' });
+      const generateContentStream = vi.fn()
+        .mockRejectedValueOnce(notFound)
+        .mockResolvedValueOnce(chunksOf(['Recovered ', 'narration']));
+      const ai = makeStreamMockAi(generateContentStream);
+
+      const onChunk = vi.fn();
+      const result = await generateTextStream(
+        ai,
+        { callName: 'test-stream-fallback', model: GEMINI_PRO, prompt: 'narrate' },
+        onChunk
+      );
+
+      expect(result).toBe('Recovered narration');
+      expect(generateContentStream).toHaveBeenCalledTimes(2);
+      expect(generateContentStream.mock.calls[0][0].model).toBe(GEMINI_PRO);
+      expect(generateContentStream.mock.calls[1][0].model).toBe(GEMINI_PRO_FALLBACK);
+      expect(onChunk).toHaveBeenCalledTimes(2);
     });
   });
 });
