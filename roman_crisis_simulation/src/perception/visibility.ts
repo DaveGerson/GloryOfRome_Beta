@@ -383,14 +383,16 @@ function describeDelta(delta: EventDelta, viewer: Entity, entities: Entity[]): s
       return `Rumor reaches you: "${delta.reason}"`;
     }
     case 'scheme': {
+      // D28: a scheme is perceived only as 'something is afoot'. Proximity
+      // reveals THAT a schemer is at work, never the scheme's name or nature
+      // (which is earned by accreting clues - knowledge/store.ts). The
+      // schemer's own name is fair game (you can see who is busy); the
+      // `active_scheme` payload serialized in delta.reason is deliberately
+      // NOT parsed here, so it can never leak through a witness's line - and,
+      // because this same line is what stamps NPC memories/mind digests, the
+      // cast no longer learns rivals' scheme names by mere proximity either.
       const [entityId] = delta.key.split(':');
-      const name = displayName(entityId, entities);
-      try {
-        const scheme = JSON.parse(delta.reason);
-        return `You catch wind of ${name}'s scheme: "${scheme.name}".`;
-      } catch {
-        return `You sense ${name} is plotting something.`;
-      }
+      return `You sense ${displayName(entityId, entities)} is plotting something.`;
     }
     case 'add_region': {
       return `A new place enters your world: ${delta.key}.`;

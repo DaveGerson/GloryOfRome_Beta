@@ -33,18 +33,18 @@
  *  - and PUBLIC knowledge (headlines + the D5-public macro world summary).
  * It must NEVER contain another character's secrets, gm_private,
  * secret_truth, rumor truth flags, or the player's private data - and
- * never another character's active_scheme OBJECT (goal/steps). One
- * sanctioned carve-out on scheme NAMES: the crude-v1 witnessed rule lets a
- * co-located viewer perceive a schemer's scheme delta as "You catch wind
- * of X's scheme: <name>" (perception/visibility.ts::describeDelta), so a
- * rival's scheme NAME may legitimately reach this prompt through the
- * character's own memories/digest. That is proximity-witnessed perception
- * under D5, not a leak. That is why `buildMindSelfBrief` below is a
- * DEDICATED builder and the input shape carries no roster: the omniscient
- * adjudicator fragments (ai/prompts/fragments.ts::getEntityBrief and
- * friends) serialize any entity's scheme/secrets and must never be reused
- * here. Pinned by tests/npcMinds.test.ts (a rival's scheme present in
- * world state must not appear in this prompt).
+ * never another character's active_scheme, neither its OBJECT (goal/steps)
+ * nor its NAME. A witnessed scheme reaches this prompt only as "You sense X
+ * is plotting something" (perception/visibility.ts::describeDelta under
+ * D28): proximity discloses THAT a rival is at work, never what the scheme
+ * is - its nature is earned by accreting clues in the player's knowledge
+ * graph, and the cast learns nothing more of it by standing nearby. That is
+ * why `buildMindSelfBrief` below is a DEDICATED builder and the input shape
+ * carries no roster: the omniscient adjudicator fragments
+ * (ai/prompts/fragments.ts::getEntityBrief and friends) serialize any
+ * entity's scheme/secrets and must never be reused here. Pinned by
+ * tests/npcMinds.test.ts (a rival's scheme present in world state must not
+ * appear in this prompt).
  *
  * Mind outputs are GM-PRIVATE (D4/D5): GameMasterScreen and ai/ only.
  */

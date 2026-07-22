@@ -17,6 +17,10 @@ import {
   ingestPerceivedChanges,
   ingestReports,
   ingestInvestigationReveal,
+  ingestSchemeClue,
+  SCHEME_CLUES_TO_REVEAL,
+  SCHEME_CLUE_LINE,
+  SCHEME_NATURE_UNSYNTHESIZED,
   normalizeTopic,
 } from '../knowledge/store';
 import type { PerceivedChange } from '../perception/visibility';
@@ -185,16 +189,19 @@ describe('knowledge/store', () => {
     });
 
     it('re-investigating the same target + kind appends a freshly stamped update; the earlier reveal stays frozen (D14)', () => {
+      // A full-dossier aspect (beliefs) - re-buying it appends a frozen
+      // update on the same claim. The 'scheme' aspect follows the D28
+      // clue-accretion path instead (see the scheme-discovery block below).
       const first = ingestInvestigationReveal([], {
         targetId: 'maximinus_thrax',
-        kind: 'scheme',
-        text: 'He plans to march on Rome.',
+        kind: 'beliefs',
+        text: 'He believes strength alone confers legitimacy.',
         turn: 4,
       });
       const second = ingestInvestigationReveal(first, {
         targetId: 'maximinus_thrax',
-        kind: 'scheme',
-        text: 'The march is set for the spring thaw.',
+        kind: 'beliefs',
+        text: 'He now doubts the Senate will ever bend.',
         turn: 9,
       });
 
@@ -202,8 +209,8 @@ describe('knowledge/store', () => {
       const claim = second[0];
       expect(claim.firstLearnedTurn).toBe(4);
       expect(claim.updates).toEqual([
-        { turn: 4, source: 'spy', text: 'He plans to march on Rome.' },
-        { turn: 9, source: 'spy', text: 'The march is set for the spring thaw.' },
+        { turn: 4, source: 'spy', text: 'He believes strength alone confers legitimacy.' },
+        { turn: 9, source: 'spy', text: 'He now doubts the Senate will ever bend.' },
       ]);
     });
 
@@ -221,6 +228,126 @@ describe('knowledge/store', () => {
         turn: 4,
       });
       expect(second).toHaveLength(2);
+    });
+  });
+
+  describe('scheme discovery (D28 - nature is earned, not leaked)', () => {
+    // The clue threshold is a tuning constant; these tests key off it rather
+    // than a hardcoded number so they hold if it moves. All assume >= 2.
+    const N = SCHEME_CLUES_TO_REVEAL;
+
+    it('a witnessed scheme sighting opens ONE scheme-discovery claim with a name-free line and a single clue', () => {
+      const store = ingestPerceivedChanges(
+        [],
+        [makeChange({
+          deltaType: 'scheme',
+          deltaKey: 'maximinus_thrax',
+          subject: 'maximinus_thrax',
+          source: 'witnessed',
+          text: 'You sense Maximinus Thrax is plotting something.',
+        })],
+        2
+      );
+
+      expect(store).toHaveLength(1);
+      const claim = store[0];
+      expect(claim.claimKey).toBe('scheme:maximinus_thrax');
+      expect(claim.topic).toBe('scheme');
+      expect(claim.subject).toBe('maximinus_thrax');
+      // A clue is recorded, but the nature is NOT: proximity discloses only
+      // that someone is at work.
+      expect(claim.schemeDiscovery).toEqual({ clues: 1, revealed: false });
+      // The stored line names no scheme - only the schemer, who is fair game.
+      const serialized = JSON.stringify(claim);
+      expect(serialized).toContain('plotting something');
+      expect(serialized).not.toMatch(/scheme"\s*:/); // no active_scheme object leaked
+    });
+
+    it('a proximity sighting and a bought investigation accrete clues onto the SAME claim', () => {
+      const witnessed = ingestPerceivedChanges(
+        [],
+        [makeChange({
+          deltaType: 'scheme',
+          deltaKey: 'maximinus_thrax',
+          subject: 'maximinus_thrax',
+          source: 'witnessed',
+          text: 'You sense Maximinus Thrax is plotting something.',
+        })],
+        2
+      );
+      const bought = ingestInvestigationReveal(witnessed, {
+        targetId: 'maximinus_thrax',
+        kind: 'scheme',
+        text: 'He plans to march on Rome.', // the raw reading - must NOT be stored while unrevealed
+        turn: 3,
+      });
+
+      expect(bought).toHaveLength(1);
+      const claim = bought[0];
+      expect(claim.schemeDiscovery?.clues).toBe(2);
+      // The bought reading is a nature CANDIDATE, not stored in the timeline
+      // below the threshold (D28 - a single buy must not dump the scheme).
+      const serialized = JSON.stringify(claim);
+      expect(serialized).not.toContain('march on Rome');
+      expect(claim.updates[1].text).toBe(SCHEME_CLUE_LINE);
+    });
+
+    it('stays UNREVEALED with the nature hidden below the threshold', () => {
+      let store: KnowledgeClaim[] = [];
+      for (let i = 1; i < N; i++) {
+        store = ingestSchemeClue(store, {
+          schemerId: 'maximinus_thrax',
+          turn: i,
+          source: 'witnessed',
+          text: 'You sense Maximinus Thrax is plotting something.',
+        });
+      }
+      const claim = store[0];
+      expect(claim.schemeDiscovery?.clues).toBe(N - 1);
+      expect(claim.schemeDiscovery?.revealed).toBe(false);
+      expect(claim.schemeDiscovery?.nature).toBeUndefined();
+    });
+
+    it('flips revealed and surfaces the bought nature exactly when the clue count reaches the threshold', () => {
+      let store: KnowledgeClaim[] = [];
+      // N-1 proximity clues (no nature), then a bought clue crosses the line.
+      for (let i = 1; i < N; i++) {
+        store = ingestSchemeClue(store, {
+          schemerId: 'maximinus_thrax',
+          turn: i,
+          source: 'witnessed',
+          text: 'You sense Maximinus Thrax is plotting something.',
+        });
+      }
+      expect(store[0].schemeDiscovery?.revealed).toBe(false);
+
+      store = ingestSchemeClue(store, {
+        schemerId: 'maximinus_thrax',
+        turn: N,
+        source: 'spy',
+        text: SCHEME_CLUE_LINE,
+        natureHint: 'A coup: he means to march the Rhine legions on Rome.',
+      });
+
+      const claim = store[0];
+      expect(claim.schemeDiscovery?.clues).toBe(N);
+      expect(claim.schemeDiscovery?.revealed).toBe(true);
+      expect(claim.schemeDiscovery?.nature).toBe('A coup: he means to march the Rhine legions on Rome.');
+    });
+
+    it('falls back to the honest unsynthesized nature line when only proximity sightings reach the threshold', () => {
+      let store: KnowledgeClaim[] = [];
+      for (let i = 1; i <= N; i++) {
+        store = ingestSchemeClue(store, {
+          schemerId: 'maximinus_thrax',
+          turn: i,
+          source: 'witnessed',
+          text: 'You sense Maximinus Thrax is plotting something.',
+        });
+      }
+      const claim = store[0];
+      expect(claim.schemeDiscovery?.revealed).toBe(true);
+      expect(claim.schemeDiscovery?.nature).toBe(SCHEME_NATURE_UNSYNTHESIZED);
     });
   });
 

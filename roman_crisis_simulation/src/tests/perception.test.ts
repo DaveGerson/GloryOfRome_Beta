@@ -269,6 +269,32 @@ describe('buildPerceivedDigest', () => {
     expect(digest[1].text).toContain('Rumor reaches you');
   });
 
+  it('renders a witnessed scheme as bare "plotting something" - never the scheme name or nature (D28)', () => {
+    // The delta carries the full active_scheme in its reason, exactly as the
+    // engine would; a witness must learn only THAT the schemer is at work.
+    const schemeReason = JSON.stringify({
+      name: 'Operation Tyrian Dawn',
+      overall_goal: 'seize the throne by poisoning the Emperor',
+      steps: [{ objective: 'obtain the toxin', status: 'in_progress' }],
+    });
+    const deltas: EventDelta[] = [
+      // npcAtPlayerLocation shares the player's location => witnessed.
+      { type: 'scheme', key: 'npc_local', delta: 0, reason: schemeReason },
+    ];
+    const digest = buildPerceivedDigest(deltas, player, entities, worldState);
+
+    expect(digest).toHaveLength(1);
+    expect(digest[0].source).toBe('witnessed');
+    expect(digest[0].subject).toBe('npc_local');
+    expect(digest[0].deltaType).toBe('scheme');
+    expect(digest[0].text).toBe('You sense Local Courtier is plotting something.');
+    // No fragment of the scheme's name or nature may reach the player line
+    // (and, since memories are stamped from this exact text, the cast either).
+    expect(digest[0].text).not.toContain('Tyrian');
+    expect(digest[0].text).not.toContain('throne');
+    expect(digest[0].text).not.toContain('toxin');
+  });
+
   it('returns an empty digest when nothing in the turn was perceptible', () => {
     const deltas: EventDelta[] = [
       { type: 'relation', key: 'npc_a:npc_b:perceived_threat', delta: 3, reason: 'private assessment' },

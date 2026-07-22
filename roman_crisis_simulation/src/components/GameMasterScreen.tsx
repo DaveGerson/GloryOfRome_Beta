@@ -439,6 +439,19 @@ const PlayerKnowledgeView: React.FC<{ knowledge: KnowledgeClaim[] }> = ({ knowle
                             <span style={{ fontFamily: MONO, fontSize: 12, color: DIM }}>key: {claim.claimKey}</span>
                         </div>
                         <div style={{ fontSize: 14, fontStyle: 'italic', color: PARCH, marginTop: 4 }}>“{claim.claim}”</div>
+                        {claim.schemeDiscovery && (
+                            // D28 - the believed-side scheme picture: the player sees clue
+                            // progress, and the nature ONLY once enough clues reveal it.
+                            <div style={{ fontSize: 12, marginTop: 6 }}>
+                                <span style={lbl}>Scheme clues: </span>
+                                <span style={{ fontFamily: MONO, color: claim.schemeDiscovery.revealed ? GREEN : GOLD }}>
+                                    {claim.schemeDiscovery.clues} · {claim.schemeDiscovery.revealed ? 'nature revealed' : 'nature hidden'}
+                                </span>
+                                {claim.schemeDiscovery.revealed && claim.schemeDiscovery.nature && (
+                                    <span style={{ fontStyle: 'italic', color: PARCH }}> — “{claim.schemeDiscovery.nature}”</span>
+                                )}
+                            </div>
+                        )}
                         <div style={{ fontSize: 12, marginTop: 6, borderTop: '1px solid rgba(201,162,39,.15)', paddingTop: 6 }}>
                             <span style={lbl}>Updates ({claim.updates.length})</span>
                             <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
