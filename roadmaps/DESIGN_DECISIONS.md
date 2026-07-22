@@ -184,13 +184,14 @@ can act against; spotting, tracing, and refuting them is part of play.
 *Extends:* D11 (the engine always knows what is a lie, regardless of
 who planted it).
 
-## D20 — Verification can deceive
-Paying to verify a claim is itself a roll: on a bad outcome the game
-may return a false confirmation — a lie comes back "confirmed" — not
-merely "inconclusive." Even verification is untrusted; the D11 truth
-ledger is the only place certainty exists. (Recorded from an owner
-reply that was cut off mid-sentence after endorsing this option; flag
-if misread.)
+## D20 — Verification can deceive — REVISED BY D26
+Original ruling: paying to verify a claim is itself a roll, and a bad
+outcome could return a false "confirmed." **D26 revises this:** the
+*system* never returns a system-authoritative false confirmation (that
+would be the honest window lying). Verification instead returns a
+*sourced* result — your spy's confidence, your informant's oath — and the
+SOURCE, never the system, may be wrong. The deception is real; it just
+always wears a face the player can choose to distrust. See D26.
 
 ## D21 — Information is a time-dated, living entity
 Every piece of information the player holds is stamped with when it was
@@ -225,3 +226,75 @@ When the adjudicator judges a payoff is warranted, it should prefer a
 historical/authored event whose time has plausibly come; otherwise it
 crafts a custom crisis.
 *Refines:* D12.
+
+---
+
+Rulings D25–D30 are the third Phase 4 round (July 2026): they answer the
+remaining 4B/4C questions and reshape the information model. They revise
+D11/D20/D21 where noted. The 4D polish items (posture wording, event
+text, modal-suppression, the `economic_stability` vocabulary) were left
+to implementer judgment — the owner declined to rule, citing unfamiliar
+jargon; all remain vetoable later.
+
+## D25 — Confidence is conveyed by source, never a number
+No quantitative credibility (no "82%", no percentage, no bar) ever
+reaches the player. The ground-truth credibility is recorded in the
+backend and GM console only. The player judges how far to trust a
+datapoint from its SOURCE(s) — who reported it and how that source frames
+its own certainty — and corroborating or conflicting sources are the
+signal. A bare number reads as out of character and implies a false
+precision the model is not actually computing.
+*Answers:* the confidence-display question. ReportsTab and every intel
+surface drop the percentage in favor of source framing.
+
+## D26 — The system is an honest window; only the fiction lies
+The load-bearing principle behind D25 and the whole verification model.
+The player perceives the world through their avatar's viewpoint and acts
+on it. NPCs may lie; the player may misread a situation; but the
+SIMULATION ITSELF is always an accurate window into the avatar's
+situation. Nothing presented in the system's own voice is ever false.
+Every uncertain or false datum is attributed to an in-fiction source the
+player may choose to distrust — the player, not the system, decides
+whether to take what the window shows at face value. A value that looks
+system-generated must never be a lie.
+*Revises D20:* verification returns a sourced result, never a
+system-authoritative false confirmation. *Reinforces D5/D11:* the truth
+ledger (backend) is where the system's honesty lives; the player surface
+shows only sourced, distrustable framing.
+
+## D27 — Dossier refresh decays with staleness
+Refreshing a held dossier costs less than first acquisition, scaled by
+how stale the intel is: a recently-refreshed file is cheap to top up, a
+long-cold one approaches full price. The chosen decay rate and its
+rationale are written into the code comments for later reference. Paid in
+the same resource the first investigation used.
+*Answers:* the refresh-pricing question.
+
+## D28 — A scheme is perceived as "something afoot"; its nature is earned
+Perception (proximity, witnessing) reveals only THAT a character is
+plotting — never the scheme's name or nature. The true nature is uncovered
+by accumulating clues: a detective-style unraveling of the situation. The
+near-term data model is an undiscovered-scheme claim that accretes clues
+toward revelation; the fuller clue-driven discovery mini-game is a stated
+forward direction, not this round's build.
+*Answers:* the scheme-visibility question. Replaces the crude-v1 rule
+that leaked a scheme's name to co-located bystanders.
+
+## D29 — Information is a graph, not a list
+Rumors and datapoints are many, simultaneous, and interconnected; signals
+mix and get misread — which is precisely how rumor becomes confusion.
+Information is modeled as a graph: claims, topics, entities, and sources
+as nodes; about / corroborates / contradicts / derives-from as edges.
+Topic mapping and tagging is the concrete near-term step and the fix for
+the over-merging flat-list keying.
+*Revises D21:* the living claims become nodes in the graph rather than a
+flat keyed list.
+
+## D30 — Minds continuously evolve their own schemes
+A spotlight NPC's mind drives the evolution of its `active_scheme` every
+turn, because the scheme reflects that character's own interests. The
+mind's scheme adjustment takes effect as the character's evolving intent —
+applied as that entity's own scheme, not merely a hint the adjudicator
+may discard. The adjudicator still owns the *outcomes* of actions in the
+shared world; the character's interior plan belongs to its mind.
+*Revises:* the earlier hint-only wiring of the mind's `scheme_adjustment`.
