@@ -1057,7 +1057,7 @@ const App: React.FC = () => {
                                 />
                             ) : (
                                 <>
-                                    <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }} aria-live="polite">
+                                    <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }} role="log" aria-live="polite" aria-label="Chat log">
                                         {messages.map((msg, index) => <ChatMessage key={index} message={msg} />)}
                                         {gameState === GameState.PROCESSING && (
                                             streamingNarration

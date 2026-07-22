@@ -19,7 +19,7 @@ export const Meter: React.FC<{
     return (
         <div className="gor-meter" style={style}>
             {(label || display !== null) && <div className="gor-meter-row">{label && <span className="gor-label">{label}</span>}<span className="gor-meter-val">{display !== undefined ? display : `${value} / ${max}`}</span></div>}
-            <div className="gor-meter-track" role="meter" aria-valuenow={value} aria-valuemin={0} aria-valuemax={max}><div className="gor-meter-fill" style={{ width: pct + '%', background: meterFills[tone] || meterFills.gold }}></div></div>
+            <div className="gor-meter-track" role="meter" aria-label={typeof label === 'string' ? label : 'Progress'} aria-valuenow={value} aria-valuemin={0} aria-valuemax={max}><div className="gor-meter-fill" style={{ width: pct + '%', background: meterFills[tone] || meterFills.gold }}></div></div>
         </div>
     );
 };
