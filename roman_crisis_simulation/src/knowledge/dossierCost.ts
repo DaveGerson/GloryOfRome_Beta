@@ -13,6 +13,13 @@
  * from the knowledge store by knowledge/store.ts::deriveDossier; this module
  * only turns that turn-count into a price.
  *
+ * DORMANT (as of the current build): investigations are flat/unit-priced, so
+ * this decay curve is NOT on the active cost path (the tab charges full
+ * first-acquisition price for every buy). It reactivates once investigations
+ * gain a graded (non-unit) price via the currency converter (BACKLOG.md B1) -
+ * at unit price the curve can only collapse to free-or-full, which read as
+ * exploitable free reveals; kept here, tested, and ready for that day.
+ *
  * -------------------------------------------------------------------------
  * THE DECAY CURVE (and why - written here per D27 for the owner to veto):
  *

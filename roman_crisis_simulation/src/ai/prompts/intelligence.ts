@@ -146,10 +146,18 @@ export function buildInvestigationPrompt(
   subject: 'secrets' | 'beliefs' | 'scheme',
   tier: ActionResolutionTier
 ): { systemInstruction: string; prompt: string } {
+  // A 'scheme' investigation returns CLUES, never the whole plot (D28): the
+  // scheme's nature is earned across several separate investigations, so a
+  // single buy must hand back only partial fragments - never a scheme title
+  // or its list of steps.
+  const reportDataInstruction = subject === 'scheme'
+    ? `Generate 1-3 discrete CLUES as an array of short strings - partial, concrete observations your agents turned up that hint at what ${target.name} is quietly working toward. Each clue is a FRAGMENT, not the whole plot: never state a scheme's title and never lay out its steps. Piecing together the full nature of a scheme takes several separate investigations; this is only one of them.`
+    : `Based on the target's profile, generate a plausible list of ${subject} as an array of strings. This is the raw data.`;
+
   const systemInstruction = `You are the head of intelligence for ${player.name}. You completed an investigation into ${target.name} to uncover their **${subject}**.
 
     **Task:** Generate a JSON object with the results.
-    1.  **reportData:** Based on the target's profile, generate a plausible list of ${subject} (or a full Scheme object if the subject is 'scheme'). This is the raw data.
+    1.  **reportData:** ${reportDataInstruction}
     2.  **report:** Write a brief, narrative report for your master summarizing what you found, consistent with the outcome below. Frame every finding as YOUR AGENT'S OWN read that the master may choose to distrust - ${agentConfidenceFraming(tier)}. Never present a finding as a confirmed, settled fact: it is your agent's sourced judgment, its reliability set by how well they fared, not a certainty the report itself guarantees.
     3.  **consequences:** The investigation's outcome has ALREADY been mechanically decided by a hidden roll (you do not decide it, only write consistent report content) as: ${tier.toUpperCase()}. ${INVESTIGATION_TIER_GUIDANCE[tier]}
 

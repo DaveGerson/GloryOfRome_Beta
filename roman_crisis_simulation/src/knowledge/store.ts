@@ -48,9 +48,10 @@
  *     opens its own claim - the over-merge fix)
  *   - investigation: `investigation:{targetId}:{kind}` (the kind is the
  *     topic; re-buying the same aspect refreshes the same dossier claim, D14)
- *   - scheme: `scheme:{schemerId}` (D28 - ONE clue claim per schemer; a
- *     witnessed sighting and a bought 'scheme' investigation both accrete
- *     clues onto it toward earning the scheme's nature, see ingestSchemeClue)
+ *   - scheme: `scheme:{schemerId}` (D28 - ONE discovery claim per schemer; a
+ *     witnessed sighting records AWARENESS on it, a paid 'scheme'
+ *     investigation accretes a NATURE clue - only the paid clue advances the
+ *     count toward the reveal, see ingestSchemeClue)
  * A rumor Report with `stance: 'contradicts'` (a counterplay refutation)
  * always FORKS a distinct claim node even when its base key matches, so the
  * refutation is a separate node linked by a 'contradicts' edge rather than
@@ -91,9 +92,9 @@ export type KnowledgeSource = PerceptionSource | ReportSource;
 /**
  * The provenance channels; also the claimKey prefix. 'digest'/'report'/
  * 'investigation' each have one ingestion function. 'scheme' is the D28
- * scheme-discovery channel: a schemer's ONE unified clue claim, fed by both
- * a proximity sighting (a witnessed 'scheme' digest entry) and a bought
- * investigation - see ingestSchemeClue.
+ * scheme-discovery channel: a schemer's ONE unified discovery claim, fed by
+ * a proximity sighting (awareness only) and a paid investigation (which alone
+ * advances the nature clue count) - see ingestSchemeClue.
  */
 export type KnowledgeChannel = 'digest' | 'report' | 'investigation' | 'scheme';
 
@@ -108,13 +109,15 @@ export interface KnowledgeEdge {
 }
 
 /**
- * D28 scheme-nature discovery, carried on a scheme-channel claim. A scheme
- * is perceived only as 'something is afoot'; its NATURE is earned by
- * accreting clues, never leaked by proximity. `clues` counts the distinct
- * clues gathered (a witnessed sighting or a bought investigation each add
- * one); `revealed` flips once `clues` reaches SCHEME_CLUES_TO_REVEAL; and
- * `nature` is populated ONLY once revealed - while unrevealed the player
- * knows only that someone is plotting.
+ * D28 scheme-nature discovery, carried on a scheme-channel claim. Perceiving
+ * a scheme reveals only AWARENESS - 'something is afoot' - which is simply the
+ * existence of this claim. The NATURE is earned SEPARATELY, through PAID
+ * investigation only: `clues` counts nature-clues gathered by active
+ * investigation ALONE (D28/D30 - proximity/perception opens and restates the
+ * claim but NEVER advances this count, so a scheme a mind re-evolves every
+ * turn can never passively auto-reveal). `revealed` flips once `clues` reaches
+ * SCHEME_CLUES_TO_REVEAL; `nature` is populated ONLY once revealed - while
+ * unrevealed the player knows only that someone is plotting.
  */
 export interface SchemeDiscovery {
   clues: number;
@@ -203,12 +206,12 @@ export const MAX_EDGES_PER_CLAIM = 8;
 export const MAX_TOPIC_LEN = 40;
 
 /**
- * Clues that must accrete before a scheme's NATURE is revealed (D28). Set to
- * 3: a single sighting or one bought report is only 'something is afoot', so
- * a nature worth naming should require corroboration across more than one
- * observation; 3 stays reachable within a normal campaign while keeping a
- * lone proximity witness - or a single investigation - insufficient on its
- * own. Tune here; the full clue-to-nature synthesis is a later mini-game.
+ * PAID nature-clues that must accrete before a scheme's NATURE is revealed
+ * (D28). Set to 3: proximity awareness never counts here (D30), and one bought
+ * report is only a thread, so a nature worth naming requires corroboration
+ * across several PAID investigations; 3 stays reachable within a normal
+ * campaign while keeping a single investigation insufficient on its own. Tune
+ * here; the full clue-to-nature synthesis is a later mini-game.
  */
 export const SCHEME_CLUES_TO_REVEAL = 3;
 
@@ -222,10 +225,10 @@ export const SCHEME_CLUES_TO_REVEAL = 3;
 export const SCHEME_CLUE_LINE = 'Your agents piece together another thread of the design.';
 
 /**
- * The player-facing nature line used when the clue threshold is reached with
- * no bought reading to draw on (proximity sightings alone got the player
- * there): the shape is clear, the particulars are not. Honest and
- * non-leaking - naming the exact plot is the deferred mini-game's job.
+ * The player-facing nature line used as a defensive fallback if the clue
+ * threshold is reached with no bought reading to draw on: the shape is clear,
+ * the particulars are not. Honest and non-leaking - naming the exact plot is
+ * the deferred mini-game's job.
  */
 export const SCHEME_NATURE_UNSYNTHESIZED = 'The shape of the design is plain now, though your agents are still naming its particulars.';
 
@@ -425,10 +428,11 @@ export function ingestPerceivedChanges(
   for (const change of changes) {
     if (change.deltaType === 'rumor') continue;
     if (change.deltaType === 'scheme') {
-      // D28: a witnessed scheme is a proximity SIGHTING - it adds a clue to
-      // the schemer's unified scheme-discovery claim (never the scheme's
-      // nature, which the digest line already withholds), so proximity and
-      // bought intel accrete toward the same reveal.
+      // D28/D30: a witnessed scheme is a proximity SIGHTING - it records
+      // AWARENESS on the schemer's unified discovery claim (the digest line
+      // already withholds the nature) but does NOT advance the nature clue
+      // count. Only a PAID investigation earns the nature, so a scheme a mind
+      // re-evolves every turn cannot passively auto-reveal from proximity.
       next = ingestSchemeClue(next, {
         schemerId: change.subject,
         turn,
@@ -511,11 +515,11 @@ export function ingestInvestigationReveal(
   store: KnowledgeClaim[],
   reveal: { targetId: string; kind: InvestigationKind; text: string; turn: number }
 ): KnowledgeClaim[] {
-  // D28: buying intel on a plotting target adds a CLUE toward the scheme's
-  // nature - it does not dump the whole scheme. The bought reading rides as
-  // a natureHint (surfaced only once the clue threshold is met), and the
-  // stored timeline line stays nature-free; the beliefs/secrets aspects keep
-  // their full-dossier behavior.
+  // D28: buying intel on a plotting target earns a NATURE clue toward the
+  // reveal (advancesNature) - it does not dump the whole scheme. The bought
+  // reading rides as a natureHint (surfaced only once the clue threshold is
+  // met), and the stored timeline line stays nature-free; the beliefs/secrets
+  // aspects keep their full-dossier behavior.
   if (reveal.kind === 'scheme') {
     return ingestSchemeClue(store, {
       schemerId: reveal.targetId,
@@ -523,6 +527,7 @@ export function ingestInvestigationReveal(
       source: 'spy',
       text: SCHEME_CLUE_LINE,
       natureHint: reveal.text,
+      advancesNature: true,
     });
   }
   return upsertClaim(store, {
@@ -538,11 +543,11 @@ export function ingestInvestigationReveal(
 
 /**
  * Resolves the scheme-discovery bookkeeping for a claim now holding `clues`
- * clues (D28). Below SCHEME_CLUES_TO_REVEAL the nature stays hidden; at or
- * beyond it the nature is earned and drawn from the freshest reading
- * available: a bought clue's natureHint, else a nature already synthesized on
- * an earlier crossing, else the honest 'shape is clear, particulars pending'
- * line when only proximity sightings got the player there. Pure and total.
+ * PAID nature-clues (D28). Below SCHEME_CLUES_TO_REVEAL the nature stays
+ * hidden; at or beyond it the nature is earned and drawn from the freshest
+ * reading available: a bought clue's natureHint, else a nature already
+ * synthesized on an earlier crossing, else the honest 'shape is clear,
+ * particulars pending' defensive fallback line. Pure and total.
  */
 function resolveSchemeDiscovery(
   clues: number,
@@ -658,41 +663,45 @@ export function deriveDossier(store: KnowledgeClaim[], subject: string): Dossier
 }
 
 /**
- * Adds one clue to a schemer's unified scheme-discovery claim (D28), opening
- * it on the first clue. Both a proximity SIGHTING (a witnessed 'scheme'
- * digest entry) and a bought INVESTIGATION feed this one claim - keyed
- * `scheme:{schemerId}`, topic 'scheme' - so their clues accrete together
- * toward the same reveal. Each clue appends a nature-free timeline line and
- * increments the count; the nature surfaces only once the count reaches
- * SCHEME_CLUES_TO_REVEAL (resolveSchemeDiscovery).
+ * Records one observation on a schemer's unified scheme-discovery claim (D28),
+ * opening it on the first. Both a proximity SIGHTING and a paid INVESTIGATION
+ * feed this one claim - keyed `scheme:{schemerId}`, topic 'scheme' - and each
+ * appends a nature-free timeline line. They differ in the ONE way that matters
+ * (D28/D30): only a PAID investigation (`advancesNature: true`) advances the
+ * nature clue count toward the reveal; a proximity sighting records AWARENESS
+ * (the claim exists) but leaves the count untouched, so a scheme a mind
+ * re-evolves every turn can never passively auto-reveal from proximity alone.
  *
- * `natureHint` (a bought reading) is NEVER stored while the scheme is
- * unrevealed - it is consulted only at the crossing, so no single clue can
- * dump the scheme early. `clues` is authoritative and keeps counting even
- * after the oldest timeline entries roll off the MAX_UPDATES_PER_CLAIM
- * window.
+ * `natureHint` (a bought reading) is honored only on the advancing path, and
+ * even then is NEVER stored while unrevealed - it is consulted only at the
+ * crossing, so no single clue can dump the scheme early. `clues` is
+ * authoritative (PAID nature-clues only) and keeps counting even after the
+ * oldest timeline entries roll off the MAX_UPDATES_PER_CLAIM window.
  */
 export function ingestSchemeClue(
   store: KnowledgeClaim[],
-  clue: { schemerId: string; turn: number; source: KnowledgeSource; text: string; natureHint?: string }
+  clue: { schemerId: string; turn: number; source: KnowledgeSource; text: string; natureHint?: string; advancesNature?: boolean }
 ): KnowledgeClaim[] {
+  const advancesNature = clue.advancesNature === true;
   const claimKey = `scheme:${clue.schemerId}`;
   const update: KnowledgeUpdate = { turn: clue.turn, source: clue.source, text: clue.text };
   const existingIndex = store.findIndex(c => c.claimKey === claimKey);
 
   if (existingIndex >= 0) {
     const existing = store[existingIndex];
-    const clues = (existing.schemeDiscovery?.clues ?? existing.updates.length) + 1;
+    const priorClues = existing.schemeDiscovery?.clues ?? 0;
+    const clues = advancesNature ? priorClues + 1 : priorClues;
     const next = [...store];
     next[existingIndex] = {
       ...existing,
       updates: [...existing.updates, update].slice(-MAX_UPDATES_PER_CLAIM),
-      schemeDiscovery: resolveSchemeDiscovery(clues, clue.natureHint, existing.schemeDiscovery?.nature),
+      schemeDiscovery: resolveSchemeDiscovery(clues, advancesNature ? clue.natureHint : undefined, existing.schemeDiscovery?.nature),
     };
     return next;
   }
 
   const edges = computeEdges(store, { subject: clue.schemerId, topic: 'scheme', channel: 'scheme' });
+  const clues = advancesNature ? 1 : 0;
   const newClaim: KnowledgeClaim = {
     id: `claim_${clue.turn}_${claimKey}`,
     subject: clue.schemerId,
@@ -701,7 +710,7 @@ export function ingestSchemeClue(
     claimKey,
     firstLearnedTurn: clue.turn,
     updates: [update],
-    schemeDiscovery: resolveSchemeDiscovery(1, clue.natureHint, undefined),
+    schemeDiscovery: resolveSchemeDiscovery(clues, advancesNature ? clue.natureHint : undefined, undefined),
   };
   if (edges.length > 0) {
     newClaim.edges = edges;

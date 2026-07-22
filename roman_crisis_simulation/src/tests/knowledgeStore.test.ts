@@ -232,12 +232,33 @@ describe('knowledge/store', () => {
     });
   });
 
-  describe('scheme discovery (D28 - nature is earned, not leaked)', () => {
-    // The clue threshold is a tuning constant; these tests key off it rather
+  describe('scheme discovery (D28/D30 - awareness is perceived, nature is PAID for)', () => {
+    // The reveal threshold is a tuning constant; these tests key off it rather
     // than a hardcoded number so they hold if it moves. All assume >= 2.
     const N = SCHEME_CLUES_TO_REVEAL;
 
-    it('a witnessed scheme sighting opens ONE scheme-discovery claim with a name-free line and a single clue', () => {
+    // A witnessed proximity sighting: AWARENESS only, never advances nature.
+    function witness(store: KnowledgeClaim[], turn: number): KnowledgeClaim[] {
+      return ingestSchemeClue(store, {
+        schemerId: 'maximinus_thrax',
+        turn,
+        source: 'witnessed',
+        text: 'You sense Maximinus Thrax is plotting something.',
+      });
+    }
+    // A paid investigation clue: advances the nature count toward the reveal.
+    function buy(store: KnowledgeClaim[], turn: number, natureHint?: string): KnowledgeClaim[] {
+      return ingestSchemeClue(store, {
+        schemerId: 'maximinus_thrax',
+        turn,
+        source: 'spy',
+        text: SCHEME_CLUE_LINE,
+        natureHint,
+        advancesNature: true,
+      });
+    }
+
+    it('a witnessed scheme sighting opens ONE discovery claim with a name-free line and AWARENESS but ZERO nature clues', () => {
       const store = ingestPerceivedChanges(
         [],
         [makeChange({
@@ -255,16 +276,16 @@ describe('knowledge/store', () => {
       expect(claim.claimKey).toBe('scheme:maximinus_thrax');
       expect(claim.topic).toBe('scheme');
       expect(claim.subject).toBe('maximinus_thrax');
-      // A clue is recorded, but the nature is NOT: proximity discloses only
-      // that someone is at work.
-      expect(claim.schemeDiscovery).toEqual({ clues: 1, revealed: false });
+      // Awareness is recorded (the claim exists) but the nature count stays 0:
+      // proximity discloses only that someone is at work (D28/D30).
+      expect(claim.schemeDiscovery).toEqual({ clues: 0, revealed: false });
       // The stored line names no scheme - only the schemer, who is fair game.
       const serialized = JSON.stringify(claim);
       expect(serialized).toContain('plotting something');
       expect(serialized).not.toMatch(/scheme"\s*:/); // no active_scheme object leaked
     });
 
-    it('a proximity sighting and a bought investigation accrete clues onto the SAME claim', () => {
+    it('proximity records awareness on the SAME claim, and ONLY the paid investigation advances the nature count', () => {
       const witnessed = ingestPerceivedChanges(
         [],
         [makeChange({
@@ -285,7 +306,10 @@ describe('knowledge/store', () => {
 
       expect(bought).toHaveLength(1);
       const claim = bought[0];
-      expect(claim.schemeDiscovery?.clues).toBe(2);
+      // Both accrete onto one claim, but only the paid buy advanced nature:
+      // proximity (0) + one paid clue (1) = 1, not 2.
+      expect(claim.schemeDiscovery?.clues).toBe(1);
+      expect(claim.updates).toHaveLength(2); // awareness line + paid clue line
       // The bought reading is a nature CANDIDATE, not stored in the timeline
       // below the threshold (D28 - a single buy must not dump the scheme).
       const serialized = JSON.stringify(claim);
@@ -293,15 +317,23 @@ describe('knowledge/store', () => {
       expect(claim.updates[1].text).toBe(SCHEME_CLUE_LINE);
     });
 
-    it('stays UNREVEALED with the nature hidden below the threshold', () => {
+    it('proximity sightings alone NEVER advance the nature count or reveal, no matter how many accrue (the D30 fix)', () => {
+      let store: KnowledgeClaim[] = [];
+      // Far more sightings than the reveal threshold - a mind re-evolving its
+      // scheme every turn used to auto-reveal this way; it must not now.
+      for (let turn = 1; turn <= N + 5; turn++) {
+        store = witness(store, turn);
+      }
+      const claim = store[0];
+      expect(claim.schemeDiscovery?.clues).toBe(0);
+      expect(claim.schemeDiscovery?.revealed).toBe(false);
+      expect(claim.schemeDiscovery?.nature).toBeUndefined();
+    });
+
+    it('stays UNREVEALED with the nature hidden below the threshold of PAID clues', () => {
       let store: KnowledgeClaim[] = [];
       for (let i = 1; i < N; i++) {
-        store = ingestSchemeClue(store, {
-          schemerId: 'maximinus_thrax',
-          turn: i,
-          source: 'witnessed',
-          text: 'You sense Maximinus Thrax is plotting something.',
-        });
+        store = buy(store, i);
       }
       const claim = store[0];
       expect(claim.schemeDiscovery?.clues).toBe(N - 1);
@@ -309,26 +341,18 @@ describe('knowledge/store', () => {
       expect(claim.schemeDiscovery?.nature).toBeUndefined();
     });
 
-    it('flips revealed and surfaces the bought nature exactly when the clue count reaches the threshold', () => {
+    it('flips revealed and surfaces the bought nature exactly when the PAID clue count reaches the threshold', () => {
       let store: KnowledgeClaim[] = [];
-      // N-1 proximity clues (no nature), then a bought clue crosses the line.
+      // Proximity awareness first (does nothing to the count), then N paid
+      // clues, the last carrying the reading that becomes the earned nature.
+      store = witness(store, 1);
       for (let i = 1; i < N; i++) {
-        store = ingestSchemeClue(store, {
-          schemerId: 'maximinus_thrax',
-          turn: i,
-          source: 'witnessed',
-          text: 'You sense Maximinus Thrax is plotting something.',
-        });
+        store = buy(store, i + 1);
       }
       expect(store[0].schemeDiscovery?.revealed).toBe(false);
+      expect(store[0].schemeDiscovery?.clues).toBe(N - 1);
 
-      store = ingestSchemeClue(store, {
-        schemerId: 'maximinus_thrax',
-        turn: N,
-        source: 'spy',
-        text: SCHEME_CLUE_LINE,
-        natureHint: 'A coup: he means to march the Rhine legions on Rome.',
-      });
+      store = buy(store, N + 1, 'A coup: he means to march the Rhine legions on Rome.');
 
       const claim = store[0];
       expect(claim.schemeDiscovery?.clues).toBe(N);
@@ -336,15 +360,10 @@ describe('knowledge/store', () => {
       expect(claim.schemeDiscovery?.nature).toBe('A coup: he means to march the Rhine legions on Rome.');
     });
 
-    it('falls back to the honest unsynthesized nature line when only proximity sightings reach the threshold', () => {
+    it('falls back to the honest unsynthesized nature line if the PAID threshold is crossed with no reading to draw on', () => {
       let store: KnowledgeClaim[] = [];
       for (let i = 1; i <= N; i++) {
-        store = ingestSchemeClue(store, {
-          schemerId: 'maximinus_thrax',
-          turn: i,
-          source: 'witnessed',
-          text: 'You sense Maximinus Thrax is plotting something.',
-        });
+        store = buy(store, i); // paid clues, but no natureHint on any of them
       }
       const claim = store[0];
       expect(claim.schemeDiscovery?.revealed).toBe(true);
@@ -406,12 +425,13 @@ describe('knowledge/store', () => {
     });
 
     it('surfaces a scheme aspect (D28) with its discovery bookkeeping and last-clue turn', () => {
+      // A proximity sighting: awareness on file, but zero PAID nature clues.
       const store = ingestSchemeClue([], {
         schemerId: 'maximinus_thrax', turn: 3, source: 'witnessed', text: 'You sense Maximinus Thrax is plotting something.',
       });
       const scheme = deriveDossier(store, 'maximinus_thrax').entries.find(e => e.kind === 'scheme');
       expect(scheme).toMatchObject({ kind: 'scheme', topic: 'scheme', lastRefreshedTurn: 3 });
-      expect(scheme?.schemeDiscovery).toEqual({ clues: 1, revealed: false });
+      expect(scheme?.schemeDiscovery).toEqual({ clues: 0, revealed: false });
     });
 
     it('scopes strictly to the requested subject', () => {

@@ -246,10 +246,11 @@ export const zConversationSimulation = z.object({
 }).passthrough();
 
 /** Validates getInvestigationResult's output (intelligence.ts). `reportData`
- * is either a string list (secrets/beliefs) or a full Scheme object,
- * depending on the requested `subject`. */
+ * is a string list for every subject: findings for secrets/beliefs, and for
+ * 'scheme' a list of partial clues (D28 - a scheme investigation returns
+ * fragments, never the whole Scheme object). */
 export const zInvestigationResult = z.object({
-  reportData: z.union([z.array(z.string()), zScheme]),
+  reportData: z.array(z.string()),
   report: z.string(),
   consequences: z.string().nullable(),
 }).passthrough();

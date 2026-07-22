@@ -436,17 +436,21 @@ export const ActionAssessmentSchema = {
 };
 
 /**
- * Investigation results have a `reportData` shape that depends on the
- * requested `subject`: a full `Scheme` object for 'scheme', or a plain
- * string list for 'secrets'/'beliefs'. Mirrors the inline schema
- * previously built per-call inside `intelligence.ts::getInvestigationResult`.
+ * Investigation results have a `reportData` string-list shape for every
+ * subject: a list of findings for 'secrets'/'beliefs', and for 'scheme' a
+ * list of partial CLUES (D28 - a scheme investigation returns fragments that
+ * hint at the plot, never the whole Scheme; its nature is earned across
+ * several investigations, not dumped by one). `subject` no longer switches the
+ * shape - kept in the signature for call-site symmetry with the prompt
+ * builder. Mirrors the inline schema previously built per-call inside
+ * `intelligence.ts::getInvestigationResult`.
  */
 export function buildInvestigationResultSchema(subject: 'secrets' | 'beliefs' | 'scheme') {
-    const subjectSchema = subject === 'scheme' ? SchemeSchema : { type: Type.ARRAY, items: { type: Type.STRING } };
+    void subject;
     return {
         type: Type.OBJECT,
         properties: {
-            reportData: subjectSchema,
+            reportData: { type: Type.ARRAY, items: { type: Type.STRING } },
             report: { type: Type.STRING, description: "The narrative intelligence report summarizing the findings." },
             consequences: { type: Type.STRING, nullable: true, description: "Negative consequences of the investigation. If none, return null." }
         },

@@ -1,7 +1,7 @@
 
 // ai/mocks.ts
 
-import { Adjudication, Entity, NpcIntent, NpcMindDecision, Report, Scheme, SimulationState, StoryRelevance, TruthLedgerEntry, TurnHistoryEntry, WorldState, EventDelta, EntityStub } from '../types';
+import { Adjudication, Entity, NpcIntent, NpcMindDecision, Report, SimulationState, StoryRelevance, TruthLedgerEntry, TurnHistoryEntry, WorldState, EventDelta, EntityStub } from '../types';
 import { applyAdjudication, applyDeltas } from './core/engine';
 import { MAX_MINDS_PER_TURN } from './prompts/npcMind';
 
@@ -414,15 +414,16 @@ export const mockGetInvestigationResult = async (target: Entity, isRisky: boolea
             reportText = `We've uncovered some of ${target.name}'s core beliefs. They seem to be a military pragmatist.`;
             break;
         case 'scheme':
-            reportData = {
-                name: "(Mock) The Thracian Coup",
-                overall_goal: "To seize the imperial throne.",
-                steps: [
-                    { objective: "Undermine the emperor.", status: 'in_progress' },
-                    { objective: "Bribe the Praetorians.", status: 'pending' },
-                ]
-            } as Scheme;
-            reportText = `We've confirmed ${target.name}'s active scheme. They are planning a coup.`;
+            // D28: a scheme investigation returns partial CLUES, never the
+            // whole plot (no scheme title, no step list). The clues are
+            // fragments; the narrative report is the agent's read of where
+            // they point, surfaced as the earned nature only once enough PAID
+            // clues have accrued to cross the reveal threshold.
+            reportData = [
+                `(Mock) Coded letters keep passing to the frontier garrisons.`,
+                `(Mock) Coin is quietly moving toward the legions, not the treasury.`,
+            ];
+            reportText = `(Mock) Piece by piece it takes shape: ${target.name} is bending the frontier legions toward a reckoning with the throne.`;
             break;
         case 'secrets':
         default:

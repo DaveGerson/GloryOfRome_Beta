@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Entity, InvestigationResult, Scheme } from '../../types';
+import { Entity, InvestigationResult } from '../../types';
 import { GoogleGenAI } from "@google/genai";
 import { getRawThoughts, getInvestigationResult, getDeepAnalysis } from '../../ai/tools/intelligence';
 import InfoTooltip from '../InfoTooltip';
@@ -7,43 +7,41 @@ import GlossaryTooltip from '../GlossaryTooltip';
 import { Card, Button } from '../ui/Core';
 import { TrustBar } from '../ui/Game';
 import { toRoman } from '../ui/Brand';
-import { deriveDossier, InvestigationKind, KnowledgeClaim } from '../../knowledge/store';
-import { computeRefreshCost } from '../../knowledge/dossierCost';
+import { deriveDossier, InvestigationKind, KnowledgeClaim, SchemeDiscovery, SCHEME_CLUES_TO_REVEAL } from '../../knowledge/store';
 
 /**
  * DESIGN_DECISIONS.md D14 - the full first-acquisition price of one
- * investigation aspect, in the `investigations` resource. A REFRESH of an
- * aspect the player already holds a dossier on is discounted from this by
- * staleness (D27) - see priceInvestigation below.
+ * investigation aspect, in the `investigations` resource.
  */
 const FIRST_INVESTIGATION_COST = 1;
 
 /**
- * Prices one investigation aspect against what the player already holds on a
- * target (D14/D27). First acquisition (no dossier on file for this aspect) is
- * full price; a refresh is the staleness-decayed price, rounded to a whole
- * `investigations` unit because the currency is integer (see
- * knowledge/dossierCost.ts's INTEGER CURRENCIES note - at unit price this is
- * a free warm top-up vs. full-price cold re-acquisition). `held` drives the
- * Reveal-vs-Refresh label and never reads any credibility number (D25).
+ * Prices one investigation aspect (D14). FLAT: every aspect - and every
+ * repeat of it - costs the full first-acquisition price, whether or not the
+ * player already holds a dossier on it. Investigations stay a simple unit
+ * price until the currency converter lands (BACKLOG.md B1); the staleness
+ * decay curve (knowledge/dossierCost.ts::computeRefreshCost, D27) stays
+ * DORMANT - not on this active cost path - until a graded (non-unit) price
+ * gives it room to discount a warm refresh. `held` only labels Reveal-vs-
+ * Refresh and never reads any credibility number (D25).
  */
 function priceInvestigation(
   knowledge: KnowledgeClaim[],
   targetId: string,
-  kind: InvestigationKind,
-  turnNumber: number
+  kind: InvestigationKind
 ): { cost: number; held: boolean } {
-  const entry = deriveDossier(knowledge, targetId).entries.find(e => e.kind === kind);
-  if (!entry) return { cost: FIRST_INVESTIGATION_COST, held: false };
-  const turnsSinceLastRefresh = Math.max(0, turnNumber - entry.lastRefreshedTurn);
-  const cost = Math.round(computeRefreshCost(FIRST_INVESTIGATION_COST, turnsSinceLastRefresh));
-  return { cost, held: true };
+  const held = deriveDossier(knowledge, targetId).entries.some(e => e.kind === kind);
+  return { cost: FIRST_INVESTIGATION_COST, held };
+}
+
+/** The D28 scheme-discovery state the player has earned on a target, or undefined if nothing is known yet. Read model over the knowledge store, never live ground truth. */
+function schemeDiscoveryFor(knowledge: KnowledgeClaim[], targetId: string): SchemeDiscovery | undefined {
+  return deriveDossier(knowledge, targetId).entries.find(e => e.kind === 'scheme')?.schemeDiscovery;
 }
 
 type UncoveredIntel = {
     secrets?: string[];
     beliefs?: string[];
-    scheme?: Scheme;
     raw_thoughts?: string;
     /**
      * ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - the premium intel tier built
@@ -68,36 +66,93 @@ const glossaryTerms = {
 const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--text-muted)' };
 const quiet: React.CSSProperties = { fontSize: 14, fontStyle: 'italic', color: 'var(--text-muted)' };
 
-const stepGlyph = (status: Scheme['steps'][number]['status']) => {
-    if (status === 'completed') return { glyph: '✓', color: 'var(--laurel-500)' };
-    if (status === 'in_progress') return { glyph: '›', color: 'var(--crimson-500)' };
-    if (status === 'failed') return { glyph: '✕', color: 'var(--crimson-500)' };
-    return { glyph: '·', color: 'var(--text-muted)' };
-};
-
-const SchemeIntelDisplay: React.FC<{ scheme: Scheme }> = ({ scheme }) => (
-    <div style={{ fontSize: 14, display: 'flex', flexDirection: 'column', gap: 3 }}>
-        <span><strong>“{scheme.name}”</strong> — {scheme.overall_goal}</span>
-        {scheme.steps.map((step, i) => {
-            const { glyph, color } = stepGlyph(step.status);
-            return (
-                <span key={i} style={{ display: 'flex', gap: 8 }}>
-                    <span aria-hidden="true" style={{ color, flex: 'none', width: 12, textAlign: 'center' }}>{glyph}</span>
-                    <span style={{ color: step.status === 'pending' ? 'var(--text-muted)' : 'inherit' }}>{step.objective}</span>
-                </span>
-            );
-        })}
-    </div>
+/**
+ * D28 scheme-discovery progress: filled/empty threads for PAID nature-clues
+ * gathered vs. the reveal threshold. A discrete game-mechanic meter, NOT a
+ * credibility number (D25/D26) - it counts investigations bought, not how
+ * trustworthy anything is.
+ */
+const ThreadPips: React.FC<{ filled: number; total: number }> = ({ filled, total }) => (
+    <span aria-label={`${filled} of ${total} threads uncovered`} style={{ display: 'inline-flex', gap: 5, alignItems: 'center' }}>
+        {Array.from({ length: total }, (_, i) => (
+            <span
+                key={i}
+                aria-hidden="true"
+                style={{
+                    width: 9, height: 9, borderRadius: '50%', flex: 'none',
+                    background: i < filled ? 'var(--tyrian-500)' : 'transparent',
+                    border: '1px solid var(--tyrian-500)',
+                }}
+            />
+        ))}
+        <span style={{ ...quiet, fontSize: 12, marginLeft: 4 }}>threads</span>
+    </span>
 );
+
+/**
+ * The "Active Scheme" surface (D28). It renders the knowledge store's earned
+ * DISCOVERY STATE - never the raw ground-truth Scheme (no title, no steps ever
+ * reach the player):
+ *   - nothing known        -> [ Unknown ], a first Investigate for a nature clue;
+ *   - aware, not revealed   -> "something is afoot" + thread progress, buy more;
+ *   - revealed              -> the earned nature (the agent's pieced-together
+ *                              read, surfaced only once enough PAID clues cross
+ *                              SCHEME_CLUES_TO_REVEAL).
+ * Proximity awareness alone never advances the threads (D30) - only a paid
+ * investigation does - so a scheme a mind re-evolves every turn cannot
+ * passively reveal itself here.
+ */
+const SchemeIntelSection: React.FC<{
+    discovery: SchemeDiscovery | undefined;
+    threshold: number;
+    cost: number;
+    resourceCount: number;
+    onInvestigate: () => void;
+    isLoading: boolean;
+    tooltip: string;
+}> = ({ discovery, threshold, cost, resourceCount, onInvestigate, isLoading, tooltip }) => {
+    const renderState = () => {
+        if (isLoading) {
+            return <span style={quiet}>Your asset works in the dark…</span>;
+        }
+        if (discovery?.revealed && discovery.nature) {
+            return (
+                <div style={{ animation: 'gorFadeIn .4s ease-out both' }}>
+                    <p style={{ ...quiet, margin: 0, color: 'var(--text-body)' }}>“{discovery.nature}”</p>
+                </div>
+            );
+        }
+        const aware = !!discovery;
+        const clues = discovery?.clues ?? 0;
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                    <span style={quiet}>{aware ? 'Something is afoot — your agents are still piecing it together.' : '[ Unknown ]'}</span>
+                    <Button size="sm" variant="secondary" onClick={onInvestigate} disabled={resourceCount < cost || isLoading}>
+                        {(aware ? 'Investigate further' : 'Investigate') + (cost <= 0 ? ' · Free' : ` · ${toRoman(cost)} Inv.`)}
+                    </Button>
+                </span>
+                {aware && <ThreadPips filled={clues} total={threshold} />}
+            </div>
+        );
+    };
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <span style={{ ...labelStyle, display: 'inline-flex', alignItems: 'center' }}>Active Scheme<InfoTooltip text={tooltip} /></span>
+            {renderState()}
+        </div>
+    );
+};
 
 const IntelSection: React.FC<{
     title: string;
     cost: number;
     resourceName: string;
     resourceCount: number;
-    /** True once the player holds a persisted dossier on this aspect (D14): the button reads "Refresh", priced by staleness (D27), not "Reveal". */
+    /** True once the player holds a persisted dossier on this aspect (D14): the button reads "Refresh", not "Reveal". Flat-priced (see priceInvestigation). */
     held: boolean;
-    uncoveredData: string[] | Scheme | undefined;
+    uncoveredData: string[] | undefined;
     onUncover: () => void;
     isLoading: boolean;
     tooltip: string;
@@ -109,27 +164,19 @@ const IntelSection: React.FC<{
             return <span style={quiet}>Your asset works in the dark…</span>;
         }
         if (uncoveredData) {
-            const revealed = Array.isArray(uncoveredData) ? (
-                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 14 }}>
-                    {uncoveredData.map((item, i) => <li key={i}>{item}</li>)}
-                </ul>
-            ) : (typeof uncoveredData === 'object' && uncoveredData !== null && 'overall_goal' in uncoveredData) ? (
-                <SchemeIntelDisplay scheme={uncoveredData as Scheme} />
-            ) : (
-                <p style={{ ...quiet, margin: 0 }}>“{String(uncoveredData)}”</p>
-            );
             return (
                 <div style={{ animation: 'gorFadeIn .4s ease-out both' }}>
-                    {revealed}
+                    <ul style={{ margin: 0, paddingLeft: 18, fontSize: 14 }}>
+                        {uncoveredData.map((item, i) => <li key={i}>{item}</li>)}
+                    </ul>
                     {footnote}
                 </div>
             );
         }
-        // D27: a held dossier is REFRESHED (staleness-priced), not revealed
-        // afresh; a warm file can round to a free top-up (cost 0), which the
-        // Roman-numeral price can't render (toRoman floors to I), so it reads
-        // "Free". Only a spend AMOUNT is ever shown - never a credibility
-        // number (D25).
+        // A held dossier is REFRESHED, not revealed afresh - at the same flat
+        // price (D14; the D27 staleness discount stays dormant until B1's
+        // graded currency). Only a spend AMOUNT is ever shown - never a
+        // credibility number (D25).
         const verb = held ? 'Refresh' : 'Reveal';
         return (
             <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
@@ -199,25 +246,27 @@ const EntityDetails: React.FC<{
     playerEntity: Entity;
     /** The player knowledge store - the held-dossier read model that prices refreshes by staleness (D14/D27). */
     knowledge: KnowledgeClaim[];
-    /** The App's authoritative turn counter - the staleness clock a refresh is priced against (D27). */
+    /** The App's authoritative turn counter - retained for the DORMANT D27 refresh clock (reactivates under B1's graded currency); not read by the flat cost path. */
     turnNumber: number;
     onSpendDeepAnalysis: (cost: number) => void;
     /** One atomic callback per investigation reveal - spend + blackmail + fallout in a single state/save pass (see App.tsx's handleInvestigationOutcome). */
     onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult) => void;
     ai: GoogleGenAI;
     isMockMode: boolean;
-}> = ({ entity, playerEntity, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, ai, isMockMode }) => {
+}> = ({ entity, playerEntity, knowledge, onSpendDeepAnalysis, onInvestigationOutcome, ai, isMockMode }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [uncoveredIntel, setUncoveredIntel] = useState<UncoveredIntel>({});
     const [loadingState, setLoadingState] = useState<string | null>(null);
 
     const playerRelationship = playerEntity.relationships[entity.entity_id];
 
-    // D14/D27: price each aspect against the dossier already on file for this
-    // target. First acquisition is full price; a held dossier is a
-    // staleness-decayed refresh. Computed from the current knowledge store so
-    // display and spend agree (the same price flows to onInvestigationOutcome).
-    const price = (kind: InvestigationKind) => priceInvestigation(knowledge, entity.entity_id, kind, turnNumber);
+    // Flat pricing (D14): every aspect costs the full first-acquisition price
+    // regardless of what's on file - the staleness discount stays dormant
+    // until B1. Computed from the current store so display and spend agree
+    // (the same price flows to onInvestigationOutcome). The scheme surface
+    // reads its earned discovery STATE from the store, never a raw scheme.
+    const price = (kind: InvestigationKind) => priceInvestigation(knowledge, entity.entity_id, kind);
+    const schemeDiscovery = schemeDiscoveryFor(knowledge, entity.entity_id);
 
     const handleRequest = async (type: 'secrets' | 'beliefs' | 'scheme' | 'raw_thoughts' | 'deep_analysis', target: Entity) => {
         if (!playerEntity) return;
@@ -247,15 +296,19 @@ const EntityDetails: React.FC<{
                 case 'beliefs':
                 case 'secrets':
                 case 'scheme': {
-                    // D27: charge the staleness-priced cost for a held dossier,
-                    // full first-acquisition price otherwise - the SAME
-                    // `investigations` resource either way (D27 never switches
-                    // currency). Priced at click from the current store so it
-                    // matches the label the player saw.
+                    // Flat first-acquisition cost in the `investigations`
+                    // resource (D14); priced at click from the current store so
+                    // it matches the label the player saw.
                     const { cost } = price(type);
                     if ((playerEntity.resources.investigations as number) >= cost) {
                         const result = await getInvestigationResult(ai, target, playerEntity, true, isMockMode, type);
-                        setUncoveredIntel(prev => ({ ...prev, [type]: result.reportData }));
+                        // A 'scheme' buy does NOT display its raw reportData
+                        // (D28): the store commits it as ONE nature clue and the
+                        // Active Scheme surface renders the earned discovery
+                        // state. beliefs/secrets show their findings inline.
+                        if (type !== 'scheme') {
+                            setUncoveredIntel(prev => ({ ...prev, [type]: result.reportData as string[] }));
+                        }
                         // One atomic callback: the spend, any blackmail filing,
                         // and the fallout append land in a single App-side
                         // state/save pass - sequential per-concern callbacks
@@ -333,15 +386,14 @@ const EntityDetails: React.FC<{
                             isLoading={loadingState === 'beliefs'}
                             tooltip="Uncover the core ideologies and principles that drive this character's decisions."
                         />
-                        <IntelSection
-                            title="Active Scheme"
-                            {...price('scheme')}
-                            resourceName="Inv."
+                        <SchemeIntelSection
+                            discovery={schemeDiscovery}
+                            threshold={SCHEME_CLUES_TO_REVEAL}
+                            cost={price('scheme').cost}
                             resourceCount={investigations}
-                            uncoveredData={uncoveredIntel.scheme}
-                            onUncover={() => handleRequest('scheme', entity)}
+                            onInvestigate={() => handleRequest('scheme', entity)}
                             isLoading={loadingState === 'scheme'}
-                            tooltip="Discover the character's primary, overarching plan or strategy."
+                            tooltip="Piece together what this character is quietly plotting. Each investigation earns one clue toward its true nature - proximity alone only tells you something is afoot."
                         />
                         <IntelSection
                             title="Secrets"
@@ -372,9 +424,9 @@ const FactionSection: React.FC<{
     faction: Entity,
     members: Entity[],
     playerEntity: Entity,
-    /** Forwarded to EntityDetails to price held-dossier refreshes by staleness (D14/D27). */
+    /** Forwarded to EntityDetails - the held-dossier read model and the scheme discovery state (D14/D28). */
     knowledge: KnowledgeClaim[];
-    /** Forwarded to EntityDetails - the staleness clock a refresh is priced against (D27). */
+    /** Forwarded to EntityDetails - retained for the dormant D27 refresh clock (B1); not read by the flat cost path. */
     turnNumber: number;
     onSpendDeepAnalysis: (cost: number) => void;
     /** One atomic callback per investigation reveal - spend + blackmail + fallout in a single state/save pass (see App.tsx's handleInvestigationOutcome). */
@@ -410,9 +462,9 @@ const FactionSection: React.FC<{
 const DramatisPersonaeTab: React.FC<{
     playerEntity: Entity | null;
     entities: Entity[];
-    /** The player knowledge store - prices held-dossier refreshes by staleness (D14/D27); forwarded down to each EntityDetails. */
+    /** The player knowledge store - the held-dossier read model and scheme discovery state (D14/D28); forwarded down to each EntityDetails. */
     knowledge: KnowledgeClaim[];
-    /** The App's authoritative turn counter - the staleness clock a refresh is priced against (D27). */
+    /** The App's authoritative turn counter - retained for the dormant D27 refresh clock (B1); not read by the flat cost path. */
     turnNumber: number;
     onSpendDeepAnalysis: (cost: number) => void;
     /** One atomic callback per investigation reveal - spend + blackmail + fallout in a single state/save pass (see App.tsx's handleInvestigationOutcome). */
