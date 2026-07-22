@@ -956,6 +956,42 @@ describe('D30: a mind evolves its OWN active_scheme (load-bearing scheme_adjustm
       expect(mindNotes.some(n => n.includes('Superseded') && n.includes('npc_thrax'))).toBe(true);
     });
 
+    it("ordering (D30): a private-conversation 'scheme' delta for a MINDED entity cannot overwrite the mind's own evolution", async () => {
+      // The off-screen conversation (npc_thrax <-> npc_venena) tries to author
+      // npc_thrax's scheme. But Thrax is minded and its mind evolved its own
+      // scheme this turn (thraxDecisionJson) - the conversation deltas are
+      // merged BEFORE the mind-scheme dedup, so the conversation's scheme
+      // delta is superseded, never applied. A minded entity's interior plan
+      // is owned by its mind, not an off-screen meeting.
+      const responses = baseResponses();
+      responses.privateConversation = JSON.stringify({
+        dialogueSnippet: 'They plotted in the dark.',
+        deltas: [
+          { type: 'scheme', key: 'npc_thrax', delta: 0, reason: JSON.stringify({ name: 'Conversation Override', overall_goal: "Not the mind's plan.", steps: [] }) },
+        ],
+      });
+      const harness = createMindHarness(responses);
+      const result = await runAsymmetryTurn(harness);
+
+      // Exactly one scheme delta for Thrax survives: the mind's evolution,
+      // never the conversation's override.
+      const thraxScheme = result.newHistoryEntry.adjudication.deltas.filter(
+        (d: EventDelta) => d.type === 'scheme' && d.key === 'npc_thrax'
+      );
+      expect(thraxScheme).toHaveLength(1);
+      expect((JSON.parse(thraxScheme[0].reason) as Scheme).name).toBe(OWN_SCHEME_NAME);
+      expect(thraxScheme[0].reason).not.toContain('Conversation Override');
+
+      // Applied to state: Thrax's active_scheme is the mind's evolution.
+      const thrax = result.updatedEntities.find(e => e.entity_id === 'npc_thrax')!;
+      expect(thrax.active_scheme?.name).toBe(OWN_SCHEME_NAME);
+      expect(thrax.active_scheme?.steps.map(s => s.objective)).toContain('The recruitment step is complete; the march begins.');
+
+      // The supersession of the competing conversation delta is traced (D4/D5).
+      const mindNotes = result.newHistoryEntry.adjudication.gm_private.filter(n => n.startsWith('[Mind]'));
+      expect(mindNotes.some(n => n.includes('Superseded') && n.includes('npc_thrax'))).toBe(true);
+    });
+
     it('D28: the mind-applied scheme reaches a co-located witness only as "something afoot", never its name or nature', () => {
       // The committed scheme delta a mind evolution produces...
       const cast: Entity[] = [

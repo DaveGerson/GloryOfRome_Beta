@@ -17,6 +17,21 @@
 import { Entity, WorldState, SimulationState, StoryRelevance, NpcIntent, NpcMindDecision } from '../../types';
 
 /**
+ * The opaque stand-in that REPLACES a 'scheme' delta's `reason` before that
+ * delta is serialized into any prompt whose OUTPUT the player reads (D28). A
+ * 'scheme' delta's real `reason` is the full active_scheme JSON - name,
+ * overall goal, and ordered steps - which is GM-private: perception reveals
+ * only THAT a character's design shifted, never its nature (that is earned by
+ * accreting clues). The player-output-bound prompts (the narration prompt and
+ * the sim-state prompt, whose text renders in WorldStateTab) swap the real
+ * reason for this marker, so the model learns only that a private design
+ * moved, never its name or steps. The swap happens ONLY in the string handed
+ * to those prompts: the engine's own 'scheme' case still parses the REAL
+ * reason, and the delta object itself is never mutated.
+ */
+export const REDACTED_SCHEME_REASON = 'A character quietly advanced a private design this turn; its nature is not observable.';
+
+/**
  * Full per-entity brief: goals/scheme/personality/skills/beliefs/relationships.
  * Used for spotlight and "other" NPCs in the adjudication prompt, and for
  * the player entity elsewhere. Moved verbatim from `engine.ts`'s

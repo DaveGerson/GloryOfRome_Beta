@@ -585,41 +585,6 @@ export async function runNewTurn(
     // failure is visible for tuning without ever reaching the player.
     adjudication.gm_private.push(...mindFailureNotes);
 
-    // *** D30: MINDS CONTINUOUSLY EVOLVE THEIR OWN SCHEMES ***
-    // A spotlight NPC's mind DRIVES its own active_scheme's evolution
-    // (DESIGN_DECISIONS.md D30): where its decision returned a
-    // scheme_adjustment, that is the CHARACTER'S own evolving intent - applied
-    // as its own 'scheme' delta, not left as a hint the adjudicator may
-    // discard (the pre-D30 wiring). DIRECTION PRECEDENCE, extended to scheme
-    // OWNERSHIP: for a MINDED entity its own mind-driven scheme evolution WINS
-    // over any 'scheme' delta the adjudicator emitted for that SAME entity
-    // this turn - the adjudication prompt is told not to emit one, and here we
-    // ENFORCE the dedup in code (belt and suspenders) so the entity's scheme
-    // is never double-applied (once mind-driven, once by the adjudicator). The
-    // adjudicator still OWNS 'scheme' deltas for every NON-minded entity (the
-    // DYNAMIC SCHEMES rule) and owns action OUTCOMES in the shared world for
-    // everyone. These deltas are folded into adjudication.deltas HERE - before
-    // processMortality (a deep clone that preserves non-death deltas) and
-    // before applyAdjudication (step 3) - so they are committed and applied
-    // exactly ONCE, flowing through D28 perception like any other 'scheme'
-    // delta: a witness senses only 'something afoot', never the scheme's name
-    // (perception/visibility.ts::describeDelta).
-    const mindSchemeDeltas = buildMindSchemeDeltas(npcMindResults, currentEntities);
-    if (mindSchemeDeltas.length > 0) {
-        const mindEvolvedIds = new Set(mindSchemeDeltas.map(d => d.key));
-        const supersededIds = adjudication.deltas
-            .filter(d => d.type === 'scheme' && mindEvolvedIds.has(d.key))
-            .map(d => d.key);
-        adjudication.deltas = adjudication.deltas.filter(d => !(d.type === 'scheme' && mindEvolvedIds.has(d.key)));
-        adjudication.deltas.push(...mindSchemeDeltas);
-        for (const id of mindEvolvedIds) {
-            adjudication.gm_private.push(`[Mind] ${id} evolved its own active_scheme this turn - applied as the character's own scheme (DIRECTION PRECEDENCE: a minded entity's interior plan is owned by its mind, not the adjudicator).`);
-        }
-        if (supersededIds.length > 0) {
-            adjudication.gm_private.push(`[Mind] Superseded ${supersededIds.length} adjudicator 'scheme' delta(s) for mind-evolved entities (${supersededIds.join(', ')}) - the entity's own mind owns its scheme evolution this turn; no double-application.`);
-        }
-    }
-
     // *** NEW STEP 2.5: SIMULATE OFF-SCREEN NPC CONVERSATION ***
     // Moved ahead of applyAdjudication (previously ran on post-applyAdjudication
     // `updatedEntities`) so its deltas can be merged into `adjudication.deltas`
@@ -629,6 +594,13 @@ export async function runNewTurn(
     // are looked up from the pre-turn `currentEntities` snapshot rather than
     // the post-adjudication one - a minor behavioral shift, traded for a
     // single unified death-claim scan below instead of two.
+    //
+    // ORDER (D30): this merge runs BEFORE the mind-driven scheme dedup below,
+    // so a 'scheme' delta this conversation emits for a MINDED entity lands in
+    // adjudication.deltas in time to be superseded by that entity's own mind
+    // evolution - the same dedup that catches the adjudicator's scheme delta.
+    // A minded entity's interior plan is owned by its mind, never by an
+    // off-screen conversation.
     if (storyRelevance.spotlight_entities.length >= 2) {
         const npc1Id = storyRelevance.spotlight_entities[0].entity_id;
         const npc2Id = storyRelevance.spotlight_entities[1].entity_id;
@@ -649,6 +621,44 @@ export async function runNewTurn(
                 adjudication.deltas.push(...conversationResult.deltas);
                 adjudication.gm_private.push(`[Secret Meeting] ${conversationResult.dialogueSnippet}`);
             }
+        }
+    }
+
+    // *** D30: MINDS CONTINUOUSLY EVOLVE THEIR OWN SCHEMES ***
+    // A spotlight NPC's mind DRIVES its own active_scheme's evolution
+    // (DESIGN_DECISIONS.md D30): where its decision returned a
+    // scheme_adjustment, that is the CHARACTER'S own evolving intent - applied
+    // as its own 'scheme' delta, not left as a hint the adjudicator may
+    // discard (the pre-D30 wiring). DIRECTION PRECEDENCE, extended to scheme
+    // OWNERSHIP: for a MINDED entity its own mind-driven scheme evolution WINS
+    // over ANY competing 'scheme' delta for that SAME entity this turn,
+    // whatever its source - the adjudicator (told not to emit one) OR the
+    // off-screen private conversation merged just above. This dedup is the
+    // single enforcement point and runs AFTER that merge precisely so it
+    // catches BOTH sources: it strips every 'scheme' delta whose key is a
+    // mind-evolved entity, then appends the mind's own, so the entity's scheme
+    // is never double-applied or overwritten. The adjudicator still OWNS
+    // 'scheme' deltas for every NON-minded entity (the DYNAMIC SCHEMES rule)
+    // and owns action OUTCOMES in the shared world for everyone. These deltas
+    // are folded into adjudication.deltas HERE - before processMortality (a
+    // deep clone that preserves non-death deltas) and before applyAdjudication
+    // (step 3) - so they are committed and applied exactly ONCE, flowing
+    // through D28 perception like any other 'scheme' delta: a witness senses
+    // only 'something afoot', never the scheme's name
+    // (perception/visibility.ts::describeDelta).
+    const mindSchemeDeltas = buildMindSchemeDeltas(npcMindResults, currentEntities);
+    if (mindSchemeDeltas.length > 0) {
+        const mindEvolvedIds = new Set(mindSchemeDeltas.map(d => d.key));
+        const supersededIds = adjudication.deltas
+            .filter(d => d.type === 'scheme' && mindEvolvedIds.has(d.key))
+            .map(d => d.key);
+        adjudication.deltas = adjudication.deltas.filter(d => !(d.type === 'scheme' && mindEvolvedIds.has(d.key)));
+        adjudication.deltas.push(...mindSchemeDeltas);
+        for (const id of mindEvolvedIds) {
+            adjudication.gm_private.push(`[Mind] ${id} evolved its own active_scheme this turn - applied as the character's own scheme (DIRECTION PRECEDENCE: a minded entity's interior plan is owned by its mind, not the adjudicator or a private conversation).`);
+        }
+        if (supersededIds.length > 0) {
+            adjudication.gm_private.push(`[Mind] Superseded ${supersededIds.length} competing 'scheme' delta(s) for mind-evolved entities (${supersededIds.join(', ')}) - the entity's own mind owns its scheme evolution this turn; no double-application or overwrite.`);
         }
     }
 
@@ -764,7 +774,17 @@ export async function runNewTurn(
     // without ever seeing GM-private ground truth (DESIGN_DECISIONS.md D3/D4).
     options?.onStage?.('narration');
     const narrationStreamGate = createNarrationStreamGate();
-    const mortalityDirectives = mortalityEvents.map(ev => `- ${ev.entity_name} (${ev.entity_id}): ${ev.outcomeSummary}`);
+    // Only VALID mortality events become narration directives (D4). An
+    // invalidated claim's `outcomeSummary` is "Death claim invalidated -
+    // <validation reasoning>", and that validator reasoning is GM-only
+    // (recorded in gm_private / the mortalityTrace, never player-facing) -
+    // forwarding it here would leak it into this player-output-bound prompt.
+    // The invalidated claim's diegetically-rewritten delta `reason` (set in
+    // ai/core/mortality.ts) already carries what the player should read, and
+    // rides into the prompt via the sanitized adjudication like any delta.
+    const mortalityDirectives = mortalityEvents
+        .filter(ev => ev.valid)
+        .map(ev => `- ${ev.entity_name} (${ev.entity_id}): ${ev.outcomeSummary}`);
     // 4C.5: the narration prompt's voice-cast block is BOUNDED to the
     // characters actually on stage this turn - the Director's spotlight
     // picks plus the adjudication's acting entities, resolved against the

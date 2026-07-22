@@ -21,9 +21,10 @@ import { AdjudicationSchema } from '../ai/core/schemas';
 import { sanitizeAdjudicationForNarration, buildNarrationPrompt } from '../ai/prompts/narration';
 import { buildAdjudicationPrompt } from '../ai/prompts/adjudication';
 import { buildMortalityOutcomePrompt } from '../ai/prompts/mortality';
-import { buildPrivateConversationPrompt } from '../ai/prompts/intelligence';
+import { buildPrivateConversationPrompt, buildSimulationStateUpdatePrompt } from '../ai/prompts/intelligence';
+import { REDACTED_SCHEME_REASON } from '../ai/prompts/fragments';
 import { getMockInitialState } from './mockData';
-import { Adjudication, Entity, EventDelta, Report, TruthLedgerEntry, WorldState } from '../types';
+import { Adjudication, Entity, EventDelta, Report, SimulationState, TruthLedgerEntry, WorldState } from '../types';
 
 const deepCopy = <T>(obj: T): T => JSON.parse(JSON.stringify(obj));
 
@@ -41,6 +42,26 @@ function rumorDelta(overrides: Partial<EventDelta> = {}): EventDelta {
     key: 'severus_alexander',
     delta: 0.7,
     reason: 'The Emperor is said to be bargaining with the Germans.',
+    ...overrides,
+  };
+}
+
+// A 'scheme' delta's `reason` is the full active_scheme JSON - name, goal,
+// and ordered steps - which is GM-private under D28. These sentinels let a
+// test prove none of that JSON survives into a player-output-bound prompt.
+const SCHEME_NAME = 'The Poisoned Chalice';
+const SCHEME_GOAL = 'Depose the Emperor before Saturnalia';
+const SCHEME_STEP = 'Bribe the imperial cupbearer';
+function schemeDelta(overrides: Partial<EventDelta> = {}): EventDelta {
+  return {
+    type: 'scheme',
+    key: 'severus_alexander',
+    delta: 0,
+    reason: JSON.stringify({
+      name: SCHEME_NAME,
+      overall_goal: SCHEME_GOAL,
+      steps: [{ objective: SCHEME_STEP, status: 'in_progress' }],
+    }),
     ...overrides,
   };
 }
@@ -167,6 +188,26 @@ describe('D11 lockstep: every other delta-producing prompt demands truth disposi
     expect(systemInstruction).toContain('GM-private ledger data');
     // World-truth ruling, consistent with the schema description's wording.
     expect(systemInstruction).toContain('Authorship never changes the ruling');
+  });
+
+  it('the private-conversation prompt demands topic (+ stance for follow-ups) on any rumor delta (D29 lockstep)', () => {
+    const { entities } = getMockInitialState();
+    const adjudication = deepCopy(baseAdjudication);
+    const { systemInstruction } = buildPrivateConversationPrompt(entities[1], entities[2], adjudication);
+
+    // Without a topic a conversation rumor defaults to 'general' and
+    // re-merges with unrelated claims - the flat-list over-merge D29 fixed.
+    // The prompt must demand a topic on every rumor, mirroring the
+    // adjudication prompt's rumor rule.
+    expect(systemInstruction).toContain("'topic'");
+    expect(systemInstruction).toContain('ALWAYS set');
+    expect(systemInstruction).toContain('reuses the SAME topic');
+    // topic is a neutral, player-safe label - never a truth hint.
+    expect(systemInstruction).toContain('never hint at whether the claim is true');
+    // Counterplay follow-ups carry a stance toward the claim they continue.
+    expect(systemInstruction).toContain("'stance'");
+    expect(systemInstruction).toContain('corroborates');
+    expect(systemInstruction).toContain('contradicts');
   });
 });
 
@@ -350,5 +391,77 @@ describe('leak prevention: dispositions never reach the player-facing narration 
     // stated credibility, with no disposition attached.
     expect(prompt).toContain('The Emperor is said to be bargaining with the Germans.');
     expect(prompt).toContain('Struck down in the forum, so the city believes.');
+  });
+});
+
+describe("D28: a scheme's nature never reaches a player-output-bound prompt", () => {
+  it('sanitizeAdjudicationForNarration redacts a scheme delta reason - name/goal/steps never survive, other deltas untouched', () => {
+    const adjudication: Adjudication = {
+      ...deepCopy(baseAdjudication),
+      deltas: [
+        schemeDelta(),
+        { type: 'resource', key: 'severus_alexander:denarii', delta: -100, reason: 'Bribes' },
+      ],
+    };
+
+    const sanitized = sanitizeAdjudicationForNarration(adjudication);
+    const serialized = JSON.stringify(sanitized);
+
+    // The full active_scheme JSON is GM-private (D28): none of its name,
+    // goal, or steps may survive into this player-facing prompt's deltas.
+    expect(serialized).not.toContain(SCHEME_NAME);
+    expect(serialized).not.toContain(SCHEME_GOAL);
+    expect(serialized).not.toContain(SCHEME_STEP);
+    // The scheme delta still rides through - as an opaque 'something afoot'
+    // marker, so the narrator learns only THAT a private design shifted.
+    expect(sanitized.deltas[0].type).toBe('scheme');
+    expect(sanitized.deltas[0].reason).toBe(REDACTED_SCHEME_REASON);
+    // A non-scheme delta keeps its prose reason exactly as before.
+    expect(sanitized.deltas[1].reason).toBe('Bribes');
+  });
+
+  it('buildNarrationPrompt: the BUILT prompt carries the opaque marker, never a scheme name/goal/step', () => {
+    const { entities } = getMockInitialState();
+    const player = entities[0];
+    const adjudication: Adjudication = {
+      ...deepCopy(baseAdjudication),
+      deltas: [schemeDelta()],
+    };
+
+    const { systemInstruction, prompt } = buildNarrationPrompt(
+      'A succession crisis.', player, 'Hold court', adjudication, []
+    );
+    const built = systemInstruction + prompt;
+
+    expect(built).not.toContain(SCHEME_NAME);
+    expect(built).not.toContain(SCHEME_GOAL);
+    expect(built).not.toContain(SCHEME_STEP);
+    expect(prompt).toContain(REDACTED_SCHEME_REASON);
+  });
+
+  it('buildSimulationStateUpdatePrompt: the Key Deltas line redacts a scheme reason (its output renders in WorldStateTab)', () => {
+    const oldState: SimulationState = {
+      imperial_status: 'Stable', senate_status: 'Functional', military_status: 'Loyal',
+      plebeian_mood: 'Uneasy', major_ongoing_crisis: null,
+    };
+    const adjudication: Adjudication = {
+      ...deepCopy(baseAdjudication),
+      deltas: [
+        schemeDelta(),
+        { type: 'resource', key: 'severus_alexander:denarii', delta: -100, reason: 'Bribes for the guards.' },
+      ],
+      headlines: ['The city holds its breath.'],
+    };
+
+    const { prompt } = buildSimulationStateUpdatePrompt(adjudication, oldState);
+
+    // This call's OUTPUT renders in WorldStateTab (D5), so its serialized
+    // deltas are player-output-bound: the scheme's nature stays withheld.
+    expect(prompt).not.toContain(SCHEME_NAME);
+    expect(prompt).not.toContain(SCHEME_GOAL);
+    expect(prompt).not.toContain(SCHEME_STEP);
+    expect(prompt).toContain(REDACTED_SCHEME_REASON);
+    // A non-scheme delta's prose reason is unaffected.
+    expect(prompt).toContain('Bribes for the guards.');
   });
 });

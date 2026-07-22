@@ -593,6 +593,66 @@ describe("ai/core/turn.ts runNewTurn - step 5.5 keeps only 'relation' deltas", (
   });
 });
 
+// --- Mortality directives: no validator reasoning on the player surface (D4) ---
+
+describe('ai/core/turn.ts runNewTurn - mortality directives feed narration from VALID events only (D4)', () => {
+  it("an invalidated death claim: the validator's GM-only reasoning never reaches the narration prompt, only the diegetic delta rewrite does", async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+    const npc = makeEntity({ entity_id: 'npc_1', name: 'Senator Rufus' });
+
+    // The validation call marks the mortality.ts-GM-only 'reasoning' with a
+    // sentinel: it is recorded in gm_private / the mortalityTrace, and must
+    // never ride into the narration prompt via a MORTALITY NARRATION
+    // DIRECTIVE (the invalidated event's outcomeSummary is "Death claim
+    // invalidated - <this reasoning>").
+    const VALIDATION_REASONING = 'No assassin was anywhere near the Curia this turn; the death is pure invention.';
+
+    const adjudicationWithDeathJson = JSON.stringify({
+      turn: 2,
+      entityActions: [],
+      deltas: [
+        { type: 'status', key: 'npc_1', delta: 0, reason: 'Cut down in the Curia.', new_status: 'dead' },
+      ],
+      headlines: ['Blood is rumored in the Curia.'],
+      gm_private: [],
+    });
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    h.response.adjudication.resolve(adjudicationWithDeathJson);
+    h.response.mortalityValidation.resolve(JSON.stringify({
+      dispositions: [{ entity_id: 'npc_1', valid: false, reasoning: VALIDATION_REASONING }],
+    }));
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologueText);
+    h.response.narration.resolve(narrationFullText);
+    h.response.relationshipUpdates.resolve(relationshipJson);
+
+    const result = await runNewTurn(
+      h.ai, 'Hold court', player, 2, [player, npc], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
+    );
+
+    const narrationPrompt = h.promptsByKind.narration ?? '';
+    // The invalidated event is filtered out of the narration directives, so
+    // neither the validator reasoning nor the GM-only "invalidated" summary
+    // reaches the player-facing narration prompt - and with no VALID event
+    // this turn, the directives block is absent entirely.
+    expect(narrationPrompt).not.toContain(VALIDATION_REASONING);
+    expect(narrationPrompt).not.toContain('Death claim invalidated');
+    expect(narrationPrompt).not.toContain('MORTALITY NARRATION DIRECTIVES');
+    // What the player SHOULD read - the diegetic rewrite mortality.ts put on
+    // the (now-alive) status delta's own reason - still reaches the narrator.
+    expect(narrationPrompt).toContain("comes through the turn's events unharmed");
+
+    // The reasoning is still recorded GM-side for the console (D4): on the
+    // mortalityTrace and in gm_private.
+    expect(result.newHistoryEntry.mortalityTrace?.[0]).toMatchObject({ entity_id: 'npc_1', valid: false });
+    expect(result.newHistoryEntry.mortalityTrace?.[0].outcomeSummary).toContain(VALIDATION_REASONING);
+    expect(result.newHistoryEntry.adjudication.gm_private.some(n => n.includes(VALIDATION_REASONING))).toBe(true);
+  });
+});
+
 // --- Director continuity loop (ROADMAP_PHASE_4.md 4C item 3) --------------
 
 describe('ai/core/turn.ts runNewTurn - Director continuity loop (4C.3)', () => {

@@ -7,6 +7,7 @@
  */
 
 import { Adjudication, Entity } from '../../types';
+import { REDACTED_SCHEME_REASON } from './fragments';
 
 /**
  * Strips GM-only / secret-survival state from an Entity before it's
@@ -43,12 +44,22 @@ export function sanitizeEntityForNarration(entity: Entity): Omit<Entity, 'secret
  * handling class as `secret_truth`): the narrator must present a rumor at
  * its stated credibility with no knowledge of whether it is actually a
  * lie, or the disposition could color player-facing prose.
+ *
+ * A 'scheme' delta's `reason` is the entity's full active_scheme JSON (name,
+ * goal, steps) - GM-private under D28 (perception reveals only THAT a design
+ * shifted, never its nature). Its reason is REPLACED here with the opaque
+ * REDACTED_SCHEME_REASON marker so the narrator learns only that a private
+ * design moved and narrates the turn's VISIBLE actions from the other deltas,
+ * never the interior plan. Only the string embedded in this player-facing
+ * prompt is redacted - the committed delta the engine parses is untouched.
  */
 export function sanitizeAdjudicationForNarration(adjudication: Adjudication): Omit<Adjudication, 'gm_private'> {
   const { gm_private, add_entities, deltas, ...rest } = adjudication;
   return {
     ...rest,
-    deltas: deltas.map(({ secret_truth, is_true, origin_id, ...delta }) => delta),
+    deltas: deltas.map(({ secret_truth, is_true, origin_id, ...delta }) =>
+      delta.type === 'scheme' ? { ...delta, reason: REDACTED_SCHEME_REASON } : delta
+    ),
     add_entities: add_entities?.map(sanitizeEntityForNarration) as Entity[] | undefined,
   };
 }

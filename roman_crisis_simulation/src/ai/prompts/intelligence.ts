@@ -15,7 +15,7 @@
 
 import { Adjudication, Entity, WorldState, SimulationState, NpcIntent } from '../../types';
 import type { ActionResolutionTier } from '../core/resolution';
-import { getLightEntityBrief } from './fragments';
+import { getLightEntityBrief, REDACTED_SCHEME_REASON } from './fragments';
 
 /**
  * PURPOSE: Answer a player's question about a past event via their
@@ -313,13 +313,18 @@ Return a new, updated JSON object reflecting the current reality.
 Return only the valid JSON object.
 `;
 
+  // This call's OUTPUT renders in WorldStateTab, so its input is a
+  // player-output-bound prompt (D5/D28): a 'scheme' delta's `reason` is the
+  // full active_scheme JSON (name/goal/steps), GM-private under D28, and is
+  // swapped for the opaque REDACTED_SCHEME_REASON marker here. Every other
+  // delta type keeps its prose reason - only the private design is withheld.
   const prompt = `
 **Previous State:**
 ${JSON.stringify(oldState, null, 2)}
 
 **Events of This Week (Adjudication):**
 - Headlines: ${adjudication.headlines.join('. ')}
-- Key Deltas: ${adjudication.deltas.slice(0, 5).map(d => `${d.type} on ${d.key} because ${d.reason}`).join('; ')}
+- Key Deltas: ${adjudication.deltas.slice(0, 5).map(d => `${d.type} on ${d.key} because ${d.type === 'scheme' ? REDACTED_SCHEME_REASON : d.reason}`).join('; ')}
 `;
 
   return { systemInstruction, prompt };
@@ -406,6 +411,9 @@ export function buildPrivateConversationPrompt(
     - 'is_true' (boolean, ALWAYS set): whether the claim is ACTUALLY TRUE in the simulation's reality, ruled STRICTLY by world-truth - never omit it, and there is no "unknown". Authorship never changes the ruling: a fabricated lie is false because its claim is false; a deliberately spread truth is still true.
     - 'origin_id' (string): the entity_id of whichever participant starts or spreads the rumor.
     Both fields are GM-private ledger data: neither may surface in the delta's 'reason' text, the 'dialogueSnippet', or anything else that could reach the player.
+    Every 'rumor' delta MUST also carry one NON-private categorization field:
+    - 'topic' (string, ALWAYS set): a short lowercase hyphenated slug naming WHAT about the subject the rumor concerns (e.g. 'health', 'tribute', 'succession-plot', 'legion-loyalty'). Two rumors about DIFFERENT matters of the same subject MUST get DIFFERENT topics so they stay distinct; a follow-up about the SAME matter reuses the SAME topic. Unlike is_true/origin_id this is a neutral label, not truth - it may reach the player and must never hint at whether the claim is true or planted.
+    - 'stance' ('corroborates' | 'contradicts'): set ONLY when this rumor is a counterplay follow-up that reuses an existing rumor's 'key' AND 'topic' - 'corroborates' if it backs the running claim, 'contradicts' if it refutes it. Omit on a first emission or an ordinary restatement.
 
     Return a valid JSON object matching the schema.
     `;
