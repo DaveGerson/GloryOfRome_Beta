@@ -74,7 +74,7 @@ function isFailureTier(tier: ActionResolutionTier): tier is 'critical_failure' |
     return tier === 'critical_failure' || tier === 'failure';
 }
 
-export const getInvestigationResult = async (ai: GoogleGenAI, target: Entity, player: Entity, isRisky: boolean, isMockMode: boolean, subject: 'secrets' | 'beliefs' | 'scheme' = 'secrets'): Promise<{ report: string, consequences: string | null, reportData: any, resolutionTrace?: ActionResolutionEvent }> => {
+export const getInvestigationResult = async (ai: GoogleGenAI, target: Entity, player: Entity, isRisky: boolean, isMockMode: boolean, subject: 'secrets' | 'beliefs' | 'scheme' = 'secrets'): Promise<{ report: string, consequences: string | null, reportData: string[], resolutionTrace?: ActionResolutionEvent }> => {
     if (isMockMode) {
         if(!mockGetInvestigationResult) throw new Error("Mock function 'mockGetInvestigationResult' is not implemented.");
         return mockGetInvestigationResult(target, isRisky, subject);
@@ -139,7 +139,7 @@ export const getInvestigationResult = async (ai: GoogleGenAI, target: Entity, pl
     };
 
     const { systemInstruction, prompt } = buildInvestigationPrompt(target, player, subject, resolution.tier);
-    const result = await generateStructured<{ report: string, consequences: string | null, reportData: any }>(ai, {
+    const result = await generateStructured<{ report: string, consequences: string | null, reportData: string[] }>(ai, {
         callName: 'investigation',
         model: GEMINI_PRO,
         systemInstruction,

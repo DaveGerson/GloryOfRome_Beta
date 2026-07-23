@@ -191,7 +191,6 @@ export interface WorldState {
   economic_stability: string;
   political_climate: string;
   regions: Record<string, RegionState>;
-  [key: string]: any;
 }
 
 export const EntityActionIntentEnum = [

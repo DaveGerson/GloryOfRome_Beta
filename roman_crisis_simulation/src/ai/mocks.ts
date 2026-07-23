@@ -402,10 +402,10 @@ export const mockGetDeepAnalysis = async (target: Entity): Promise<string> => {
     return `(Mock Analysis) Our agents report that ${target.name} has been meeting secretly with members of the military. Their stated goals likely hide a more sinister ambition. They pose a moderate threat, but have limited resources for now.`;
 };
 
-export const mockGetInvestigationResult = async (target: Entity, isRisky: boolean, subject: 'secrets' | 'beliefs' | 'scheme' = 'secrets'): Promise<{ report: string, consequences: string | null, reportData: any }> => {
+export const mockGetInvestigationResult = async (target: Entity, isRisky: boolean, subject: 'secrets' | 'beliefs' | 'scheme' = 'secrets'): Promise<{ report: string, consequences: string | null, reportData: string[] }> => {
     console.log("--- MOCK INVESTIGATION ---");
-    
-    let reportData: any;
+
+    let reportData: string[];
     let reportText: string;
 
     switch(subject) {

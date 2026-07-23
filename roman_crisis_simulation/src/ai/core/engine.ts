@@ -152,17 +152,17 @@ export function applyDeltas(
 
                         // Initialize attribute if it doesn't exist
                         if (rel[attr] === undefined) {
-                            (rel as any)[attr] = 0;
+                            rel[attr] = 0;
                         }
 
-                        if (typeof (rel as any)[attr] === 'number') {
-                            (rel as any)[attr] += delta.delta;
+                        if (typeof rel[attr] === 'number') {
+                            rel[attr] += delta.delta;
 
                             // Clamping logic
                             if (attr === 'trust_level' || attr === 'ideological_alignment' || attr === 'respect_level') {
-                                (rel as any)[attr] = Math.max(-10, Math.min(10, (rel as any)[attr]));
+                                rel[attr] = Math.max(-10, Math.min(10, rel[attr]));
                             } else if (attr === 'perceived_threat' || attr === 'dependency_level') {
-                                (rel as any)[attr] = Math.max(0, Math.min(10, (rel as any)[attr]));
+                                rel[attr] = Math.max(0, Math.min(10, rel[attr]));
                             }
                         }
 
@@ -268,8 +268,10 @@ export function applyDeltas(
                     // console.warn) rather than writing an arbitrary field onto
                     // WorldState - only these two names are part of the
                     // contract.
-                    const validWorldKeys = ['economic_stability', 'political_climate'];
-                    if (validWorldKeys.includes(delta.key)) {
+                    const validWorldKeys = ['economic_stability', 'political_climate'] as const;
+                    const isValidWorldKey = (key: string): key is typeof validWorldKeys[number] =>
+                        (validWorldKeys as readonly string[]).includes(key);
+                    if (isValidWorldKey(delta.key)) {
                         updatedWorldState[delta.key] = delta.reason;
                     } else {
                         console.warn(`Unknown 'world' delta key "${delta.key}" - expected 'economic_stability' or 'political_climate'. No-op.`);
