@@ -222,21 +222,26 @@ describe('ai/core/initiator.ts generateScenarioStructure - real orchestration', 
   });
 
   it('negative control: a response missing the required npcStubs contract field, even after the repair-retry, surfaces as a fatal AiServiceError naming the missing field', async () => {
-    const h = createHarness({ structure: [incompleteStructureJson, incompleteStructureJson], entityBatches: {} });
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const h = createHarness({ structure: [incompleteStructureJson, incompleteStructureJson], entityBatches: {} });
 
-    await expect(
-      generateScenarioStructure(h.ai, 'A senator navigates a crumbling Republic', 'An ambitious junior senator', false)
-    ).rejects.toMatchObject({
-      name: 'AiServiceError',
-      kind: 'fatal',
-      callName: 'scenarioStructure',
-    });
+      await expect(
+        generateScenarioStructure(h.ai, 'A senator navigates a crumbling Republic', 'An ambitious junior senator', false)
+      ).rejects.toMatchObject({
+        name: 'AiServiceError',
+        kind: 'fatal',
+        callName: 'scenarioStructure',
+      });
 
-    // Proves the failure is for the expected missing-contract reason (not a
-    // coincidental parse error): repair engaged once, naming the actual
-    // missing field, and still failed on the corrected re-attempt.
-    expect(h.calls).toHaveLength(2);
-    expect(h.calls[1].contents).toContain('npcStubs');
+      // Proves the failure is for the expected missing-contract reason (not a
+      // coincidental parse error): repair engaged once, naming the actual
+      // missing field, and still failed on the corrected re-attempt.
+      expect(h.calls).toHaveLength(2);
+      expect(h.calls[1].contents).toContain('npcStubs');
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 });
 
