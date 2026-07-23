@@ -151,10 +151,14 @@ occurrences resolved to a fix (either bundled into a small mechanic-neutral
 follow-up task already executed — commits `e38c29e`, `6caf233`, `992a653` —
 or already fixed by Task 6's stage 4, commit `99e9804`), and the remaining 52
 to durable, tracked debt. Recorded here group by group so no occurrence is
-left living only inside a review document.
+left living only inside a review document. The 52-warning inventory is
+enforced, not advisory: the lint script runs `eslint . --max-warnings 52`
+(Phase 6 final review), so a new warning of any allowed class fails the gate
+loudly instead of silently growing this list — shrinking the count is always
+fine; growing it requires a deliberate triage plus a ratchet bump.
 
 - **Dead imports, unused catch bindings, and mock-interface-parity params (13
-  occurrences: `App.tsx:3`; `ai/core/engine.ts:341,351`;
+  occurrences: `App.tsx:3`; `ai/core/engine.ts:343,353`;
   `ai/core/initiator.ts:5`; `ai/mocks.ts:184,218,390` ×6;
   `events/engine.ts:1`; `tests/evalHarness.test.ts:546`;
   `tests/smokeTest.ts:17`).** No runtime degradation: every flagged name is
@@ -198,7 +202,7 @@ left living only inside a review document.
   `React.ComponentPropsWithoutRef<'element'>` only if a lint-hygiene sweep is
   ever prioritized as a batch alongside the dead-imports and prefer-const
   groups below.
-- **`prefer-const` (10 occurrences: `ai/core/engine.ts:457` ×3,
+- **`prefer-const` (10 occurrences: `ai/core/engine.ts:459` ×3,
   `ai/core/turn.ts:705` ×4, `ai/mocks.ts:324` ×3).** No degradation: each
   site is a single destructuring statement where only one field is
   reassigned later in the function, and TypeScript/JavaScript syntax has no
