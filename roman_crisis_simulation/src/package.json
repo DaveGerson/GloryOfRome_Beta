@@ -10,7 +10,8 @@
     "test": "vitest run",
     "eval": "vitest run --config vitest.eval.config.ts",
     "test:journeys": "vitest run --config vitest.journeys.config.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint ."
   },
   "dependencies": {
     "@google/genai": "^1.22.0",
@@ -19,10 +20,15 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "eslint": "^10.7.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.7.0",
     "jsdom": "^25.0.1",
     "typescript": "~5.8.2",
+    "typescript-eslint": "^8.65.0",
     "vite": "^6.2.0",
     "vitest": "^3.2.4"
   }
