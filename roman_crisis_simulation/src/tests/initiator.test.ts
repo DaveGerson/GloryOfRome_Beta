@@ -194,34 +194,51 @@ function createHarness(script: { structure: string[]; entityBatches: Record<stri
 
 describe('ai/core/initiator.ts generateScenarioStructure - real orchestration', () => {
   it('parses a valid scripted response into a well-formed WorldState plus player/NPC stubs', async () => {
-    const h = createHarness({ structure: [validStructureJson], entityBatches: {} });
+    // generateScenarioStructure logs [InitWorld:...] progress lines on the
+    // real path; suppress just that expected noise for this test case.
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const h = createHarness({ structure: [validStructureJson], entityBatches: {} });
 
-    const result = await generateScenarioStructure(h.ai, 'A senator navigates a crumbling Republic', 'An ambitious junior senator', false);
+      const result = await generateScenarioStructure(h.ai, 'A senator navigates a crumbling Republic', 'An ambitious junior senator', false);
 
-    expect(() => zWorldState.parse(result.worldState)).not.toThrow();
-    expect(result.playerStub.entity_id).toBe('player_1');
-    expect(result.npcStubs.map(s => s.entity_id)).toEqual(['npc_rival', 'npc_general']);
-    expect(h.calls).toHaveLength(1);
+      expect(() => zWorldState.parse(result.worldState)).not.toThrow();
+      expect(result.playerStub.entity_id).toBe('player_1');
+      expect(result.npcStubs.map(s => s.entity_id)).toEqual(['npc_rival', 'npc_general']);
+      expect(h.calls).toHaveLength(1);
+    } finally {
+      consoleLog.mockRestore();
+    }
   });
 
   it('recovers from a malformed (unparseable) chunk via the existing repair-retry, on the second scripted attempt', async () => {
-    const h = createHarness({ structure: [malformedChunk, validStructureJson], entityBatches: {} });
+    // generateScenarioStructure logs [InitWorld:...] progress lines on the
+    // real path; suppress just that expected noise for this test case.
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const h = createHarness({ structure: [malformedChunk, validStructureJson], entityBatches: {} });
 
-    const result = await generateScenarioStructure(h.ai, 'A senator navigates a crumbling Republic', 'An ambitious junior senator', false);
+      const result = await generateScenarioStructure(h.ai, 'A senator navigates a crumbling Republic', 'An ambitious junior senator', false);
 
-    // Real repair engaged: two network round-trips, the second one carrying
-    // geminiService's repair suffix (ai/core/geminiService.ts::formatRepairSuffix).
-    expect(h.calls).toHaveLength(2);
-    expect(h.calls[1].contents).toContain('Return ONLY corrected valid JSON.');
-    expect(h.calls[1].contents).toContain('unparseable JSON');
+      // Real repair engaged: two network round-trips, the second one carrying
+      // geminiService's repair suffix (ai/core/geminiService.ts::formatRepairSuffix).
+      expect(h.calls).toHaveLength(2);
+      expect(h.calls[1].contents).toContain('Return ONLY corrected valid JSON.');
+      expect(h.calls[1].contents).toContain('unparseable JSON');
 
-    // And the orchestrator's output is the recovered, well-formed structure.
-    expect(() => zWorldState.parse(result.worldState)).not.toThrow();
-    expect(result.playerStub.entity_id).toBe('player_1');
-    expect(result.npcStubs).toHaveLength(2);
+      // And the orchestrator's output is the recovered, well-formed structure.
+      expect(() => zWorldState.parse(result.worldState)).not.toThrow();
+      expect(result.playerStub.entity_id).toBe('player_1');
+      expect(result.npcStubs).toHaveLength(2);
+    } finally {
+      consoleLog.mockRestore();
+    }
   });
 
   it('negative control: a response missing the required npcStubs contract field, even after the repair-retry, surfaces as a fatal AiServiceError naming the missing field', async () => {
+    // Suppress both the expected [InitWorld:...] progress logs and the
+    // expected AiServiceError/ZodError console.error dump on the fatal path.
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {});
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       const h = createHarness({ structure: [incompleteStructureJson, incompleteStructureJson], entityBatches: {} });
@@ -241,6 +258,7 @@ describe('ai/core/initiator.ts generateScenarioStructure - real orchestration', 
       expect(h.calls[1].contents).toContain('npcStubs');
     } finally {
       consoleError.mockRestore();
+      consoleLog.mockRestore();
     }
   });
 });
