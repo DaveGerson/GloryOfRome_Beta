@@ -149,7 +149,7 @@ at a non-terminal "left as-is/deferred" disposition, which this project's
 guardrail does not accept as final. The review produced a binary triage: 30
 occurrences resolved to a fix (either bundled into a small mechanic-neutral
 follow-up task already executed — commits `e38c29e`, `6caf233`, `992a653` —
-or already scheduled inside the Task 6 brief's stage 4), and the remaining 52
+or already fixed by Task 6's stage 4, commit `99e9804`), and the remaining 52
 to durable, tracked debt. Recorded here group by group so no occurrence is
 left living only inside a review document.
 
@@ -166,8 +166,9 @@ left living only inside a review document.
   surface. Accepted now because a real fix requires a coordinated
   rename/removal sweep across seven files spanning production, mocks, and
   tests for zero functional benefit, while Phase 6 already has
-  source-touching work queued (Task 6, a Task 7 candidate) that will need the
-  same characterization-test discipline first. Trigger to revisit: fold this
+  source-touching work landed (Task 6, commit `99e9804`) and a Task 7
+  candidate queued that will need the same characterization-test discipline
+  first. Trigger to revisit: fold this
   in the next time one of those seven files is already open for a
   substantive reason — remove the dead imports, convert the unused catch
   bindings to `catch {}`, and prefix the intentionally-unused mock/test
