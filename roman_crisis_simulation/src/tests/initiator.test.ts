@@ -247,31 +247,38 @@ describe('ai/core/initiator.ts generateScenarioStructure - real orchestration', 
 
 describe('ai/core/initiator.ts initiateWorld - real end-to-end orchestration', () => {
   it('drives the real two-step pipeline to well-formed entities with the player integrated into the roster', async () => {
-    const h = createHarness({
-      structure: [validStructureJson],
-      entityBatches: {
-        player_1: [validPlayerEntityJson],
-        'npc_rival, npc_general': [validNpcBatchJson],
-      },
-    });
+    // initiateWorld logs [InitWorld:...] progress lines on the real path;
+    // suppress just that expected noise for this test case.
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const h = createHarness({
+        structure: [validStructureJson],
+        entityBatches: {
+          player_1: [validPlayerEntityJson],
+          'npc_rival, npc_general': [validNpcBatchJson],
+        },
+      });
 
-    const result = await initiateWorld(h.ai, 'A senator navigates a crumbling Republic', 'An ambitious junior senator', false);
+      const result = await initiateWorld(h.ai, 'A senator navigates a crumbling Republic', 'An ambitious junior senator', false);
 
-    expect(() => zWorldState.parse(result.worldState)).not.toThrow();
-    expect(result.entities).toHaveLength(3);
-    result.entities.forEach(entity => expect(() => zEntity.parse(entity)).not.toThrow());
+      expect(() => zWorldState.parse(result.worldState)).not.toThrow();
+      expect(result.entities).toHaveLength(3);
+      result.entities.forEach(entity => expect(() => zEntity.parse(entity)).not.toThrow());
 
-    // The player entity is actually integrated: playerCharacterId resolves
-    // to a real entity in the roster, matching the scripted player stub.
-    expect(result.playerCharacterId).toBe('player_1');
-    const player = result.entities.find(e => e.entity_id === result.playerCharacterId);
-    expect(player).toBeDefined();
-    expect(player?.name).toBe('Gaius Testus');
-    expect(result.entities.map(e => e.entity_id).sort()).toEqual(['npc_general', 'npc_rival', 'player_1']);
+      // The player entity is actually integrated: playerCharacterId resolves
+      // to a real entity in the roster, matching the scripted player stub.
+      expect(result.playerCharacterId).toBe('player_1');
+      const player = result.entities.find(e => e.entity_id === result.playerCharacterId);
+      expect(player).toBeDefined();
+      expect(player?.name).toBe('Gaius Testus');
+      expect(result.entities.map(e => e.entity_id).sort()).toEqual(['npc_general', 'npc_rival', 'player_1']);
 
-    // Three real network calls: Step 1 (structure) + Step 2 player batch +
-    // Step 2 NPC batch (chunkSize 2, both NPCs fit in one batch).
-    expect(h.calls.filter(c => c.kind === 'structure')).toHaveLength(1);
-    expect(h.calls.filter(c => c.kind === 'entityBatch')).toHaveLength(2);
+      // Three real network calls: Step 1 (structure) + Step 2 player batch +
+      // Step 2 NPC batch (chunkSize 2, both NPCs fit in one batch).
+      expect(h.calls.filter(c => c.kind === 'structure')).toHaveLength(1);
+      expect(h.calls.filter(c => c.kind === 'entityBatch')).toHaveLength(2);
+    } finally {
+      consoleLog.mockRestore();
+    }
   });
 });
