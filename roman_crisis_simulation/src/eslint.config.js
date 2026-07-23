@@ -27,7 +27,11 @@ export default tseslint.config(
       // deliberate, temporary allowance documented in task-5-report.md,
       // not a permanent stance on the rule.
       '@typescript-eslint/no-explicit-any': 'warn',
-      '@typescript-eslint/no-unused-vars': 'warn',
+      // Task 8a (task-8a-brief.md): `ignoreRestSiblings` recognizes the
+      // deliberate `const { drop, ...rest } = obj` omit idiom (used by the
+      // narration redaction that strips gm_private/secret_truth fields)
+      // instead of flagging the omitted name as an unused variable.
+      '@typescript-eslint/no-unused-vars': ['warn', { ignoreRestSiblings: true }],
       // typescript-eslint's eslint-recommended override; current tree has
       // existing `let` bindings that are never reassigned.
       'prefer-const': 'warn',
