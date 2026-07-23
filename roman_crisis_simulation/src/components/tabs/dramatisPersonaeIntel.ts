@@ -50,12 +50,21 @@ export type IntelRequestOutcome =
   | { kind: 'deep_analysis'; charged: true; cost: number; analysis: string }
   | { kind: 'investigation'; investigationKind: InvestigationKind; charged: false }
   | {
+      /** D28: a scheme buy never displays its raw reportData - only the Active Scheme discovery-state surface. This variant cannot carry `display`. */
       kind: 'investigation';
-      investigationKind: InvestigationKind;
+      investigationKind: 'scheme';
       charged: true;
       cost: number;
-      /** The data the tab shows inline. D28: undefined for 'scheme' - a scheme buy never displays its raw reportData, only the Active Scheme discovery-state surface. */
-      display: string[] | undefined;
+      reportData: unknown;
+      outcome: InvestigationResult;
+    }
+  | {
+      /** beliefs/secrets show their findings inline - `display` is required, never optional. */
+      kind: 'investigation';
+      investigationKind: 'beliefs' | 'secrets';
+      charged: true;
+      cost: number;
+      display: string[];
       reportData: unknown;
       outcome: InvestigationResult;
     };
@@ -103,18 +112,22 @@ export async function resolveIntelRequest(params: {
       const { cost } = priceInvestigation(knowledge, target.entity_id, type);
       if ((playerEntity.resources.investigations as number) >= cost) {
         const result = await getInvestigationResult(ai, target, playerEntity, true, isMockMode, type);
+        const outcome = { target_id: target.entity_id, report: result.report, consequences: result.consequences };
         // A 'scheme' buy does NOT display its raw reportData (D28): the
         // store commits it as ONE nature clue and the Active Scheme surface
         // renders the earned discovery state. beliefs/secrets show their
         // findings inline.
+        if (type === 'scheme') {
+          return { kind: 'investigation', investigationKind: type, charged: true, cost, reportData: result.reportData, outcome };
+        }
         return {
           kind: 'investigation',
           investigationKind: type,
           charged: true,
           cost,
-          display: type !== 'scheme' ? (result.reportData as string[]) : undefined,
+          display: result.reportData as string[],
           reportData: result.reportData,
-          outcome: { target_id: target.entity_id, report: result.report, consequences: result.consequences },
+          outcome,
         };
       }
       return { kind: 'investigation', investigationKind: type, charged: false };

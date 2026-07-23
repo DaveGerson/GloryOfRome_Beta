@@ -123,8 +123,7 @@ describe('components/tabs/dramatisPersonaeIntel - resolveIntelRequest (mock mode
       type: 'beliefs', target, playerEntity: player, knowledge: [], ai: unusedAi, isMockMode: true,
     });
     expect(outcome.kind).toBe('investigation');
-    if (outcome.kind === 'investigation' && outcome.charged) {
-      expect(outcome.investigationKind).toBe('beliefs');
+    if (outcome.kind === 'investigation' && outcome.charged && outcome.investigationKind === 'beliefs') {
       expect(outcome.cost).toBe(1);
       expect(outcome.display).toEqual(outcome.reportData);
       // Byte-identical to what App.tsx:870's handleInvestigationOutcome destructures.
@@ -140,15 +139,38 @@ describe('components/tabs/dramatisPersonaeIntel - resolveIntelRequest (mock mode
     }
   });
 
+  it('secrets: charged=true carries the priced cost, display data, and a call-ready outcome payload', async () => {
+    const player = makeEntity({ resources: { investigations: 1 } });
+    const outcome = await resolveIntelRequest({
+      type: 'secrets', target, playerEntity: player, knowledge: [], ai: unusedAi, isMockMode: true,
+    });
+    expect(outcome.kind).toBe('investigation');
+    if (outcome.kind === 'investigation' && outcome.charged && outcome.investigationKind === 'secrets') {
+      expect(outcome.cost).toBe(1);
+      expect(outcome.display).toEqual(outcome.reportData);
+      // Byte-identical to what App.tsx:870's handleInvestigationOutcome destructures.
+      // handleRequest always calls getInvestigationResult with isRisky=true (unchanged),
+      // so the mock's risky consequence string is expected here, not null.
+      expect(outcome.outcome).toEqual({
+        target_id: target.entity_id,
+        report: expect.any(String),
+        consequences: expect.any(String),
+      });
+    } else {
+      throw new Error('expected charged secrets investigation outcome');
+    }
+  });
+
   it("scheme: charged=true never puts reportData into the descriptor's display field (D28 non-display)", async () => {
     const player = makeEntity({ resources: { investigations: 1 } });
     const outcome = await resolveIntelRequest({
       type: 'scheme', target, playerEntity: player, knowledge: [], ai: unusedAi, isMockMode: true,
     });
     expect(outcome.kind).toBe('investigation');
-    if (outcome.kind === 'investigation' && outcome.charged) {
-      expect(outcome.investigationKind).toBe('scheme');
-      expect(outcome.display).toBeUndefined();
+    if (outcome.kind === 'investigation' && outcome.charged && outcome.investigationKind === 'scheme') {
+      // The 'scheme' variant of the discriminated union has no `display` field at all -
+      // the type system, not a runtime undefined check, enforces D28 non-display.
+      expect('display' in outcome).toBe(false);
       // The callback payload (App.tsx's knowledge-store commit) still gets the full reportData -
       // only the tab's OWN inline display is suppressed.
       expect(outcome.reportData).toBeDefined();

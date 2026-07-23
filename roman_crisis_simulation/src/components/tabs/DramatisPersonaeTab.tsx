@@ -79,7 +79,7 @@ const EntityDetails: React.FC<{
                         // (D28): the store commits it as ONE nature clue and the
                         // Active Scheme surface renders the earned discovery
                         // state. beliefs/secrets show their findings inline.
-                        if (outcome.display !== undefined) {
+                        if (outcome.investigationKind !== 'scheme') {
                             setUncoveredIntel(prev => ({ ...prev, [outcome.investigationKind]: outcome.display }));
                         }
                         // One atomic callback: the spend, any blackmail filing,
