@@ -75,10 +75,11 @@ flip.
 ### B4 — Journey smoke-harness integration  *(LANDED)*
 Done: the multi-turn journey suite runs the real turn pipeline via scripted
 fake clients (`tests/journeys/` — quietReign, schemeWar, mortalityFates,
-saveReload — over `harness.ts`), invoked on demand as `npm run test:journeys`
-(separate from `npm test`). Landed in the pre-Phase-5 close-out (commit
-`0831889`). Kept here as memory; new substrate paths should gain journey
-coverage as they land.
+saveReload — over `harness.ts`), invoked as `npm run test:journeys` (a
+separate vitest config from `npm test`) and CI-gated on every push/PR since
+commit `609505e`. Landed in the pre-Phase-5 close-out (commit `0831889`).
+Kept here as memory; new substrate paths should gain journey coverage as
+they land.
 
 ### B5 — Golden turns + judge calibration
 The eval judge (5 axes incl. `character_richness`) is wired but uncalibrated.
