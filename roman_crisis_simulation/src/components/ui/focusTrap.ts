@@ -61,10 +61,16 @@ export function createFocusTrap(container: HTMLElement): FocusTrap {
 
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
+      // An active element that is not one of the trap's focusable children -
+      // the dialog root itself right after activate() (tabIndex=-1), or an
+      // element behind the modal - must also be treated as a boundary, or a
+      // Tab/Shift+Tab from there falls through to the browser default and
+      // walks focus out of the dialog entirely.
+      const index = focusable.indexOf(document.activeElement as HTMLElement);
+      if (event.shiftKey && (index === 0 || index === -1)) {
         event.preventDefault();
         last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
+      } else if (!event.shiftKey && (index === focusable.length - 1 || index === -1)) {
         event.preventDefault();
         first.focus();
       }

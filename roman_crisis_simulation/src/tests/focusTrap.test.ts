@@ -150,6 +150,68 @@ describe('components/ui/focusTrap', () => {
     }
   });
 
+  it('treats the freshly-activated container itself as a boundary: Shift+Tab wraps to the last focusable', () => {
+    const first = document.createElement('button');
+    const second = document.createElement('button');
+    container.append(first, second);
+
+    const trap = createFocusTrap(container);
+    trap.activate(); // focuses `container` (tabIndex=-1), NOT a child control
+    expect(document.activeElement).toBe(container);
+
+    // Before this boundary case was handled, neither first- nor last-element
+    // check matched here, so the browser default moved focus BEHIND the
+    // modal - the escape hole flagged in PR #6 review.
+    const event = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, cancelable: true });
+    const preventDefaultSpy = vi.spyOn(event, 'preventDefault');
+    trap.handleKeyDown(event);
+
+    expect(preventDefaultSpy).toHaveBeenCalled();
+    expect(document.activeElement).toBe(second);
+  });
+
+  it('treats the freshly-activated container itself as a boundary: Tab moves to the first focusable', () => {
+    const first = document.createElement('button');
+    const second = document.createElement('button');
+    container.append(first, second);
+
+    const trap = createFocusTrap(container);
+    trap.activate();
+    expect(document.activeElement).toBe(container);
+
+    const event = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: false, cancelable: true });
+    const preventDefaultSpy = vi.spyOn(event, 'preventDefault');
+    trap.handleKeyDown(event);
+
+    expect(preventDefaultSpy).toHaveBeenCalled();
+    expect(document.activeElement).toBe(first);
+  });
+
+  it('pulls focus back into the trap when Tab is pressed while focus sits outside the container', () => {
+    const first = document.createElement('button');
+    const second = document.createElement('button');
+    container.append(first, second);
+
+    const outsider = addOutsideButton('behind-the-modal');
+    const trap = createFocusTrap(container);
+    trap.activate();
+    outsider.focus(); // e.g. a click on background chrome the overlay doesn't cover
+    expect(document.activeElement).toBe(outsider);
+
+    const tabEvent = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: false, cancelable: true });
+    const tabSpy = vi.spyOn(tabEvent, 'preventDefault');
+    trap.handleKeyDown(tabEvent);
+    expect(tabSpy).toHaveBeenCalled();
+    expect(document.activeElement).toBe(first);
+
+    outsider.focus();
+    const shiftTabEvent = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, cancelable: true });
+    const shiftTabSpy = vi.spyOn(shiftTabEvent, 'preventDefault');
+    trap.handleKeyDown(shiftTabEvent);
+    expect(shiftTabSpy).toHaveBeenCalled();
+    expect(document.activeElement).toBe(second);
+  });
+
   it('does not throw on release when the previously-focused element was removed from the DOM', () => {
     const invoker = addOutsideButton('vanishing-invoker');
     invoker.focus();
