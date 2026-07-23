@@ -6,6 +6,14 @@ The Roman Crisis Simulation is an interactive narrative strategy game designed t
 
 Unlike traditional strategy games that focus on resource management and conquest, this simulation prioritizes narrative and political intrigue. The player must think like a Roman leader, using diplomacy, espionage, and manipulation to achieve their goals. The game is powered by an AI Game Master that adjudicates player actions and simulates the independent actions of non-player characters (NPCs), ensuring that the world feels alive and unpredictable. The ultimate goal is to provide a rich, replayable experience where each playthrough tells a unique story of ambition, betrayal, and power in ancient Rome.
 
+## **Running the Game — Providing a Gemini API Key**
+
+DESIGN_DECISIONS.md D34: bring-your-own-key is the default, preferred way to play. There is no server component and no build-time key injection — the game never bundles a key into `npm run build`'s output.
+
+* **As a player (or the owner, on any device):** run the app (`npm run dev`, or open the built site) and click the **⚙ Settings** affordance in the header to open the configuration menu. Paste your own Gemini API key there and click Save. It's stored in that browser's `localStorage` only — never sent anywhere but Google, never written into a save file, never included in the GM console's eval-corpus export, and never logged. Clicking Clear removes it. No key at all is a valid state too: the game still boots and **Mock Mode** (the dev-only header switch) plays entirely offline with no API calls; attempting a *real* turn with no key surfaces a message pointing back at this menu instead of a raw network error.
+* **As the owner, for local dev convenience only:** copy `.env.example` to `.env` and fill in `GEMINI_API_KEY`. `vite.config.ts`'s `define` block injects it, but **only for the dev server** (`npm run dev`) — `npm run build`'s output never contains it, and this convenience is dead code in production (guarded by `import.meta.env.DEV`). This is a shortcut for the owner's own machine, not how anyone else gets a key.
+* The configuration menu also surfaces the D23 pacing posture (previously a bottom-right-only toggle) and the D32/D33 GM Intervention / GM console availability toggles — both default to "available", matching prior behavior.
+
 # **Codebase**
 
 ## **Current Structure of Game Files**

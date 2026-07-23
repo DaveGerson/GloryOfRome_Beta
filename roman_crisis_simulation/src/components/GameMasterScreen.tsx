@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { TurnHistoryEntry, Adjudication, Entity, Relationship, Memory, Scheme, RawCallRecord, WorldState, TruthLedgerEntry, Report, NpcIntent } from '../types';
 import { classifyDelta, buildPerceivedDigest } from '../perception/visibility';
 import { KnowledgeClaim } from '../knowledge/store';
@@ -6,6 +6,7 @@ import { InferredAmbitionState, SAVE_VERSION } from '../persistence/saveGame';
 import { buildEvalCorpus, evalCorpusFilename } from '../persistence/evalCorpus';
 import { getSessionCallLog } from '../ai/core/geminiService';
 import { toRoman } from './ui/Brand';
+import { createFocusTrap, FocusTrap } from './ui/focusTrap';
 
 /**
  * Game Master Tools — "the Fates' ledger": a dark tablinum modal over the
@@ -533,16 +534,51 @@ const GameMasterScreen: React.FC<{
      * to show them. Optional - a legacy campaign simply has none yet.
      */
     npcIntents?: NpcIntent[];
-}> = ({ history, onClose, interventionText, onSetIntervention, playerCharacterId, worldState, turnNumber, inferredAmbition, pendingIntelligenceFallout, truthLedger, reports, knowledge, npcIntents }) => {
+    /**
+     * DESIGN_DECISIONS.md D32 - the configuration menu's GM-Intervention-
+     * availability toggle (persistence/uiPrefs.ts). Defaults to `true`
+     * when absent so every legacy call site (including this screen's own
+     * smoke tests, which never pass it) renders identically to before this
+     * toggle existed. UI gating only - `false` hides the input/button
+     * below; it never touches the turn pipeline that consumes
+     * `interventionText`.
+     */
+    gmInterventionEnabled?: boolean;
+}> = ({ history, onClose, interventionText, onSetIntervention, playerCharacterId, worldState, turnNumber, inferredAmbition, pendingIntelligenceFallout, truthLedger, reports, knowledge, npcIntents, gmInterventionEnabled = true }) => {
     const [activeTab, setActiveTab] = useState('summary');
     const [interventionInput, setInterventionInput] = useState(interventionText);
     const [showConfirmation, setShowConfirmation] = useState(false);
+    const dialogRef = useRef<HTMLDivElement>(null);
+    const trapRef = useRef<FocusTrap | null>(null);
 
     useEffect(() => {
         if (!showConfirmation) return;
         const t = setTimeout(() => setShowConfirmation(false), 3000);
         return () => clearTimeout(t);
     }, [showConfirmation]);
+
+    // Focus the dialog on open, restore to the invoker (the "GM Log"
+    // button) on close - same components/ui/focusTrap.ts contract as every
+    // other gor-dialog-shaped overlay.
+    useEffect(() => {
+        if (!dialogRef.current) return;
+        const trap = createFocusTrap(dialogRef.current);
+        trapRef.current = trap;
+        trap.activate();
+        return () => {
+            trap.release();
+            trapRef.current = null;
+        };
+    }, []);
+
+    const handleDialogKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            onClose();
+            return;
+        }
+        trapRef.current?.handleKeyDown(event);
+    };
 
     const handleSetIntervention = () => {
         onSetIntervention(interventionInput);
@@ -581,10 +617,18 @@ const GameMasterScreen: React.FC<{
 
     return (
         <div className="gor-dialog-backdrop">
-            <div role="dialog" aria-modal="true" aria-label="Game Master Tools" style={{ width: 'min(1060px, calc(100% - 48px))', height: 'calc(100% - 56px)', display: 'flex', flexDirection: 'column', background: 'var(--dentil) left top/100% 4px no-repeat, linear-gradient(180deg,#2A231A,#161209 60%,#131009)', border: '1px solid rgba(201,162,39,.45)', clipPath: 'var(--chamfer-lg)', filter: 'drop-shadow(0 24px 60px rgba(0,0,0,.55))', padding: '20px 24px 18px', gap: 12, boxSizing: 'border-box' }}>
+            <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="gm-screen-title"
+                tabIndex={-1}
+                onKeyDown={handleDialogKeyDown}
+                style={{ width: 'min(1060px, calc(100% - 48px))', height: 'calc(100% - 56px)', display: 'flex', flexDirection: 'column', background: 'var(--dentil) left top/100% 4px no-repeat, linear-gradient(180deg,#2A231A,#161209 60%,#131009)', border: '1px solid rgba(201,162,39,.45)', clipPath: 'var(--chamfer-lg)', filter: 'drop-shadow(0 24px 60px rgba(0,0,0,.55))', padding: '20px 24px 18px', gap: 12, boxSizing: 'border-box' }}
+            >
                 <div style={{ flex: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, borderBottom: '1px solid rgba(201,162,39,.25)', paddingBottom: 12 }}>
                     <div>
-                        <h2 style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 26, color: GOLD, textShadow: '0 2px 3px rgba(0,0,0,.6)', margin: 0 }}>Game Master Tools</h2>
+                        <h2 id="gm-screen-title" style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 26, color: GOLD, textShadow: '0 2px 3px rgba(0,0,0,.6)', margin: 0 }}>Game Master Tools</h2>
                         <span style={{ ...lbl, letterSpacing: '.24em' }}>The Fates' ledger — every thread measured, every die recorded</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -655,25 +699,35 @@ const GameMasterScreen: React.FC<{
 
                 <div style={{ flex: 'none', ...well, border: '1px solid rgba(179,58,43,.45)' }}>
                     <span style={{ ...lbl, color: RED }}>GM Intervention</span>
-                    <p style={{ margin: '4px 0 8px', fontSize: 14, color: DIM }}>A directive the Fates will weave into the next turn's adjudication — an outside event, or a thumb on an entity's scale.</p>
-                    <textarea
-                        value={interventionInput}
-                        onChange={(e) => setInterventionInput(e.target.value)}
-                        aria-label="Game Master Intervention Input"
-                        placeholder={'E.g. "A plague breaks out in the Suburra" — or "Maximinus Thrax should become more aggressive."'}
-                        rows={2}
-                        style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', background: '#1B1610', color: PARCH, border: '1px solid rgba(201,162,39,.3)', borderRadius: 'var(--radius-sm)', padding: '8px 10px', fontFamily: 'var(--font-body)', fontSize: 15, boxShadow: 'inset 0 1px 3px rgba(0,0,0,.5)' }}
-                    ></textarea>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 8 }}>
-                        <button
-                            type="button"
-                            onClick={handleSetIntervention}
-                            style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, letterSpacing: '.08em', textTransform: 'uppercase', color: '#F8F1DE', background: 'var(--metal-crimson)', border: '1px solid #5E1008', clipPath: 'var(--chamfer-sm)', padding: '9px 16px', cursor: 'pointer', boxShadow: 'var(--bevel)' }}
-                        >
-                            Set Directive for Next Turn
-                        </button>
-                        {showConfirmation && <span style={{ color: GREEN, fontStyle: 'italic', fontSize: 14, animation: 'gorFadeIn .3s ease-out both' }}>The Fates have heard. It will be woven into the next turn.</span>}
-                    </div>
+                    {gmInterventionEnabled ? (
+                        <>
+                            <p style={{ margin: '4px 0 8px', fontSize: 14, color: DIM }}>A directive the Fates will weave into the next turn's adjudication — an outside event, or a thumb on an entity's scale.</p>
+                            <textarea
+                                value={interventionInput}
+                                onChange={(e) => setInterventionInput(e.target.value)}
+                                aria-label="Game Master Intervention Input"
+                                placeholder={'E.g. "A plague breaks out in the Suburra" — or "Maximinus Thrax should become more aggressive."'}
+                                rows={2}
+                                style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', background: '#1B1610', color: PARCH, border: '1px solid rgba(201,162,39,.3)', borderRadius: 'var(--radius-sm)', padding: '8px 10px', fontFamily: 'var(--font-body)', fontSize: 15, boxShadow: 'inset 0 1px 3px rgba(0,0,0,.5)' }}
+                            ></textarea>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 8 }}>
+                                <button
+                                    type="button"
+                                    onClick={handleSetIntervention}
+                                    style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, letterSpacing: '.08em', textTransform: 'uppercase', color: '#F8F1DE', background: 'var(--metal-crimson)', border: '1px solid #5E1008', clipPath: 'var(--chamfer-sm)', padding: '9px 16px', cursor: 'pointer', boxShadow: 'var(--bevel)' }}
+                                >
+                                    Set Directive for Next Turn
+                                </button>
+                                {showConfirmation && <span style={{ color: GREEN, fontStyle: 'italic', fontSize: 14, animation: 'gorFadeIn .3s ease-out both' }}>The Fates have heard. It will be woven into the next turn.</span>}
+                            </div>
+                        </>
+                    ) : (
+                        // D32 - disabled via the configuration menu. UI gating
+                        // only: the input/button are hidden, but any directive
+                        // already set from before disabling is left alone
+                        // (this is not a mechanism for clearing it).
+                        <p style={{ margin: '4px 0 0', fontSize: 14, color: DIM, fontStyle: 'italic' }}>Disabled in the configuration menu.</p>
+                    )}
                 </div>
 
                 <div style={{ flex: 'none', display: 'flex', gap: 2, borderBottom: '1px solid rgba(201,162,39,.25)', flexWrap: 'wrap' }} role="tablist" aria-label="Ledger views">

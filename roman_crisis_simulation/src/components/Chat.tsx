@@ -4,6 +4,7 @@ import { TurnStage } from '../ai/core/turn';
 import { ActionPill } from './ui/Game';
 import { TurnRibbon } from './ui/Brand';
 import { Button } from './ui/Core';
+import { toSegments } from './textFormat';
 
 // Themed status copy for the "thinking" theater (ROADMAP_0_MASTER_PLAN.md
 // Phase 3 item 1) - one line per real `runNewTurn` pipeline step (see
@@ -77,8 +78,18 @@ export const StreamingNarrationBubble: React.FC<{ text: string }> = ({ text }) =
     );
 };
 
-/** Renders **bold** only; everything else is escaped-by-construction prose from the engine. */
-const md = (t: string) => String(t).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+/**
+ * Renders **bold** only; everything else is plain text rendered as React
+ * text nodes, so it is escaped-by-construction - no HTML parsing ever runs
+ * on model/narration output. See ./textFormat.ts.
+ */
+const FormattedText: React.FC<{ text: string }> = ({ text }) => (
+    <>
+        {toSegments(text).map((segment, i) =>
+            segment.bold ? <strong key={i}>{segment.text}</strong> : <React.Fragment key={i}>{segment.text}</React.Fragment>
+        )}
+    </>
+);
 
 export const ChatMessage: React.FC<{ message: Message }> = ({ message }) => {
     if (message.sender === 'ribbon') {
@@ -89,7 +100,7 @@ export const ChatMessage: React.FC<{ message: Message }> = ({ message }) => {
         return (
             <div style={{ width: '100%', maxWidth: 640, margin: '0 auto 14px' }}>
                 <div className="gor-msg-kicker">Inner Thoughts</div>
-                <div className="gor-msg gor-msg-monologue" style={{ maxWidth: 'none' }} dangerouslySetInnerHTML={{ __html: md(message.text) }}></div>
+                <div className="gor-msg gor-msg-monologue" style={{ maxWidth: 'none' }}><FormattedText text={message.text} /></div>
             </div>
         );
     }
@@ -97,7 +108,7 @@ export const ChatMessage: React.FC<{ message: Message }> = ({ message }) => {
     const isPlayer = message.sender === 'player';
     return (
         <div style={{ display: 'flex', justifyContent: isPlayer ? 'flex-end' : 'flex-start', marginBottom: 14 }}>
-            <div className={`gor-msg ${isPlayer ? 'gor-msg-player' : 'gor-msg-gm'}`} dangerouslySetInnerHTML={{ __html: md(message.text) }}></div>
+            <div className={`gor-msg ${isPlayer ? 'gor-msg-player' : 'gor-msg-gm'}`}><FormattedText text={message.text} /></div>
         </div>
     );
 };

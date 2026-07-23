@@ -40,6 +40,15 @@ import { parseModelJson } from './json';
  */
 export const GEMINI_PRO = 'gemini-3-pro-preview';
 export const GEMINI_FLASH = 'gemini-2.5-flash';
+/**
+ * GA (non-preview) pro-tier model, used as an automatic fallback if
+ * `GEMINI_PRO` (a preview id) is retired out from under us. Google gives no
+ * advance notice when a preview id stops resolving - every pro-tier call
+ * (adjudication, narration, ...) would otherwise start failing 404 with no
+ * code path to recover, bricking the game. See Phase 5.5c. `GEMINI_FLASH` is
+ * already GA, so it needs no fallback of its own.
+ */
+export const GEMINI_PRO_FALLBACK = 'gemini-2.5-pro';
 
 /**
  * The minimal structural shape this service needs from a Gemini client.
@@ -154,6 +163,117 @@ function isTransientError(e: unknown): boolean {
   return /network|fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|timeout/i.test(message);
 }
 
+/**
+ * Session-wide sticky flag: once a `GEMINI_PRO` call has actually hit the
+ * fallback (see `isProUnavailableError`), every later pro-tier call goes
+ * straight to `GEMINI_PRO_FALLBACK` without re-attempting the retired
+ * preview id first. In-memory only, like `sessionCallLog` - does not
+ * survive a reload, and a fresh session always starts by trusting the
+ * preview id again.
+ */
+let proFallbackActive = false;
+
+/** Test-only reset for the sticky pro-fallback flag (see `proFallbackActive`). */
+export function resetProFallback(): void {
+  proFallbackActive = false;
+}
+
+/** Whether the sticky pro-fallback flag is currently set. */
+export function isProFallbackActive(): boolean {
+  return proFallbackActive;
+}
+
+/** Resolves the model id to actually request, honoring the sticky fallback for `GEMINI_PRO`. */
+function resolveModel(model: string): string {
+  return model === GEMINI_PRO && proFallbackActive ? GEMINI_PRO_FALLBACK : model;
+}
+
+/**
+ * Detects "this model id no longer resolves" - as opposed to a transient
+ * 429/5xx or an unrelated 4xx - so the pro-tier fallback only fires on an
+ * actual retirement of the preview id, never on rate limits, server errors,
+ * or a genuinely bad request. Per the SDK's `ApiError` shape (status: number,
+ * message: string), Google surfaces this either as HTTP 404 or as a message
+ * carrying "NOT_FOUND"/"is not found" - checked defensively since neither
+ * documents which one it'll be for a retired preview id.
+ */
+function isProUnavailableError(e: unknown): boolean {
+  if (!(e instanceof ApiError)) return false;
+  if (e.status === 404) return true;
+  return /NOT_FOUND|is not found/i.test(e.message);
+}
+
+/** Whether `error` (thrown by `retryTransient` for `resolvedModel`) warrants a one-shot pro-fallback retry. */
+function canAttemptProFallback(resolvedModel: string, error: unknown): boolean {
+  if (resolvedModel !== GEMINI_PRO) return false; // not the preview id (already on fallback, or a non-pro call)
+  const cause = error instanceof AiServiceError ? error.cause : error;
+  return isProUnavailableError(cause);
+}
+
+/** Wraps a fallback-attempt failure exactly like `retryTransient` would, without re-entering its retry loop. */
+function wrapFallbackFailure(callName: string, error: unknown, attempts: number): AiServiceError {
+  const message = error instanceof Error ? error.message : String(error);
+  if (isTransientError(error)) {
+    return new AiServiceError(
+      'transient',
+      callName,
+      `Gemini call '${callName}' failed after ${attempts} attempt(s) (including the pro-tier fallback): ${message}`,
+      error
+    );
+  }
+  return new AiServiceError(
+    'fatal',
+    callName,
+    `Gemini call '${callName}' failed on the pro-tier fallback model: ${message}`,
+    error
+  );
+}
+
+interface ProFallbackResult<T> {
+  value: T;
+  attempts: number;
+  latencyMs: number;
+  model: string;
+}
+
+/**
+ * Shared by every request path (`generateStructured`, `generateText`, and
+ * `generateTextStream`'s stream-acquisition phase): runs `invoke` against
+ * the resolved model through the normal transient-retry loop, and - only
+ * when the call was against the still-live `GEMINI_PRO` preview id AND the
+ * failure is specifically "model not found" - makes exactly ONE additional
+ * bare attempt against `GEMINI_PRO_FALLBACK` (no nested retry loop, so a
+ * fallback that itself fails can't recurse or loop) before giving up. On
+ * that first successful fallback call, sets the sticky flag so every later
+ * pro-tier call in the session resolves straight to the fallback.
+ *
+ * Transient 429/5xx handling for the ORIGINAL model, and any non-model
+ * error (400, zod, unparseable JSON - those aren't even seen here, since
+ * they only surface after this resolves), are untouched: this only ever
+ * intercepts the specific "preview id retired" failure.
+ */
+async function invokeWithProFallback<T>(
+  callName: string,
+  model: string,
+  invoke: (model: string) => Promise<T>
+): Promise<ProFallbackResult<T>> {
+  const resolvedModel = resolveModel(model);
+  const start = Date.now();
+  try {
+    const { value, attempts } = await retryTransient(callName, () => invoke(resolvedModel));
+    return { value, attempts, latencyMs: Date.now() - start, model: resolvedModel };
+  } catch (e) {
+    if (!canAttemptProFallback(resolvedModel, e)) throw e;
+    proFallbackActive = true;
+    try {
+      const value = await invoke(GEMINI_PRO_FALLBACK);
+      return { value, attempts: 2, latencyMs: Date.now() - start, model: GEMINI_PRO_FALLBACK };
+    } catch (fallbackError) {
+      throw wrapFallbackFailure(callName, fallbackError, 2);
+    }
+  }
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -241,6 +361,8 @@ interface NetworkResult {
   text: string;
   attempts: number;
   latencyMs: number;
+  /** The model id actually used - may differ from the requested one, see `invokeWithProFallback`. */
+  model: string;
 }
 
 interface RetryResult<T> {
@@ -296,10 +418,11 @@ async function retryTransient<T>(callName: string, invoke: () => Promise<T>): Pr
 
 async function callWithRetry(
   callName: string,
-  invoke: () => Promise<{ text?: string }>
+  model: string,
+  invoke: (model: string) => Promise<{ text?: string }>
 ): Promise<NetworkResult> {
-  const { value, attempts, latencyMs } = await retryTransient(callName, invoke);
-  return { text: value.text || '', attempts, latencyMs };
+  const { value, attempts, latencyMs, model: usedModel } = await invokeWithProFallback(callName, model, invoke);
+  return { text: value.text || '', attempts, latencyMs, model: usedModel };
 }
 
 // --- Structured (JSON) calls --------------------------------------------
@@ -372,8 +495,8 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
       json: true,
     });
 
-    const network = await callWithRetry(callName, () =>
-      ai.models.generateContent({ model, contents: currentPrompt, config })
+    const network = await callWithRetry(callName, model, (resolvedModel) =>
+      ai.models.generateContent({ model: resolvedModel, contents: currentPrompt, config })
     );
 
     let parsed: T;
@@ -382,7 +505,7 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
     } catch (e) {
       recordCall({
         callName,
-        model,
+        model: network.model,
         latencyMs: network.latencyMs,
         attempts: network.attempts,
         promptChars: currentPrompt.length,
@@ -413,7 +536,7 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
     if (!zodSchema) {
       recordCall({
         callName,
-        model,
+        model: network.model,
         latencyMs: network.latencyMs,
         attempts: network.attempts,
         promptChars: currentPrompt.length,
@@ -429,7 +552,7 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
     if (result.success) {
       recordCall({
         callName,
-        model,
+        model: network.model,
         latencyMs: network.latencyMs,
         attempts: network.attempts,
         promptChars: currentPrompt.length,
@@ -444,7 +567,7 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
     const issuePaths = result.error.issues.map(issue => issue.path.join('.') || '(root)');
     recordCall({
       callName,
-      model,
+      model: network.model,
       latencyMs: network.latencyMs,
       attempts: network.attempts,
       promptChars: currentPrompt.length,
@@ -501,13 +624,13 @@ export async function generateText(ai: GeminiClient, req: GenerateTextRequest): 
     json: false,
   });
 
-  const network = await callWithRetry(callName, () =>
-    ai.models.generateContent({ model, contents: req.prompt, config })
+  const network = await callWithRetry(callName, model, (resolvedModel) =>
+    ai.models.generateContent({ model: resolvedModel, contents: req.prompt, config })
   );
 
   recordCall({
     callName,
-    model,
+    model: network.model,
     latencyMs: network.latencyMs,
     attempts: network.attempts,
     promptChars: req.prompt.length,
@@ -571,9 +694,11 @@ export async function generateTextStream(
   const totalStart = Date.now();
 
   // Phase 1: acquire the stream, retrying transient failures exactly like
-  // callWithRetry does for a non-streaming call.
-  const { value: stream, attempts } = await retryTransient(callName, () =>
-    streamFn({ model, contents: req.prompt, config })
+  // callWithRetry does for a non-streaming call (and, like callWithRetry,
+  // eligible for the same one-shot pro-tier fallback - narration runs on
+  // GEMINI_PRO and streams when App.tsx opts into onNarrationChunk).
+  const { value: stream, attempts, model: usedModel } = await invokeWithProFallback(callName, model, (resolvedModel) =>
+    streamFn({ model: resolvedModel, contents: req.prompt, config })
   );
 
   // Phase 2: consume it. No retry here by design (see doc comment above) -
@@ -598,7 +723,7 @@ export async function generateTextStream(
 
   recordCall({
     callName,
-    model,
+    model: usedModel,
     latencyMs: Date.now() - totalStart,
     attempts,
     promptChars: req.prompt.length,

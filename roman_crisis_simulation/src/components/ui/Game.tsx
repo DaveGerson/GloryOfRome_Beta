@@ -36,7 +36,7 @@ export const TrustBar: React.FC<{ level?: number; label?: React.ReactNode; style
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, ...style }}>
                 {label && <div className="gor-meter-row"><span className="gor-label">{label}</span><span className="gor-meter-val">{sign}</span></div>}
-                <div className="gor-trust" title={'Trust: ' + sign} role="meter" aria-valuenow={clamped} aria-valuemin={-10} aria-valuemax={10}>
+                <div className="gor-trust" title={'Trust: ' + sign} role="meter" aria-label={typeof label === 'string' ? label : 'Trust'} aria-valuenow={clamped} aria-valuemin={-10} aria-valuemax={10}>
                     <div className="gor-trust-fill" style={{ width: pct + '%', background: tone }}></div>
                     <div className="gor-trust-zero"></div>
                 </div>

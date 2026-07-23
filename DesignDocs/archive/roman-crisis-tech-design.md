@@ -1,3 +1,5 @@
+> **SUPERSEDED (July 2026)** — historical design exploration; see roadmaps/
+
 # Roman Crisis Simulation - Technical Design Document
 
 ## Executive Summary
