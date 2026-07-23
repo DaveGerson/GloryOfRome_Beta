@@ -38,6 +38,10 @@ describe('toSegments', () => {
       expect(toSegments('&#38; &#x26;')).toEqual([{ bold: false, text: '& &' }]);
     });
 
+    it('decodes uppercase-X hexadecimal numeric entities', () => {
+      expect(toSegments('&#X41;')).toEqual([{ bold: false, text: 'A' }]);
+    });
+
     it('keeps entity text that decodes to markup as inert string data, not parsed markup', () => {
       const input = '&lt;script&gt;alert(1)&lt;/script&gt;';
       expect(toSegments(input)).toEqual([{ bold: false, text: '<script>alert(1)</script>' }]);

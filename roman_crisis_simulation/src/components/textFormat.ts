@@ -34,7 +34,7 @@ const NAMED_ENTITIES: Record<string, string> = {
     nbsp: ' ',
 };
 
-const ENTITY_PATTERN = /&(#\d+|#x[0-9a-fA-F]+|[a-zA-Z]+);/g;
+const ENTITY_PATTERN = /&(#\d+|#[xX][0-9a-fA-F]+|[a-zA-Z]+);/g;
 
 function decodeEntities(text: string): string {
     return text.replace(ENTITY_PATTERN, (match, body: string) => {
