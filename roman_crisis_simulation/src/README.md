@@ -22,17 +22,17 @@ The project is structured as a modern React application using TypeScript and Vit
 
 * **/ (Root)**: Contains the main entry point (index.html), React app setup (App.tsx, index.tsx), and project configurations (package.json, vite.config.ts, tsconfig.json).  
 * **/ai**: The brain of the simulation. It's responsible for processing turns, making AI-driven decisions, and managing game logic.  
-  * **/ai/core**: Contains the essential engine for running the simulation, including the single Gemini service wrapper (`ai/core/geminiService.ts`) that every AI call goes through.  
+  * **/ai/core**: Contains the essential engine for running the simulation, including the single Gemini service wrapper (`ai/core/geminiService.ts`) that every AI call goes through.
   * **/ai/tools**: Holds specialized functions that use the AI for specific tasks like intelligence gathering or character generation.  
 * **/components**: Houses all the reusable React components that form the user interface.  
   * **/components/tabs**: Contains the components for each tab in the side panel (e.g., Events, Reports).  
 * **/constants**: Stores static, read-only data that defines the starting conditions of the game.  
 * **/events**: Manages the logic for scripted, triggerable in-game events.  
-* **/state**: Owns the centralized game-domain state. `state/GameContext.tsx` is the React context/provider; `state/gameReducer.ts` is the reducer, action types, and initial-state factory. `App.tsx` is the sole consumer of the context and stays the composition root for persistence.  
-* **/knowledge**: Manages what the player has learned — report commitment, credibility framing, and dossier costing for intelligence gathering.  
-* **/perception**: Filters simulation state down to what a given viewer (player or NPC) is allowed to see, so raw deltas and GM-private detail never reach the UI.  
-* **/persistence**: Handles everything saved to or read from the browser — save games, settings, the API key, onboarding state, and the eval-corpus export.  
-* **/eval**: Houses the offline evaluation harness and judge used to score AI output quality outside of normal gameplay.  
+* **/state**: Owns the centralized game-domain state. `state/GameContext.tsx` is the React context/provider; `state/gameReducer.ts` is the reducer, action types, and initial-state factory. `App.tsx` is the sole consumer of the context and stays the composition root for persistence.
+* **/knowledge**: Manages what the player has learned — report commitment, credibility framing, and dossier costing for intelligence gathering.
+* **/perception**: Filters simulation state down to what a given viewer (player or NPC) is allowed to see, so raw deltas and GM-private detail never reach the UI.
+* **/persistence**: Handles everything saved to or read from the browser — save games, settings, the API key, onboarding state, and the eval-corpus export.
+* **/eval**: Houses the offline evaluation harness and judge used to score AI output quality outside of normal gameplay.
 * **/tests**: Contains unit tests to ensure the core game logic functions correctly.
 
 ## **Description of Each File**
