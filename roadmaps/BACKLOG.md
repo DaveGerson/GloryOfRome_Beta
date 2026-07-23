@@ -86,6 +86,19 @@ It needs ~10 golden turns from a real owner-played session (export via the GM
 console, Ctrl+Shift+G). Only the owner can produce these — the judge is a
 scorer with nothing to score until then.
 
+Once the golden-turn corpus lands, also check in one representative corpus
+fixture and add a CI step running only `eval`'s deterministic-checks leg
+(`GOR_EVAL_CORPUS=<fixture path> npx vitest run --config vitest.eval.config.ts -t "deterministic checks"`)
+against it — the LLM-judge leg stays manual/local given three still-open
+blockers: uncalibrated scoring (no baseline to compare against yet), real
+recurring Gemini API cost/non-determinism per run, and fork-PR secret-exposure
+risk from wiring `GEMINI_API_KEY` into a workflow that triggers on
+`push`/`pull_request` with no fork restriction. Revisit the judge leg only
+once the corpus exists, its scores have been manually validated as a
+baseline, and a deliberate decision is made to accept the recurring cost and
+adopt fork-safe secret handling (e.g. `pull_request_target` with explicit
+review gating, or a manual/scheduled workflow instead of every push).
+
 ### B6 — Faction-level collective minds  *(D22 seam)*
 The mind system has a documented seam for modeling a bloc (Plebs, Senate,
 gangs) as one collective mind. Build when a faction matters as a spotlight
