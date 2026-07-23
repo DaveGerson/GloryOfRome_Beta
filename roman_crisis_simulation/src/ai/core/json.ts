@@ -63,7 +63,8 @@ export function parseModelJson<T>(raw: string): T {
     } catch (e) {
         const reason = e instanceof Error ? e.message : String(e);
         throw new Error(
-            `parseModelJson: failed to parse model output as JSON (${reason}). Offending text: "${truncateSnippet(cleaned)}"`
+            `parseModelJson: failed to parse model output as JSON (${reason}). Offending text: "${truncateSnippet(cleaned)}"`,
+            { cause: e }
         );
     }
 }
