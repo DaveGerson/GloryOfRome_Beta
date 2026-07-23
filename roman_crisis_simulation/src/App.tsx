@@ -39,6 +39,7 @@ import { appendFallout, buildInterventionTextWithFallout, hasFallout } from './c
 import { Button } from './components/ui/Core';
 import { Tooltip } from './components/ui/Feedback';
 import { toRoman } from './components/ui/Brand';
+import { shouldToggleGmConsole } from './components/ui/gmConsoleHotkey';
 import nocturneUrl from './design/nocturne.css?url';
 
 
@@ -413,14 +414,13 @@ const App: React.FC = () => {
     // see isGmScreenVisible). Works in every build, not just dev, since the
     // console itself is meant to stay reachable for tuning, just hidden by
     // default. D33 - a no-op entirely when `gmConsoleAvailable` (the
-    // configuration menu's toggle) is false.
+    // configuration menu's toggle) is false - including not preventing the
+    // browser's default handling of the chord (see shouldToggleGmConsole).
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.ctrlKey && event.shiftKey && (event.key === 'G' || event.key === 'g')) {
-                event.preventDefault();
-                if (!gmConsoleAvailable) return;
-                setIsGmConsoleEnabled(prev => !prev);
-            }
+            if (!shouldToggleGmConsole(event, gmConsoleAvailable)) return;
+            event.preventDefault();
+            setIsGmConsoleEnabled(prev => !prev);
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
