@@ -28,8 +28,8 @@ const validWorldState = {
   economic_stability: 'Stable',
   political_climate: 'Tense',
   regions: {
-    Rome: { stability: 'Stable', controlling_faction: 'Senate', current_events: [] },
-    Britannia: { stability: 'Unstable', controlling_faction: null, current_events: ['An uprising brews in the north.'] },
+    Rome: { stability: 'Stable', controlling_faction: 'Senate', current_events: [] as string[] },
+    Britannia: { stability: 'Unstable', controlling_faction: null as string | null, current_events: ['An uprising brews in the north.'] },
   },
 };
 

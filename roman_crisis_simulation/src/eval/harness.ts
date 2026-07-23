@@ -219,7 +219,7 @@ export function replayTurnRolls(turn: EvalCorpusTurn): TurnRollReplay {
   if (turn.turnSeed === null || turn.turnSeed === undefined) {
     return {
       status: 'no_seed',
-      rolls: recorded.map(r => ({ source: r.source, entityId: r.entityId, recorded: r.roll, rederived: null, match: false })),
+      rolls: recorded.map((r): RollCheck => ({ source: r.source, entityId: r.entityId, recorded: r.roll, rederived: null, match: false })),
     };
   }
 

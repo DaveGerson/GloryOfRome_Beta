@@ -157,9 +157,9 @@ export function scriptAssessmentIdle(category = 'routine governance') {
   return {
     is_consequential: false,
     action_category: category,
-    relevant_skill: null,
+    relevant_skill: null as 'oratory' | 'strategy' | 'intrigue' | null,
     difficulty: 10,
-    opposing_entity_id: null,
+    opposing_entity_id: null as string | null,
     rationale: 'Administrative business with no real opposition or risk of failure.',
   };
 }

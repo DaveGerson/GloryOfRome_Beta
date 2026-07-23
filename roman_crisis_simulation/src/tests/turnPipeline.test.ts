@@ -99,7 +99,7 @@ const simStateResponse = {
   senate_status: 'Functional',
   military_status: 'Loyal',
   plebeian_mood: 'Content',
-  major_ongoing_crisis: null,
+  major_ongoing_crisis: null as string | null,
 };
 const simStateJson = JSON.stringify(simStateResponse);
 

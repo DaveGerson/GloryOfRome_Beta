@@ -12,7 +12,7 @@ import {
   type SaveGameState,
   type InferredAmbitionState,
 } from '../persistence/saveGame';
-import type { TurnHistoryEntry, RawCallRecord } from '../types';
+import type { TurnHistoryEntry, RawCallRecord, Memory } from '../types';
 
 function makeState(overrides: Partial<SaveGameState> = {}): SaveGameState {
   return {
@@ -189,12 +189,12 @@ describe('persistence/saveGame', () => {
       status: 'alive' as const,
       location: 'Praetorian Camp',
       relationships: {},
-      memories: [],
+      memories: [] as Memory[],
       resources: {},
-      visibility_network: [],
+      visibility_network: [] as string[],
       current_state_narrative: 'A giant of a man.',
-      short_term_goals: [],
-      long_term_ambitions: [],
+      short_term_goals: [] as string[],
+      long_term_ambitions: [] as string[],
     };
     const flavored = {
       ...baseEntity,

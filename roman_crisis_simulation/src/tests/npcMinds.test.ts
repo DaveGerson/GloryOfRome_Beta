@@ -381,7 +381,7 @@ describe('buildNpcMindPrompt: in-character address with bounded knowledge', () =
 
   it('omits the resolve block when no Director intent exists, and bounds the memory slice at MIND_MEMORY_LINES', () => {
     const memories = Array.from({ length: MIND_MEMORY_LINES + 2 }, (_, i) => ({
-      turn: i + 1, event_description: `Remembered thing ${i + 1}`, emotional_impact: 'Notable', involved_entities: [],
+      turn: i + 1, event_description: `Remembered thing ${i + 1}`, emotional_impact: 'Notable', involved_entities: [] as string[],
     }));
     const { prompt } = buildNpcMindPrompt({
       self: makeEntity({ memories }), perceivedChanges: [], publicHeadlines: [], worldSummary: 'Year: 235, Week: 4.', turnNumber: 5,
@@ -470,7 +470,7 @@ describe('selectUnrememberedChanges + mind assembly: no line shows twice in one 
     return { text, source: 'self', tabs: [], subject: 'npc_thrax', deltaType: 'resource', deltaKey: 'npc_thrax:legion_support' };
   }
   function makeMemory(turn: number, text: string) {
-    return { turn, event_description: text, emotional_impact: 'Notable', involved_entities: [] };
+    return { turn, event_description: text, emotional_impact: 'Notable', involved_entities: [] as string[] };
   }
 
   it('drops lines stamped as PREVIOUS-turn memories, keeps unstamped lines, and never matches an older turn\'s identical text', () => {

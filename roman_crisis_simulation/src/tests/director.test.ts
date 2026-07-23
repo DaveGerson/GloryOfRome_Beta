@@ -134,7 +134,7 @@ describe('buildStoryRelevancePrompt: the Director input (previous intents, schem
       turn: i + 1,
       event_description: `Witnessed event number ${i + 1}`,
       emotional_impact: 'Notable',
-      involved_entities: [],
+      involved_entities: [] as string[],
     }));
     const npc = makeNpc({ memories });
     const previous = [makeIntent({ intent: 'Court the Rhine legions in secret', continuity: 'continue' })];

@@ -241,7 +241,7 @@ const GroundTruthView: React.FC<{
     // this view can only say so.
     const snapshotEntities = entry.postTurnEntities;
     const playerAtTurn = snapshotEntities?.find(e => e.entity_id === playerCharacterId) ?? null;
-    const mortalityTrace = (entry as Record<string, unknown>).mortalityTrace;
+    const mortalityTrace = (entry as unknown as Record<string, unknown>).mortalityTrace;
 
     return (
         <>
