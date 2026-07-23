@@ -35,8 +35,12 @@ export default tseslint.config(
       // typescript-eslint's eslint-recommended override; current tree has
       // existing `let` bindings that are never reassigned.
       'prefer-const': 'warn',
-      // @eslint/js recommended; current tree has existing dead
-      // reassignments that would need a source edit to remove.
+      // @eslint/js recommended; the dead reassignments that seeded this
+      // downgrade were fixed by commit 6caf233 (assertions now read the
+      // intermediate values), leaving zero occurrences. Kept at 'warn'
+      // alongside the other seeded rules; regressions are caught by the
+      // lint script's --max-warnings ratchet (package.json), which holds
+      // the tree at the BACKLOG.md B11 triaged inventory.
       'no-useless-assignment': 'warn',
       // @eslint/js recommended; current tree has existing rethrows that
       // don't attach the original error as `cause`.
