@@ -35,3 +35,14 @@ Task 1: complete (commits `e42ff32..75c4d2d`, review clean).
 - Scope: observational evidence and player-knownness projections only; no relationship scoring, gameplay mechanics, App wiring, engine, resolution, mortality, or reducer changes
 
 Task 5: complete (commits `e32a912..8d093a1`, review clean).
+
+## Task 3: structured turn composer
+
+- Reviewed task range: `ebb513fbc5b8..3cb8700`
+- Integration merge: `45eb3e1`
+- TDD chain: test-only RED `9a492ce`; production GREEN `65f3edc`; adversarial fixes `e958a3f`, `a3ffbc5`, `5c6ea8d`, `0dc312e`, `f6aa752`, and `3cb8700`
+- Fresh final Sol xhigh review: spec compliant; code quality and accessibility approved; no Critical, Important, or Minor findings
+- Controller verification: focused Task 3/Task 1 suite 83/83, typecheck exit 0, targeted zero-warning lint exit 0, full unit suite 40 files and 754 tests passed
+- Scope: composer UI, pure draft state, mode-only local preference, exhaustive shared turn-stage copy, and Task 1 canonical preview/validation seam; no App wiring, prompts, gameplay mechanics, reducer, save-state, or draft persistence
+
+Task 3: complete (commits `9a492ce..3cb8700`, review clean).
