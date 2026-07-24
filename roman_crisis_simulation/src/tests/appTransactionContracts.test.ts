@@ -14,6 +14,7 @@ import { GameProvider } from '../state/GameContext';
 import { createInitialGameState } from '../state/gameReducer';
 import * as aiMocks from '../ai/mocks';
 import * as ambitionTool from '../ai/tools/ambition';
+import * as turnCore from '../ai/core/turn';
 import { loadGame, saveGame, type SaveGameState } from '../persistence/saveGame';
 import { AiServiceError } from '../ai/core/geminiService';
 import type { Entity } from '../types';
@@ -26,6 +27,7 @@ vi.mock('../ai/mocks', async importOriginal => {
     mockRunNewTurn: vi.fn(actual.mockRunNewTurn),
     mockGetDeepAnalysis: vi.fn(actual.mockGetDeepAnalysis),
     mockGetInvestigationResult: vi.fn(actual.mockGetInvestigationResult),
+    mockCreateCharacter: vi.fn(actual.mockCreateCharacter),
   };
 });
 
@@ -39,16 +41,28 @@ vi.mock('../ai/tools/ambition', async importOriginal => {
   };
 });
 
+vi.mock('../ai/core/turn', async importOriginal => {
+  const actual = await importOriginal<typeof import('../ai/core/turn')>();
+  return {
+    ...actual,
+    runNewTurn: vi.fn(actual.runNewTurn),
+  };
+});
+
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const mockRunNewTurn = vi.mocked(aiMocks.mockRunNewTurn);
 const mockGetDeepAnalysis = vi.mocked(aiMocks.mockGetDeepAnalysis);
 const mockGetInvestigationResult = vi.mocked(aiMocks.mockGetInvestigationResult);
+const mockCreateCharacter = vi.mocked(aiMocks.mockCreateCharacter);
 const mockInferAmbition = vi.mocked(ambitionTool.inferAmbition);
+const mockRunNewTurnCore = vi.mocked(turnCore.runNewTurn);
 const defaultRunNewTurn = mockRunNewTurn.getMockImplementation()!;
 const defaultDeepAnalysis = mockGetDeepAnalysis.getMockImplementation()!;
 const defaultInvestigation = mockGetInvestigationResult.getMockImplementation()!;
+const defaultCreateCharacter = mockCreateCharacter.getMockImplementation()!;
 const defaultInferAmbition = mockInferAmbition.getMockImplementation()!;
+const defaultRunNewTurnCore = mockRunNewTurnCore.getMockImplementation()!;
 const mounted: Array<{ root: Root; container: HTMLDivElement }> = [];
 
 beforeEach(() => {
@@ -60,8 +74,12 @@ beforeEach(() => {
   mockGetDeepAnalysis.mockImplementation(defaultDeepAnalysis);
   mockGetInvestigationResult.mockClear();
   mockGetInvestigationResult.mockImplementation(defaultInvestigation);
+  mockCreateCharacter.mockClear();
+  mockCreateCharacter.mockImplementation(defaultCreateCharacter);
   mockInferAmbition.mockClear();
   mockInferAmbition.mockImplementation(defaultInferAmbition);
+  mockRunNewTurnCore.mockClear();
+  mockRunNewTurnCore.mockImplementation(defaultRunNewTurnCore);
   Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
     configurable: true,
     value: vi.fn(),
@@ -82,8 +100,12 @@ afterEach(async () => {
   mockGetDeepAnalysis.mockImplementation(defaultDeepAnalysis);
   mockGetInvestigationResult.mockClear();
   mockGetInvestigationResult.mockImplementation(defaultInvestigation);
+  mockCreateCharacter.mockClear();
+  mockCreateCharacter.mockImplementation(defaultCreateCharacter);
   mockInferAmbition.mockClear();
   mockInferAmbition.mockImplementation(defaultInferAmbition);
+  mockRunNewTurnCore.mockClear();
+  mockRunNewTurnCore.mockImplementation(defaultRunNewTurnCore);
   vi.useRealTimers();
 });
 
@@ -253,11 +275,22 @@ function expectV1BuildSaveShape(raw: string | null): void {
   expect(envelope.state).not.toHaveProperty('retrySubmission');
 }
 
-async function openFirstIntelCard(container: HTMLElement): Promise<void> {
+async function openPersonaeTab(container: HTMLElement): Promise<void> {
   const personaeTab = Array.from(container.querySelectorAll<HTMLButtonElement>('button[role="tab"]'))
     .find(button => button.getAttribute('aria-label')?.startsWith('Dramatis Personae'));
   expect(personaeTab, 'Dramatis Personae tab').toBeDefined();
   await click(personaeTab!);
+}
+
+function entityCard(container: HTMLElement, name: string): HTMLElement {
+  const card = Array.from(container.querySelectorAll<HTMLElement>('section.gor-card'))
+    .find(candidate => candidate.querySelector('.gor-card-title')?.textContent?.trim() === name);
+  expect(card, `Personae card for "${name}"`).toBeDefined();
+  return card!;
+}
+
+async function openFirstIntelCard(container: HTMLElement): Promise<void> {
+  await openPersonaeTab(container);
   await click(buttonNamed(container, 'Intel'));
 }
 
@@ -277,7 +310,13 @@ async function playOneTurn(container: HTMLElement, text = 'Open the transaction 
 
 describe('App non-turn save atomicity', () => {
   it('keeps CharacterSelection and the prior bytes when a new campaign cannot persist, then permits the same selection retry', async () => {
-    const container = await mountApp(makeAppSave(), false);
+    const container = await mountApp(makeAppSave({
+      inferredAmbition: {
+        apparent_ambition: 'OLD CAMPAIGN AMBITION MUST NOT LEAK',
+        confidence: 'high',
+        asOfTurn: 2,
+      },
+    }), false);
     const before = localStorage.getItem('gloryOfRome:autosave');
     const beforeState = loadGame()!.state;
     const preset = buttonContaining(container, 'The Young Emperor');
@@ -455,6 +494,102 @@ describe('App non-turn save atomicity', () => {
 });
 
 describe('App in-flight transaction barrier', () => {
+  it('ignores late turn stage and narration callbacks after the owning App unmounts', async () => {
+    const container = await mountApp();
+    let capturedOptions: turnCore.RunNewTurnOptions | undefined;
+    mockRunNewTurnCore.mockImplementationOnce((...args) => {
+      capturedOptions = args[14];
+      return new Promise(() => {});
+    });
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Hold callbacks past unmount');
+    await click(buttonNamed(container, 'Send message'));
+    await waitFor(() => expect(capturedOptions).toBeDefined());
+
+    const oldInstance = mounted.pop()!;
+    await act(async () => oldInstance.root.unmount());
+    oldInstance.container.remove();
+    const replacement = makeAppSave({ turnNumber: 9 });
+    saveGame(replacement);
+    const replacementBytes = localStorage.getItem('gloryOfRome:autosave');
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    capturedOptions!.onStage?.('narration');
+    capturedOptions!.onNarrationChunk?.('STALE STREAM');
+    await flush();
+
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(localStorage.getItem('gloryOfRome:autosave')).toBe(replacementBytes);
+    expect(loadGame()!.state).toEqual(replacement);
+    errorSpy.mockRestore();
+  });
+
+  it('drops a late turn rejection after unmount without rollback, state writes, or warnings', async () => {
+    const container = await mountApp();
+    let rejectTurn!: (reason: unknown) => void;
+    mockRunNewTurnCore.mockImplementationOnce(() => new Promise((_, reject) => {
+      rejectTurn = reject;
+    }));
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Reject after unmount');
+    await click(buttonNamed(container, 'Send message'));
+    await waitFor(() => expect(mockRunNewTurnCore).toHaveBeenCalledTimes(1));
+
+    const oldInstance = mounted.pop()!;
+    await act(async () => oldInstance.root.unmount());
+    oldInstance.container.remove();
+    const replacement = makeAppSave({ turnNumber: 11 });
+    saveGame(replacement);
+    const replacementBytes = localStorage.getItem('gloryOfRome:autosave');
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    rejectTurn(new Error('late rejected turn'));
+    await flush();
+
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(localStorage.getItem('gloryOfRome:autosave')).toBe(replacementBytes);
+    expect(loadGame()!.state).toEqual(replacement);
+    errorSpy.mockRestore();
+  });
+
+  for (const outcome of ['resolve', 'reject'] as const) {
+    it(`cancels custom-character ${outcome} after App unmount without child state writes or save replacement`, async () => {
+      const container = await mountApp(makeAppSave(), false);
+      const mockToggle = container.querySelector<HTMLInputElement>('#mock-toggle')!;
+      await click(mockToggle);
+      await click(buttonContaining(container, 'Create Your Own'));
+      const description = `Custom lifecycle ${outcome}`;
+      await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Custom character description'), description);
+      let settle!: () => void;
+      mockCreateCharacter.mockImplementationOnce(() => new Promise((resolve, reject) => {
+        settle = () => {
+          if (outcome === 'resolve') {
+            void defaultCreateCharacter(description).then(resolve);
+          } else {
+            reject(new Error('late custom creation rejection'));
+          }
+        };
+      }));
+      await click(buttonNamed(container, 'Create Character'));
+      await waitFor(() => expect(mockCreateCharacter).toHaveBeenCalledTimes(1));
+      expect(container.textContent).toContain('Consulting the Fates');
+
+      const oldInstance = mounted.pop()!;
+      await act(async () => oldInstance.root.unmount());
+      oldInstance.container.remove();
+      const replacement = makeAppSave({ turnNumber: 13 });
+      saveGame(replacement);
+      const replacementBytes = localStorage.getItem('gloryOfRome:autosave');
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      settle();
+      await flush();
+
+      expect(errorSpy).not.toHaveBeenCalled();
+      expect(localStorage.getItem('gloryOfRome:autosave')).toBe(replacementBytes);
+      expect(loadGame()!.state).toEqual(replacement);
+      errorSpy.mockRestore();
+    });
+  }
+
   it('holds one shared mutex from intel request through durable commit and rejects forced cross-surface entry', async () => {
     const container = await mountApp();
     await playOneTurn(container, 'Establish the shared transaction baseline');
@@ -467,6 +602,8 @@ describe('App in-flight transaction barrier', () => {
     const commission = buttonContaining(container, 'Commission');
     const investigation = revealSecretsButton(container);
     const chatInput = byAriaLabel<HTMLTextAreaElement>(container, 'Chat input');
+    const queuedDraft = 'This valid draft must wait for the intelligence lease';
+    await setValue(chatInput, queuedDraft);
     let release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
     mockGetDeepAnalysis.mockImplementationOnce(async (...args) => {
@@ -506,6 +643,56 @@ describe('App in-flight transaction barrier', () => {
     expect(container.textContent).toContain('(Mock Analysis)');
     expect(loadGame()!.state.gmInterventionText).toBe('');
     expect(storageSpy).toHaveBeenCalledTimes(1);
+
+    expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').value).toBe(queuedDraft);
+    await click(buttonNamed(container, 'Send message'));
+    await waitFor(() => expect(loadGame()!.state.turnNumber).toBe(4));
+    expect(mockRunNewTurn).toHaveBeenCalledTimes(2);
+    expect(loadGame()!.state.messages.some(message => message.text.includes(queuedDraft))).toBe(true);
+    storageSpy.mockRestore();
+  });
+
+  it('serializes intelligence requests across different Personae cards and releases the second card after commit', async () => {
+    const container = await mountApp();
+    await openPersonaeTab(container);
+    const maximinusCard = entityCard(container, 'Maximinus Thrax');
+    const gaiusCard = entityCard(container, 'Gaius Pontius Magnus');
+    await click(buttonNamed(maximinusCard, 'Intel'));
+    await click(buttonNamed(gaiusCard, 'Intel'));
+    const firstCommission = buttonContaining(maximinusCard, 'Commission');
+    const secondCommission = buttonContaining(gaiusCard, 'Commission');
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    mockGetDeepAnalysis.mockImplementationOnce(async (...args) => {
+      await gate;
+      return defaultDeepAnalysis(...args);
+    });
+    const before = loadGame()!.state;
+    const storageSpy = vi.spyOn(Storage.prototype, 'setItem');
+
+    await click(firstCommission);
+    await waitFor(() => expect(mockGetDeepAnalysis).toHaveBeenCalledTimes(1));
+    expect(secondCommission.disabled).toBe(true);
+    secondCommission.disabled = false;
+    await click(secondCommission);
+
+    expect(mockGetDeepAnalysis).toHaveBeenCalledTimes(1);
+    expect(storageSpy).not.toHaveBeenCalled();
+    expect(loadGame()!.state).toEqual(before);
+    expect(container.textContent).not.toContain('(Mock Analysis)');
+
+    release();
+    await waitFor(() => expect(loadGame()!.state.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources.deep_analyses).toBe(3));
+    expect(maximinusCard.textContent).toContain('(Mock Analysis)');
+    expect(gaiusCard.textContent).not.toContain('(Mock Analysis)');
+
+    await click(secondCommission);
+    await waitFor(() => expect(mockGetDeepAnalysis).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(loadGame()!.state.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources.deep_analyses).toBe(2));
+    expect(gaiusCard.textContent).toContain('(Mock Analysis)');
+    expect(storageSpy).toHaveBeenCalledTimes(2);
     storageSpy.mockRestore();
   });
 
@@ -563,6 +750,45 @@ describe('App in-flight transaction barrier', () => {
     errorSpy.mockRestore();
   });
 
+  it('rejects a stale Retry handler during intel, then submits the exact restored draft after release', async () => {
+    const container = await mountApp();
+    const exactDraft = 'Restore this exact failed action for retry';
+    mockRunNewTurnCore.mockRejectedValueOnce(new Error('turn provider offline'));
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), exactDraft);
+    await click(buttonNamed(container, 'Send message'));
+    await waitFor(() => expect(container.textContent).toContain('draft has been restored'));
+    expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').value).toBe(exactDraft);
+    const retry = buttonNamed(container, 'Retry the last action');
+
+    await openFirstIntelCard(container);
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    mockGetDeepAnalysis.mockImplementationOnce(async (...args) => {
+      await gate;
+      return defaultDeepAnalysis(...args);
+    });
+    await click(buttonContaining(container, 'Commission'));
+    await waitFor(() => expect(mockGetDeepAnalysis).toHaveBeenCalledTimes(1));
+    expect(retry.disabled).toBe(true);
+
+    retry.disabled = false;
+    await click(retry);
+    expect(mockRunNewTurnCore).toHaveBeenCalledTimes(1);
+    expect(loadGame()!.state.turnNumber).toBe(2);
+
+    release();
+    await waitFor(() => expect(loadGame()!.state.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources.deep_analyses).toBe(3));
+    await click(retry);
+    await waitFor(() => expect(mockRunNewTurnCore).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(loadGame()!.state.turnNumber).toBe(3));
+    expect(loadGame()!.state.messages.some(message => message.text.includes(exactDraft))).toBe(true);
+    expect(container.textContent).not.toContain('draft has been restored');
+    errorSpy.mockRestore();
+  });
+
   it('cancels an in-flight intel commit when its owning App unmounts', async () => {
     const container = await mountApp();
     await openFirstIntelCard(container);
@@ -589,6 +815,43 @@ describe('App in-flight transaction barrier', () => {
     expect(loadGame()!.state).toEqual(replacement);
   });
 
+  it('keeps one custom creation lease across duplicate submits, then restores the exact live draft for retry', async () => {
+    const container = await mountApp(makeAppSave(), false);
+    await click(container.querySelector<HTMLInputElement>('#mock-toggle')!);
+    await click(buttonContaining(container, 'Create Your Own'));
+    const draft = 'A veteran jurist with an exact retryable history';
+    const input = byAriaLabel<HTMLTextAreaElement>(container, 'Custom character description');
+    await setValue(input, draft);
+    let rejectCreation!: (reason: unknown) => void;
+    mockCreateCharacter.mockImplementationOnce(() => new Promise((_, reject) => {
+      rejectCreation = reject;
+    }));
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const form = input.closest('form')!;
+
+    await act(async () => {
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(mockCreateCharacter).toHaveBeenCalledTimes(1));
+    expect(container.textContent).toContain('Consulting the Fates');
+
+    rejectCreation(new Error('live custom provider failure'));
+    await waitFor(() => expect(container.textContent).toContain('auguries are not in our favor'));
+    expect(byAriaLabel<HTMLTextAreaElement>(container, 'Custom character description').value).toBe(draft);
+    expect(buttonNamed(container, 'Create Character').disabled).toBe(false);
+
+    await click(buttonNamed(container, 'Create Character'));
+    await waitFor(() => expect(mockCreateCharacter).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(container.querySelector('[aria-label="Chat input"]')).not.toBeNull());
+    expect(loadGame()!.state.messages).toHaveLength(1);
+    expect(loadGame()!.state.inferredAmbition).toBeNull();
+    expect(JSON.stringify(loadGame()!.state)).not.toContain('OLD CAMPAIGN AMBITION MUST NOT LEAK');
+    expectV1BuildSaveShape(localStorage.getItem('gloryOfRome:autosave'));
+    errorSpy.mockRestore();
+  });
+
   it('rejects a re-entrant stale campaign control before its first synchronous save returns', async () => {
     const container = await mountApp(makeAppSave(), false);
     const firstDestiny = buttonContaining(container, 'The Young Emperor');
@@ -611,6 +874,90 @@ describe('App in-flight transaction barrier', () => {
     expect(loadGame()!.state.playerCharacterId).toBe('severus_alexander');
     expect(loadGame()!.state.messages).toHaveLength(1);
     storageSpy.mockRestore();
+  });
+
+  it('lets Continue own the lease and rejects a re-entrant preset handler', async () => {
+    const container = await mountApp(makeAppSave(), false);
+    const continueButton = buttonNamed(container, 'Continue Your Reign');
+    const stalePreset = buttonContaining(container, 'The Ambitious General');
+    const originalGetItem = Storage.prototype.getItem;
+    let forcedReentry = false;
+    const writeSpy = vi.spyOn(Storage.prototype, 'setItem');
+    const getSpy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(function (this: Storage, key) {
+      if (key === 'gloryOfRome:autosave' && !forcedReentry) {
+        forcedReentry = true;
+        stalePreset.disabled = false;
+        stalePreset.click();
+      }
+      return originalGetItem.call(this, key);
+    });
+
+    await click(continueButton);
+    await waitFor(() => expect(container.querySelector('[aria-label="Chat input"]')).not.toBeNull());
+
+    expect(forcedReentry).toBe(true);
+    expect(writeSpy).not.toHaveBeenCalled();
+    expect(loadGame()!.state.playerCharacterId).toBe('severus_alexander');
+    getSpy.mockRestore();
+    writeSpy.mockRestore();
+  });
+
+  it('lets confirmed Start anew own the lease and rejects a re-entrant preset handler', async () => {
+    const container = await mountApp(makeAppSave(), false);
+    await click(buttonNamed(container, 'Start anew'));
+    const stalePreset = buttonContaining(container, 'The Ambitious General');
+    const abandonButton = buttonNamed(container, 'Abandon');
+    const originalRemoveItem = Storage.prototype.removeItem;
+    let forcedReentry = false;
+    const writeSpy = vi.spyOn(Storage.prototype, 'setItem');
+    const removeSpy = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(function (this: Storage, key) {
+      if (key === 'gloryOfRome:autosave' && !forcedReentry) {
+        forcedReentry = true;
+        stalePreset.disabled = false;
+        stalePreset.click();
+      }
+      return originalRemoveItem.call(this, key);
+    });
+
+    await click(abandonButton);
+    await waitFor(() => expect(container.textContent).not.toContain('Continue Your Reign'));
+
+    expect(forcedReentry).toBe(true);
+    expect(removeSpy).toHaveBeenCalledTimes(1);
+    expect(writeSpy).not.toHaveBeenCalled();
+    expect(localStorage.getItem('gloryOfRome:autosave')).toBeNull();
+    expect(container.textContent).toContain('Choose Your Destiny');
+    expect(container.querySelector('[aria-label="Chat input"]')).toBeNull();
+    removeSpy.mockRestore();
+    writeSpy.mockRestore();
+  });
+
+  it('rejects a re-entrant confirmed Start anew handler while a preset save owns the lease', async () => {
+    const container = await mountApp(makeAppSave(), false);
+    await click(buttonNamed(container, 'Start anew'));
+    const preset = buttonContaining(container, 'The Young Emperor');
+    const staleAbandon = buttonNamed(container, 'Abandon');
+    const originalSetItem = Storage.prototype.setItem;
+    const removeSpy = vi.spyOn(Storage.prototype, 'removeItem');
+    let forcedReentry = false;
+    const writeSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
+      if (key === 'gloryOfRome:autosave' && !forcedReentry) {
+        forcedReentry = true;
+        staleAbandon.disabled = false;
+        staleAbandon.click();
+      }
+      return originalSetItem.call(this, key, value);
+    });
+
+    await click(preset);
+    await waitFor(() => expect(container.querySelector('[aria-label="Chat input"]')).not.toBeNull());
+
+    expect(forcedReentry).toBe(true);
+    expect(removeSpy).not.toHaveBeenCalled();
+    expect(writeSpy).toHaveBeenCalledTimes(1);
+    expect(loadGame()!.state.playerCharacterId).toBe('severus_alexander');
+    writeSpy.mockRestore();
+    removeSpy.mockRestore();
   });
 
   it('keeps committed pills and persisted bytes exact while AI is held, hiding pills only in presentation', async () => {
@@ -668,6 +1015,67 @@ describe('App in-flight transaction barrier', () => {
 
     expect(loadGame()!.state.inferredAmbition).toBeNull();
     expect(JSON.stringify(loadGame()!.state)).not.toContain('STALE_ABANDONED_CAMPAIGN_AMBITION');
+  });
+
+  it('keeps a newer periodic ambition when the following full-turn save commits later', async () => {
+    const container = await mountApp(makeAppSave({ turnNumber: 3 }));
+    let resolveAmbition!: (value: Awaited<ReturnType<typeof ambitionTool.inferAmbition>>) => void;
+    mockInferAmbition.mockImplementationOnce(() => new Promise(resolve => {
+      resolveAmbition = resolve;
+    }));
+
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Trigger the periodic ambition read');
+    await click(buttonNamed(container, 'Send message'));
+    await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(4));
+    await waitFor(() => expect(mockInferAmbition).toHaveBeenCalledTimes(1));
+    expect(loadGame()!.state.inferredAmbition).toBeNull();
+
+    let releaseTurn!: () => void;
+    const turnGate = new Promise<void>(resolve => {
+      releaseTurn = resolve;
+    });
+    mockRunNewTurnCore.mockImplementationOnce(async (...args) => {
+      await turnGate;
+      return defaultRunNewTurnCore(...args);
+    });
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Commit after ambition');
+    await click(buttonNamed(container, 'Send message'));
+    await waitFor(() => expect(mockRunNewTurnCore).toHaveBeenCalledTimes(2));
+
+    const newestAmbition = {
+      apparent_ambition: 'PRESERVE THE LATEST AMBITION',
+      confidence: 'high' as const,
+    };
+    vi.useFakeTimers();
+    resolveAmbition(newestAmbition);
+    await act(async () => {
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    expect(loadGame()!.state.inferredAmbition).toEqual({ ...newestAmbition, asOfTurn: 3 });
+
+    releaseTurn();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    vi.useRealTimers();
+    await waitFor(() => expect(loadGame()!.state.turnNumber).toBe(5));
+
+    expect(loadGame()!.state.inferredAmbition).toEqual({ ...newestAmbition, asOfTurn: 3 });
+    await click(container.querySelector<HTMLInputElement>('#gm-console-toggle')!);
+    await click(buttonNamed(container, 'GM Log'));
+    expect(container.textContent).toContain('PRESERVE THE LATEST AMBITION');
+    await click(buttonNamed(container, 'Close Game Master screen'));
+
+    const oldInstance = mounted.pop()!;
+    await act(async () => oldInstance.root.unmount());
+    oldInstance.container.remove();
+    const reloaded = await renderApp(true);
+    await click(reloaded.querySelector<HTMLInputElement>('#gm-console-toggle')!);
+    await click(buttonNamed(reloaded, 'GM Log'));
+    expect(reloaded.textContent).toContain('PRESERVE THE LATEST AMBITION');
+    expect(loadGame()!.state.turnNumber).toBe(5);
+    expectV1BuildSaveShape(localStorage.getItem('gloryOfRome:autosave'));
   });
 
   it('keeps a failed non-turn alert until the next turn is durably committed, then clears it', async () => {

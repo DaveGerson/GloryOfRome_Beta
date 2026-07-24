@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { PlayerCharacterOption } from '../types';
 import { Card, Button } from './ui/Core';
 import { Radio, Textarea } from './ui/Forms';
@@ -38,6 +38,12 @@ const CharacterSelection: React.FC<{
     const [useCustomGamestate, setUseCustomGamestate] = useState(false);
     const [metaNarrative, setMetaNarrative] = useState('');
     const [confirmAnew, setConfirmAnew] = useState(false);
+    const isMountedRef = useRef(true);
+    const creationInFlightRef = useRef(false);
+
+    useEffect(() => () => {
+        isMountedRef.current = false;
+    }, []);
 
     const PLAYER_CHARACTER_OPTIONS: PlayerCharacterOption[] = [
         { name: "The Young Emperor", entity_id: "severus_alexander", description: "Rule as the idealistic but embattled emperor.", difficulty: "Hard" },
@@ -48,6 +54,7 @@ const CharacterSelection: React.FC<{
 
     const handleCustomSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (creationInFlightRef.current) return;
         if (!customDescription.trim()) {
             setError('Describe your character — the Fates cannot work from silence.');
             return;
@@ -57,6 +64,7 @@ const CharacterSelection: React.FC<{
             return;
         }
         setError('');
+        creationInFlightRef.current = true;
         setIsLoading(true);
         try {
             await onCreateCharacter({
@@ -65,10 +73,13 @@ const CharacterSelection: React.FC<{
                 useCustomGamestate,
             });
         } catch (err) {
+            if (!isMountedRef.current) return;
             setError('Failed to create character. The auguries are not in our favor. Please try again.');
             console.error(err);
+        } finally {
+            creationInFlightRef.current = false;
+            if (isMountedRef.current) setIsLoading(false);
         }
-        setIsLoading(false);
     };
 
     if (isLoading) {

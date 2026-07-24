@@ -104,6 +104,29 @@ function loadSavedGameSummary(): SavedGameSummary | null {
     };
 }
 
+function newestInferredAmbition(
+    ...candidates: Array<InferredAmbitionState | null | undefined>
+): InferredAmbitionState | null {
+    return candidates.reduce<InferredAmbitionState | null>(
+        (newest, candidate) => candidate && (!newest || candidate.asOfTurn >= newest.asOfTurn)
+            ? candidate
+            : newest,
+        null,
+    );
+}
+
+function isSameCampaignPrefix(candidate: SaveGameState, stored: SaveGameState): boolean {
+    return stored.playerCharacterId === candidate.playerCharacterId
+        && stored.metaNarrative === candidate.metaNarrative
+        && stored.turnNumber <= candidate.turnNumber
+        && stored.turnHistory.length <= candidate.turnHistory.length
+        && stored.turnHistory.every((entry, index) => {
+            const candidateEntry = candidate.turnHistory[index];
+            return candidateEntry?.turnNumber === entry.turnNumber
+                && candidateEntry.playerIntent === entry.playerIntent;
+        });
+}
+
 const App: React.FC = () => {
     // Every game-domain slice lives in the reducer behind GameContext
     // (state/gameReducer.ts, DESIGN_DECISIONS.md D17) - in particular, every
@@ -292,6 +315,7 @@ const App: React.FC = () => {
     const domainMutationLeaseRef = useRef<symbol | null>(null);
     const appMountedRef = useRef(true);
     const campaignGenerationRef = useRef(0);
+    const latestInferredAmbitionRef = useRef<InferredAmbitionState | null>(inferredAmbition);
 
     useEffect(() => {
         appMountedRef.current = true;
@@ -301,6 +325,13 @@ const App: React.FC = () => {
             domainMutationLeaseRef.current = null;
         };
     }, []);
+
+    useEffect(() => {
+        latestInferredAmbitionRef.current = newestInferredAmbition(
+            latestInferredAmbitionRef.current,
+            inferredAmbition,
+        );
+    }, [inferredAmbition]);
 
     const runDomainMutation = useCallback<RunDomainMutation>(async <T,>(work: (context: DomainMutationContext) => T | Promise<T>) => {
         if (domainMutationLeaseRef.current) {
@@ -324,6 +355,7 @@ const App: React.FC = () => {
 
     const beginCampaignSession = useCallback(() => {
         campaignGenerationRef.current += 1;
+        latestInferredAmbitionRef.current = null;
         resetSessionCallLog();
     }, []);
 
@@ -425,29 +457,42 @@ const App: React.FC = () => {
     // committed new values must pass them explicitly rather than reading
     // the stale closure). See persistence/saveGame.ts for exactly which
     // game state this does (and doesn't) include, and why.
-    const buildSaveState = useCallback((overrides: Partial<SaveGameState> = {}): SaveGameState => ({
-        entities: state.entities,
-        worldState: state.worldState,
-        simulationState: state.simulationState,
-        reports: state.reports,
-        truthLedger: state.truthLedger,
-        knowledge: state.knowledge,
-        npcIntents: state.npcIntents,
-        turnNumber: state.turnNumber,
-        playerCharacterId: state.playerCharacterId,
-        turnHistory: state.turnHistory,
-        eventHistory: state.eventHistory,
-        metaNarrative: state.metaNarrative,
-        messages: state.messages,
-        triggeredEventIds: state.triggeredEventIds,
-        eventFirings: state.eventFirings,
-        suggestedActions: state.suggestedActions,
-        currentEvents: state.currentEvents,
-        gmInterventionText: state.gmInterventionText,
-        inferredAmbition: state.inferredAmbition,
-        pendingIntelligenceFallout: state.pendingIntelligenceFallout,
-        ...overrides,
-    }), [state]);
+    const buildSaveState = useCallback((overrides: Partial<SaveGameState> = {}): SaveGameState => {
+        const candidate: SaveGameState = {
+            entities: state.entities,
+            worldState: state.worldState,
+            simulationState: state.simulationState,
+            reports: state.reports,
+            truthLedger: state.truthLedger,
+            knowledge: state.knowledge,
+            npcIntents: state.npcIntents,
+            turnNumber: state.turnNumber,
+            playerCharacterId: state.playerCharacterId,
+            turnHistory: state.turnHistory,
+            eventHistory: state.eventHistory,
+            metaNarrative: state.metaNarrative,
+            messages: state.messages,
+            triggeredEventIds: state.triggeredEventIds,
+            eventFirings: state.eventFirings,
+            suggestedActions: state.suggestedActions,
+            currentEvents: state.currentEvents,
+            gmInterventionText: state.gmInterventionText,
+            inferredAmbition: state.inferredAmbition,
+            pendingIntelligenceFallout: state.pendingIntelligenceFallout,
+            ...overrides,
+        };
+        const stored = loadGame()?.state;
+        const storedAmbition = stored && isSameCampaignPrefix(candidate, stored)
+            ? stored.inferredAmbition
+            : null;
+        candidate.inferredAmbition = newestInferredAmbition(
+            storedAmbition,
+            candidate.inferredAmbition,
+            latestInferredAmbitionRef.current,
+        );
+        latestInferredAmbitionRef.current = candidate.inferredAmbition ?? null;
+        return candidate;
+    }, [state]);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -617,7 +662,16 @@ const App: React.FC = () => {
                 // not save state). eventFirings (4D.2, D24) lets runNewTurn
                 // surface ripe/near authored events as GM-private
                 // HISTORICAL MATERIAL in the adjudication prompt.
-                { onStage: setTurnStage, onNarrationChunk: setStreamingNarration, pacingPosture: getPacingPosture(), eventFirings }
+                {
+                    onStage: stage => {
+                        if (transaction.isCurrent()) setTurnStage(stage);
+                    },
+                    onNarrationChunk: textSoFar => {
+                        if (transaction.isCurrent()) setStreamingNarration(textSoFar);
+                    },
+                    pacingPosture: getPacingPosture(),
+                    eventFirings,
+                }
             );
             if (!transaction.isCurrent()) return;
 
@@ -769,6 +823,10 @@ const App: React.FC = () => {
                         setTimeout(() => {
                             if (!appMountedRef.current || campaignGenerationRef.current !== ambitionCampaignGeneration) return;
                             dispatch({ type: 'AMBITION_INFERRED', inferredAmbition: nextAmbition });
+                            latestInferredAmbitionRef.current = newestInferredAmbition(
+                                latestInferredAmbitionRef.current,
+                                nextAmbition,
+                            );
                             // Persist by PATCHING only the ambition field into
                             // whatever autosave is newest at the moment this
                             // resolves. A full saveGame(buildSaveState(...)) here
@@ -784,6 +842,7 @@ const App: React.FC = () => {
 
         } catch (error)
         {
+            if (!transaction.isCurrent()) return;
             // Keep the full error in the console for diagnosis, but never lose
             // the player's game over this — no "please refresh" (persistence
             // now exists, and nothing was committed mid-turn anyway).
