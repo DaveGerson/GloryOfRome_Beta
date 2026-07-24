@@ -83,3 +83,16 @@ Task 6: complete (commits `cfec90f..76f13b6`, review clean).
 - Scope: canonical chat/structured App orchestration, exact retry/history, v1 `buildSaveState` persistence boundaries, shared mutation serialization, inferred-ambition ordering, campaign/component lifecycle cancellation, GM/event/custom-character durability, and player-facing UI integration. No turn-engine mechanic, resolution, mortality, prompt, schema, model-routing, or save-version change
 
 Task 4: complete (commits `78f90d5..58af510`, review clean).
+
+## Task 7: player-safe observation extraction and atomic knowledge integration
+
+- Reviewed task range: `0b42c3d83a9d..210d2c68106b`
+- Integration merge: `07024ba64e1a`
+- TDD chain: test-only RED `fac3ad6`; full-subsystem GREEN `db39b06`; adversarial identity/semantic-validation repair `210d2c6`
+- Initial RED: 95/102 focused tests passed and seven authentic failures identified the missing allowlisted evidence builder, extraction/commit gates, player-only digest routing, observation-backed Personae pulse, exact turn rollback, and async investigation atomicity
+- Initial Sol xhigh review found two Important defects: static local evidence IDs silently discarded valid later-turn observations, and schema-valid but semantically invalid provider selections were converted to empty success instead of loud atomic rollback. Both were fixed in the same task branch with regression-first and mutation-backed coverage
+- Final Sol xhigh read-only re-review: PASS; zero Critical, Important, or Minor findings. It independently verified cross-turn identity, same-turn retry and report replay, valid empty output, invalid-only and mixed all-or-nothing rejection, legacy v1 coexistence, real-tool rollback causality, and anti-vacuity mutations
+- Controller verification on exact head `210d2c6`: Task 7 focused 105/105; adjacent reducer/persistence/NPC/GM 115/115; Task 4 transaction/lifecycle 34/34; relationship/tool/Personae 75/75; full unit suite 48 files and 904 tests passed; journeys 4/4; typecheck exit 0; production build exit 0; strict zero-warning lint across all 10 changed TS/TSX files; required privacy and direct-Gemini greps empty; diff-check exit 0; worktree clean
+- Scope: pure allowlisted turn/investigation evidence construction, existing relationship-observation tool integration, player-only perceived digests, authoritative-turn identity, all-or-nothing semantic validation, atomic turn/investigation knowledge commits, rollback/retry, and observation-backed Personae pulse. No turn-engine mechanic, hidden relationship update, NPC perception, GM truth, prompt/schema, save version, model ID, dependency, resolution, or mortality change
+
+Task 7: complete (commits `fac3ad6..210d2c6`, review clean).
