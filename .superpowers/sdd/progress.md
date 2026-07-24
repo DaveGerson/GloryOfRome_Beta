@@ -96,3 +96,16 @@ Task 4: complete (commits `78f90d5..58af510`, review clean).
 - Scope: pure allowlisted turn/investigation evidence construction, existing relationship-observation tool integration, player-only perceived digests, authoritative-turn identity, all-or-nothing semantic validation, atomic turn/investigation knowledge commits, rollback/retry, and observation-backed Personae pulse. No turn-engine mechanic, hidden relationship update, NPC perception, GM truth, prompt/schema, save version, model ID, dependency, resolution, or mortality change
 
 Task 7: complete (commits `fac3ad6..210d2c6`, review clean).
+
+## Task 8: end-to-end acceptance and privacy hardening
+
+- Reviewed task range: `ae0ce63..22bdd7e`
+- Integration merge: `16480573470c`
+- Acceptance and repair chain: initial journeys `fc96322`; authenticity hardening `22c114b`; selector identity minimization `69c905f`; fail-closed knownness and Unicode boundary repair `22bdd7e`
+- The adversarial review loop dispositioned every finding in the same task branch: canned journey assertions that did not prove the real turn path; prompt-directory identity overexposure; fail-open selector knownness; and Unicode normalization/join-control boundary evasions. Fresh Sol xhigh re-review on `22bdd7e` returned PASS with zero Critical, Important, or Minor findings
+- Fresh dependency and controller verification on exact head `22bdd7e`: `npm ci` exit 0 with zero vulnerabilities; typecheck exit 0; configured lint exit 0 under the repository's 21-warning baseline; full unit suite 48 files and 909 tests passed; six journey files and eight journeys passed; production build exit 0; strict zero-warning lint across all eight Task 8 changed files; worktree clean
+- Live browser smoke against `http://127.0.0.1:3001/`: Chat and Structured drafts remained independent across mode switches; Structured remained selected after save/reload and campaign resume; successful submission cleared only the submitted Structured draft; suggestions appended a second action; multiple known-recipient and `Someone else...` rows submitted successfully; free text exposed no hidden autocomplete; Enter remained multiline and Ctrl+Enter submitted; a question-only turn rendered no Actions or Messages group and explicitly took no action; player history collapsed Private Intent while the GM summary retained its complete value; Personae showed only known entities and qualitative sourced observations with no numeric relationship/self-read bars; saved turn history and observations survived reload; disabled/alert states and labels were exposed; browser console had zero warnings or errors
+- Browser screenshots captured the populated Structured composer, player-safe Personae roster, and post-turn question-only state. The automated journeys remain the authoritative proof for exact retry identity, one committed turn, provider call order, poisoned hidden-identity exclusion, Unicode boundaries, and save/load structural equality because those conditions cannot be injected reliably through the live UI
+- Scope: full-turn acceptance coverage, privacy/adversarial boundary tests, and selector hardening only. No gameplay mechanics, system design, engine resolution, mortality, prompt family, schema, model ID, save version, or dependency change
+
+Task 8: complete (commits `fc96322..22bdd7e`, review clean; browser smoke clean).
