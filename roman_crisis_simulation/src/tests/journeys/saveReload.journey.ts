@@ -36,6 +36,7 @@ import {
   saveThread,
   loadThreadState,
   mountJourneyApp,
+  mountJourneyAppFromAutosave,
   scriptedJsonArray,
   threadFromSave,
   waitForApp,
@@ -55,6 +56,7 @@ import {
 } from './fixtures';
 import { createInitialGameState, gameReducer } from '../../state/gameReducer';
 import { deserializeTurnSubmission } from '../../playerInput/turnSubmission';
+import { loadGame } from '../../persistence/saveGame';
 
 const PLAYER = 'severus_alexander';
 const SENATE = 'roman_senate';
@@ -236,9 +238,15 @@ describe('journey: a save-reload-continue campaign (mid-journey persistence roun
       expect(reduced.turnHistory).toEqual(loaded.turnHistory);
       expect(reduced.knowledge).toEqual(loaded.knowledge);
       expect(reduced.turnNumber).toBe(2);
+      client.expectCallSequence([
+        'storyRelevance', 'assessment', 'adjudication', 'simulationState',
+        'monologue', 'narration', 'relationshipUpdates', 'relationshipObservations',
+      ]);
 
+      const exactAutosave = structuredClone(loadGame());
       await app.unmount();
-      reloaded = await mountJourneyApp(loaded);
+      reloaded = await mountJourneyAppFromAutosave();
+      expect(loadGame()).toEqual(exactAutosave);
       expect(reloaded.container.textContent).toContain(excerpt);
       const disclosure = Array.from(reloaded.container.querySelectorAll('details')).find(details =>
         details.querySelector('summary')?.textContent === 'Private Intent');

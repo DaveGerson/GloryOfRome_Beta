@@ -114,6 +114,7 @@ export type CallKind =
   | 'narration'
   | 'relationshipUpdates'
   | 'relationshipObservations'
+  | 'ambition'
   | 'investigation';
 
 const CALL_MARKERS: Array<[string, CallKind]> = [
@@ -129,6 +130,7 @@ const CALL_MARKERS: Array<[string, CallKind]> = [
   ['Chronicler of the Empire & Intelligence Briefer', 'narration'],
   ['narrative analyst AI', 'relationshipUpdates'],
   ['Relationship Observation Selector', 'relationshipObservations'],
+  ['Silent Observer of Ambition', 'ambition'],
   ['head of intelligence for', 'investigation'],
 ];
 
@@ -236,6 +238,22 @@ export class ScriptedClient {
 
   systemInstructionsFor(kind: CallKind): string[] {
     return this.calls.filter(c => c.kind === kind).map(c => c.systemInstruction);
+  }
+
+  /**
+   * Proves this provider attempt crossed every expected boundary in global
+   * launch order and consumed its complete script. Per-kind queues alone
+   * cannot detect reordered calls; this assertion deliberately can.
+   */
+  expectCallSequence(expected: readonly CallKind[]): void {
+    expect(
+      this.calls.map(call => call.kind),
+      `[${this.label}] provider call sequence`,
+    ).toEqual([...expected]);
+    expect(
+      this.unconsumed(),
+      `[${this.label}] scripted responses left unconsumed`,
+    ).toEqual([]);
   }
 
   /** Kinds still holding un-consumed canned responses (INV-SCRIPT). */
@@ -1008,18 +1026,7 @@ export interface MountedJourneyApp {
   unmount(): Promise<void>;
 }
 
-/**
- * Boots App from a real v1 autosave and dispatches its real GAME_LOADED path.
- * The caller must first install a ScriptedClient at the SDK boundary.
- */
-export async function mountJourneyApp(state: SaveGameState): Promise<MountedJourneyApp> {
-  if (typeof document === 'undefined') throw new Error('mountJourneyApp requires the jsdom environment');
-  (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  localStorage.clear();
-  localStorage.setItem('gloryOfRome:onboardingSeen', '1');
-  localStorage.setItem('gloryOfRome:apiKey', 'journey-provider-boundary-key');
-  const saved = saveGame(state);
-  if (!saved.ok) throw new Error('mountJourneyApp: initial save failed');
+async function renderJourneyApp(): Promise<MountedJourneyApp> {
   Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
 
   const React = await import('react');
@@ -1034,7 +1041,9 @@ export async function mountJourneyApp(state: SaveGameState): Promise<MountedJour
   await React.act(async () => root.render(React.createElement(GameProvider, null, React.createElement(App))));
   await waitForApp(() => expect(container.textContent).toContain('Choose Your Destiny'));
   await appClick(appButton(container, 'Continue Your Reign'));
-  await waitForApp(() => expect(container.querySelector('[aria-label="Chat input"]')).not.toBeNull());
+  await waitForApp(() => expect(
+    container.querySelector('[aria-label="Chat input"], [aria-label="Action 1"]'),
+  ).not.toBeNull());
   return {
     container,
     async unmount() {
@@ -1042,4 +1051,32 @@ export async function mountJourneyApp(state: SaveGameState): Promise<MountedJour
       container.remove();
     },
   };
+}
+
+/**
+ * Boots App from a real v1 autosave and dispatches its real GAME_LOADED path.
+ * The caller must first install a ScriptedClient at the SDK boundary.
+ */
+export async function mountJourneyApp(state: SaveGameState): Promise<MountedJourneyApp> {
+  if (typeof document === 'undefined') throw new Error('mountJourneyApp requires the jsdom environment');
+  (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  localStorage.clear();
+  localStorage.setItem('gloryOfRome:onboardingSeen', '1');
+  localStorage.setItem('gloryOfRome:apiKey', 'journey-provider-boundary-key');
+  const saved = saveGame(state);
+  if (!saved.ok) throw new Error('mountJourneyApp: initial save failed');
+  return renderJourneyApp();
+}
+
+/**
+ * Boots a new App tree from the autosave and device preferences already in
+ * localStorage. Unlike mountJourneyApp, this does not clear storage or write
+ * a caller-supplied save first; it exercises App's real loadGame/GAME_LOADED
+ * continuation path against the exact bytes the previous App committed.
+ */
+export async function mountJourneyAppFromAutosave(): Promise<MountedJourneyApp> {
+  if (typeof document === 'undefined') throw new Error('mountJourneyAppFromAutosave requires the jsdom environment');
+  (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  if (!loadGame()) throw new Error('mountJourneyAppFromAutosave: no valid autosave exists');
+  return renderJourneyApp();
 }
