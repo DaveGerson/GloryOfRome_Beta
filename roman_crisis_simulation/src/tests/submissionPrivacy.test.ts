@@ -563,6 +563,59 @@ describe('runNewTurn submission visibility routing', () => {
     expect(started.calls.some(call => call.kind === 'relationshipUpdates')).toBe(false);
   });
 
+  it.each(['player_1', 'GAIUS TESTUS', 'the emperor'])(
+    'rejects updatedSimulationState.remove_entities targeting player alias %s, then retries without partial commit',
+    async removedAlias => {
+      const submission = { version: 1, kind: 'structured', questionOrContext: QUESTION_SENTINEL } as const;
+      const started = startRealTurn(submission, {
+        simulationState: JSON.stringify({ ...SIMULATION_STATE, remove_entities: [removedAlias] }),
+      });
+
+      let thrown: unknown;
+      try {
+        await started.resultPromise;
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBeInstanceOf(Error);
+      expect((thrown as Error).message).toBe('AI output violated the player action boundary.');
+      expect((thrown as Error).message).not.toContain(removedAlias);
+      expect(started.calls.some(call => call.kind === 'relationshipUpdates')).toBe(false);
+
+      const retry = await runRealTurn(submission);
+      expect(retry.result.updatedEntities).toContainEqual(expect.objectContaining({ entity_id: 'player_1' }));
+      expect(retry.result.newHistoryEntry.playerIntent).toBe(serializeTurnSubmission(submission));
+    },
+  );
+
+  it('commits an NPC-authored rumor about the player on a no-attempt turn because the subject key is not authorship', async () => {
+    const submission = { version: 1, kind: 'structured', questionOrContext: QUESTION_SENTINEL } as const;
+    const { result, calls } = await runRealTurn(submission, {
+      adjudication: JSON.stringify({
+        turn: 7,
+        entityActions: [],
+        deltas: [{
+          type: 'rumor',
+          key: 'PLAYER-1',
+          delta: 0.7,
+          reason: 'Aulus claims the emperor is losing the Senate.',
+          is_true: false,
+          origin_id: 'NPC_A',
+          topic: 'senate-support',
+        }],
+        headlines: ['A hostile rumor spreads through the Curia.'],
+        gm_private: [],
+      }),
+    });
+
+    expect(result.newHistoryEntry.adjudication.deltas).toContainEqual(
+      expect.objectContaining({ type: 'rumor', key: 'PLAYER-1', origin_id: 'NPC_A' }),
+    );
+    expect(result.updatedReports).toContainEqual(expect.objectContaining({ about: 'PLAYER-1' }));
+    expect(calls.some(call => call.kind === 'relationshipUpdates')).toBe(false);
+  });
+
   it.each([
     [
       'adjudication headline',

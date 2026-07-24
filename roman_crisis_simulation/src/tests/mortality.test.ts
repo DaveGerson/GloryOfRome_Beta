@@ -12,6 +12,7 @@ import {
 } from '../ai/core/resolution';
 import { processMortality } from '../ai/core/mortality';
 import { applyDeltas } from '../ai/core/engine';
+import { buildMortalityOutcomePrompt } from '../ai/prompts/mortality';
 import type { GeminiClient } from '../ai/core/geminiService';
 import type { Adjudication, Entity } from '../types';
 
@@ -530,6 +531,33 @@ describe('ai/core/mortality.ts processMortality', () => {
     );
   });
 
+  it('accepts documented candidate-related fallout in either relation direction and a real third-party rumor origin', async () => {
+    mockRoll(20);
+    const adjudication = makeAdjudication([
+      { type: 'status', key: npcId, delta: 0, reason: 'An assassin struck at the Senator.', new_status: 'dead' },
+    ]);
+    const { ai } = makeMockAi(
+      JSON.stringify({ dispositions: [{ entity_id: npcId, valid: true, reasoning: 'A real attempt occurred.' }] }),
+      JSON.stringify({
+        outcomes: [{
+          entity_id: npcId,
+          deltas: [
+            { type: 'relation', key: `${playerId}:${npcId}:perceived_threat`, delta: 2, reason: 'The emperor sees Rufus as newly dangerous.' },
+            { type: 'rumor', key: npcId, delta: 0.8, reason: 'Rufus survived an assassin.', is_true: true, origin_id: playerId, topic: 'survival' },
+          ],
+          narrative_directive: 'Narrate a visible, witnessed escape.',
+        }],
+      }),
+    );
+
+    const { transformedAdjudication } = await processMortality(ai, adjudication, entities, playerId, 5, false);
+
+    expect(transformedAdjudication.deltas).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'relation', key: `${playerId}:${npcId}:perceived_threat` }),
+      expect.objectContaining({ type: 'rumor', key: npcId, origin_id: playerId }),
+    ]));
+  });
+
   it('never mutates the original adjudication object passed in', async () => {
     mockRoll(3);
     const adjudication = makeAdjudication([
@@ -573,5 +601,26 @@ describe('ai/core/mortality.ts processMortality', () => {
     expect(rollD20(createSeededRng(0xc0ffee))).toBe(first.mortalityEvents[0].roll);
     // With an rng supplied, nothing in the pipeline falls back to Math.random.
     expect(randomSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('mortality outcome prompt authorization contract', () => {
+  it('matches the existing fallout semantics enforced by the code boundary', () => {
+    const { systemInstruction } = buildMortalityOutcomePrompt({
+      candidates: [{
+        entity_id: 'senator_rufus',
+        name: 'Senator Rufus',
+        isPlayer: false,
+        band: 'escapes_openly',
+        cause: 'An assassin struck.',
+        entityBrief: 'Rufus is a senator in Rome.',
+      }],
+    });
+
+    expect(systemInstruction).toContain('resource and scheme deltas MUST target the candidate');
+    expect(systemInstruction).toContain('relation delta may place the candidate on either side');
+    expect(systemInstruction).toContain('rumor key MUST be the candidate entity_id');
+    expect(systemInstruction).toContain('origin_id may name any real entity who spreads it');
+    expect(systemInstruction).not.toContain('origin_id MUST be the candidate');
   });
 });
