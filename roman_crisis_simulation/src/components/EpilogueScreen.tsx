@@ -64,6 +64,7 @@ const EpilogueScreen: React.FC<{
   const [epitaph, setEpitaph] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [usedFallback, setUsedFallback] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -158,7 +159,11 @@ const EpilogueScreen: React.FC<{
    * trade-off is already made by ErrorBoundary.tsx's recovery button.
    */
   const handleNewChronicle = () => {
-    clearSave();
+    if (!clearSave().ok) {
+      setResetError('Your finished reign could not be removed. Please try again.');
+      return;
+    }
+    setResetError(null);
     window.location.reload();
   };
 
@@ -225,7 +230,8 @@ const EpilogueScreen: React.FC<{
           </div>
         )}
 
-        <div style={{ marginTop: 48, display: 'flex', justifyContent: 'center' }}>
+        <div style={{ marginTop: 48, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+          {resetError && <p role="alert" style={{ margin: 0, color: STELE_BRIGHT }}>{resetError}</p>}
           <button onClick={handleNewChronicle} className="gor-btn gor-btn-lg gor-btn-primary">
             Begin a New Chronicle
           </button>

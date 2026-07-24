@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { GameState, Entity, PlayerCharacterOption, Message, InvestigationResult, PlayerEventChoice, EventHistoryEntry, PacingPosture } from './types';
-import { GoogleGenAI, Type } from "@google/genai";
+import { GameState, Entity, PlayerCharacterOption, Message, InvestigationResult, PlayerEventChoice, EventHistoryEntry, PacingPosture, StructuredTurnDraft, TurnSubmission } from './types';
+import { GoogleGenAI } from "@google/genai";
 
 import Header from './components/Header';
 import CharacterSelection, { SavedGameSummary } from './components/CharacterSelection';
-import { ChatMessage, ChatInput, ActionPills, TypingIndicator, StreamingNarrationBubble } from './components/Chat';
+import { ChatMessage, TypingIndicator, StreamingNarrationBubble } from './components/Chat';
+import { TurnComposer } from './components/TurnComposer';
 import CrisisBanner from './components/CrisisBanner';
 import DispatchesDigest from './components/DispatchesDigest';
 import SidePanel from './components/SidePanel';
@@ -19,12 +20,13 @@ import { runNewTurn, TurnStage } from './ai/core/turn';
 import { WorldState } from './types';
 import { useGame } from './state/GameContext';
 import { withOldSnapshotsDropped } from './state/gameReducer';
+import type { DomainMutationContext, RunDomainMutation } from './state/domainMutation';
 import { createCharacter } from './ai/tools/characterCreator';
 import { inferAmbition } from './ai/tools/ambition';
 import { checkForTriggeredEvent, applyEventChoiceDeltas, recordEventFiring } from './events/engine';
 import { initiateWorld } from './ai/core/initiator';
 import { runSmokeTest } from './tests/smokeTest';
-import { AiServiceError, resetSessionCallLog } from './ai/core/geminiService';
+import { resetSessionCallLog } from './ai/core/geminiService';
 import { saveGame, loadGame, clearSave, hasSave, updateSavedAmbition, SaveGameState, InferredAmbitionState } from './persistence/saveGame';
 import { hasSeenOnboarding, markOnboardingSeen } from './persistence/onboarding';
 import { getPacingPosture, setPacingPosture } from './persistence/settings';
@@ -35,6 +37,15 @@ import {
 } from './persistence/uiPrefs';
 import { buildPerceivedDigest, TabId } from './perception/visibility';
 import { computeTurnKnowledge, computeInvestigationKnowledge } from './knowledge/commit';
+import { knownRecipientOptionsForPlayer } from './knowledge/relationships';
+import { emptyStructuredDraft } from './playerInput/composerState';
+import {
+    deserializeTurnSubmission,
+    projectForExternalInference,
+    serializeTurnSubmission,
+    validateAndNormalizeTurnSubmission,
+    deepFreezeTurnSubmission,
+} from './playerInput/turnSubmission';
 import { appendFallout, buildInterventionTextWithFallout, hasFallout } from './components/investigationLoop';
 import { Button } from './components/ui/Core';
 import { Tooltip } from './components/ui/Feedback';
@@ -81,6 +92,41 @@ function readDevApiKey(): string | undefined {
     return typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : undefined;
 }
 
+function loadSavedGameSummary(): SavedGameSummary | null {
+    if (!hasSave()) return null;
+    const save = loadGame();
+    if (!save) return null;
+    const savedCharacter = save.state.entities.find(entity => entity.entity_id === save.state.playerCharacterId);
+    return {
+        characterName: savedCharacter?.name ?? 'Unknown',
+        turnNumber: save.state.turnNumber,
+        savedAt: save.savedAt,
+    };
+}
+
+function newestInferredAmbition(
+    ...candidates: Array<InferredAmbitionState | null | undefined>
+): InferredAmbitionState | null {
+    return candidates.reduce<InferredAmbitionState | null>(
+        (newest, candidate) => candidate && (!newest || candidate.asOfTurn >= newest.asOfTurn)
+            ? candidate
+            : newest,
+        null,
+    );
+}
+
+function isSameCampaignPrefix(candidate: SaveGameState, stored: SaveGameState): boolean {
+    return stored.playerCharacterId === candidate.playerCharacterId
+        && stored.metaNarrative === candidate.metaNarrative
+        && stored.turnNumber <= candidate.turnNumber
+        && stored.turnHistory.length <= candidate.turnHistory.length
+        && stored.turnHistory.every((entry, index) => {
+            const candidateEntry = candidate.turnHistory[index];
+            return candidateEntry?.turnNumber === entry.turnNumber
+                && candidateEntry.playerIntent === entry.playerIntent;
+        });
+}
+
 const App: React.FC = () => {
     // Every game-domain slice lives in the reducer behind GameContext
     // (state/gameReducer.ts, DESIGN_DECISIONS.md D17) - in particular, every
@@ -115,7 +161,14 @@ const App: React.FC = () => {
         inferredAmbition,
     } = state;
 
-    const [inputValue, setInputValue] = useState('');
+    const [chatDraft, setChatDraft] = useState('');
+    const [structuredDraft, setStructuredDraft] = useState<StructuredTurnDraft>(() => emptyStructuredDraft());
+    const [retrySubmission, setRetrySubmission] = useState<TurnSubmission | null>(null);
+    const [retryDraft, setRetryDraft] = useState<string | StructuredTurnDraft | null>(null);
+    const [pendingPlayerMessage, setPendingPlayerMessage] = useState<Message | null>(null);
+    const [turnError, setTurnError] = useState<string | null>(null);
+    const [transactionError, setTransactionError] = useState<string | null>(null);
+    const [domainMutationInFlight, setDomainMutationInFlight] = useState(false);
     const [isGmScreenVisible, setIsGmScreenVisible] = useState(false);
     // D7 - the GM console (log/debugger) stays in the codebase permanently
     // but is hidden by default for a clean player view. This is the runtime
@@ -123,6 +176,10 @@ const App: React.FC = () => {
     // (see the effect below) and, in dev builds, a small Header checkbox both
     // flip it. Deliberately not persisted - every fresh session starts hidden.
     const [isGmConsoleEnabled, setIsGmConsoleEnabled] = useState(false);
+    const updateGmConsoleEnabled = useCallback((enabled: boolean) => {
+        if (!enabled) setIsGmScreenVisible(false);
+        setIsGmConsoleEnabled(enabled);
+    }, []);
     // DESIGN_DECISIONS.md D33 - whether the GM console is available AT ALL,
     // a device preference (persistence/uiPrefs.ts) distinct from
     // `isGmConsoleEnabled` above (whether it's currently toggled ON for
@@ -134,8 +191,10 @@ const App: React.FC = () => {
     const handleSetGmConsoleAvailable = useCallback((enabled: boolean) => {
         setGmConsoleAvailableState(enabled);
         setGmConsoleEnabled(enabled);
-        if (!enabled) setIsGmConsoleEnabled(false);
-    }, []);
+        if (!enabled) {
+            updateGmConsoleEnabled(false);
+        }
+    }, [updateGmConsoleEnabled]);
     // DESIGN_DECISIONS.md D32 - whether GM Intervention's free-text input is
     // available at all (persistence/uiPrefs.ts), same device-preference
     // mold as above. Defaults true; passed straight through to
@@ -158,8 +217,7 @@ const App: React.FC = () => {
     // Transient UI state for the persistence/retry flow (P0.2/P0.3 - see
     // ROADMAP_3_UX_INTERACTIONS.md and ROADMAP_5_TECH_PERFORMANCE.md). Never
     // part of the save bundle - see persistence/saveGame.ts.
-    const [savedGameInfo, setSavedGameInfo] = useState<SavedGameSummary | null>(null);
-    const [retryAction, setRetryAction] = useState<string | null>(null);
+    const [savedGameInfo, setSavedGameInfo] = useState<SavedGameSummary | null>(loadSavedGameSummary);
 
     // LVX/NOX lighting. Nox Romae (design/nocturne.css) is an override
     // stylesheet loaded after styles.css; toggling swaps the whole client
@@ -254,6 +312,52 @@ const App: React.FC = () => {
     // rather than relying on "we just never committed" (P0.2/P0.4 - a
     // future refactor of the commit logic shouldn't silently break this).
     const preTurnSnapshotRef = useRef<SaveGameState | null>(null);
+    const domainMutationLeaseRef = useRef<symbol | null>(null);
+    const appMountedRef = useRef(true);
+    const campaignGenerationRef = useRef(0);
+    const latestInferredAmbitionRef = useRef<InferredAmbitionState | null>(inferredAmbition);
+
+    useEffect(() => {
+        appMountedRef.current = true;
+        return () => {
+            appMountedRef.current = false;
+            campaignGenerationRef.current += 1;
+            domainMutationLeaseRef.current = null;
+        };
+    }, []);
+
+    useEffect(() => {
+        latestInferredAmbitionRef.current = newestInferredAmbition(
+            latestInferredAmbitionRef.current,
+            inferredAmbition,
+        );
+    }, [inferredAmbition]);
+
+    const runDomainMutation = useCallback<RunDomainMutation>(async <T,>(work: (context: DomainMutationContext) => T | Promise<T>) => {
+        if (domainMutationLeaseRef.current) {
+            return { acquired: false };
+        }
+        const lease = Symbol('domain-mutation');
+        domainMutationLeaseRef.current = lease;
+        if (appMountedRef.current) setDomainMutationInFlight(true);
+        const context: DomainMutationContext = {
+            isCurrent: () => appMountedRef.current && domainMutationLeaseRef.current === lease,
+        };
+        try {
+            return { acquired: true, value: await work(context) };
+        } finally {
+            if (domainMutationLeaseRef.current === lease) {
+                domainMutationLeaseRef.current = null;
+                if (appMountedRef.current) setDomainMutationInFlight(false);
+            }
+        }
+    }, []);
+
+    const beginCampaignSession = useCallback(() => {
+        campaignGenerationRef.current += 1;
+        latestInferredAmbitionRef.current = null;
+        resetSessionCallLog();
+    }, []);
 
     useEffect(() => {
         // Run a "smoke test" on startup to validate that all mock functions
@@ -277,6 +381,10 @@ const App: React.FC = () => {
     }, []); // Empty dependency array ensures this runs only once on mount.
 
     const playerEntity = entities.find(e => e.entity_id === playerCharacterId) || null;
+    const recipientOptions = useMemo(
+        () => playerEntity ? knownRecipientOptionsForPlayer(playerEntity, entities, knowledge) : [],
+        [playerEntity, entities, knowledge],
+    );
 
     // DESIGN_DECISIONS.md D1 - survival-only: ONLY death ends a run. Exile
     // and "missing" are survivable states the player keeps playing through,
@@ -349,43 +457,42 @@ const App: React.FC = () => {
     // committed new values must pass them explicitly rather than reading
     // the stale closure). See persistence/saveGame.ts for exactly which
     // game state this does (and doesn't) include, and why.
-    const buildSaveState = useCallback((overrides: Partial<SaveGameState> = {}): SaveGameState => ({
-        entities: state.entities,
-        worldState: state.worldState,
-        simulationState: state.simulationState,
-        reports: state.reports,
-        truthLedger: state.truthLedger,
-        knowledge: state.knowledge,
-        npcIntents: state.npcIntents,
-        turnNumber: state.turnNumber,
-        playerCharacterId: state.playerCharacterId,
-        turnHistory: state.turnHistory,
-        eventHistory: state.eventHistory,
-        metaNarrative: state.metaNarrative,
-        messages: state.messages,
-        triggeredEventIds: state.triggeredEventIds,
-        eventFirings: state.eventFirings,
-        suggestedActions: state.suggestedActions,
-        currentEvents: state.currentEvents,
-        gmInterventionText: state.gmInterventionText,
-        inferredAmbition: state.inferredAmbition,
-        pendingIntelligenceFallout: state.pendingIntelligenceFallout,
-        ...overrides,
-    }), [state]);
-
-    // On mount, check for an existing autosave so CharacterSelection can
-    // offer a "Continue your reign" card instead of forcing a fresh start.
-    useEffect(() => {
-        if (!hasSave()) return;
-        const save = loadGame();
-        if (!save) return;
-        const savedCharacter = save.state.entities.find(e => e.entity_id === save.state.playerCharacterId);
-        setSavedGameInfo({
-            characterName: savedCharacter?.name ?? 'Unknown',
-            turnNumber: save.state.turnNumber,
-            savedAt: save.savedAt,
-        });
-    }, []);
+    const buildSaveState = useCallback((overrides: Partial<SaveGameState> = {}): SaveGameState => {
+        const candidate: SaveGameState = {
+            entities: state.entities,
+            worldState: state.worldState,
+            simulationState: state.simulationState,
+            reports: state.reports,
+            truthLedger: state.truthLedger,
+            knowledge: state.knowledge,
+            npcIntents: state.npcIntents,
+            turnNumber: state.turnNumber,
+            playerCharacterId: state.playerCharacterId,
+            turnHistory: state.turnHistory,
+            eventHistory: state.eventHistory,
+            metaNarrative: state.metaNarrative,
+            messages: state.messages,
+            triggeredEventIds: state.triggeredEventIds,
+            eventFirings: state.eventFirings,
+            suggestedActions: state.suggestedActions,
+            currentEvents: state.currentEvents,
+            gmInterventionText: state.gmInterventionText,
+            inferredAmbition: state.inferredAmbition,
+            pendingIntelligenceFallout: state.pendingIntelligenceFallout,
+            ...overrides,
+        };
+        const stored = loadGame()?.state;
+        const storedAmbition = stored && isSameCampaignPrefix(candidate, stored)
+            ? stored.inferredAmbition
+            : null;
+        candidate.inferredAmbition = newestInferredAmbition(
+            storedAmbition,
+            candidate.inferredAmbition,
+            latestInferredAmbitionRef.current,
+        );
+        latestInferredAmbitionRef.current = candidate.inferredAmbition ?? null;
+        return candidate;
+    }, [state]);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -420,18 +527,11 @@ const App: React.FC = () => {
         const handleKeyDown = (event: KeyboardEvent) => {
             if (!shouldToggleGmConsole(event, gmConsoleAvailable)) return;
             event.preventDefault();
-            setIsGmConsoleEnabled(prev => !prev);
+            updateGmConsoleEnabled(!isGmConsoleEnabled);
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [gmConsoleAvailable]);
-
-    // If the console is toggled off (keyboard or the dev Header checkbox)
-    // while the screen happens to be open, close it too - "hidden by
-    // default" shouldn't leave a stale open panel behind.
-    useEffect(() => {
-        if (!isGmConsoleEnabled) setIsGmScreenVisible(false);
-    }, [isGmConsoleEnabled]);
+    }, [gmConsoleAvailable, isGmConsoleEnabled, updateGmConsoleEnabled]);
 
     const addMessage = useCallback((message: Message) => {
         dispatch({ type: 'MESSAGE_ADDED', message });
@@ -456,31 +556,51 @@ const App: React.FC = () => {
             } else {
                 dispatch({ type: 'GAME_STATE_SET', gameState: GameState.AWAITING_PLAYER_INPUT });
             }
-            setIsCheckingEvents(false); // Reset the flag
+            queueMicrotask(() => setIsCheckingEvents(false));
         }
     }, [isCheckingEvents, worldState, entities, eventFirings, playerEntity, simulationState, turnNumber, dispatch]);
 
-    const executeTurn = useCallback(async (playerActionText: string) => {
-        // TURN_STARTED enters PROCESSING, clears the suggested-action pills,
-        // and puts the player's message into the chat log - nothing else, so
-        // the pre-turn snapshot below describes exactly the committed state
-        // plus that message.
-        const playerMessage: Message = { sender: 'player', text: playerActionText };
+    const executeTurn = useCallback(async (submission: TurnSubmission, draftToRestore: string | StructuredTurnDraft): Promise<boolean> => {
+        const mutation = await runDomainMutation(async transaction => {
+        const serialized = serializeTurnSubmission(submission);
+        const playerMessage: Message = { sender: 'player', text: serialized };
+        const restoreDraft: string | StructuredTurnDraft = typeof draftToRestore === 'string'
+            ? draftToRestore
+            : {
+                ...draftToRestore,
+                actions: [...draftToRestore.actions],
+                messagesOrOrders: draftToRestore.messagesOrOrders.map(row => ({
+                    ...row,
+                    recipient: row.recipient?.kind === 'known_entity'
+                        ? { kind: 'known_entity', entityId: row.recipient.entityId }
+                        : row.recipient?.kind === 'free_text'
+                        ? { kind: 'free_text', text: row.recipient.text }
+                        : null,
+                })),
+            };
+        setPendingPlayerMessage(playerMessage);
+        setTurnError(null);
+        setRetrySubmission(null);
+        setRetryDraft(null);
         dispatch({ type: 'TURN_STARTED', playerMessage });
-        // Any in-flight retry affordance is superseded by this attempt (fresh
-        // or re-run) - it'll be recreated below if this attempt also fails.
-        setRetryAction(null);
         // Reset the thinking-theater/streaming state for this fresh attempt.
         // Defensive: both are already cleared by the previous turn's
         // success/error path below, but a stale value must never carry over.
         setTurnStage(null);
         setStreamingNarration('');
+        const preTurnSnapshot = buildSaveState();
+        preTurnSnapshotRef.current = preTurnSnapshot;
 
         const playerEntity = entities.find(e => e.entity_id === playerCharacterId);
         if (!playerEntity) {
-            addMessage({ sender: 'gm', text: "Error: Player character not found."});
+            setPendingPlayerMessage(null);
+            setRetrySubmission(submission);
+            setRetryDraft(restoreDraft);
+            setTurnError('The turn could not be resolved. Your draft has been restored; retry when you are ready.');
+            dispatch({ type: 'TURN_ROLLED_BACK', snapshot: preTurnSnapshot });
             dispatch({ type: 'GAME_STATE_SET', gameState: GameState.AWAITING_PLAYER_INPUT });
-            setInputValue(playerActionText);
+            if (typeof restoreDraft === 'string') setChatDraft(restoreDraft);
+            else setStructuredDraft(restoreDraft);
             return;
         }
 
@@ -492,12 +612,14 @@ const App: React.FC = () => {
         // instead - before any AI call - keeps the message small,
         // player-facing-safe, and pointed at the one thing that fixes it.
         if (!isMockMode && !resolvedApiKey) {
-            addMessage({
-                sender: 'gm',
-                text: "The Fates need your own voice to speak through the ether — add your Gemini API key in the configuration menu (⚙ Settings, top-left) to take a real turn. Mock Mode remains free to explore without one.",
-            });
+            setPendingPlayerMessage(null);
+            setRetrySubmission(submission);
+            setRetryDraft(restoreDraft);
+            setTurnError('The turn could not be resolved. Your draft has been restored; retry when you are ready.');
+            dispatch({ type: 'TURN_ROLLED_BACK', snapshot: preTurnSnapshot });
             dispatch({ type: 'GAME_STATE_SET', gameState: GameState.AWAITING_PLAYER_INPUT });
-            setInputValue(playerActionText);
+            if (typeof restoreDraft === 'string') setChatDraft(restoreDraft);
+            else setStructuredDraft(restoreDraft);
             return;
         }
 
@@ -507,9 +629,6 @@ const App: React.FC = () => {
         // nothing here has changed yet - this snapshot is a defensive,
         // explicit rollback target rather than something we're relying on
         // "never having touched" to stay true across future refactors.
-        const preTurnSnapshot = buildSaveState({ messages: [...messages, playerMessage] });
-        preTurnSnapshotRef.current = preTurnSnapshot;
-
         // ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - without touching
         // runNewTurn's signature (ai/** is off-limits here), any pending
         // investigation fallout rides into this turn's adjudication by
@@ -523,7 +642,7 @@ const App: React.FC = () => {
         try {
             const result = await runNewTurn(
                 ai,
-                playerActionText,
+                submission,
                 playerEntity,
                 turnNumber,
                 entities,
@@ -543,8 +662,18 @@ const App: React.FC = () => {
                 // not save state). eventFirings (4D.2, D24) lets runNewTurn
                 // surface ripe/near authored events as GM-private
                 // HISTORICAL MATERIAL in the adjudication prompt.
-                { onStage: setTurnStage, onNarrationChunk: setStreamingNarration, pacingPosture: getPacingPosture(), eventFirings }
+                {
+                    onStage: stage => {
+                        if (transaction.isCurrent()) setTurnStage(stage);
+                    },
+                    onNarrationChunk: textSoFar => {
+                        if (transaction.isCurrent()) setStreamingNarration(textSoFar);
+                    },
+                    pacingPosture: getPacingPosture(),
+                    eventFirings,
+                }
             );
+            if (!transaction.isCurrent()) return;
 
             // COMMIT STATE
             const newWorldState = ((): WorldState => {
@@ -554,7 +683,7 @@ const App: React.FC = () => {
                 return { ...result.updatedWorldState, year: newYear, week: newWeek };
             })();
             // Add post-turn entity state to history for GM view
-            const historyEntryWithState = { ...result.newHistoryEntry, postTurnEntities: result.updatedEntities };
+            const historyEntryWithState = { ...result.newHistoryEntry, playerIntent: serialized, postTurnEntities: result.updatedEntities };
             // Bound the snapshot window HERE, once, because this same array
             // feeds BOTH the TURN_COMMITTED dispatch and the autosave below -
             // the reducer's own trim only bounds in-memory state, so an
@@ -601,6 +730,25 @@ const App: React.FC = () => {
             // failed/rolled-back attempt never dispatches this, so both
             // survive untouched for a retry. If the player died this turn,
             // the reducer resolves the phase straight to GAME_OVER (D1).
+            const nextSaveState = buildSaveState({
+                entities: result.updatedEntities,
+                worldState: newWorldState,
+                simulationState: result.updatedSimulationState,
+                reports: result.updatedReports,
+                truthLedger: result.updatedTruthLedger,
+                knowledge: newKnowledge,
+                npcIntents: result.updatedNpcIntents,
+                turnNumber: newTurnNumber,
+                turnHistory: newTurnHistory,
+                messages: [...messages, playerMessage, gmMessage, monologueMessage, ribbonMessage],
+                suggestedActions: result.suggestedActions,
+                currentEvents: result.headlines,
+                gmInterventionText: '',
+                pendingIntelligenceFallout: [],
+            });
+            if (!saveGame(nextSaveState).ok) {
+                throw new Error('AUTOSAVE_FAILED');
+            }
             dispatch({
                 type: 'TURN_COMMITTED',
                 entities: result.updatedEntities,
@@ -612,12 +760,14 @@ const App: React.FC = () => {
                 npcIntents: result.updatedNpcIntents,
                 turnNumber: newTurnNumber,
                 turnHistory: newTurnHistory,
+                playerMessage,
                 gmMessage,
                 monologueMessage,
                 ribbonMessage,
                 suggestedActions: result.suggestedActions,
                 currentEvents: result.headlines,
             });
+            setTransactionError(null);
             // The final, parsed narration message above now replaces the
             // transient streaming bubble - clear the thinking-theater state
             // so it can't linger into the next AWAITING_PLAYER_INPUT render.
@@ -640,26 +790,10 @@ const App: React.FC = () => {
                 setIsCheckingEvents(true);
             }
 
-            // Autosave the freshly committed state (P0.2 - see
-            // persistence/saveGame.ts). Built from the just-computed local
-            // values rather than re-reading state, since setState above
-            // hasn't flushed yet.
-            saveGame(buildSaveState({
-                entities: result.updatedEntities,
-                worldState: newWorldState,
-                simulationState: result.updatedSimulationState,
-                reports: result.updatedReports,
-                truthLedger: result.updatedTruthLedger,
-                knowledge: newKnowledge,
-                npcIntents: result.updatedNpcIntents,
-                turnNumber: newTurnNumber,
-                turnHistory: newTurnHistory,
-                messages: [...messages, playerMessage, gmMessage, monologueMessage, ribbonMessage],
-                suggestedActions: result.suggestedActions,
-                currentEvents: result.headlines,
-                gmInterventionText: '',
-                pendingIntelligenceFallout: [],
-            }));
+            if (submission.kind === 'freeform') setChatDraft('');
+            else setStructuredDraft(emptyStructuredDraft());
+            setPendingPlayerMessage(null);
+            setTurnError(null);
 
             // DESIGN_DECISIONS.md D8 - a cheap periodic model call infers the
             // player's apparent ambition every AMBITION_INFERENCE_TURN_INTERVAL
@@ -672,27 +806,43 @@ const App: React.FC = () => {
             // player died on - a fresh read can still usefully inform the
             // epilogue about to be generated.
             if (updatedPlayerEntity && turnNumber % AMBITION_INFERENCE_TURN_INTERVAL === 0) {
-                const recentIntents = newTurnHistory.map(h => h.playerIntent).slice(-6);
+                const recentIntents = newTurnHistory
+                    .map(historyEntry => deserializeTurnSubmission(historyEntry.playerIntent))
+                    .map(historySubmission => historySubmission && projectForExternalInference(historySubmission))
+                    .filter((intent): intent is string => intent !== null)
+                    .slice(-6);
                 const recentHeadlines = newTurnHistory.slice(-3).flatMap(h => h.adjudication.headlines);
                 const ambitionTurnNumber = turnNumber;
+                const ambitionCampaignGeneration = campaignGenerationRef.current;
                 inferAmbition(ai, updatedPlayerEntity, recentIntents, recentHeadlines, isMockMode)
                     .then(inference => {
+                        if (!appMountedRef.current || campaignGenerationRef.current !== ambitionCampaignGeneration) return;
                         const nextAmbition: InferredAmbitionState = { ...inference, asOfTurn: ambitionTurnNumber };
-                        dispatch({ type: 'AMBITION_INFERRED', inferredAmbition: nextAmbition });
-                        // Persist by PATCHING only the ambition field into
-                        // whatever autosave is newest at the moment this
-                        // resolves. A full saveGame(buildSaveState(...)) here
-                        // would write the stale turn snapshot this callback
-                        // closed over - if the player committed another turn
-                        // while inference was in flight, that would clobber
-                        // the newer autosave and lose those turns on reload.
-                        updateSavedAmbition(nextAmbition);
+                        // Let the turn transaction settle first. This out-of-band
+                        // enrichment must never interleave with its durable commit.
+                        setTimeout(() => {
+                            if (!appMountedRef.current || campaignGenerationRef.current !== ambitionCampaignGeneration) return;
+                            dispatch({ type: 'AMBITION_INFERRED', inferredAmbition: nextAmbition });
+                            latestInferredAmbitionRef.current = newestInferredAmbition(
+                                latestInferredAmbitionRef.current,
+                                nextAmbition,
+                            );
+                            // Persist by PATCHING only the ambition field into
+                            // whatever autosave is newest at the moment this
+                            // resolves. A full saveGame(buildSaveState(...)) here
+                            // would write the stale turn snapshot this callback
+                            // closed over - if the player committed another turn
+                            // while inference was in flight, that would clobber
+                            // the newer autosave and lose those turns on reload.
+                            updateSavedAmbition(nextAmbition);
+                        }, 50);
                     })
                     .catch(console.warn);
             }
 
         } catch (error)
         {
+            if (!transaction.isCurrent()) return;
             // Keep the full error in the console for diagnosis, but never lose
             // the player's game over this — no "please refresh" (persistence
             // now exists, and nothing was committed mid-turn anyway).
@@ -704,56 +854,36 @@ const App: React.FC = () => {
             setTurnStage(null);
             setStreamingNarration('');
 
-            // AiServiceError (ai/core/geminiService.ts) distinguishes a
-            // transient failure (network/429/5xx that survived retries) -
-            // worth a one-click retry of the exact same action - from a
-            // fatal one (bad API key, unparseable/invalid model output even
-            // after the repair-retry), where retrying the same request is
-            // unlikely to help and the player deserves the real detail.
-            const isTransient = error instanceof AiServiceError && error.kind === 'transient';
-
-            if (isTransient) {
-                addMessage({
-                    sender: 'gm',
-                    text: "The courier was waylaid — the Fates offer another chance.\n\nYour game is safe; nothing was lost. Your action has been restored below, or use Retry to send it again immediately."
-                });
-                setRetryAction(playerActionText);
-            } else {
-                const errorDetail = error instanceof Error ? error.message : String(error);
-                addMessage({
-                    sender: 'gm',
-                    text: `A fateful error has occurred and the turn could not be resolved: ${errorDetail}\n\nYour game is safe. Your action has been restored below — press Send to try again.`
-                });
-            }
+            setPendingPlayerMessage(null);
+            setRetrySubmission(submission);
+            setRetryDraft(restoreDraft);
+            setTurnError('The turn could not be resolved. Your draft has been restored; retry when you are ready.');
 
             // Roll back to the pre-turn snapshot. In practice nothing above
             // was committed yet, but restore explicitly (rather than relying
             // on that invariant) so a future change to the commit ordering
             // can't silently leave the game half-updated after a failure.
-            // `messages` is deliberately excluded from the rollback - the
-            // player's message and the GM's error notice above should stay
-            // in the chat log (see TURN_ROLLED_BACK in state/gameReducer.ts
-            // for exactly which fields are and aren't restored).
             const snapshot = preTurnSnapshotRef.current;
             if (snapshot) {
                 dispatch({ type: 'TURN_ROLLED_BACK', snapshot });
             }
 
             dispatch({ type: 'GAME_STATE_SET', gameState: GameState.AWAITING_PLAYER_INPUT });
-            // Restore the player's action so they can retry without retyping it.
-            setInputValue(playerActionText);
+            if (typeof restoreDraft === 'string') setChatDraft(restoreDraft);
+            else setStructuredDraft(restoreDraft);
         }
-    }, [state, addMessage, isMockMode, buildSaveState, dispatch, ai, resolvedApiKey]);
+        });
+        return mutation.acquired;
+    }, [ai, buildSaveState, dispatch, entities, eventFirings, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, pendingIntelligenceFallout, playerCharacterId, reports, resolvedApiKey, runDomainMutation, simulationState, truthLedger, turnHistory, turnNumber, worldState]);
 
-    const handleSendMessage = () => {
-        const text = inputValue.trim();
-        if (!text || gameState !== GameState.AWAITING_PLAYER_INPUT) return;
-        setInputValue('');
-        executeTurn(text);
-    };
-
-    const handlePillClick = (action: string) => {
-        setInputValue(action);
+    const handleComposerSubmit = (draft: string | StructuredTurnDraft) => {
+        if (gameState !== GameState.AWAITING_PLAYER_INPUT) return;
+        const candidate: TurnSubmission | StructuredTurnDraft = typeof draft === 'string'
+            ? { version: 1, kind: 'freeform', text: draft }
+            : draft;
+        const normalized = validateAndNormalizeTurnSubmission(candidate, { knownRecipients: recipientOptions });
+        if (!normalized.ok) return;
+        void executeTurn(deepFreezeTurnSubmission(normalized.submission), draft);
     };
     
     const startGameWithCharacter = (characterEntity: Entity, allInitialEntities: Entity[], initialWorldState?: WorldState, initialMetaNarrative?: string) => {
@@ -770,6 +900,12 @@ const App: React.FC = () => {
         // components/starterActions.ts) so turn 1 isn't a blank page.
         const starterActions = deriveStarterActions(characterEntity);
 
+        const candidate = buildSaveState({ entities: allInitialEntities, worldState: resolvedWorldState, metaNarrative: resolvedMetaNarrative, playerCharacterId: characterEntity.entity_id, messages: [...messages, introMessage], suggestedActions: starterActions });
+        if (!saveGame(candidate).ok) {
+            setTransactionError('Your campaign could not be saved. Please try again.');
+            return;
+        }
+        setTransactionError(null);
         dispatch({
             type: 'GAME_STARTED',
             entities: allInitialEntities,
@@ -790,16 +926,6 @@ const App: React.FC = () => {
             setShowOnboarding(true);
         }
 
-        // Autosave the very first commit of a new campaign - this is what
-        // makes "Continue your reign" available on the next visit.
-        saveGame(buildSaveState({
-            entities: allInitialEntities,
-            worldState: resolvedWorldState,
-            metaNarrative: resolvedMetaNarrative,
-            playerCharacterId: characterEntity.entity_id,
-            messages: [...messages, introMessage],
-            suggestedActions: starterActions,
-        }));
     };
 
     const handleSelectCharacter = (option: PlayerCharacterOption) => {
@@ -808,21 +934,25 @@ const App: React.FC = () => {
         // campaign's first AI call, so calls from a previous campaign in the
         // same tab can't contaminate this campaign's eval-corpus export.
         // Same constraint in handleCustomCreation and handleContinue.
-        resetSessionCallLog();
+        beginCampaignSession();
         const playerEntity = ALL_INITIAL_ENTITIES.find(e => e.entity_id === option.entity_id);
         if(playerEntity) {
             startGameWithCharacter(playerEntity, JSON.parse(JSON.stringify(ALL_INITIAL_ENTITIES)));
         }
     };
 
-    const handleCustomCreation = async ({ description, metaNarrative: newMetaNarrative, useCustomGamestate }: { description: string, metaNarrative?: string, useCustomGamestate: boolean }) => {
+    const handleCustomCreation = async (
+        { description, metaNarrative: newMetaNarrative, useCustomGamestate }: { description: string, metaNarrative?: string, useCustomGamestate: boolean },
+        transaction: DomainMutationContext,
+    ) => {
         // Per-campaign-session log (see handleSelectCharacter). Reset here -
         // not in startGameWithCharacter - so the world/character-generation
         // calls made just below already belong to the NEW campaign's log.
-        resetSessionCallLog();
+        beginCampaignSession();
         if (useCustomGamestate && newMetaNarrative) {
             // New world generation logic
             const { worldState: newWorldState, entities: newEntities, playerCharacterId: newPlayerId } = await initiateWorld(ai, newMetaNarrative, description, isMockMode);
+            if (!transaction.isCurrent()) return;
             const playerChar = newEntities.find(e => e.entity_id === newPlayerId);
             if (playerChar) {
                 startGameWithCharacter(playerChar, newEntities, newWorldState, newMetaNarrative);
@@ -832,6 +962,7 @@ const App: React.FC = () => {
         } else {
             // Existing custom character in default world
             const newCharacter = await createCharacter(ai, description, isMockMode);
+            if (!transaction.isCurrent()) return;
             const finalEntities = ALL_INITIAL_ENTITIES.find(e => e.entity_id === newCharacter.entity_id) 
                 ? ALL_INITIAL_ENTITIES.map(e => e.entity_id === newCharacter.entity_id ? newCharacter : e)
                 : [...ALL_INITIAL_ENTITIES, newCharacter];
@@ -839,7 +970,12 @@ const App: React.FC = () => {
         }
     };
 
-    const handleSpendResource = (resourceName: 'deep_analyses' | 'investigations', cost: number) => {
+    const handleSpendResource = (
+        resourceName: 'deep_analyses' | 'investigations',
+        cost: number,
+        request: DomainMutationContext,
+    ): boolean => {
+        if (!request.isCurrent()) return false;
         const newEntities = entities.map(e => {
             if (e.entity_id === playerCharacterId) {
                 const newResources = {...e.resources};
@@ -849,8 +985,14 @@ const App: React.FC = () => {
             }
             return e;
         });
+        if (!request.isCurrent()) return false;
+        if (!saveGame(buildSaveState({ entities: newEntities })).ok) {
+            setTransactionError('Your change could not be saved. Please try again.');
+            return false;
+        }
+        setTransactionError(null);
         dispatch({ type: 'RESOURCE_SPENT', entities: newEntities });
-        saveGame(buildSaveState({ entities: newEntities }));
+        return true;
     };
 
     // One reveal = one atomic commit. The investigation spend, any blackmail
@@ -873,7 +1015,9 @@ const App: React.FC = () => {
         reportData: unknown,
         cost: number,
         result: InvestigationResult,
-    ) => {
+        request: DomainMutationContext,
+    ): boolean => {
+        if (!request.isCurrent()) return false;
         const newEntities = entities.map(e => {
             if (e.entity_id === playerCharacterId) {
                 const newResources = {...e.resources};
@@ -903,19 +1047,38 @@ const App: React.FC = () => {
             turnNumber,
         });
 
-        dispatch({ type: 'INVESTIGATION_COMMITTED', entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge });
-        saveGame(buildSaveState({ entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge }));
+        const falloutMessage: Message | undefined = hasFallout(result.consequences)
+            ? { sender: 'gm', text: 'Your agent returns — but something in their manner suggests the visit did not go unnoticed.' }
+            : undefined;
+        // This is intentionally adjacent to the durable write. Task 7 may add
+        // async extraction above; an EntityDetails unmount during that work
+        // must cancel before charging or committing any result.
+        if (!request.isCurrent()) return false;
+        if (!saveGame(buildSaveState({ entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge, messages: falloutMessage ? [...messages, falloutMessage] : messages })).ok) {
+            setTransactionError('Your investigation could not be saved. Please try again.');
+            return false;
+        }
+        setTransactionError(null);
+        dispatch({ type: 'INVESTIGATION_COMMITTED', entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge, falloutMessage });
 
         if (hasFallout(result.consequences)) {
-            addMessage({
+            // The visible hint was included in the candidate transaction above.
+            /* addMessage({
                 sender: 'gm',
                 text: "Your agent returns — but something in their manner suggests the visit did not go unnoticed."
-            });
+            }); */
         }
+        return true;
     };
 
-    const handleSetIntervention = (text: string) => {
+    const handleSetIntervention = (text: string): boolean => {
+        if (!saveGame(buildSaveState({ gmInterventionText: text })).ok) {
+            setTransactionError('The directive could not be saved. Please try again.');
+            return false;
+        }
+        setTransactionError(null);
         dispatch({ type: 'GM_INTERVENTION_SET', text });
+        return true;
     };
     
     const handleEventChoice = useCallback((choice: PlayerEventChoice) => {
@@ -944,6 +1107,11 @@ const App: React.FC = () => {
         // deltas can also kill the player (applyEventChoiceDeltas), not just
         // the adjudicated turn pipeline - the reducer applies the exact same
         // GAME_OVER check as TURN_COMMITTED.
+        if (!saveGame(buildSaveState({ entities: updatedEntities, worldState: updatedWorldState, eventHistory: newEventHistory, triggeredEventIds: newTriggeredEventIds, eventFirings: newEventFirings, messages: [...messages, eventMessage] })).ok) {
+            setTransactionError('Your choice could not be saved. Please try again.');
+            return;
+        }
+        setTransactionError(null);
         dispatch({
             type: 'EVENT_CHOICE_APPLIED',
             entities: updatedEntities,
@@ -954,17 +1122,7 @@ const App: React.FC = () => {
             eventFirings: newEventFirings,
         });
 
-        // Autosave immediately after this commit (P0.2).
-        saveGame(buildSaveState({
-            entities: updatedEntities,
-            worldState: updatedWorldState,
-            eventHistory: newEventHistory,
-            triggeredEventIds: newTriggeredEventIds,
-            eventFirings: newEventFirings,
-            messages: [...messages, eventMessage],
-        }));
-
-    }, [state, playerEntity, buildSaveState, dispatch]);
+    }, [activeEvent, buildSaveState, dispatch, entities, eventFirings, eventHistory, messages, playerEntity, triggeredEventIds, turnNumber, worldState]);
 
     const handleContinue = useCallback(() => {
         const save = loadGame();
@@ -975,7 +1133,7 @@ const App: React.FC = () => {
         // Per-campaign-session log (see handleSelectCharacter): the loaded
         // campaign starts a fresh session log, dropping any calls a prior
         // campaign made in this tab.
-        resetSessionCallLog();
+        beginCampaignSession();
         // GAME_LOADED (state/gameReducer.ts) restores the whole campaign in
         // one state transition: it normalizes the optional save fields
         // (inferredAmbition, pendingIntelligenceFallout - absent on older
@@ -985,12 +1143,19 @@ const App: React.FC = () => {
         // are, and a save CAN legitimately be reloaded on an already-ended
         // run when the player closed the tab on the epilogue screen).
         dispatch({ type: 'GAME_LOADED', save: save.state });
-    }, [dispatch]);
+        setTransactionError(null);
+    }, [beginCampaignSession, dispatch]);
 
     const handleStartAnew = useCallback(() => {
-        clearSave();
+        if (!clearSave().ok) {
+            setTransactionError('Your saved reign could not be removed. Please try again.');
+            return false;
+        }
+        beginCampaignSession();
+        setTransactionError(null);
         setSavedGameInfo(null);
-    }, []);
+        return true;
+    }, [beginCampaignSession]);
 
     // Fires on X, Escape, or finishing the final step alike (see
     // OnboardingOverlay's onClose) - marks the device-level seen-flag so it
@@ -1007,7 +1172,11 @@ const App: React.FC = () => {
                 isMockMode={isMockMode}
                 setIsMockMode={setIsMockMode}
                 isGmConsoleEnabled={isGmConsoleEnabled}
-                setIsGmConsoleEnabled={(enabled) => { if (gmConsoleAvailable) setIsGmConsoleEnabled(enabled); }}
+                setIsGmConsoleEnabled={(enabled) => {
+                    if (gmConsoleAvailable) {
+                        updateGmConsoleEnabled(enabled);
+                    }
+                }}
                 onOpenSettings={() => setIsSettingsMenuOpen(true)}
             />
             {gameState !== GameState.GAME_OVER && <CrisisBanner crisis={simulationState.major_ongoing_crisis} />}
@@ -1047,18 +1216,29 @@ const App: React.FC = () => {
                 ) : (
                     <>
                         <section data-screen-label="Chat" style={{ flex: 2, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                            {gameState === GameState.SETUP && transactionError && <p role="alert">{transactionError}</p>}
                             {gameState === GameState.SETUP ? (
                                 <CharacterSelection
-                                    onSelectCharacter={handleSelectCharacter}
-                                    onCreateCharacter={handleCustomCreation}
+                                    onSelectCharacter={(option) => {
+                                        void runDomainMutation(() => handleSelectCharacter(option));
+                                    }}
+                                    onCreateCharacter={async (args) => {
+                                        await runDomainMutation((transaction) => handleCustomCreation(args, transaction));
+                                    }}
                                     savedGame={savedGameInfo}
-                                    onContinue={handleContinue}
-                                    onStartAnew={handleStartAnew}
+                                    onContinue={() => {
+                                        void runDomainMutation(handleContinue);
+                                    }}
+                                    onStartAnew={() => {
+                                        void runDomainMutation(handleStartAnew);
+                                    }}
+                                    interactionLocked={domainMutationInFlight}
                                 />
                             ) : (
                                 <>
                                     <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }} role="log" aria-live="polite" aria-label="Chat log">
                                         {messages.map((msg, index) => <ChatMessage key={index} message={msg} />)}
+                                        {pendingPlayerMessage && <ChatMessage message={pendingPlayerMessage} />}
                                         {gameState === GameState.PROCESSING && (
                                             streamingNarration
                                                 ? <StreamingNarrationBubble text={streamingNarration} />
@@ -1070,26 +1250,29 @@ const App: React.FC = () => {
                                         <div ref={messagesEndRef} />
                                     </div>
                                     <div style={{ flex: 'none', borderTop: '1px solid var(--border-subtle)', padding: '12px 24px 16px', background: 'rgba(255,254,249,.55)' }}>
-                                        {gameState === GameState.AWAITING_PLAYER_INPUT && retryAction && (
+                                        {(turnError || transactionError) && <p role="alert">{turnError ?? transactionError}</p>}
+                                        {gameState === GameState.AWAITING_PLAYER_INPUT && retrySubmission && retryDraft && (
                                             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10, animation: 'gorRise .4s ease-out both' }}>
                                                 <Button
                                                     variant="secondary"
-                                                    onClick={() => executeTurn(retryAction)}
+                                                    onClick={() => void executeTurn(retrySubmission, retryDraft)}
                                                     aria-label="Retry the last action"
+                                                    disabled={domainMutationInFlight}
                                                 >
-                                                    ↻ Retry: “{retryAction.length > 56 ? `${retryAction.slice(0, 56)}…` : retryAction}”
+                                                    ↻ Retry the last action
                                                 </Button>
                                             </div>
                                         )}
-                                        {gameState === GameState.AWAITING_PLAYER_INPUT && suggestedActions.length > 0 && (
-                                            <ActionPills actions={suggestedActions} onSelectAction={handlePillClick} />
-                                        )}
                                         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
-                                            <ChatInput
-                                                value={inputValue}
-                                                onChange={setInputValue}
-                                                onSubmit={handleSendMessage}
-                                                disabled={gameState !== GameState.AWAITING_PLAYER_INPUT}
+                                            <TurnComposer
+                                                chatDraft={chatDraft}
+                                                structuredDraft={structuredDraft}
+                                                recipientOptions={recipientOptions}
+                                                suggestedActions={gameState === GameState.PROCESSING ? [] : suggestedActions}
+                                                onChatDraftChange={setChatDraft}
+                                                onStructuredDraftChange={setStructuredDraft}
+                                                onSubmit={handleComposerSubmit}
+                                                disabled={domainMutationInFlight || gameState !== GameState.AWAITING_PLAYER_INPUT}
                                                 isProcessing={gameState === GameState.PROCESSING}
                                                 turnStage={turnStage}
                                             />
@@ -1121,8 +1304,10 @@ const App: React.FC = () => {
                             reports={reports}
                             knowledge={knowledge}
                             turnNumber={turnNumber}
-                            onSpendDeepAnalysis={(cost) => handleSpendResource('deep_analyses', cost)}
+                            onSpendDeepAnalysis={(cost, request) => handleSpendResource('deep_analyses', cost, request)}
                             onInvestigationOutcome={handleInvestigationOutcome}
+                            runDomainMutation={runDomainMutation}
+                            interactionLocked={domainMutationInFlight || gameState === GameState.PROCESSING}
                             ai={ai}
                             isMockMode={isMockMode}
                             eventHistory={eventHistory}
@@ -1150,7 +1335,11 @@ const App: React.FC = () => {
                 history={turnHistory}
                 onClose={() => setIsGmScreenVisible(false)}
                 interventionText={gmInterventionText}
-                onSetIntervention={handleSetIntervention}
+                onSetIntervention={async (text) => {
+                    const result = await runDomainMutation(() => handleSetIntervention(text));
+                    return result.acquired && result.value !== false;
+                }}
+                interactionLocked={domainMutationInFlight || gameState === GameState.PROCESSING}
                 playerCharacterId={playerCharacterId}
                 worldState={worldState}
                 turnNumber={turnNumber}
@@ -1162,7 +1351,13 @@ const App: React.FC = () => {
                 npcIntents={npcIntents}
                 gmInterventionEnabled={gmInterventionAvailable}
             />}
-            {activeEvent && <EventModal event={activeEvent} onChoose={handleEventChoice} />}
+            {activeEvent && <EventModal
+                event={activeEvent}
+                onChoose={(choice) => {
+                    void runDomainMutation(() => handleEventChoice(choice));
+                }}
+                interactionLocked={domainMutationInFlight}
+            />}
             {showOnboarding && gameState === GameState.AWAITING_PLAYER_INPUT && (
                 <OnboardingOverlay isOpen={showOnboarding} onClose={handleCloseOnboarding} />
             )}

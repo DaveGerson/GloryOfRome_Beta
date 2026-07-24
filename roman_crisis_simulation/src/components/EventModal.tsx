@@ -13,7 +13,8 @@ import { createFocusTrap, FocusTrap } from './ui/focusTrap';
 const EventModal: React.FC<{
     event: GameEvent;
     onChoose: (choice: PlayerEventChoice) => void;
-}> = ({ event, onChoose }) => {
+    interactionLocked?: boolean;
+}> = ({ event, onChoose, interactionLocked = false }) => {
     const dialogRef = useRef<HTMLDivElement>(null);
     const trapRef = useRef<FocusTrap | null>(null);
 
@@ -49,7 +50,7 @@ const EventModal: React.FC<{
                 <div className="gor-dialog-body" style={{ textAlign: 'center', whiteSpace: 'pre-wrap' }}>{event.description}</div>
                 <div style={{ padding: '0 22px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {event.options.map((option, index) => (
-                        <button key={index} type="button" className="gor-event-choice" onClick={() => onChoose(option)}>
+                        <button key={index} type="button" className="gor-event-choice" onClick={() => onChoose(option)} disabled={interactionLocked}>
                             <span className="gor-event-choice-title">{option.text}</span>
                             {option.description && <span className="gor-event-choice-desc">{option.description}</span>}
                         </button>

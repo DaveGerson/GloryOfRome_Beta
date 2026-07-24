@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { PlayerCharacterOption } from '../types';
 import { Card, Button } from './ui/Core';
 import { Radio, Textarea } from './ui/Forms';
@@ -29,7 +29,8 @@ const CharacterSelection: React.FC<{
     savedGame?: SavedGameSummary | null;
     onContinue?: () => void;
     onStartAnew?: () => void;
-}> = ({ onSelectCharacter, onCreateCharacter, savedGame, onContinue, onStartAnew }) => {
+    interactionLocked?: boolean;
+}> = ({ onSelectCharacter, onCreateCharacter, savedGame, onContinue, onStartAnew, interactionLocked = false }) => {
     const [showCustomForm, setShowCustomForm] = useState(false);
     const [customDescription, setCustomDescription] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -37,6 +38,15 @@ const CharacterSelection: React.FC<{
     const [useCustomGamestate, setUseCustomGamestate] = useState(false);
     const [metaNarrative, setMetaNarrative] = useState('');
     const [confirmAnew, setConfirmAnew] = useState(false);
+    const isMountedRef = useRef(true);
+    const creationInFlightRef = useRef(false);
+
+    useEffect(() => {
+        isMountedRef.current = true;
+        return () => {
+            isMountedRef.current = false;
+        };
+    }, []);
 
     const PLAYER_CHARACTER_OPTIONS: PlayerCharacterOption[] = [
         { name: "The Young Emperor", entity_id: "severus_alexander", description: "Rule as the idealistic but embattled emperor.", difficulty: "Hard" },
@@ -47,6 +57,7 @@ const CharacterSelection: React.FC<{
 
     const handleCustomSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (creationInFlightRef.current) return;
         if (!customDescription.trim()) {
             setError('Describe your character — the Fates cannot work from silence.');
             return;
@@ -56,6 +67,7 @@ const CharacterSelection: React.FC<{
             return;
         }
         setError('');
+        creationInFlightRef.current = true;
         setIsLoading(true);
         try {
             await onCreateCharacter({
@@ -64,10 +76,13 @@ const CharacterSelection: React.FC<{
                 useCustomGamestate,
             });
         } catch (err) {
+            if (!isMountedRef.current) return;
             setError('Failed to create character. The auguries are not in our favor. Please try again.');
             console.error(err);
+        } finally {
+            creationInFlightRef.current = false;
+            if (isMountedRef.current) setIsLoading(false);
         }
-        setIsLoading(false);
     };
 
     if (isLoading) {
@@ -135,7 +150,7 @@ const CharacterSelection: React.FC<{
                         </Card>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
                             <Button type="button" variant="ghost" onClick={() => { setShowCustomForm(false); setError(''); }}>‹ Back to the destinies</Button>
-                            <Button type="submit" size="lg">{useCustomGamestate ? 'Generate World' : 'Create Character'}</Button>
+                            <Button type="submit" size="lg" disabled={interactionLocked}>{useCustomGamestate ? 'Generate World' : 'Create Character'}</Button>
                         </div>
                     </form>
                 </div>
@@ -166,12 +181,12 @@ const CharacterSelection: React.FC<{
                             {confirmAnew ? (
                                 <span style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                                     <span style={{ color: 'var(--crimson-500)', fontStyle: 'italic', fontSize: 15 }}>Abandon your saved reign? It cannot be undone.</span>
-                                    <Button variant="danger" onClick={() => { setConfirmAnew(false); onStartAnew?.(); }}>Abandon</Button>
+                                    <Button variant="danger" disabled={interactionLocked} onClick={() => { setConfirmAnew(false); onStartAnew?.(); }}>Abandon</Button>
                                     <Button variant="ghost" onClick={() => setConfirmAnew(false)}>Keep my reign</Button>
                                 </span>
                             ) : (
                                 <span style={{ display: 'flex', gap: 10 }}>
-                                    <Button size="lg" onClick={onContinue}>Continue Your Reign</Button>
+                                    <Button size="lg" disabled={interactionLocked} onClick={onContinue}>Continue Your Reign</Button>
                                     <Button variant="ghost" onClick={() => setConfirmAnew(true)}>Start anew</Button>
                                 </span>
                             )}
@@ -192,10 +207,11 @@ const CharacterSelection: React.FC<{
                                 seal={heraldry.seal}
                                 motto={heraldry.motto}
                                 onSelect={() => onSelectCharacter(opt)}
+                                disabled={interactionLocked}
                             />
                         );
                     })}
-                    <button type="button" className="gor-destiny" onClick={() => setShowCustomForm(true)} style={{ borderStyle: 'dashed' }}>
+                    <button type="button" className="gor-destiny" onClick={() => setShowCustomForm(true)} disabled={interactionLocked} style={{ borderStyle: 'dashed' }}>
                         <span style={{ fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 600, letterSpacing: '.32em', textTransform: 'uppercase', color: 'var(--gold-700)' }}>Destiny V</span>
                         <span aria-hidden="true" style={{ width: 46, height: 46, margin: '2px auto 2px', display: 'grid', placeItems: 'center', borderRadius: '50%', border: '1px dashed var(--gold-600)', color: 'var(--gold-600)', fontSize: 20 }}>✦</span>
                         <span className="gor-destiny-name">Create Your Own</span>

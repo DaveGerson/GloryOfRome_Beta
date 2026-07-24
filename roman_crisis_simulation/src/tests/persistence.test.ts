@@ -14,6 +14,7 @@ import {
 } from '../persistence/saveGame';
 import type { TurnHistoryEntry, RawCallRecord, Memory } from '../types';
 import type { KnowledgeClaim } from '../knowledge/store';
+import { serializeTurnSubmission } from '../playerInput/turnSubmission';
 
 function makeState(overrides: Partial<SaveGameState> = {}): SaveGameState {
   return {
@@ -100,6 +101,46 @@ describe('persistence/saveGame', () => {
     expect(typeof loaded!.savedAt).toBe('string');
     expect(() => new Date(loaded!.savedAt).toISOString()).not.toThrow();
     expect(loaded!.state).toEqual(state);
+  });
+
+  it('keeps legacy and canonical structured submissions in the single v1 plaintext history/message field', () => {
+    const legacy = makeHistoryEntry(1, false);
+    legacy.playerIntent = 'Hold court and hear the petitioners.';
+    const canonical = serializeTurnSubmission({
+      version: 1,
+      kind: 'structured',
+      actions: ['Address the Senate'],
+      messagesOrOrders: [{
+        recipient: { kind: 'free_text', text: 'the night watch' },
+        command: 'Keep the eastern gate open',
+      }],
+      privateIntent: 'Preserve room to bargain',
+      questionOrContext: 'Which benches are empty?',
+    });
+    const structured = { ...makeHistoryEntry(2, false), playerIntent: canonical };
+
+    saveGame(makeState({
+      turnNumber: 3,
+      turnHistory: [legacy, structured],
+      messages: [
+        { sender: 'player', text: legacy.playerIntent },
+        { sender: 'player', text: canonical },
+      ],
+    }));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.version).toBe(1);
+    expect(loaded!.state.turnHistory.map(entry => entry.playerIntent)).toEqual([
+      legacy.playerIntent,
+      canonical,
+    ]);
+    expect(loaded!.state.messages.map(message => message.text)).toEqual([
+      legacy.playerIntent,
+      canonical,
+    ]);
+    expect(JSON.stringify(loaded)).not.toContain('"turnSubmission"');
+    expect(Object.keys(loaded!.state.turnHistory[1])).not.toContain('submission');
   });
 
   it('hasSave returns false when nothing has been saved', () => {
@@ -506,6 +547,21 @@ describe('persistence/saveGame', () => {
       expect(loaded!.state.inferredAmbition).toEqual(ambition);
     });
 
+    it('does not let an older async result overwrite a newer stored ambition', () => {
+      const newer: InferredAmbitionState = {
+        apparent_ambition: 'Command the Rhine legions and dictate terms to Rome',
+        confidence: 'high',
+        asOfTurn: 6,
+      };
+      saveGame(makeState({ turnNumber: 7, inferredAmbition: newer }));
+      const before = localStorage.getItem('gloryOfRome:autosave');
+
+      updateSavedAmbition(ambition);
+
+      expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
+      expect(loadGame()!.state.inferredAmbition).toEqual(newer);
+    });
+
     it('no-ops safely when no save exists', () => {
       expect(() => updateSavedAmbition(ambition)).not.toThrow();
       expect(hasSave()).toBe(false);
@@ -524,10 +580,25 @@ describe('persistence/saveGame', () => {
     saveGame(makeState());
     expect(hasSave()).toBe(true);
 
-    clearSave();
+    expect(clearSave()).toEqual({ ok: true });
 
     expect(hasSave()).toBe(false);
     expect(loadGame()).toBeNull();
+  });
+
+  it('clearSave reports a failed removal and leaves the autosave retrievable', () => {
+    saveGame(makeState());
+    const before = localStorage.getItem('gloryOfRome:autosave');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new DOMException('storage unavailable', 'SecurityError');
+    });
+
+    expect(clearSave()).toEqual({ ok: false });
+
+    expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
+    expect(loadGame()).not.toBeNull();
+    expect(warnSpy).toHaveBeenCalledOnce();
   });
 
   it('returns null and warns on a version mismatch', () => {
@@ -572,7 +643,7 @@ describe('persistence/saveGame', () => {
       throw err;
     });
 
-    expect(() => saveGame(makeState())).not.toThrow();
+    expect(saveGame(makeState())).toEqual({ ok: false });
     // Both the initial attempt and the stripped retry failed, so nothing
     // should have been persisted.
     expect(warnSpy).toHaveBeenCalledTimes(2);

@@ -7,6 +7,7 @@ import { buildEvalCorpus, evalCorpusFilename } from '../persistence/evalCorpus';
 import { getSessionCallLog } from '../ai/core/geminiService';
 import { toRoman } from './ui/Brand';
 import { createFocusTrap, FocusTrap } from './ui/focusTrap';
+import { structuredSubmissionForHistory, TurnSubmissionHistory } from './TurnSubmissionHistory';
 
 /**
  * Game Master Tools — "the Fates' ledger": a dark tablinum modal over the
@@ -23,11 +24,20 @@ const well: React.CSSProperties = { background: 'rgba(0,0,0,.32)', border: '1px 
 
 const TABS = ['summary', 'entity states', 'actions', 'deltas', 'private', 'ground truth', 'npc perception', 'truth ledger', 'player knowledge', 'raw json'];
 
+const PlayerIntentView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => {
+    const structuredSubmission = structuredSubmissionForHistory(entry.playerIntent);
+    return structuredSubmission ? (
+        <TurnSubmissionHistory submission={structuredSubmission} audience="gm" />
+    ) : (
+        <div style={{ marginTop: 4, fontSize: 15 }}>“{entry.playerIntent}”</div>
+    );
+};
+
 const SummaryView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => (
     <>
         <div style={well}>
             <span style={lbl}>Player Intent</span>
-            <div style={{ marginTop: 4, fontSize: 15 }}>“{entry.playerIntent}”</div>
+            <PlayerIntentView entry={entry} />
         </div>
         <div style={well}>
             <span style={lbl}>Generated Narration</span>
@@ -51,6 +61,10 @@ const ActionsView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => {
     const directorNotes = adjudication.gm_private.filter(note => note.startsWith('[Director]') || note.startsWith('[Mind]'));
     return (
     <>
+        <div style={well}>
+            <span style={lbl}>Player Intent</span>
+            <PlayerIntentView entry={entry} />
+        </div>
         {entry.npcIntents && entry.npcIntents.length > 0 && (
             <div style={well}>
                 <span style={lbl}>Director Intents (durable, this turn)</span>
@@ -495,7 +509,8 @@ const GameMasterScreen: React.FC<{
     history: TurnHistoryEntry[];
     onClose: () => void;
     interventionText: string;
-    onSetIntervention: (text: string) => void;
+    onSetIntervention: (text: string) => boolean | void | Promise<boolean | void>;
+    interactionLocked?: boolean;
     playerCharacterId: string | null;
     worldState: WorldState;
     /** The current turn number - stamped into the eval corpus export's metadata and filename (D18). */
@@ -544,7 +559,7 @@ const GameMasterScreen: React.FC<{
      * `interventionText`.
      */
     gmInterventionEnabled?: boolean;
-}> = ({ history, onClose, interventionText, onSetIntervention, playerCharacterId, worldState, turnNumber, inferredAmbition, pendingIntelligenceFallout, truthLedger, reports, knowledge, npcIntents, gmInterventionEnabled = true }) => {
+}> = ({ history, onClose, interventionText, onSetIntervention, interactionLocked = false, playerCharacterId, worldState, turnNumber, inferredAmbition, pendingIntelligenceFallout, truthLedger, reports, knowledge, npcIntents, gmInterventionEnabled = true }) => {
     const [activeTab, setActiveTab] = useState('summary');
     const [interventionInput, setInterventionInput] = useState(interventionText);
     const [showConfirmation, setShowConfirmation] = useState(false);
@@ -580,9 +595,8 @@ const GameMasterScreen: React.FC<{
         trapRef.current?.handleKeyDown(event);
     };
 
-    const handleSetIntervention = () => {
-        onSetIntervention(interventionInput);
-        setShowConfirmation(true);
+    const handleSetIntervention = async () => {
+        if (await onSetIntervention(interventionInput) !== false) setShowConfirmation(true);
     };
 
     // DESIGN_DECISIONS.md D18 - downloads the session's captured turns
@@ -714,6 +728,7 @@ const GameMasterScreen: React.FC<{
                                 <button
                                     type="button"
                                     onClick={handleSetIntervention}
+                                    disabled={interactionLocked}
                                     style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, letterSpacing: '.08em', textTransform: 'uppercase', color: '#F8F1DE', background: 'var(--metal-crimson)', border: '1px solid #5E1008', clipPath: 'var(--chamfer-sm)', padding: '9px 16px', cursor: 'pointer', boxShadow: 'var(--bevel)' }}
                                 >
                                     Set Directive for Next Turn

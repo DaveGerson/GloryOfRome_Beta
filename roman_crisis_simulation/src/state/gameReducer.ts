@@ -189,10 +189,10 @@ export type GameAction =
   /** Bare phase transition, for paths that change nothing else. */
   | { type: 'GAME_STATE_SET'; gameState: GameState }
   /**
-   * A fresh turn attempt begins: enter PROCESSING, clear the suggested-action
-   * pills, and put the player's action into the chat log. Nothing else may
-   * change here - the pre-turn snapshot App.tsx takes right after this
-   * dispatch must describe exactly the committed state plus this message.
+   * A fresh turn attempt begins: enter PROCESSING. Every committed domain
+   * slice, including suggested-action pills, remains unchanged until the
+   * successful TURN_COMMITTED batch lands; App hides the old pills while
+   * processing as presentation state.
    */
   | { type: 'TURN_STARTED'; playerMessage: Message }
   /**
@@ -213,6 +213,7 @@ export type GameAction =
       npcIntents: NpcIntent[];
       turnNumber: number;
       turnHistory: TurnHistoryEntry[];
+      playerMessage: Message;
       gmMessage: Message;
       monologueMessage: Message;
       ribbonMessage: Message;
@@ -220,11 +221,10 @@ export type GameAction =
       currentEvents: string[];
     }
   /**
-   * Restore the pre-turn snapshot after a mid-turn failure. `messages` is
-   * deliberately NOT restored - the player's message and the GM's error
-   * notice should stay in the chat log. `playerCharacterId`, `metaNarrative`
-   * and `inferredAmbition` are never touched mid-turn, so they are not part
-   * of the rollback either. The phase transition back to
+   * Restore the pre-turn snapshot after a mid-turn failure, including its
+   * exact committed chat log. `playerCharacterId`, `metaNarrative` and
+   * `inferredAmbition` are never touched mid-turn, so they are not part of
+   * the rollback either. The phase transition back to
    * AWAITING_PLAYER_INPUT is a separate GAME_STATE_SET, because it must
    * happen even when no snapshot exists to restore.
    */
@@ -271,7 +271,7 @@ export type GameAction =
    * state transition - split across separate commits, whichever landed last
    * would silently revert the others' fields in the autosave.
    */
-  | { type: 'INVESTIGATION_COMMITTED'; entities: Entity[]; pendingIntelligenceFallout: string[]; knowledge: KnowledgeClaim[] }
+  | { type: 'INVESTIGATION_COMMITTED'; entities: Entity[]; pendingIntelligenceFallout: string[]; knowledge: KnowledgeClaim[]; falloutMessage?: Message }
   /** GM-console operator authored (or cleared) the intervention text. */
   | { type: 'GM_INTERVENTION_SET'; text: string }
   /** DESIGN_DECISIONS.md D8 - a periodic ambition inference resolved. */
@@ -299,8 +299,6 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
       return {
         ...state,
         gameState: GameState.PROCESSING,
-        suggestedActions: [],
-        messages: [...state.messages, action.playerMessage],
       };
 
     case 'TURN_COMMITTED': {
@@ -328,7 +326,7 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         // state this reducer returns; this application stays as the
         // in-memory backstop.
         turnHistory: withOldSnapshotsDropped(action.turnHistory),
-        messages: [...state.messages, action.gmMessage, action.monologueMessage, action.ribbonMessage],
+        messages: [...state.messages, action.playerMessage, action.gmMessage, action.monologueMessage, action.ribbonMessage],
         suggestedActions: action.suggestedActions,
         currentEvents: action.currentEvents,
         // ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - the fallout queue is
@@ -363,6 +361,7 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         turnNumber: snapshot.turnNumber,
         turnHistory: snapshot.turnHistory,
         eventHistory: snapshot.eventHistory,
+        messages: snapshot.messages,
         triggeredEventIds: snapshot.triggeredEventIds,
         // Optional field (4D.2) - snapshots built in-session always carry
         // it, but a legacy-shaped snapshot normalizes exactly like
@@ -483,12 +482,16 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         entities: action.entities,
         pendingIntelligenceFallout: action.pendingIntelligenceFallout,
         knowledge: action.knowledge,
+        messages: action.falloutMessage ? [...state.messages, action.falloutMessage] : state.messages,
       };
 
     case 'GM_INTERVENTION_SET':
       return { ...state, gmInterventionText: action.text };
 
     case 'AMBITION_INFERRED':
+      if (state.inferredAmbition && state.inferredAmbition.asOfTurn > action.inferredAmbition.asOfTurn) {
+        return state;
+      }
       return { ...state, inferredAmbition: action.inferredAmbition };
 
     default:

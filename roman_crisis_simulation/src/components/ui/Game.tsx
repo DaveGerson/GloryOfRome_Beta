@@ -3,7 +3,7 @@ import { Badge } from './Core';
 
 /** Game-specific primitives from the Glory of Rome design system (components/game). */
 
-export const ActionPill: React.FC<{ delay?: number; style?: React.CSSProperties; [key: string]: any }> =
+export const ActionPill: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & { delay?: number }> =
     ({ delay = 0, children, style, ...rest }) => (
         <button type="button" className="gor-pill" style={{ animationDelay: delay + 'ms', ...style }} {...rest}>
             <span aria-hidden="true" style={{ color: 'var(--gold-600)', fontSize: 12 }}>❧</span>{children}
@@ -54,9 +54,10 @@ export const DestinyCard: React.FC<{
     seal?: string;
     motto?: string;
     onSelect?: () => void;
+    disabled?: boolean;
     style?: React.CSSProperties;
-}> = ({ name, description, difficulty = 'Medium', numeral, seal, motto, onSelect, style }) => (
-    <button type="button" className="gor-destiny" onClick={onSelect} style={style}>
+}> = ({ name, description, difficulty = 'Medium', numeral, seal, motto, onSelect, disabled = false, style }) => (
+    <button type="button" className="gor-destiny" onClick={onSelect} disabled={disabled} style={style}>
         {numeral && <span style={{ fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 600, letterSpacing: '.32em', textTransform: 'uppercase', color: 'var(--gold-700)' }}>Destiny {numeral}</span>}
         {seal && <span aria-hidden="true" style={{ width: 46, height: 46, margin: '2px auto 2px', display: 'grid', placeItems: 'center', borderRadius: '46% 54% 52% 48% / 52% 46% 54% 48%', background: 'radial-gradient(circle at 35% 30%, #C04434, #8C1C13 62%, #6E140D)', boxShadow: 'inset 0 2px 3px rgba(255,255,255,.28), inset 0 -3px 5px rgba(0,0,0,.35), 0 2px 5px rgba(58,44,16,.35)', color: '#F2D9C8', fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 19, textShadow: '0 -1px 1px rgba(0,0,0,.4)' }}>{seal}</span>}
         <span className="gor-destiny-name">{name}</span>

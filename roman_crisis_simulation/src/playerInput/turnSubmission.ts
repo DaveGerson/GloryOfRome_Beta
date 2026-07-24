@@ -385,9 +385,33 @@ export function normalizeTurnSubmissionInput(submission: TurnSubmission | string
   const candidate: TurnSubmission = typeof submission === 'string'
     ? { version: TURN_SUBMISSION_VERSION, kind: 'freeform', text: submission }
     : submission;
-  const normalized = deserializeTurnSubmission(serializeTurnSubmission(candidate));
+  const serialized = serializeTurnSubmission(candidate);
+  const normalized = deserializeTurnSubmission(serialized);
   if (!normalized) throw new TypeError('Cannot normalize invalid turn submission.');
+  if (typeof submission !== 'string' && encodeCanonicalSubmission(submission) === serialized) {
+    return submission;
+  }
   return normalized;
+}
+
+/**
+ * Freezes a validated canonical submission through every owned container.
+ * This is intentionally narrow rather than a generic object walker: turn
+ * submissions have a closed union and must not retain mutable nested rows or
+ * recipient records across an async retry boundary.
+ */
+export function deepFreezeTurnSubmission(submission: TurnSubmission): TurnSubmission {
+  if (submission.kind === 'freeform') return Object.freeze({ ...submission });
+  const messagesOrOrders = submission.messagesOrOrders?.map(row => Object.freeze({
+    ...row,
+    recipient: Object.freeze({ ...row.recipient }),
+  }));
+  const frozen: StructuredSubmission = {
+    ...submission,
+    ...(submission.actions ? { actions: Object.freeze([...submission.actions]) } : {}),
+    ...(messagesOrOrders ? { messagesOrOrders: Object.freeze(messagesOrOrders) } : {}),
+  };
+  return Object.freeze(frozen);
 }
 
 export function projectForResolution(submission: TurnSubmission): string | null {
