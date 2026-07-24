@@ -254,6 +254,44 @@ describe('tabsForDelta', () => {
 });
 
 describe('buildPerceivedDigest', () => {
+  it('keeps relation deltas in the NPC digest but removes them and their tab metadata from the player digest', async () => {
+    const deltas: EventDelta[] = [
+      {
+        type: 'relation',
+        key: 'ally_npc:npc_a:respect_level',
+        delta: 1,
+        reason: 'A grudging nod exchanged at camp',
+      },
+      {
+        type: 'rumor',
+        key: 'npc_a',
+        delta: 0.5,
+        reason: 'Some say Maximinus plots',
+      },
+    ];
+
+    // The viewer-agnostic projection remains the NPC-mind seam. The ally
+    // sees its own relationship shift and therefore still receives it.
+    const npcDigest = buildPerceivedDigest(deltas, networkAlly, entities, worldState);
+    expect(npcDigest.map(change => change.deltaType)).toEqual(['relation', 'rumor']);
+    expect(npcDigest[0].tabs).toContain('dramatis_personae');
+
+    // Task 6 adds a deliberately separate player projection. Resolve it at
+    // runtime so the rest of this established suite still executes during
+    // RED even though the new export does not exist yet.
+    const visibilityModule = await import('../perception/visibility');
+    const buildPlayerPerceivedDigest = (
+      visibilityModule as unknown as {
+        buildPlayerPerceivedDigest?: typeof buildPerceivedDigest;
+      }
+    ).buildPlayerPerceivedDigest;
+
+    expect(buildPlayerPerceivedDigest).toBeTypeOf('function');
+    const playerDigest = buildPlayerPerceivedDigest!(deltas, player, entities, worldState);
+    expect(playerDigest.map(change => change.deltaType)).toEqual(['rumor']);
+    expect(playerDigest.flatMap(change => change.tabs)).not.toContain('dramatis_personae');
+  });
+
   it('produces a labeled, sourced entry only for visible deltas', () => {
     const deltas: EventDelta[] = [
       { type: 'relation', key: 'player:npc_a:trust_level', delta: -1, reason: 'tense' },
