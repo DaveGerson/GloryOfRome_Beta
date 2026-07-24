@@ -49,123 +49,146 @@ These are architecture invariants, not questions.
 
 ### Q01 — How should recipients work in Message or Order?
 
-**Recommendation:** Use free text inside the field, such as “To the Praetorian prefect: ...”. Do not add an entity selector in the MVP; a selector introduces visibility validation, aliases, groups, unknown actors, and multi-recipient delivery rules.
-
 > **Owner response:**
+Create a set of fields that list the recipient and the command. This should have a single line to start but have a + button that allows more to be added.
+
 
 ### Q02 — Must the Game Master explicitly answer every Question or Context entry?
 
-**Recommendation:** Address it when the answer is knowable and relevant; otherwise narrate uncertainty or explain that the character lacks the information. Do not force a separate Q-and-A paragraph every turn.
-
 > **Owner response:**
+If the user specifically requests to explore something, the game master should provide a response to that question from the viewpoint of the user themselves.  Thinking about the role-playing aspect of it, the players avatar in the game would try to discern an answer to their questions and motivations, however that doesn't mean the game master should take agency to act on behalf of a player to have their avatar explore their question.
 
 ### Q03 — Which fields should determine whether the turn receives hidden action resolution?
 
 **Recommendation:** Assess the observable attempt in Action and Message or Order. Private Intent may clarify the objective but cannot improve the roll; Question or Context cannot create a consequential roll by itself.
 
 > **Owner response:**
+I agree with the recommendation.  As a general design principle.  The world and the actual state of actions exists as an "objective" fact, but the players perception of it occurs from their viewpoint.
 
 ### Q04 — Which downstream AI consumers may see Private Intent?
 
 **Recommendation:** The omniscient adjudicator, narrator, player-monologue generator, and player-only suggested-action generator may see it. NPC minds, relationship updates, apparent-ambition inference, the knowledge store, and perception digests may not. This preserves D5 and D8 while letting the player's motive shape their own story.
 
 > **Owner response:**
+The recommendation holds and follows our system guidelines.  NPC's can develop their own perceptions of a players intent and motivations, but they should have no visibility into what a player is actually planning.
 
 ### Q05 — How should Private Intent appear in the player's own history?
 
 **Recommendation:** Keep it visible to its author in a clearly labeled, visually private subsection, collapsed after the turn commits. “Private” means unknown in-world, not hidden from the player who wrote it.
 
 > **Owner response:**
+Agreed
 
 ### Q06 — What should player-facing copies and exports do with Private Intent?
 
 **Recommendation:** Exclude it by default. A future explicit “include private intent” export may add it after warning the player. GM/debug exports retain the complete artifact for reproducibility.
 
 > **Owner response:**
+I don't follow why this matters.  The exports and copies are just logging artifacts and aren't material to the gameplay.  Not sure it matters at all.
 
 ### Q07 — Should Chat and Structured input normalize into one typed domain contract?
 
 **Recommendation:** Yes: one versioned union with `freeform` and `structured` variants. Freeform text stays freeform rather than being silently mislabeled as Action. Both variants enter the same turn pipeline.
 
 > **Owner response:**
+Agree, one file passed in and out.  In general though we should be cautious to ensure that this artifact is robust enough to express the purpose of each structured component, but that we don't needlessly burn too many tokens.
 
 ### Q08 — How should structured submissions be added to turn history and saves?
 
 **Recommendation:** Add an optional canonical submission artifact beside the existing required `playerIntent` string. Old version-1 saves normalize legacy `playerIntent` to a freeform submission; no retroactive field guessing and no save-version bump.
 
 > **Owner response:**
+The structured submission should be convertible into plain text (it needs to be read in by an LLM anyways). We should just save it as plain text with that structure included in it.
 
 ### Q09 — What should the mode control be called and where should it live?
 
 **Recommendation:** Use a visible **Chat | Structured** segmented control directly above the input dock. Avoid labels suggesting one mode is strategically stronger.
 
 > **Owner response:**
+Yes a toggle next to the chat window that allows the response type to switch would be ideal.
 
 ### Q10 — Should the selected mode persist?
 
 **Recommendation:** Persist the last selected mode as a local UI preference, not campaign state. New users still start in Chat; returning users resume their preferred composer.
 
 > **Owner response:**
+Recco holds with the caveat that this is an MVP so we shouldn't make an overcomplicated set-up
 
 ### Q11 — What should happen to drafts when the player switches modes?
 
 **Recommendation:** Preserve separate in-session drafts for Chat and Structured. Switching restores the relevant draft; it never guesses a field mapping or flattens Private Intent into plaintext.
 
 > **Owner response:**
+Recco holds, it's easy enough.  once a submission occurs we don't needd to retain the draft though.
 
 ### Q12 — What content limit should structured submissions use?
 
 **Recommendation:** Use an 8,000-character combined limit across the four fields. Show remaining characters near the limit and block submission when exceeded. Never truncate silently.
 
 > **Owner response:**
+I think it needs to be closer to 20k though (since we are measuring in tokens rather than characters).  In general we should target a 50 turn game with the assumption there is some level of context compaction that will be added in during later phases to stretch
 
 ### Q13 — What keyboard behavior should Structured mode use?
 
 **Recommendation:** Enter inserts a newline; Ctrl+Enter or Cmd+Enter submits the artifact. Chat retains its existing Enter-to-submit and Shift+Enter-for-newline behavior.
 
 > **Owner response:**
+Recco holds
 
 ### Q14 — What should an AI-suggested Action Pill do in Structured mode?
 
 **Recommendation:** Fill the Action field without submitting or inventing speech, motive, or context. If Action already contains text, require confirmation before replacement. Pills never switch modes automatically.
 
 > **Owner response:**
+It should fill in the action field, but potentially (similar to message or order) multiple actions may be possible, so clicking an action toggle would add an "action"  but the other action pills should remain allowing a user to add multiple.
 
 ### Q15 — What exactly should Retry resend?
 
 **Recommendation:** One-click Retry resends the immutable normalized artifact from the failed attempt. Restoring and editing the fields creates a new submission attempt. Preserve the same submission ID for exact retry and use a distinct attempt ID to prevent ambiguous duplicate commits.
 
 > **Owner response:**
+Retry should fully retry the action but in general at this stage in the development lifecycle a usage audience of 1 might be enough.
 
 ### Q16 — What data may generate a player-facing relationship observation?
 
 **Recommendation:** Only perception-filtered events, sourced reports, investigation results, direct interactions, and stable public facts the player knows. Hidden relationship values may drive mechanics but may never generate or select player-facing prose.
 
 > **Owner response:**
+Any interaction between a player and another player, NPC, or object that provides information about that relationship in a meaningful way.
 
 ### Q17 — What should one relationship observation look like?
 
 **Recommendation:** Use a short behavioral statement with source and age, such as “Turn 7 — witnessed: Sabinus defended your proposal before the Senate.” Preserve contradictory observations separately rather than resolving them into an engine verdict.
 
 > **Owner response:**
+Rather than trying to clarify in language I'll use a few examples below
+- At the most recent ir'Tain Gala, Clodius seemed to intentionally avoid your gaze
+- You received an incredibly expensive gift from Senator Lucius to celebrate the birth of your son
+- Caius' widow and Maximus were seen talking in a huddled corner at the funeral, both were smiling more than you would anticpate at such a somber event
 
 ### Q18 — Which forms of synthesized relationship interpretation are prohibited?
 
 **Recommendation:** Prohibit numbers, bars, directional arrows, heat colors, confidence percentages, tiers, and summaries such as “hostile,” “trusting,” or “uneasy ally” when they encode hidden sentiment. Stable public roles such as kinship, office, or faction may still appear as factual context.
 
 > **Owner response:**
+I agree to stating public roles but also include direct statements from an entity about a player (e.g. public praise/condemnation, direct statements of affection) use quotes for this.  Allow for a "blow-out" into a timeline of relationship observations since this may not always be filled out.
+
+
+As a note.  If a key entity (NPC/Faction) is playing but the player has no observation of them yet, their should be a capability to hide them from the user (e.g. a foreign diplomat is supporting a bid for the throne, a senator you had killed actually lived and is is plotting against you in the shadows)
 
 ### Q19 — Should the MVP include player-authored private notes about NPCs?
 
 **Recommendation:** No. Notes align with player-authored interpretation, but add persistence, editing, search, and export policy. First test whether sourced observations alone provide enough support; add notes later as a separately scoped feature if they do not.
 
 > **Owner response:**
+No need for notes in an MVP that aren't part of provided agent context.  A player can keepp those as pen and paper.
 
 ### Q20 — What evidence is required before this feature may merge?
 
 **Recommendation:** Require pure-helper tests for normalization and projections; sentinel leak tests across every forbidden Private Intent consumer; legacy-save and retry tests; mixed Chat/Structured journey coverage; accessibility checks; full CI; independent code review; adversarial privacy review; and an interactive browser smoke. Any private-field leak, mode-specific mechanical advantage, silent truncation, incompatible save, or duplicate commit blocks release.
 
 > **Owner response:**
+A set of unit tests that validate all functionality that can be validated and all features and stories developed have validation that they actually exist and were built according to spec (rather than mock or given a hand-wavey pass)
 
 ---
 

@@ -347,3 +347,46 @@ reading `GEMINI_API_KEY` from `.env` for local development). No public
 turn quota is needed — each player pays their own way. An owner-funded
 hosted mode (proxy + quota policy + in-fiction limit framing) is parked in
 the backlog.
+
+---
+
+Rulings D35–D36 are the Phase 6 player-input and observability round
+(July 2026), answering the Phase 6 grill and its first addendum. They refine
+D5, D8, D13, D21, and D25 without changing the hidden resolution or
+relationship mechanics.
+
+## D35 — Structured input guides one ordinary turn; it does not create a stronger action
+Chat remains the default composer. The player may switch to a Structured
+composer containing repeatable Actions, repeatable Messages or Orders,
+Private Intent, and Question or Context. All populated fields form one
+submission and one turn. Actions and orders are attempts, Private Intent is
+player-owned context rather than an observable or modifier, and a question
+asks the GM to answer from the avatar's present viewpoint without inventing
+an investigation or acting for the avatar.
+
+Each Message or Order row selects a recipient from entities the player is
+already permitted to know, with a "Someone else..." option for free text.
+The selector never receives the hidden roster; custom text does not prove
+that its named recipient exists or is reachable. The canonical submission
+is compact plaintext stored in the existing `playerIntent` history/save
+field, with explicit audience projections before AI use. The complete
+artifact is capped at 20,000 characters and is blocked, never truncated,
+when over the limit. Save version 1 remains compatible. An exact retry
+resends the normalized artifact and may commit the turn only once.
+
+## D36 — The player reads relationships from sourced observations, never engine sentiment
+Player-facing Personae surfaces show dated, sourced behavioral evidence and
+conservatively attributed direct quotes. They do not show trust or respect
+scores, bars, arrows, tiers, heat colors, synthesized relationship labels,
+AI-authored "Raw Thoughts," live NPC goals, or live NPC state narratives.
+Contradictory observations coexist; the player supplies the interpretation.
+
+An entity that the player has not learned exists is absent from the roster
+and recipient selector. Public roles become displayable only after the
+entity itself is known. Relationship observations are selected from the
+observable submission, the player-specific perception digest, sourced
+reports, and paid investigation output. Player-owned narration is not an
+evidence source because it may be shaped by Private Intent. Hidden numeric
+relationship state and relationship deltas remain available to the engine
+and GM console but never select player-facing prose or UI pulses. The MVP
+adds no player-authored NPC notes.
