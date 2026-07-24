@@ -440,6 +440,68 @@ describe('ai/core/mortality.ts processMortality', () => {
     expect(updatedNpc.secret_truth).toBeUndefined();
   });
 
+  it.each([
+    ['player resource', { type: 'resource', key: `${playerId}:denarii`, delta: -500, reason: 'The imperial treasury pays the price.' }],
+    ['player relation', { type: 'relation', key: `${playerId}:${npcId}:trust`, delta: -2, reason: 'The emperor now mistrusts the survivor.' }],
+    ['world state', { type: 'world', key: 'political_climate', delta: 0, reason: 'The Empire collapses into panic.' }],
+  ])('fails the mortality response before apply when an NPC outcome authors an unauthorized %s effect', async (_label, injectedDelta) => {
+    mockRoll(20);
+    const adjudication = makeAdjudication([
+      { type: 'status', key: npcId, delta: 0, reason: 'An assassin struck at the Senator.', new_status: 'dead' },
+    ]);
+    const original = JSON.parse(JSON.stringify(adjudication));
+    const { ai } = makeMockAi(
+      JSON.stringify({ dispositions: [{ entity_id: npcId, valid: true, reasoning: 'A real attempt occurred.' }] }),
+      JSON.stringify({
+        outcomes: [{
+          entity_id: npcId,
+          deltas: [injectedDelta],
+          narrative_directive: 'Narrate a visible, witnessed escape.',
+        }],
+      }),
+    );
+
+    let thrown: unknown;
+    try {
+      await processMortality(ai, adjudication, entities, playerId, 5, false);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe('AI output violated the mortality outcome boundary.');
+    expect((thrown as Error).message).not.toContain(injectedDelta.reason);
+    expect(adjudication).toEqual(original);
+  });
+
+  it('allows candidate-owned NPC resource and relation effects from a legitimate mortality outcome', async () => {
+    mockRoll(20);
+    npc.resources = { influence: 5 };
+    const adjudication = makeAdjudication([
+      { type: 'status', key: npcId, delta: 0, reason: 'An assassin struck at the Senator.', new_status: 'dead' },
+    ]);
+    const { ai } = makeMockAi(
+      JSON.stringify({ dispositions: [{ entity_id: npcId, valid: true, reasoning: 'A real attempt occurred.' }] }),
+      JSON.stringify({
+        outcomes: [{
+          entity_id: npcId,
+          deltas: [
+            { type: 'resource', key: `${npcId}:influence`, delta: -2, reason: 'His failed defense costs political standing.' },
+            { type: 'relation', key: `${npcId}:${playerId}:perceived_threat`, delta: 2, reason: 'He now fears the imperial court.' },
+          ],
+          narrative_directive: 'Narrate a visible, witnessed escape.',
+        }],
+      }),
+    );
+
+    const { transformedAdjudication } = await processMortality(ai, adjudication, entities, playerId, 5, false);
+
+    expect(transformedAdjudication.deltas).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'resource', key: `${npcId}:influence`, delta: -2 }),
+      expect.objectContaining({ type: 'relation', key: `${npcId}:${playerId}:perceived_threat`, delta: 2 }),
+    ]));
+  });
+
   it('never mutates the original adjudication object passed in', async () => {
     mockRoll(3);
     const adjudication = makeAdjudication([

@@ -1168,6 +1168,161 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     expect(narrationSystemInstruction).toContain('do not invent an action or immediate consequence');
     expect(h.order).not.toContain('relationshipUpdates');
   });
+
+  it.each([
+    ['one chunk', ['You dispatch spies.']],
+    ['split chunks', ['You dispatch ', 'spies.']],
+    ['no terminal punctuation', ['You dispatch spies']],
+    ['suggestions withheld', ['You dispatch spies.\nSUGGESTION: Question the courier']],
+  ])('never flashes an invented no-attempt narration from %s before rejecting the turn', async (_label, chunks) => {
+    const h = createHarness(true, () => chunks);
+    const player = makeEntity();
+    const onNarrationChunk = vi.fn();
+    const submission: TurnSubmission = {
+      version: 1,
+      kind: 'structured',
+      questionOrContext: 'What does the courier know?',
+    };
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    h.response.adjudication.resolve(JSON.stringify({
+      turn: 2,
+      entityActions: [],
+      deltas: [],
+      headlines: ['The courier waits in the rain.'],
+      gm_private: [],
+    }));
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologueText);
+    h.response.narration.resolve(chunks.join(''));
+    h.response.relationshipUpdates.resolve(relationshipJson);
+
+    await expect(runNewTurn(
+      h.ai, submission, player, 2, [player], worldState, simulationState, [], [], [], [], '', false,
+      'Grim political thriller', { onNarrationChunk },
+    )).rejects.toThrow('player action boundary');
+
+    expect(onNarrationChunk).not.toHaveBeenCalled();
+    expect(h.order).not.toContain('relationshipUpdates');
+  });
+
+  it('withholds conforming no-attempt narration until the final mechanics and ownership checks pass, then flushes once', async () => {
+    const h = createHarness(true);
+    const player = makeEntity();
+    const onNarrationChunk = vi.fn();
+    const safeNarration = 'You see the empty benches and wonder what tomorrow\'s vote will bring.';
+    const submission: TurnSubmission = {
+      version: 1,
+      kind: 'structured',
+      privateIntent: 'Keep my suspicions private.',
+    };
+
+    const turnPromise = runNewTurn(
+      h.ai, submission, player, 2, [player], worldState, simulationState, [], [], [], [], '', false,
+      'Grim political thriller', { onNarrationChunk },
+    );
+    turnPromise.catch(() => {});
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    h.response.adjudication.resolve(JSON.stringify({
+      turn: 2,
+      entityActions: [],
+      deltas: [],
+      headlines: ['The Senate remains divided.'],
+      gm_private: [],
+    }));
+    await Promise.all([h.issued.simulationState.promise, h.issued.monologue.promise, h.issued.narration.promise]);
+
+    h.response.narration.resolve(`${safeNarration}\nSUGGESTION: Consult the augurs`);
+    await tick();
+    expect(onNarrationChunk).not.toHaveBeenCalled();
+
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologueText);
+    const result = await turnPromise;
+
+    expect(result.narration).toBe(safeNarration);
+    expect(onNarrationChunk.mock.calls).toEqual([[safeNarration]]);
+    expect(h.order).not.toContain('relationshipUpdates');
+  });
+
+  it('rejects a mortality-authored player-action directive on a no-attempt turn before apply or commit', async () => {
+    mockRoll(20);
+    const h = createHarness(false);
+    const player = makeEntity();
+    const npc = makeEntity({ entity_id: 'npc_1', name: 'Senator Rufus' });
+    const submission: TurnSubmission = {
+      version: 1,
+      kind: 'structured',
+      questionOrContext: 'What follows from the attack on Rufus?',
+    };
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    h.response.adjudication.resolve(JSON.stringify({
+      turn: 2,
+      entityActions: [],
+      deltas: [{ type: 'status', key: 'npc_1', delta: 0, reason: 'An assassin strikes Rufus.', new_status: 'dead' }],
+      headlines: ['Rufus is attacked near the Curia.'],
+      gm_private: [],
+    }));
+    h.response.mortalityValidation.resolve(JSON.stringify({
+      dispositions: [{ entity_id: 'npc_1', valid: true, reasoning: 'The attack is supported.' }],
+    }));
+    h.response.mortalityOutcome.resolve(JSON.stringify({
+      outcomes: [{
+        entity_id: 'npc_1',
+        deltas: [],
+        narrative_directive: 'You sign the death warrant before Rufus escapes.',
+      }],
+    }));
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologueText);
+    h.response.narration.resolve('Rufus escapes into the rain.');
+    h.response.relationshipUpdates.resolve(relationshipJson);
+
+    await expect(runNewTurn(
+      h.ai, submission, player, 2, [player, npc], worldState, simulationState, [], [], [], [], '', false,
+      'Grim political thriller',
+    )).rejects.toThrow('player action boundary');
+
+    expect(h.order).not.toContain('simulationState');
+    expect(h.order).not.toContain('narration');
+    expect(h.order).not.toContain('relationshipUpdates');
+  });
+
+  it('applies the no-attempt ownership boundary to first-person player monologue output', async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+    const submission: TurnSubmission = {
+      version: 1,
+      kind: 'structured',
+      privateIntent: 'Remain publicly inactive.',
+    };
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    h.response.adjudication.resolve(JSON.stringify({
+      turn: 2,
+      entityActions: [],
+      deltas: [],
+      headlines: ['The city watches the palace.'],
+      gm_private: [],
+    }));
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve('I sign the decree and summon the legions.');
+    h.response.narration.resolve('You see petitioners gathering outside the palace.');
+    h.response.relationshipUpdates.resolve(relationshipJson);
+
+    await expect(runNewTurn(
+      h.ai, submission, player, 2, [player], worldState, simulationState, [], [], [], [], '', false,
+      'Grim political thriller',
+    )).rejects.toThrow('player action boundary');
+
+    expect(h.order).not.toContain('relationshipUpdates');
+  });
 });
 
 // --- Pacing posture threading (ROADMAP_PHASE_4.md 4D item 1, D23) ---------
