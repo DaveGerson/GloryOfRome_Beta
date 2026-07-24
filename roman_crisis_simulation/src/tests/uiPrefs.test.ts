@@ -15,6 +15,8 @@ import {
   setGmConsoleEnabled,
   getGmInterventionEnabled,
   setGmInterventionEnabled,
+  getComposerMode,
+  setComposerMode,
 } from '../persistence/uiPrefs';
 
 describe('persistence/uiPrefs: gmConsoleEnabled / gmInterventionEnabled', () => {
@@ -80,6 +82,59 @@ describe('persistence/uiPrefs: gmConsoleEnabled / gmInterventionEnabled', () => 
   it('neither setter touches the save bundle key', () => {
     setGmConsoleEnabled(false);
     setGmInterventionEnabled(false);
+    expect(localStorage.getItem('gloryOfRome:autosave')).toBeNull();
+  });
+});
+
+describe('persistence/uiPrefs: composer mode', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  it('defaults to Chat on first run and round-trips either valid mode', () => {
+    expect(getComposerMode()).toBe('chat');
+
+    setComposerMode('structured');
+    expect(getComposerMode()).toBe('structured');
+
+    setComposerMode('chat');
+    expect(getComposerMode()).toBe('chat');
+  });
+
+  it('falls back to Chat when the dedicated preference is corrupt', () => {
+    localStorage.setItem('gloryOfRome:composerMode', 'omniscient');
+
+    expect(getComposerMode()).toBe('chat');
+  });
+
+  it('does not crash when preference reads or writes throw', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('Access denied.', 'SecurityError');
+    });
+
+    expect(() => getComposerMode()).not.toThrow();
+    expect(getComposerMode()).toBe('chat');
+
+    vi.restoreAllMocks();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+    });
+
+    expect(() => setComposerMode('structured')).not.toThrow();
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it('stores only the mode preference, never either draft or the save bundle', () => {
+    setComposerMode('structured');
+
+    expect(Object.keys(localStorage)).toEqual(['gloryOfRome:composerMode']);
     expect(localStorage.getItem('gloryOfRome:autosave')).toBeNull();
   });
 });
