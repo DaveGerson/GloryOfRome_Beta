@@ -82,7 +82,11 @@ export function computeTurnKnowledge({
     reportsThisTurn,
     turnNumber
   );
-  return relationshipObservations ? ingestRelationshipObservations(next, { ...relationshipObservations, turn: turnNumber }) : next;
+  return relationshipObservations ? ingestRelationshipObservations(next, {
+    ...relationshipObservations,
+    turn: turnNumber,
+    globalEvidenceIds: reportsAfter.map(report => report.id),
+  }) : next;
 }
 
 export interface InvestigationKnowledgeInput {
@@ -115,5 +119,9 @@ export function computeInvestigationKnowledge({
     text: reportText,
     turn: turnNumber,
   });
-  return relationshipObservations ? ingestRelationshipObservations(next, { ...relationshipObservations, turn: turnNumber }) : next;
+  return relationshipObservations ? ingestRelationshipObservations(next, {
+    ...relationshipObservations,
+    turn: turnNumber,
+    globalEvidenceIds: [],
+  }) : next;
 }

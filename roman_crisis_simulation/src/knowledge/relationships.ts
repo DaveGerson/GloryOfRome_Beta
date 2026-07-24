@@ -152,22 +152,26 @@ export function validateRelationshipObservationDrafts(input: ValidationInput): R
 
 export function ingestRelationshipObservations(
   store: KnowledgeClaim[],
-  input: ValidationInput & { turn: number }
+  input: ValidationInput & { turn: number; globalEvidenceIds?: string[] }
 ): KnowledgeClaim[] {
   const drafts = validateRelationshipObservationDrafts(input);
   if (drafts.length === 0) return store;
   const existingEvidenceIds = new Set(store.flatMap(claim => claim.relationshipObservation ? [claim.relationshipObservation.evidenceId] : []));
   const evidenceById = new Map(input.evidence.map(item => [item.id, item]));
+  const globalEvidenceIds = input.globalEvidenceIds === undefined ? undefined : new Set(input.globalEvidenceIds);
   const next = store.slice();
   for (const draft of drafts) {
-    if (existingEvidenceIds.has(draft.evidenceId)) continue;
+    const canonicalEvidenceId = globalEvidenceIds === undefined || globalEvidenceIds.has(draft.evidenceId)
+      ? draft.evidenceId
+      : `turn:${input.turn}:${draft.evidenceId}`;
+    if (existingEvidenceIds.has(canonicalEvidenceId)) continue;
     const evidence = evidenceById.get(draft.evidenceId)!;
     const quote = evidence.trustedQuote
       && draft.participantIds.includes(evidence.trustedQuote.speakerId)
       && draft.excerpt.includes(evidence.trustedQuote.text)
       ? { speakerId: evidence.trustedQuote.speakerId, text: evidence.trustedQuote.text }
       : undefined;
-    const marker = { evidenceId: draft.evidenceId, participantIds: [...draft.participantIds], ...(quote ? { quote } : {}) };
+    const marker = { evidenceId: canonicalEvidenceId, participantIds: [...draft.participantIds], ...(quote ? { quote } : {}) };
     const prefix = `relationship-observation:${input.turn}:`;
     const ordinal = next.reduce((maximum, claim) => {
       if (!claim.claimKey.startsWith(prefix)) return maximum;
@@ -184,7 +188,7 @@ export function ingestRelationshipObservations(
       updates: [{ turn: input.turn, source: evidence.source, text: draft.excerpt }],
       relationshipObservation: marker,
     });
-    existingEvidenceIds.add(draft.evidenceId);
+    existingEvidenceIds.add(canonicalEvidenceId);
   }
   return next.length === store.length ? store : enforceKnowledgeClaimCap(next);
 }

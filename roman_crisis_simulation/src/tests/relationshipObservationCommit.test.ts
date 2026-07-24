@@ -20,6 +20,7 @@ import * as aiMocks from '../ai/mocks';
 import * as intelModule from '../components/tabs/dramatisPersonaeIntel';
 import type { PerceivedChange } from '../perception/visibility';
 import type { PlayerSafeEvidence } from '../knowledge/store';
+import type { GeminiClient } from '../ai/core/geminiService';
 import type { Entity, Report, TurnSubmission } from '../types';
 import { getMockInitialState } from './mockData';
 
@@ -56,6 +57,33 @@ const mockGetRelationshipObservations = vi.mocked(observationTool.getRelationshi
 const mockBuildPlayerPerceivedDigest = vi.mocked(visibilityModule.buildPlayerPerceivedDigest);
 const mockResolveIntelRequest = vi.mocked(intelModule.resolveIntelRequest);
 const mounted: Array<{ root: Root; container: HTMLDivElement }> = [];
+
+async function runSchemaValidSemanticRejection(
+  evidence: PlayerSafeEvidence[],
+  directory: Array<{ entity_id: string; name: string }>,
+  knownEntityIds: string[] | undefined,
+): Promise<never> {
+  const realTool = await vi.importActual<typeof import('../ai/tools/relationshipObservations')>(
+    '../ai/tools/relationshipObservations'
+  );
+  const invalidDraft = {
+    evidenceId: 'missing_semantic_evidence',
+    participantIds: directory.slice(0, 2).map(entity => entity.entity_id),
+    excerpt: evidence[0].text,
+  };
+  const ai: GeminiClient = {
+    models: {
+      generateContent: vi.fn().mockResolvedValue({ text: JSON.stringify([invalidDraft]) }),
+    },
+  };
+  return realTool.getRelationshipObservations(
+    ai,
+    evidence,
+    directory,
+    knownEntityIds ?? directory.map(entity => entity.entity_id),
+    false,
+  ) as Promise<never>;
+}
 
 type TurnEvidenceInput = {
   submission: string | null;
@@ -424,7 +452,8 @@ describe('App relationship-observation transaction', () => {
   it('rolls back extraction failure, restores the exact draft, and retry commits one evidence id once', async () => {
     mockRunNewTurn.mockImplementation(async (...args) => withPoisonedPlayerResult(await defaultTurnResult(...args)));
     mockGetRelationshipObservations
-      .mockRejectedValueOnce(new Error('invalid observation extraction'))
+      .mockImplementationOnce((_ai, evidence, directory, knownEntityIds) =>
+        runSchemaValidSemanticRejection(evidence, directory, knownEntityIds))
       .mockImplementationOnce(async (_ai, evidence) => {
         const cited = evidence.find(item => item.id === 'report_task7_lucius')!;
         return [{
@@ -439,13 +468,13 @@ describe('App relationship-observation transaction', () => {
     const original = '  Exact Task 7 retry draft\nwith authored whitespace  ';
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), original);
     await click(buttonNamed(container, 'Send message'));
-    await waitFor(() => expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').value).toBe(original));
+    await waitFor(() => expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1));
 
     expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
+    expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').value).toBe(original);
     expect(loadGame()!.state.turnNumber).toBe(2);
     expect(loadGame()!.state.turnHistory).toHaveLength(0);
     expect(loadGame()!.state.knowledge ?? []).toHaveLength(0);
-    expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1);
 
     await click(buttonNamed(container, 'Retry the last action'));
     await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
@@ -463,7 +492,8 @@ describe('App relationship-observation transaction', () => {
 
   it('awaits investigation extraction inside the atomic lease and retries without partial display, spend, fallout, knowledge, or save', async () => {
     mockGetRelationshipObservations
-      .mockRejectedValueOnce(new Error('invalid investigation observation extraction'))
+      .mockImplementationOnce((_ai, evidence, directory, knownEntityIds) =>
+        runSchemaValidSemanticRejection(evidence, directory, knownEntityIds))
       .mockImplementationOnce(async (_ai, evidence) => [{
         evidenceId: evidence[0].id,
         participantIds: ['severus_alexander', 'maximinus_thrax'],
@@ -477,15 +507,13 @@ describe('App relationship-observation transaction', () => {
     const reveal = revealSecretsButton(container);
 
     await click(reveal);
-    await waitFor(() => expect(mockResolveIntelRequest).toHaveBeenCalledTimes(1));
-    await flush();
+    await waitFor(() => expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1));
 
     expect(mockGetRelationshipObservations).toHaveBeenCalledTimes(1);
     expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
     expect(loadGame()!.state).toEqual(beforeState);
     expect(container.textContent).not.toContain('REPORT_DATA_PRIVATE_POISON');
     expect(container.textContent).not.toContain('visit did not go unnoticed');
-    expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1);
     const [, evidence, directory] = mockGetRelationshipObservations.mock.calls[0];
     const sent = JSON.stringify({ evidence, directory });
     expect(evidence).toHaveLength(1);

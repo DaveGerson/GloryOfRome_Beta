@@ -31,10 +31,14 @@ export async function getRelationshipObservations(
         zodSchema: zRelationshipObservations,
       });
     })();
-  return validateRelationshipObservationDrafts({
+  const accepted = validateRelationshipObservationDrafts({
     drafts,
     evidence,
     entities,
     knownEntityIds,
   });
+  if (drafts.length > 0 && accepted.length !== drafts.length) {
+    throw new Error('relationship observation semantic validation rejected provider selection');
+  }
+  return accepted;
 }

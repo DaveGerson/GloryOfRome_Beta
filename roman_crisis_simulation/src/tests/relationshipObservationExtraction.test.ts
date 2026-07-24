@@ -184,6 +184,22 @@ describe('getRelationshipObservations', () => {
     await expect(getRelationshipObservations(ai, evidence, directory)).resolves.toEqual([validDraft]);
   });
 
+  it('rejects a schema-valid non-empty selection that cites nonexistent evidence', async () => {
+    const nonexistent = { ...validDraft, evidenceId: 'missing_evidence' };
+    const { ai } = makeMockAi([nonexistent]);
+
+    await expect(getRelationshipObservations(ai, evidence, directory))
+      .rejects.toThrow(/semantic validation rejected/i);
+  });
+
+  it('rejects the whole provider result when valid and semantically invalid selections are mixed', async () => {
+    const nonexistent = { ...validDraft, evidenceId: 'missing_evidence' };
+    const { ai } = makeMockAi([validDraft, nonexistent]);
+
+    await expect(getRelationshipObservations(ai, evidence, directory))
+      .rejects.toThrow(/semantic validation rejected/i);
+  });
+
   it('fails loudly after the repair attempt when structured output is still invalid', async () => {
     const malformed = [{ ...validDraft, quote: { speakerId: 'lucius', text: 'MODEL QUOTE' } }];
     const { ai } = makeMockAi(malformed, malformed);
