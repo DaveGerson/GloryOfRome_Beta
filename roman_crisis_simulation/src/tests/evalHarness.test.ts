@@ -168,6 +168,28 @@ describe('eval/harness checkRawCallSchema', () => {
     );
     expect(broken.status).toBe('schema_violation');
   });
+
+  it('maps relationshipObservations to its strict selector schema', () => {
+    expect(schemaForCallName('relationshipObservations')).not.toBeNull();
+    const valid = checkRawCallSchema(
+      makeRawCall('relationshipObservations', JSON.stringify([{
+        evidenceId: 'report_7_1',
+        participantIds: ['severus_alexander', 'lucius'],
+        excerpt: 'Senator Lucius defended Severus before the Curia.',
+      }]))
+    );
+    expect(valid.status).toBe('valid');
+
+    const modelAuthoredQuote = checkRawCallSchema(
+      makeRawCall('relationshipObservations', JSON.stringify([{
+        evidenceId: 'report_7_1',
+        participantIds: ['severus_alexander', 'lucius'],
+        excerpt: 'Senator Lucius defended Severus before the Curia.',
+        quote: { speakerId: 'lucius', text: 'A fabricated quote.' },
+      }]))
+    );
+    expect(modelAuthoredQuote.status).toBe('schema_violation');
+  });
 });
 
 // --- Call-name inventory drift ---------------------------------------------
@@ -191,6 +213,7 @@ describe('eval/harness call-name inventory (drift guard)', () => {
     'scenarioStructure', // ai/core/initiator.ts
     'characterCreation', // ai/tools/characterCreator.ts
     'ambitionInference', // ai/tools/ambition.ts
+    'relationshipObservations', // ai/tools/relationshipObservations.ts
     // 'entityBatch:<batchName>' (ai/core/initiator.ts) and
     // 'npcMind:<entity_id>' (ai/tools/npcMind.ts) are deliberately not
     // listed: their callNames are suffixed at runtime and resolved by
