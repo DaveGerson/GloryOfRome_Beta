@@ -375,6 +375,36 @@ describe('ai/core/mortality.ts processMortality', () => {
     expect(updatedNpc.secret_truth?.actually_alive).toBe(true);
   });
 
+  it('rejects a mortality outcome directive that exposes its hidden fate band and die result', async () => {
+    mockRoll(17);
+    const adjudication = makeAdjudication([
+      { type: 'status', key: npcId, delta: 0, reason: 'Assassinated in his villa.', new_status: 'dead' },
+    ]);
+    const { ai } = makeMockAi(
+      JSON.stringify({ dispositions: [{ entity_id: npcId, valid: true, reasoning: 'A real assassination attempt occurred.' }] }),
+      JSON.stringify({
+        outcomes: [{
+          entity_id: npcId,
+          deltas: [],
+          narrative_directive: 'Expose presumed_dead because the die rolled 17.',
+          secret_motive: 'He hides beyond the city.',
+        }],
+      }),
+    );
+
+    let thrown: unknown;
+    try {
+      await processMortality(ai, adjudication, entities, playerId, 7, false);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toContain('player-visible mechanics boundary');
+    expect((thrown as Error).message).not.toContain('presumed_dead');
+    expect(adjudication.deltas[0]).toMatchObject({ new_status: 'dead', reason: 'Assassinated in his villa.' });
+  });
+
   it('validated NPC death, roll 20 -> escapes openly: alive, no secret state', async () => {
     mockRoll(20);
     const adjudication = makeAdjudication([

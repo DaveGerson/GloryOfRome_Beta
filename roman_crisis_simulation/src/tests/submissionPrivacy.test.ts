@@ -10,6 +10,9 @@ import type { Entity, SimulationState, TurnSubmission, WorldState } from '../typ
 const OBSERVABLE_SENTINEL = 'OBSERVABLE_ATTEMPT_SENTINEL_6T2';
 const PRIVATE_SENTINEL = 'PRIVATE_INTENT_SENTINEL_6T2';
 const QUESTION_SENTINEL = 'QUESTION_CONTEXT_SENTINEL_6T2';
+const POISONED_NARRATION_SENTINEL = 'POISONED_NARRATION_SENTINEL_6T2';
+const SAFE_HEADLINE_SENTINEL = 'SAFE_PUBLIC_HEADLINE_SENTINEL_6T2';
+const SAFE_FACT_SENTINEL = 'SAFE_ADJUDICATED_FACT_SENTINEL_6T2';
 
 const WORLD_STATE: WorldState = {
   year: 235,
@@ -96,6 +99,9 @@ interface CapturedCall {
   systemInstruction: string;
 }
 
+type ResponseOverride = string | ((prompt: string) => string);
+type ResponseOverrides = Partial<Record<CallKind, ResponseOverride>>;
+
 function classify(systemInstruction: string): CallKind {
   if (systemInstruction.includes('master storyteller and game master')) return 'storyRelevance';
   if (systemInstruction.includes('Action Assessor')) return 'assessment';
@@ -155,7 +161,7 @@ function responseFor(kind: CallKind, prompt: string): string {
   }
 }
 
-function makeHarness(): { ai: GoogleGenAI; calls: CapturedCall[] } {
+function makeHarness(overrides: ResponseOverrides = {}): { ai: GoogleGenAI; calls: CapturedCall[] } {
   const calls: CapturedCall[] = [];
   const generateContent = vi.fn(async (params: {
     contents: string;
@@ -166,7 +172,11 @@ function makeHarness(): { ai: GoogleGenAI; calls: CapturedCall[] } {
       : '';
     const kind = classify(systemInstruction);
     calls.push({ kind, prompt: params.contents, systemInstruction });
-    return { text: responseFor(kind, params.contents) };
+    const override = overrides[kind];
+    const text = typeof override === 'function'
+      ? override(params.contents)
+      : override ?? responseFor(kind, params.contents);
+    return { text };
   });
   return {
     ai: { models: { generateContent } } as unknown as GoogleGenAI,
@@ -174,10 +184,10 @@ function makeHarness(): { ai: GoogleGenAI; calls: CapturedCall[] } {
   };
 }
 
-async function runRealTurn(submission: TurnSubmission) {
-  const harness = makeHarness();
+function startRealTurn(submission: TurnSubmission, overrides: ResponseOverrides = {}) {
+  const harness = makeHarness(overrides);
   const { player, npcA, npcB } = makeCast();
-  const result = await runNewTurn(
+  const resultPromise = runNewTurn(
     harness.ai,
     submission,
     player,
@@ -193,7 +203,13 @@ async function runRealTurn(submission: TurnSubmission) {
     false,
     'A political thriller',
   );
-  return { ...harness, result, player };
+  return { ...harness, resultPromise, player };
+}
+
+async function runRealTurn(submission: TurnSubmission, overrides: ResponseOverrides = {}) {
+  const started = startRealTurn(submission, overrides);
+  const result = await started.resultPromise;
+  return { ...started, result };
 }
 
 function fullCallText(call: CapturedCall): string {
@@ -253,6 +269,44 @@ describe('runNewTurn submission visibility routing', () => {
     expect(JSON.stringify(knowledge)).not.toContain(PRIVATE_SENTINEL);
   });
 
+  it('builds relationship updates from observable submission and adjudicated facts, never provider narration that echoes Private Intent', async () => {
+    const adjudication = {
+      turn: 7,
+      entityActions: [],
+      deltas: [{
+        type: 'resource',
+        key: 'npc_a:cohort_support',
+        delta: 1,
+        reason: SAFE_FACT_SENTINEL,
+      }],
+      headlines: [SAFE_HEADLINE_SENTINEL],
+      gm_private: [],
+    };
+    const relationshipDelta = {
+      type: 'relation',
+      key: 'npc_a:player_1:trust_level',
+      delta: 2,
+      reason: 'Aulus responds to the observable public conduct.',
+    };
+    const { calls, result } = await runRealTurn(FULL_SUBMISSION, {
+      adjudication: JSON.stringify(adjudication),
+      narration: `${POISONED_NARRATION_SENTINEL}: ${PRIVATE_SENTINEL}\nSUGGESTION: Wait`,
+      relationshipUpdates: JSON.stringify({ deltas: [relationshipDelta] }),
+    });
+
+    const relationshipPrompt = calls.find(call => call.kind === 'relationshipUpdates')?.prompt ?? '';
+    expect(relationshipPrompt).toContain(OBSERVABLE_SENTINEL);
+    expect(relationshipPrompt).toContain(SAFE_HEADLINE_SENTINEL);
+    expect(relationshipPrompt).toContain(SAFE_FACT_SENTINEL);
+    expect(relationshipPrompt).not.toContain(POISONED_NARRATION_SENTINEL);
+    expect(relationshipPrompt).not.toContain(PRIVATE_SENTINEL);
+    expect(
+      result.updatedEntities
+        .find(entity => entity.entity_id === 'npc_a')
+        ?.relationships.player_1?.trust_level,
+    ).toBe(2);
+  });
+
   it('gives adjudication three separately labeled projections', async () => {
     const { calls } = await runRealTurn(FULL_SUBMISSION);
     const prompt = calls.find(call => call.kind === 'adjudication')?.prompt ?? '';
@@ -285,6 +339,106 @@ describe('runNewTurn submission visibility routing', () => {
     expect(result.newHistoryEntry.resolutionTrace).toBeUndefined();
     expect(result.narration).not.toBe('');
     expect(calls.find(call => call.kind === 'adjudication')?.prompt).not.toContain('PLAYER ACTION OUTCOME');
+  });
+
+  it('rejects a question-only adjudication with player-authored consequences, while a conforming NPC/world-only adjudication still commits', async () => {
+    const playerArtifact = 'forbidden_question_artifact';
+    const independentNpcResource = 'independent_preparations';
+    const forbiddenPlayerAction = `${PRIVATE_SENTINEL}: the avatar investigates without permission.`;
+    const poisoned = {
+      turn: 7,
+      entityActions: [
+        { id: 'player_1', intent: 'intrigue', target: 'npc_a', notes: forbiddenPlayerAction },
+        { id: 'npc_a', intent: 'recruit', target: 'cohorts', notes: 'Aulus independently courts the cohorts.' },
+      ],
+      deltas: [
+        { type: 'resource', key: `player_1:${playerArtifact}`, delta: 1, reason: 'The fabricated inquiry creates an artifact.' },
+        {
+          type: 'rumor',
+          key: 'npc_a',
+          delta: 0.8,
+          reason: 'A player-authored rumor artifact.',
+          is_true: false,
+          origin_id: 'player_1',
+          topic: 'forbidden-question-artifact',
+        },
+        { type: 'relation', key: 'player_1:npc_a:trust_level', delta: 2, reason: 'The avatar autonomously changes their view.' },
+        { type: 'resource', key: `npc_a:${independentNpcResource}`, delta: 2, reason: 'Aulus acts on his own agenda.' },
+        { type: 'world', key: 'political_climate', delta: 0, reason: 'Legions Maneuver Independently' },
+      ],
+      headlines: ['Aulus moves among the cohorts.'],
+      gm_private: [],
+    };
+    const submission = { version: 1, kind: 'structured', questionOrContext: QUESTION_SENTINEL } as const;
+    const started = startRealTurn(submission, { adjudication: JSON.stringify(poisoned) });
+    let thrown: unknown;
+    try {
+      await started.resultPromise;
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toContain('player action boundary');
+    expect((thrown as Error).message).not.toContain(PRIVATE_SENTINEL);
+
+    const conforming = {
+      ...poisoned,
+      entityActions: [poisoned.entityActions[1]],
+      deltas: poisoned.deltas.filter(delta =>
+        delta.key === `npc_a:${independentNpcResource}` || delta.type === 'world'),
+    };
+    const { result } = await runRealTurn(submission, {
+      adjudication: JSON.stringify(conforming),
+    });
+
+    expect(result.newHistoryEntry.adjudication.entityActions).toEqual([
+      expect.objectContaining({ id: 'npc_a', intent: 'recruit' }),
+    ]);
+    expect(result.newHistoryEntry.adjudication.deltas).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'resource', key: `npc_a:${independentNpcResource}` }),
+      expect.objectContaining({ type: 'world', key: 'political_climate' }),
+    ]));
+    expect(
+      result.updatedEntities.find(entity => entity.entity_id === 'npc_a')?.resources[independentNpcResource],
+    ).toBe(2);
+    expect(result.updatedWorldState.political_climate).toBe('Legions Maneuver Independently');
+  });
+
+  it.each([
+    [
+      'adjudication headline',
+      {
+        adjudication: JSON.stringify({
+          turn: 7,
+          entityActions: [],
+          deltas: [],
+          headlines: ['The hidden action result was critical_success after a roll of 20.'],
+          gm_private: ['critical_success and roll 20 remain valid in this GM-only trace.'],
+        }),
+      },
+      'critical_success',
+    ],
+    [
+      'narration',
+      {
+        narration: 'The hidden action result was partial_success after the die rolled 14.\nSUGGESTION: Wait',
+      },
+      'partial_success',
+    ],
+  ])('rejects mechanical leakage from provider-authored %s without echoing the token in the error', async (_label, overrides, forbiddenToken) => {
+    const started = startRealTurn(FULL_SUBMISSION, overrides);
+    let thrown: unknown;
+    try {
+      await started.resultPromise;
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toContain('player-visible mechanics boundary');
+    expect((thrown as Error).message).not.toContain(forbiddenToken);
+    expect(started.calls.some(call => call.kind === 'adjudication')).toBe(true);
   });
 
   it.each([

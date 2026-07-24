@@ -26,6 +26,7 @@ import {
   scriptRelationshipDeltas,
   scriptSimulationState,
   scriptStoryRelevance,
+  PLAYER_ID,
 } from './fixtures';
 import { deserializeTurnSubmission } from '../../playerInput/turnSubmission';
 import { loadGame } from '../../persistence/saveGame';
@@ -36,7 +37,12 @@ function clientForTurn(
   seed: JourneyRunner,
   turn: number,
   label: string,
-  options: { relationshipFailure?: Error; narration?: string; includeAssessment?: boolean } = {},
+  options: {
+    relationshipFailure?: Error;
+    narration?: string;
+    includeAssessment?: boolean;
+    adjudication?: Parameters<typeof scriptAdjudication>[1];
+  } = {},
 ): ScriptedClient {
   const spotlight = label.includes('/failure') || label.includes('/retry');
   const ambition = label.includes('/retry');
@@ -56,7 +62,7 @@ function clientForTurn(
         private_reasoning: 'The Emperor reveals priorities through whom he receives.',
       }),
     } : {}),
-    adjudication: scriptAdjudication(turn),
+    adjudication: scriptAdjudication(turn, options.adjudication),
     simulationState: scriptSimulationState(seed.thread.simulationState),
     monologue: 'I will judge only what is before me, and keep counsel with myself.',
     narration: scriptNarration(options.narration ?? 'The Emperor hears the petitions of Rome.', [
@@ -269,16 +275,85 @@ describe('journey: structured player input through the real App transaction', ()
     });
     seed.thread.turnNumber = 2;
     const answer = 'From the imperial dais, you can see the senatorial benches are unusually sparse; nothing beyond that is established.';
-    const client = clientForTurn(seed, 2, 'structuredInput/question-only', {
+    const poisonedPlayerAction = 'POISONED_PLAYER_ACTION: the avatar investigates without permission.';
+    const poisonedPlayerDelta = 'POISONED_PLAYER_DELTA: the fabricated investigation creates an artifact.';
+    const poisoned = clientForTurn(seed, 2, 'structuredInput/question-only/poisoned', {
       includeAssessment: false,
       narration: answer,
+      adjudication: {
+        entityActions: [
+          {
+            id: PLAYER_ID,
+            intent: 'intrigue',
+            target: 'gaius_pontius_magnus',
+            notes: poisonedPlayerAction,
+          },
+          {
+            id: 'maximinus_thrax',
+            intent: 'recruit',
+            target: 'legio_iv_italica',
+            notes: 'Thrax independently sounds out the cohorts.',
+          },
+        ],
+        deltas: [
+          {
+            type: 'resource',
+            key: `${PLAYER_ID}:forbidden_question_artifact`,
+            delta: 1,
+            reason: poisonedPlayerDelta,
+          },
+          {
+            type: 'resource',
+            key: 'maximinus_thrax:independent_preparations',
+            delta: 1,
+            reason: 'Thrax advances his own preparations without the player acting.',
+          },
+        ],
+        headlines: ['Thrax quietly strengthens his camp.'],
+      },
     });
-    installAppGeminiScript(client);
+    installAppGeminiScript(poisoned);
     const app = await mountJourneyApp(buildSaveStateFromThread(seed.thread));
     try {
       await appClick(appButton(app.container, 'Structured'));
       await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Question / Context'), 'What can I tell from the empty benches?');
+      const expectedConsole = vi.spyOn(console, 'error').mockImplementation(() => {});
       await appClick(appButton(app.container, 'Submit turn'));
+      await waitForApp(() => expect(app.container.textContent).toContain('Your draft has been restored'));
+      expectedConsole.mockRestore();
+
+      const failedState = loadThreadState();
+      expect(failedState.turnNumber).toBe(2);
+      expect(failedState.turnHistory).toHaveLength(1);
+      expect(failedState.entities.find(entity => entity.entity_id === PLAYER_ID)?.resources)
+        .not.toHaveProperty('forbidden_question_artifact');
+      expect(failedState.entities.find(entity => entity.entity_id === 'maximinus_thrax')?.resources)
+        .not.toHaveProperty('independent_preparations');
+      expect(app.container.textContent).not.toContain(poisonedPlayerAction);
+      expect(app.container.textContent).not.toContain(poisonedPlayerDelta);
+      expect(poisoned.calls.map(call => call.kind)).toEqual(['storyRelevance', 'adjudication']);
+
+      const client = clientForTurn(seed, 2, 'structuredInput/question-only/conforming', {
+        includeAssessment: false,
+        narration: answer,
+        adjudication: {
+          entityActions: [{
+            id: 'maximinus_thrax',
+            intent: 'recruit',
+            target: 'legio_iv_italica',
+            notes: 'Thrax independently sounds out the cohorts.',
+          }],
+          deltas: [{
+            type: 'resource',
+            key: 'maximinus_thrax:independent_preparations',
+            delta: 1,
+            reason: 'Thrax advances his own preparations without the player acting.',
+          }],
+          headlines: ['Thrax quietly strengthens his camp.'],
+        },
+      });
+      installAppGeminiScript(client);
+      await appClick(appButton(app.container, 'Retry the last action'));
       await waitForApp(() => expect(loadThreadState().turnNumber).toBe(3));
 
       const loaded = loadThreadState();
@@ -305,7 +380,19 @@ describe('journey: structured player input through the real App transaction', ()
       expect(client.calls.some(call => call.kind === 'privateConversation')).toBe(false);
       expect(entry.resolutionTrace).toBeUndefined();
       expect(entry.mortalityTrace).toBeUndefined();
-      expect(entry.adjudication.deltas).toEqual([]);
+      expect(entry.adjudication.entityActions).toEqual([
+        expect.objectContaining({ id: 'maximinus_thrax', intent: 'recruit' }),
+      ]);
+      expect(entry.adjudication.deltas).toEqual([
+        expect.objectContaining({
+          type: 'resource',
+          key: 'maximinus_thrax:independent_preparations',
+        }),
+      ]);
+      expect(loaded.entities.find(entity => entity.entity_id === PLAYER_ID)?.resources)
+        .not.toHaveProperty('forbidden_question_artifact');
+      expect(loaded.entities.find(entity => entity.entity_id === 'maximinus_thrax')?.resources)
+        .toHaveProperty('independent_preparations', 1);
       expect(loaded.reports).toEqual([]);
       expect(loaded.truthLedger).toEqual([]);
       expect(loaded.knowledge).toEqual([]);

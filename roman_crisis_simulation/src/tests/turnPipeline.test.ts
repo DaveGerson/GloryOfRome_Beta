@@ -434,6 +434,46 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     expect(onNarrationChunk.mock.calls.at(-1)?.[0]).toBe(NARRATION_PROSE);
   });
 
+  it('rejects a mechanics-poisoned narration stream before any unsafe cumulative chunk reaches the UI callback', async () => {
+    const h = createHarness(true);
+    const player = makeEntity();
+    const onNarrationChunk = vi.fn();
+    const poisonedNarration = 'The speech landed as critical_success after the die rolled 20.';
+
+    const turnPromise = runNewTurn(
+      h.ai,
+      freeform('Address the Senate'),
+      player,
+      2,
+      [player],
+      worldState,
+      simulationState,
+      [],
+      [],
+      [],
+      [],
+      '',
+      false,
+      'Grim political thriller',
+      { onNarrationChunk },
+    );
+    turnPromise.catch(() => {});
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    await h.issued.adjudication.promise;
+    h.response.adjudication.resolve(adjudicationJson);
+    await Promise.all([h.issued.simulationState.promise, h.issued.monologue.promise, h.issued.narration.promise]);
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologueText);
+    h.response.narration.resolve(poisonedNarration);
+    h.response.relationshipUpdates.resolve(relationshipJson);
+
+    await expect(turnPromise).rejects.toThrow('player-visible mechanics boundary');
+    expect(onNarrationChunk).not.toHaveBeenCalled();
+    expect(h.order).not.toContain('relationshipUpdates');
+  });
+
   it('propagates a rejection in one parallel leg as the turn failure (Promise.all fail-fast) without an unhandled-rejection warning from the surviving legs', async () => {
     const h = createHarness(false);
     const player = makeEntity();
