@@ -41,8 +41,11 @@ const CharacterSelection: React.FC<{
     const isMountedRef = useRef(true);
     const creationInFlightRef = useRef(false);
 
-    useEffect(() => () => {
-        isMountedRef.current = false;
+    useEffect(() => {
+        isMountedRef.current = true;
+        return () => {
+            isMountedRef.current = false;
+        };
     }, []);
 
     const PLAYER_CHARACTER_OPTIONS: PlayerCharacterOption[] = [
