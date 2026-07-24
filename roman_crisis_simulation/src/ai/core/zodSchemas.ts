@@ -350,3 +350,9 @@ export const zEvalJudgeVerdict = z.object({
   information_asymmetry: zEvalJudgeAxisScore,
   character_richness: zEvalJudgeAxisScore,
 }).passthrough();
+/** Strict model boundary: selections only, no relationship interpretation or attribution. */
+export const zRelationshipObservations = z.array(z.object({
+  evidenceId: z.string(),
+  participantIds: z.array(z.string()),
+  excerpt: z.string().refine(value => value.trim().length > 0, 'excerpt must contain non-whitespace text'),
+}).strict());

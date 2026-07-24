@@ -52,6 +52,32 @@ function makeReport(overrides: Partial<Report> = {}): Report {
 }
 
 describe('knowledge/store', () => {
+  describe('KnowledgeClaim save-v1 shape', () => {
+    it('keeps relationshipObservation optional so legacy claims remain valid', () => {
+      const legacy = {
+        id: 'legacy',
+        subject: 'lucius',
+        claim: 'A legacy claim.',
+        claimKey: 'report:lucius:general:rumor',
+        firstLearnedTurn: 1,
+        updates: [{ turn: 1, source: 'rumor' as const, text: 'A legacy claim.' }],
+      } satisfies KnowledgeClaim;
+      const observed = {
+        ...legacy,
+        id: 'observed',
+        claimKey: 'relationship-observation:2:0',
+        relationshipObservation: {
+          evidenceId: 'report_2_1',
+          participantIds: ['severus_alexander', 'lucius'],
+          quote: { speakerId: 'lucius', text: 'I stand with Severus.' },
+        },
+      } satisfies KnowledgeClaim;
+
+      expect(legacy).not.toHaveProperty('relationshipObservation');
+      expect(observed.relationshipObservation.evidenceId).toBe('report_2_1');
+    });
+  });
+
   describe('ingestPerceivedChanges (digest channel)', () => {
     it('opens a new claim from a perceived change, stamped with the turn', () => {
       const store = ingestPerceivedChanges([], [makeChange()], 3);

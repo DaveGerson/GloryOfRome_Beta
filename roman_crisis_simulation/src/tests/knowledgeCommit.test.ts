@@ -39,6 +39,46 @@ function makeReport(overrides: Partial<Report> = {}): Report {
 }
 
 describe('knowledge/commit computeTurnKnowledge', () => {
+  it('optionally commits validated relationship observations with the authoritative turn', () => {
+    const relationshipObservations = {
+      evidence: [{
+        id: 'report_99_1',
+        source: 'rumor' as const,
+        text: 'Senator Lucius defended Severus Alexander before the Curia.',
+      }],
+      drafts: [{
+        evidenceId: 'report_99_1',
+        participantIds: ['severus_alexander', 'lucius'],
+        excerpt: 'Senator Lucius defended Severus Alexander before the Curia.',
+      }],
+      entities: [
+        { entity_id: 'severus_alexander', name: 'Severus Alexander' },
+        { entity_id: 'lucius', name: 'Senator Lucius' },
+      ],
+      knownEntityIds: ['severus_alexander'],
+    };
+
+    const store = computeTurnKnowledge({
+      prev: [],
+      perceivedChanges: [],
+      reportsBefore: [],
+      reportsAfter: [],
+      relationshipObservations,
+      turnNumber: 5,
+    });
+
+    expect(store).toHaveLength(1);
+    expect(store[0]).toMatchObject({
+      claimKey: 'relationship-observation:5:0',
+      firstLearnedTurn: 5,
+      updates: [{ turn: 5, source: 'rumor' }],
+      relationshipObservation: {
+        evidenceId: 'report_99_1',
+        participantIds: ['severus_alexander', 'lucius'],
+      },
+    });
+  });
+
   it('ingests the perceived digest and this turn\'s new reports into one store', () => {
     const store = computeTurnKnowledge({
       prev: [],
@@ -148,6 +188,45 @@ describe('knowledge/commit computeTurnKnowledge', () => {
 });
 
 describe('knowledge/commit computeInvestigationKnowledge', () => {
+  it('optionally commits a relationship observation alongside the bought reveal without mutating prev', () => {
+    const prev: KnowledgeClaim[] = [];
+    const relationshipObservations = {
+      evidence: [{
+        id: 'investigation_6_lucius',
+        source: 'spy' as const,
+        text: 'Senator Lucius paid the Praetorian prefect after leaving your audience.',
+      }],
+      drafts: [{
+        evidenceId: 'investigation_6_lucius',
+        participantIds: ['severus_alexander', 'lucius'],
+        excerpt: 'Senator Lucius paid the Praetorian prefect after leaving your audience.',
+      }],
+      entities: [
+        { entity_id: 'severus_alexander', name: 'Severus Alexander' },
+        { entity_id: 'lucius', name: 'Senator Lucius' },
+      ],
+      knownEntityIds: ['severus_alexander'],
+    };
+
+    const store = computeInvestigationKnowledge({
+      prev,
+      targetId: 'lucius',
+      kind: 'secrets',
+      reportText: 'Senator Lucius paid the Praetorian prefect after leaving your audience.',
+      relationshipObservations,
+      turnNumber: 6,
+    });
+
+    expect(prev).toEqual([]);
+    expect(store).toHaveLength(2);
+    const observation = store.find(claim => claim.relationshipObservation);
+    expect(observation).toMatchObject({
+      claimKey: 'relationship-observation:6:0',
+      firstLearnedTurn: 6,
+      updates: [{ turn: 6, source: 'spy' }],
+    });
+  });
+
   it('ingests the bought reveal as a spy-sourced claim stamped with the authoritative turn', () => {
     const store = computeInvestigationKnowledge({
       prev: [],

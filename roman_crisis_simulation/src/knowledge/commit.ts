@@ -32,7 +32,17 @@ import {
   ingestReports,
   InvestigationKind,
   KnowledgeClaim,
+  PlayerSafeEvidence,
+  RelationshipObservationDraft,
 } from './store';
+import { ingestRelationshipObservations } from './relationships';
+
+export interface RelationshipObservationsInput {
+  evidence: PlayerSafeEvidence[];
+  drafts: RelationshipObservationDraft[];
+  entities: Array<{ entity_id: string; name: string }>;
+  knownEntityIds: string[];
+}
 
 export interface TurnKnowledgeInput {
   /** The knowledge store as of the previous commit. */
@@ -45,6 +55,7 @@ export interface TurnKnowledgeInput {
   reportsAfter: Report[];
   /** The App's authoritative turn counter for the turn being committed. */
   turnNumber: number;
+  relationshipObservations?: RelationshipObservationsInput;
 }
 
 /**
@@ -62,15 +73,16 @@ export function computeTurnKnowledge({
   perceivedChanges,
   reportsBefore,
   reportsAfter,
-  turnNumber,
+  turnNumber, relationshipObservations,
 }: TurnKnowledgeInput): KnowledgeClaim[] {
   const priorReportIds = new Set(reportsBefore.map(r => r.id));
   const reportsThisTurn = reportsAfter.filter(r => !priorReportIds.has(r.id));
-  return ingestReports(
+  const next = ingestReports(
     ingestPerceivedChanges(prev, perceivedChanges, turnNumber),
     reportsThisTurn,
     turnNumber
   );
+  return relationshipObservations ? ingestRelationshipObservations(next, { ...relationshipObservations, turn: turnNumber }) : next;
 }
 
 export interface InvestigationKnowledgeInput {
@@ -82,6 +94,7 @@ export interface InvestigationKnowledgeInput {
   reportText: string;
   /** The App's authoritative turn counter at the moment of the reveal. */
   turnNumber: number;
+  relationshipObservations?: RelationshipObservationsInput;
 }
 
 /**
@@ -94,12 +107,13 @@ export function computeInvestigationKnowledge({
   targetId,
   kind,
   reportText,
-  turnNumber,
+  turnNumber, relationshipObservations,
 }: InvestigationKnowledgeInput): KnowledgeClaim[] {
-  return ingestInvestigationReveal(prev, {
+  const next = ingestInvestigationReveal(prev, {
     targetId,
     kind,
     text: reportText,
     turn: turnNumber,
   });
+  return relationshipObservations ? ingestRelationshipObservations(next, { ...relationshipObservations, turn: turnNumber }) : next;
 }

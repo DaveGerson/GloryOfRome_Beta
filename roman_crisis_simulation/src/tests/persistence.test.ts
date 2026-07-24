@@ -13,6 +13,7 @@ import {
   type InferredAmbitionState,
 } from '../persistence/saveGame';
 import type { TurnHistoryEntry, RawCallRecord, Memory } from '../types';
+import type { KnowledgeClaim } from '../knowledge/store';
 
 function makeState(overrides: Partial<SaveGameState> = {}): SaveGameState {
   return {
@@ -159,6 +160,41 @@ describe('persistence/saveGame', () => {
     const loaded = loadGame();
     expect(loaded).not.toBeNull();
     expect(loaded!.state.knowledge).toEqual(knowledge);
+  });
+
+  it('round-trips optional relationship observation markers while retaining legacy claims under save version 1', () => {
+    const legacy: KnowledgeClaim = {
+      id: 'claim_1_report:lucius:general:rumor',
+      subject: 'lucius',
+      claim: 'A legacy report about Lucius.',
+      claimKey: 'report:lucius:general:rumor',
+      firstLearnedTurn: 1,
+      updates: [{ turn: 1, source: 'rumor', text: 'A legacy report about Lucius.' }],
+    };
+    const observation: KnowledgeClaim = {
+      id: 'claim_7_relationship-observation:7:0',
+      subject: 'severus_alexander',
+      claim: 'Senator Lucius said, "I stand with Severus."',
+      claimKey: 'relationship-observation:7:0',
+      firstLearnedTurn: 7,
+      updates: [{
+        turn: 7,
+        source: 'witnessed',
+        text: 'Senator Lucius said, "I stand with Severus."',
+      }],
+      relationshipObservation: {
+        evidenceId: 'direct_7_1',
+        participantIds: ['severus_alexander', 'lucius'],
+        quote: { speakerId: 'lucius', text: 'I stand with Severus.' },
+      },
+    };
+
+    saveGame(makeState({ turnNumber: 7, knowledge: [legacy, observation] }));
+    const loaded = loadGame();
+
+    expect(loaded?.version).toBe(1);
+    expect(loaded?.state.knowledge).toEqual([legacy, observation]);
+    expect(loaded?.state.knowledge?.[0].relationshipObservation).toBeUndefined();
   });
 
   it('round-trips the optional Director intents slice (4C.3), and their absence on a pre-Director save', () => {

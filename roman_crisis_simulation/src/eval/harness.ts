@@ -36,6 +36,7 @@ import {
   zMortalityValidation,
   zNpcMindDecision,
   zRelationshipDeltas,
+  zRelationshipObservations,
   zScenarioStructure,
   zSimulationState,
   zStoryRelevance,
@@ -55,7 +56,7 @@ import { zAmbitionInference } from '../ai/tools/ambition';
  * callNames are suffixed (e.g. `entityBatch:NPCs_1`,
  * `npcMind:maximinus_thrax`), handled by `schemaForCallName` below.
  */
-export const STRUCTURED_CALL_SCHEMAS: Record<string, ZodType<any, any, any>> = {
+export const STRUCTURED_CALL_SCHEMAS: Record<string, ZodType> = {
   assessment: zActionAssessment,
   adjudication: zAdjudication,
   storyRelevance: zStoryRelevance,
@@ -68,6 +69,7 @@ export const STRUCTURED_CALL_SCHEMAS: Record<string, ZodType<any, any, any>> = {
   scenarioStructure: zScenarioStructure,
   characterCreation: zEntity,
   ambitionInference: zAmbitionInference,
+  relationshipObservations: zRelationshipObservations,
 };
 
 /** Prose call families (per ai/prompts/README.md) - no JSON to validate, skipped by the schema check. */
@@ -81,7 +83,7 @@ export const PROSE_CALL_NAMES: ReadonlySet<string> = new Set([
 ]);
 
 /** Resolves a captured callName to its zod schema, or null when no mapping exists. */
-export function schemaForCallName(callName: string): ZodType<any, any, any> | null {
+export function schemaForCallName(callName: string): ZodType | null {
   if (callName === 'entityBatch' || callName.startsWith('entityBatch:')) return zEntityBatch;
   // Per-spotlight mind calls (4C.4) are suffixed per character, e.g.
   // 'npcMind:maximinus_thrax' - same convention as entityBatch above.
