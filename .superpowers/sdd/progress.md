@@ -46,3 +46,15 @@ Task 5: complete (commits `e32a912..8d093a1`, review clean).
 - Scope: composer UI, pure draft state, mode-only local preference, exhaustive shared turn-stage copy, and Task 1 canonical preview/validation seam; no App wiring, prompts, gameplay mechanics, reducer, save-state, or draft persistence
 
 Task 3: complete (commits `9a492ce..3cb8700`, review clean).
+
+## Task 2: visibility-safe AI routing
+
+- Reviewed task range: `ebb513fbc5b8..cf4e4fc`
+- Integration merge: `a1c1cb6`
+- TDD chain: test-only RED `76f3b6d`; production GREEN `b577ae4`; adversarial fixes `dbf78f6`, `ac0f7cc`, `8b7ed19`, and `cf4e4fc`
+- Fresh final Sol xhigh review: privacy and projection routing approved; no Critical, Important, or Minor findings
+- Controller verification: focused Task 1/Task 2 suite 227/227, typecheck exit 0, targeted zero-warning lint exit 0, full unit suite 39 files and 741 tests passed
+- Combined Wave 2 integration verification after Tasks 2, 3, and 5: focused union passed, typecheck exit 0, repository lint exit 0, full unit suite 43 files and 827 tests passed, production build exit 0
+- Scope: canonical visibility projections, prompt guards, mortality-safe trusted context, narration action-presence typing, ambition fail-closed routing, and mock parity; no App wiring or new gameplay mechanics
+
+Task 2: complete (commits `76f3b6d..cf4e4fc`, review clean).
