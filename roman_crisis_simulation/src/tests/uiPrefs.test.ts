@@ -120,15 +120,16 @@ describe('persistence/uiPrefs: composer mode', () => {
 
     expect(() => getComposerMode()).not.toThrow();
     expect(getComposerMode()).toBe('chat');
+    expect(warnSpy).toHaveBeenCalled();
 
     vi.restoreAllMocks();
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const writeWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
     });
 
     expect(() => setComposerMode('structured')).not.toThrow();
-    expect(warnSpy).toHaveBeenCalled();
+    expect(writeWarnSpy).toHaveBeenCalled();
   });
 
   it('stores only the mode preference, never either draft or the save bundle', () => {
