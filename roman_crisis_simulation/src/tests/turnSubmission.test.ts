@@ -289,6 +289,35 @@ describe('canonical serialization and compatibility', () => {
     expect(deserializeTurnSubmission(serialized)).toEqual(submission);
   });
 
+  it('canonicalizes shuffled top-level and nested keys before serializing and validating an envelope', () => {
+    const canonical: TurnSubmission = {
+      version: 1,
+      kind: 'structured',
+      actions: ['Attend the Senate'],
+      messagesOrOrders: [{
+        recipient: { kind: 'known_entity', entityId: 'lucius', displayName: 'Lucius' },
+        command: 'Meet me at dusk',
+      }],
+      privateIntent: 'Watch the exits',
+    };
+    const shuffled = {
+      privateIntent: 'Watch the exits',
+      messagesOrOrders: [{
+        command: 'Meet me at dusk',
+        recipient: { displayName: 'Lucius', entityId: 'lucius', kind: 'known_entity' },
+      }],
+      actions: ['Attend the Senate'],
+      kind: 'structured',
+      version: 1,
+    } as TurnSubmission;
+
+    const canonicalSerialized = serializeTurnSubmission(canonical);
+    const shuffledSerialized = serializeTurnSubmission(shuffled);
+
+    expect(shuffledSerialized).toBe(canonicalSerialized);
+    expect(deserializeTurnSubmission(shuffledSerialized)).toEqual(canonical);
+  });
+
   it('keeps ordinary legacy freeform as raw text and parses it without changing multiline content', () => {
     const text = 'Address the Senate.\n\nThen wait  for Lucius.';
     const submission: TurnSubmission = { version: 1, kind: 'freeform', text };

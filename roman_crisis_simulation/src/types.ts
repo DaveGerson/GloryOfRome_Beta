@@ -38,9 +38,9 @@ export interface MessageOrOrderDraft {
 }
 
 export type TurnSubmission =
-  | { version: 1; kind: 'freeform'; text: string }
+  | { version: typeof TURN_SUBMISSION_VERSION; kind: 'freeform'; text: string }
   | {
-      version: 1;
+      version: typeof TURN_SUBMISSION_VERSION;
       kind: 'structured';
       actions?: readonly string[];
       messagesOrOrders?: readonly MessageOrOrder[];
