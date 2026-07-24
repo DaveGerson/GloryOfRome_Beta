@@ -77,7 +77,6 @@ export const PROSE_CALL_NAMES: ReadonlySet<string> = new Set([
   'narration',
   'playerMonologue',
   'clarification',
-  'rawThoughts',
   'deepAnalysis',
   'epilogue',
 ]);

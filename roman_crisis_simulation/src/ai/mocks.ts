@@ -411,11 +411,6 @@ export const mockGetClarificationOnEvent = async (event: string, question: strin
     return `(Mock) Regarding "${event}", the general consensus is that it was orchestrated by a rival faction to sow discord. The motives seem purely political.`;
 };
 
-export const mockGetRawThoughts = async (target: Entity): Promise<string> => {
-    console.log("--- MOCK RAW THOUGHTS ---");
-    return `(Mock) My gut tells me ${target.name} is not to be trusted. They have a serpent's smile. I should watch my back.`;
-};
-
 export const mockGetDeepAnalysis = async (target: Entity): Promise<string> => {
     console.log("--- MOCK DEEP ANALYSIS ---");
     return `(Mock Analysis) Our agents report that ${target.name} has been meeting secretly with members of the military. Their stated goals likely hide a more sinister ambition. They pose a moderate threat, but have limited resources for now.`;

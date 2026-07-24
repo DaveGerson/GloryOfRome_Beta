@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { Entity, InvestigationResult } from '../../types';
-import { getRawThoughts, getInvestigationResult, getDeepAnalysis } from '../../ai/tools/intelligence';
+import { getInvestigationResult, getDeepAnalysis } from '../../ai/tools/intelligence';
 import { deriveDossier, InvestigationKind, KnowledgeClaim, SchemeDiscovery } from '../../knowledge/store';
 
 /**
@@ -45,7 +45,6 @@ export const DEEP_ANALYSIS_COST = 1;
  * underlying AI call - no React state, no callback invocation.
  */
 export type IntelRequestOutcome =
-  | { kind: 'raw_thoughts'; text: string }
   | { kind: 'deep_analysis'; charged: false }
   | { kind: 'deep_analysis'; charged: true; cost: number; analysis: string }
   | { kind: 'investigation'; investigationKind: InvestigationKind; charged: false }
@@ -77,7 +76,7 @@ export type IntelRequestOutcome =
  * written here.
  */
 export async function resolveIntelRequest(params: {
-  type: 'secrets' | 'beliefs' | 'scheme' | 'raw_thoughts' | 'deep_analysis';
+  type: 'secrets' | 'beliefs' | 'scheme' | 'deep_analysis';
   target: Entity;
   playerEntity: Entity;
   knowledge: KnowledgeClaim[];
@@ -86,10 +85,6 @@ export async function resolveIntelRequest(params: {
 }): Promise<IntelRequestOutcome> {
   const { type, target, playerEntity, knowledge, ai, isMockMode } = params;
   switch (type) {
-    case 'raw_thoughts': {
-      const text = await getRawThoughts(ai, target, playerEntity, isMockMode);
-      return { kind: 'raw_thoughts', text };
-    }
     case 'deep_analysis': {
       // ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - wires the previously-dead
       // `getDeepAnalysis`/`deep_analyses` pairing as a premium intel tier,

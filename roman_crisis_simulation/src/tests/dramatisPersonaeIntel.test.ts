@@ -74,18 +74,6 @@ describe('components/tabs/dramatisPersonaeIntel - schemeDiscoveryFor (D28, moved
 });
 
 describe('components/tabs/dramatisPersonaeIntel - resolveIntelRequest (mock mode)', () => {
-  it('raw_thoughts always resolves - no affordability gate', async () => {
-    const player = makeEntity({ entity_id: 'player_1', resources: {} });
-    const outcome = await resolveIntelRequest({
-      type: 'raw_thoughts', target, playerEntity: player, knowledge: [], ai: unusedAi, isMockMode: true,
-    });
-    expect(outcome.kind).toBe('raw_thoughts');
-    if (outcome.kind === 'raw_thoughts') {
-      expect(typeof outcome.text).toBe('string');
-      expect(outcome.text.length).toBeGreaterThan(0);
-    }
-  });
-
   it('deep_analysis: charged=false and no AI call implied when deep_analyses is below cost', async () => {
     const player = makeEntity({ resources: { deep_analyses: 0 } });
     const outcome = await resolveIntelRequest({

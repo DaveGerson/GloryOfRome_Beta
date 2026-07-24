@@ -25,7 +25,6 @@ one of the builders below.
 | `mortalityOutcome` | `mortality.ts::buildMortalityOutcomePrompt` | pro | `zMortalityOutcome` | `MortalityOutcomeSchema` | `turn.ts` step 2.6 (`ai/core/mortality.ts::processMortality`, gate 3) |
 | `investigation` | `intelligence.ts::buildInvestigationPrompt` | pro | `zInvestigationResult` | `buildInvestigationResultSchema(subject)` | Player-triggered intel action |
 | `clarification` | `intelligence.ts::buildClarificationPrompt` | flash | - (prose) | - | Player-triggered intel action |
-| `rawThoughts` | `intelligence.ts::buildRawThoughtsPrompt` | flash | - (prose) | - | Player-triggered intel action |
 | `deepAnalysis` | `intelligence.ts::buildDeepAnalysisPrompt` | flash | - (prose) | - | Player-triggered intel action |
 | `scenarioStructure` | `worldGen.ts::buildScenarioStructurePrompt` | pro | `zScenarioStructure` | `ScenarioStructureSchema` | `initiator.ts` Step 1 (world skeleton) |
 | `entityBatch` | `worldGen.ts::buildEntityBatchPrompt` | pro | `zEntityBatch` | `EntityListSchema` | `initiator.ts` Step 2 (fill in entities) |

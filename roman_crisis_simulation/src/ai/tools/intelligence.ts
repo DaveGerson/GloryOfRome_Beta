@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { Entity, WorldState, StoryRelevance, Adjudication, SimulationState, EventDelta, ActionResolutionEvent, NpcIntent } from '../../types';
-import { mockGetClarificationOnEvent, mockGetRawThoughts, mockGetDeepAnalysis, mockGetInvestigationResult, mockGetPlayerMonologue, mockGetStoryRelevance, mockSimulatePrivateConversation } from '../mocks';
+import { mockGetClarificationOnEvent, mockGetDeepAnalysis, mockGetInvestigationResult, mockGetPlayerMonologue, mockGetStoryRelevance, mockSimulatePrivateConversation } from '../mocks';
 import { RelationshipDeltasSchema, ConversationSimulationSchema, StoryRelevanceSchema, SimulationStateSchema, buildInvestigationResultSchema } from '../core/schemas';
 import { generateStructured, generateText, GEMINI_PRO, GEMINI_FLASH } from '../core/geminiService';
 import { zRelationshipDeltas, zConversationSimulation, zStoryRelevance, zSimulationState, zInvestigationResult } from '../core/zodSchemas';
@@ -16,7 +16,6 @@ import {
 } from '../core/resolution';
 import {
     buildClarificationPrompt,
-    buildRawThoughtsPrompt,
     buildDeepAnalysisPrompt,
     buildInvestigationPrompt,
     buildStoryRelevancePrompt,
@@ -37,17 +36,6 @@ export const getClarificationOnEvent = async (ai: GoogleGenAI, event: string, qu
     const { systemInstruction, prompt } = buildClarificationPrompt(event, question, player, isVisible);
     const text = await generateText(ai, { callName: 'clarification', model: GEMINI_FLASH, systemInstruction, prompt });
     return text || "No response generated.";
-};
-
-export const getRawThoughts = async (ai: GoogleGenAI, target: Entity, player: Entity, isMockMode: boolean): Promise<string> => {
-    if (isMockMode) {
-        if(!mockGetRawThoughts) throw new Error("Mock function 'mockGetRawThoughts' is not implemented.");
-        return mockGetRawThoughts(target);
-    }
-    const isVisible = player.visibility_network.includes(target.entity_id);
-    const { systemInstruction, prompt } = buildRawThoughtsPrompt(target, player, isVisible);
-    const text = await generateText(ai, { callName: 'rawThoughts', model: GEMINI_FLASH, systemInstruction, prompt });
-    return text || "I have no thoughts on this.";
 };
 
 export const getDeepAnalysis = async (ai: GoogleGenAI, target: Entity, player: Entity, isMockMode: boolean): Promise<string> => {
