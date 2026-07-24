@@ -2,13 +2,14 @@ import {
   TURN_SUBMISSION_VERSION,
   type KnownRecipientOption,
   type MessageOrOrder,
-  type MessageOrOrderDraft,
   type MessageRecipient,
   type StructuredTurnDraft,
   type TurnSubmission,
 } from '../types';
 
-export const TURN_SUBMISSION_PREFIX = `GOR_TURN_SUBMISSION/${TURN_SUBMISSION_VERSION}\n`;
+const TURN_SUBMISSION_NAMESPACE = 'GOR_TURN_SUBMISSION/';
+
+export const TURN_SUBMISSION_PREFIX = `${TURN_SUBMISSION_NAMESPACE}${TURN_SUBMISSION_VERSION}\n`;
 export const MAX_TURN_SUBMISSION_CHARACTERS = 20_000;
 
 export interface TurnSubmissionIssue {
@@ -29,12 +30,25 @@ type StructuredSubmission = Extract<TurnSubmission, { kind: 'structured' }>;
 type ValidationResult =
   | { ok: true; submission: TurnSubmission }
   | { ok: false; issues: TurnSubmissionIssue[] };
+type RecipientResult =
+  | { ok: true; recipient: MessageRecipient }
+  | { ok: false; message: string };
+
+interface StructuredFields {
+  actions: readonly unknown[];
+  messagesOrOrders: readonly unknown[];
+  privateIntent: string;
+  questionOrContext: string;
+}
+
+type RecipientNormalizer = (value: unknown) => RecipientResult;
 
 const issue = (field: string, message: string): ValidationResult => ({
   ok: false,
   issues: [{ field, message }],
 });
 
+const recipientIssue = (message: string): RecipientResult => ({ ok: false, message });
 const trim = (value: string): string => value.trim();
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -49,72 +63,91 @@ function formatRecipientForPlayerHistory(recipient: MessageRecipient): string {
   return recipient.kind === 'known_entity' ? recipient.displayName : recipient.text;
 }
 
-function canonicalizeRecipient(recipient: MessageRecipient): MessageRecipient {
-  return recipient.kind === 'known_entity'
-    ? { kind: 'known_entity', entityId: recipient.entityId, displayName: recipient.displayName }
-    : { kind: 'free_text', text: recipient.text };
+function encodeCanonicalSubmission(submission: TurnSubmission): string {
+  if (submission.kind === 'structured' || submission.text.startsWith(TURN_SUBMISSION_NAMESPACE)) {
+    return TURN_SUBMISSION_PREFIX + JSON.stringify(submission);
+  }
+  return submission.text;
 }
 
-function canonicalizeSubmission(submission: TurnSubmission): TurnSubmission {
-  if (submission.kind === 'freeform') {
-    return { version: TURN_SUBMISSION_VERSION, kind: 'freeform', text: submission.text };
-  }
-  return {
+function enforceArtifactLimit(submission: TurnSubmission): ValidationResult {
+  return encodeCanonicalSubmission(submission).length <= MAX_TURN_SUBMISSION_CHARACTERS
+    ? { ok: true, submission }
+    : issue('submission', 'Turn submission exceeds 20,000 characters.');
+}
+
+function normalizeFreeform(text: string): ValidationResult {
+  const normalizedText = trim(text);
+  if (!normalizedText) return issue('text', 'Enter a turn submission.');
+  return enforceArtifactLimit({
     version: TURN_SUBMISSION_VERSION,
-    kind: 'structured',
-    ...(submission.actions !== undefined ? { actions: [...submission.actions] } : {}),
-    ...(submission.messagesOrOrders !== undefined ? {
-      messagesOrOrders: submission.messagesOrOrders.map(({ recipient, command }) => ({
-        recipient: canonicalizeRecipient(recipient), command,
-      })),
-    } : {}),
-    ...(submission.privateIntent !== undefined ? { privateIntent: submission.privateIntent } : {}),
-    ...(submission.questionOrContext !== undefined ? { questionOrContext: submission.questionOrContext } : {}),
-  };
+    kind: 'freeform',
+    text: normalizedText,
+  });
 }
 
-function observableLines(submission: TurnSubmission): string[] {
-  if (submission.kind === 'freeform') return [submission.text];
-  return [
-    ...(submission.actions ?? []),
-    ...(submission.messagesOrOrders ?? []).map(
-      ({ recipient, command }) => `To: ${formatRecipientForAi(recipient)}\n${command}`,
-    ),
-  ];
+function readStructuredFields(
+  value: Record<string, unknown>,
+  allowMissingFields: boolean,
+): StructuredFields | null {
+  const actions = allowMissingFields && value.actions === undefined ? [] : value.actions;
+  const messagesOrOrders = allowMissingFields && value.messagesOrOrders === undefined
+    ? []
+    : value.messagesOrOrders;
+  const privateIntent = allowMissingFields && value.privateIntent === undefined
+    ? ''
+    : value.privateIntent;
+  const questionOrContext = allowMissingFields && value.questionOrContext === undefined
+    ? ''
+    : value.questionOrContext;
+
+  if (!Array.isArray(actions)
+    || !Array.isArray(messagesOrOrders)
+    || typeof privateIntent !== 'string'
+    || typeof questionOrContext !== 'string') {
+    return null;
+  }
+  return { actions, messagesOrOrders, privateIntent, questionOrContext };
 }
 
-function normalizeStructuredDraft(
-  draft: StructuredTurnDraft,
-  context: { knownRecipients: readonly KnownRecipientOption[] },
+function normalizeStructuredFields(
+  fields: StructuredFields,
+  normalizeRecipient: RecipientNormalizer,
+  allowBlankDraftRows: boolean,
 ): ValidationResult {
-  const actions = draft.actions.map(trim).filter(Boolean);
-  const messagesOrOrders: MessageOrOrder[] = [];
-
-  for (let index = 0; index < draft.messagesOrOrders.length; index += 1) {
-    const row = draft.messagesOrOrders[index];
-    const command = typeof row?.command === 'string' ? trim(row.command) : '';
-    const recipientDraft = row?.recipient;
-    const hasRecipient = recipientDraft !== null && recipientDraft !== undefined;
-    if (!hasRecipient && !command) continue;
-    if (!hasRecipient || !command) return issue(`messagesOrOrders.${index}`, 'Recipient and command are both required.');
-
-    let recipient: MessageRecipient;
-    if (recipientDraft.kind === 'known_entity') {
-      const option = context.knownRecipients.find((candidate) => candidate.entityId === recipientDraft.entityId);
-      if (!option) return issue(`messagesOrOrders.${index}.recipient`, 'Selected recipient is unavailable.');
-      recipient = { kind: 'known_entity', entityId: option.entityId, displayName: option.displayName };
-    } else if (recipientDraft.kind === 'free_text') {
-      const text = typeof recipientDraft.text === 'string' ? trim(recipientDraft.text) : '';
-      if (!text) return issue(`messagesOrOrders.${index}.recipient`, 'Enter a recipient.');
-      recipient = { kind: 'free_text', text };
-    } else {
-      return issue(`messagesOrOrders.${index}.recipient`, 'Unsupported recipient.');
+  const actions: string[] = [];
+  for (let index = 0; index < fields.actions.length; index += 1) {
+    const action = fields.actions[index];
+    if (typeof action !== 'string') {
+      return issue(`actions.${index}`, 'Action must be text.');
     }
-    messagesOrOrders.push({ recipient, command });
+    const normalizedAction = trim(action);
+    if (normalizedAction) actions.push(normalizedAction);
   }
 
-  const privateIntent = trim(draft.privateIntent ?? '');
-  const questionOrContext = trim(draft.questionOrContext ?? '');
+  const messagesOrOrders: MessageOrOrder[] = [];
+  for (let index = 0; index < fields.messagesOrOrders.length; index += 1) {
+    const row = fields.messagesOrOrders[index];
+    if (!isRecord(row) || typeof row.command !== 'string') {
+      return issue(`messagesOrOrders.${index}`, 'Message or order is malformed.');
+    }
+
+    const command = trim(row.command);
+    const hasRecipient = row.recipient !== null && row.recipient !== undefined;
+    if (!hasRecipient && !command && allowBlankDraftRows) continue;
+    if (!hasRecipient || !command) {
+      return issue(`messagesOrOrders.${index}`, 'Recipient and command are both required.');
+    }
+
+    const recipient = normalizeRecipient(row.recipient);
+    if (!recipient.ok) {
+      return issue(`messagesOrOrders.${index}.recipient`, recipient.message);
+    }
+    messagesOrOrders.push({ recipient: recipient.recipient, command });
+  }
+
+  const privateIntent = trim(fields.privateIntent);
+  const questionOrContext = trim(fields.questionOrContext);
   if (!actions.length && !messagesOrOrders.length && !privateIntent && !questionOrContext) {
     return issue('submission', 'Enter at least one turn detail.');
   }
@@ -127,127 +160,166 @@ function normalizeStructuredDraft(
     ...(privateIntent ? { privateIntent } : {}),
     ...(questionOrContext ? { questionOrContext } : {}),
   };
-  return serializeTurnSubmission(submission).length <= MAX_TURN_SUBMISSION_CHARACTERS
-    ? { ok: true, submission }
-    : issue('submission', 'Turn submission exceeds 20,000 characters.');
+  return enforceArtifactLimit(submission);
 }
 
-function toStructuredDraft(draft: Exclude<TurnSubmission, { kind: 'freeform' }> | StructuredTurnDraft): StructuredTurnDraft | null {
-  if (!Array.isArray(draft.actions) || !Array.isArray(draft.messagesOrOrders)
-    || typeof draft.privateIntent !== 'string' || typeof draft.questionOrContext !== 'string') {
-    if ('kind' in draft && draft.kind === 'structured' && draft.version === TURN_SUBMISSION_VERSION) {
-      return {
-        actions: Array.isArray(draft.actions) ? [...draft.actions] as string[] : [],
-        messagesOrOrders: Array.isArray(draft.messagesOrOrders) ? [...draft.messagesOrOrders] as MessageOrOrderDraft[] : [],
-        privateIntent: typeof draft.privateIntent === 'string' ? draft.privateIntent : '',
-        questionOrContext: typeof draft.questionOrContext === 'string' ? draft.questionOrContext : '',
-      };
+function normalizeRecipientFromKnownOptions(
+  value: unknown,
+  knownRecipients: readonly KnownRecipientOption[],
+  requireDisplayName: boolean,
+): RecipientResult {
+  return normalizeRecipient(value, (knownEntity) => {
+    if (typeof knownEntity.entityId !== 'string'
+      || (requireDisplayName && typeof knownEntity.displayName !== 'string')) {
+      return recipientIssue('Unsupported recipient.');
     }
-  }
-  return draft as StructuredTurnDraft;
-}
-
-function decodeWireRecipient(value: unknown): { draft: MessageOrOrderDraft['recipient']; knownRecipient?: KnownRecipientOption } | null {
-  if (!isRecord(value) || typeof value.kind !== 'string') return null;
-  if (value.kind === 'known_entity' && typeof value.entityId === 'string' && typeof value.displayName === 'string') {
+    const option = knownRecipients.find((candidate) =>
+      candidate !== null
+      && typeof candidate === 'object'
+      && typeof candidate.entityId === 'string'
+      && typeof candidate.displayName === 'string'
+      && candidate.entityId === knownEntity.entityId);
+    if (!option) return recipientIssue('Selected recipient is unavailable.');
+    const displayName = trim(option.displayName);
+    if (!displayName) return recipientIssue('Selected recipient is unavailable.');
     return {
-      draft: { kind: 'known_entity', entityId: value.entityId },
-      knownRecipient: { entityId: value.entityId, displayName: value.displayName },
+      ok: true,
+      recipient: { kind: 'known_entity', entityId: option.entityId, displayName },
     };
+  });
+}
+
+function normalizeRecipient(
+  value: unknown,
+  normalizeKnownEntity: (value: Record<string, unknown>) => RecipientResult,
+): RecipientResult {
+  if (!isRecord(value) || typeof value.kind !== 'string') {
+    return recipientIssue('Unsupported recipient.');
   }
+
   if (value.kind === 'free_text' && typeof value.text === 'string') {
-    return { draft: { kind: 'free_text', text: value.text } };
+    const text = trim(value.text);
+    return text
+      ? { ok: true, recipient: { kind: 'free_text', text } }
+      : recipientIssue('Enter a recipient.');
   }
-  return null;
+  if (value.kind === 'known_entity') return normalizeKnownEntity(value);
+  return recipientIssue('Unsupported recipient.');
 }
 
-function decodeWireStructuredDraft(raw: Record<string, unknown>): {
-  draft: StructuredTurnDraft;
-  knownRecipients: KnownRecipientOption[];
-} | null {
-  if ((raw.actions !== undefined && (!Array.isArray(raw.actions) || !raw.actions.every((value) => typeof value === 'string')))
-    || (raw.messagesOrOrders !== undefined && !Array.isArray(raw.messagesOrOrders))
-    || (raw.privateIntent !== undefined && typeof raw.privateIntent !== 'string')
-    || (raw.questionOrContext !== undefined && typeof raw.questionOrContext !== 'string')) return null;
-
-  const knownRecipients: KnownRecipientOption[] = [];
-  const messagesOrOrders: MessageOrOrderDraft[] = [];
-  for (const row of raw.messagesOrOrders ?? []) {
-    if (!isRecord(row) || typeof row.command !== 'string') return null;
-    const recipient = decodeWireRecipient(row.recipient);
-    if (!recipient) return null;
-    messagesOrOrders.push({ recipient: recipient.draft, command: row.command });
-    if (recipient.knownRecipient) knownRecipients.push(recipient.knownRecipient);
-  }
-  return {
-    draft: {
-      actions: (raw.actions ?? []) as string[],
-      messagesOrOrders,
-      privateIntent: (raw.privateIntent ?? '') as string,
-      questionOrContext: (raw.questionOrContext ?? '') as string,
-    },
-    knownRecipients,
-  };
+function normalizeSelfContainedRecipient(value: unknown): RecipientResult {
+  return normalizeRecipient(value, (knownEntity) => {
+    if (typeof knownEntity.entityId !== 'string'
+      || typeof knownEntity.displayName !== 'string') {
+      return recipientIssue('Unsupported recipient.');
+    }
+    const entityId = trim(knownEntity.entityId);
+    const displayName = trim(knownEntity.displayName);
+    return entityId && displayName
+      ? { ok: true, recipient: { kind: 'known_entity', entityId, displayName } }
+      : recipientIssue('Unsupported recipient.');
+  });
 }
 
-function decodeWireSubmission(value: unknown): TurnSubmission | null {
-  if (!isRecord(value) || value.version !== TURN_SUBMISSION_VERSION || typeof value.kind !== 'string') return null;
+function normalizeVersionedSubmission(
+  value: Record<string, unknown>,
+  normalizeRecipientValue: RecipientNormalizer,
+): ValidationResult {
+  if (value.version !== TURN_SUBMISSION_VERSION) {
+    return issue('submission', 'Unsupported turn submission version.');
+  }
   if (value.kind === 'freeform') {
-    if (typeof value.text !== 'string') return null;
-    const result = validateAndNormalizeTurnSubmission(
-      { version: TURN_SUBMISSION_VERSION, kind: 'freeform', text: value.text },
-      { knownRecipients: [] },
-    );
-    return result.ok ? result.submission : null;
+    return typeof value.text === 'string'
+      ? normalizeFreeform(value.text)
+      : issue('submission', 'Unsupported freeform submission.');
   }
-  if (value.kind !== 'structured') return null;
-  const decoded = decodeWireStructuredDraft(value);
-  if (!decoded) return null;
-  const result = normalizeStructuredDraft(decoded.draft, { knownRecipients: decoded.knownRecipients });
-  return result.ok ? result.submission : null;
+  if (value.kind !== 'structured') {
+    return issue('submission', 'Unsupported turn submission kind.');
+  }
+
+  const fields = readStructuredFields(value, true);
+  return fields
+    ? normalizeStructuredFields(fields, normalizeRecipientValue, false)
+    : issue('submission', 'Unsupported structured submission.');
+}
+
+function normalizeSelfContainedSubmission(value: unknown): ValidationResult {
+  return isRecord(value)
+    ? normalizeVersionedSubmission(value, normalizeSelfContainedRecipient)
+    : issue('submission', 'Unsupported turn submission.');
+}
+
+function observableLines(submission: TurnSubmission): string[] {
+  if (submission.kind === 'freeform') return [submission.text];
+  return [
+    ...(submission.actions ?? []),
+    ...(submission.messagesOrOrders ?? []).map(
+      ({ recipient, command }) => `To: ${formatRecipientForAi(recipient)}\n${command}`,
+    ),
+  ];
 }
 
 export function serializeTurnSubmission(submission: TurnSubmission): string {
-  const canonical = canonicalizeSubmission(submission);
-  if (canonical.kind === 'structured' || canonical.text.startsWith(TURN_SUBMISSION_PREFIX)) {
-    return TURN_SUBMISSION_PREFIX + JSON.stringify(canonical);
+  const result = normalizeSelfContainedSubmission(submission);
+  if (!result.ok) {
+    const details = result.issues.map(({ field, message }) => `${field}: ${message}`).join('; ');
+    throw new TypeError(`Cannot serialize invalid turn submission (${details})`);
   }
-  return canonical.text;
+  return encodeCanonicalSubmission(result.submission);
 }
 
 export function validateAndNormalizeTurnSubmission(
   draft: TurnSubmission | StructuredTurnDraft,
   context: { knownRecipients: readonly KnownRecipientOption[] },
 ): ValidationResult {
-  if ('kind' in draft && draft.kind === 'freeform') {
-    if (draft.version !== TURN_SUBMISSION_VERSION || typeof draft.text !== 'string') {
-      return issue('submission', 'Unsupported freeform submission.');
-    }
-    const text = trim(draft.text);
-    if (!text) return issue('text', 'Enter a turn submission.');
-    const submission: TurnSubmission = { version: TURN_SUBMISSION_VERSION, kind: 'freeform', text };
-    return serializeTurnSubmission(submission).length <= MAX_TURN_SUBMISSION_CHARACTERS
-      ? { ok: true, submission }
-      : issue('submission', 'Turn submission exceeds 20,000 characters.');
+  if (!isRecord(draft) || !context || !Array.isArray(context.knownRecipients)) {
+    return issue('submission', 'Unsupported turn submission.');
   }
 
-  const structured = toStructuredDraft(draft as Exclude<TurnSubmission, { kind: 'freeform' }> | StructuredTurnDraft);
-  return structured
-    ? normalizeStructuredDraft(structured, context)
+  if ('kind' in draft || 'version' in draft) {
+    return normalizeVersionedSubmission(
+      draft,
+      (recipient) => normalizeRecipientFromKnownOptions(
+        recipient,
+        context.knownRecipients,
+        true,
+      ),
+    );
+  }
+
+  const fields = readStructuredFields(draft, false);
+  return fields
+    ? normalizeStructuredFields(
+        fields,
+        (recipient) => normalizeRecipientFromKnownOptions(
+          recipient,
+          context.knownRecipients,
+          false,
+        ),
+        true,
+      )
     : issue('submission', 'Unsupported structured submission.');
 }
 
 export function deserializeTurnSubmission(text: string): TurnSubmission | null {
   if (typeof text !== 'string' || text.length > MAX_TURN_SUBMISSION_CHARACTERS) return null;
-  if (!text.startsWith(TURN_SUBMISSION_PREFIX)) {
-    return trim(text) ? { version: TURN_SUBMISSION_VERSION, kind: 'freeform', text } : null;
+
+  if (text.startsWith(TURN_SUBMISSION_PREFIX)) {
+    try {
+      const result = normalizeSelfContainedSubmission(
+        JSON.parse(text.slice(TURN_SUBMISSION_PREFIX.length)),
+      );
+      return result.ok && encodeCanonicalSubmission(result.submission) === text
+        ? result.submission
+        : null;
+    } catch {
+      return null;
+    }
   }
-  try {
-    const submission = decodeWireSubmission(JSON.parse(text.slice(TURN_SUBMISSION_PREFIX.length)));
-    return submission && serializeTurnSubmission(submission) === text ? submission : null;
-  } catch {
-    return null;
-  }
+
+  if (text.trimStart().startsWith(TURN_SUBMISSION_NAMESPACE)) return null;
+  const result = normalizeFreeform(text);
+  return result.ok ? result.submission : null;
 }
 
 export function projectForResolution(submission: TurnSubmission): string | null {

@@ -337,6 +337,91 @@ describe('canonical serialization and compatibility', () => {
     expect(deserializeTurnSubmission(serialized)).toEqual(submission);
   });
 
+  it('reserves every versioned submission namespace and keeps authored future-version text private', () => {
+    const text = 'GOR_TURN_SUBMISSION/2\n{"version":2,"kind":"structured","privateIntent":"PRIVATE_SENTINEL_V2"}';
+    const submission: TurnSubmission = { version: 1, kind: 'freeform', text };
+
+    const serialized = serializeTurnSubmission(submission);
+
+    expect(serialized).toBe(TURN_SUBMISSION_PREFIX + JSON.stringify(submission));
+    expect(deserializeTurnSubmission(serialized)).toEqual(submission);
+    expect(deserializeTurnSubmission(text)).toBeNull();
+  });
+
+  it('serializes typed structured input through canonical content normalization before round-tripping', () => {
+    const typedInput: TurnSubmission = {
+      version: 1,
+      kind: 'structured',
+      actions: ['  Attend the Senate  ', '   '],
+      messagesOrOrders: [
+        {
+          recipient: { kind: 'known_entity', entityId: 'lucius', displayName: '  Lucius  ' },
+          command: '  Meet me at dusk\nBring the ledger.  ',
+        },
+        {
+          recipient: { kind: 'free_text', text: '  the night watch  ' },
+          command: '  Hold  the eastern gate  ',
+        },
+      ],
+      privateIntent: '   ',
+      questionOrContext: '\n\t',
+    };
+    const canonical: TurnSubmission = {
+      version: 1,
+      kind: 'structured',
+      actions: ['Attend the Senate'],
+      messagesOrOrders: [
+        {
+          recipient: { kind: 'known_entity', entityId: 'lucius', displayName: 'Lucius' },
+          command: 'Meet me at dusk\nBring the ledger.',
+        },
+        {
+          recipient: { kind: 'free_text', text: 'the night watch' },
+          command: 'Hold  the eastern gate',
+        },
+      ],
+    };
+
+    const serialized = serializeTurnSubmission(typedInput);
+
+    expect(serialized).toBe(TURN_SUBMISSION_PREFIX + JSON.stringify(canonical));
+    expect(deserializeTurnSubmission(serialized)).toEqual(canonical);
+  });
+
+  it.each([
+    {
+      label: 'an unsupported version',
+      value: { version: 2, kind: 'freeform', text: 'Attend the Senate' },
+    },
+    {
+      label: 'an unknown kind',
+      value: { version: 1, kind: 'unknown', text: 'Attend the Senate' },
+    },
+    {
+      label: 'a malformed structured row',
+      value: {
+        version: 1,
+        kind: 'structured',
+        actions: ['Attend the Senate'],
+        messagesOrOrders: [{ recipient: null, command: 'Meet me at dusk' }],
+      },
+    },
+    {
+      label: 'a blank artifact',
+      value: { version: 1, kind: 'structured', actions: ['   '] },
+    },
+    {
+      label: 'an oversized artifact',
+      value: {
+        version: 1,
+        kind: 'freeform',
+        text: 'x'.repeat(MAX_TURN_SUBMISSION_CHARACTERS + 1),
+      },
+    },
+  ])('fails loudly instead of serializing $label into unreadable bytes', ({ value }) => {
+    expect(() => serializeTurnSubmission(value as unknown as TurnSubmission)).toThrow();
+  });
+
   it.each([
     'GOR_TURN_SUBMISSION/1\n',
     'GOR_TURN_SUBMISSION/1\n{',
@@ -400,6 +485,49 @@ describe('the 20,000-character canonical boundary', () => {
   });
 });
 
+describe('runtime input discrimination', () => {
+  it.each([
+    {
+      label: 'an unsupported structured version',
+      value: { version: 2, kind: 'structured', actions: ['Attend the Senate'] },
+    },
+    {
+      label: 'an unknown kind',
+      value: { version: 1, kind: 'unrecognized', actions: ['Attend the Senate'] },
+    },
+    {
+      label: 'a sparse draft with missing row collections',
+      value: { actions: undefined, messagesOrOrders: undefined, privateIntent: 'A real private intent', questionOrContext: '' },
+    },
+    {
+      label: 'a malformed draft row collection',
+      value: { actions: ['Attend the Senate'], messagesOrOrders: [null], privateIntent: '', questionOrContext: '' },
+    },
+    {
+      label: 'a malformed action collection',
+      value: { actions: ['Attend the Senate', 7], messagesOrOrders: [], privateIntent: '', questionOrContext: '' },
+    },
+    {
+      label: 'a malformed row command',
+      value: {
+        actions: ['Attend the Senate'],
+        messagesOrOrders: [{ recipient: { kind: 'free_text', text: 'the night watch' }, command: 7 }],
+        privateIntent: '',
+        questionOrContext: '',
+      },
+    },
+  ])('rejects $label without throwing or silently downgrading it', ({ value }) => {
+    expect(() => validateAndNormalizeTurnSubmission(
+      value as unknown as TurnSubmission | StructuredTurnDraft,
+      context,
+    )).not.toThrow();
+    expect(validateAndNormalizeTurnSubmission(
+      value as unknown as TurnSubmission | StructuredTurnDraft,
+      context,
+    ).ok).toBe(false);
+  });
+});
+
 describe('consumer-specific audience projections', () => {
   const submission: TurnSubmission = {
     version: 1,
@@ -419,21 +547,17 @@ describe('consumer-specific audience projections', () => {
     questionOrContext: 'What can I infer from the empty benches?',
   };
 
-  it('keeps private intent out of resolution and external-inference projections', () => {
-    const resolution = projectForResolution(submission);
-    const external = projectForExternalInference(submission);
+  it.each([
+    { consumer: 'resolution', project: projectForResolution },
+    { consumer: 'external inference', project: projectForExternalInference },
+  ])('keeps private intent out of $consumer projection', ({ project }) => {
+    const projected = project(submission);
 
-    expect(resolution).toContain('Attend the Senate');
-    expect(resolution).toContain('To: Lucius [lucius]');
-    expect(resolution).toContain('To: the night watch');
-    expect(resolution).not.toContain('PRIVATE_SENTINEL');
-    expect(resolution).not.toContain('What can I infer');
-
-    expect(external).toContain('Attend the Senate');
-    expect(external).toContain('To: Lucius [lucius]');
-    expect(external).toContain('To: the night watch');
-    expect(external).not.toContain('PRIVATE_SENTINEL');
-    expect(external).not.toContain('What can I infer');
+    expect(projected).toContain('Attend the Senate');
+    expect(projected).toContain('To: Lucius [lucius]');
+    expect(projected).toContain('To: the night watch');
+    expect(projected).not.toContain('PRIVATE_SENTINEL');
+    expect(projected).not.toContain('What can I infer');
   });
 
   it('gives player-owned AI the private intent and question alongside observable content', () => {
