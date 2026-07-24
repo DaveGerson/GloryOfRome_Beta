@@ -345,4 +345,57 @@ describe('runNewTurn submission visibility routing', () => {
     expect(mock.narration).toContain(_label === 'private-only' ? 'private intent' : 'question');
     expect(mock.narration).toContain('No action is taken');
   });
+
+  it.each([
+    ['private-only', { version: 1, kind: 'structured', privateIntent: PRIVATE_SENTINEL } as const],
+    ['question-only', { version: 1, kind: 'structured', questionOrContext: QUESTION_SENTINEL } as const],
+  ])('mock mode commits no player-origin rumor artifact or derivative state for a %s submission', async (_label, submission) => {
+    const { player, npcA, npcB } = makeCast();
+    const mock = await runNewTurn(
+      { models: { generateContent: vi.fn() } } as unknown as GoogleGenAI,
+      submission,
+      player,
+      7,
+      [player, npcA, npcB],
+      WORLD_STATE,
+      SIMULATION_STATE,
+      [],
+      [],
+      [],
+      [],
+      '',
+      true,
+      'A political thriller',
+    );
+
+    const playerRumor = mock.newHistoryEntry.adjudication.deltas.find(delta => delta.type === 'rumor' && delta.origin_id === player.entity_id);
+    expect(playerRumor).toBeUndefined();
+    expect(mock.newHistoryEntry.adjudication.entityActions.some(action => action.id === player.entity_id)).toBe(false);
+    expect(mock.updatedTruthLedger.some(entry => entry.originId === player.entity_id)).toBe(false);
+    expect(mock.updatedReports.some(report => mock.updatedTruthLedger.some(entry => entry.originId === player.entity_id && entry.reportId === report.id))).toBe(false);
+    expect(mock.updatedEntities.find(entity => entity.entity_id === player.entity_id)).toEqual(player);
+  });
+
+  it('mock mode retains the player-origin rumor artifact for an observable action', async () => {
+    const { player, npcA, npcB } = makeCast();
+    const mock = await runNewTurn(
+      { models: { generateContent: vi.fn() } } as unknown as GoogleGenAI,
+      { version: 1, kind: 'structured', actions: [OBSERVABLE_SENTINEL] },
+      player,
+      7,
+      [player, npcA, npcB],
+      WORLD_STATE,
+      SIMULATION_STATE,
+      [],
+      [],
+      [],
+      [],
+      '',
+      true,
+      'A political thriller',
+    );
+
+    expect(mock.newHistoryEntry.adjudication.deltas).toContainEqual(expect.objectContaining({ type: 'rumor', origin_id: player.entity_id }));
+    expect(mock.updatedTruthLedger).toContainEqual(expect.objectContaining({ originId: player.entity_id }));
+  });
 });

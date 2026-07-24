@@ -267,6 +267,7 @@ export const mockRunNewTurn = async (
     const normalizedSubmission = normalizeTurnSubmissionInput(submission);
     const playerIntent = serializeTurnSubmission(normalizedSubmission);
     const playerOwnedContext = projectForPlayerOwnedAi(normalizedSubmission);
+    const observableAttempt = projectForResolution(normalizedSubmission);
     console.log("--- MOCK TURN RUN ---");
     console.log("GM Intervention Text:", gmInterventionText);
     console.log("Meta Narrative:", metaNarrative);
@@ -314,7 +315,9 @@ export const mockRunNewTurn = async (
     const adjudication = {
         ...MOCK_ADJUDICATION,
         turn: turnNumber,
-        deltas: [...MOCK_ADJUDICATION.deltas, playerPlantedRumor],
+        deltas: observableAttempt
+            ? [...MOCK_ADJUDICATION.deltas, playerPlantedRumor]
+            : [...MOCK_ADJUDICATION.deltas],
         // FRESH array, never the shared MOCK_ADJUDICATION.gm_private - the
         // pushes below (and this pacing note) must not accumulate onto the
         // module constant across turns. The mock adjudicator records its
@@ -356,7 +359,6 @@ export const mockRunNewTurn = async (
         }
     }
 
-    const observableAttempt = projectForResolution(normalizedSubmission);
     const narration = observableAttempt
         ? `(Mock Mode) Your action to "${observableAttempt}" has been noted. In the city, Maximinus Thrax continues to stir up trouble, spreading rumors about the Emperor's weakness. The mood in the Praetorian Camp grows darker.`
         : normalizedSubmission.kind === 'structured' && normalizedSubmission.questionOrContext
