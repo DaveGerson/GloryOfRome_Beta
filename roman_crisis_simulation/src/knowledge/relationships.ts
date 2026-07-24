@@ -32,6 +32,8 @@ export function buildPlayerSafeEvidence(
   entities: Entity[]
 ): PlayerSafeEvidence {
   const result: PlayerSafeEvidence = { id: input.id, source: input.source, text: input.text };
+  const quotedSpans = input.text.match(/"[^"]*"|\u201c[^\u201d]*\u201d/g) ?? [];
+  if (quotedSpans.length !== 1) return result;
   const quoteMatches = [...input.text.matchAll(/([^.!?]+?)\s+(said|replied|asked|answered),\s*["“]([^"”]+)["”]/gi)];
   if (quoteMatches.length !== 1) return result;
   const [, , , quoteText] = quoteMatches[0];

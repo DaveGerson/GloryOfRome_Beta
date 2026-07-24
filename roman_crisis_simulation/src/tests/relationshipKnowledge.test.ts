@@ -307,9 +307,21 @@ describe('deterministic trusted quote attribution', () => {
     'Senator Lucius said, "I support Severus," while Caius replied, "I do not."',
     'Senator Lucius said one thing and later said, "I support Severus," then said, "For now."',
     'In front of Senator Lucius, a guard said, "The gates are open."',
+    'Senator Lucius said, "Severus has my support." Julia murmured, "Not for long."',
+    'Senator Lucius said, “Severus has my support.” Julia murmured, “Not for long.”',
   ])('fails closed to ordinary evidence for ambiguous or non-explicit prose: %s', text => {
-    expect(buildPlayerSafeEvidence({ id: 'direct_8_1', source: 'witnessed', text }, entities).trustedQuote)
-      .toBeUndefined();
+    const built = buildPlayerSafeEvidence({ id: 'direct_8_1', source: 'witnessed', text }, entities);
+    expect(built).toEqual({ id: 'direct_8_1', source: 'witnessed', text });
+  });
+
+  it('preserves an exact excerpt with leading and trailing spaces through ingestion', () => {
+    const text = '  Senator Lucius defended Severus Alexander before Caius in the Curia.  ';
+    const store = ingest([], [draft({ excerpt: text })], [evidence({ text })]);
+
+    expect(store[0]).toMatchObject({
+      claim: text,
+      updates: [{ turn: 7, source: 'rumor', text }],
+    });
   });
 
   it('copies a trusted quote only when its speaker is a validated participant and its text is inside the selected excerpt', () => {

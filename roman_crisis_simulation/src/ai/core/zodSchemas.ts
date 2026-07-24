@@ -354,5 +354,5 @@ export const zEvalJudgeVerdict = z.object({
 export const zRelationshipObservations = z.array(z.object({
   evidenceId: z.string(),
   participantIds: z.array(z.string()),
-  excerpt: z.string().trim().min(1),
+  excerpt: z.string().refine(value => value.trim().length > 0, 'excerpt must contain non-whitespace text'),
 }).strict());

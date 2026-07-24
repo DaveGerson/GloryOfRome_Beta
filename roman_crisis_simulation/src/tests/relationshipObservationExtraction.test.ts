@@ -57,6 +57,16 @@ describe('relationship observation schema boundary', () => {
     }
   });
 
+  it('preserves a non-empty exact excerpt without trimming it at the schema or tool boundary', async () => {
+    const excerpt = `  ${SAFE_TEXT}  `;
+    const paddedDraft = { ...validDraft, excerpt };
+    const paddedEvidence = [{ ...evidence[0], text: excerpt }];
+
+    expect(zRelationshipObservations.parse([paddedDraft])).toEqual([paddedDraft]);
+    const { ai } = makeMockAi([paddedDraft]);
+    await expect(getRelationshipObservations(ai, paddedEvidence, directory)).resolves.toEqual([paddedDraft]);
+  });
+
   it.each([
     null,
     {},
