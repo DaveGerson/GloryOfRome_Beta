@@ -47,7 +47,7 @@ export interface RelationshipObservationsInput {
 export interface TurnKnowledgeInput {
   /** The knowledge store as of the previous commit. */
   prev: KnowledgeClaim[];
-  /** This turn's D5-filtered digest (buildPerceivedDigest output) - never raw deltas. */
+  /** This turn's player-only D5 digest (buildPlayerPerceivedDigest output) - never raw deltas. */
   perceivedChanges: PerceivedChange[];
   /** The report log BEFORE this turn ran. */
   reportsBefore: Report[];
@@ -82,7 +82,11 @@ export function computeTurnKnowledge({
     reportsThisTurn,
     turnNumber
   );
-  return relationshipObservations ? ingestRelationshipObservations(next, { ...relationshipObservations, turn: turnNumber }) : next;
+  return relationshipObservations ? ingestRelationshipObservations(next, {
+    ...relationshipObservations,
+    turn: turnNumber,
+    globalEvidenceIds: reportsAfter.map(report => report.id),
+  }) : next;
 }
 
 export interface InvestigationKnowledgeInput {
@@ -115,5 +119,9 @@ export function computeInvestigationKnowledge({
     text: reportText,
     turn: turnNumber,
   });
-  return relationshipObservations ? ingestRelationshipObservations(next, { ...relationshipObservations, turn: turnNumber }) : next;
+  return relationshipObservations ? ingestRelationshipObservations(next, {
+    ...relationshipObservations,
+    turn: turnNumber,
+    globalEvidenceIds: [],
+  }) : next;
 }

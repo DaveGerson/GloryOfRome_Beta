@@ -44,7 +44,7 @@ const SidePanel: React.FC<{
     turnNumber: number;
     onSpendDeepAnalysis: (cost: number, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
     /** One atomic callback per investigation reveal - spend + blackmail + fallout in a single state/save pass (see App.tsx's handleInvestigationOutcome). */
-    onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
+    onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult, request: DomainMutationContext) => Promise<boolean | void>;
     runDomainMutation: RunDomainMutation;
     interactionLocked?: boolean;
     ai: GoogleGenAI;
@@ -55,7 +55,7 @@ const SidePanel: React.FC<{
      * tabsForDelta and App.tsx's pulsingTabs). Gets a brief CSS pulse so the
      * player notices where to look, without leaking anything the perception
      * filter didn't already let through - this set is built strictly from
-     * buildPerceivedDigest's output, never raw deltas. */
+     * buildPlayerPerceivedDigest's output, never raw deltas. */
     pulsingTabs: Set<TabId>;
 }> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, pulsingTabs }) => {
     const [activeTab, setActiveTab] = useState<TabId>('world_state');

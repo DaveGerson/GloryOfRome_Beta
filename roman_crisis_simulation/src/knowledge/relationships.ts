@@ -1,4 +1,5 @@
-import type { Entity } from '../types';
+import type { PerceivedChange } from '../perception/visibility';
+import type { Entity, Report } from '../types';
 import {
   enforceKnowledgeClaimCap,
   type KnowledgeClaim,
@@ -9,6 +10,91 @@ import {
 export interface KnownRecipientOption {
   entityId: string;
   displayName: string;
+}
+
+/**
+ * The complete public input surface for turn relationship evidence. Keeping
+ * this separate from App's turn result makes narration, headlines, private
+ * intent, adjudication, deltas, traces, and simulation state impossible to
+ * pass through this boundary accidentally.
+ */
+export interface TurnRelationshipEvidenceInput {
+  submission: string | null;
+  perceivedChanges: readonly PerceivedChange[];
+  reports: readonly Report[];
+}
+
+export interface InvestigationRelationshipEvidenceInput {
+  reportText: string;
+  targetId: string;
+  kind: 'beliefs' | 'scheme' | 'secrets';
+  turnNumber: number;
+  entities: Array<Pick<Entity, 'entity_id' | 'name'>>;
+}
+
+/**
+ * Builds the selector's evidence from player-observable projections only.
+ * Fields are copied one by one; the source objects themselves never cross
+ * the boundary. Report ids remain intact so observation ingestion can
+ * deduplicate the same evidence across retries.
+ */
+export function buildTurnRelationshipEvidence(input: TurnRelationshipEvidenceInput): PlayerSafeEvidence[] {
+  const evidence: PlayerSafeEvidence[] = [];
+  const reservedIds = new Set(input.reports.map(report => report.id));
+  const localIds = new Set<string>();
+  const localId = (base: string): string => {
+    let candidate = base;
+    let suffix = 1;
+    while (reservedIds.has(candidate) || localIds.has(candidate)) {
+      candidate = `${base}:${suffix}`;
+      suffix += 1;
+    }
+    localIds.add(candidate);
+    return candidate;
+  };
+
+  if (input.submission !== null) {
+    evidence.push({
+      id: localId('player-submission'),
+      source: 'self',
+      text: input.submission,
+    });
+  }
+  input.perceivedChanges.forEach((change, index) => {
+    evidence.push({
+      id: localId(`player-digest:${index}`),
+      source: change.source,
+      text: change.text,
+    });
+  });
+  input.reports.forEach(report => {
+    evidence.push({
+      id: report.id,
+      source: report.source,
+      text: report.claim,
+    });
+  });
+  return evidence;
+}
+
+function evidenceTextFingerprint(text: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+/** Builds one investigation evidence item from the player-facing report only. */
+export function buildInvestigationRelationshipEvidence(
+  input: InvestigationRelationshipEvidenceInput
+): PlayerSafeEvidence {
+  return buildPlayerSafeEvidence({
+    id: `investigation:${input.turnNumber}:${input.targetId}:${input.kind}:${evidenceTextFingerprint(input.reportText)}`,
+    source: 'spy',
+    text: input.reportText,
+  }, input.entities);
 }
 
 interface ValidationInput {
@@ -29,7 +115,7 @@ function escapeRegex(raw: string): string {
 /** Copies only the safe evidence fields, and derives quote attribution locally. */
 export function buildPlayerSafeEvidence(
   input: { id: string; source: PlayerSafeEvidence['source']; text: string },
-  entities: Entity[]
+  entities: Array<Pick<Entity, 'entity_id' | 'name'>>
 ): PlayerSafeEvidence {
   const result: PlayerSafeEvidence = { id: input.id, source: input.source, text: input.text };
   const quotedSpans = input.text.match(/"[^"]*"|\u201c[^\u201d]*\u201d/g) ?? [];
@@ -66,22 +152,26 @@ export function validateRelationshipObservationDrafts(input: ValidationInput): R
 
 export function ingestRelationshipObservations(
   store: KnowledgeClaim[],
-  input: ValidationInput & { turn: number }
+  input: ValidationInput & { turn: number; globalEvidenceIds?: string[] }
 ): KnowledgeClaim[] {
   const drafts = validateRelationshipObservationDrafts(input);
   if (drafts.length === 0) return store;
   const existingEvidenceIds = new Set(store.flatMap(claim => claim.relationshipObservation ? [claim.relationshipObservation.evidenceId] : []));
   const evidenceById = new Map(input.evidence.map(item => [item.id, item]));
+  const globalEvidenceIds = input.globalEvidenceIds === undefined ? undefined : new Set(input.globalEvidenceIds);
   const next = store.slice();
   for (const draft of drafts) {
-    if (existingEvidenceIds.has(draft.evidenceId)) continue;
+    const canonicalEvidenceId = globalEvidenceIds === undefined || globalEvidenceIds.has(draft.evidenceId)
+      ? draft.evidenceId
+      : `turn:${input.turn}:${draft.evidenceId}`;
+    if (existingEvidenceIds.has(canonicalEvidenceId)) continue;
     const evidence = evidenceById.get(draft.evidenceId)!;
     const quote = evidence.trustedQuote
       && draft.participantIds.includes(evidence.trustedQuote.speakerId)
       && draft.excerpt.includes(evidence.trustedQuote.text)
       ? { speakerId: evidence.trustedQuote.speakerId, text: evidence.trustedQuote.text }
       : undefined;
-    const marker = { evidenceId: draft.evidenceId, participantIds: [...draft.participantIds], ...(quote ? { quote } : {}) };
+    const marker = { evidenceId: canonicalEvidenceId, participantIds: [...draft.participantIds], ...(quote ? { quote } : {}) };
     const prefix = `relationship-observation:${input.turn}:`;
     const ordinal = next.reduce((maximum, claim) => {
       if (!claim.claimKey.startsWith(prefix)) return maximum;
@@ -98,7 +188,7 @@ export function ingestRelationshipObservations(
       updates: [{ turn: input.turn, source: evidence.source, text: draft.excerpt }],
       relationshipObservation: marker,
     });
-    existingEvidenceIds.add(draft.evidenceId);
+    existingEvidenceIds.add(canonicalEvidenceId);
   }
   return next.length === store.length ? store : enforceKnowledgeClaimCap(next);
 }
