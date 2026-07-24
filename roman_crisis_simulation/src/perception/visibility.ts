@@ -442,3 +442,15 @@ export function buildPerceivedDigest(
   }
   return changes;
 }
+
+/** Player-only projection: keep NPC perception semantics intact while
+ * withholding relationship-mechanic deltas from player intelligence. */
+export function buildPlayerPerceivedDigest(
+  deltas: EventDelta[],
+  player: Entity,
+  entities: Entity[],
+  world: WorldState
+): PerceivedChange[] {
+  return buildPerceivedDigest(deltas, player, entities, world)
+    .filter(change => change.deltaType !== 'relation');
+}
