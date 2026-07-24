@@ -509,7 +509,7 @@ const GameMasterScreen: React.FC<{
     history: TurnHistoryEntry[];
     onClose: () => void;
     interventionText: string;
-    onSetIntervention: (text: string) => boolean | void;
+    onSetIntervention: (text: string) => boolean | void | Promise<boolean | void>;
     interactionLocked?: boolean;
     playerCharacterId: string | null;
     worldState: WorldState;
@@ -595,8 +595,8 @@ const GameMasterScreen: React.FC<{
         trapRef.current?.handleKeyDown(event);
     };
 
-    const handleSetIntervention = () => {
-        if (onSetIntervention(interventionInput) !== false) setShowConfirmation(true);
+    const handleSetIntervention = async () => {
+        if (await onSetIntervention(interventionInput) !== false) setShowConfirmation(true);
     };
 
     // DESIGN_DECISIONS.md D18 - downloads the session's captured turns

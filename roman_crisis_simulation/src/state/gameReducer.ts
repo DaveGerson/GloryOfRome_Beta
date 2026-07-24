@@ -189,9 +189,10 @@ export type GameAction =
   /** Bare phase transition, for paths that change nothing else. */
   | { type: 'GAME_STATE_SET'; gameState: GameState }
   /**
-   * A fresh turn attempt begins: enter PROCESSING and clear suggested-action
-   * pills. The player artifact remains an App-owned pending UI projection
-   * until the successful TURN_COMMITTED batch lands.
+   * A fresh turn attempt begins: enter PROCESSING. Every committed domain
+   * slice, including suggested-action pills, remains unchanged until the
+   * successful TURN_COMMITTED batch lands; App hides the old pills while
+   * processing as presentation state.
    */
   | { type: 'TURN_STARTED'; playerMessage: Message }
   /**
@@ -298,7 +299,6 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
       return {
         ...state,
         gameState: GameState.PROCESSING,
-        suggestedActions: [],
       };
 
     case 'TURN_COMMITTED': {
@@ -489,6 +489,9 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
       return { ...state, gmInterventionText: action.text };
 
     case 'AMBITION_INFERRED':
+      if (state.inferredAmbition && state.inferredAmbition.asOfTurn > action.inferredAmbition.asOfTurn) {
+        return state;
+      }
       return { ...state, inferredAmbition: action.inferredAmbition };
 
     default:

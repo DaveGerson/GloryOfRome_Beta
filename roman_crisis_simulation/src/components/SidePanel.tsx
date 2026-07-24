@@ -11,6 +11,7 @@ import ChronicleTab from './tabs/ChronicleTab';
 import WorldStateTab from './tabs/WorldStateTab';
 import { TabId } from '../perception/visibility';
 import type { KnowledgeClaim } from '../knowledge/store';
+import type { RunDomainMutation } from '../state/domainMutation';
 
 /**
  * The intelligence dashboard — player dossier header, Tyrian-pennant tab bar,
@@ -41,9 +42,11 @@ const SidePanel: React.FC<{
     knowledge: KnowledgeClaim[];
     /** The App's authoritative turn counter - the staleness clock D27 prices a dossier refresh against. */
     turnNumber: number;
-    onSpendDeepAnalysis: (cost: number) => void;
+    onSpendDeepAnalysis: (cost: number) => boolean | void | Promise<boolean | void>;
     /** One atomic callback per investigation reveal - spend + blackmail + fallout in a single state/save pass (see App.tsx's handleInvestigationOutcome). */
-    onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult) => void;
+    onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult) => boolean | void | Promise<boolean | void>;
+    runDomainMutation: RunDomainMutation;
+    interactionLocked?: boolean;
     ai: GoogleGenAI;
     isMockMode: boolean;
     eventHistory: EventHistoryEntry[];
@@ -54,7 +57,7 @@ const SidePanel: React.FC<{
      * filter didn't already let through - this set is built strictly from
      * buildPerceivedDigest's output, never raw deltas. */
     pulsingTabs: Set<TabId>;
-}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, ai, isMockMode, eventHistory, pulsingTabs }) => {
+}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, pulsingTabs }) => {
     const [activeTab, setActiveTab] = useState<TabId>('world_state');
     // Tabs the player has already looked at since the current pulsingTabs
     // set arrived - clicking a pulsing tab dismisses its own pulse
@@ -121,7 +124,8 @@ const SidePanel: React.FC<{
                     turnNumber={turnNumber}
                     onSpendDeepAnalysis={onSpendDeepAnalysis}
                     onInvestigationOutcome={onInvestigationOutcome}
-                    interactionLocked={gameState === GameState.PROCESSING}
+                    runDomainMutation={runDomainMutation}
+                    interactionLocked={interactionLocked}
                     ai={ai}
                     isMockMode={isMockMode}
                 />}

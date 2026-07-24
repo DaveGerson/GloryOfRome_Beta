@@ -20,6 +20,7 @@ import { runNewTurn, TurnStage } from './ai/core/turn';
 import { WorldState } from './types';
 import { useGame } from './state/GameContext';
 import { withOldSnapshotsDropped } from './state/gameReducer';
+import type { DomainMutationContext, RunDomainMutation } from './state/domainMutation';
 import { createCharacter } from './ai/tools/characterCreator';
 import { inferAmbition } from './ai/tools/ambition';
 import { checkForTriggeredEvent, applyEventChoiceDeltas, recordEventFiring } from './events/engine';
@@ -144,6 +145,7 @@ const App: React.FC = () => {
     const [pendingPlayerMessage, setPendingPlayerMessage] = useState<Message | null>(null);
     const [turnError, setTurnError] = useState<string | null>(null);
     const [transactionError, setTransactionError] = useState<string | null>(null);
+    const [domainMutationInFlight, setDomainMutationInFlight] = useState(false);
     const [isGmScreenVisible, setIsGmScreenVisible] = useState(false);
     // D7 - the GM console (log/debugger) stays in the codebase permanently
     // but is hidden by default for a clean player view. This is the runtime
@@ -287,7 +289,43 @@ const App: React.FC = () => {
     // rather than relying on "we just never committed" (P0.2/P0.4 - a
     // future refactor of the commit logic shouldn't silently break this).
     const preTurnSnapshotRef = useRef<SaveGameState | null>(null);
-    const turnInFlightRef = useRef(false);
+    const domainMutationLeaseRef = useRef<symbol | null>(null);
+    const appMountedRef = useRef(true);
+    const campaignGenerationRef = useRef(0);
+
+    useEffect(() => {
+        appMountedRef.current = true;
+        return () => {
+            appMountedRef.current = false;
+            campaignGenerationRef.current += 1;
+            domainMutationLeaseRef.current = null;
+        };
+    }, []);
+
+    const runDomainMutation = useCallback<RunDomainMutation>(async <T,>(work: (context: DomainMutationContext) => T | Promise<T>) => {
+        if (domainMutationLeaseRef.current) {
+            return { acquired: false };
+        }
+        const lease = Symbol('domain-mutation');
+        domainMutationLeaseRef.current = lease;
+        if (appMountedRef.current) setDomainMutationInFlight(true);
+        const context: DomainMutationContext = {
+            isCurrent: () => appMountedRef.current && domainMutationLeaseRef.current === lease,
+        };
+        try {
+            return { acquired: true, value: await work(context) };
+        } finally {
+            if (domainMutationLeaseRef.current === lease) {
+                domainMutationLeaseRef.current = null;
+                if (appMountedRef.current) setDomainMutationInFlight(false);
+            }
+        }
+    }, []);
+
+    const beginCampaignSession = useCallback(() => {
+        campaignGenerationRef.current += 1;
+        resetSessionCallLog();
+    }, []);
 
     useEffect(() => {
         // Run a "smoke test" on startup to validate that all mock functions
@@ -477,9 +515,8 @@ const App: React.FC = () => {
         }
     }, [isCheckingEvents, worldState, entities, eventFirings, playerEntity, simulationState, turnNumber, dispatch]);
 
-    const executeTurn = useCallback(async (submission: TurnSubmission, draftToRestore: string | StructuredTurnDraft) => {
-        if (turnInFlightRef.current) return;
-        turnInFlightRef.current = true;
+    const executeTurn = useCallback(async (submission: TurnSubmission, draftToRestore: string | StructuredTurnDraft): Promise<boolean> => {
+        const mutation = await runDomainMutation(async transaction => {
         const serialized = serializeTurnSubmission(submission);
         const playerMessage: Message = { sender: 'player', text: serialized };
         const restoreDraft: string | StructuredTurnDraft = typeof draftToRestore === 'string'
@@ -519,7 +556,6 @@ const App: React.FC = () => {
             dispatch({ type: 'GAME_STATE_SET', gameState: GameState.AWAITING_PLAYER_INPUT });
             if (typeof restoreDraft === 'string') setChatDraft(restoreDraft);
             else setStructuredDraft(restoreDraft);
-            turnInFlightRef.current = false;
             return;
         }
 
@@ -539,7 +575,6 @@ const App: React.FC = () => {
             dispatch({ type: 'GAME_STATE_SET', gameState: GameState.AWAITING_PLAYER_INPUT });
             if (typeof restoreDraft === 'string') setChatDraft(restoreDraft);
             else setStructuredDraft(restoreDraft);
-            turnInFlightRef.current = false;
             return;
         }
 
@@ -584,6 +619,7 @@ const App: React.FC = () => {
                 // HISTORICAL MATERIAL in the adjudication prompt.
                 { onStage: setTurnStage, onNarrationChunk: setStreamingNarration, pacingPosture: getPacingPosture(), eventFirings }
             );
+            if (!transaction.isCurrent()) return;
 
             // COMMIT STATE
             const newWorldState = ((): WorldState => {
@@ -677,6 +713,7 @@ const App: React.FC = () => {
                 suggestedActions: result.suggestedActions,
                 currentEvents: result.headlines,
             });
+            setTransactionError(null);
             // The final, parsed narration message above now replaces the
             // transient streaming bubble - clear the thinking-theater state
             // so it can't linger into the next AWAITING_PLAYER_INPUT render.
@@ -722,21 +759,24 @@ const App: React.FC = () => {
                     .slice(-6);
                 const recentHeadlines = newTurnHistory.slice(-3).flatMap(h => h.adjudication.headlines);
                 const ambitionTurnNumber = turnNumber;
+                const ambitionCampaignGeneration = campaignGenerationRef.current;
                 inferAmbition(ai, updatedPlayerEntity, recentIntents, recentHeadlines, isMockMode)
                     .then(inference => {
+                        if (!appMountedRef.current || campaignGenerationRef.current !== ambitionCampaignGeneration) return;
                         const nextAmbition: InferredAmbitionState = { ...inference, asOfTurn: ambitionTurnNumber };
                         // Let the turn transaction settle first. This out-of-band
                         // enrichment must never interleave with its durable commit.
                         setTimeout(() => {
-                        dispatch({ type: 'AMBITION_INFERRED', inferredAmbition: nextAmbition });
-                        // Persist by PATCHING only the ambition field into
-                        // whatever autosave is newest at the moment this
-                        // resolves. A full saveGame(buildSaveState(...)) here
-                        // would write the stale turn snapshot this callback
-                        // closed over - if the player committed another turn
-                        // while inference was in flight, that would clobber
-                        // the newer autosave and lose those turns on reload.
-                        updateSavedAmbition(nextAmbition);
+                            if (!appMountedRef.current || campaignGenerationRef.current !== ambitionCampaignGeneration) return;
+                            dispatch({ type: 'AMBITION_INFERRED', inferredAmbition: nextAmbition });
+                            // Persist by PATCHING only the ambition field into
+                            // whatever autosave is newest at the moment this
+                            // resolves. A full saveGame(buildSaveState(...)) here
+                            // would write the stale turn snapshot this callback
+                            // closed over - if the player committed another turn
+                            // while inference was in flight, that would clobber
+                            // the newer autosave and lose those turns on reload.
+                            updateSavedAmbition(nextAmbition);
                         }, 50);
                     })
                     .catch(console.warn);
@@ -772,10 +812,10 @@ const App: React.FC = () => {
             dispatch({ type: 'GAME_STATE_SET', gameState: GameState.AWAITING_PLAYER_INPUT });
             if (typeof restoreDraft === 'string') setChatDraft(restoreDraft);
             else setStructuredDraft(restoreDraft);
-        } finally {
-            turnInFlightRef.current = false;
         }
-    }, [ai, buildSaveState, dispatch, entities, eventFirings, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, pendingIntelligenceFallout, playerCharacterId, reports, resolvedApiKey, simulationState, truthLedger, turnHistory, turnNumber, worldState]);
+        });
+        return mutation.acquired;
+    }, [ai, buildSaveState, dispatch, entities, eventFirings, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, pendingIntelligenceFallout, playerCharacterId, reports, resolvedApiKey, runDomainMutation, simulationState, truthLedger, turnHistory, turnNumber, worldState]);
 
     const handleComposerSubmit = (draft: string | StructuredTurnDraft) => {
         if (gameState !== GameState.AWAITING_PLAYER_INPUT) return;
@@ -835,21 +875,25 @@ const App: React.FC = () => {
         // campaign's first AI call, so calls from a previous campaign in the
         // same tab can't contaminate this campaign's eval-corpus export.
         // Same constraint in handleCustomCreation and handleContinue.
-        resetSessionCallLog();
+        beginCampaignSession();
         const playerEntity = ALL_INITIAL_ENTITIES.find(e => e.entity_id === option.entity_id);
         if(playerEntity) {
             startGameWithCharacter(playerEntity, JSON.parse(JSON.stringify(ALL_INITIAL_ENTITIES)));
         }
     };
 
-    const handleCustomCreation = async ({ description, metaNarrative: newMetaNarrative, useCustomGamestate }: { description: string, metaNarrative?: string, useCustomGamestate: boolean }) => {
+    const handleCustomCreation = async (
+        { description, metaNarrative: newMetaNarrative, useCustomGamestate }: { description: string, metaNarrative?: string, useCustomGamestate: boolean },
+        transaction: DomainMutationContext,
+    ) => {
         // Per-campaign-session log (see handleSelectCharacter). Reset here -
         // not in startGameWithCharacter - so the world/character-generation
         // calls made just below already belong to the NEW campaign's log.
-        resetSessionCallLog();
+        beginCampaignSession();
         if (useCustomGamestate && newMetaNarrative) {
             // New world generation logic
             const { worldState: newWorldState, entities: newEntities, playerCharacterId: newPlayerId } = await initiateWorld(ai, newMetaNarrative, description, isMockMode);
+            if (!transaction.isCurrent()) return;
             const playerChar = newEntities.find(e => e.entity_id === newPlayerId);
             if (playerChar) {
                 startGameWithCharacter(playerChar, newEntities, newWorldState, newMetaNarrative);
@@ -859,6 +903,7 @@ const App: React.FC = () => {
         } else {
             // Existing custom character in default world
             const newCharacter = await createCharacter(ai, description, isMockMode);
+            if (!transaction.isCurrent()) return;
             const finalEntities = ALL_INITIAL_ENTITIES.find(e => e.entity_id === newCharacter.entity_id) 
                 ? ALL_INITIAL_ENTITIES.map(e => e.entity_id === newCharacter.entity_id ? newCharacter : e)
                 : [...ALL_INITIAL_ENTITIES, newCharacter];
@@ -867,7 +912,6 @@ const App: React.FC = () => {
     };
 
     const handleSpendResource = (resourceName: 'deep_analyses' | 'investigations', cost: number): boolean => {
-        if (turnInFlightRef.current) return false;
         const newEntities = entities.map(e => {
             if (e.entity_id === playerCharacterId) {
                 const newResources = {...e.resources};
@@ -907,7 +951,6 @@ const App: React.FC = () => {
         cost: number,
         result: InvestigationResult,
     ): boolean => {
-        if (turnInFlightRef.current) return false;
         const newEntities = entities.map(e => {
             if (e.entity_id === playerCharacterId) {
                 const newResources = {...e.resources};
@@ -958,7 +1001,6 @@ const App: React.FC = () => {
     };
 
     const handleSetIntervention = (text: string): boolean => {
-        if (turnInFlightRef.current) return false;
         if (!saveGame(buildSaveState({ gmInterventionText: text })).ok) {
             setTransactionError('The directive could not be saved. Please try again.');
             return false;
@@ -969,7 +1011,7 @@ const App: React.FC = () => {
     };
     
     const handleEventChoice = useCallback((choice: PlayerEventChoice) => {
-        if (turnInFlightRef.current || !activeEvent || !playerEntity) return;
+        if (!activeEvent || !playerEntity) return;
 
         const newEventHistoryEntry: EventHistoryEntry = {
             eventId: activeEvent.id,
@@ -1020,7 +1062,7 @@ const App: React.FC = () => {
         // Per-campaign-session log (see handleSelectCharacter): the loaded
         // campaign starts a fresh session log, dropping any calls a prior
         // campaign made in this tab.
-        resetSessionCallLog();
+        beginCampaignSession();
         // GAME_LOADED (state/gameReducer.ts) restores the whole campaign in
         // one state transition: it normalizes the optional save fields
         // (inferredAmbition, pendingIntelligenceFallout - absent on older
@@ -1030,12 +1072,14 @@ const App: React.FC = () => {
         // are, and a save CAN legitimately be reloaded on an already-ended
         // run when the player closed the tab on the epilogue screen).
         dispatch({ type: 'GAME_LOADED', save: save.state });
-    }, [dispatch]);
+        setTransactionError(null);
+    }, [beginCampaignSession, dispatch]);
 
     const handleStartAnew = useCallback(() => {
+        beginCampaignSession();
         clearSave();
         setSavedGameInfo(null);
-    }, []);
+    }, [beginCampaignSession]);
 
     // Fires on X, Escape, or finishing the final step alike (see
     // OnboardingOverlay's onClose) - marks the device-level seen-flag so it
@@ -1099,11 +1143,20 @@ const App: React.FC = () => {
                             {gameState === GameState.SETUP && transactionError && <p role="alert">{transactionError}</p>}
                             {gameState === GameState.SETUP ? (
                                 <CharacterSelection
-                                    onSelectCharacter={handleSelectCharacter}
-                                    onCreateCharacter={handleCustomCreation}
+                                    onSelectCharacter={(option) => {
+                                        void runDomainMutation(() => handleSelectCharacter(option));
+                                    }}
+                                    onCreateCharacter={async (args) => {
+                                        await runDomainMutation((transaction) => handleCustomCreation(args, transaction));
+                                    }}
                                     savedGame={savedGameInfo}
-                                    onContinue={handleContinue}
-                                    onStartAnew={handleStartAnew}
+                                    onContinue={() => {
+                                        void runDomainMutation(handleContinue);
+                                    }}
+                                    onStartAnew={() => {
+                                        void runDomainMutation(handleStartAnew);
+                                    }}
+                                    interactionLocked={domainMutationInFlight}
                                 />
                             ) : (
                                 <>
@@ -1128,6 +1181,7 @@ const App: React.FC = () => {
                                                     variant="secondary"
                                                     onClick={() => void executeTurn(retrySubmission, retryDraft)}
                                                     aria-label="Retry the last action"
+                                                    disabled={domainMutationInFlight}
                                                 >
                                                     ↻ Retry the last action
                                                 </Button>
@@ -1138,11 +1192,11 @@ const App: React.FC = () => {
                                                 chatDraft={chatDraft}
                                                 structuredDraft={structuredDraft}
                                                 recipientOptions={recipientOptions}
-                                                suggestedActions={suggestedActions}
+                                                suggestedActions={gameState === GameState.PROCESSING ? [] : suggestedActions}
                                                 onChatDraftChange={setChatDraft}
                                                 onStructuredDraftChange={setStructuredDraft}
                                                 onSubmit={handleComposerSubmit}
-                                                disabled={gameState !== GameState.AWAITING_PLAYER_INPUT}
+                                                disabled={domainMutationInFlight || gameState !== GameState.AWAITING_PLAYER_INPUT}
                                                 isProcessing={gameState === GameState.PROCESSING}
                                                 turnStage={turnStage}
                                             />
@@ -1176,6 +1230,8 @@ const App: React.FC = () => {
                             turnNumber={turnNumber}
                             onSpendDeepAnalysis={(cost) => handleSpendResource('deep_analyses', cost)}
                             onInvestigationOutcome={handleInvestigationOutcome}
+                            runDomainMutation={runDomainMutation}
+                            interactionLocked={domainMutationInFlight || gameState === GameState.PROCESSING}
                             ai={ai}
                             isMockMode={isMockMode}
                             eventHistory={eventHistory}
@@ -1203,8 +1259,11 @@ const App: React.FC = () => {
                 history={turnHistory}
                 onClose={() => setIsGmScreenVisible(false)}
                 interventionText={gmInterventionText}
-                onSetIntervention={handleSetIntervention}
-                interactionLocked={gameState === GameState.PROCESSING}
+                onSetIntervention={async (text) => {
+                    const result = await runDomainMutation(() => handleSetIntervention(text));
+                    return result.acquired && result.value !== false;
+                }}
+                interactionLocked={domainMutationInFlight || gameState === GameState.PROCESSING}
                 playerCharacterId={playerCharacterId}
                 worldState={worldState}
                 turnNumber={turnNumber}
@@ -1216,7 +1275,13 @@ const App: React.FC = () => {
                 npcIntents={npcIntents}
                 gmInterventionEnabled={gmInterventionAvailable}
             />}
-            {activeEvent && <EventModal event={activeEvent} onChoose={handleEventChoice} />}
+            {activeEvent && <EventModal
+                event={activeEvent}
+                onChoose={(choice) => {
+                    void runDomainMutation(() => handleEventChoice(choice));
+                }}
+                interactionLocked={domainMutationInFlight}
+            />}
             {showOnboarding && gameState === GameState.AWAITING_PLAYER_INPUT && (
                 <OnboardingOverlay isOpen={showOnboarding} onClose={handleCloseOnboarding} />
             )}

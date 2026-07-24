@@ -9,24 +9,26 @@ import { isEntityKnownToPlayer, relationshipTimelineFor } from '../../knowledge/
 import { priceInvestigation, schemeDiscoveryFor, resolveIntelRequest, DEEP_ANALYSIS_COST } from './dramatisPersonaeIntel';
 import { quiet, IntelSection, SchemeIntelSection, DeepAnalysisSection } from './dramatisPersonaeUi';
 import RelationshipObservations from './RelationshipObservations';
+import type { RunDomainMutation } from '../../state/domainMutation';
 
 type UncoveredIntel = { secrets?: string[]; beliefs?: string[]; deep_analysis?: string };
 type Wiring = {
   knowledge: KnowledgeClaim[];
   turnNumber: number;
-  onSpendDeepAnalysis: (cost: number) => boolean | void;
-  onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult) => boolean | void;
+  onSpendDeepAnalysis: (cost: number) => boolean | void | Promise<boolean | void>;
+  onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult) => boolean | void | Promise<boolean | void>;
+  runDomainMutation: RunDomainMutation;
   interactionLocked?: boolean;
   ai: GoogleGenAI;
   isMockMode: boolean;
 };
 
 const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring> = ({
-  entity, playerEntity, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, ai, isMockMode, interactionLocked,
+  entity, playerEntity, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, ai, isMockMode, interactionLocked,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [uncoveredIntel, setUncoveredIntel] = useState<UncoveredIntel>({});
-  const loadingState: string | null = null;
+  const [loadingState, setLoadingState] = useState<'secrets' | 'beliefs' | 'scheme' | 'deep_analysis' | null>(null);
   const price = (kind: InvestigationKind) => priceInvestigation(knowledge, entity.entity_id, kind);
   const schemeDiscovery = schemeDiscoveryFor(knowledge, entity.entity_id);
   const observations = relationshipTimelineFor(knowledge, entity.entity_id);
@@ -34,21 +36,37 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
   const handleRequest = async (type: 'secrets' | 'beliefs' | 'scheme' | 'deep_analysis') => {
     if (interactionLocked) return;
     try {
-      const outcome = await resolveIntelRequest({ type, target: entity, playerEntity, knowledge, ai, isMockMode });
-      if (outcome.kind === 'deep_analysis') {
-        if (outcome.charged) {
-          if (onSpendDeepAnalysis(outcome.cost) !== false) setUncoveredIntel(previous => ({ ...previous, deep_analysis: outcome.analysis }));
+      await runDomainMutation(async transaction => {
+        setLoadingState(type);
+        try {
+          const outcome = await resolveIntelRequest({ type, target: entity, playerEntity, knowledge, ai, isMockMode });
+          if (!transaction.isCurrent()) return;
+          if (outcome.kind === 'deep_analysis') {
+            if (outcome.charged) {
+              const committed = await onSpendDeepAnalysis(outcome.cost);
+              if (transaction.isCurrent() && committed !== false) {
+                setUncoveredIntel(previous => ({ ...previous, deep_analysis: outcome.analysis }));
+              }
+            }
+            return;
+          }
+          if (outcome.charged) {
+            if (outcome.investigationKind !== 'scheme') {
+              const committed = await onInvestigationOutcome(outcome.investigationKind, entity.entity_id, outcome.reportData, outcome.cost, outcome.outcome);
+              if (transaction.isCurrent() && committed !== false) {
+                setUncoveredIntel(previous => ({ ...previous, [outcome.investigationKind]: outcome.display }));
+              }
+            } else {
+              await onInvestigationOutcome(outcome.investigationKind, entity.entity_id, outcome.reportData, outcome.cost, outcome.outcome);
+            }
+          }
+        } finally {
+          if (transaction.isCurrent()) setLoadingState(null);
         }
-        return;
-      }
-      if (outcome.charged) {
-        if (outcome.investigationKind !== 'scheme') {
-          if (onInvestigationOutcome(outcome.investigationKind, entity.entity_id, outcome.reportData, outcome.cost, outcome.outcome) !== false) setUncoveredIntel(previous => ({ ...previous, [outcome.investigationKind]: outcome.display }));
-        } else {
-          onInvestigationOutcome(outcome.investigationKind, entity.entity_id, outcome.reportData, outcome.cost, outcome.outcome);
-        }
-      }
-    } finally { /* the control remains mounted so failed transactions are immediately retryable */ }
+      });
+    } catch (error) {
+      console.error('Error resolving intelligence request:', error);
+    }
   };
 
   const investigations = (playerEntity.resources.investigations as number) || 0;

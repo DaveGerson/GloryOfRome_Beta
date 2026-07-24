@@ -547,6 +547,21 @@ describe('persistence/saveGame', () => {
       expect(loaded!.state.inferredAmbition).toEqual(ambition);
     });
 
+    it('does not let an older async result overwrite a newer stored ambition', () => {
+      const newer: InferredAmbitionState = {
+        apparent_ambition: 'Command the Rhine legions and dictate terms to Rome',
+        confidence: 'high',
+        asOfTurn: 6,
+      };
+      saveGame(makeState({ turnNumber: 7, inferredAmbition: newer }));
+      const before = localStorage.getItem('gloryOfRome:autosave');
+
+      updateSavedAmbition(ambition);
+
+      expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
+      expect(loadGame()!.state.inferredAmbition).toEqual(newer);
+    });
+
     it('no-ops safely when no save exists', () => {
       expect(() => updateSavedAmbition(ambition)).not.toThrow();
       expect(hasSave()).toBe(false);

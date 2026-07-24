@@ -13,8 +13,14 @@ import type { GoogleGenAI } from '@google/genai';
 import DramatisPersonaeTab from '../components/tabs/DramatisPersonaeTab';
 import type { KnowledgeClaim, KnowledgeSource } from '../knowledge/store';
 import type { Entity } from '../types';
+import type { RunDomainMutation } from '../state/domainMutation';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const runDomainMutation: RunDomainMutation = async work => ({
+  acquired: true,
+  value: await work({ isCurrent: () => true }),
+});
 
 function makeEntity(overrides: Partial<Entity> & Pick<Entity, 'entity_id' | 'name'>): Entity {
   return {
@@ -215,6 +221,7 @@ describe('components/tabs/DramatisPersonaeTab - player-safe Personae', () => {
           turnNumber={10}
           onSpendDeepAnalysis={() => {}}
           onInvestigationOutcome={() => {}}
+          runDomainMutation={runDomainMutation}
           ai={{} as GoogleGenAI}
           isMockMode={true}
         />

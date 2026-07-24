@@ -136,13 +136,13 @@ describe('state/gameReducer', () => {
   });
 
   describe('TURN_STARTED', () => {
-    it('enters PROCESSING and clears the pills without committing the pending player artifact', () => {
+    it('enters PROCESSING without changing any committed domain slice', () => {
       const state = makePlayingState();
       const playerMessage: Message = { sender: 'player', text: 'I address the Senate.' };
       const result = gameReducer(state, { type: 'TURN_STARTED', playerMessage });
 
       expect(result.gameState).toBe(GameState.PROCESSING);
-      expect(result.suggestedActions).toEqual([]);
+      expect(result.suggestedActions).toBe(state.suggestedActions);
       expect(result.messages).toBe(state.messages);
       // Nothing else may change - the submitted artifact is only an
       // in-flight UI projection until TURN_COMMITTED lands atomically.
@@ -639,6 +639,17 @@ describe('state/gameReducer', () => {
       const inferredAmbition = { apparent_ambition: 'Appears set on ruling Rome.', confidence: 'low' as const, asOfTurn: 3 };
       const result = gameReducer(makePlayingState(), { type: 'AMBITION_INFERRED', inferredAmbition });
       expect(result.inferredAmbition).toBe(inferredAmbition);
+    });
+
+    it('AMBITION_INFERRED cannot replace a newer reading with an older async result', () => {
+      const newer = { apparent_ambition: 'Commands the Rhine legions.', confidence: 'high' as const, asOfTurn: 6 };
+      const older = { apparent_ambition: 'Courts a few senators.', confidence: 'low' as const, asOfTurn: 3 };
+      const state = makePlayingState({ inferredAmbition: newer });
+
+      const result = gameReducer(state, { type: 'AMBITION_INFERRED', inferredAmbition: older });
+
+      expect(result).toBe(state);
+      expect(result.inferredAmbition).toBe(newer);
     });
 
     it('RESOURCE_SPENT replaces the entity roster', () => {

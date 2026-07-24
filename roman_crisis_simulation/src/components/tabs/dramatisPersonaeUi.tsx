@@ -54,9 +54,6 @@ export const SchemeIntelSection: React.FC<{
     tooltip: string;
 }> = ({ discovery, threshold, cost, resourceCount, onInvestigate, isLoading, interactionLocked = false, tooltip }) => {
     const renderState = () => {
-        if (isLoading) {
-            return <span style={quiet}>Your asset works in the dark…</span>;
-        }
         if (discovery?.revealed && discovery.nature) {
             return (
                 <div style={{ animation: 'gorFadeIn .4s ease-out both' }}>
@@ -82,6 +79,7 @@ export const SchemeIntelSection: React.FC<{
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             <span style={{ ...labelStyle, display: 'inline-flex', alignItems: 'center' }}>Active Scheme<InfoTooltip text={tooltip} /></span>
+            {isLoading && <span role="status" style={quiet}>Your asset works in the dark…</span>}
             {renderState()}
         </div>
     );
@@ -103,9 +101,6 @@ export const IntelSection: React.FC<{
 }> = ({ title, cost, resourceName, resourceCount, held, uncoveredData, onUncover, isLoading, interactionLocked = false, tooltip, footnote }) => {
 
     const renderContent = () => {
-        if (isLoading) {
-            return <span style={quiet}>Your asset works in the dark…</span>;
-        }
         if (uncoveredData) {
             return (
                 <div style={{ animation: 'gorFadeIn .4s ease-out both' }}>
@@ -134,6 +129,7 @@ export const IntelSection: React.FC<{
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             <span style={{ ...labelStyle, display: 'inline-flex', alignItems: 'center' }}>{title}<InfoTooltip text={tooltip} /></span>
+            {isLoading && <span role="status" style={quiet}>Your asset works in the dark…</span>}
             {renderContent()}
         </div>
     );
@@ -162,9 +158,8 @@ export const DeepAnalysisSection: React.FC<{
                 Spymaster's Assessment
                 <InfoTooltip text="Commission a premium, synthesized strategic judgment on this individual - a higher-tier read than a raw investigation report, spent from your rare Deep Analyses." />
             </span>
-            {isLoading ? (
-                <p style={{ ...quiet, margin: '4px 0 0' }}>The assessment is being drawn up…</p>
-            ) : analysis ? (
+            {isLoading && <p role="status" style={{ ...quiet, margin: '4px 0 0' }}>The assessment is being drawn up…</p>}
+            {analysis ? (
                 <div className="gor-card gor-card-gilt" style={{ marginTop: 5, padding: '10px 12px', animation: 'gorFadeIn .4s ease-out both' }}>
                     <p style={{ margin: 0, fontSize: 14, fontStyle: 'italic', whiteSpace: 'pre-wrap' }}>“{analysis}”</p>
                 </div>

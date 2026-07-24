@@ -269,6 +269,11 @@ export function updateSavedAmbition(ambition: InferredAmbitionState): void {
     return;
   }
 
+  const storedAmbition = existing.state.inferredAmbition;
+  if (storedAmbition && storedAmbition.asOfTurn > ambition.asOfTurn) {
+    return;
+  }
+
   try {
     const patched: SaveGame = {
       ...existing,
