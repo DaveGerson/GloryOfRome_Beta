@@ -377,9 +377,9 @@ describe('components/TurnComposer', () => {
     expect(command.disabled).toBe(false);
     expect(recipient.disabled).toBe(false);
     expect(command.getAttribute('aria-invalid')).toBe('true');
-    expect(recipient.getAttribute('aria-invalid')).toBe('true');
+    expect(recipient.getAttribute('aria-invalid')).toBeNull();
     expect(command.getAttribute('aria-describedby')).toBe(error?.id);
-    expect(recipient.getAttribute('aria-describedby')).toBe(error?.id);
+    expect(recipient.getAttribute('aria-describedby')).toBeNull();
     expect(buttonNamed(container, 'Submit turn').disabled).toBe(true);
   });
 
@@ -397,6 +397,25 @@ describe('components/TurnComposer', () => {
     expect(recipient.disabled).toBe(false);
     expect(recipient.getAttribute('aria-invalid')).toBe('true');
     expect(recipient.getAttribute('aria-describedby')).toBe(error?.id);
+    expect(byAriaLabel<HTMLTextAreaElement>(container, 'Message or order 1').getAttribute('aria-invalid')).toBeNull();
+    expect(byAriaLabel<HTMLTextAreaElement>(container, 'Message or order 1').getAttribute('aria-describedby')).toBeNull();
+  });
+
+  it('associates a blank custom recipient with both recipient controls, not its valid command', async () => {
+    const invalid: StructuredTurnDraft = {
+      ...emptyStructuredDraft(),
+      messagesOrOrders: [{ recipient: { kind: 'free_text', text: '   ' }, command: 'Wait.' }],
+    };
+    const { container } = await mount(<TurnComposer {...defaultProps({ structuredDraft: invalid })} />);
+    await click(buttonNamed(container, 'Structured'));
+    const recipient = byAriaLabel<HTMLSelectElement>(container, 'Recipient 1');
+    const customRecipient = byAriaLabel<HTMLInputElement>(container, 'Custom recipient 1');
+    const command = byAriaLabel<HTMLTextAreaElement>(container, 'Message or order 1');
+    const error = container.querySelector<HTMLElement>('[role="alert"]');
+    expect(recipient.getAttribute('aria-describedby')).toBe(error?.id);
+    expect(customRecipient.getAttribute('aria-describedby')).toBe(error?.id);
+    expect(command.getAttribute('aria-invalid')).toBeNull();
+    expect(command.getAttribute('aria-describedby')).toBeNull();
   });
 
   it('renders the public stage-specific processing label with an accessible live status', async () => {

@@ -23,7 +23,7 @@ export const StructuredTurnComposer: React.FC<StructuredTurnComposerProps> = ({
   draft, recipientOptions, disabled, submissionBlocked = false, validationIssues = [], statusId, onChange, onSubmit,
 }) => {
   const hasIssue = (field: string) => validationIssues.some(issue =>
-    issue.field === 'submission' || issue.field === field || issue.field.startsWith(`${field}.`));
+    issue.field === 'submission' || issue.field === field);
   const describeIssue = (field: string) => hasIssue(field)
     ? { 'aria-invalid': true, ...(statusId ? { 'aria-describedby': statusId } : {}) }
     : {};
@@ -66,7 +66,7 @@ export const StructuredTurnComposer: React.FC<StructuredTurnComposerProps> = ({
                 aria-label={`Recipient ${index + 1}`}
                 value={recipientValue}
                 disabled={disabled}
-                {...describeIssue(`messagesOrOrders.${index}`)}
+                {...describeIssue(`messagesOrOrders.${index}.recipient`)}
                 onChange={event => {
                   const value = event.target.value;
                   onChange(selectMessageRecipient(draft, index, value));
@@ -91,7 +91,7 @@ export const StructuredTurnComposer: React.FC<StructuredTurnComposerProps> = ({
                 aria-label={`Message or order ${index + 1}`}
                 value={row.command}
                 disabled={disabled}
-                {...describeIssue(`messagesOrOrders.${index}`)}
+                {...describeIssue(`messagesOrOrders.${index}.command`)}
                 onChange={event => onChange(updateMessageCommand(draft, index, event.target.value))}
                 onKeyDown={submitOnShortcut}
               />

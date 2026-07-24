@@ -129,15 +129,21 @@ function normalizeStructuredFields(
   const messagesOrOrders: MessageOrOrder[] = [];
   for (let index = 0; index < fields.messagesOrOrders.length; index += 1) {
     const row = fields.messagesOrOrders[index];
-    if (!isRecord(row) || typeof row.command !== 'string') {
-      return issue(`messagesOrOrders.${index}`, 'Message or order is malformed.');
+    if (!isRecord(row)) {
+      return issue('submission', 'Message or order is malformed.');
+    }
+    if (typeof row.command !== 'string') {
+      return issue(`messagesOrOrders.${index}.command`, 'Message or order is malformed.');
     }
 
     const command = trim(row.command);
     const hasRecipient = row.recipient !== null && row.recipient !== undefined;
     if (!hasRecipient && !command && allowBlankDraftRows) continue;
-    if (!hasRecipient || !command) {
-      return issue(`messagesOrOrders.${index}`, 'Recipient and command are both required.');
+    if (!hasRecipient) {
+      return issue(`messagesOrOrders.${index}.recipient`, 'Recipient and command are both required.');
+    }
+    if (!command) {
+      return issue(`messagesOrOrders.${index}.command`, 'Recipient and command are both required.');
     }
 
     const recipient = normalizeRecipient(row.recipient);

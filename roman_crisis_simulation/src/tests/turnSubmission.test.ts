@@ -168,6 +168,40 @@ describe('validateAndNormalizeTurnSubmission', () => {
     expect(validateAndNormalizeTurnSubmission(draft, context).ok).toBe(false);
   });
 
+  it('associates half-complete message/order validation with the missing or invalid field', () => {
+    const staleRecipient = validateAndNormalizeTurnSubmission({
+      actions: [],
+      messagesOrOrders: [{ recipient: { kind: 'known_entity', entityId: 'stale' }, command: 'Wait.' }],
+      privateIntent: '',
+      questionOrContext: '',
+    }, context);
+    const blankCommand = validateAndNormalizeTurnSubmission({
+      actions: [],
+      messagesOrOrders: [{ recipient: { kind: 'known_entity', entityId: 'lucius' }, command: '   ' }],
+      privateIntent: '',
+      questionOrContext: '',
+    }, context);
+    const malformedCommand = validateAndNormalizeTurnSubmission({
+      actions: [],
+      messagesOrOrders: [{ recipient: { kind: 'known_entity', entityId: 'lucius' }, command: 7 }],
+      privateIntent: '',
+      questionOrContext: '',
+    } as unknown as StructuredTurnDraft, context);
+
+    expect(staleRecipient).toMatchObject({
+      ok: false,
+      issues: [{ field: 'messagesOrOrders.0.recipient', message: 'Selected recipient is unavailable.' }],
+    });
+    expect(blankCommand).toMatchObject({
+      ok: false,
+      issues: [{ field: 'messagesOrOrders.0.command', message: 'Recipient and command are both required.' }],
+    });
+    expect(malformedCommand).toMatchObject({
+      ok: false,
+      issues: [{ field: 'messagesOrOrders.0.command', message: 'Message or order is malformed.' }],
+    });
+  });
+
   it('rejects a structured artifact whose every field and row is blank', () => {
     const draft: StructuredTurnDraft = {
       actions: ['  ', '\n'],
