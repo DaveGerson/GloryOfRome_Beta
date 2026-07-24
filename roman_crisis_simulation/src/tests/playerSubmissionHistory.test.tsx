@@ -84,9 +84,14 @@ describe('player submission history', () => {
   });
 
   it('keeps legacy plaintext as one ordinary player bubble', async () => {
-    const container = await renderPlayerMessage('Hold court and hear the petitioners.');
+    const container = await renderPlayerMessage('I **warn** the Senate');
+    const bubble = container.querySelector('.gor-msg-player');
 
-    expect(container.textContent).toContain('Hold court and hear the petitioners.');
+    expect(bubble).not.toBeNull();
+    expect(bubble!.textContent).toBe('I warn the Senate');
+    expect(bubble!.querySelector('strong')?.textContent).toBe('warn');
+    expect(bubble!.textContent).not.toContain('**');
+    expect(bubble!.textContent).not.toContain('GOR_TURN_SUBMISSION/');
     expect(container.querySelector('details')).toBeNull();
     expect(container.textContent).not.toContain('Actions');
     expect(container.textContent).not.toContain('Messages / Orders');
@@ -94,17 +99,25 @@ describe('player submission history', () => {
   });
 
   it('renders enveloped reserved-prefix freeform as authored text but fail-closes malformed and future artifacts', async () => {
-    const authored = 'GOR_TURN_SUBMISSION/not-json\nthis is authored prose';
+    const authored = 'I **warn** the Senate';
     const validContainer = await renderPlayerMessage(serializeTurnSubmission({ version: 1, kind: 'freeform', text: authored }));
-    expect(validContainer.textContent).toContain(authored);
+    const validBubble = validContainer.querySelector('.gor-msg-player');
+    expect(validBubble).not.toBeNull();
+    expect(validBubble!.textContent).toBe('I warn the Senate');
+    expect(validBubble!.querySelector('strong')?.textContent).toBe('warn');
+    expect(validBubble!.textContent).not.toContain('**');
+    expect(validBubble!.textContent).not.toContain('GOR_TURN_SUBMISSION/');
     expect(validContainer.textContent).not.toContain('"kind"');
 
     const malformed = await renderPlayerMessage('GOR_TURN_SUBMISSION/1\n{poisoned');
     expect(malformed.textContent).toContain('Invalid turn submission artifact.');
+    expect(malformed.textContent).not.toContain('GOR_TURN_SUBMISSION/');
     expect(malformed.textContent).not.toContain('{poisoned');
 
     const future = await renderPlayerMessage('GOR_TURN_SUBMISSION/99\n{"private":"never show"}');
     expect(future.textContent).toContain('Invalid turn submission artifact.');
+    expect(future.textContent).not.toContain('GOR_TURN_SUBMISSION/');
+    expect(future.textContent).not.toContain('"private"');
     expect(future.textContent).not.toContain('never show');
   });
 });
