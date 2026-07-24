@@ -16,9 +16,12 @@ export async function getRelationshipObservations(
   ai: GeminiClient,
   evidence: PlayerSafeEvidence[],
   entities: Array<{ entity_id: string; name: string }>,
-  knownEntityIds: string[] = entities.map(entity => entity.entity_id),
+  knownEntityIds: readonly string[],
   isMockMode = false,
 ): Promise<RelationshipObservationDraft[]> {
+  if (!Array.isArray(knownEntityIds)) {
+    throw new Error('knownEntityIds is required at the relationship observation boundary');
+  }
   if (hasDuplicateEvidenceIds(evidence)) {
     throw new Error('duplicate evidence id at relationship observation boundary');
   }

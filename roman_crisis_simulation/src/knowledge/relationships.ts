@@ -101,7 +101,7 @@ interface ValidationInput {
   drafts: RelationshipObservationDraft[];
   evidence: PlayerSafeEvidence[];
   entities: Array<Pick<Entity, 'entity_id' | 'name'>>;
-  knownEntityIds: string[];
+  knownEntityIds: readonly string[];
 }
 
 export function hasDuplicateEvidenceIds(evidence: PlayerSafeEvidence[]): boolean {
@@ -114,11 +114,14 @@ function escapeRegex(raw: string): string {
 
 /** Matches one exact, case-sensitive display-name literal, never a substring of a longer word. */
 export function evidenceContainsExactEntityName(text: string, name: string): boolean {
-  if (name.length === 0) return false;
+  const normalizedName = name.normalize('NFC');
+  if (normalizedName.length === 0) return false;
+  const normalizedText = text.normalize('NFC');
+  const wordContinuation = '\\p{L}\\p{N}\\p{M}\\p{Pc}\\u200C\\u200D';
   return new RegExp(
-    `(?:^|[^\\p{L}\\p{N}_])${escapeRegex(name)}(?=$|[^\\p{L}\\p{N}_])`,
+    `(?:^|[^${wordContinuation}])${escapeRegex(normalizedName)}(?=$|[^${wordContinuation}])`,
     'u'
-  ).test(text);
+  ).test(normalizedText);
 }
 
 /** Copies only the safe evidence fields, and derives quote attribution locally. */

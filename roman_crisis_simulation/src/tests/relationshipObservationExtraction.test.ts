@@ -10,6 +10,7 @@ import { AiServiceError, GEMINI_FLASH, type GeminiClient } from '../ai/core/gemi
 import { buildRelationshipObservationsPrompt } from '../ai/prompts/relationshipObservations';
 import { getRelationshipObservations } from '../ai/tools/relationshipObservations';
 import { parseModelJson } from '../ai/core/json';
+import { evidenceContainsExactEntityName } from '../knowledge/relationships';
 
 function makeMockAi(...responses: unknown[]): {
   ai: GeminiClient;
@@ -32,6 +33,7 @@ const directory = [
   { entity_id: 'severus_alexander', name: 'Severus Alexander' },
   { entity_id: 'lucius', name: 'Senator Lucius' },
 ];
+const knownEntityIds = directory.map(entity => entity.entity_id);
 const validDraft = {
   evidenceId: 'report_7_1',
   participantIds: ['severus_alexander', 'lucius'],
@@ -64,7 +66,7 @@ describe('relationship observation schema boundary', () => {
 
     expect(zRelationshipObservations.parse([paddedDraft])).toEqual([paddedDraft]);
     const { ai } = makeMockAi([paddedDraft]);
-    await expect(getRelationshipObservations(ai, paddedEvidence, directory)).resolves.toEqual([paddedDraft]);
+    await expect(getRelationshipObservations(ai, paddedEvidence, directory, knownEntityIds)).resolves.toEqual([paddedDraft]);
   });
 
   it.each([
@@ -95,7 +97,7 @@ describe('relationship observation schema boundary', () => {
       [{ ...evidence[0], source: 'scout' as const }, { ...evidence[0], source: 'rumor' as const }],
     ]) {
       const { ai, generateContent } = makeMockAi([]);
-      await expect(getRelationshipObservations(ai, duplicateEvidence, directory)).rejects.toThrow('duplicate evidence id');
+      await expect(getRelationshipObservations(ai, duplicateEvidence, directory, knownEntityIds)).rejects.toThrow('duplicate evidence id');
       expect(generateContent).not.toHaveBeenCalled();
     }
   });
@@ -167,10 +169,66 @@ describe('relationship observation prompt privacy boundary', () => {
   });
 });
 
+describe('evidenceContainsExactEntityName Unicode identity boundary', () => {
+  it('normalizes canonically equivalent names without treating combining marks as boundaries', () => {
+    expect(evidenceContainsExactEntityName('Jose\u0301 entered the Forum.', 'Jose')).toBe(false);
+    expect(evidenceContainsExactEntityName('Jose\u0301 entered the Forum.', 'José')).toBe(true);
+    expect(evidenceContainsExactEntityName('가 arrived from the east.', '가')).toBe(true);
+    expect(evidenceContainsExactEntityName('Jose\u0301 entered the Forum.', 'Jos')).toBe(false);
+  });
+
+  it('keeps word continuations closed while matching ordinary exact punctuation literally', () => {
+    expect(evidenceContainsExactEntityName('An Annex was posted.', 'Ann')).toBe(false);
+    expect(evidenceContainsExactEntityName('Jose_ally entered.', 'Jose')).toBe(false);
+    expect(evidenceContainsExactEntityName('Jose\u200Dally entered.', 'Jose')).toBe(false);
+    expect(evidenceContainsExactEntityName('Aurelia (Minor) arrived.', 'Aurelia (Minor)')).toBe(true);
+    expect(evidenceContainsExactEntityName('The envoy A+B arrived.', 'A+B')).toBe(true);
+    expect(evidenceContainsExactEntityName('José entered.', 'josé')).toBe(false);
+    expect(evidenceContainsExactEntityName('Anyone entered.', '')).toBe(false);
+  });
+});
+
 describe('getRelationshipObservations', () => {
+  it('requires deliberate knownness at compile time and fails closed before prompting at runtime', async () => {
+    type KnownnessIsRequired = undefined extends Parameters<typeof getRelationshipObservations>[3]
+      ? false
+      : true;
+    const knownnessIsRequired: KnownnessIsRequired = true;
+    expect(knownnessIsRequired).toBe(true);
+
+    type LegacyOptionalKnownness = (
+      ai: GeminiClient,
+      evidence: PlayerSafeEvidence[],
+      entities: Array<{ entity_id: string; name: string }>,
+      knownEntityIds?: readonly string[],
+      isMockMode?: boolean,
+    ) => ReturnType<typeof getRelationshipObservations>;
+    const legacyTool = getRelationshipObservations as LegacyOptionalKnownness;
+    const hiddenDirectory = [
+      ...directory,
+      { entity_id: 'lycinia_stolo', name: 'Lycinia Stolo' },
+    ];
+
+    for (const invoke of [
+      (ai: GeminiClient) => legacyTool(ai, evidence, hiddenDirectory),
+      (ai: GeminiClient) => legacyTool(ai, evidence, hiddenDirectory, undefined),
+    ]) {
+      const { ai, generateContent } = makeMockAi([]);
+      const [result] = await Promise.allSettled([invoke(ai)]);
+      expect({ status: result.status, providerCalls: generateContent.mock.calls.length }).toEqual({
+        status: 'rejected',
+        providerCalls: 0,
+      });
+      if (result.status === 'rejected') {
+        expect(result.reason).toBeInstanceOf(Error);
+        expect((result.reason as Error).message).toMatch(/knownEntityIds.*required/i);
+      }
+    }
+  });
+
   it('routes through the structured boundary and returns a valid empty list', async () => {
     const { ai, generateContent } = makeMockAi([]);
-    await expect(getRelationshipObservations(ai, evidence, directory)).resolves.toEqual([]);
+    await expect(getRelationshipObservations(ai, evidence, directory, knownEntityIds)).resolves.toEqual([]);
 
     expect(generateContent).toHaveBeenCalledTimes(1);
     const call = generateContent.mock.calls[0][0];
@@ -181,7 +239,7 @@ describe('getRelationshipObservations', () => {
 
   it('returns validated exact-selection drafts without adding quote or interpretation fields', async () => {
     const { ai } = makeMockAi([validDraft]);
-    await expect(getRelationshipObservations(ai, evidence, directory)).resolves.toEqual([validDraft]);
+    await expect(getRelationshipObservations(ai, evidence, directory, knownEntityIds)).resolves.toEqual([validDraft]);
   });
 
   it('sends only known or exactly cited identities while retaining the full directory for local validation', async () => {
@@ -253,7 +311,7 @@ describe('getRelationshipObservations', () => {
     const nonexistent = { ...validDraft, evidenceId: 'missing_evidence' };
     const { ai } = makeMockAi([nonexistent]);
 
-    await expect(getRelationshipObservations(ai, evidence, directory))
+    await expect(getRelationshipObservations(ai, evidence, directory, knownEntityIds))
       .rejects.toThrow(/semantic validation rejected/i);
   });
 
@@ -261,14 +319,14 @@ describe('getRelationshipObservations', () => {
     const nonexistent = { ...validDraft, evidenceId: 'missing_evidence' };
     const { ai } = makeMockAi([validDraft, nonexistent]);
 
-    await expect(getRelationshipObservations(ai, evidence, directory))
+    await expect(getRelationshipObservations(ai, evidence, directory, knownEntityIds))
       .rejects.toThrow(/semantic validation rejected/i);
   });
 
   it('fails loudly after the repair attempt when structured output is still invalid', async () => {
     const malformed = [{ ...validDraft, quote: { speakerId: 'lucius', text: 'MODEL QUOTE' } }];
     const { ai } = makeMockAi(malformed, malformed);
-    await expect(getRelationshipObservations(ai, evidence, directory)).rejects.toBeInstanceOf(AiServiceError);
+    await expect(getRelationshipObservations(ai, evidence, directory, knownEntityIds)).rejects.toBeInstanceOf(AiServiceError);
   });
 
   it('never sends locally trusted quote attribution to the model', async () => {
@@ -277,7 +335,7 @@ describe('getRelationshipObservations', () => {
       trustedQuote: { speakerId: 'lucius', text: 'Senator Lucius supports Severus.' },
     }];
     const { ai, generateContent } = makeMockAi([]);
-    await getRelationshipObservations(ai, localEvidence, directory);
+    await getRelationshipObservations(ai, localEvidence, directory, knownEntityIds);
 
     const sent = JSON.stringify(generateContent.mock.calls[0][0]);
     expect(sent).not.toContain('trustedQuote');

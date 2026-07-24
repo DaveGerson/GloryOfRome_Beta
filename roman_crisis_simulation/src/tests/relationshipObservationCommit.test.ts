@@ -61,7 +61,7 @@ const mounted: Array<{ root: Root; container: HTMLDivElement }> = [];
 async function runSchemaValidSemanticRejection(
   evidence: PlayerSafeEvidence[],
   directory: Array<{ entity_id: string; name: string }>,
-  knownEntityIds: string[] | undefined,
+  knownEntityIds: readonly string[],
 ): Promise<never> {
   const realTool = await vi.importActual<typeof import('../ai/tools/relationshipObservations')>(
     '../ai/tools/relationshipObservations'
@@ -80,7 +80,7 @@ async function runSchemaValidSemanticRejection(
     ai,
     evidence,
     directory,
-    knownEntityIds ?? directory.map(entity => entity.entity_id),
+    knownEntityIds,
     false,
   ) as Promise<never>;
 }
