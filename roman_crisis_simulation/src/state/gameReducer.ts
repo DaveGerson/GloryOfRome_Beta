@@ -270,7 +270,7 @@ export type GameAction =
    * state transition - split across separate commits, whichever landed last
    * would silently revert the others' fields in the autosave.
    */
-  | { type: 'INVESTIGATION_COMMITTED'; entities: Entity[]; pendingIntelligenceFallout: string[]; knowledge: KnowledgeClaim[] }
+  | { type: 'INVESTIGATION_COMMITTED'; entities: Entity[]; pendingIntelligenceFallout: string[]; knowledge: KnowledgeClaim[]; falloutMessage?: Message }
   /** GM-console operator authored (or cleared) the intervention text. */
   | { type: 'GM_INTERVENTION_SET'; text: string }
   /** DESIGN_DECISIONS.md D8 - a periodic ambition inference resolved. */
@@ -482,6 +482,7 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         entities: action.entities,
         pendingIntelligenceFallout: action.pendingIntelligenceFallout,
         knowledge: action.knowledge,
+        messages: action.falloutMessage ? [...state.messages, action.falloutMessage] : state.messages,
       };
 
     case 'GM_INTERVENTION_SET':

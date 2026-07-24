@@ -509,7 +509,8 @@ const GameMasterScreen: React.FC<{
     history: TurnHistoryEntry[];
     onClose: () => void;
     interventionText: string;
-    onSetIntervention: (text: string) => void;
+    onSetIntervention: (text: string) => boolean | void;
+    interactionLocked?: boolean;
     playerCharacterId: string | null;
     worldState: WorldState;
     /** The current turn number - stamped into the eval corpus export's metadata and filename (D18). */
@@ -558,7 +559,7 @@ const GameMasterScreen: React.FC<{
      * `interventionText`.
      */
     gmInterventionEnabled?: boolean;
-}> = ({ history, onClose, interventionText, onSetIntervention, playerCharacterId, worldState, turnNumber, inferredAmbition, pendingIntelligenceFallout, truthLedger, reports, knowledge, npcIntents, gmInterventionEnabled = true }) => {
+}> = ({ history, onClose, interventionText, onSetIntervention, interactionLocked = false, playerCharacterId, worldState, turnNumber, inferredAmbition, pendingIntelligenceFallout, truthLedger, reports, knowledge, npcIntents, gmInterventionEnabled = true }) => {
     const [activeTab, setActiveTab] = useState('summary');
     const [interventionInput, setInterventionInput] = useState(interventionText);
     const [showConfirmation, setShowConfirmation] = useState(false);
@@ -595,8 +596,7 @@ const GameMasterScreen: React.FC<{
     };
 
     const handleSetIntervention = () => {
-        onSetIntervention(interventionInput);
-        setShowConfirmation(true);
+        if (onSetIntervention(interventionInput) !== false) setShowConfirmation(true);
     };
 
     // DESIGN_DECISIONS.md D18 - downloads the session's captured turns
@@ -728,6 +728,7 @@ const GameMasterScreen: React.FC<{
                                 <button
                                     type="button"
                                     onClick={handleSetIntervention}
+                                    disabled={interactionLocked}
                                     style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, letterSpacing: '.08em', textTransform: 'uppercase', color: '#F8F1DE', background: 'var(--metal-crimson)', border: '1px solid #5E1008', clipPath: 'var(--chamfer-sm)', padding: '9px 16px', cursor: 'pointer', boxShadow: 'var(--bevel)' }}
                                 >
                                     Set Directive for Next Turn

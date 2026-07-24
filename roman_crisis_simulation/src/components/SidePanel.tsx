@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { GameState, Entity, InvestigationResult, WorldState, Report, EventHistoryEntry, SimulationState } from '../types';
 import { GoogleGenAI } from "@google/genai";
 import CurrentEventsTab from './tabs/CurrentEventsTab';
@@ -59,11 +59,9 @@ const SidePanel: React.FC<{
     // Tabs the player has already looked at since the current pulsingTabs
     // set arrived - clicking a pulsing tab dismisses its own pulse
     // immediately rather than waiting for the next turn to clear it.
-    const [dismissed, setDismissed] = useState<Set<TabId>>(new Set());
-
-    useEffect(() => {
-        setDismissed(new Set());
-    }, [pulsingTabs]);
+    const pulseKey = [...pulsingTabs].sort().join('|');
+    const [dismissal, setDismissal] = useState<{ pulseKey: string; tabs: Set<TabId> }>({ pulseKey, tabs: new Set() });
+    const dismissed = dismissal.pulseKey === pulseKey ? dismissal.tabs : new Set<TabId>();
 
     if (gameState === GameState.SETUP) {
         return (
@@ -75,7 +73,10 @@ const SidePanel: React.FC<{
 
     const handleTabClick = (id: TabId) => {
         setActiveTab(id);
-        setDismissed(prev => new Set(prev).add(id));
+        setDismissal(previous => ({
+            pulseKey,
+            tabs: new Set(previous.pulseKey === pulseKey ? previous.tabs : []).add(id),
+        }));
     };
 
     return (
@@ -120,6 +121,7 @@ const SidePanel: React.FC<{
                     turnNumber={turnNumber}
                     onSpendDeepAnalysis={onSpendDeepAnalysis}
                     onInvestigationOutcome={onInvestigationOutcome}
+                    interactionLocked={gameState === GameState.PROCESSING}
                     ai={ai}
                     isMockMode={isMockMode}
                 />}

@@ -506,10 +506,13 @@ describe('App in-flight transaction barrier', () => {
       expect(mockGetDeepAnalysis).not.toHaveBeenCalled();
       expect(mockGetInvestigationResult).not.toHaveBeenCalled();
       expect(loadGame()!.state.gmInterventionText).toBe(beforeState.gmInterventionText);
-      expect(loadGame()!.state.knowledge).toEqual(beforeState.knowledge);
-      expect(loadGame()!.state.pendingIntelligenceFallout).toEqual(beforeState.pendingIntelligenceFallout);
-      expect(loadGame()!.state.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources)
-        .toEqual(beforeState.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources);
+      // A successful turn may legitimately ingest perception knowledge or
+      // consume pre-existing fallout. This asserts only the barred concurrent
+      // actions, while the failure branch above retains full-state equality.
+      expect(loadGame()!.state.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources.deep_analyses)
+        .toBe(beforeState.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources.deep_analyses);
+      expect(loadGame()!.state.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources.investigations)
+        .toBe(beforeState.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources.investigations);
       expect(JSON.stringify(loadGame()!.state)).not.toContain(`Barrier ${outcome} directive`);
       expect(container.textContent).not.toContain('(Mock Analysis)');
       expect(container.textContent).not.toContain('(Mock) Is secretly illiterate.');

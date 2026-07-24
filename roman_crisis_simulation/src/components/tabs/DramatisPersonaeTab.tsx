@@ -14,42 +14,41 @@ type UncoveredIntel = { secrets?: string[]; beliefs?: string[]; deep_analysis?: 
 type Wiring = {
   knowledge: KnowledgeClaim[];
   turnNumber: number;
-  onSpendDeepAnalysis: (cost: number) => void;
-  onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult) => void;
+  onSpendDeepAnalysis: (cost: number) => boolean | void;
+  onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult) => boolean | void;
+  interactionLocked?: boolean;
   ai: GoogleGenAI;
   isMockMode: boolean;
 };
 
 const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring> = ({
-  entity, playerEntity, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, ai, isMockMode,
+  entity, playerEntity, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, ai, isMockMode, interactionLocked,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [uncoveredIntel, setUncoveredIntel] = useState<UncoveredIntel>({});
-  const [loadingState, setLoadingState] = useState<string | null>(null);
+  const loadingState: string | null = null;
   const price = (kind: InvestigationKind) => priceInvestigation(knowledge, entity.entity_id, kind);
   const schemeDiscovery = schemeDiscoveryFor(knowledge, entity.entity_id);
   const observations = relationshipTimelineFor(knowledge, entity.entity_id);
 
   const handleRequest = async (type: 'secrets' | 'beliefs' | 'scheme' | 'deep_analysis') => {
-    setLoadingState(type);
+    if (interactionLocked) return;
     try {
       const outcome = await resolveIntelRequest({ type, target: entity, playerEntity, knowledge, ai, isMockMode });
       if (outcome.kind === 'deep_analysis') {
         if (outcome.charged) {
-          setUncoveredIntel(previous => ({ ...previous, deep_analysis: outcome.analysis }));
-          onSpendDeepAnalysis(outcome.cost);
+          if (onSpendDeepAnalysis(outcome.cost) !== false) setUncoveredIntel(previous => ({ ...previous, deep_analysis: outcome.analysis }));
         }
         return;
       }
       if (outcome.charged) {
         if (outcome.investigationKind !== 'scheme') {
-          setUncoveredIntel(previous => ({ ...previous, [outcome.investigationKind]: outcome.display }));
+          if (onInvestigationOutcome(outcome.investigationKind, entity.entity_id, outcome.reportData, outcome.cost, outcome.outcome) !== false) setUncoveredIntel(previous => ({ ...previous, [outcome.investigationKind]: outcome.display }));
+        } else {
+          onInvestigationOutcome(outcome.investigationKind, entity.entity_id, outcome.reportData, outcome.cost, outcome.outcome);
         }
-        onInvestigationOutcome(outcome.investigationKind, entity.entity_id, outcome.reportData, outcome.cost, outcome.outcome);
       }
-    } finally {
-      setLoadingState(null);
-    }
+    } finally { /* the control remains mounted so failed transactions are immediately retryable */ }
   };
 
   const investigations = (playerEntity.resources.investigations as number) || 0;
@@ -61,10 +60,10 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
         <RelationshipObservations observations={observations} currentTurn={turnNumber} />
         {isExpanded && <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 8, borderTop: '1px solid var(--border-faint)' }}>
           <span className="gor-label" style={{ color: 'var(--tyrian-500)' }}>Intelligence Briefing</span>
-          <IntelSection title="Beliefs" {...price('beliefs')} resourceName="Inv." resourceCount={investigations} uncoveredData={uncoveredIntel.beliefs} onUncover={() => handleRequest('beliefs')} isLoading={loadingState === 'beliefs'} tooltip="Uncover the core ideologies and principles that drive this character's decisions." />
-          <SchemeIntelSection discovery={schemeDiscovery} threshold={SCHEME_CLUES_TO_REVEAL} cost={price('scheme').cost} resourceCount={investigations} onInvestigate={() => handleRequest('scheme')} isLoading={loadingState === 'scheme'} tooltip="Piece together what this character is quietly plotting. Each investigation earns one clue toward its true nature." />
-          <IntelSection title="Secrets" {...price('secrets')} resourceName="Inv." resourceCount={investigations} uncoveredData={uncoveredIntel.secrets} onUncover={() => handleRequest('secrets')} isLoading={loadingState === 'secrets'} tooltip="Use high-risk, high-reward investigation to uncover hidden fears, blackmail material, or secret plots." />
-          <DeepAnalysisSection analysis={uncoveredIntel.deep_analysis} cost={DEEP_ANALYSIS_COST} resourceCount={deepAnalyses} onCommission={() => handleRequest('deep_analysis')} isLoading={loadingState === 'deep_analysis'} />
+          <IntelSection title="Beliefs" {...price('beliefs')} resourceName="Inv." resourceCount={investigations} uncoveredData={uncoveredIntel.beliefs} onUncover={() => handleRequest('beliefs')} isLoading={loadingState === 'beliefs'} interactionLocked={interactionLocked} tooltip="Uncover the core ideologies and principles that drive this character's decisions." />
+          <SchemeIntelSection discovery={schemeDiscovery} threshold={SCHEME_CLUES_TO_REVEAL} cost={price('scheme').cost} resourceCount={investigations} onInvestigate={() => handleRequest('scheme')} isLoading={loadingState === 'scheme'} interactionLocked={interactionLocked} tooltip="Piece together what this character is quietly plotting. Each investigation earns one clue toward its true nature." />
+          <IntelSection title="Secrets" {...price('secrets')} resourceName="Inv." resourceCount={investigations} uncoveredData={uncoveredIntel.secrets} onUncover={() => handleRequest('secrets')} isLoading={loadingState === 'secrets'} interactionLocked={interactionLocked} tooltip="Use high-risk, high-reward investigation to uncover hidden fears, blackmail material, or secret plots." />
+          <DeepAnalysisSection analysis={uncoveredIntel.deep_analysis} cost={DEEP_ANALYSIS_COST} resourceCount={deepAnalyses} onCommission={() => handleRequest('deep_analysis')} isLoading={loadingState === 'deep_analysis'} interactionLocked={interactionLocked} />
         </div>}
       </div>
     </Card>

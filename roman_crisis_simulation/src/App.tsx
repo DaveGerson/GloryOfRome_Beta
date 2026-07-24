@@ -143,6 +143,7 @@ const App: React.FC = () => {
     const [retryDraft, setRetryDraft] = useState<string | StructuredTurnDraft | null>(null);
     const [pendingPlayerMessage, setPendingPlayerMessage] = useState<Message | null>(null);
     const [turnError, setTurnError] = useState<string | null>(null);
+    const [transactionError, setTransactionError] = useState<string | null>(null);
     const [isGmScreenVisible, setIsGmScreenVisible] = useState(false);
     // D7 - the GM console (log/debugger) stays in the codebase permanently
     // but is hidden by default for a clean player view. This is the runtime
@@ -724,6 +725,9 @@ const App: React.FC = () => {
                 inferAmbition(ai, updatedPlayerEntity, recentIntents, recentHeadlines, isMockMode)
                     .then(inference => {
                         const nextAmbition: InferredAmbitionState = { ...inference, asOfTurn: ambitionTurnNumber };
+                        // Let the turn transaction settle first. This out-of-band
+                        // enrichment must never interleave with its durable commit.
+                        setTimeout(() => {
                         dispatch({ type: 'AMBITION_INFERRED', inferredAmbition: nextAmbition });
                         // Persist by PATCHING only the ambition field into
                         // whatever autosave is newest at the moment this
@@ -733,6 +737,7 @@ const App: React.FC = () => {
                         // while inference was in flight, that would clobber
                         // the newer autosave and lose those turns on reload.
                         updateSavedAmbition(nextAmbition);
+                        }, 50);
                     })
                     .catch(console.warn);
             }
@@ -796,6 +801,12 @@ const App: React.FC = () => {
         // components/starterActions.ts) so turn 1 isn't a blank page.
         const starterActions = deriveStarterActions(characterEntity);
 
+        const candidate = buildSaveState({ entities: allInitialEntities, worldState: resolvedWorldState, metaNarrative: resolvedMetaNarrative, playerCharacterId: characterEntity.entity_id, messages: [...messages, introMessage], suggestedActions: starterActions });
+        if (!saveGame(candidate).ok) {
+            setTransactionError('Your campaign could not be saved. Please try again.');
+            return;
+        }
+        setTransactionError(null);
         dispatch({
             type: 'GAME_STARTED',
             entities: allInitialEntities,
@@ -816,16 +827,6 @@ const App: React.FC = () => {
             setShowOnboarding(true);
         }
 
-        // Autosave the very first commit of a new campaign - this is what
-        // makes "Continue your reign" available on the next visit.
-        saveGame(buildSaveState({
-            entities: allInitialEntities,
-            worldState: resolvedWorldState,
-            metaNarrative: resolvedMetaNarrative,
-            playerCharacterId: characterEntity.entity_id,
-            messages: [...messages, introMessage],
-            suggestedActions: starterActions,
-        }));
     };
 
     const handleSelectCharacter = (option: PlayerCharacterOption) => {
@@ -865,7 +866,8 @@ const App: React.FC = () => {
         }
     };
 
-    const handleSpendResource = (resourceName: 'deep_analyses' | 'investigations', cost: number) => {
+    const handleSpendResource = (resourceName: 'deep_analyses' | 'investigations', cost: number): boolean => {
+        if (turnInFlightRef.current) return false;
         const newEntities = entities.map(e => {
             if (e.entity_id === playerCharacterId) {
                 const newResources = {...e.resources};
@@ -875,8 +877,13 @@ const App: React.FC = () => {
             }
             return e;
         });
+        if (!saveGame(buildSaveState({ entities: newEntities })).ok) {
+            setTransactionError('Your change could not be saved. Please try again.');
+            return false;
+        }
+        setTransactionError(null);
         dispatch({ type: 'RESOURCE_SPENT', entities: newEntities });
-        saveGame(buildSaveState({ entities: newEntities }));
+        return true;
     };
 
     // One reveal = one atomic commit. The investigation spend, any blackmail
@@ -899,7 +906,8 @@ const App: React.FC = () => {
         reportData: unknown,
         cost: number,
         result: InvestigationResult,
-    ) => {
+    ): boolean => {
+        if (turnInFlightRef.current) return false;
         const newEntities = entities.map(e => {
             if (e.entity_id === playerCharacterId) {
                 const newResources = {...e.resources};
@@ -929,23 +937,39 @@ const App: React.FC = () => {
             turnNumber,
         });
 
-        dispatch({ type: 'INVESTIGATION_COMMITTED', entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge });
-        saveGame(buildSaveState({ entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge }));
+        const falloutMessage: Message | undefined = hasFallout(result.consequences)
+            ? { sender: 'gm', text: 'Your agent returns — but something in their manner suggests the visit did not go unnoticed.' }
+            : undefined;
+        if (!saveGame(buildSaveState({ entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge, messages: falloutMessage ? [...messages, falloutMessage] : messages })).ok) {
+            setTransactionError('Your investigation could not be saved. Please try again.');
+            return false;
+        }
+        setTransactionError(null);
+        dispatch({ type: 'INVESTIGATION_COMMITTED', entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge, falloutMessage });
 
         if (hasFallout(result.consequences)) {
-            addMessage({
+            // The visible hint was included in the candidate transaction above.
+            /* addMessage({
                 sender: 'gm',
                 text: "Your agent returns — but something in their manner suggests the visit did not go unnoticed."
-            });
+            }); */
         }
+        return true;
     };
 
-    const handleSetIntervention = (text: string) => {
+    const handleSetIntervention = (text: string): boolean => {
+        if (turnInFlightRef.current) return false;
+        if (!saveGame(buildSaveState({ gmInterventionText: text })).ok) {
+            setTransactionError('The directive could not be saved. Please try again.');
+            return false;
+        }
+        setTransactionError(null);
         dispatch({ type: 'GM_INTERVENTION_SET', text });
+        return true;
     };
     
     const handleEventChoice = useCallback((choice: PlayerEventChoice) => {
-        if (!activeEvent || !playerEntity) return;
+        if (turnInFlightRef.current || !activeEvent || !playerEntity) return;
 
         const newEventHistoryEntry: EventHistoryEntry = {
             eventId: activeEvent.id,
@@ -970,6 +994,11 @@ const App: React.FC = () => {
         // deltas can also kill the player (applyEventChoiceDeltas), not just
         // the adjudicated turn pipeline - the reducer applies the exact same
         // GAME_OVER check as TURN_COMMITTED.
+        if (!saveGame(buildSaveState({ entities: updatedEntities, worldState: updatedWorldState, eventHistory: newEventHistory, triggeredEventIds: newTriggeredEventIds, eventFirings: newEventFirings, messages: [...messages, eventMessage] })).ok) {
+            setTransactionError('Your choice could not be saved. Please try again.');
+            return;
+        }
+        setTransactionError(null);
         dispatch({
             type: 'EVENT_CHOICE_APPLIED',
             entities: updatedEntities,
@@ -979,16 +1008,6 @@ const App: React.FC = () => {
             triggeredEventIds: newTriggeredEventIds,
             eventFirings: newEventFirings,
         });
-
-        // Autosave immediately after this commit (P0.2).
-        saveGame(buildSaveState({
-            entities: updatedEntities,
-            worldState: updatedWorldState,
-            eventHistory: newEventHistory,
-            triggeredEventIds: newTriggeredEventIds,
-            eventFirings: newEventFirings,
-            messages: [...messages, eventMessage],
-        }));
 
     }, [activeEvent, buildSaveState, dispatch, entities, eventFirings, eventHistory, messages, playerEntity, triggeredEventIds, turnNumber, worldState]);
 
@@ -1077,6 +1096,7 @@ const App: React.FC = () => {
                 ) : (
                     <>
                         <section data-screen-label="Chat" style={{ flex: 2, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                            {gameState === GameState.SETUP && transactionError && <p role="alert">{transactionError}</p>}
                             {gameState === GameState.SETUP ? (
                                 <CharacterSelection
                                     onSelectCharacter={handleSelectCharacter}
@@ -1101,7 +1121,7 @@ const App: React.FC = () => {
                                         <div ref={messagesEndRef} />
                                     </div>
                                     <div style={{ flex: 'none', borderTop: '1px solid var(--border-subtle)', padding: '12px 24px 16px', background: 'rgba(255,254,249,.55)' }}>
-                                        {turnError && <p role="alert">{turnError}</p>}
+                                        {(turnError || transactionError) && <p role="alert">{turnError ?? transactionError}</p>}
                                         {gameState === GameState.AWAITING_PLAYER_INPUT && retrySubmission && retryDraft && (
                                             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10, animation: 'gorRise .4s ease-out both' }}>
                                                 <Button
@@ -1184,6 +1204,7 @@ const App: React.FC = () => {
                 onClose={() => setIsGmScreenVisible(false)}
                 interventionText={gmInterventionText}
                 onSetIntervention={handleSetIntervention}
+                interactionLocked={gameState === GameState.PROCESSING}
                 playerCharacterId={playerCharacterId}
                 worldState={worldState}
                 turnNumber={turnNumber}

@@ -50,8 +50,9 @@ export const SchemeIntelSection: React.FC<{
     resourceCount: number;
     onInvestigate: () => void;
     isLoading: boolean;
+    interactionLocked?: boolean;
     tooltip: string;
-}> = ({ discovery, threshold, cost, resourceCount, onInvestigate, isLoading, tooltip }) => {
+}> = ({ discovery, threshold, cost, resourceCount, onInvestigate, isLoading, interactionLocked = false, tooltip }) => {
     const renderState = () => {
         if (isLoading) {
             return <span style={quiet}>Your asset works in the dark…</span>;
@@ -69,7 +70,7 @@ export const SchemeIntelSection: React.FC<{
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                     <span style={quiet}>{aware ? 'Something is afoot — your agents are still piecing it together.' : '[ Unknown ]'}</span>
-                    <Button size="sm" variant="secondary" onClick={onInvestigate} disabled={resourceCount < cost || isLoading}>
+                    <Button size="sm" variant="secondary" onClick={onInvestigate} disabled={resourceCount < cost || isLoading || interactionLocked}>
                         {(aware ? 'Investigate further' : 'Investigate') + (cost <= 0 ? ' · Free' : ` · ${toRoman(cost)} Inv.`)}
                     </Button>
                 </span>
@@ -96,9 +97,10 @@ export const IntelSection: React.FC<{
     uncoveredData: string[] | undefined;
     onUncover: () => void;
     isLoading: boolean;
+    interactionLocked?: boolean;
     tooltip: string;
     footnote?: React.ReactNode;
-}> = ({ title, cost, resourceName, resourceCount, held, uncoveredData, onUncover, isLoading, tooltip, footnote }) => {
+}> = ({ title, cost, resourceName, resourceCount, held, uncoveredData, onUncover, isLoading, interactionLocked = false, tooltip, footnote }) => {
 
     const renderContent = () => {
         if (isLoading) {
@@ -122,7 +124,7 @@ export const IntelSection: React.FC<{
         return (
             <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                 <span style={quiet}>{held ? '[ On file — may be stale ]' : '[ Unknown ]'}</span>
-                <Button size="sm" variant="secondary" onClick={onUncover} disabled={resourceCount < cost || isLoading}>
+                <Button size="sm" variant="secondary" onClick={onUncover} disabled={resourceCount < cost || isLoading || interactionLocked}>
                     {cost <= 0 ? `${verb} · Free` : `${verb} · ${toRoman(cost)} ${resourceName}`}
                 </Button>
             </span>
@@ -150,7 +152,8 @@ export const DeepAnalysisSection: React.FC<{
     resourceCount: number;
     onCommission: () => void;
     isLoading: boolean;
-}> = ({ analysis, cost, resourceCount, onCommission, isLoading }) => {
+    interactionLocked?: boolean;
+}> = ({ analysis, cost, resourceCount, onCommission, isLoading, interactionLocked = false }) => {
     const canAfford = resourceCount >= cost;
 
     return (
@@ -171,7 +174,7 @@ export const DeepAnalysisSection: React.FC<{
                     <Button
                         size="sm"
                         onClick={onCommission}
-                        disabled={!canAfford || isLoading}
+                        disabled={!canAfford || isLoading || interactionLocked}
                         title={!canAfford ? `Requires ${cost} Deep Analyses (you have ${resourceCount})` : undefined}
                     >
                         Commission · {toRoman(cost)} Deep

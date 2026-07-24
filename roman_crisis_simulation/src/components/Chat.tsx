@@ -3,6 +3,7 @@ import { Message } from '../types';
 import { TurnStage } from '../ai/core/turn';
 import { ActionPill } from './ui/Game';
 import { structuredSubmissionForHistory, TurnSubmissionHistory } from './TurnSubmissionHistory';
+import { deserializeTurnSubmission } from '../playerInput/turnSubmission';
 import { TurnRibbon } from './ui/Brand';
 import { Button } from './ui/Core';
 import { toSegments } from './textFormat';
@@ -108,12 +109,14 @@ export const ChatMessage: React.FC<{ message: Message }> = ({ message }) => {
 
     const isPlayer = message.sender === 'player';
     const structuredSubmission = isPlayer ? structuredSubmissionForHistory(message.text) : null;
+    const parsedPlayerSubmission = isPlayer ? deserializeTurnSubmission(message.text) : null;
+    const playerText = parsedPlayerSubmission?.kind === 'freeform' ? parsedPlayerSubmission.text : message.text;
     return (
         <div style={{ display: 'flex', justifyContent: isPlayer ? 'flex-end' : 'flex-start', marginBottom: 14 }}>
             <div className={`gor-msg ${isPlayer ? 'gor-msg-player' : 'gor-msg-gm'}`}>
                 {structuredSubmission
                     ? <TurnSubmissionHistory submission={structuredSubmission} audience="player" />
-                    : <FormattedText text={message.text} />}
+                    : <FormattedText text={playerText} />}
             </div>
         </div>
     );
