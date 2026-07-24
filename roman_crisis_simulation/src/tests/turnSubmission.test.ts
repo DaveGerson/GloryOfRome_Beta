@@ -19,6 +19,7 @@ import {
   serializeTurnSubmission,
   validateAndNormalizeTurnSubmission,
   canonicalArtifactForTurnSubmission,
+  deepFreezeTurnSubmission,
 } from '../playerInput/turnSubmission';
 
 const KNOWN_RECIPIENTS: readonly KnownRecipientOption[] = [
@@ -93,6 +94,25 @@ describe('serialization-owned artifact classification and input normalization', 
     const normalized = normalizeTurnSubmissionInput(dirty);
     expect(normalized).not.toBe(dirty);
     expect(normalized).toEqual({ version: 1, kind: 'structured', actions: ['Address the Senate'] });
+  });
+});
+
+describe('deepFreezeTurnSubmission', () => {
+  it('freezes a canonical structured submission through arrays, rows, and recipients', () => {
+    const frozen = deepFreezeTurnSubmission(expectValid(validateAndNormalizeTurnSubmission({
+      actions: ['  Address the Senate  '],
+      messagesOrOrders: [{ recipient: { kind: 'known_entity', entityId: 'lucius' }, command: '  Meet at dusk  ' }],
+      privateIntent: '',
+      questionOrContext: '',
+    }, context)));
+    expect(Object.isFrozen(frozen)).toBe(true);
+    if (frozen.kind !== 'structured') throw new Error('Expected structured submission');
+    expect(Object.isFrozen(frozen.actions)).toBe(true);
+    expect(Object.isFrozen(frozen.messagesOrOrders)).toBe(true);
+    expect(Object.isFrozen(frozen.messagesOrOrders![0])).toBe(true);
+    expect(Object.isFrozen(frozen.messagesOrOrders![0].recipient)).toBe(true);
+    expect(() => { (frozen.actions as string[]).push('mutated'); }).toThrow();
+    expect(() => { (frozen.messagesOrOrders![0].recipient as { entityId: string }).entityId = 'poisoned'; }).toThrow();
   });
 });
 

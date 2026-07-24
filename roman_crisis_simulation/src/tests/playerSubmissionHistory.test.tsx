@@ -92,4 +92,19 @@ describe('player submission history', () => {
     expect(container.textContent).not.toContain('Messages / Orders');
     expect(container.textContent).not.toContain('Private Intent');
   });
+
+  it('renders enveloped reserved-prefix freeform as authored text but fail-closes malformed and future artifacts', async () => {
+    const authored = 'GOR_TURN_SUBMISSION/not-json\nthis is authored prose';
+    const validContainer = await renderPlayerMessage(serializeTurnSubmission({ version: 1, kind: 'freeform', text: authored }));
+    expect(validContainer.textContent).toContain(authored);
+    expect(validContainer.textContent).not.toContain('"kind"');
+
+    const malformed = await renderPlayerMessage('GOR_TURN_SUBMISSION/1\n{poisoned');
+    expect(malformed.textContent).toContain('Invalid turn submission artifact.');
+    expect(malformed.textContent).not.toContain('{poisoned');
+
+    const future = await renderPlayerMessage('GOR_TURN_SUBMISSION/99\n{"private":"never show"}');
+    expect(future.textContent).toContain('Invalid turn submission artifact.');
+    expect(future.textContent).not.toContain('never show');
+  });
 });

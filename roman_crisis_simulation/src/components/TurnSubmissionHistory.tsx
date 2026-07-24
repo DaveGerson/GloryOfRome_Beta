@@ -1,14 +1,15 @@
 import React from 'react';
 import type { MessageRecipient, TurnSubmission } from '../types';
-import { deserializeTurnSubmission } from '../playerInput/turnSubmission';
+import { deserializeTurnSubmission, isReservedTurnSubmissionArtifact } from '../playerInput/turnSubmission';
 
-type StructuredSubmission = Extract<TurnSubmission, { kind: 'structured' }>;
+export type HistorySubmission = TurnSubmission | { kind: 'invalid_artifact' };
 
 export type SubmissionHistoryAudience = 'player' | 'gm';
 
-export function structuredSubmissionForHistory(text: string): StructuredSubmission | null {
+export function structuredSubmissionForHistory(text: string): HistorySubmission | null {
   const submission = deserializeTurnSubmission(text);
-  return submission?.kind === 'structured' ? submission : null;
+  if (submission) return submission;
+  return isReservedTurnSubmissionArtifact(text) ? { kind: 'invalid_artifact' } : null;
 }
 
 const fieldStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4 };
@@ -26,9 +27,13 @@ function recipientLabel(
 }
 
 export const TurnSubmissionHistory: React.FC<{
-  submission: StructuredSubmission;
+  submission: HistorySubmission;
   audience: SubmissionHistoryAudience;
-}> = ({ submission, audience }) => (
+}> = ({ submission, audience }) => submission.kind === 'invalid_artifact' ? (
+  <div data-submission-history={audience} role="note">Invalid turn submission artifact.</div>
+) : submission.kind === 'freeform' ? (
+  <div data-submission-history={audience}>{submission.text}</div>
+) : (
   <div data-submission-history={audience} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
     {submission.actions?.length ? (
       <section style={fieldStyle}>

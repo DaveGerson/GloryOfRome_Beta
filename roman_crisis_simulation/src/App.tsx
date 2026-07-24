@@ -43,6 +43,7 @@ import {
     projectForExternalInference,
     serializeTurnSubmission,
     validateAndNormalizeTurnSubmission,
+    deepFreezeTurnSubmission,
 } from './playerInput/turnSubmission';
 import { appendFallout, buildInterventionTextWithFallout, hasFallout } from './components/investigationLoop';
 import { Button } from './components/ui/Core';
@@ -149,6 +150,10 @@ const App: React.FC = () => {
     // (see the effect below) and, in dev builds, a small Header checkbox both
     // flip it. Deliberately not persisted - every fresh session starts hidden.
     const [isGmConsoleEnabled, setIsGmConsoleEnabled] = useState(false);
+    const updateGmConsoleEnabled = useCallback((enabled: boolean) => {
+        if (!enabled) setIsGmScreenVisible(false);
+        setIsGmConsoleEnabled(enabled);
+    }, []);
     // DESIGN_DECISIONS.md D33 - whether the GM console is available AT ALL,
     // a device preference (persistence/uiPrefs.ts) distinct from
     // `isGmConsoleEnabled` above (whether it's currently toggled ON for
@@ -161,10 +166,9 @@ const App: React.FC = () => {
         setGmConsoleAvailableState(enabled);
         setGmConsoleEnabled(enabled);
         if (!enabled) {
-            setIsGmConsoleEnabled(false);
-            setIsGmScreenVisible(false);
+            updateGmConsoleEnabled(false);
         }
-    }, []);
+    }, [updateGmConsoleEnabled]);
     // DESIGN_DECISIONS.md D32 - whether GM Intervention's free-text input is
     // available at all (persistence/uiPrefs.ts), same device-preference
     // mold as above. Defaults true; passed straight through to
@@ -439,12 +443,11 @@ const App: React.FC = () => {
         const handleKeyDown = (event: KeyboardEvent) => {
             if (!shouldToggleGmConsole(event, gmConsoleAvailable)) return;
             event.preventDefault();
-            if (isGmConsoleEnabled) setIsGmScreenVisible(false);
-            setIsGmConsoleEnabled(prev => !prev);
+            updateGmConsoleEnabled(!isGmConsoleEnabled);
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [gmConsoleAvailable, isGmConsoleEnabled]);
+    }, [gmConsoleAvailable, isGmConsoleEnabled, updateGmConsoleEnabled]);
 
     const addMessage = useCallback((message: Message) => {
         dispatch({ type: 'MESSAGE_ADDED', message });
@@ -636,6 +639,25 @@ const App: React.FC = () => {
             // failed/rolled-back attempt never dispatches this, so both
             // survive untouched for a retry. If the player died this turn,
             // the reducer resolves the phase straight to GAME_OVER (D1).
+            const nextSaveState = buildSaveState({
+                entities: result.updatedEntities,
+                worldState: newWorldState,
+                simulationState: result.updatedSimulationState,
+                reports: result.updatedReports,
+                truthLedger: result.updatedTruthLedger,
+                knowledge: newKnowledge,
+                npcIntents: result.updatedNpcIntents,
+                turnNumber: newTurnNumber,
+                turnHistory: newTurnHistory,
+                messages: [...messages, playerMessage, gmMessage, monologueMessage, ribbonMessage],
+                suggestedActions: result.suggestedActions,
+                currentEvents: result.headlines,
+                gmInterventionText: '',
+                pendingIntelligenceFallout: [],
+            });
+            if (!saveGame(nextSaveState).ok) {
+                throw new Error('AUTOSAVE_FAILED');
+            }
             dispatch({
                 type: 'TURN_COMMITTED',
                 entities: result.updatedEntities,
@@ -676,26 +698,6 @@ const App: React.FC = () => {
                 setIsCheckingEvents(true);
             }
 
-            // Autosave the freshly committed state (P0.2 - see
-            // persistence/saveGame.ts). Built from the just-computed local
-            // values rather than re-reading state, since setState above
-            // hasn't flushed yet.
-            saveGame(buildSaveState({
-                entities: result.updatedEntities,
-                worldState: newWorldState,
-                simulationState: result.updatedSimulationState,
-                reports: result.updatedReports,
-                truthLedger: result.updatedTruthLedger,
-                knowledge: newKnowledge,
-                npcIntents: result.updatedNpcIntents,
-                turnNumber: newTurnNumber,
-                turnHistory: newTurnHistory,
-                messages: [...messages, playerMessage, gmMessage, monologueMessage, ribbonMessage],
-                suggestedActions: result.suggestedActions,
-                currentEvents: result.headlines,
-                gmInterventionText: '',
-                pendingIntelligenceFallout: [],
-            }));
             if (submission.kind === 'freeform') setChatDraft('');
             else setStructuredDraft(emptyStructuredDraft());
             setPendingPlayerMessage(null);
@@ -777,7 +779,7 @@ const App: React.FC = () => {
             : draft;
         const normalized = validateAndNormalizeTurnSubmission(candidate, { knownRecipients: recipientOptions });
         if (!normalized.ok) return;
-        void executeTurn(normalized.submission, draft);
+        void executeTurn(deepFreezeTurnSubmission(normalized.submission), draft);
     };
     
     const startGameWithCharacter = (characterEntity: Entity, allInitialEntities: Entity[], initialWorldState?: WorldState, initialMetaNarrative?: string) => {
@@ -1031,7 +1033,11 @@ const App: React.FC = () => {
                 isMockMode={isMockMode}
                 setIsMockMode={setIsMockMode}
                 isGmConsoleEnabled={isGmConsoleEnabled}
-                setIsGmConsoleEnabled={(enabled) => { if (gmConsoleAvailable) setIsGmConsoleEnabled(enabled); }}
+                setIsGmConsoleEnabled={(enabled) => {
+                    if (gmConsoleAvailable) {
+                        updateGmConsoleEnabled(enabled);
+                    }
+                }}
                 onOpenSettings={() => setIsSettingsMenuOpen(true)}
             />
             {gameState !== GameState.GAME_OVER && <CrisisBanner crisis={simulationState.major_ongoing_crisis} />}

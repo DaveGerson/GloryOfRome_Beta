@@ -567,4 +567,128 @@ describe('App turn-submission orchestration', () => {
     expect(loadGame()!.state.turnHistory).toHaveLength(1);
     errorSpy.mockRestore();
   });
+
+  it('rejects a legacy save whose player id is missing before AI, preserving bytes, state, and the exact draft', async () => {
+    const container = await mountAppFromSave({ ...makeAppSave(), playerCharacterId: 'missing-player' });
+    const before = localStorage.getItem('gloryOfRome:autosave');
+    const original = '  Missing player draft\nwith exact whitespace  ';
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), original);
+    await click(buttonNamed(container, 'Send message'));
+    await waitFor(() => expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').value).toBe(original));
+
+    expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
+    expect(loadGame()!.state.turnNumber).toBe(2);
+    expect(loadGame()!.state.turnHistory).toHaveLength(0);
+    expect(loadGame()!.state.messages).toHaveLength(0);
+    expect(container.querySelector('[role="log"]')!.textContent).not.toContain(original);
+    expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1);
+    expect(mockRunNewTurn).not.toHaveBeenCalled();
+  });
+
+  it('rejects a keyless REAL-mode attempt before AI without mutating the legacy save', async () => {
+    const priorKey = process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    try {
+      const container = await mountAppFromSave();
+      await click(container.querySelector<HTMLInputElement>('#mock-toggle')!);
+      expect(container.querySelector<HTMLInputElement>('#mock-toggle')!.checked).toBe(false);
+      const before = localStorage.getItem('gloryOfRome:autosave');
+      const original = '  Keyless real-mode draft\nkeeps whitespace  ';
+      await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), original);
+      await click(buttonNamed(container, 'Send message'));
+      await waitFor(() => expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').value).toBe(original));
+
+      expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
+      expect(loadGame()!.state.turnNumber).toBe(2);
+      expect(loadGame()!.state.turnHistory).toHaveLength(0);
+      expect(loadGame()!.state.messages).toHaveLength(0);
+      expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1);
+      expect(mockRunNewTurn).not.toHaveBeenCalled();
+    } finally {
+      if (priorKey === undefined) delete process.env.GEMINI_API_KEY;
+      else process.env.GEMINI_API_KEY = priorKey;
+    }
+  });
+
+  it('retries a detached frozen multi-row artifact byte-for-byte and commits one player message', async () => {
+    const container = await mountAppFromSave();
+    mockRunNewTurn.mockRejectedValueOnce(new AiServiceError('transient', 'mockRunNewTurn', 'provider failed', new Error('offline')));
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await click(buttonNamed(container, 'Structured'));
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Action 1'), 'Hold  the  forum');
+    const recipient = byAriaLabel<HTMLSelectElement>(container, 'Recipient 1');
+    await setValue(recipient, Array.from(recipient.options).find(option => option.textContent === 'Maximinus Thrax')!.value);
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Message or order 1'), 'Keep  the inner gate open');
+    await click(buttonNamed(container, 'Add message or order row'));
+    const recipientTwo = byAriaLabel<HTMLSelectElement>(container, 'Recipient 2');
+    await setValue(recipientTwo, Array.from(recipientTwo.options).find(option => option.textContent?.startsWith('Someone else'))!.value);
+    await setValue(byAriaLabel<HTMLInputElement>(container, 'Custom recipient 2'), '  A courier  ');
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Message or order 2'), 'Deliver\nthis exact order');
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Private Intent'), 'Keep leverage  private');
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Question / Context'), 'Who  is absent?');
+    await click(buttonNamed(container, 'Submit turn'));
+    await waitFor(() => expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1));
+    const attempted = mockRunNewTurn.mock.calls[0][0] as TurnSubmission;
+    const bytes = serializeTurnSubmission(attempted);
+    expect(Object.isFrozen(attempted)).toBe(true);
+    expect(Object.isFrozen((attempted as Extract<TurnSubmission, { kind: 'structured' }>).messagesOrOrders)).toBe(true);
+    expect(loadGame()!.state.messages).toHaveLength(0);
+    await click(buttonNamed(container, 'Retry the last action'));
+    await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
+    expect(mockRunNewTurn.mock.calls[1][0]).toBe(attempted);
+    expect(serializeTurnSubmission(mockRunNewTurn.mock.calls[1][0] as TurnSubmission)).toBe(bytes);
+    const saved = loadGame()!;
+    expect(saved.state.turnHistory[0].playerIntent).toBe(bytes);
+    expect(saved.state.messages.filter(message => message.sender === 'player')).toEqual([{ sender: 'player', text: bytes }]);
+    errorSpy.mockRestore();
+  });
+
+  it('rolls back a resolved turn when both autosave writes throw, leaves old bytes intact, and permits retry', async () => {
+    const container = await mountAppFromSave();
+    const before = localStorage.getItem('gloryOfRome:autosave');
+    const storageSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('quota', 'QuotaExceededError'); });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const original = '  Save failure draft\nexactly restored  ';
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), original);
+    await click(buttonNamed(container, 'Send message'));
+    await waitFor(() => expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').value).toBe(original));
+    expect(storageSpy).toHaveBeenCalledTimes(2);
+    expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
+    expect(loadGame()!.state.turnNumber).toBe(2);
+    expect(loadGame()!.state.messages).toHaveLength(0);
+    expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1);
+    storageSpy.mockRestore();
+    await click(buttonNamed(container, 'Retry the last action'));
+    await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
+    expect(mockRunNewTurn).toHaveBeenCalledTimes(2);
+    errorSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it('closes the real GM modal through Header, hotkey, and availability transitions without remounting it', async () => {
+    const container = await mountAppFromSave();
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Earn a GM Log');
+    await click(buttonNamed(container, 'Send message'));
+    await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
+    const toggle = container.querySelector<HTMLInputElement>('#gm-console-toggle')!;
+    await click(toggle);
+    await click(buttonNamed(container, 'GM Log'));
+    await waitFor(() => expect(container.querySelector('[role="dialog"][aria-labelledby="gm-screen-title"]')).not.toBeNull());
+    await click(toggle);
+    expect(container.querySelector('[role="dialog"][aria-labelledby="gm-screen-title"]')).toBeNull();
+    await click(toggle);
+    expect(container.querySelector('[role="dialog"][aria-labelledby="gm-screen-title"]')).toBeNull();
+    await click(buttonNamed(container, 'GM Log'));
+    await waitFor(() => expect(container.querySelector('[role="dialog"][aria-labelledby="gm-screen-title"]')).not.toBeNull());
+    await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', ctrlKey: true, shiftKey: true, bubbles: true })));
+    expect(container.querySelector('[role="dialog"][aria-labelledby="gm-screen-title"]')).toBeNull();
+    await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', ctrlKey: true, shiftKey: true, bubbles: true })));
+    expect(container.querySelector('[role="dialog"][aria-labelledby="gm-screen-title"]')).toBeNull();
+    await click(buttonNamed(container, 'Open configuration menu'));
+    await click(container.querySelector<HTMLInputElement>('#settings-gm-console-enabled')!);
+    await click(byAriaLabel<HTMLButtonElement>(container, 'Close configuration menu'));
+    expect(container.querySelector('#gm-console-toggle')!.getAttribute('aria-checked')).not.toBe('true');
+    expect(container.querySelector('[role="dialog"][aria-labelledby="gm-screen-title"]')).toBeNull();
+  });
 });

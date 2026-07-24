@@ -205,9 +205,12 @@ function looksLikeSaveGame(value: unknown): value is SaveGame {
  * `SecurityError`) is guarded, and if the first write fails, one retry is
  * made with older turnHistory entries' `rawCalls` stripped (the most likely
  * cause of an oversize save on a long campaign). If both attempts fail, the
- * autosave is silently skipped - the in-memory game is unaffected.
+ * autosave is skipped and `{ ok: false }` tells the caller whether that
+ * operation may safely commit its accompanying in-memory state.
  */
-export function saveGame(state: SaveGameState): void {
+export type SaveGameResult = { ok: true } | { ok: false };
+
+export function saveGame(state: SaveGameState): SaveGameResult {
   // Persisted saves never carry captured prompt text, regardless of size -
   // see stripCapturedCallText.
   const leanState: SaveGameState = {
@@ -223,7 +226,7 @@ export function saveGame(state: SaveGameState): void {
 
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(envelope));
-    return;
+    return { ok: true };
   } catch (e) {
     console.warn('saveGame: initial write failed, retrying with older rawCalls stripped', e);
   }
@@ -237,8 +240,10 @@ export function saveGame(state: SaveGameState): void {
       },
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(strippedEnvelope));
+    return { ok: true };
   } catch (e) {
     console.warn('saveGame: retry after stripping rawCalls also failed; autosave skipped', e);
+    return { ok: false };
   }
 }
 

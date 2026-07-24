@@ -613,7 +613,7 @@ describe('persistence/saveGame', () => {
       throw err;
     });
 
-    expect(() => saveGame(makeState())).not.toThrow();
+    expect(saveGame(makeState())).toEqual({ ok: false });
     // Both the initial attempt and the stripped retry failed, so nothing
     // should have been persisted.
     expect(warnSpy).toHaveBeenCalledTimes(2);

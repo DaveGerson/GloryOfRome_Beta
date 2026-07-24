@@ -394,6 +394,26 @@ export function normalizeTurnSubmissionInput(submission: TurnSubmission | string
   return normalized;
 }
 
+/**
+ * Freezes a validated canonical submission through every owned container.
+ * This is intentionally narrow rather than a generic object walker: turn
+ * submissions have a closed union and must not retain mutable nested rows or
+ * recipient records across an async retry boundary.
+ */
+export function deepFreezeTurnSubmission(submission: TurnSubmission): TurnSubmission {
+  if (submission.kind === 'freeform') return Object.freeze({ ...submission });
+  const messagesOrOrders = submission.messagesOrOrders?.map(row => Object.freeze({
+    ...row,
+    recipient: Object.freeze({ ...row.recipient }),
+  }));
+  const frozen: StructuredSubmission = {
+    ...submission,
+    ...(submission.actions ? { actions: Object.freeze([...submission.actions]) } : {}),
+    ...(messagesOrOrders ? { messagesOrOrders: Object.freeze(messagesOrOrders) } : {}),
+  };
+  return Object.freeze(frozen);
+}
+
 export function projectForResolution(submission: TurnSubmission): string | null {
   const lines = observableLines(submission);
   return lines.length ? lines.join('\n\n') : null;
