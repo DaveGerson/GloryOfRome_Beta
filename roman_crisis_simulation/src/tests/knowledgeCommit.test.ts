@@ -79,6 +79,49 @@ describe('knowledge/commit computeTurnKnowledge', () => {
     });
   });
 
+  it('commits the player digest, new report, and validated observation under one authoritative turn without duplicating an evidence id on retry', () => {
+    const report = makeReport({ id: 'report_atomic', turn: 99 });
+    const relationshipObservations = {
+      evidence: [{
+        id: report.id,
+        source: 'rumor' as const,
+        text: report.claim,
+      }],
+      drafts: [{
+        evidenceId: report.id,
+        participantIds: ['severus_alexander', 'maximinus_thrax'],
+        excerpt: report.claim,
+      }],
+      entities: [
+        { entity_id: 'severus_alexander', name: 'Severus Alexander' },
+        { entity_id: 'maximinus_thrax', name: 'Maximinus Thrax' },
+      ],
+      knownEntityIds: ['severus_alexander', 'maximinus_thrax'],
+    };
+    const committed = computeTurnKnowledge({
+      prev: [],
+      perceivedChanges: [makeChange()],
+      reportsBefore: [],
+      reportsAfter: [report],
+      relationshipObservations,
+      turnNumber: 5,
+    });
+    const retried = computeTurnKnowledge({
+      prev: committed,
+      perceivedChanges: [],
+      reportsBefore: [report],
+      reportsAfter: [report],
+      relationshipObservations,
+      turnNumber: 5,
+    });
+
+    expect(committed).toHaveLength(3);
+    expect(committed.every(claim => claim.firstLearnedTurn === 5)).toBe(true);
+    expect(committed.flatMap(claim => claim.updates).every(update => update.turn === 5)).toBe(true);
+    expect(retried).toBe(committed);
+    expect(retried.filter(claim => claim.relationshipObservation?.evidenceId === report.id)).toHaveLength(1);
+  });
+
   it('ingests the perceived digest and this turn\'s new reports into one store', () => {
     const store = computeTurnKnowledge({
       prev: [],

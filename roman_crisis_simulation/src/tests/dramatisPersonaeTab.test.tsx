@@ -6,14 +6,14 @@
  * live goals/state, an active scheme, and secret survivor truth. Only the
  * public identity fields and validated knowledge claims may reach the DOM.
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { GoogleGenAI } from '@google/genai';
 import DramatisPersonaeTab from '../components/tabs/DramatisPersonaeTab';
 import type { KnowledgeClaim, KnowledgeSource } from '../knowledge/store';
 import type { Entity } from '../types';
-import type { RunDomainMutation } from '../state/domainMutation';
+import type { DomainMutationContext, RunDomainMutation } from '../state/domainMutation';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -197,21 +197,35 @@ function cardFor(container: HTMLElement, name: string): HTMLElement | null {
 describe('components/tabs/DramatisPersonaeTab - player-safe Personae', () => {
   let container: HTMLDivElement;
   let root: Root;
+  let rootMounted: boolean;
 
   beforeEach(() => {
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
+    rootMounted = true;
   });
 
   afterEach(async () => {
-    await act(async () => {
-      root.unmount();
-    });
+    if (rootMounted) {
+      await act(async () => {
+        root.unmount();
+      });
+    }
     container.remove();
   });
 
-  async function render(knowledge: KnowledgeClaim[]): Promise<void> {
+  async function render(
+    knowledge: KnowledgeClaim[],
+    onInvestigationOutcome: (
+      kind: 'beliefs' | 'scheme' | 'secrets',
+      targetId: string,
+      reportData: unknown,
+      cost: number,
+      result: import('../types').InvestigationResult,
+      request: DomainMutationContext,
+    ) => boolean | void | Promise<boolean | void> = () => {},
+  ): Promise<void> {
     await act(async () => {
       root.render(
         <DramatisPersonaeTab
@@ -220,7 +234,7 @@ describe('components/tabs/DramatisPersonaeTab - player-safe Personae', () => {
           knowledge={knowledge}
           turnNumber={10}
           onSpendDeepAnalysis={() => {}}
-          onInvestigationOutcome={() => {}}
+          onInvestigationOutcome={onInvestigationOutcome}
           runDomainMutation={runDomainMutation}
           ai={{} as GoogleGenAI}
           isMockMode={true}
@@ -401,5 +415,59 @@ describe('components/tabs/DramatisPersonaeTab - player-safe Personae', () => {
       trustedQuote?.text,
     ]);
     expect(text).not.toMatch(/loyal|hostile|trustworthy|untrustworthy|relationship tier/i);
+  });
+
+  it('renders adversarial multi-speaker evidence as the exact sourced excerpt without attribution', async () => {
+    const excerpt = 'Senator Livia said, "I support Severus," while Marcus replied, "I do not."';
+    const ambiguous = observation({
+      evidenceId: 'multi_speaker_10',
+      turn: 10,
+      source: 'witnessed',
+      text: excerpt,
+    });
+
+    await render([ambiguous]);
+    const card = cardFor(container, observedActor.name);
+    expect(card?.textContent).toContain(excerpt);
+    expect(card?.querySelector('q')).toBeNull();
+    expect(card?.textContent).not.toMatch(/speaker|attributed to/i);
+  });
+
+  it('keeps async investigation display pending and invalidates the callback lease on unmount', async () => {
+    let release!: (committed: boolean) => void;
+    const commitGate = new Promise<boolean>(resolve => { release = resolve; });
+    let capturedRequest: DomainMutationContext | undefined;
+    const onInvestigationOutcome = vi.fn((
+      _kind: 'beliefs' | 'scheme' | 'secrets',
+      _targetId: string,
+      _reportData: unknown,
+      _cost: number,
+      _result: import('../types').InvestigationResult,
+      request: DomainMutationContext,
+    ) => {
+      capturedRequest = request;
+      return commitGate;
+    });
+    await render(observations, onInvestigationOutcome);
+    const card = cardFor(container, knownActor.name)!;
+    await act(async () => card.querySelector<HTMLButtonElement>('button')!.click());
+    const reveal = Array.from(card.querySelectorAll<HTMLButtonElement>('button')).find(button =>
+      button.textContent?.startsWith('Reveal') && button.parentElement?.parentElement?.textContent?.includes('Secrets'))!;
+    await act(async () => {
+      reveal.click();
+      await Promise.resolve();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(onInvestigationOutcome).toHaveBeenCalledTimes(1);
+    expect(card.textContent).not.toContain('(Mock) Is secretly illiterate.');
+    expect(capturedRequest?.isCurrent()).toBe(true);
+
+    await act(async () => root.unmount());
+    rootMounted = false;
+    expect(capturedRequest?.isCurrent()).toBe(false);
+    release(true);
+    await act(async () => Promise.resolve());
+    expect(container.textContent).toBe('');
   });
 });
