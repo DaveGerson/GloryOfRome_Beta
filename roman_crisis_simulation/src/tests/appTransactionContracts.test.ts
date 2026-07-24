@@ -492,8 +492,33 @@ describe('App in-flight transaction barrier', () => {
 
       release();
       if (outcome === 'success') {
+        // This turn starts on the ambition-inference interval, so let its
+        // legitimate delayed ambition-only storage patch settle. The barrier
+        // contract concerns saves attributable to the blocked handlers and
+        // the completed turn, not unrelated post-commit enrichment.
+        await act(async () => {
+          await new Promise(resolve => setTimeout(resolve, 75));
+        });
         await waitFor(() => expect(loadGame()!.state.turnNumber).toBe(beforeState.turnNumber + 1));
-        expect(storageSpy).toHaveBeenCalledTimes(1);
+        const capturedStates = storageSpy.mock.calls
+          .filter(([key]) => key === 'gloryOfRome:autosave')
+          .map(([, raw]) => (JSON.parse(String(raw)) as { state: SaveGameState }).state);
+        const completedTurnSaves = capturedStates.filter(state =>
+          state.turnNumber === beforeState.turnNumber + 1 &&
+          state.turnHistory.length === beforeState.turnHistory.length + 1 &&
+          state.inferredAmbition === beforeState.inferredAmbition,
+        );
+        expect(completedTurnSaves, 'exactly one durable save from the completed turn').toHaveLength(1);
+        for (const persisted of capturedStates) {
+          expect(persisted.gmInterventionText).toBe(beforeState.gmInterventionText);
+          expect(persisted.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources.deep_analyses)
+            .toBe(beforeState.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources.deep_analyses);
+          expect(persisted.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources.investigations)
+            .toBe(beforeState.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources.investigations);
+          expect(JSON.stringify(persisted)).not.toContain(`Barrier ${outcome} directive`);
+          expect(JSON.stringify(persisted)).not.toContain('(Mock Analysis)');
+          expect(JSON.stringify(persisted)).not.toContain('(Mock) Is secretly illiterate.');
+        }
         expect(loadGame()!.state.turnHistory).toHaveLength(beforeState.turnHistory.length + 1);
         expect(loadGame()!.state.messages.filter(message => message.sender === 'player')).toHaveLength(2);
       } else {

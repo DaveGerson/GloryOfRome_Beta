@@ -99,14 +99,13 @@ describe('player submission history', () => {
   });
 
   it('renders enveloped reserved-prefix freeform as authored text but fail-closes malformed and future artifacts', async () => {
-    const authored = 'I **warn** the Senate';
+    const authored = 'GOR_TURN_SUBMISSION/not-an-artifact\nI **warn** the Senate';
     const validContainer = await renderPlayerMessage(serializeTurnSubmission({ version: 1, kind: 'freeform', text: authored }));
     const validBubble = validContainer.querySelector('.gor-msg-player');
     expect(validBubble).not.toBeNull();
-    expect(validBubble!.textContent).toBe('I warn the Senate');
+    expect(validBubble!.textContent).toBe('GOR_TURN_SUBMISSION/not-an-artifact\nI warn the Senate');
     expect(validBubble!.querySelector('strong')?.textContent).toBe('warn');
     expect(validBubble!.textContent).not.toContain('**');
-    expect(validBubble!.textContent).not.toContain('GOR_TURN_SUBMISSION/');
     expect(validContainer.textContent).not.toContain('"kind"');
 
     const malformed = await renderPlayerMessage('GOR_TURN_SUBMISSION/1\n{poisoned');

@@ -8,7 +8,7 @@ export type SubmissionHistoryAudience = 'player' | 'gm';
 
 export function structuredSubmissionForHistory(text: string): HistorySubmission | null {
   const submission = deserializeTurnSubmission(text);
-  if (submission?.kind === 'structured') return submission;
+  if (submission) return submission;
   return isReservedTurnSubmissionArtifact(text) ? { kind: 'invalid_artifact' } : null;
 }
 

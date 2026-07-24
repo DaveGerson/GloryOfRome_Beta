@@ -108,14 +108,14 @@ export const ChatMessage: React.FC<{ message: Message }> = ({ message }) => {
     }
 
     const isPlayer = message.sender === 'player';
-    const structuredSubmission = isPlayer ? structuredSubmissionForHistory(message.text) : null;
+    const historySubmission = isPlayer ? structuredSubmissionForHistory(message.text) : null;
     const parsedPlayerSubmission = isPlayer ? deserializeTurnSubmission(message.text) : null;
     const playerText = parsedPlayerSubmission?.kind === 'freeform' ? parsedPlayerSubmission.text : message.text;
     return (
         <div style={{ display: 'flex', justifyContent: isPlayer ? 'flex-end' : 'flex-start', marginBottom: 14 }}>
             <div className={`gor-msg ${isPlayer ? 'gor-msg-player' : 'gor-msg-gm'}`}>
-                {structuredSubmission
-                    ? <TurnSubmissionHistory submission={structuredSubmission} audience="player" />
+                {historySubmission && historySubmission.kind !== 'freeform'
+                    ? <TurnSubmissionHistory submission={historySubmission} audience="player" />
                     : <FormattedText text={playerText} />}
             </div>
         </div>
