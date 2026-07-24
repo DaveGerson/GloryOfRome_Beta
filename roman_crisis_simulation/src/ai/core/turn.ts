@@ -18,8 +18,14 @@ import { processMortality, detectDeathClaims } from './mortality';
 import { createNarrationStreamGate } from './streamSplit';
 import { rollD20, resolveAction, derivePersonalityModifier, deriveOppositionModifier, createSeededRng, generateSeed } from './resolution';
 import { normalizeTurnSubmissionInput, projectForAdjudication, projectForNarration, projectForPlayerOwnedAi, projectForResolution, serializeTurnSubmission } from '../../playerInput/turnSubmission';
-import { projectRelationshipUpdateEvidence } from '../prompts/intelligence';
-import { assertNoInventedPlayerAction, assertPlayerVisibleAdjudicationSafe, assertPlayerVisibleTextSafe } from './playerBoundary';
+import {
+    assertNoInventedPlayerAction,
+    assertNoInventedPlayerVisibleAction,
+    assertPlayerVisibleAdjudicationSafe,
+    assertPlayerVisibleTextSafe,
+    assertPlayerVisibleValueSafe,
+    createPlayerVisibleStreamGate,
+} from './playerBoundary';
 
 // Adjudication is the highest-stakes, most consequence-dense call of the
 // turn - a moderate temperature keeps outcomes varied without letting the
@@ -367,7 +373,15 @@ export async function runNewTurn(
     const normalizedSubmission = normalizeTurnSubmissionInput(submission);
     const playerIntent = serializeTurnSubmission(normalizedSubmission);
     const resolutionAttempt = projectForResolution(normalizedSubmission);
-    const adjudicationSubmission = projectForAdjudication(normalizedSubmission);
+    const fullAdjudicationSubmission = projectForAdjudication(normalizedSubmission);
+    // Private Intent and Question/Context are useful to the player's own
+    // narration and monologue, but are structurally untrusted as mechanics
+    // inputs when no observable attempt exists. The adjudicator still runs
+    // so independent NPC/world events can advance; it receives no player
+    // prose from which it could fabricate an avatar action.
+    const adjudicationSubmission = resolutionAttempt === null
+        ? { observableAttempt: null, privateIntent: null, questionOrContext: null }
+        : fullAdjudicationSubmission;
     const playerOwnedContext = projectForPlayerOwnedAi(normalizedSubmission);
     const narrationSubmission = projectForNarration(normalizedSubmission);
     if (isMockMode) {
@@ -564,7 +578,7 @@ export async function runNewTurn(
     });
     assertNoInventedPlayerAction(
         adjudication,
-        playerEntity.entity_id,
+        playerEntity,
         narrationSubmission.hasObservableAttempt,
     );
     assertPlayerVisibleAdjudicationSafe(adjudication);
@@ -679,7 +693,7 @@ export async function runNewTurn(
     }
     assertNoInventedPlayerAction(
         adjudication,
-        playerEntity.entity_id,
+        playerEntity,
         narrationSubmission.hasObservableAttempt,
     );
     assertPlayerVisibleAdjudicationSafe(adjudication);
@@ -788,8 +802,9 @@ export async function runNewTurn(
     //    delta and apply it in a defined order" step needed for the three
     //    parallel legs - none of them touch shared state at all, mutated or
     //    otherwise. `getRelationshipUpdates` stays sequential to preserve
-    //    that validation/call ordering, although its allowlisted evidence
-    //    projection no longer depends on narration.
+    //    that validation/call ordering. Its only turn-event evidence is the
+    //    trusted observable player submission; no provider-authored prose
+    //    is forwarded into it.
     options?.onStage?.('simulation_state');
     const simulationStatePromise = getUpdatedSimulationState(ai, transformedAdjudication, currentSimulationState, isMockMode);
 
@@ -803,6 +818,7 @@ export async function runNewTurn(
     // without ever seeing GM-private ground truth (DESIGN_DECISIONS.md D3/D4).
     options?.onStage?.('narration');
     const narrationStreamGate = createNarrationStreamGate();
+    const playerVisibleStreamGate = createPlayerVisibleStreamGate();
     // Only VALID mortality events become narration directives (D4). An
     // invalidated claim's `outcomeSummary` is "Death claim invalidated -
     // <validation reasoning>", and that validator reasoning is GM-only
@@ -844,8 +860,8 @@ export async function runNewTurn(
     const narrationPromise = onNarrationChunk
         ? generateTextStream(ai, narrationRequest, (textSoFar) => {
             const displayText = narrationStreamGate(textSoFar);
-            assertPlayerVisibleTextSafe(displayText);
-            onNarrationChunk(displayText);
+            const completedText = playerVisibleStreamGate.push(displayText);
+            if (completedText !== null) onNarrationChunk(completedText);
         })
         : generateText(ai, narrationRequest);
 
@@ -862,26 +878,41 @@ export async function runNewTurn(
         monologuePromise,
         narrationPromise,
     ]);
+    assertPlayerVisibleValueSafe(updatedSimulationState);
+    assertPlayerVisibleTextSafe(playerMonologue);
+    assertPlayerVisibleTextSafe(fullText);
+    assertNoInventedPlayerVisibleAction(
+        updatedSimulationState,
+        playerEntity,
+        narrationSubmission.hasObservableAttempt,
+    );
+    assertNoInventedPlayerVisibleAction(
+        fullText,
+        playerEntity,
+        narrationSubmission.hasObservableAttempt,
+    );
     const narrationParts = fullText.split('SUGGESTION:');
     const narration = narrationParts[0].trim();
     const suggestedActions = narrationParts.slice(1).map(s => s.trim()).filter(s => s.length > 0);
-    assertPlayerVisibleTextSafe(playerMonologue);
-    assertPlayerVisibleTextSafe(fullText);
+    if (onNarrationChunk) {
+        const finalNarration = playerVisibleStreamGate.finish(narration);
+        if (finalNarration !== null) onNarrationChunk(finalNarration);
+    }
 
-    // 5.5 Get and apply relationship updates based on allowlisted turn facts
-    options?.onStage?.('relationship_updates');
-    const relationshipEvidence = projectRelationshipUpdateEvidence(
-        transformedAdjudication,
-        resolutionAttempt,
-        [adjudicationSubmission.privateIntent, adjudicationSubmission.questionOrContext]
-            .filter((value): value is string => value !== null),
-    );
-    const relationshipUpdateResult = await getRelationshipUpdates(
-        ai,
-        relationshipEvidence,
-        updatedEntities,
-        isMockMode,
-    );
+    // 5.5 Get and apply relationship updates from trusted player-authored
+    // observable prose only. Provider-authored adjudication prose is never
+    // evidence for another provider call, and a no-attempt turn skips this
+    // inference altogether.
+    let relationshipUpdateResult: EventDelta[] = [];
+    if (resolutionAttempt !== null) {
+        options?.onStage?.('relationship_updates');
+        relationshipUpdateResult = await getRelationshipUpdates(
+            ai,
+            { observableAttempt: resolutionAttempt },
+            updatedEntities,
+            isMockMode,
+        );
+    }
     // CONTRACT ENFORCEMENT: this call's contract is 'relation' deltas ONLY
     // (buildRelationshipUpdatesPrompt asks for nothing else), but the schema
     // pair it validates against (zRelationshipDeltas / RelationshipDeltasSchema)

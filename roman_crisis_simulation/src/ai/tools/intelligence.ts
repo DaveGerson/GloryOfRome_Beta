@@ -200,7 +200,7 @@ export const getRelationshipUpdates = async (
     entities: Entity[],
     isMockMode: boolean,
 ): Promise<EventDelta[]> => {
-    if (isMockMode) {
+    if (isMockMode || evidence.observableAttempt === null) {
         return Promise.resolve([]);
     }
 

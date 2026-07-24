@@ -41,6 +41,7 @@ function clientForTurn(
     relationshipFailure?: Error;
     narration?: string;
     includeAssessment?: boolean;
+    includeRelationshipUpdates?: boolean;
     adjudication?: Parameters<typeof scriptAdjudication>[1];
   } = {},
 ): ScriptedClient {
@@ -70,7 +71,9 @@ function clientForTurn(
       'Address the Senate',
       'Inspect the Guard',
     ]),
-    relationshipUpdates: scriptRelationshipDeltas([]),
+    ...(options.includeRelationshipUpdates === false
+      ? {}
+      : { relationshipUpdates: scriptRelationshipDeltas([]) }),
     relationshipObservations: options.relationshipFailure
       ? scriptedFailure(options.relationshipFailure)
       : scriptedJsonArray([]),
@@ -329,6 +332,7 @@ describe('journey: structured player input through the real App transaction', ()
 
       const client = clientForTurn(seed, 2, 'structuredInput/question-only/conforming', {
         includeAssessment: false,
+        includeRelationshipUpdates: false,
         narration: answer,
         adjudication: {
           entityActions: [{

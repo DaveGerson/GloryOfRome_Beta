@@ -311,8 +311,8 @@ ${JSON.stringify(oldState, null, 2)}
 }
 
 /**
- * PURPOSE: Derive 'relation' EventDeltas for relationships directly or
- * strongly implicitly affected by this turn's narration/headlines.
+ * PURPOSE: Derive 'relation' EventDeltas from the player's trusted,
+ * observable submission only.
  * MODEL: pro (GEMINI_PRO).
  * CONSUMER: ai/core/turn.ts `runNewTurn`, step 5.5 (`getRelationshipUpdates`
  * in ai/tools/intelligence.ts).
@@ -328,21 +328,18 @@ export function buildRelationshipUpdatesPrompt(
   evidence: RelationshipUpdateEvidence,
   entities: Entity[],
 ): { systemInstruction: string; prompt: string } {
-  const hasObservableAttempt = evidence.observableAttempt !== null;
   const systemInstruction = `
-    You are a narrative analyst AI. Your task is to read a summary of events and identify subtle shifts in relationships between characters. Based on the events, suggest specific, numerical changes to their relationship stats.
+    You are a narrative analyst AI. Your task is to identify subtle relationship shifts directly or strongly implicitly caused by the player's observable submission.
 
     **Task:**
-    Based *only* on the allowlisted observable attempt and adjudicated facts below, generate a list of 'relation' deltas to reflect how the characters' feelings towards each other might have changed.
-    - Only generate deltas for relationships that were directly or strongly implicitly affected by the events.
+    Based *only* on the observable player attempt below, generate a list of 'relation' deltas to reflect how the characters' feelings towards each other might have changed.
+    - The observable attempt is the only trusted turn-event evidence. Do not infer any additional event, outcome, success, failure, or reaction.
+    - Only generate deltas for relationships directly or strongly implicitly affected by the submitted attempt itself.
     - The 'key' for a relation delta MUST be in the format 'entity_a_id:entity_b_id:attribute'. Valid attributes are 'trust_level', 'respect_level', 'perceived_threat', 'ideological_alignment', 'dependency_level'.
     - A delta changes entity_a's perception of entity_b ONLY (relationships are asymmetric). If both characters' feelings changed, emit two deltas — one per direction. The two directions need not be equal.
     - 'delta' should be a small integer, typically between -3 and 3, representing the change.
-    - 'reason' should be a brief justification citing an adjudicated fact.
+    - 'reason' should be a brief justification citing only the observable attempt.
     - If no relationships were significantly affected, return an empty list for 'deltas'.
-    ${hasObservableAttempt
-      ? ''
-      : '- No observable player attempt was submitted this turn. Do not infer relationship changes from an invented player action; use only factual adjudicated events.'}
 
     Return a valid JSON object matching the schema.
     `;
@@ -356,15 +353,8 @@ export function buildRelationshipUpdatesPrompt(
     **Current Character Relationships:**
     ${entityBriefs}
 
-    **Events of the Turn:**
-    Observable player attempt:
-    ${evidence.observableAttempt ?? '(none submitted)'}
-
-    Headlines:
-    - ${evidence.headlines.join('\n- ')}
-
-    Adjudicated facts:
-    - ${evidence.adjudicatedFacts.join('\n- ')}
+    **Trusted Observable Player Attempt:**
+    ${evidence.observableAttempt ?? '(none submitted; return an empty delta list)'}
     `;
 
   return { systemInstruction, prompt };
@@ -372,49 +362,6 @@ export function buildRelationshipUpdatesPrompt(
 
 export interface RelationshipUpdateEvidence {
   observableAttempt: string | null;
-  headlines: string[];
-  adjudicatedFacts: string[];
-}
-
-function containsExcludedPlayerContext(text: string, excludedPlayerContext: readonly string[]): boolean {
-  const normalized = text.toLocaleLowerCase();
-  return excludedPlayerContext.some(value => {
-    const candidate = value.trim().toLocaleLowerCase();
-    return candidate.length > 0 && normalized.includes(candidate);
-  });
-}
-
-/**
- * Builds the only turn-event input accepted by the relationship analyst.
- * The allowlist deliberately has no narration field and strips GM-only
- * delta metadata. Provider facts that echo private intent or question-only
- * context verbatim are omitted before this projection leaves the composition
- * root.
- */
-export function projectRelationshipUpdateEvidence(
-  adjudication: Adjudication,
-  observableAttempt: string | null,
-  excludedPlayerContext: readonly string[] = [],
-): RelationshipUpdateEvidence {
-  const headlines = adjudication.headlines.filter(
-    headline => !containsExcludedPlayerContext(headline, excludedPlayerContext),
-  );
-  const actionFacts = adjudication.entityActions
-    .map(action =>
-      `Entity ${action.id} took ${action.intent}${action.target ? ` targeting ${action.target}` : ''}: ${action.notes}`,
-    )
-    .filter(fact => !containsExcludedPlayerContext(fact, excludedPlayerContext));
-  const deltaFacts = adjudication.deltas
-    .map(delta => delta.type === 'scheme'
-      ? `Entity ${delta.key}'s private design changed.`
-      : `${delta.type} affected ${delta.key}: ${delta.reason}`)
-    .filter(fact => !containsExcludedPlayerContext(fact, excludedPlayerContext));
-
-  return {
-    observableAttempt,
-    headlines,
-    adjudicatedFacts: [...actionFacts, ...deltaFacts],
-  };
 }
 
 /**

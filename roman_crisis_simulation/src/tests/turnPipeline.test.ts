@@ -1143,7 +1143,13 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
 
     h.response.storyRelevance.resolve(storyRelevanceJson);
     h.response.assessment.resolve(nonConsequentialAssessmentJson);
-    h.response.adjudication.resolve(adjudicationJson);
+    h.response.adjudication.resolve(JSON.stringify({
+      turn: 2,
+      entityActions: [],
+      deltas: [],
+      headlines: ['The week advances without an avatar action.'],
+      gm_private: [],
+    }));
     h.response.simulationState.resolve(simStateJson);
     h.response.monologue.resolve(monologueText);
     h.response.narration.resolve(narrationFullText);
