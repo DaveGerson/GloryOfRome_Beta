@@ -5,14 +5,15 @@ import { endTurnCapture } from '../ai/core/geminiService';
 import { buildPerceivedDigest } from '../perception/visibility';
 import { computeTurnKnowledge } from '../knowledge/commit';
 import { serializeTurnSubmission } from '../playerInput/turnSubmission';
-import type { Entity, SimulationState, TurnSubmission, WorldState } from '../types';
+import type { Entity, EventDelta, SimulationState, TurnSubmission, WorldState } from '../types';
 
 const OBSERVABLE_SENTINEL = 'OBSERVABLE_ATTEMPT_SENTINEL_6T2';
 const PRIVATE_SENTINEL = 'PRIVATE_INTENT_SENTINEL_6T2';
 const QUESTION_SENTINEL = 'QUESTION_CONTEXT_SENTINEL_6T2';
-const POISONED_NARRATION_SENTINEL = 'POISONED_NARRATION_SENTINEL_6T2';
 const SAFE_HEADLINE_SENTINEL = 'SAFE_PUBLIC_HEADLINE_SENTINEL_6T2';
 const SAFE_FACT_SENTINEL = 'SAFE_ADJUDICATED_FACT_SENTINEL_6T2';
+const PRIVATE_PARAPHRASE = 'The emperor quietly tests which senators can be trusted.';
+const QUESTION_PARAPHRASE = 'The sparse benches betray weakness in tomorrow\'s vote.';
 
 const WORLD_STATE: WorldState = {
   year: 235,
@@ -269,7 +270,7 @@ describe('runNewTurn submission visibility routing', () => {
     expect(JSON.stringify(knowledge)).not.toContain(PRIVATE_SENTINEL);
   });
 
-  it('builds relationship updates from observable submission and adjudicated facts, never provider narration that echoes Private Intent', async () => {
+  it('uses observable submission as the only turn-event prose for legitimate relationship updates', async () => {
     const adjudication = {
       turn: 7,
       entityActions: [],
@@ -290,21 +291,57 @@ describe('runNewTurn submission visibility routing', () => {
     };
     const { calls, result } = await runRealTurn(FULL_SUBMISSION, {
       adjudication: JSON.stringify(adjudication),
-      narration: `${POISONED_NARRATION_SENTINEL}: ${PRIVATE_SENTINEL}\nSUGGESTION: Wait`,
+      narration: 'The public audience ends without incident.\nSUGGESTION: Wait',
       relationshipUpdates: JSON.stringify({ deltas: [relationshipDelta] }),
     });
 
     const relationshipPrompt = calls.find(call => call.kind === 'relationshipUpdates')?.prompt ?? '';
     expect(relationshipPrompt).toContain(OBSERVABLE_SENTINEL);
-    expect(relationshipPrompt).toContain(SAFE_HEADLINE_SENTINEL);
-    expect(relationshipPrompt).toContain(SAFE_FACT_SENTINEL);
-    expect(relationshipPrompt).not.toContain(POISONED_NARRATION_SENTINEL);
+    expect(relationshipPrompt).not.toContain(SAFE_HEADLINE_SENTINEL);
+    expect(relationshipPrompt).not.toContain(SAFE_FACT_SENTINEL);
     expect(relationshipPrompt).not.toContain(PRIVATE_SENTINEL);
+    expect(relationshipPrompt).not.toContain(QUESTION_SENTINEL);
     expect(
       result.updatedEntities
         .find(entity => entity.entity_id === 'npc_a')
         ?.relationships.player_1?.trust_level,
     ).toBe(2);
+  });
+
+  it.each([
+    ['Private Intent paraphrase in a headline', {
+      turn: 7,
+      entityActions: [],
+      deltas: [],
+      headlines: [PRIVATE_PARAPHRASE],
+      gm_private: [],
+    }, PRIVATE_PARAPHRASE],
+    ['Question/Context paraphrase in an action note and delta reason', {
+      turn: 7,
+      entityActions: [{ id: 'npc_a', intent: 'intrigue', target: 'npc_b', notes: QUESTION_PARAPHRASE }],
+      deltas: [{ type: 'resource', key: 'npc_a:vote_count', delta: 1, reason: QUESTION_PARAPHRASE }],
+      headlines: ['The Senate gathers.'],
+      gm_private: [],
+    }, QUESTION_PARAPHRASE],
+  ])('never launders provider-authored %s into relationship evidence', async (_label, adjudication, poison) => {
+    const relationshipDelta = {
+      type: 'relation',
+      key: 'npc_a:player_1:trust_level',
+      delta: 1,
+      reason: 'Aulus responds to the observable public order.',
+    };
+    const { calls, result } = await runRealTurn(FULL_SUBMISSION, {
+      adjudication: JSON.stringify(adjudication),
+      narration: 'The public audience ends without incident.\nSUGGESTION: Wait',
+      relationshipUpdates: JSON.stringify({ deltas: [relationshipDelta] }),
+    });
+
+    const relationshipPrompt = calls.find(call => call.kind === 'relationshipUpdates')?.prompt ?? '';
+    expect(relationshipPrompt).toContain(OBSERVABLE_SENTINEL);
+    expect(relationshipPrompt).not.toContain(poison);
+    expect(
+      result.updatedEntities.find(entity => entity.entity_id === 'npc_a')?.relationships.player_1?.trust_level,
+    ).toBe(1);
   });
 
   it('gives adjudication three separately labeled projections', async () => {
@@ -338,7 +375,13 @@ describe('runNewTurn submission visibility routing', () => {
     expect(calls.filter(call => call.kind === 'assessment')).toHaveLength(0);
     expect(result.newHistoryEntry.resolutionTrace).toBeUndefined();
     expect(result.narration).not.toBe('');
-    expect(calls.find(call => call.kind === 'adjudication')?.prompt).not.toContain('PLAYER ACTION OUTCOME');
+    const adjudicationPrompt = calls.find(call => call.kind === 'adjudication')?.prompt ?? '';
+    expect(adjudicationPrompt).not.toContain('PLAYER ACTION OUTCOME');
+    expect(adjudicationPrompt).not.toContain(QUESTION_SENTINEL);
+    expect(adjudicationPrompt).not.toContain(PRIVATE_SENTINEL);
+    expect(calls.find(call => call.kind === 'narration')?.prompt).toContain(
+      'questionOrContext' in submission ? QUESTION_SENTINEL : PRIVATE_SENTINEL,
+    );
   });
 
   it('rejects a question-only adjudication with player-authored consequences, while a conforming NPC/world-only adjudication still commits', async () => {
@@ -403,6 +446,121 @@ describe('runNewTurn submission visibility routing', () => {
       result.updatedEntities.find(entity => entity.entity_id === 'npc_a')?.resources[independentNpcResource],
     ).toBe(2);
     expect(result.updatedWorldState.political_climate).toBe('Legions Maneuver Independently');
+  });
+
+  it.each([
+    ['resource', { type: 'resource', key: 'player_1:question_artifact', delta: 1, reason: 'An unexplained artifact appears.' }],
+    ['relation', { type: 'relation', key: 'PLAYER-1:npc_a:trust_level', delta: 1, reason: 'A new opinion forms.' }],
+    ['status', { type: 'status', key: 'GaIuS TeStUs', delta: 0, reason: 'The emperor departs.', new_status: 'exiled' }],
+    ['rumor origin', { type: 'rumor', key: 'npc_a', delta: 0.7, reason: 'A claim spreads.', is_true: false, origin_id: 'PLAYER-1', topic: 'loyalty' }],
+    ['scheme', { type: 'scheme', key: 'PLAYER_1', delta: 0, reason: JSON.stringify({ name: 'A hidden design', overall_goal: 'Gain leverage', steps: [] }) }],
+    ['faction', { type: 'faction', key: 'player_1', delta: 0, reason: 'npc_a' }],
+    ['region', { type: 'region', key: 'Rome:stability', delta: 0, reason: 'Gaius Testus orders the city sealed.' }],
+    ['world', { type: 'world', key: 'political_climate', delta: 0, reason: 'Gaius Testus decrees emergency rule.' }],
+    ['add_region', { type: 'add_region', key: 'Imperial Enclave', delta: 0, reason: JSON.stringify({ stability: 'Gaius Testus orders a new enclave.', controlling_faction: null, current_events: [] }) }],
+    ['remove_region', { type: 'remove_region', key: 'Camp', delta: 0, reason: 'Gaius Testus orders the camp dissolved.' }],
+  ] satisfies Array<[string, EventDelta]>)('rejects a no-attempt %s consequence as a whole response', async (_label, delta) => {
+    const submission = { version: 1, kind: 'structured', questionOrContext: QUESTION_SENTINEL } as const;
+    const started = startRealTurn(submission, {
+      adjudication: JSON.stringify({
+        turn: 7,
+        entityActions: [],
+        deltas: [delta],
+        headlines: ['The week advances.'],
+        gm_private: [],
+      }),
+    });
+
+    let thrown: unknown;
+    try {
+      await started.resultPromise;
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe('AI output violated the player action boundary.');
+    expect((thrown as Error).message).not.toContain('Gaius Testus');
+  });
+
+  it.each([
+    ['miscased player id', { id: 'PLAYER_1', intent: 'intrigue', target: 'npc_a', notes: 'An unattributed inquiry begins.' }],
+    ['missing actor id with player-attributed prose', { id: '', intent: 'intrigue', target: 'npc_a', notes: 'Gaius Testus dispatches spies into the Curia.' }],
+  ])('rejects a no-attempt entity action with %s', async (_label, action) => {
+    const submission = { version: 1, kind: 'structured', privateIntent: PRIVATE_SENTINEL } as const;
+    const started = startRealTurn(submission, {
+      adjudication: JSON.stringify({
+        turn: 7,
+        entityActions: [action],
+        deltas: [],
+        headlines: ['The week advances.'],
+        gm_private: [],
+      }),
+    });
+
+    await expect(started.resultPromise).rejects.toThrow('player action boundary');
+  });
+
+  it('rejects a headline-only invented avatar action on a no-attempt turn', async () => {
+    const inventedHeadline = 'Gaius Testus dispatches agents to count tomorrow\'s votes.';
+    const started = startRealTurn(
+      { version: 1, kind: 'structured', questionOrContext: QUESTION_SENTINEL },
+      {
+        adjudication: JSON.stringify({
+          turn: 7,
+          entityActions: [],
+          deltas: [],
+          headlines: [inventedHeadline],
+          gm_private: [],
+        }),
+      },
+    );
+
+    let thrown: unknown;
+    try {
+      await started.resultPromise;
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe('AI output violated the player action boundary.');
+    expect((thrown as Error).message).not.toContain(inventedHeadline);
+  });
+
+  it('rejects narration that invents an avatar action on a no-attempt turn', async () => {
+    const inventedNarration = 'You dispatch spies into the Curia and order them to count tomorrow\'s votes.';
+    const started = startRealTurn(
+      { version: 1, kind: 'structured', questionOrContext: QUESTION_SENTINEL },
+      { narration: `${inventedNarration}\nSUGGESTION: Wait` },
+    );
+
+    let thrown: unknown;
+    try {
+      await started.resultPromise;
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe('AI output violated the player action boundary.');
+    expect((thrown as Error).message).not.toContain(inventedNarration);
+  });
+
+  it('rejects hidden mechanics in the updated simulation crisis before relationship updates or commit', async () => {
+    const poison = 'Civil war decided by 1d20';
+    const started = startRealTurn(FULL_SUBMISSION, {
+      simulationState: JSON.stringify({ ...SIMULATION_STATE, major_ongoing_crisis: poison }),
+    });
+
+    let thrown: unknown;
+    try {
+      await started.resultPromise;
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe('AI output violated the player-visible mechanics boundary.');
+    expect((thrown as Error).message).not.toContain(poison);
+    expect(started.calls.some(call => call.kind === 'relationshipUpdates')).toBe(false);
   });
 
   it.each([

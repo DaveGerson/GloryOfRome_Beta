@@ -210,7 +210,10 @@ interface Harness {
  * parallel block (ROADMAP_0_MASTER_PLAN.md Phase 3 item 2 composing with
  * item 3).
  */
-function createHarness(streamNarration = false): Harness {
+function createHarness(
+  streamNarration = false,
+  narrationChunker?: (fullText: string) => string[],
+): Harness {
   const order: CallKind[] = [];
   const issued = Object.fromEntries(ALL_KINDS.map(k => [k, createDeferred<void>()])) as Record<CallKind, Deferred<void>>;
   const response = Object.fromEntries(ALL_KINDS.map(k => [k, createDeferred<string>()])) as Record<CallKind, Deferred<string>>;
@@ -235,6 +238,14 @@ function createHarness(streamNarration = false): Harness {
     issued[kind].resolve();
     const fullText = await response[kind].promise;
     async function* gen() {
+      if (narrationChunker) {
+        const chunks = narrationChunker(fullText);
+        if (chunks.join('') !== fullText) {
+          throw new Error('turnPipeline test fake: narration chunks must reconstruct the full response.');
+        }
+        for (const chunk of chunks) yield { text: chunk };
+        return;
+      }
       const marker = '\nSUGGESTION:';
       const idx = fullText.indexOf(marker);
       if (idx === -1) {
@@ -470,6 +481,58 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     h.response.relationshipUpdates.resolve(relationshipJson);
 
     await expect(turnPromise).rejects.toThrow('player-visible mechanics boundary');
+    expect(onNarrationChunk).not.toHaveBeenCalled();
+    expect(h.order).not.toContain('relationshipUpdates');
+  });
+
+  it.each([
+    ['split die result', ['The die rolled ', '20.'], '20'],
+    ['split tier token', ['The outcome was critical_', 'success.'], 'critical_success'],
+    ['default-ignorable tier token', ['The outcome was critical\u200d_', 'success.'], 'critical_success'],
+  ])('buffers an incomplete %s so no unsafe prefix can reach the streaming callback', async (_label, chunks, forbidden) => {
+    const poisonedNarration = chunks.join('');
+    const h = createHarness(true, () => chunks);
+    const player = makeEntity();
+    const onNarrationChunk = vi.fn();
+
+    const turnPromise = runNewTurn(
+      h.ai,
+      freeform('Address the Senate'),
+      player,
+      2,
+      [player],
+      worldState,
+      simulationState,
+      [],
+      [],
+      [],
+      [],
+      '',
+      false,
+      'Grim political thriller',
+      { onNarrationChunk },
+    );
+    turnPromise.catch(() => {});
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    await h.issued.adjudication.promise;
+    h.response.adjudication.resolve(adjudicationJson);
+    await Promise.all([h.issued.simulationState.promise, h.issued.monologue.promise, h.issued.narration.promise]);
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologueText);
+    h.response.narration.resolve(poisonedNarration);
+    h.response.relationshipUpdates.resolve(relationshipJson);
+
+    let thrown: unknown;
+    try {
+      await turnPromise;
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toContain('player-visible mechanics boundary');
+    expect((thrown as Error).message).not.toContain(forbidden);
     expect(onNarrationChunk).not.toHaveBeenCalled();
     expect(h.order).not.toContain('relationshipUpdates');
   });
@@ -1097,7 +1160,7 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     expect(narrationPrompt).not.toContain("PLAYER'S ACTION THIS TURN");
     expect(narrationSystemInstruction).toContain('player-view response or reflection');
     expect(narrationSystemInstruction).toContain('do not invent an action or immediate consequence');
-    expect(h.systemInstructionsByKind.relationshipUpdates).toContain('No observable player attempt was submitted');
+    expect(h.order).not.toContain('relationshipUpdates');
   });
 });
 

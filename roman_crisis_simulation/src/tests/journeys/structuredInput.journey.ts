@@ -283,12 +283,6 @@ describe('journey: structured player input through the real App transaction', ()
       adjudication: {
         entityActions: [
           {
-            id: PLAYER_ID,
-            intent: 'intrigue',
-            target: 'gaius_pontius_magnus',
-            notes: poisonedPlayerAction,
-          },
-          {
             id: 'maximinus_thrax',
             intent: 'recruit',
             target: 'legio_iv_italica',
@@ -309,7 +303,7 @@ describe('journey: structured player input through the real App transaction', ()
             reason: 'Thrax advances his own preparations without the player acting.',
           },
         ],
-        headlines: ['Thrax quietly strengthens his camp.'],
+        headlines: [poisonedPlayerAction, 'Thrax quietly strengthens his camp.'],
       },
     });
     installAppGeminiScript(poisoned);
@@ -361,7 +355,7 @@ describe('journey: structured player input through the real App transaction', ()
       expect(app.container.textContent).toContain(answer);
       client.expectCallSequence([
         'storyRelevance', 'adjudication', 'simulationState', 'monologue',
-        'narration', 'relationshipUpdates', 'relationshipObservations',
+        'narration', 'relationshipObservations',
       ]);
       expect(client.promptsFor('storyRelevance').join('\n')).toContain(hiddenWorld);
       expect(client.promptsFor('adjudication').join('\n')).toContain(hiddenEntity);
