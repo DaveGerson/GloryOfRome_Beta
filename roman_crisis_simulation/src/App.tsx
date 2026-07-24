@@ -970,7 +970,12 @@ const App: React.FC = () => {
         }
     };
 
-    const handleSpendResource = (resourceName: 'deep_analyses' | 'investigations', cost: number): boolean => {
+    const handleSpendResource = (
+        resourceName: 'deep_analyses' | 'investigations',
+        cost: number,
+        request: DomainMutationContext,
+    ): boolean => {
+        if (!request.isCurrent()) return false;
         const newEntities = entities.map(e => {
             if (e.entity_id === playerCharacterId) {
                 const newResources = {...e.resources};
@@ -980,6 +985,7 @@ const App: React.FC = () => {
             }
             return e;
         });
+        if (!request.isCurrent()) return false;
         if (!saveGame(buildSaveState({ entities: newEntities })).ok) {
             setTransactionError('Your change could not be saved. Please try again.');
             return false;
@@ -1009,7 +1015,9 @@ const App: React.FC = () => {
         reportData: unknown,
         cost: number,
         result: InvestigationResult,
+        request: DomainMutationContext,
     ): boolean => {
+        if (!request.isCurrent()) return false;
         const newEntities = entities.map(e => {
             if (e.entity_id === playerCharacterId) {
                 const newResources = {...e.resources};
@@ -1042,6 +1050,10 @@ const App: React.FC = () => {
         const falloutMessage: Message | undefined = hasFallout(result.consequences)
             ? { sender: 'gm', text: 'Your agent returns — but something in their manner suggests the visit did not go unnoticed.' }
             : undefined;
+        // This is intentionally adjacent to the durable write. Task 7 may add
+        // async extraction above; an EntityDetails unmount during that work
+        // must cancel before charging or committing any result.
+        if (!request.isCurrent()) return false;
         if (!saveGame(buildSaveState({ entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge, messages: falloutMessage ? [...messages, falloutMessage] : messages })).ok) {
             setTransactionError('Your investigation could not be saved. Please try again.');
             return false;
@@ -1135,9 +1147,14 @@ const App: React.FC = () => {
     }, [beginCampaignSession, dispatch]);
 
     const handleStartAnew = useCallback(() => {
+        if (!clearSave().ok) {
+            setTransactionError('Your saved reign could not be removed. Please try again.');
+            return false;
+        }
         beginCampaignSession();
-        clearSave();
+        setTransactionError(null);
         setSavedGameInfo(null);
+        return true;
     }, [beginCampaignSession]);
 
     // Fires on X, Escape, or finishing the final step alike (see
@@ -1287,7 +1304,7 @@ const App: React.FC = () => {
                             reports={reports}
                             knowledge={knowledge}
                             turnNumber={turnNumber}
-                            onSpendDeepAnalysis={(cost) => handleSpendResource('deep_analyses', cost)}
+                            onSpendDeepAnalysis={(cost, request) => handleSpendResource('deep_analyses', cost, request)}
                             onInvestigationOutcome={handleInvestigationOutcome}
                             runDomainMutation={runDomainMutation}
                             interactionLocked={domainMutationInFlight || gameState === GameState.PROCESSING}

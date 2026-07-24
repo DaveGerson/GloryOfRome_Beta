@@ -15,6 +15,7 @@ import { createInitialGameState } from '../state/gameReducer';
 import * as aiMocks from '../ai/mocks';
 import * as ambitionTool from '../ai/tools/ambition';
 import * as turnCore from '../ai/core/turn';
+import * as geminiService from '../ai/core/geminiService';
 import { loadGame, saveGame, type SaveGameState } from '../persistence/saveGame';
 import { AiServiceError } from '../ai/core/geminiService';
 import type { Entity } from '../types';
@@ -49,6 +50,14 @@ vi.mock('../ai/core/turn', async importOriginal => {
   };
 });
 
+vi.mock('../ai/core/geminiService', async importOriginal => {
+  const actual = await importOriginal<typeof import('../ai/core/geminiService')>();
+  return {
+    ...actual,
+    resetSessionCallLog: vi.fn(actual.resetSessionCallLog),
+  };
+});
+
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const mockRunNewTurn = vi.mocked(aiMocks.mockRunNewTurn);
@@ -57,6 +66,7 @@ const mockGetInvestigationResult = vi.mocked(aiMocks.mockGetInvestigationResult)
 const mockCreateCharacter = vi.mocked(aiMocks.mockCreateCharacter);
 const mockInferAmbition = vi.mocked(ambitionTool.inferAmbition);
 const mockRunNewTurnCore = vi.mocked(turnCore.runNewTurn);
+const mockResetSessionCallLog = vi.mocked(geminiService.resetSessionCallLog);
 const defaultRunNewTurn = mockRunNewTurn.getMockImplementation()!;
 const defaultDeepAnalysis = mockGetDeepAnalysis.getMockImplementation()!;
 const defaultInvestigation = mockGetInvestigationResult.getMockImplementation()!;
@@ -80,6 +90,7 @@ beforeEach(() => {
   mockInferAmbition.mockImplementation(defaultInferAmbition);
   mockRunNewTurnCore.mockClear();
   mockRunNewTurnCore.mockImplementation(defaultRunNewTurnCore);
+  mockResetSessionCallLog.mockClear();
   Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
     configurable: true,
     value: vi.fn(),
@@ -106,6 +117,7 @@ afterEach(async () => {
   mockInferAmbition.mockImplementation(defaultInferAmbition);
   mockRunNewTurnCore.mockClear();
   mockRunNewTurnCore.mockImplementation(defaultRunNewTurnCore);
+  mockResetSessionCallLog.mockClear();
   vi.useRealTimers();
 });
 
@@ -280,6 +292,13 @@ async function openPersonaeTab(container: HTMLElement): Promise<void> {
     .find(button => button.getAttribute('aria-label')?.startsWith('Dramatis Personae'));
   expect(personaeTab, 'Dramatis Personae tab').toBeDefined();
   await click(personaeTab!);
+}
+
+async function openWorldTab(container: HTMLElement): Promise<void> {
+  const worldTab = Array.from(container.querySelectorAll<HTMLButtonElement>('button[role="tab"]'))
+    .find(button => button.getAttribute('aria-label') === 'World State');
+  expect(worldTab, 'World State tab').toBeDefined();
+  await click(worldTab!);
 }
 
 function entityCard(container: HTMLElement, name: string): HTMLElement {
@@ -815,6 +834,71 @@ describe('App in-flight transaction barrier', () => {
     expect(loadGame()!.state).toEqual(replacement);
   });
 
+  for (const intelKind of ['deep analysis', 'investigation'] as const) {
+    for (const outcome of ['resolve', 'reject'] as const) {
+      it(`cancels ${intelKind} ${outcome} after Personae unmount with no paid or stale child effects, then permits retry`, async () => {
+        const container = await mountApp();
+        await openFirstIntelCard(container);
+        const beforeBytes = localStorage.getItem('gloryOfRome:autosave');
+        const beforeState = loadGame()!.state;
+        let settle!: () => void;
+
+        if (intelKind === 'deep analysis') {
+          mockGetDeepAnalysis.mockImplementationOnce((...args) => new Promise((resolve, reject) => {
+            settle = () => {
+              if (outcome === 'resolve') {
+                void defaultDeepAnalysis(...args).then(resolve, reject);
+              } else {
+                reject(new Error('late deep-analysis rejection'));
+              }
+            };
+          }));
+          await click(buttonContaining(container, 'Commission'));
+          await waitFor(() => expect(mockGetDeepAnalysis).toHaveBeenCalledTimes(1));
+        } else {
+          mockGetInvestigationResult.mockImplementationOnce((...args) => new Promise((resolve, reject) => {
+            settle = () => {
+              if (outcome === 'resolve') {
+                void defaultInvestigation(...args).then(resolve, reject);
+              } else {
+                reject(new Error('late investigation rejection'));
+              }
+            };
+          }));
+          await click(revealSecretsButton(container));
+          await waitFor(() => expect(mockGetInvestigationResult).toHaveBeenCalledTimes(1));
+        }
+
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        await openWorldTab(container);
+        expect(container.textContent).not.toContain('Intelligence Briefing');
+
+        settle();
+        await flush();
+
+        expect(errorSpy).not.toHaveBeenCalled();
+        expect(localStorage.getItem('gloryOfRome:autosave')).toBe(beforeBytes);
+        expect(loadGame()!.state).toEqual(beforeState);
+
+        await openFirstIntelCard(container);
+        if (intelKind === 'deep analysis') {
+          await click(buttonContaining(container, 'Commission'));
+          await waitFor(() => expect(mockGetDeepAnalysis).toHaveBeenCalledTimes(2));
+          await waitFor(() => expect(
+            loadGame()!.state.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources.deep_analyses,
+          ).toBe(3));
+          expect(container.textContent).toContain('(Mock Analysis)');
+        } else {
+          await click(revealSecretsButton(container));
+          await waitFor(() => expect(mockGetInvestigationResult).toHaveBeenCalledTimes(2));
+          await waitFor(() => expect(loadGame()!.state.knowledge).toHaveLength(1));
+          expect(container.textContent).toContain('(Mock) Is secretly illiterate.');
+        }
+        errorSpy.mockRestore();
+      });
+    }
+  }
+
   it('keeps one custom creation lease across duplicate submits, then restores the exact live draft for retry', async () => {
     const container = await mountApp(makeAppSave(), false);
     await click(container.querySelector<HTMLInputElement>('#mock-toggle')!);
@@ -930,6 +1014,78 @@ describe('App in-flight transaction barrier', () => {
     expect(container.querySelector('[aria-label="Chat input"]')).toBeNull();
     removeSpy.mockRestore();
     writeSpy.mockRestore();
+  });
+
+  it('keeps a saved reign retrievable when Start anew cannot durably delete it, then permits the exact retry', async () => {
+    const container = await mountApp(makeAppSave(), false);
+    const before = localStorage.getItem('gloryOfRome:autosave');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const removeSpy = vi.spyOn(Storage.prototype, 'removeItem')
+      .mockImplementationOnce(() => {
+        throw new DOMException('storage unavailable', 'SecurityError');
+      });
+    mockResetSessionCallLog.mockClear();
+
+    await click(buttonNamed(container, 'Start anew'));
+    await click(buttonNamed(container, 'Abandon'));
+    await waitFor(() => expect(removeSpy).toHaveBeenCalledTimes(1));
+
+    expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
+    expect(loadGame()!.state.playerCharacterId).toBe('severus_alexander');
+    expect(container.textContent).toContain('Continue Your Reign');
+    expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1);
+    expect(container.querySelector('[role="alert"]')!.textContent).toMatch(/could not be removed|try again/i);
+    expect(mockResetSessionCallLog).not.toHaveBeenCalled();
+
+    const oldInstance = mounted.pop()!;
+    await act(async () => oldInstance.root.unmount());
+    oldInstance.container.remove();
+    const reloaded = await renderApp(false);
+    expect(reloaded.textContent).toContain('Continue Your Reign');
+
+    await click(buttonNamed(reloaded, 'Start anew'));
+    await click(buttonNamed(reloaded, 'Abandon'));
+    await waitFor(() => expect(reloaded.textContent).not.toContain('Continue Your Reign'));
+
+    expect(removeSpy).toHaveBeenCalledTimes(2);
+    expect(localStorage.getItem('gloryOfRome:autosave')).toBeNull();
+    expect(mockResetSessionCallLog).toHaveBeenCalledOnce();
+    expect(reloaded.querySelectorAll('[role="alert"]')).toHaveLength(0);
+    warnSpy.mockRestore();
+  });
+
+  it('keeps a finished reign retrievable when Begin a New Chronicle cannot durably delete it, then permits retry', async () => {
+    const base = makeAppSave();
+    const terminal = makeAppSave({
+      entities: base.entities.map(entity => entity.entity_id === 'severus_alexander'
+        ? { ...entity, status: 'dead' as const }
+        : entity),
+    });
+    const container = await mountApp(terminal, false);
+    await click(container.querySelector<HTMLInputElement>('#mock-toggle')!);
+    await click(buttonNamed(container, 'Continue Your Reign'));
+    await waitFor(() => expect(container.textContent).toContain('The Story Has Ended'));
+    const before = localStorage.getItem('gloryOfRome:autosave');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const removeSpy = vi.spyOn(Storage.prototype, 'removeItem')
+      .mockImplementationOnce(() => {
+        throw new DOMException('storage unavailable', 'SecurityError');
+      });
+
+    await click(buttonNamed(container, 'Begin a New Chronicle'));
+
+    expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
+    expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1);
+    expect(container.querySelector('[role="alert"]')!.textContent).toMatch(/could not be removed|try again/i);
+    expect(removeSpy).toHaveBeenCalledOnce();
+
+    await click(buttonNamed(container, 'Begin a New Chronicle'));
+
+    expect(removeSpy).toHaveBeenCalledTimes(2);
+    expect(localStorage.getItem('gloryOfRome:autosave')).toBeNull();
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 
   it('rejects a re-entrant confirmed Start anew handler while a preset save owns the lease', async () => {

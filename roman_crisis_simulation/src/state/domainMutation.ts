@@ -3,7 +3,7 @@ export type DomainMutationResult<T> =
   | { acquired: true; value: T };
 
 export interface DomainMutationContext {
-  /** False after App unmounts or this lease otherwise ceases to be current. */
+  /** False after the owning lifecycle ends or this lease otherwise ceases to be current. */
   isCurrent: () => boolean;
 }
 

@@ -580,10 +580,25 @@ describe('persistence/saveGame', () => {
     saveGame(makeState());
     expect(hasSave()).toBe(true);
 
-    clearSave();
+    expect(clearSave()).toEqual({ ok: true });
 
     expect(hasSave()).toBe(false);
     expect(loadGame()).toBeNull();
+  });
+
+  it('clearSave reports a failed removal and leaves the autosave retrievable', () => {
+    saveGame(makeState());
+    const before = localStorage.getItem('gloryOfRome:autosave');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new DOMException('storage unavailable', 'SecurityError');
+    });
+
+    expect(clearSave()).toEqual({ ok: false });
+
+    expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
+    expect(loadGame()).not.toBeNull();
+    expect(warnSpy).toHaveBeenCalledOnce();
   });
 
   it('returns null and warns on a version mismatch', () => {

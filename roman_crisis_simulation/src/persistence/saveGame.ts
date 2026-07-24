@@ -326,12 +326,18 @@ export function loadGame(): SaveGame | null {
   return parsed;
 }
 
-/** Removes the autosave, if any. Guarded the same way as `saveGame`/`loadGame` - never throws. */
-export function clearSave(): void {
+/**
+ * Removes the autosave, if any. Never throws, but unlike a best-effort cleanup
+ * this is a campaign-boundary operation: callers must not start a replacement
+ * session unless `{ ok: true }` confirms that the old reign is durably gone.
+ */
+export function clearSave(): SaveGameResult {
   try {
     localStorage.removeItem(SAVE_KEY);
+    return { ok: true };
   } catch (e) {
     console.warn('clearSave: localStorage.removeItem failed', e);
+    return { ok: false };
   }
 }
 

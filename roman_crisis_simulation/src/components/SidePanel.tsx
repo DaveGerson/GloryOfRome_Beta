@@ -11,7 +11,7 @@ import ChronicleTab from './tabs/ChronicleTab';
 import WorldStateTab from './tabs/WorldStateTab';
 import { TabId } from '../perception/visibility';
 import type { KnowledgeClaim } from '../knowledge/store';
-import type { RunDomainMutation } from '../state/domainMutation';
+import type { DomainMutationContext, RunDomainMutation } from '../state/domainMutation';
 
 /**
  * The intelligence dashboard — player dossier header, Tyrian-pennant tab bar,
@@ -42,9 +42,9 @@ const SidePanel: React.FC<{
     knowledge: KnowledgeClaim[];
     /** The App's authoritative turn counter - the staleness clock D27 prices a dossier refresh against. */
     turnNumber: number;
-    onSpendDeepAnalysis: (cost: number) => boolean | void | Promise<boolean | void>;
+    onSpendDeepAnalysis: (cost: number, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
     /** One atomic callback per investigation reveal - spend + blackmail + fallout in a single state/save pass (see App.tsx's handleInvestigationOutcome). */
-    onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult) => boolean | void | Promise<boolean | void>;
+    onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
     runDomainMutation: RunDomainMutation;
     interactionLocked?: boolean;
     ai: GoogleGenAI;

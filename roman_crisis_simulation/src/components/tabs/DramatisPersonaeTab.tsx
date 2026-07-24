@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Entity, InvestigationResult } from '../../types';
 import { GoogleGenAI } from '@google/genai';
 import InfoTooltip from '../InfoTooltip';
@@ -9,14 +9,14 @@ import { isEntityKnownToPlayer, relationshipTimelineFor } from '../../knowledge/
 import { priceInvestigation, schemeDiscoveryFor, resolveIntelRequest, DEEP_ANALYSIS_COST } from './dramatisPersonaeIntel';
 import { quiet, IntelSection, SchemeIntelSection, DeepAnalysisSection } from './dramatisPersonaeUi';
 import RelationshipObservations from './RelationshipObservations';
-import type { RunDomainMutation } from '../../state/domainMutation';
+import type { DomainMutationContext, RunDomainMutation } from '../../state/domainMutation';
 
 type UncoveredIntel = { secrets?: string[]; beliefs?: string[]; deep_analysis?: string };
 type Wiring = {
   knowledge: KnowledgeClaim[];
   turnNumber: number;
-  onSpendDeepAnalysis: (cost: number) => boolean | void | Promise<boolean | void>;
-  onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult) => boolean | void | Promise<boolean | void>;
+  onSpendDeepAnalysis: (cost: number, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
+  onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
   runDomainMutation: RunDomainMutation;
   interactionLocked?: boolean;
   ai: GoogleGenAI;
@@ -29,22 +29,36 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
   const [isExpanded, setIsExpanded] = useState(false);
   const [uncoveredIntel, setUncoveredIntel] = useState<UncoveredIntel>({});
   const [loadingState, setLoadingState] = useState<'secrets' | 'beliefs' | 'scheme' | 'deep_analysis' | null>(null);
+  const mountedRef = useRef(true);
   const price = (kind: InvestigationKind) => priceInvestigation(knowledge, entity.entity_id, kind);
   const schemeDiscovery = schemeDiscoveryFor(knowledge, entity.entity_id);
   const observations = relationshipTimelineFor(knowledge, entity.entity_id);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const handleRequest = async (type: 'secrets' | 'beliefs' | 'scheme' | 'deep_analysis') => {
     if (interactionLocked) return;
     try {
       await runDomainMutation(async transaction => {
+        // The App lease outlives this details surface when the player changes
+        // tabs. Every child state write and both paid commit callbacks need the
+        // narrower lifetime, and App re-checks this guard at its save boundary.
+        const request: DomainMutationContext = {
+          isCurrent: () => mountedRef.current && transaction.isCurrent(),
+        };
+        if (!request.isCurrent()) return;
         setLoadingState(type);
         try {
           const outcome = await resolveIntelRequest({ type, target: entity, playerEntity, knowledge, ai, isMockMode });
-          if (!transaction.isCurrent()) return;
           if (outcome.kind === 'deep_analysis') {
             if (outcome.charged) {
-              const committed = await onSpendDeepAnalysis(outcome.cost);
-              if (transaction.isCurrent() && committed !== false) {
+              const committed = await onSpendDeepAnalysis(outcome.cost, request);
+              if (request.isCurrent() && committed !== false) {
                 setUncoveredIntel(previous => ({ ...previous, deep_analysis: outcome.analysis }));
               }
             }
@@ -52,20 +66,22 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
           }
           if (outcome.charged) {
             if (outcome.investigationKind !== 'scheme') {
-              const committed = await onInvestigationOutcome(outcome.investigationKind, entity.entity_id, outcome.reportData, outcome.cost, outcome.outcome);
-              if (transaction.isCurrent() && committed !== false) {
+              const committed = await onInvestigationOutcome(outcome.investigationKind, entity.entity_id, outcome.reportData, outcome.cost, outcome.outcome, request);
+              if (request.isCurrent() && committed !== false) {
                 setUncoveredIntel(previous => ({ ...previous, [outcome.investigationKind]: outcome.display }));
               }
             } else {
-              await onInvestigationOutcome(outcome.investigationKind, entity.entity_id, outcome.reportData, outcome.cost, outcome.outcome);
+              await onInvestigationOutcome(outcome.investigationKind, entity.entity_id, outcome.reportData, outcome.cost, outcome.outcome, request);
             }
           }
         } finally {
-          if (transaction.isCurrent()) setLoadingState(null);
+          if (request.isCurrent()) setLoadingState(null);
         }
       });
     } catch (error) {
-      console.error('Error resolving intelligence request:', error);
+      if (mountedRef.current) {
+        console.error('Error resolving intelligence request:', error);
+      }
     }
   };
 
