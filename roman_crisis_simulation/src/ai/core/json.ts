@@ -20,10 +20,52 @@ const MAX_SNIPPET_LENGTH = 300;
  * 1. Strip a leading/trailing ```json ... ``` fence, if present.
  * 2. Strip a leading/trailing generic ``` ... ``` fence (in case the model
  *    omitted the "json" language tag).
- * 3. Fall back to locating the outermost `{ ... }` pair, discarding any
- *    conversational preamble/postamble the model added despite
- *    JSON-only instructions.
+ * 3. Extract the first complete top-level object or array, discarding any
+ *    conversational preamble/postamble while respecting JSON strings,
+ *    escapes, and nested containers.
  */
+function firstCompleteJsonContainer(text: string): string {
+    let start = -1;
+    const expectedClosers: string[] = [];
+    let inString = false;
+    let escaped = false;
+
+    for (let index = 0; index < text.length; index += 1) {
+        const character = text[index];
+        if (start === -1) {
+            if (character !== '{' && character !== '[') continue;
+            start = index;
+            expectedClosers.push(character === '{' ? '}' : ']');
+            continue;
+        }
+
+        if (inString) {
+            if (escaped) {
+                escaped = false;
+            } else if (character === '\\') {
+                escaped = true;
+            } else if (character === '"') {
+                inString = false;
+            }
+            continue;
+        }
+
+        if (character === '"') {
+            inString = true;
+        } else if (character === '{') {
+            expectedClosers.push('}');
+        } else if (character === '[') {
+            expectedClosers.push(']');
+        } else if (character === '}' || character === ']') {
+            if (expectedClosers.at(-1) !== character) return text;
+            expectedClosers.pop();
+            if (expectedClosers.length === 0) return text.slice(start, index + 1);
+        }
+    }
+
+    return text;
+}
+
 export function cleanJson(text: string): string {
     let cleaned = (text ?? '').trim();
 
@@ -33,20 +75,10 @@ export function cleanJson(text: string): string {
     // 2. Remove generic ``` ... ``` fences (covers a missing/odd language tag).
     cleaned = cleaned.replace(/^```\s*/, '').replace(/\s*```$/, '').trim();
 
-    // 3. Preserve a complete top-level array. Structured selector calls can
-    // legitimately return arrays; brace-hunting below would otherwise strip
-    // an array to its first object.
-    if (cleaned.startsWith('[') && cleaned.endsWith(']')) return cleaned;
-
-    // 4. Aggressively find the outer braces to ignore preamble/postamble text.
-    const firstBrace = cleaned.indexOf('{');
-    const lastBrace = cleaned.lastIndexOf('}');
-
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-        cleaned = cleaned.substring(firstBrace, lastBrace + 1);
-    }
-
-    return cleaned;
+    // 3. Extract exactly one balanced JSON container. If the first container
+    // is malformed or no container exists, preserve the text so JSON.parse
+    // fails loudly instead of salvaging a nested fragment.
+    return firstCompleteJsonContainer(cleaned);
 }
 
 function truncateSnippet(text: string): string {

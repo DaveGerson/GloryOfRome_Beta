@@ -21,13 +21,13 @@ import {
 } from '../ai/core/geminiService';
 
 /** Minimal mock client matching GeminiClient's structural shape. */
-function makeMockAi(generateContent: (...args: any[]) => Promise<{ text?: string }>): GeminiClient {
+function makeMockAi(generateContent: GeminiClient['models']['generateContent']): GeminiClient {
   return { models: { generateContent } };
 }
 
 /** Minimal mock client for streaming - `generateContent` is stubbed but unused. */
 function makeStreamMockAi(
-  generateContentStream: (...args: any[]) => Promise<AsyncIterable<{ text?: string }>>
+  generateContentStream: NonNullable<GeminiClient['models']['generateContentStream']>
 ): GeminiClient {
   return {
     models: {
