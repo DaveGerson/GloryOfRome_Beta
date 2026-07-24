@@ -223,7 +223,6 @@ describe('eval/harness call-name inventory (drift guard)', () => {
     'narration', // ai/core/turn.ts
     'playerMonologue', // ai/tools/intelligence.ts
     'clarification', // ai/tools/intelligence.ts
-    'rawThoughts', // ai/tools/intelligence.ts
     'deepAnalysis', // ai/tools/intelligence.ts
     'epilogue', // components/EpilogueScreen.tsx
   ];

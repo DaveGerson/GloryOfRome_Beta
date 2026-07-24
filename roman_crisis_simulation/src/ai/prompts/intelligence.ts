@@ -47,26 +47,6 @@ export function buildClarificationPrompt(
 }
 
 /**
- * PURPOSE: The player character's unfiltered/reputation-based inner
- * monologue about another character.
- * MODEL: flash (GEMINI_FLASH).
- * CONSUMER: ai/tools/intelligence.ts `getRawThoughts`.
- * OUTPUT: plain prose (no schema).
- */
-export function buildRawThoughtsPrompt(
-  target: Entity,
-  player: Entity,
-  isVisible: boolean
-): { systemInstruction: string; prompt: string } {
-  const systemInstruction = `You are the inner monologue of ${player.name}, a ${player.position} in ancient Rome. Your network: [${player.visibility_network.join(', ')}].
-    Task: If you **know** the target (${isVisible}), provide your personal, unfiltered thoughts. If you **do not know** them (${!isVisible}), provide thoughts based on their public reputation. Keep it concise and first-person.`;
-
-  const prompt = `You are contemplating another character: ${target.name}.`;
-
-  return { systemInstruction, prompt };
-}
-
-/**
  * PURPOSE: A trusted advisor's detailed intelligence report/threat
  * assessment on another character.
  * MODEL: flash (GEMINI_FLASH).
