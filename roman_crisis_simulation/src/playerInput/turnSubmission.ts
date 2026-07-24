@@ -12,6 +12,12 @@ const TURN_SUBMISSION_NAMESPACE = 'GOR_TURN_SUBMISSION/';
 export const TURN_SUBMISSION_PREFIX = `${TURN_SUBMISSION_NAMESPACE}${TURN_SUBMISSION_VERSION}\n`;
 export const MAX_TURN_SUBMISSION_CHARACTERS = 20_000;
 
+export interface AdjudicationSubmissionProjection {
+  observableAttempt: string | null;
+  privateIntent: string | null;
+  questionOrContext: string | null;
+}
+
 export interface TurnSubmissionIssue {
   field: string;
   message: string;
@@ -320,9 +326,27 @@ export function deserializeTurnSubmission(text: string): TurnSubmission | null {
     }
   }
 
-  if (text.trimStart().startsWith(TURN_SUBMISSION_NAMESPACE)) return null;
+  if (isReservedTurnSubmissionArtifact(text)) return null;
   const result = normalizeFreeform(text);
   return result.ok ? result.submission : null;
+}
+
+/** True when text occupies the serialization-owned artifact namespace. */
+export function isReservedTurnSubmissionArtifact(text: string): boolean {
+  return typeof text === 'string' && text.trimStart().startsWith(TURN_SUBMISSION_NAMESPACE);
+}
+
+/**
+ * Routes legacy strings and typed input through the one canonical boundary,
+ * so every runtime consumer sees the same normalization and size limits.
+ */
+export function normalizeTurnSubmissionInput(submission: TurnSubmission | string): TurnSubmission {
+  const candidate: TurnSubmission = typeof submission === 'string'
+    ? { version: TURN_SUBMISSION_VERSION, kind: 'freeform', text: submission }
+    : submission;
+  const normalized = deserializeTurnSubmission(serializeTurnSubmission(candidate));
+  if (!normalized) throw new TypeError('Cannot normalize invalid turn submission.');
+  return normalized;
 }
 
 export function projectForResolution(submission: TurnSubmission): string | null {
@@ -330,11 +354,7 @@ export function projectForResolution(submission: TurnSubmission): string | null 
   return lines.length ? lines.join('\n\n') : null;
 }
 
-export function projectForAdjudication(submission: TurnSubmission): {
-  observableAttempt: string | null;
-  privateIntent: string | null;
-  questionOrContext: string | null;
-} {
+export function projectForAdjudication(submission: TurnSubmission): AdjudicationSubmissionProjection {
   return submission.kind === 'freeform'
     ? { observableAttempt: submission.text, privateIntent: null, questionOrContext: null }
     : {

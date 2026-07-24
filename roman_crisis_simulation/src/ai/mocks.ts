@@ -4,7 +4,7 @@
 import { Adjudication, Entity, NpcIntent, NpcMindDecision, Report, SimulationState, StoryRelevance, TruthLedgerEntry, TurnHistoryEntry, WorldState, EventDelta, EntityStub, TurnSubmission } from '../types';
 import { applyAdjudication, applyDeltas } from './core/engine';
 import { MAX_MINDS_PER_TURN } from './prompts/npcMind';
-import { projectForPlayerOwnedAi, projectForResolution, serializeTurnSubmission } from '../playerInput/turnSubmission';
+import { normalizeTurnSubmissionInput, projectForPlayerOwnedAi, projectForResolution, serializeTurnSubmission } from '../playerInput/turnSubmission';
 
 // --- MOCK DATA ---
 const MOCK_NEW_MOBSTER: Entity = {
@@ -264,9 +264,7 @@ export const mockRunNewTurn = async (
     playerMonologue: string,
     newHistoryEntry: TurnHistoryEntry,
 }> => {
-    const normalizedSubmission: TurnSubmission = typeof submission === 'string'
-        ? { version: 1, kind: 'freeform', text: submission }
-        : submission;
+    const normalizedSubmission = normalizeTurnSubmissionInput(submission);
     const playerIntent = serializeTurnSubmission(normalizedSubmission);
     const playerOwnedContext = projectForPlayerOwnedAi(normalizedSubmission);
     console.log("--- MOCK TURN RUN ---");

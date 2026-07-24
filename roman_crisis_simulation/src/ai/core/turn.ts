@@ -17,7 +17,7 @@ import { buildNarrationPrompt, selectVoiceCast } from '../prompts/narration';
 import { processMortality, detectDeathClaims } from './mortality';
 import { createNarrationStreamGate } from './streamSplit';
 import { rollD20, resolveAction, derivePersonalityModifier, deriveOppositionModifier, createSeededRng, generateSeed } from './resolution';
-import { projectForAdjudication, projectForPlayerOwnedAi, projectForResolution, serializeTurnSubmission } from '../../playerInput/turnSubmission';
+import { normalizeTurnSubmissionInput, projectForAdjudication, projectForPlayerOwnedAi, projectForResolution, serializeTurnSubmission } from '../../playerInput/turnSubmission';
 
 // Adjudication is the highest-stakes, most consequence-dense call of the
 // turn - a moderate temperature keeps outcomes varied without letting the
@@ -362,9 +362,7 @@ export async function runNewTurn(
     playerMonologue: string,
     newHistoryEntry: TurnHistoryEntry,
 }> {
-    const normalizedSubmission: TurnSubmission = typeof submission === 'string'
-        ? { version: 1, kind: 'freeform', text: submission }
-        : submission;
+    const normalizedSubmission = normalizeTurnSubmissionInput(submission);
     const playerIntent = serializeTurnSubmission(normalizedSubmission);
     const resolutionAttempt = projectForResolution(normalizedSubmission);
     const adjudicationSubmission = projectForAdjudication(normalizedSubmission);
@@ -571,7 +569,7 @@ export async function runNewTurn(
     // sanitizeAdjudicationForNarration).
     if (resolutionTrace) {
         adjudication.gm_private.push(
-            `[Resolution] Player action ("${playerIntent}", ${resolutionTrace.assessment.action_category}) - roll ${resolutionTrace.roll} + modifiers vs difficulty ${resolutionTrace.assessment.difficulty} -> margin ${resolutionTrace.margin.toFixed(1)} -> ${resolutionTrace.tier}.`
+            `[Resolution] Player action ("${resolutionAttempt ?? '(no observable attempt)'}", ${resolutionTrace.assessment.action_category}) - roll ${resolutionTrace.roll} + modifiers vs difficulty ${resolutionTrace.assessment.difficulty} -> margin ${resolutionTrace.margin.toFixed(1)} -> ${resolutionTrace.tier}.`
         );
     }
 

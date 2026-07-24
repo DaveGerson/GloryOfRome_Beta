@@ -975,8 +975,15 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     h.response.narration.resolve(narrationFullText);
     h.response.relationshipUpdates.resolve(relationshipJson);
 
+    const submission: TurnSubmission = {
+      version: 1,
+      kind: 'structured',
+      actions: ['OBSERVABLE_ASSASSINATION_ATTEMPT_6T2'],
+      privateIntent: 'PRIVATE_INTENT_MUST_NOT_REACH_MORTALITY_6T2',
+      questionOrContext: 'QUESTION_MUST_NOT_REACH_MORTALITY_6T2',
+    };
     const result = await runNewTurn(
-      h.ai, freeform('Send the assassin after Rufus'), player, 2, [player, npc], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
+      h.ai, submission, player, 2, [player, npc], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
     );
 
     const entry = result.newHistoryEntry;
@@ -989,6 +996,17 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     expect(entry.mortalityTrace).toHaveLength(1);
     expect(entry.mortalityTrace![0]).toMatchObject({ entity_id: 'npc_1', valid: true });
     expect(entry.mortalityTrace![0].roll).toBe(expectedMortalityRoll);
+
+    // The mortality validator receives the adjudication's GM context. The
+    // resolution trace may contribute the observable action and mechanics,
+    // but it must never interpolate the persisted canonical submission,
+    // whose structured private fields are deliberately not observable here.
+    const mortalityValidationPrompt = h.promptsByKind.mortalityValidation ?? '';
+    expect(mortalityValidationPrompt).toContain('OBSERVABLE_ASSASSINATION_ATTEMPT_6T2');
+    expect(mortalityValidationPrompt).toContain('[Resolution]');
+    expect(mortalityValidationPrompt).not.toContain('PRIVATE_INTENT_MUST_NOT_REACH_MORTALITY_6T2');
+    expect(mortalityValidationPrompt).not.toContain('QUESTION_MUST_NOT_REACH_MORTALITY_6T2');
+    expect(mortalityValidationPrompt).not.toContain('GOR_TURN_SUBMISSION/');
 
     // Replay: rebuilding the generator from the persisted seed reproduces
     // the turn's recorded rolls in draw order.

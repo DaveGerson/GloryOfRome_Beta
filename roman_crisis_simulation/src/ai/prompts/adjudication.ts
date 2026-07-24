@@ -28,6 +28,7 @@
  */
 
 import { Entity, WorldState, SimulationState, StoryRelevance, NpcIntent, NpcMindDecision, PacingPosture } from '../../types';
+import type { AdjudicationSubmissionProjection } from '../../playerInput/turnSubmission';
 import type { ActionResolutionTier } from '../core/resolution';
 import {
   buildWorldSummary,
@@ -205,11 +206,7 @@ export interface AdjudicationPromptInput {
   playerEntity: Entity;
   npcEntities: Entity[];
   history: string[];
-  submission?: {
-    observableAttempt: string | null;
-    privateIntent: string | null;
-    questionOrContext: string | null;
-  };
+  submission?: AdjudicationSubmissionProjection;
   /** Legacy prompt-builder input retained for non-pipeline callers. */
   playerIntent?: string;
   gmInterventionText: string;

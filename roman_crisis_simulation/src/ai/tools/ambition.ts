@@ -23,7 +23,7 @@ import { z } from 'zod';
 import { Entity } from '../../types';
 import { GeminiClient, generateStructured, GEMINI_FLASH } from '../core/geminiService';
 import { buildAmbitionInferencePrompt, buildApparentAmbitionPlayerBrief } from '../prompts/ambition';
-import { deserializeTurnSubmission, projectForExternalInference } from '../../playerInput/turnSubmission';
+import { deserializeTurnSubmission, isReservedTurnSubmissionArtifact, projectForExternalInference } from '../../playerInput/turnSubmission';
 
 /** Local zod schema for `inferAmbition`'s output - see the file-level doc comment for why this lives here instead of ai/core/zodSchemas.ts. */
 export const zAmbitionInference = z.object({
@@ -87,7 +87,7 @@ export async function inferAmbition(
     // variants are not legacy freeform text and must never be inferred from.
     const observable = submission
       ? projectForExternalInference(submission)
-      : intent.trimStart().startsWith('GOR_TURN_SUBMISSION/')
+      : isReservedTurnSubmissionArtifact(intent)
         ? null
         : intent;
     return observable ? [observable] : [];
