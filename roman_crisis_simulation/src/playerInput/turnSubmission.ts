@@ -385,8 +385,12 @@ export function normalizeTurnSubmissionInput(submission: TurnSubmission | string
   const candidate: TurnSubmission = typeof submission === 'string'
     ? { version: TURN_SUBMISSION_VERSION, kind: 'freeform', text: submission }
     : submission;
-  const normalized = deserializeTurnSubmission(serializeTurnSubmission(candidate));
+  const serialized = serializeTurnSubmission(candidate);
+  const normalized = deserializeTurnSubmission(serialized);
   if (!normalized) throw new TypeError('Cannot normalize invalid turn submission.');
+  if (typeof submission !== 'string' && encodeCanonicalSubmission(submission) === serialized) {
+    return submission;
+  }
   return normalized;
 }
 

@@ -7,6 +7,7 @@ import { buildEvalCorpus, evalCorpusFilename } from '../persistence/evalCorpus';
 import { getSessionCallLog } from '../ai/core/geminiService';
 import { toRoman } from './ui/Brand';
 import { createFocusTrap, FocusTrap } from './ui/focusTrap';
+import { structuredSubmissionForHistory, TurnSubmissionHistory } from './TurnSubmissionHistory';
 
 /**
  * Game Master Tools — "the Fates' ledger": a dark tablinum modal over the
@@ -23,11 +24,20 @@ const well: React.CSSProperties = { background: 'rgba(0,0,0,.32)', border: '1px 
 
 const TABS = ['summary', 'entity states', 'actions', 'deltas', 'private', 'ground truth', 'npc perception', 'truth ledger', 'player knowledge', 'raw json'];
 
+const PlayerIntentView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => {
+    const structuredSubmission = structuredSubmissionForHistory(entry.playerIntent);
+    return structuredSubmission ? (
+        <TurnSubmissionHistory submission={structuredSubmission} audience="gm" />
+    ) : (
+        <div style={{ marginTop: 4, fontSize: 15 }}>“{entry.playerIntent}”</div>
+    );
+};
+
 const SummaryView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => (
     <>
         <div style={well}>
             <span style={lbl}>Player Intent</span>
-            <div style={{ marginTop: 4, fontSize: 15 }}>“{entry.playerIntent}”</div>
+            <PlayerIntentView entry={entry} />
         </div>
         <div style={well}>
             <span style={lbl}>Generated Narration</span>
@@ -51,6 +61,10 @@ const ActionsView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => {
     const directorNotes = adjudication.gm_private.filter(note => note.startsWith('[Director]') || note.startsWith('[Mind]'));
     return (
     <>
+        <div style={well}>
+            <span style={lbl}>Player Intent</span>
+            <PlayerIntentView entry={entry} />
+        </div>
         {entry.npcIntents && entry.npcIntents.length > 0 && (
             <div style={well}>
                 <span style={lbl}>Director Intents (durable, this turn)</span>

@@ -71,6 +71,29 @@ describe('serialization-owned artifact classification and input normalization', 
       actions: ['Address the Senate'],
     });
   });
+
+  it('preserves identity only for an object already in its exact canonical form', () => {
+    const canonical: TurnSubmission = {
+      version: 1,
+      kind: 'structured',
+      actions: ['Address the Senate'],
+      questionOrContext: 'What can I see from the forum?',
+    };
+
+    expect(normalizeTurnSubmissionInput(canonical)).toBe(canonical);
+  });
+
+  it('still copies and normalizes a valid typed object that is not canonical', () => {
+    const dirty: TurnSubmission = {
+      version: 1,
+      kind: 'structured',
+      actions: ['  Address the Senate  '],
+    };
+
+    const normalized = normalizeTurnSubmissionInput(dirty);
+    expect(normalized).not.toBe(dirty);
+    expect(normalized).toEqual({ version: 1, kind: 'structured', actions: ['Address the Senate'] });
+  });
 });
 
 describe('validateAndNormalizeTurnSubmission', () => {

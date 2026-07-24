@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { GameState, Entity, PlayerCharacterOption, Message, InvestigationResult, PlayerEventChoice, EventHistoryEntry, PacingPosture } from './types';
-import { GoogleGenAI, Type } from "@google/genai";
+import { GameState, Entity, PlayerCharacterOption, Message, InvestigationResult, PlayerEventChoice, EventHistoryEntry, PacingPosture, StructuredTurnDraft, TurnSubmission } from './types';
+import { GoogleGenAI } from "@google/genai";
 
 import Header from './components/Header';
 import CharacterSelection, { SavedGameSummary } from './components/CharacterSelection';
-import { ChatMessage, ChatInput, ActionPills, TypingIndicator, StreamingNarrationBubble } from './components/Chat';
+import { ChatMessage, TypingIndicator, StreamingNarrationBubble } from './components/Chat';
+import { TurnComposer } from './components/TurnComposer';
 import CrisisBanner from './components/CrisisBanner';
 import DispatchesDigest from './components/DispatchesDigest';
 import SidePanel from './components/SidePanel';
@@ -24,7 +25,7 @@ import { inferAmbition } from './ai/tools/ambition';
 import { checkForTriggeredEvent, applyEventChoiceDeltas, recordEventFiring } from './events/engine';
 import { initiateWorld } from './ai/core/initiator';
 import { runSmokeTest } from './tests/smokeTest';
-import { AiServiceError, resetSessionCallLog } from './ai/core/geminiService';
+import { resetSessionCallLog } from './ai/core/geminiService';
 import { saveGame, loadGame, clearSave, hasSave, updateSavedAmbition, SaveGameState, InferredAmbitionState } from './persistence/saveGame';
 import { hasSeenOnboarding, markOnboardingSeen } from './persistence/onboarding';
 import { getPacingPosture, setPacingPosture } from './persistence/settings';
@@ -35,6 +36,14 @@ import {
 } from './persistence/uiPrefs';
 import { buildPerceivedDigest, TabId } from './perception/visibility';
 import { computeTurnKnowledge, computeInvestigationKnowledge } from './knowledge/commit';
+import { knownRecipientOptionsForPlayer } from './knowledge/relationships';
+import { emptyStructuredDraft } from './playerInput/composerState';
+import {
+    deserializeTurnSubmission,
+    projectForExternalInference,
+    serializeTurnSubmission,
+    validateAndNormalizeTurnSubmission,
+} from './playerInput/turnSubmission';
 import { appendFallout, buildInterventionTextWithFallout, hasFallout } from './components/investigationLoop';
 import { Button } from './components/ui/Core';
 import { Tooltip } from './components/ui/Feedback';
@@ -81,6 +90,18 @@ function readDevApiKey(): string | undefined {
     return typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : undefined;
 }
 
+function loadSavedGameSummary(): SavedGameSummary | null {
+    if (!hasSave()) return null;
+    const save = loadGame();
+    if (!save) return null;
+    const savedCharacter = save.state.entities.find(entity => entity.entity_id === save.state.playerCharacterId);
+    return {
+        characterName: savedCharacter?.name ?? 'Unknown',
+        turnNumber: save.state.turnNumber,
+        savedAt: save.savedAt,
+    };
+}
+
 const App: React.FC = () => {
     // Every game-domain slice lives in the reducer behind GameContext
     // (state/gameReducer.ts, DESIGN_DECISIONS.md D17) - in particular, every
@@ -115,7 +136,12 @@ const App: React.FC = () => {
         inferredAmbition,
     } = state;
 
-    const [inputValue, setInputValue] = useState('');
+    const [chatDraft, setChatDraft] = useState('');
+    const [structuredDraft, setStructuredDraft] = useState<StructuredTurnDraft>(() => emptyStructuredDraft());
+    const [retrySubmission, setRetrySubmission] = useState<TurnSubmission | null>(null);
+    const [retryDraft, setRetryDraft] = useState<string | StructuredTurnDraft | null>(null);
+    const [pendingPlayerMessage, setPendingPlayerMessage] = useState<Message | null>(null);
+    const [turnError, setTurnError] = useState<string | null>(null);
     const [isGmScreenVisible, setIsGmScreenVisible] = useState(false);
     // D7 - the GM console (log/debugger) stays in the codebase permanently
     // but is hidden by default for a clean player view. This is the runtime
@@ -134,7 +160,10 @@ const App: React.FC = () => {
     const handleSetGmConsoleAvailable = useCallback((enabled: boolean) => {
         setGmConsoleAvailableState(enabled);
         setGmConsoleEnabled(enabled);
-        if (!enabled) setIsGmConsoleEnabled(false);
+        if (!enabled) {
+            setIsGmConsoleEnabled(false);
+            setIsGmScreenVisible(false);
+        }
     }, []);
     // DESIGN_DECISIONS.md D32 - whether GM Intervention's free-text input is
     // available at all (persistence/uiPrefs.ts), same device-preference
@@ -158,8 +187,7 @@ const App: React.FC = () => {
     // Transient UI state for the persistence/retry flow (P0.2/P0.3 - see
     // ROADMAP_3_UX_INTERACTIONS.md and ROADMAP_5_TECH_PERFORMANCE.md). Never
     // part of the save bundle - see persistence/saveGame.ts.
-    const [savedGameInfo, setSavedGameInfo] = useState<SavedGameSummary | null>(null);
-    const [retryAction, setRetryAction] = useState<string | null>(null);
+    const [savedGameInfo, setSavedGameInfo] = useState<SavedGameSummary | null>(loadSavedGameSummary);
 
     // LVX/NOX lighting. Nox Romae (design/nocturne.css) is an override
     // stylesheet loaded after styles.css; toggling swaps the whole client
@@ -254,6 +282,7 @@ const App: React.FC = () => {
     // rather than relying on "we just never committed" (P0.2/P0.4 - a
     // future refactor of the commit logic shouldn't silently break this).
     const preTurnSnapshotRef = useRef<SaveGameState | null>(null);
+    const turnInFlightRef = useRef(false);
 
     useEffect(() => {
         // Run a "smoke test" on startup to validate that all mock functions
@@ -277,6 +306,10 @@ const App: React.FC = () => {
     }, []); // Empty dependency array ensures this runs only once on mount.
 
     const playerEntity = entities.find(e => e.entity_id === playerCharacterId) || null;
+    const recipientOptions = useMemo(
+        () => playerEntity ? knownRecipientOptionsForPlayer(playerEntity, entities, knowledge) : [],
+        [playerEntity, entities, knowledge],
+    );
 
     // DESIGN_DECISIONS.md D1 - survival-only: ONLY death ends a run. Exile
     // and "missing" are survivable states the player keeps playing through,
@@ -373,20 +406,6 @@ const App: React.FC = () => {
         ...overrides,
     }), [state]);
 
-    // On mount, check for an existing autosave so CharacterSelection can
-    // offer a "Continue your reign" card instead of forcing a fresh start.
-    useEffect(() => {
-        if (!hasSave()) return;
-        const save = loadGame();
-        if (!save) return;
-        const savedCharacter = save.state.entities.find(e => e.entity_id === save.state.playerCharacterId);
-        setSavedGameInfo({
-            characterName: savedCharacter?.name ?? 'Unknown',
-            turnNumber: save.state.turnNumber,
-            savedAt: save.savedAt,
-        });
-    }, []);
-
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, gameState]);
@@ -420,18 +439,12 @@ const App: React.FC = () => {
         const handleKeyDown = (event: KeyboardEvent) => {
             if (!shouldToggleGmConsole(event, gmConsoleAvailable)) return;
             event.preventDefault();
+            if (isGmConsoleEnabled) setIsGmScreenVisible(false);
             setIsGmConsoleEnabled(prev => !prev);
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [gmConsoleAvailable]);
-
-    // If the console is toggled off (keyboard or the dev Header checkbox)
-    // while the screen happens to be open, close it too - "hidden by
-    // default" shouldn't leave a stale open panel behind.
-    useEffect(() => {
-        if (!isGmConsoleEnabled) setIsGmScreenVisible(false);
-    }, [isGmConsoleEnabled]);
+    }, [gmConsoleAvailable, isGmConsoleEnabled]);
 
     const addMessage = useCallback((message: Message) => {
         dispatch({ type: 'MESSAGE_ADDED', message });
@@ -456,31 +469,53 @@ const App: React.FC = () => {
             } else {
                 dispatch({ type: 'GAME_STATE_SET', gameState: GameState.AWAITING_PLAYER_INPUT });
             }
-            setIsCheckingEvents(false); // Reset the flag
+            queueMicrotask(() => setIsCheckingEvents(false));
         }
     }, [isCheckingEvents, worldState, entities, eventFirings, playerEntity, simulationState, turnNumber, dispatch]);
 
-    const executeTurn = useCallback(async (playerActionText: string) => {
-        // TURN_STARTED enters PROCESSING, clears the suggested-action pills,
-        // and puts the player's message into the chat log - nothing else, so
-        // the pre-turn snapshot below describes exactly the committed state
-        // plus that message.
-        const playerMessage: Message = { sender: 'player', text: playerActionText };
+    const executeTurn = useCallback(async (submission: TurnSubmission, draftToRestore: string | StructuredTurnDraft) => {
+        if (turnInFlightRef.current) return;
+        turnInFlightRef.current = true;
+        const serialized = serializeTurnSubmission(submission);
+        const playerMessage: Message = { sender: 'player', text: serialized };
+        const restoreDraft: string | StructuredTurnDraft = typeof draftToRestore === 'string'
+            ? draftToRestore
+            : {
+                ...draftToRestore,
+                actions: [...draftToRestore.actions],
+                messagesOrOrders: draftToRestore.messagesOrOrders.map(row => ({
+                    ...row,
+                    recipient: row.recipient?.kind === 'known_entity'
+                        ? { kind: 'known_entity', entityId: row.recipient.entityId }
+                        : row.recipient?.kind === 'free_text'
+                        ? { kind: 'free_text', text: row.recipient.text }
+                        : null,
+                })),
+            };
+        setPendingPlayerMessage(playerMessage);
+        setTurnError(null);
+        setRetrySubmission(null);
+        setRetryDraft(null);
         dispatch({ type: 'TURN_STARTED', playerMessage });
-        // Any in-flight retry affordance is superseded by this attempt (fresh
-        // or re-run) - it'll be recreated below if this attempt also fails.
-        setRetryAction(null);
         // Reset the thinking-theater/streaming state for this fresh attempt.
         // Defensive: both are already cleared by the previous turn's
         // success/error path below, but a stale value must never carry over.
         setTurnStage(null);
         setStreamingNarration('');
+        const preTurnSnapshot = buildSaveState();
+        preTurnSnapshotRef.current = preTurnSnapshot;
 
         const playerEntity = entities.find(e => e.entity_id === playerCharacterId);
         if (!playerEntity) {
-            addMessage({ sender: 'gm', text: "Error: Player character not found."});
+            setPendingPlayerMessage(null);
+            setRetrySubmission(submission);
+            setRetryDraft(restoreDraft);
+            setTurnError('The turn could not be resolved. Your draft has been restored; retry when you are ready.');
+            dispatch({ type: 'TURN_ROLLED_BACK', snapshot: preTurnSnapshot });
             dispatch({ type: 'GAME_STATE_SET', gameState: GameState.AWAITING_PLAYER_INPUT });
-            setInputValue(playerActionText);
+            if (typeof restoreDraft === 'string') setChatDraft(restoreDraft);
+            else setStructuredDraft(restoreDraft);
+            turnInFlightRef.current = false;
             return;
         }
 
@@ -492,12 +527,15 @@ const App: React.FC = () => {
         // instead - before any AI call - keeps the message small,
         // player-facing-safe, and pointed at the one thing that fixes it.
         if (!isMockMode && !resolvedApiKey) {
-            addMessage({
-                sender: 'gm',
-                text: "The Fates need your own voice to speak through the ether — add your Gemini API key in the configuration menu (⚙ Settings, top-left) to take a real turn. Mock Mode remains free to explore without one.",
-            });
+            setPendingPlayerMessage(null);
+            setRetrySubmission(submission);
+            setRetryDraft(restoreDraft);
+            setTurnError('The turn could not be resolved. Your draft has been restored; retry when you are ready.');
+            dispatch({ type: 'TURN_ROLLED_BACK', snapshot: preTurnSnapshot });
             dispatch({ type: 'GAME_STATE_SET', gameState: GameState.AWAITING_PLAYER_INPUT });
-            setInputValue(playerActionText);
+            if (typeof restoreDraft === 'string') setChatDraft(restoreDraft);
+            else setStructuredDraft(restoreDraft);
+            turnInFlightRef.current = false;
             return;
         }
 
@@ -507,9 +545,6 @@ const App: React.FC = () => {
         // nothing here has changed yet - this snapshot is a defensive,
         // explicit rollback target rather than something we're relying on
         // "never having touched" to stay true across future refactors.
-        const preTurnSnapshot = buildSaveState({ messages: [...messages, playerMessage] });
-        preTurnSnapshotRef.current = preTurnSnapshot;
-
         // ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - without touching
         // runNewTurn's signature (ai/** is off-limits here), any pending
         // investigation fallout rides into this turn's adjudication by
@@ -523,7 +558,7 @@ const App: React.FC = () => {
         try {
             const result = await runNewTurn(
                 ai,
-                playerActionText,
+                submission,
                 playerEntity,
                 turnNumber,
                 entities,
@@ -554,7 +589,7 @@ const App: React.FC = () => {
                 return { ...result.updatedWorldState, year: newYear, week: newWeek };
             })();
             // Add post-turn entity state to history for GM view
-            const historyEntryWithState = { ...result.newHistoryEntry, postTurnEntities: result.updatedEntities };
+            const historyEntryWithState = { ...result.newHistoryEntry, playerIntent: serialized, postTurnEntities: result.updatedEntities };
             // Bound the snapshot window HERE, once, because this same array
             // feeds BOTH the TURN_COMMITTED dispatch and the autosave below -
             // the reducer's own trim only bounds in-memory state, so an
@@ -612,6 +647,7 @@ const App: React.FC = () => {
                 npcIntents: result.updatedNpcIntents,
                 turnNumber: newTurnNumber,
                 turnHistory: newTurnHistory,
+                playerMessage,
                 gmMessage,
                 monologueMessage,
                 ribbonMessage,
@@ -660,6 +696,10 @@ const App: React.FC = () => {
                 gmInterventionText: '',
                 pendingIntelligenceFallout: [],
             }));
+            if (submission.kind === 'freeform') setChatDraft('');
+            else setStructuredDraft(emptyStructuredDraft());
+            setPendingPlayerMessage(null);
+            setTurnError(null);
 
             // DESIGN_DECISIONS.md D8 - a cheap periodic model call infers the
             // player's apparent ambition every AMBITION_INFERENCE_TURN_INTERVAL
@@ -672,7 +712,11 @@ const App: React.FC = () => {
             // player died on - a fresh read can still usefully inform the
             // epilogue about to be generated.
             if (updatedPlayerEntity && turnNumber % AMBITION_INFERENCE_TURN_INTERVAL === 0) {
-                const recentIntents = newTurnHistory.map(h => h.playerIntent).slice(-6);
+                const recentIntents = newTurnHistory
+                    .map(historyEntry => deserializeTurnSubmission(historyEntry.playerIntent))
+                    .map(historySubmission => historySubmission && projectForExternalInference(historySubmission))
+                    .filter((intent): intent is string => intent !== null)
+                    .slice(-6);
                 const recentHeadlines = newTurnHistory.slice(-3).flatMap(h => h.adjudication.headlines);
                 const ambitionTurnNumber = turnNumber;
                 inferAmbition(ai, updatedPlayerEntity, recentIntents, recentHeadlines, isMockMode)
@@ -704,56 +748,36 @@ const App: React.FC = () => {
             setTurnStage(null);
             setStreamingNarration('');
 
-            // AiServiceError (ai/core/geminiService.ts) distinguishes a
-            // transient failure (network/429/5xx that survived retries) -
-            // worth a one-click retry of the exact same action - from a
-            // fatal one (bad API key, unparseable/invalid model output even
-            // after the repair-retry), where retrying the same request is
-            // unlikely to help and the player deserves the real detail.
-            const isTransient = error instanceof AiServiceError && error.kind === 'transient';
-
-            if (isTransient) {
-                addMessage({
-                    sender: 'gm',
-                    text: "The courier was waylaid — the Fates offer another chance.\n\nYour game is safe; nothing was lost. Your action has been restored below, or use Retry to send it again immediately."
-                });
-                setRetryAction(playerActionText);
-            } else {
-                const errorDetail = error instanceof Error ? error.message : String(error);
-                addMessage({
-                    sender: 'gm',
-                    text: `A fateful error has occurred and the turn could not be resolved: ${errorDetail}\n\nYour game is safe. Your action has been restored below — press Send to try again.`
-                });
-            }
+            setPendingPlayerMessage(null);
+            setRetrySubmission(submission);
+            setRetryDraft(restoreDraft);
+            setTurnError('The turn could not be resolved. Your draft has been restored; retry when you are ready.');
 
             // Roll back to the pre-turn snapshot. In practice nothing above
             // was committed yet, but restore explicitly (rather than relying
             // on that invariant) so a future change to the commit ordering
             // can't silently leave the game half-updated after a failure.
-            // `messages` is deliberately excluded from the rollback - the
-            // player's message and the GM's error notice above should stay
-            // in the chat log (see TURN_ROLLED_BACK in state/gameReducer.ts
-            // for exactly which fields are and aren't restored).
             const snapshot = preTurnSnapshotRef.current;
             if (snapshot) {
                 dispatch({ type: 'TURN_ROLLED_BACK', snapshot });
             }
 
             dispatch({ type: 'GAME_STATE_SET', gameState: GameState.AWAITING_PLAYER_INPUT });
-            // Restore the player's action so they can retry without retyping it.
-            setInputValue(playerActionText);
+            if (typeof restoreDraft === 'string') setChatDraft(restoreDraft);
+            else setStructuredDraft(restoreDraft);
+        } finally {
+            turnInFlightRef.current = false;
         }
-    }, [state, addMessage, isMockMode, buildSaveState, dispatch, ai, resolvedApiKey]);
+    }, [ai, buildSaveState, dispatch, entities, eventFirings, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, pendingIntelligenceFallout, playerCharacterId, reports, resolvedApiKey, simulationState, truthLedger, turnHistory, turnNumber, worldState]);
 
-    const handleSendMessage = () => {
-        const text = inputValue.trim();
-        if (!text || gameState !== GameState.AWAITING_PLAYER_INPUT) return;
-        setInputValue('');
-        executeTurn(text);
-    };
-
-    const handlePillClick = (action: string) => {
-        setInputValue(action);
+    const handleComposerSubmit = (draft: string | StructuredTurnDraft) => {
+        if (gameState !== GameState.AWAITING_PLAYER_INPUT) return;
+        const candidate: TurnSubmission | StructuredTurnDraft = typeof draft === 'string'
+            ? { version: 1, kind: 'freeform', text: draft }
+            : draft;
+        const normalized = validateAndNormalizeTurnSubmission(candidate, { knownRecipients: recipientOptions });
+        if (!normalized.ok) return;
+        void executeTurn(normalized.submission, draft);
     };
     
     const startGameWithCharacter = (characterEntity: Entity, allInitialEntities: Entity[], initialWorldState?: WorldState, initialMetaNarrative?: string) => {
@@ -964,7 +988,7 @@ const App: React.FC = () => {
             messages: [...messages, eventMessage],
         }));
 
-    }, [state, playerEntity, buildSaveState, dispatch]);
+    }, [activeEvent, buildSaveState, dispatch, entities, eventFirings, eventHistory, messages, playerEntity, triggeredEventIds, turnNumber, worldState]);
 
     const handleContinue = useCallback(() => {
         const save = loadGame();
@@ -1059,6 +1083,7 @@ const App: React.FC = () => {
                                 <>
                                     <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }} role="log" aria-live="polite" aria-label="Chat log">
                                         {messages.map((msg, index) => <ChatMessage key={index} message={msg} />)}
+                                        {pendingPlayerMessage && <ChatMessage message={pendingPlayerMessage} />}
                                         {gameState === GameState.PROCESSING && (
                                             streamingNarration
                                                 ? <StreamingNarrationBubble text={streamingNarration} />
@@ -1070,25 +1095,27 @@ const App: React.FC = () => {
                                         <div ref={messagesEndRef} />
                                     </div>
                                     <div style={{ flex: 'none', borderTop: '1px solid var(--border-subtle)', padding: '12px 24px 16px', background: 'rgba(255,254,249,.55)' }}>
-                                        {gameState === GameState.AWAITING_PLAYER_INPUT && retryAction && (
+                                        {turnError && <p role="alert">{turnError}</p>}
+                                        {gameState === GameState.AWAITING_PLAYER_INPUT && retrySubmission && retryDraft && (
                                             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10, animation: 'gorRise .4s ease-out both' }}>
                                                 <Button
                                                     variant="secondary"
-                                                    onClick={() => executeTurn(retryAction)}
+                                                    onClick={() => void executeTurn(retrySubmission, retryDraft)}
                                                     aria-label="Retry the last action"
                                                 >
-                                                    ↻ Retry: “{retryAction.length > 56 ? `${retryAction.slice(0, 56)}…` : retryAction}”
+                                                    ↻ Retry the last action
                                                 </Button>
                                             </div>
                                         )}
-                                        {gameState === GameState.AWAITING_PLAYER_INPUT && suggestedActions.length > 0 && (
-                                            <ActionPills actions={suggestedActions} onSelectAction={handlePillClick} />
-                                        )}
                                         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
-                                            <ChatInput
-                                                value={inputValue}
-                                                onChange={setInputValue}
-                                                onSubmit={handleSendMessage}
+                                            <TurnComposer
+                                                chatDraft={chatDraft}
+                                                structuredDraft={structuredDraft}
+                                                recipientOptions={recipientOptions}
+                                                suggestedActions={suggestedActions}
+                                                onChatDraftChange={setChatDraft}
+                                                onStructuredDraftChange={setStructuredDraft}
+                                                onSubmit={handleComposerSubmit}
                                                 disabled={gameState !== GameState.AWAITING_PLAYER_INPUT}
                                                 isProcessing={gameState === GameState.PROCESSING}
                                                 turnStage={turnStage}
