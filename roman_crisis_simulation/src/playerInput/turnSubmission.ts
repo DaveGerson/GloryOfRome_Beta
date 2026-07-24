@@ -70,20 +70,20 @@ function encodeCanonicalSubmission(submission: TurnSubmission): string {
   return submission.text;
 }
 
-function enforceArtifactLimit(submission: TurnSubmission): ValidationResult {
-  return encodeCanonicalSubmission(submission).length <= MAX_TURN_SUBMISSION_CHARACTERS
+function enforceArtifactLimit(submission: TurnSubmission, enforceLimit = true): ValidationResult {
+  return !enforceLimit || encodeCanonicalSubmission(submission).length <= MAX_TURN_SUBMISSION_CHARACTERS
     ? { ok: true, submission }
     : issue('submission', 'Turn submission exceeds 20,000 characters.');
 }
 
-function normalizeFreeform(text: string): ValidationResult {
+function normalizeFreeform(text: string, enforceLimit = true): ValidationResult {
   const normalizedText = trim(text);
   if (!normalizedText) return issue('text', 'Enter a turn submission.');
   return enforceArtifactLimit({
     version: TURN_SUBMISSION_VERSION,
     kind: 'freeform',
     text: normalizedText,
-  });
+  }, enforceLimit);
 }
 
 function readStructuredFields(
@@ -114,6 +114,7 @@ function normalizeStructuredFields(
   fields: StructuredFields,
   normalizeRecipient: RecipientNormalizer,
   allowBlankDraftRows: boolean,
+  enforceLimit = true,
 ): ValidationResult {
   const actions: string[] = [];
   for (let index = 0; index < fields.actions.length; index += 1) {
@@ -160,7 +161,7 @@ function normalizeStructuredFields(
     ...(privateIntent ? { privateIntent } : {}),
     ...(questionOrContext ? { questionOrContext } : {}),
   };
-  return enforceArtifactLimit(submission);
+  return enforceArtifactLimit(submission, enforceLimit);
 }
 
 function normalizeRecipientFromKnownOptions(
@@ -226,13 +227,14 @@ function normalizeSelfContainedRecipient(value: unknown): RecipientResult {
 function normalizeVersionedSubmission(
   value: Record<string, unknown>,
   normalizeRecipientValue: RecipientNormalizer,
+  enforceLimit = true,
 ): ValidationResult {
   if (value.version !== TURN_SUBMISSION_VERSION) {
     return issue('submission', 'Unsupported turn submission version.');
   }
   if (value.kind === 'freeform') {
     return typeof value.text === 'string'
-      ? normalizeFreeform(value.text)
+      ? normalizeFreeform(value.text, enforceLimit)
       : issue('submission', 'Unsupported freeform submission.');
   }
   if (value.kind !== 'structured') {
@@ -241,7 +243,7 @@ function normalizeVersionedSubmission(
 
   const fields = readStructuredFields(value, true);
   return fields
-    ? normalizeStructuredFields(fields, normalizeRecipientValue, false)
+    ? normalizeStructuredFields(fields, normalizeRecipientValue, false, enforceLimit)
     : issue('submission', 'Unsupported structured submission.');
 }
 
@@ -301,6 +303,38 @@ export function validateAndNormalizeTurnSubmission(
         true,
       )
     : issue('submission', 'Unsupported structured submission.');
+}
+
+/**
+ * The composer reports the exact serialized artifact size before submission.
+ * This is deliberately the same normalization and serialization path used by
+ * the submission boundary, except that measurement does not reject the
+ * artifact for being over the limit.
+ */
+export function canonicalArtifactForTurnSubmission(
+  draft: TurnSubmission | StructuredTurnDraft,
+  context: { knownRecipients: readonly KnownRecipientOption[] },
+): { ok: true; submission: TurnSubmission; artifact: string } | { ok: false; issues: TurnSubmissionIssue[] } {
+  if (!isRecord(draft) || !context || !Array.isArray(context.knownRecipients)) {
+    return { ok: false, issues: [{ field: 'submission', message: 'Unsupported turn submission.' }] };
+  }
+
+  const result = ('kind' in draft || 'version' in draft)
+    ? normalizeVersionedSubmission(draft, (recipient) => normalizeRecipientFromKnownOptions(
+      recipient, context.knownRecipients, true,
+    ), false)
+    : (() => {
+      const fields = readStructuredFields(draft, false);
+      return fields
+        ? normalizeStructuredFields(fields, (recipient) => normalizeRecipientFromKnownOptions(
+          recipient, context.knownRecipients, false,
+        ), true, false)
+        : issue('submission', 'Unsupported structured submission.');
+    })();
+  if (result.ok) {
+    return { ok: true, submission: result.submission, artifact: encodeCanonicalSubmission(result.submission) };
+  }
+  return { ok: false, issues: result.issues };
 }
 
 export function deserializeTurnSubmission(text: string): TurnSubmission | null {

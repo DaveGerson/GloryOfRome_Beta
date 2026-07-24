@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import type { TurnStage } from '../ai/core/turn';
 import type { KnownRecipientOption, StructuredTurnDraft } from '../types';
-import { appendSuggestedAction } from '../playerInput/composerState';
+import { appendSuggestedAction, canonicalArtifactStatus } from '../playerInput/composerState';
+import { MAX_TURN_SUBMISSION_CHARACTERS } from '../playerInput/turnSubmission';
 import { getComposerMode, setComposerMode } from '../persistence/uiPrefs';
 import { StructuredTurnComposer } from './StructuredTurnComposer';
+import { TURN_STAGE_STATUS_COPY } from './Chat';
 
 export type ComposerMode = 'chat' | 'structured';
 
@@ -20,27 +22,26 @@ export interface TurnComposerProps {
   onSubmit(input: string | StructuredTurnDraft): void;
 }
 
-const MAX_CHAT_CHARACTERS = 20_000;
-
 export const TurnComposer: React.FC<TurnComposerProps> = ({
   chatDraft, structuredDraft, recipientOptions, suggestedActions, disabled, isProcessing,
-  onChatDraftChange, onStructuredDraftChange, onSubmit,
+  onChatDraftChange, onStructuredDraftChange, onSubmit, turnStage,
 }) => {
   const [mode, setMode] = useState<ComposerMode>(() => getComposerMode());
   const locked = disabled || isProcessing;
-  const remaining = MAX_CHAT_CHARACTERS - chatDraft.length;
-  const chatOverLimit = remaining < 0;
-  const statusId = 'chat-character-status';
+  const artifactStatus = canonicalArtifactStatus(mode === 'chat' ? chatDraft : structuredDraft, recipientOptions);
+  const remaining = artifactStatus.ok ? MAX_TURN_SUBMISSION_CHARACTERS - artifactStatus.characterCount : 0;
+  const overLimit = artifactStatus.ok && artifactStatus.overLimit;
+  const statusId = 'composer-submission-status';
 
   const selectMode = (next: ComposerMode) => {
     setMode(next);
     setComposerMode(next);
   };
   const submitChat = () => {
-    if (!locked && !chatOverLimit && chatDraft.trim()) onSubmit(chatDraft);
+    if (!locked && artifactStatus.ok && !overLimit && chatDraft.trim()) onSubmit(chatDraft);
   };
   const submitStructured = () => {
-    if (!locked) onSubmit(structuredDraft);
+    if (!locked && artifactStatus.ok && !overLimit) onSubmit(structuredDraft);
   };
 
   return (
@@ -49,6 +50,9 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
         <button type="button" aria-pressed={mode === 'chat'} disabled={locked} onClick={() => selectMode('chat')}>Chat</button>
         <button type="button" aria-pressed={mode === 'structured'} disabled={locked} onClick={() => selectMode('structured')}>Structured</button>
       </div>
+      {isProcessing && (
+        <p role="status" aria-live="polite">{TURN_STAGE_STATUS_COPY[turnStage ?? 'story_relevance']}</p>
+      )}
       {suggestedActions.length > 0 && (
         <div>
           {suggestedActions.map(action => (
@@ -62,7 +66,7 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
       {mode === 'chat' ? (
         <form onSubmit={event => { event.preventDefault(); submitChat(); }}>
           <textarea aria-label="Chat input" value={chatDraft} disabled={locked}
-            aria-invalid={chatOverLimit || undefined} aria-describedby={statusId}
+            aria-invalid={overLimit || undefined} aria-describedby={statusId}
             onChange={event => onChatDraftChange(event.target.value)}
             onKeyDown={event => {
               if (event.key === 'Enter' && !event.shiftKey) {
@@ -70,16 +74,21 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
                 submitChat();
               }
             }} />
-          {chatOverLimit ? (
+          {overLimit ? (
             <p id={statusId} role="alert">{Math.abs(remaining)} character{Math.abs(remaining) === 1 ? '' : 's'} over limit</p>
           ) : (
             <p id={statusId} role="status">{remaining} characters remaining</p>
           )}
-          <button type="submit" aria-label="Send message" disabled={locked || chatOverLimit || !chatDraft.trim()}>Send message</button>
+          <button type="submit" aria-label="Send message" disabled={locked || overLimit || !artifactStatus.ok || !chatDraft.trim()}>Send message</button>
         </form>
       ) : (
-        <StructuredTurnComposer draft={structuredDraft} recipientOptions={recipientOptions} disabled={locked}
-          onChange={onStructuredDraftChange} onSubmit={submitStructured} />
+        <>
+          {overLimit && (
+            <p id={statusId} role="alert">{Math.abs(remaining)} character{Math.abs(remaining) === 1 ? '' : 's'} over limit</p>
+          )}
+          <StructuredTurnComposer draft={structuredDraft} recipientOptions={recipientOptions} disabled={locked} submissionBlocked={overLimit}
+            onChange={onStructuredDraftChange} onSubmit={submitStructured} />
+        </>
       )}
     </div>
   );

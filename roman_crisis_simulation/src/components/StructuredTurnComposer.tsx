@@ -1,6 +1,9 @@
 import React from 'react';
-import type { KnownRecipientOption, MessageOrOrderDraft, StructuredTurnDraft } from '../types';
-import { addMessageOrOrderRow } from '../playerInput/composerState';
+import type { KnownRecipientOption, StructuredTurnDraft } from '../types';
+import {
+  addActionRow, addMessageOrOrderRow, selectMessageRecipient, updateActionRow,
+  updateCustomRecipient, updateMessageCommand, updatePrivateIntent, updateQuestionOrContext,
+} from '../playerInput/composerState';
 
 const CUSTOM_RECIPIENT_VALUE = '__custom_recipient__';
 
@@ -8,28 +11,14 @@ interface StructuredTurnComposerProps {
   draft: StructuredTurnDraft;
   recipientOptions: readonly KnownRecipientOption[];
   disabled: boolean;
+  submissionBlocked?: boolean;
   onChange(draft: StructuredTurnDraft): void;
   onSubmit(): void;
 }
 
-function updateMessage(
-  draft: StructuredTurnDraft,
-  index: number,
-  message: MessageOrOrderDraft,
-): StructuredTurnDraft {
-  return {
-    ...draft,
-    messagesOrOrders: draft.messagesOrOrders.map((row, rowIndex) => rowIndex === index ? message : row),
-  };
-}
-
 export const StructuredTurnComposer: React.FC<StructuredTurnComposerProps> = ({
-  draft, recipientOptions, disabled, onChange, onSubmit,
+  draft, recipientOptions, disabled, submissionBlocked = false, onChange, onSubmit,
 }) => {
-  const changeAction = (index: number, value: string) => {
-    onChange({ ...draft, actions: draft.actions.map((action, actionIndex) => actionIndex === index ? value : action) });
-  };
-
   const submitOnShortcut = (event: React.KeyboardEvent<HTMLTextAreaElement | HTMLInputElement>) => {
     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
@@ -47,12 +36,12 @@ export const StructuredTurnComposer: React.FC<StructuredTurnComposerProps> = ({
             aria-label={`Action ${index + 1}`}
             value={action}
             disabled={disabled}
-            onChange={event => changeAction(index, event.target.value)}
+            onChange={event => onChange(updateActionRow(draft, index, event.target.value))}
             onKeyDown={submitOnShortcut}
           />
         ))}
         <button type="button" aria-label="Add action row" disabled={disabled}
-          onClick={() => onChange({ ...draft, actions: [...draft.actions, ''] })}>
+          onClick={() => onChange(addActionRow(draft))}>
           +
         </button>
       </section>
@@ -70,10 +59,7 @@ export const StructuredTurnComposer: React.FC<StructuredTurnComposerProps> = ({
                 disabled={disabled}
                 onChange={event => {
                   const value = event.target.value;
-                  const recipient = value === '' ? null
-                    : value === CUSTOM_RECIPIENT_VALUE ? { kind: 'free_text' as const, text: '' }
-                    : { kind: 'known_entity' as const, entityId: value };
-                  onChange(updateMessage(draft, index, { ...row, recipient }));
+                  onChange(selectMessageRecipient(draft, index, value));
                 }}
               >
                 <option value="">Select a recipient</option>
@@ -86,10 +72,7 @@ export const StructuredTurnComposer: React.FC<StructuredTurnComposerProps> = ({
                   value={row.recipient.text}
                   autoComplete="off"
                   disabled={disabled}
-                  onChange={event => onChange(updateMessage(draft, index, {
-                    ...row,
-                    recipient: { kind: 'free_text', text: event.target.value },
-                  }))}
+                  onChange={event => onChange(updateCustomRecipient(draft, index, event.target.value))}
                   onKeyDown={submitOnShortcut}
                 />
               )}
@@ -97,7 +80,7 @@ export const StructuredTurnComposer: React.FC<StructuredTurnComposerProps> = ({
                 aria-label={`Message or order ${index + 1}`}
                 value={row.command}
                 disabled={disabled}
-                onChange={event => onChange(updateMessage(draft, index, { ...row, command: event.target.value }))}
+                onChange={event => onChange(updateMessageCommand(draft, index, event.target.value))}
                 onKeyDown={submitOnShortcut}
               />
             </div>
@@ -112,15 +95,15 @@ export const StructuredTurnComposer: React.FC<StructuredTurnComposerProps> = ({
         <h3 id="structured-intent">Private Intent</h3>
         <p>Private to your avatar; this expresses what you intend, not an action by itself.</p>
         <textarea aria-label="Private Intent" value={draft.privateIntent} disabled={disabled}
-          onChange={event => onChange({ ...draft, privateIntent: event.target.value })} onKeyDown={submitOnShortcut} />
+          onChange={event => onChange(updatePrivateIntent(draft, event.target.value))} onKeyDown={submitOnShortcut} />
       </section>
       <section aria-labelledby="structured-context">
         <h3 id="structured-context">Question / Context</h3>
         <p>Your question or context does not cause autonomous action.</p>
         <textarea aria-label="Question / Context" value={draft.questionOrContext} disabled={disabled}
-          onChange={event => onChange({ ...draft, questionOrContext: event.target.value })} onKeyDown={submitOnShortcut} />
+          onChange={event => onChange(updateQuestionOrContext(draft, event.target.value))} onKeyDown={submitOnShortcut} />
       </section>
-      <button type="button" aria-label="Submit turn" disabled={disabled} onClick={onSubmit}>Submit turn</button>
+      <button type="button" aria-label="Submit turn" disabled={disabled || submissionBlocked} onClick={onSubmit}>Submit turn</button>
     </div>
   );
 };

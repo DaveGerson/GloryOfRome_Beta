@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { TurnComposer, type TurnComposerProps } from '../components/TurnComposer';
 import { emptyStructuredDraft } from '../playerInput/composerState';
+import { TURN_SUBMISSION_PREFIX } from '../playerInput/turnSubmission';
 import type { KnownRecipientOption, StructuredTurnDraft } from '../types';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -301,6 +302,55 @@ describe('components/TurnComposer', () => {
 
     await keyDown(overInput, { key: 'Enter' });
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('uses the canonical artifact boundary for trimmed, reserved, and structured submissions without truncation', async () => {
+    const onSubmit = vi.fn();
+    const reserved = `${TURN_SUBMISSION_PREFIX}not JSON`;
+    const { container, rerender } = await mount(
+      <TurnComposer {...defaultProps({ chatDraft: `  ${reserved}  ` , onSubmit })} />,
+    );
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      `${20_000 - (TURN_SUBMISSION_PREFIX.length + JSON.stringify({ version: 1, kind: 'freeform', text: reserved }).length)} characters remaining`,
+    );
+
+    const oversizedStructured: StructuredTurnDraft = {
+      ...emptyStructuredDraft(),
+      actions: ['x'.repeat(20_000)],
+    };
+    await click(buttonNamed(container, 'Structured'));
+    await rerender(<TurnComposer {...defaultProps({ structuredDraft: oversizedStructured, onSubmit })} />);
+    const alert = container.querySelector<HTMLElement>('[role="alert"]');
+    expect(alert?.textContent).toMatch(/character.*over limit/i);
+    expect(buttonNamed(container, 'Submit turn').disabled).toBe(true);
+    await click(buttonNamed(container, 'Submit turn'));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(byAriaLabel<HTMLTextAreaElement>(container, 'Action 1').value).toHaveLength(20_000);
+  });
+
+  it('keeps an over-limit structured draft editable until its canonical artifact is valid again', async () => {
+    const oversized: StructuredTurnDraft = { ...emptyStructuredDraft(), actions: ['x'.repeat(20_000)] };
+    function Harness() {
+      const [draft, setDraft] = useState(oversized);
+      return <TurnComposer {...defaultProps({ structuredDraft: draft, onStructuredDraftChange: setDraft })} />;
+    }
+    const { container } = await mount(<Harness />);
+    await click(buttonNamed(container, 'Structured'));
+    const action = byAriaLabel<HTMLTextAreaElement>(container, 'Action 1');
+    expect(action.disabled).toBe(false);
+    expect(buttonNamed(container, 'Submit turn').disabled).toBe(true);
+    await setValue(action, 'Address the Senate');
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(buttonNamed(container, 'Submit turn').disabled).toBe(false);
+  });
+
+  it('renders the public stage-specific processing label with an accessible live status', async () => {
+    const { container } = await mount(
+      <TurnComposer {...defaultProps({ isProcessing: true, turnStage: 'relationship_updates' })} />,
+    );
+    const status = container.querySelector<HTMLElement>('[role="status"]');
+    expect(status?.getAttribute('aria-live')).toBe('polite');
+    expect(status?.textContent).toMatch(/loyalties quietly shift/i);
   });
 
   it('keeps Chat Enter/Shift+Enter behavior while Structured uses newline Enter and Ctrl/Cmd+Enter submission', async () => {

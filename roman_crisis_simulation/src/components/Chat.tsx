@@ -10,7 +10,7 @@ import { toSegments } from './textFormat';
 // Phase 3 item 1) - one line per real `runNewTurn` pipeline step (see
 // ai/core/turn.ts's `TurnStage`), shown live as the ACTUAL stage the
 // pipeline just entered, replacing the old timer-based random rotation.
-const STAGE_STATUS_COPY: Record<TurnStage, string> = {
+export const TURN_STAGE_STATUS_COPY: Record<TurnStage, string> = {
     story_relevance: 'The chronicler surveys the week…',
     npc_minds: 'Behind shuttered doors, minds settle on their designs…',
     adjudication: 'Your rivals move in the dark…',
@@ -26,10 +26,10 @@ const STAGE_STATUS_COPY: Record<TurnStage, string> = {
 // e.g. the brief instant before runNewTurn's first onStage call lands, or
 // Mock Mode's mockRunNewTurn, which resolves near-instantly and never
 // reports a stage at all (see App.tsx's executeTurn). Never left blank.
-const DEFAULT_PROCESSING_STATUS = STAGE_STATUS_COPY.story_relevance;
+const DEFAULT_PROCESSING_STATUS = TURN_STAGE_STATUS_COPY.story_relevance;
 
 function getStageStatusText(stage: TurnStage | null | undefined): string {
-    return stage ? STAGE_STATUS_COPY[stage] : DEFAULT_PROCESSING_STATUS;
+    return stage ? TURN_STAGE_STATUS_COPY[stage] : DEFAULT_PROCESSING_STATUS;
 }
 
 /**
