@@ -2,6 +2,20 @@
 import { Type } from "@google/genai";
 import { EntityActionIntentEnum, EventDeltaTypeEnum, NpcIntentContinuityEnum } from '../../types';
 
+/** Strict selector output for perception-safe relationship observations. */
+export const RelationshipObservationsSchema = {
+    type: Type.ARRAY,
+    items: {
+        type: Type.OBJECT,
+        properties: {
+            evidenceId: { type: Type.STRING },
+            participantIds: { type: Type.ARRAY, items: { type: Type.STRING } },
+            excerpt: { type: Type.STRING },
+        },
+        required: ['evidenceId', 'participantIds', 'excerpt'],
+    },
+};
+
 const EntityActionSchema = {
     type: Type.OBJECT,
     properties: {

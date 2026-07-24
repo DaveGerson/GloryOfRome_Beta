@@ -9,6 +9,7 @@ import { zRelationshipObservations } from '../ai/core/zodSchemas';
 import { AiServiceError, GEMINI_FLASH, type GeminiClient } from '../ai/core/geminiService';
 import { buildRelationshipObservationsPrompt } from '../ai/prompts/relationshipObservations';
 import { getRelationshipObservations } from '../ai/tools/relationshipObservations';
+import { parseModelJson } from '../ai/core/json';
 
 function makeMockAi(...responses: unknown[]): {
   ai: GeminiClient;
@@ -38,6 +39,11 @@ const validDraft = {
 };
 
 describe('relationship observation schema boundary', () => {
+  it('preserves top-level arrays while retaining object parsing for existing structured calls', () => {
+    expect(parseModelJson('[{"evidenceId":"report_7_1"}]')).toEqual([{ evidenceId: 'report_7_1' }]);
+    expect(parseModelJson('Preamble {"valid":true} postamble')).toEqual({ valid: true });
+  });
+
   it('accepts a valid empty list as no meaningful observation', () => {
     expect(zRelationshipObservations.parse([])).toEqual([]);
   });

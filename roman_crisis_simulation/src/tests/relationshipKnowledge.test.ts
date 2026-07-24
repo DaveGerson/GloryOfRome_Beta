@@ -183,7 +183,7 @@ describe('relationship observation semantic validation and ingestion', () => {
       long_term_ambitions: ['ENTITY_LONG_GOAL_SENTINEL'],
       current_state_narrative: 'ENTITY_STATE_NARRATIVE_SENTINEL',
       active_scheme: { name: 'ENTITY_SCHEME_SENTINEL', overall_goal: '', steps: [] },
-    })) as Entity[];
+    })) as unknown as Entity[];
 
     const accepted = validateRelationshipObservationDrafts({
       drafts: [pollutedDraft],

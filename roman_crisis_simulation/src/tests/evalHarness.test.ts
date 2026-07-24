@@ -566,9 +566,10 @@ describe('eval judge scaffold', () => {
   });
 
   it('judgeTurn routes through the gateway with a mocked client and returns the parsed verdict', async () => {
-    const generateContent = vi.fn(async (params: { model: string; contents: string; config?: Record<string, unknown> }) => ({
-      text: JSON.stringify(WELL_FORMED_VERDICT),
-    }));
+    const generateContent = vi.fn(async (params: { model: string; contents: string; config?: Record<string, unknown> }) => {
+      void params;
+      return { text: JSON.stringify(WELL_FORMED_VERDICT) };
+    });
     const ai: GeminiClient = { models: { generateContent } };
     const corpus = buildEvalCorpus([makeEntry(3)], [], META);
 

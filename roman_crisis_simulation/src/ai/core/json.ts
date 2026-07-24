@@ -33,7 +33,12 @@ export function cleanJson(text: string): string {
     // 2. Remove generic ``` ... ``` fences (covers a missing/odd language tag).
     cleaned = cleaned.replace(/^```\s*/, '').replace(/\s*```$/, '').trim();
 
-    // 3. Aggressively find the outer braces to ignore preamble/postamble text.
+    // 3. Preserve a complete top-level array. Structured selector calls can
+    // legitimately return arrays; brace-hunting below would otherwise strip
+    // an array to its first object.
+    if (cleaned.startsWith('[') && cleaned.endsWith(']')) return cleaned;
+
+    // 4. Aggressively find the outer braces to ignore preamble/postamble text.
     const firstBrace = cleaned.indexOf('{');
     const lastBrace = cleaned.lastIndexOf('}');
 

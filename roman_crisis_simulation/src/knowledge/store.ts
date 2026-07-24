@@ -173,6 +173,31 @@ export interface KnowledgeClaim {
    * SchemeDiscovery and ingestSchemeClue.
    */
   schemeDiscovery?: SchemeDiscovery;
+  /** A sourced, perception-safe observation of named participants. Optional for save-v1 compatibility. */
+  relationshipObservation?: RelationshipObservationMarker;
+}
+
+/** Player-safe evidence that may be offered to the relationship selector. */
+export interface PlayerSafeEvidence {
+  id: string;
+  source: KnowledgeSource;
+  text: string;
+  /** Set only by deterministic local parsing of explicit quotation syntax. */
+  trustedQuote?: { speakerId: string; text: string };
+}
+
+/** The strictly limited, untrusted model selection shape. */
+export interface RelationshipObservationDraft {
+  evidenceId: string;
+  participantIds: string[];
+  excerpt: string;
+}
+
+/** The persisted, validated relationship-observation marker. */
+export interface RelationshipObservationMarker {
+  evidenceId: string;
+  participantIds: string[];
+  quote?: { speakerId: string; text: string };
 }
 
 /**
