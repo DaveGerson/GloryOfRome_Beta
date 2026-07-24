@@ -38,6 +38,7 @@ import { getEntityBrief } from '../prompts/fragments';
 import { buildMortalityValidationPrompt, buildMortalityOutcomePrompt } from '../prompts/mortality';
 import { MortalityValidationSchema, MortalityOutcomeSchema } from './schemas';
 import { zMortalityValidation, zMortalityOutcome } from './zodSchemas';
+import { assertPlayerVisibleTextSafe } from './playerBoundary';
 
 interface DeathClaim {
   delta: EventDelta;
@@ -233,6 +234,10 @@ export async function processMortality(
     });
 
     for (const o of outcomeResult.outcomes) {
+      assertPlayerVisibleTextSafe(o.narrative_directive);
+      for (const delta of o.deltas) {
+        if (delta.type !== 'scheme') assertPlayerVisibleTextSafe(delta.reason);
+      }
       outcomeByEntity.set(o.entity_id, { deltas: o.deltas, narrative_directive: o.narrative_directive, secret_motive: o.secret_motive });
     }
   }

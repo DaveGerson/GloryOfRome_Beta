@@ -325,21 +325,20 @@ ${JSON.stringify(oldState, null, 2)}
  * ai/core/schemas.ts.
  */
 export function buildRelationshipUpdatesPrompt(
-  narration: string,
-  headlines: string[],
+  evidence: RelationshipUpdateEvidence,
   entities: Entity[],
-  hasObservableAttempt = true
 ): { systemInstruction: string; prompt: string } {
+  const hasObservableAttempt = evidence.observableAttempt !== null;
   const systemInstruction = `
     You are a narrative analyst AI. Your task is to read a summary of events and identify subtle shifts in relationships between characters. Based on the events, suggest specific, numerical changes to their relationship stats.
 
     **Task:**
-    Based *only* on the events described above, generate a list of 'relation' deltas to reflect how the characters' feelings towards each other might have changed.
+    Based *only* on the allowlisted observable attempt and adjudicated facts below, generate a list of 'relation' deltas to reflect how the characters' feelings towards each other might have changed.
     - Only generate deltas for relationships that were directly or strongly implicitly affected by the events.
     - The 'key' for a relation delta MUST be in the format 'entity_a_id:entity_b_id:attribute'. Valid attributes are 'trust_level', 'respect_level', 'perceived_threat', 'ideological_alignment', 'dependency_level'.
     - A delta changes entity_a's perception of entity_b ONLY (relationships are asymmetric). If both characters' feelings changed, emit two deltas — one per direction. The two directions need not be equal.
     - 'delta' should be a small integer, typically between -3 and 3, representing the change.
-    - 'reason' should be a brief justification citing the event from the narration.
+    - 'reason' should be a brief justification citing an adjudicated fact.
     - If no relationships were significantly affected, return an empty list for 'deltas'.
     ${hasObservableAttempt
       ? ''
@@ -358,14 +357,64 @@ export function buildRelationshipUpdatesPrompt(
     ${entityBriefs}
 
     **Events of the Turn:**
-    Headlines:
-    - ${headlines.join('\n- ')}
+    Observable player attempt:
+    ${evidence.observableAttempt ?? '(none submitted)'}
 
-    Narration:
-    "${narration}"
+    Headlines:
+    - ${evidence.headlines.join('\n- ')}
+
+    Adjudicated facts:
+    - ${evidence.adjudicatedFacts.join('\n- ')}
     `;
 
   return { systemInstruction, prompt };
+}
+
+export interface RelationshipUpdateEvidence {
+  observableAttempt: string | null;
+  headlines: string[];
+  adjudicatedFacts: string[];
+}
+
+function containsExcludedPlayerContext(text: string, excludedPlayerContext: readonly string[]): boolean {
+  const normalized = text.toLocaleLowerCase();
+  return excludedPlayerContext.some(value => {
+    const candidate = value.trim().toLocaleLowerCase();
+    return candidate.length > 0 && normalized.includes(candidate);
+  });
+}
+
+/**
+ * Builds the only turn-event input accepted by the relationship analyst.
+ * The allowlist deliberately has no narration field and strips GM-only
+ * delta metadata. Provider facts that echo private intent or question-only
+ * context verbatim are omitted before this projection leaves the composition
+ * root.
+ */
+export function projectRelationshipUpdateEvidence(
+  adjudication: Adjudication,
+  observableAttempt: string | null,
+  excludedPlayerContext: readonly string[] = [],
+): RelationshipUpdateEvidence {
+  const headlines = adjudication.headlines.filter(
+    headline => !containsExcludedPlayerContext(headline, excludedPlayerContext),
+  );
+  const actionFacts = adjudication.entityActions
+    .map(action =>
+      `Entity ${action.id} took ${action.intent}${action.target ? ` targeting ${action.target}` : ''}: ${action.notes}`,
+    )
+    .filter(fact => !containsExcludedPlayerContext(fact, excludedPlayerContext));
+  const deltaFacts = adjudication.deltas
+    .map(delta => delta.type === 'scheme'
+      ? `Entity ${delta.key}'s private design changed.`
+      : `${delta.type} affected ${delta.key}: ${delta.reason}`)
+    .filter(fact => !containsExcludedPlayerContext(fact, excludedPlayerContext));
+
+  return {
+    observableAttempt,
+    headlines,
+    adjudicatedFacts: [...actionFacts, ...deltaFacts],
+  };
 }
 
 /**

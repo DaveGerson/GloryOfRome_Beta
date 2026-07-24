@@ -395,7 +395,14 @@ describe('journey: structured player input through the real App transaction', ()
         .toHaveProperty('independent_preparations', 1);
       expect(loaded.reports).toEqual([]);
       expect(loaded.truthLedger).toEqual([]);
-      expect(loaded.knowledge).toEqual([]);
+      expect(loaded.knowledge).toEqual([
+        expect.objectContaining({
+          subject: 'maximinus_thrax',
+          claim: expect.stringContaining('independent preparations'),
+        }),
+      ]);
+      expect(JSON.stringify(loaded.knowledge)).not.toContain('forbidden_question_artifact');
+      expect(JSON.stringify(loaded.knowledge)).not.toContain(poisonedPlayerDelta);
       expect(entry).not.toHaveProperty('resolutionTrace');
       expect(entry).not.toHaveProperty('mortalityTrace');
       expect(entry.rawCalls?.map(call => call.callName)).not.toContain('actionAssessment');

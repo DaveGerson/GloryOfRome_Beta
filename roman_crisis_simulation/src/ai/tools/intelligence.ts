@@ -21,6 +21,7 @@ import {
     buildStoryRelevancePrompt,
     buildSimulationStateUpdatePrompt,
     buildRelationshipUpdatesPrompt,
+    RelationshipUpdateEvidence,
     buildPrivateConversationPrompt,
 } from '../prompts/intelligence';
 import { buildPlayerMonologuePrompt } from '../prompts/narration';
@@ -193,12 +194,17 @@ export const getUpdatedSimulationState = async (ai: GoogleGenAI, adjudication: A
     });
 };
 
-export const getRelationshipUpdates = async (ai: GoogleGenAI, narration: string, headlines: string[], entities: Entity[], isMockMode: boolean, hasObservableAttempt = true): Promise<EventDelta[]> => {
+export const getRelationshipUpdates = async (
+    ai: GoogleGenAI,
+    evidence: RelationshipUpdateEvidence,
+    entities: Entity[],
+    isMockMode: boolean,
+): Promise<EventDelta[]> => {
     if (isMockMode) {
         return Promise.resolve([]);
     }
 
-    const { systemInstruction, prompt } = buildRelationshipUpdatesPrompt(narration, headlines, entities, hasObservableAttempt);
+    const { systemInstruction, prompt } = buildRelationshipUpdatesPrompt(evidence, entities);
     const result = await generateStructured<{ deltas: EventDelta[] }>(ai, {
         callName: 'relationshipUpdates',
         model: GEMINI_PRO,

@@ -18,6 +18,8 @@ import { processMortality, detectDeathClaims } from './mortality';
 import { createNarrationStreamGate } from './streamSplit';
 import { rollD20, resolveAction, derivePersonalityModifier, deriveOppositionModifier, createSeededRng, generateSeed } from './resolution';
 import { normalizeTurnSubmissionInput, projectForAdjudication, projectForNarration, projectForPlayerOwnedAi, projectForResolution, serializeTurnSubmission } from '../../playerInput/turnSubmission';
+import { projectRelationshipUpdateEvidence } from '../prompts/intelligence';
+import { assertNoInventedPlayerAction, assertPlayerVisibleAdjudicationSafe, assertPlayerVisibleTextSafe } from './playerBoundary';
 
 // Adjudication is the highest-stakes, most consequence-dense call of the
 // turn - a moderate temperature keeps outcomes varied without letting the
@@ -560,6 +562,12 @@ export async function runNewTurn(
         thinkingConfig: { thinkingBudget: 1024 },
         temperature: ADJUDICATION_TEMPERATURE,
     });
+    assertNoInventedPlayerAction(
+        adjudication,
+        playerEntity.entity_id,
+        narrationSubmission.hasObservableAttempt,
+    );
+    assertPlayerVisibleAdjudicationSafe(adjudication);
 
     // Record the resolution layer's trace as a GM-private note (mirrors the
     // mortality pipeline's own gm_private notes) BEFORE processMortality
@@ -669,6 +677,12 @@ export async function runNewTurn(
             adjudication.gm_private.push(`[Mind] Superseded ${supersededIds.length} competing 'scheme' delta(s) for mind-evolved entities (${supersededIds.join(', ')}) - the entity's own mind owns its scheme evolution this turn; no double-application or overwrite.`);
         }
     }
+    assertNoInventedPlayerAction(
+        adjudication,
+        playerEntity.entity_id,
+        narrationSubmission.hasObservableAttempt,
+    );
+    assertPlayerVisibleAdjudicationSafe(adjudication);
 
     // *** NEW STEP 2.6: MORTALITY PIPELINE (DESIGN_DECISIONS.md D2/D3/D4) ***
     // Runs BEFORE applyAdjudication and BEFORE narration: any death claim in
@@ -698,6 +712,7 @@ export async function runNewTurn(
         turnRng,
         { trustedResolutionContext }
     );
+    assertPlayerVisibleAdjudicationSafe(transformedAdjudication);
 
     // 3. Apply the (mortality-transformed) adjudication to get new state.
     // Pure/synchronous (ai/core/engine.ts) - runs to completion before any
@@ -747,9 +762,11 @@ export async function runNewTurn(
     //       streams via `onNarrationChunk`/the stream gate exactly as before
     //       this refactor, just launched inside the parallel block instead
     //       of sequentially after the monologue call.
-    // `getRelationshipUpdates` is deliberately NOT in this group - it
-    // consumes the narration TEXT itself (the join's own output), so it
-    // stays sequential after `Promise.all` resolves, below.
+    // `getRelationshipUpdates` is deliberately NOT in this group. It no
+    // longer consumes narration (that was a privacy defect); keeping it
+    // after the join means provider-authored player output passes the
+    // mechanics boundary before the pipeline spends another model call or
+    // applies any derived relationship changes.
     //
     // RACE AUDIT (read every function's body - ai/tools/intelligence.ts,
     // ai/prompts/narration.ts, ai/prompts/intelligence.ts - before landing
@@ -770,8 +787,9 @@ export async function runNewTurn(
     //    `transformedAdjudication.gm_private`. So there is no "return the
     //    delta and apply it in a defined order" step needed for the three
     //    parallel legs - none of them touch shared state at all, mutated or
-    //    otherwise. `getRelationshipUpdates` stays sequential regardless,
-    //    per the spec, since its INPUT depends on this join's OUTPUT.
+    //    otherwise. `getRelationshipUpdates` stays sequential to preserve
+    //    that validation/call ordering, although its allowlisted evidence
+    //    projection no longer depends on narration.
     options?.onStage?.('simulation_state');
     const simulationStatePromise = getUpdatedSimulationState(ai, transformedAdjudication, currentSimulationState, isMockMode);
 
@@ -824,7 +842,11 @@ export async function runNewTurn(
     // see streamSplit.ts.
     const onNarrationChunk = options?.onNarrationChunk;
     const narrationPromise = onNarrationChunk
-        ? generateTextStream(ai, narrationRequest, (textSoFar) => onNarrationChunk(narrationStreamGate(textSoFar)))
+        ? generateTextStream(ai, narrationRequest, (textSoFar) => {
+            const displayText = narrationStreamGate(textSoFar);
+            assertPlayerVisibleTextSafe(displayText);
+            onNarrationChunk(displayText);
+        })
         : generateText(ai, narrationRequest);
 
     // The join. If any of the three rejects, `Promise.all` rejects
@@ -843,10 +865,23 @@ export async function runNewTurn(
     const narrationParts = fullText.split('SUGGESTION:');
     const narration = narrationParts[0].trim();
     const suggestedActions = narrationParts.slice(1).map(s => s.trim()).filter(s => s.length > 0);
+    assertPlayerVisibleTextSafe(playerMonologue);
+    assertPlayerVisibleTextSafe(fullText);
 
-    // 5.5 Get and apply relationship updates based on narrative
+    // 5.5 Get and apply relationship updates based on allowlisted turn facts
     options?.onStage?.('relationship_updates');
-    const relationshipUpdateResult = await getRelationshipUpdates(ai, narration, transformedAdjudication.headlines, updatedEntities, isMockMode, narrationSubmission.hasObservableAttempt);
+    const relationshipEvidence = projectRelationshipUpdateEvidence(
+        transformedAdjudication,
+        resolutionAttempt,
+        [adjudicationSubmission.privateIntent, adjudicationSubmission.questionOrContext]
+            .filter((value): value is string => value !== null),
+    );
+    const relationshipUpdateResult = await getRelationshipUpdates(
+        ai,
+        relationshipEvidence,
+        updatedEntities,
+        isMockMode,
+    );
     // CONTRACT ENFORCEMENT: this call's contract is 'relation' deltas ONLY
     // (buildRelationshipUpdatesPrompt asks for nothing else), but the schema
     // pair it validates against (zRelationshipDeltas / RelationshipDeltasSchema)
@@ -859,6 +894,7 @@ export async function runNewTurn(
     // gm_private (GM-only surface, D4/D5).
     const relationshipDeltas = (relationshipUpdateResult ?? []).filter(d => d.type === 'relation');
     const discardedRelationshipDeltas = (relationshipUpdateResult ?? []).filter(d => d.type !== 'relation');
+    for (const delta of relationshipDeltas) assertPlayerVisibleTextSafe(delta.reason);
     if (discardedRelationshipDeltas.length > 0) {
         transformedAdjudication.gm_private.push(
             `[Narrative Analyst] Dropped ${discardedRelationshipDeltas.length} non-relation delta(s) from the relationship-update call (contract is 'relation' only; these would bypass the ledger/mortality pipelines): ${discardedRelationshipDeltas.map(d => `${d.type}:${d.key}`).join(', ')}.`

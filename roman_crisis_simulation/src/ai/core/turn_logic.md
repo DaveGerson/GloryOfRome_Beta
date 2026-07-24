@@ -93,10 +93,10 @@ The game world is updated, but you, the player, see numbers and stats. The simul
 
 ### **7.5. Relationship Update Pass**
 
-With the narration text now in hand, the game makes one last pass to catch relationship shifts that the main adjudication might have missed or under-specified.
+After player-facing narration and monologue pass the mechanics boundary, the game makes one last pass to catch relationship shifts that the main adjudication might have missed or under-specified.
 
-* **Mechanics**: getRelationshipUpdates (ai/tools/intelligence.ts), on the **gemini-3-pro-preview** model. It sends the finished narration and headlines, plus a brief of every living entity's current relationships, and asks the AI to propose 'relation' deltas (trust\_level, respect\_level, perceived\_threat, ideological\_alignment, dependency\_level) for pairs whose feelings were directly or strongly implicitly affected by the turn's events. If any are returned, they are applied immediately via applyDeltas and logged to the private GM log.  
-* **Player Implication**: This keeps relationship stats honest with the story you actually read, rather than only what the earlier, more mechanically-focused adjudication call thought to change.
+* **Mechanics**: getRelationshipUpdates (ai/tools/intelligence.ts), on the **gemini-3-pro-preview** model. It receives an allowlisted evidence projection: the observable player attempt (if any), safe adjudicated headlines and facts, and a brief of every living entity's current relationships. It never receives narration, private intent, question-only context, GM-private fields, rumor truth/origin fields, or private scheme content. It proposes 'relation' deltas (trust\_level, respect\_level, perceived\_threat, ideological\_alignment, dependency\_level) for pairs directly or strongly implicitly affected by those facts. If any are returned, they are applied immediately via applyDeltas and logged to the private GM log.
+* **Player Implication**: This keeps relationship stats aligned with committed events without letting provider-authored narration or private player context become evidence for new world state.
 
 ### **8\. Event Check (Checking for Fateful Events)**
 
@@ -133,8 +133,8 @@ A single player turn (runNewTurn in ai/core/turn.ts) makes **6 sequential Gemini
    * **Context Included**: The full Adjudication object and the player's updated Entity profile.  
    * **Result Usage**: Split on the `SUGGESTION:` marker into the displayed narration text and the 3 suggested-action prompts.  
 7.  **getRelationshipUpdates** — *gemini-3-pro-preview*  
-   * **Purpose**: Propose additional relationship deltas based on the finished narration text (a pass the main adjudication call may under-specify).  
-   * **Context Included**: The narration, headlines, and a brief of every living entity's current relationships.  
+   * **Purpose**: Propose additional relationship deltas from allowlisted committed-event evidence (a pass the main adjudication call may under-specify).
+   * **Context Included**: The observable player attempt, safe adjudicated headlines/facts, and a brief of every living entity's current relationships. Narration and private player context are excluded.
    * **Result Usage**: Any returned deltas are applied immediately via `applyDeltas` and logged to `adjudication.gm_private`.
 
 After all of this, `runNewTurn` returns and App.tsx commits the results, increments its own `turnNumber` state, and then `checkForTriggeredEvent` (events/engine.ts, Step 8 above) runs — a synchronous, non-AI check.
