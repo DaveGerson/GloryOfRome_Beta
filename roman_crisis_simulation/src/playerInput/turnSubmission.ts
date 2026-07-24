@@ -181,7 +181,9 @@ function normalizeRecipientFromKnownOptions(
       && candidate.entityId === knownEntity.entityId);
     if (!option) return recipientIssue('Selected recipient is unavailable.');
     const displayName = trim(option.displayName);
-    if (!displayName) return recipientIssue('Selected recipient is unavailable.');
+    if (!trim(option.entityId) || !displayName) {
+      return recipientIssue('Selected recipient is unavailable.');
+    }
     return {
       ok: true,
       recipient: { kind: 'known_entity', entityId: option.entityId, displayName },
@@ -213,9 +215,9 @@ function normalizeSelfContainedRecipient(value: unknown): RecipientResult {
       || typeof knownEntity.displayName !== 'string') {
       return recipientIssue('Unsupported recipient.');
     }
-    const entityId = trim(knownEntity.entityId);
+    const entityId = knownEntity.entityId;
     const displayName = trim(knownEntity.displayName);
-    return entityId && displayName
+    return trim(entityId) && displayName
       ? { ok: true, recipient: { kind: 'known_entity', entityId, displayName } }
       : recipientIssue('Unsupported recipient.');
   });

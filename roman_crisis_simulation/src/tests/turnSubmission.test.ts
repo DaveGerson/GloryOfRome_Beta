@@ -226,6 +226,49 @@ describe('validateAndNormalizeTurnSubmission', () => {
     expect(validateAndNormalizeTurnSubmission(draft, context).ok).toBe(false);
   });
 
+  it('preserves an opaque safe-option ID exactly through validation and canonical round-trip', () => {
+    const opaqueEntityId = ' lucius ';
+    const draft: StructuredTurnDraft = {
+      actions: [],
+      messagesOrOrders: [{
+        recipient: { kind: 'known_entity', entityId: opaqueEntityId },
+        command: 'Meet me at dusk',
+      }],
+      privateIntent: '',
+      questionOrContext: '',
+    };
+    const submission = expectValid(validateAndNormalizeTurnSubmission(draft, {
+      knownRecipients: [{ entityId: opaqueEntityId, displayName: 'Lucius' }],
+    }));
+
+    expect(submission).toEqual({
+      version: 1,
+      kind: 'structured',
+      messagesOrOrders: [{
+        recipient: { kind: 'known_entity', entityId: opaqueEntityId, displayName: 'Lucius' },
+        command: 'Meet me at dusk',
+      }],
+    });
+    expect(deserializeTurnSubmission(serializeTurnSubmission(submission))).toEqual(submission);
+  });
+
+  it('rejects an all-whitespace safe-option ID without throwing', () => {
+    const whitespaceEntityId = ' \t ';
+    const draft: StructuredTurnDraft = {
+      actions: [],
+      messagesOrOrders: [{
+        recipient: { kind: 'known_entity', entityId: whitespaceEntityId },
+        command: 'Meet me at dusk',
+      }],
+      privateIntent: '',
+      questionOrContext: '',
+    };
+
+    expect(validateAndNormalizeTurnSubmission(draft, {
+      knownRecipients: [{ entityId: whitespaceEntityId, displayName: 'Unknown' }],
+    }).ok).toBe(false);
+  });
+
   it('stores a nonempty Someone else recipient as trimmed free text without inventing an entity ID', () => {
     const submission = expectValid(
       validateAndNormalizeTurnSubmission(
