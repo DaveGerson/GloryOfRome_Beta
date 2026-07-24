@@ -35,9 +35,15 @@ import {
     getGmConsoleEnabled, setGmConsoleEnabled,
     getGmInterventionEnabled, setGmInterventionEnabled,
 } from './persistence/uiPrefs';
-import { buildPerceivedDigest, TabId } from './perception/visibility';
+import { buildPlayerPerceivedDigest, TabId } from './perception/visibility';
 import { computeTurnKnowledge, computeInvestigationKnowledge } from './knowledge/commit';
-import { knownRecipientOptionsForPlayer } from './knowledge/relationships';
+import {
+    buildInvestigationRelationshipEvidence,
+    buildPlayerSafeEvidence,
+    buildTurnRelationshipEvidence,
+    knownRecipientOptionsForPlayer,
+} from './knowledge/relationships';
+import { getRelationshipObservations } from './ai/tools/relationshipObservations';
 import { emptyStructuredDraft } from './playerInput/composerState';
 import {
     deserializeTurnSubmission,
@@ -438,7 +444,7 @@ const App: React.FC = () => {
     );
     const lastTurnPerceivedChanges = useMemo(
         () => (lastTurn?.postTurnEntities && lastTurnPlayer)
-            ? buildPerceivedDigest(lastTurn.adjudication.deltas, lastTurnPlayer, lastTurn.postTurnEntities, worldState)
+            ? buildPlayerPerceivedDigest(lastTurn.adjudication.deltas, lastTurnPlayer, lastTurn.postTurnEntities, worldState)
             : [],
         [lastTurn, lastTurnPlayer, worldState]
     );
@@ -447,9 +453,16 @@ const App: React.FC = () => {
     // never itself leak something the perception filter withheld.
     const pulsingTabs = useMemo(() => {
         const tabs = new Set<TabId>();
-        lastTurnPerceivedChanges.forEach(change => change.tabs.forEach(tab => tabs.add(tab)));
+        lastTurnPerceivedChanges.forEach(change => change.tabs.forEach(tab => {
+            if (tab !== 'dramatis_personae') tabs.add(tab);
+        }));
+        if (lastTurn && knowledge.some(claim =>
+            claim.relationshipObservation && claim.firstLearnedTurn === lastTurn.turnNumber
+        )) {
+            tabs.add('dramatis_personae');
+        }
         return tabs;
-    }, [lastTurnPerceivedChanges]);
+    }, [knowledge, lastTurn, lastTurnPerceivedChanges]);
 
     // Builds the full persistable game-state bundle from current state,
     // optionally overriding fields with just-computed values (a dispatch
@@ -697,7 +710,7 @@ const App: React.FC = () => {
 
             // D21 knowledge-store ingestion (knowledge/commit.ts): the next
             // store is computed from the SAME D5-filtered digest the player
-            // is about to see (the identical buildPerceivedDigest inputs the
+            // is about to see (the identical buildPlayerPerceivedDigest inputs the
             // lastTurnPerceivedChanges memo will re-derive from this history
             // entry) plus this turn's NEW Reports - never from raw deltas or
             // anything GM-private. The helper owns the new-report id filter
@@ -707,14 +720,46 @@ const App: React.FC = () => {
             // nothing.
             const playerAfterTurn = result.updatedEntities.find(e => e.entity_id === playerCharacterId) ?? null;
             const perceivedThisTurn = playerAfterTurn
-                ? buildPerceivedDigest(historyEntryWithState.adjudication.deltas, playerAfterTurn, result.updatedEntities, newWorldState)
+                ? buildPlayerPerceivedDigest(historyEntryWithState.adjudication.deltas, playerAfterTurn, result.updatedEntities, newWorldState)
                 : [];
+            const priorReportIds = new Set(reports.map(report => report.id));
+            const reportsThisTurn = result.updatedReports.filter(report => !priorReportIds.has(report.id));
+            const entityDirectory = result.updatedEntities.map(entity => ({
+                entity_id: entity.entity_id,
+                name: entity.name,
+            }));
+            const relationshipEvidence = buildTurnRelationshipEvidence({
+                submission: projectForExternalInference(submission),
+                perceivedChanges: perceivedThisTurn,
+                reports: reportsThisTurn,
+            }).map(item => buildPlayerSafeEvidence(item, entityDirectory));
+            const knownEntityIds = playerAfterTurn
+                ? [
+                    playerAfterTurn.entity_id,
+                    ...knownRecipientOptionsForPlayer(playerAfterTurn, result.updatedEntities, knowledge)
+                        .map(option => option.entityId),
+                ]
+                : [];
+            const relationshipDrafts = await getRelationshipObservations(
+                ai,
+                relationshipEvidence,
+                entityDirectory,
+                knownEntityIds,
+                isMockMode,
+            );
+            if (!transaction.isCurrent()) return;
             const newKnowledge = computeTurnKnowledge({
                 prev: knowledge,
                 perceivedChanges: perceivedThisTurn,
                 reportsBefore: reports,
                 reportsAfter: result.updatedReports,
                 turnNumber,
+                relationshipObservations: {
+                    evidence: relationshipEvidence,
+                    drafts: relationshipDrafts,
+                    entities: entityDirectory,
+                    knownEntityIds,
+                },
             });
             const gmMessage: Message = { sender: 'gm', text: result.narration };
             const monologueMessage: Message = { sender: 'player_monologue', text: result.playerMonologue };
@@ -1009,14 +1054,41 @@ const App: React.FC = () => {
     // subtle in-fiction hint now - the raw text is GM-console-only
     // (GameMasterScreen's "Pending Intelligence Fallout" line) until next
     // turn's narration reinterprets it.
-    const handleInvestigationOutcome = (
+    const handleInvestigationOutcome = async (
         kind: 'beliefs' | 'scheme' | 'secrets',
         targetId: string,
         reportData: unknown,
         cost: number,
         result: InvestigationResult,
         request: DomainMutationContext,
-    ): boolean => {
+    ): Promise<boolean> => {
+        if (!request.isCurrent()) return false;
+        const entityDirectory = entities.map(entity => ({
+            entity_id: entity.entity_id,
+            name: entity.name,
+        }));
+        const relationshipEvidence = [buildInvestigationRelationshipEvidence({
+            reportText: result.report,
+            targetId,
+            kind,
+            turnNumber,
+            entities: entityDirectory,
+        })];
+        const currentPlayer = entities.find(entity => entity.entity_id === playerCharacterId) ?? null;
+        const knownEntityIds = currentPlayer
+            ? [
+                currentPlayer.entity_id,
+                ...knownRecipientOptionsForPlayer(currentPlayer, entities, knowledge)
+                    .map(option => option.entityId),
+            ]
+            : [];
+        const relationshipDrafts = await getRelationshipObservations(
+            ai,
+            relationshipEvidence,
+            entityDirectory,
+            knownEntityIds,
+            isMockMode,
+        );
         if (!request.isCurrent()) return false;
         const newEntities = entities.map(e => {
             if (e.entity_id === playerCharacterId) {
@@ -1045,6 +1117,12 @@ const App: React.FC = () => {
             kind,
             reportText: result.report,
             turnNumber,
+            relationshipObservations: {
+                evidence: relationshipEvidence,
+                drafts: relationshipDrafts,
+                entities: entityDirectory,
+                knownEntityIds,
+            },
         });
 
         const falloutMessage: Message | undefined = hasFallout(result.consequences)

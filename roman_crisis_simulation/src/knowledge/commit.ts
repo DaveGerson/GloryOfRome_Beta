@@ -47,7 +47,7 @@ export interface RelationshipObservationsInput {
 export interface TurnKnowledgeInput {
   /** The knowledge store as of the previous commit. */
   prev: KnowledgeClaim[];
-  /** This turn's D5-filtered digest (buildPerceivedDigest output) - never raw deltas. */
+  /** This turn's player-only D5 digest (buildPlayerPerceivedDigest output) - never raw deltas. */
   perceivedChanges: PerceivedChange[];
   /** The report log BEFORE this turn ran. */
   reportsBefore: Report[];

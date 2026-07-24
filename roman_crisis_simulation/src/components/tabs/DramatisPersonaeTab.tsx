@@ -29,6 +29,7 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
   const [isExpanded, setIsExpanded] = useState(false);
   const [uncoveredIntel, setUncoveredIntel] = useState<UncoveredIntel>({});
   const [loadingState, setLoadingState] = useState<'secrets' | 'beliefs' | 'scheme' | 'deep_analysis' | null>(null);
+  const [requestError, setRequestError] = useState<string | null>(null);
   const mountedRef = useRef(true);
   const price = (kind: InvestigationKind) => priceInvestigation(knowledge, entity.entity_id, kind);
   const schemeDiscovery = schemeDiscoveryFor(knowledge, entity.entity_id);
@@ -52,6 +53,7 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
           isCurrent: () => mountedRef.current && transaction.isCurrent(),
         };
         if (!request.isCurrent()) return;
+        setRequestError(null);
         setLoadingState(type);
         try {
           const outcome = await resolveIntelRequest({ type, target: entity, playerEntity, knowledge, ai, isMockMode });
@@ -81,6 +83,7 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
     } catch (error) {
       if (mountedRef.current) {
         console.error('Error resolving intelligence request:', error);
+        setRequestError('The intelligence request could not be completed. Please try again.');
       }
     }
   };
@@ -92,6 +95,7 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <span style={quiet}>{entity.position || entity.entity_type}</span>
         <RelationshipObservations observations={observations} currentTurn={turnNumber} />
+        {requestError && <span role="alert" style={{ color: 'var(--crimson-500)' }}>{requestError}</span>}
         {isExpanded && <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 8, borderTop: '1px solid var(--border-faint)' }}>
           <span className="gor-label" style={{ color: 'var(--tyrian-500)' }}>Intelligence Briefing</span>
           <IntelSection title="Beliefs" {...price('beliefs')} resourceName="Inv." resourceCount={investigations} uncoveredData={uncoveredIntel.beliefs} onUncover={() => handleRequest('beliefs')} isLoading={loadingState === 'beliefs'} interactionLocked={interactionLocked} tooltip="Uncover the core ideologies and principles that drive this character's decisions." />
