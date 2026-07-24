@@ -302,9 +302,10 @@ export function validateAndNormalizeTurnSubmission(
 }
 
 export function deserializeTurnSubmission(text: string): TurnSubmission | null {
-  if (typeof text !== 'string' || text.length > MAX_TURN_SUBMISSION_CHARACTERS) return null;
+  if (typeof text !== 'string') return null;
 
   if (text.startsWith(TURN_SUBMISSION_PREFIX)) {
+    if (text.length > MAX_TURN_SUBMISSION_CHARACTERS) return null;
     try {
       const result = normalizeSelfContainedSubmission(
         JSON.parse(text.slice(TURN_SUBMISSION_PREFIX.length)),

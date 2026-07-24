@@ -457,6 +457,18 @@ describe('the 20,000-character canonical boundary', () => {
     ).toBe(false);
   });
 
+  it('applies the legacy plaintext cap after trimming surrounding padding', () => {
+    const atLimit = 'x'.repeat(MAX_TURN_SUBMISSION_CHARACTERS);
+    const overLimit = `${atLimit}x`;
+
+    expect(deserializeTurnSubmission(` \n${atLimit}\t `)).toEqual({
+      version: 1,
+      kind: 'freeform',
+      text: atLimit,
+    });
+    expect(deserializeTurnSubmission(` \n${overLimit}\t `)).toBeNull();
+  });
+
   it('counts the complete structured envelope and accepts exactly 20,000 but rejects 20,001', () => {
     const base: TurnSubmission = {
       version: 1,
