@@ -7,6 +7,7 @@
  */
 
 import { Adjudication, Entity } from '../../types';
+import type { NarrationSubmissionProjection } from '../../playerInput/turnSubmission';
 import { REDACTED_SCHEME_REASON } from './fragments';
 
 /**
@@ -145,7 +146,7 @@ ${lines.join('\n')}
 export function buildNarrationPrompt(
   metaNarrative: string,
   updatedPlayerEntity: Entity,
-  playerOwnedContext: string,
+  playerOwned: NarrationSubmissionProjection | string,
   adjudication: Adjudication,
   mortalityDirectives: string[] = [],
   // 4C.5: the bounded on-stage cast whose voice/epithet lines the prompt
@@ -154,13 +155,25 @@ export function buildNarrationPrompt(
   // legacy call sites/tests behave exactly as before the block existed.
   voiceCast: Entity[] = []
 ): { systemInstruction: string; prompt: string } {
+  // String callers are legacy direct prompt tests. The real pipeline passes
+  // the typed projection so private-only text can never be mistaken for an
+  // observable attempt.
+  const playerSubmission: NarrationSubmissionProjection = typeof playerOwned === 'string'
+    ? { context: playerOwned, hasObservableAttempt: true }
+    : playerOwned;
+  const playerTurnInstruction = playerSubmission.hasObservableAttempt
+    ? 'Begin with the direct, observable consequences of the player\'s submitted attempt. Private intent remains player-owned goal context only: do not turn it into facts, concealment, NPC knowledge, or an additional action.'
+    : 'Begin with a player-view response or reflection on the submitted private intent and question/context. No observable attempt was submitted: do not invent an action or immediate consequence, and do not make the avatar investigate or act.';
+  const playerContextLabel = playerSubmission.hasObservableAttempt
+    ? "PLAYER'S OBSERVABLE ATTEMPT THIS TURN:"
+    : 'PLAYER-OWNED CONTEXT THIS TURN (NO OBSERVABLE ACTION SUBMITTED):';
   const systemInstruction = `
 ROLE: Chronicler of the Empire & Intelligence Briefer
 META-NARRATIVE: The story's theme is "${metaNarrative}". Your tone and focus should align with this.
 
 Task:
 1.  **Narrate the Turn (2-3 paragraphs):** Write a narrative summary for the player. This MUST follow a specific structure:
-    a.  **Direct Consequences:** Begin by describing the immediate, observable results of the player's submitted attempt ("${playerOwnedContext}"). Private intent is player-owned goal context only: do not turn it into facts, concealment, NPC knowledge, or an additional action. A question or context asks for a player-view answer and cannot make the avatar investigate or act.
+    a.  **Player Turn Context:** ${playerTurnInstruction}
     b.  **Observed & Reported Events:** Describe other major events from the adjudication (headlines, key NPC actions) BUT strictly from the player's vantage point. Consider their location, allies, and spies.
     c.  **Source Information:** For any information the player didn't witness directly, you MUST state how they learned of it. Be specific and creative. Examples: "A panicked messenger arrives...", "Whispers in the Senate, relayed by your ally Gaius Pontius, suggest...", "A coded message from your spymaster reveals...". This makes information potentially unreliable.
     d.  **Tone:** Maintain a tone of Tacitus meets field report. Focus on concrete outcomes. Do not invent new facts not present in the Adjudication JSON.
@@ -183,8 +196,8 @@ ${mortalityDirectives.join('\n')}
 PLAYER CHARACTER PROFILE (for context):
 ${JSON.stringify(sanitizeEntityForNarration(updatedPlayerEntity), null, 2)}
 
-PLAYER'S ACTION THIS TURN:
-"${playerOwnedContext}"
+${playerContextLabel}
+"${playerSubmission.context}"
 ${buildVoiceCastBlock(voiceCast)}
 ADJUDICATION JSON (all events of the turn):
 ${JSON.stringify(sanitizeAdjudicationForNarration(adjudication), null, 2)}

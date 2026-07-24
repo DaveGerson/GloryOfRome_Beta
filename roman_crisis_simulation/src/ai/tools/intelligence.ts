@@ -205,12 +205,12 @@ export const getUpdatedSimulationState = async (ai: GoogleGenAI, adjudication: A
     });
 };
 
-export const getRelationshipUpdates = async (ai: GoogleGenAI, narration: string, headlines: string[], entities: Entity[], isMockMode: boolean): Promise<EventDelta[]> => {
+export const getRelationshipUpdates = async (ai: GoogleGenAI, narration: string, headlines: string[], entities: Entity[], isMockMode: boolean, hasObservableAttempt = true): Promise<EventDelta[]> => {
     if (isMockMode) {
         return Promise.resolve([]);
     }
 
-    const { systemInstruction, prompt } = buildRelationshipUpdatesPrompt(narration, headlines, entities);
+    const { systemInstruction, prompt } = buildRelationshipUpdatesPrompt(narration, headlines, entities, hasObservableAttempt);
     const result = await generateStructured<{ deltas: EventDelta[] }>(ai, {
         callName: 'relationshipUpdates',
         model: GEMINI_PRO,

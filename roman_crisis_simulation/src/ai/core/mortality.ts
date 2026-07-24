@@ -46,6 +46,15 @@ interface DeathClaim {
 }
 
 /**
+ * The only non-adjudication context the mortality validator may receive.
+ * It is constructed by the turn composition root, never copied from the
+ * adjudicator's model-authored gm_private trace.
+ */
+export interface MortalityValidationContext {
+  trustedResolutionContext?: string;
+}
+
+/**
  * Scans `deltas` for status deltas that claim a death (reusing engine.ts's
  * exact detection rule) and resolves them against `entities`.
  *
@@ -138,7 +147,8 @@ export async function processMortality(
   playerId: string,
   turnNumber: number,
   isMockMode: boolean,
-  rng?: Rng
+  rng?: Rng,
+  validationContext: MortalityValidationContext = {}
 ): Promise<{ transformedAdjudication: Adjudication; mortalityEvents: MortalityEvent[] }> {
   if (isMockMode) {
     return { transformedAdjudication: adjudication, mortalityEvents: [] };
@@ -163,7 +173,7 @@ export async function processMortality(
       entityBrief: getEntityBrief(c.entity),
     })),
     headlines: transformed.headlines,
-    gmPrivate: transformed.gm_private,
+    trustedResolutionContext: validationContext.trustedResolutionContext,
   });
 
   const validation = await generateStructured<MortalityValidationResult>(ai, {

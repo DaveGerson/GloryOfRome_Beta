@@ -18,6 +18,12 @@ export interface AdjudicationSubmissionProjection {
   questionOrContext: string | null;
 }
 
+/** Player-owned material for narration, with action presence carried as data. */
+export interface NarrationSubmissionProjection {
+  context: string;
+  hasObservableAttempt: boolean;
+}
+
 export interface TurnSubmissionIssue {
   field: string;
   message: string;
@@ -371,6 +377,18 @@ export function projectForPlayerOwnedAi(submission: TurnSubmission): string {
     submission.privateIntent ? `Private intent:\n${submission.privateIntent}` : null,
     submission.questionOrContext ? `Question or context:\n${submission.questionOrContext}` : null,
   ].filter((value): value is string => value !== null).join('\n\n');
+}
+
+/**
+ * Keeps the player-owned prose available to narration while making the
+ * observable-action boundary explicit. Consumers must not infer an action
+ * from private intent or question text.
+ */
+export function projectForNarration(submission: TurnSubmission): NarrationSubmissionProjection {
+  return {
+    context: projectForPlayerOwnedAi(submission),
+    hasObservableAttempt: projectForResolution(submission) !== null,
+  };
 }
 
 export function projectForExternalInference(submission: TurnSubmission): string | null {

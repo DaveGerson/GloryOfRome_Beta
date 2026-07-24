@@ -196,6 +196,8 @@ interface Harness {
   response: Record<CallKind, Deferred<string>>;
   /** The `contents` (user prompt) string of the most recent call of each kind - lets a test inspect e.g. whether the adjudication prompt carried a PLAYER ACTION OUTCOME block. */
   promptsByKind: Partial<Record<CallKind, string>>;
+  /** The instruction paired with each prompt, retained for prompt-contract assertions. */
+  systemInstructionsByKind: Partial<Record<CallKind, string>>;
   generateContent: ReturnType<typeof vi.fn>;
   generateContentStream: ReturnType<typeof vi.fn>;
 }
@@ -213,11 +215,13 @@ function createHarness(streamNarration = false): Harness {
   const issued = Object.fromEntries(ALL_KINDS.map(k => [k, createDeferred<void>()])) as Record<CallKind, Deferred<void>>;
   const response = Object.fromEntries(ALL_KINDS.map(k => [k, createDeferred<string>()])) as Record<CallKind, Deferred<string>>;
   const promptsByKind: Partial<Record<CallKind, string>> = {};
+  const systemInstructionsByKind: Partial<Record<CallKind, string>> = {};
 
   const generateContent = vi.fn(async (params: { model: string; contents: string; config?: Record<string, unknown> }) => {
     const kind = classify(params.config?.systemInstruction);
     order.push(kind);
     promptsByKind[kind] = params.contents;
+    systemInstructionsByKind[kind] = String(params.config?.systemInstruction ?? '');
     issued[kind].resolve();
     const text = await response[kind].promise;
     return { text };
@@ -227,6 +231,7 @@ function createHarness(streamNarration = false): Harness {
     const kind = classify(params.config?.systemInstruction);
     order.push(kind);
     promptsByKind[kind] = params.contents;
+    systemInstructionsByKind[kind] = String(params.config?.systemInstruction ?? '');
     issued[kind].resolve();
     const fullText = await response[kind].promise;
     async function* gen() {
@@ -249,7 +254,7 @@ function createHarness(streamNarration = false): Harness {
     models: streamNarration ? { generateContent, generateContentStream } : { generateContent },
   } as unknown as GoogleGenAI;
 
-  return { ai, order, issued, response, promptsByKind, generateContent, generateContentStream };
+  return { ai, order, issued, response, promptsByKind, systemInstructionsByKind, generateContent, generateContentStream };
 }
 
 afterEach(() => {
@@ -953,7 +958,10 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
         { type: 'status', key: 'npc_1', delta: 0, reason: 'Cut down in the Curia.', new_status: 'dead' },
       ],
       headlines: ['Blood in the Curia.'],
-      gm_private: [],
+      gm_private: [
+        'GM_PRIVATE_SENTINEL_MUST_NOT_REACH_MORTALITY_6T2',
+        'Arbitrary adjudicator-authored private marker.',
+      ],
     });
 
     // Pre-resolve every response the pipeline could need. The pinned seed
@@ -1004,15 +1012,52 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     const mortalityValidationPrompt = h.promptsByKind.mortalityValidation ?? '';
     expect(mortalityValidationPrompt).toContain('OBSERVABLE_ASSASSINATION_ATTEMPT_6T2');
     expect(mortalityValidationPrompt).toContain('[Resolution]');
+    expect(mortalityValidationPrompt).not.toContain('GM_PRIVATE_SENTINEL_MUST_NOT_REACH_MORTALITY_6T2');
+    expect(mortalityValidationPrompt).not.toContain('Arbitrary adjudicator-authored private marker.');
     expect(mortalityValidationPrompt).not.toContain('PRIVATE_INTENT_MUST_NOT_REACH_MORTALITY_6T2');
     expect(mortalityValidationPrompt).not.toContain('QUESTION_MUST_NOT_REACH_MORTALITY_6T2');
     expect(mortalityValidationPrompt).not.toContain('GOR_TURN_SUBMISSION/');
+    // The untrusted private trace remains available to the GM in the
+    // persisted adjudication; only the mortality AI input is projected.
+    expect(entry.adjudication.gm_private).toContain('GM_PRIVATE_SENTINEL_MUST_NOT_REACH_MORTALITY_6T2');
 
     // Replay: rebuilding the generator from the persisted seed reproduces
     // the turn's recorded rolls in draw order.
     const replayRng = createSeededRng(entry.turnSeed!);
     expect(rollD20(replayRng)).toBe(entry.resolutionTrace!.roll);
     expect(rollD20(replayRng)).toBe(entry.mortalityTrace![0].roll);
+  });
+
+  it('private-only submissions ask narration for a player-view reflection without inventing an action', async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+    const submission: TurnSubmission = {
+      version: 1,
+      kind: 'structured',
+      privateIntent: 'Gain the consul\'s confidence without exposing my source.',
+      questionOrContext: 'What do the empty benches suggest about tomorrow\'s vote?',
+    };
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    h.response.adjudication.resolve(adjudicationJson);
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologueText);
+    h.response.narration.resolve(narrationFullText);
+    h.response.relationshipUpdates.resolve(relationshipJson);
+
+    await runNewTurn(
+      h.ai, submission, player, 2, [player], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
+    );
+
+    const narrationSystemInstruction = h.systemInstructionsByKind.narration ?? '';
+    const narrationPrompt = h.promptsByKind.narration ?? '';
+    expect(narrationPrompt).toContain('Gain the consul\'s confidence');
+    expect(narrationPrompt).toContain('What do the empty benches suggest');
+    expect(narrationPrompt).not.toContain("PLAYER'S ACTION THIS TURN");
+    expect(narrationSystemInstruction).toContain('player-view response or reflection');
+    expect(narrationSystemInstruction).toContain('do not invent an action or immediate consequence');
+    expect(h.systemInstructionsByKind.relationshipUpdates).toContain('No observable player attempt was submitted');
   });
 });
 

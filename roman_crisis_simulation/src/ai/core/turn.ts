@@ -17,7 +17,7 @@ import { buildNarrationPrompt, selectVoiceCast } from '../prompts/narration';
 import { processMortality, detectDeathClaims } from './mortality';
 import { createNarrationStreamGate } from './streamSplit';
 import { rollD20, resolveAction, derivePersonalityModifier, deriveOppositionModifier, createSeededRng, generateSeed } from './resolution';
-import { normalizeTurnSubmissionInput, projectForAdjudication, projectForPlayerOwnedAi, projectForResolution, serializeTurnSubmission } from '../../playerInput/turnSubmission';
+import { normalizeTurnSubmissionInput, projectForAdjudication, projectForNarration, projectForPlayerOwnedAi, projectForResolution, serializeTurnSubmission } from '../../playerInput/turnSubmission';
 
 // Adjudication is the highest-stakes, most consequence-dense call of the
 // turn - a moderate temperature keeps outcomes varied without letting the
@@ -367,6 +367,7 @@ export async function runNewTurn(
     const resolutionAttempt = projectForResolution(normalizedSubmission);
     const adjudicationSubmission = projectForAdjudication(normalizedSubmission);
     const playerOwnedContext = projectForPlayerOwnedAi(normalizedSubmission);
+    const narrationSubmission = projectForNarration(normalizedSubmission);
     if (isMockMode) {
         if(!mockRunNewTurn) throw new Error("Mock function 'mockRunNewTurn' is not implemented.");
         // FIX: Pass currentSimulationState to the mock function to align with its updated signature.
@@ -567,10 +568,10 @@ export async function runNewTurn(
     // margin/tier) are fine here - gm_private is stripped entirely before
     // the player-facing narration call (see narration.ts's
     // sanitizeAdjudicationForNarration).
+    let trustedResolutionContext: string | undefined;
     if (resolutionTrace) {
-        adjudication.gm_private.push(
-            `[Resolution] Player action ("${resolutionAttempt ?? '(no observable attempt)'}", ${resolutionTrace.assessment.action_category}) - roll ${resolutionTrace.roll} + modifiers vs difficulty ${resolutionTrace.assessment.difficulty} -> margin ${resolutionTrace.margin.toFixed(1)} -> ${resolutionTrace.tier}.`
-        );
+        trustedResolutionContext = `[Resolution] Player action ("${resolutionAttempt ?? '(no observable attempt)'}", ${resolutionTrace.assessment.action_category}) - roll ${resolutionTrace.roll} + modifiers vs difficulty ${resolutionTrace.assessment.difficulty} -> margin ${resolutionTrace.margin.toFixed(1)} -> ${resolutionTrace.tier}.`;
+        adjudication.gm_private.push(trustedResolutionContext);
     }
 
     // *** ENTITY-ACTIONS-VS-INTENT CONSISTENCY (4C.3, soft contract) ***
@@ -694,7 +695,8 @@ export async function runNewTurn(
         playerEntity.entity_id,
         turnNumber,
         isMockMode,
-        turnRng
+        turnRng,
+        { trustedResolutionContext }
     );
 
     // 3. Apply the (mortality-transformed) adjudication to get new state.
@@ -804,7 +806,7 @@ export async function runNewTurn(
         transformedAdjudication.entityActions.map(a => a.id),
         updatedEntities
     );
-    const narrationPrompt = buildNarrationPrompt(metaNarrative, updatedPlayerEntity, playerOwnedContext, transformedAdjudication, mortalityDirectives, voiceCast);
+    const narrationPrompt = buildNarrationPrompt(metaNarrative, updatedPlayerEntity, narrationSubmission, transformedAdjudication, mortalityDirectives, voiceCast);
     const narrationRequest = {
         callName: 'narration',
         model: GEMINI_PRO,
@@ -844,7 +846,7 @@ export async function runNewTurn(
 
     // 5.5 Get and apply relationship updates based on narrative
     options?.onStage?.('relationship_updates');
-    const relationshipUpdateResult = await getRelationshipUpdates(ai, narration, transformedAdjudication.headlines, updatedEntities, isMockMode);
+    const relationshipUpdateResult = await getRelationshipUpdates(ai, narration, transformedAdjudication.headlines, updatedEntities, isMockMode, narrationSubmission.hasObservableAttempt);
     // CONTRACT ENFORCEMENT: this call's contract is 'relation' deltas ONLY
     // (buildRelationshipUpdatesPrompt asks for nothing else), but the schema
     // pair it validates against (zRelationshipDeltas / RelationshipDeltasSchema)
