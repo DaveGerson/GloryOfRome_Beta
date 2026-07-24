@@ -86,7 +86,7 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
           {overLimit && (
             <p id={statusId} role="alert">{Math.abs(remaining)} character{Math.abs(remaining) === 1 ? '' : 's'} over limit</p>
           )}
-          <StructuredTurnComposer draft={structuredDraft} recipientOptions={recipientOptions} disabled={locked} submissionBlocked={overLimit}
+          <StructuredTurnComposer draft={structuredDraft} recipientOptions={recipientOptions} disabled={locked} submissionBlocked={overLimit || !artifactStatus.ok}
             onChange={onStructuredDraftChange} onSubmit={submitStructured} />
         </>
       )}

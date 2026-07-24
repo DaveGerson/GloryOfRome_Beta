@@ -139,7 +139,8 @@ describe('components/TurnComposer', () => {
     const focusable = Array.from(container.querySelectorAll<HTMLElement>(
       'button:not([disabled]), textarea:not([disabled]), select:not([disabled]), input:not([disabled])',
     ));
-    const ordered = [action, addAction, recipient, command, addMessage, privateIntent, question, submit]
+    expect(submit.disabled).toBe(true);
+    const ordered = [action, addAction, recipient, command, addMessage, privateIntent, question]
       .map(control => focusable.indexOf(control));
     expect(ordered.every(index => index >= 0)).toBe(true);
     expect(ordered).toEqual([...ordered].sort((a, b) => a - b));
@@ -342,6 +343,17 @@ describe('components/TurnComposer', () => {
     await setValue(action, 'Address the Senate');
     expect(container.querySelector('[role="alert"]')).toBeNull();
     expect(buttonNamed(container, 'Submit turn').disabled).toBe(false);
+  });
+
+  it('blocks invalid structured submission while leaving the transient row editable', async () => {
+    const invalid: StructuredTurnDraft = {
+      ...emptyStructuredDraft(),
+      messagesOrOrders: [{ recipient: { kind: 'known_entity', entityId: 'julia_domna' }, command: '' }],
+    };
+    const { container } = await mount(<TurnComposer {...defaultProps({ structuredDraft: invalid })} />);
+    await click(buttonNamed(container, 'Structured'));
+    expect(byAriaLabel<HTMLTextAreaElement>(container, 'Message or order 1').disabled).toBe(false);
+    expect(buttonNamed(container, 'Submit turn').disabled).toBe(true);
   });
 
   it('renders the public stage-specific processing label with an accessible live status', async () => {
