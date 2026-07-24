@@ -68,10 +68,12 @@ describe('playerInput/composerState', () => {
       privateIntent: 'Learn who profits.',
       questionOrContext: 'What did the courier see?',
     });
-    expect(selectMessageRecipient(edited, 0, '')).toEqual({
+    const recipientCleared = selectMessageRecipient(edited, 0, '');
+    expect(recipientCleared).toEqual({
       ...edited,
-      messagesOrOrders: [{ recipient: null, command: '' }],
+      messagesOrOrders: [{ recipient: null, command: 'Bring the ledger' }],
     });
+    expect(selectMessageRecipient(edited, 0, 'known:%E0%A4%A')).toBe(edited);
     expect(initial).toEqual(emptyStructuredDraft());
   });
 

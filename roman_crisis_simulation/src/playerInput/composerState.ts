@@ -73,7 +73,8 @@ export function selectMessageRecipient(draft: StructuredTurnDraft, index: number
   const row = draft.messagesOrOrders[index];
   if (!row) return draft;
   const selection = decodeRecipientSelectValue(value);
-  if (!selection || selection.kind === 'blank') return updateMessageOrOrderRow(draft, index, blankMessageOrOrder());
+  if (!selection) return draft;
+  if (selection.kind === 'blank') return updateMessageOrOrderRow(draft, index, { ...row, recipient: null });
   return updateMessageOrOrderRow(draft, index, {
     recipient: selection.kind === 'custom'
       ? { kind: 'free_text', text: '' }

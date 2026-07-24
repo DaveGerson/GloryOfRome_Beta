@@ -101,7 +101,7 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
             <p id={statusId} role="status">{formatCharacterCount(remaining ?? 0)} characters remaining</p>
           )}
           <StructuredTurnComposer draft={structuredDraft} recipientOptions={recipientOptions} disabled={locked} submissionBlocked={overLimit || !artifactStatus.ok}
-            validationIssues={artifactStatus.ok ? [] : artifactStatus.issues} statusId={statusId}
+            aggregateIssue={overLimit} validationIssues={artifactStatus.ok ? [] : artifactStatus.issues} statusId={statusId}
             onChange={onStructuredDraftChange} onSubmit={submitStructured} />
         </>
       )}

@@ -13,6 +13,7 @@ interface StructuredTurnComposerProps {
   recipientOptions: readonly KnownRecipientOption[];
   disabled: boolean;
   submissionBlocked?: boolean;
+  aggregateIssue?: boolean;
   validationIssues?: readonly { field: string; message: string }[];
   statusId?: string;
   onChange(draft: StructuredTurnDraft): void;
@@ -20,11 +21,11 @@ interface StructuredTurnComposerProps {
 }
 
 export const StructuredTurnComposer: React.FC<StructuredTurnComposerProps> = ({
-  draft, recipientOptions, disabled, submissionBlocked = false, validationIssues = [], statusId, onChange, onSubmit,
+  draft, recipientOptions, disabled, submissionBlocked = false, aggregateIssue = false, validationIssues = [], statusId, onChange, onSubmit,
 }) => {
   const hasIssue = (field: string) => validationIssues.some(issue =>
     issue.field === 'submission' || issue.field === field);
-  const describeIssue = (field: string) => hasIssue(field)
+  const describeIssue = (field: string) => aggregateIssue || hasIssue(field)
     ? { 'aria-invalid': true, ...(statusId ? { 'aria-describedby': statusId } : {}) }
     : {};
   const submitOnShortcut = (event: React.KeyboardEvent<HTMLTextAreaElement | HTMLInputElement>) => {

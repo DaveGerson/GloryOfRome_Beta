@@ -355,11 +355,39 @@ describe('components/TurnComposer', () => {
     const { container } = await mount(<Harness />);
     await click(buttonNamed(container, 'Structured'));
     const action = byAriaLabel<HTMLTextAreaElement>(container, 'Action 1');
+    const error = container.querySelector<HTMLElement>('[role="alert"]');
     expect(action.disabled).toBe(false);
+    expect(action.getAttribute('aria-invalid')).toBe('true');
+    expect(action.getAttribute('aria-describedby')).toBe(error?.id);
     expect(buttonNamed(container, 'Submit turn').disabled).toBe(true);
     await setValue(action, 'Address the Senate');
     expect(container.querySelector('[role="alert"]')).toBeNull();
     expect(buttonNamed(container, 'Submit turn').disabled).toBe(false);
+  });
+
+  it('preserves an authored command when clearing its recipient and leaves submission truthfully blocked', async () => {
+    const authored: StructuredTurnDraft = {
+      ...emptyStructuredDraft(),
+      messagesOrOrders: [{ recipient: { kind: 'known_entity', entityId: 'julia_domna' }, command: 'Bring the ledger.' }],
+    };
+    function Harness() {
+      const [draft, setDraft] = useState(authored);
+      return <TurnComposer {...defaultProps({ structuredDraft: draft, onStructuredDraftChange: setDraft })} />;
+    }
+    const { container } = await mount(<Harness />);
+    await click(buttonNamed(container, 'Structured'));
+    const recipient = byAriaLabel<HTMLSelectElement>(container, 'Recipient 1');
+    const command = byAriaLabel<HTMLTextAreaElement>(container, 'Message or order 1');
+
+    await setValue(recipient, '');
+
+    const error = container.querySelector<HTMLElement>('[role="alert"]');
+    expect(command.value).toBe('Bring the ledger.');
+    expect(recipient.value).toBe('');
+    expect(error?.textContent).toMatch(/recipient and command are both required/i);
+    expect(recipient.disabled).toBe(false);
+    expect(command.disabled).toBe(false);
+    expect(buttonNamed(container, 'Submit turn').disabled).toBe(true);
   });
 
   it('blocks invalid structured submission while leaving the transient row editable', async () => {
