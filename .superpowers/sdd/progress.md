@@ -24,3 +24,14 @@ Task 0: complete in the documentation commit containing this entry; baseline cle
 - Controller verification: focused 46/46, typecheck exit 0, targeted zero-warning lint exit 0, full unit suite 38 files and 724 tests passed
 
 Task 1: complete (commits `e42ff32..75c4d2d`, review clean).
+
+## Task 5: perception-safe relationship-observation substrate
+
+- Reviewed task range: `ebb513fbc5b8..8d093a15822d`
+- Integration merge: `d879e8c`
+- TDD chain: test-only RED `e32a912`; production GREEN `1140981`; adversarial fixes `1340077` and `8d093a1`
+- Two fresh final Sol xhigh reviews: spec compliant; code quality approved; no Critical, Important, or Minor findings
+- Controller verification: focused 128/128, persistence/intelligence 42/42, typecheck exit 0, targeted zero-warning lint exit 0, full unit suite 40 files and 780 tests passed
+- Scope: observational evidence and player-knownness projections only; no relationship scoring, gameplay mechanics, App wiring, engine, resolution, mortality, or reducer changes
+
+Task 5: complete (commits `e32a912..8d093a1`, review clean).
