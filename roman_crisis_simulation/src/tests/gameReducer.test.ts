@@ -19,6 +19,9 @@ import type { KnowledgeClaim } from '../knowledge/store';
 import { getMockInitialState } from './mockData';
 
 const PLAYER_ID = 'severus_alexander';
+type TurnCommitWithPlayerMessage = Extract<GameAction, { type: 'TURN_COMMITTED' }> & {
+  playerMessage: Message;
+};
 
 function makeHistoryEntry(turnNumber: number): TurnHistoryEntry {
   return {
@@ -77,9 +80,10 @@ function makeKnowledgeClaim(id: string, turn: number): KnowledgeClaim {
   };
 }
 
-function makeTurnCommit(state: GameDomainState, entities = state.entities): Extract<GameAction, { type: 'TURN_COMMITTED' }> {
+function makeTurnCommit(state: GameDomainState, entities = state.entities): TurnCommitWithPlayerMessage {
   return {
     type: 'TURN_COMMITTED',
+    playerMessage: { sender: 'player', text: 'GOR_TURN_SUBMISSION/1\n{"version":1,"kind":"structured","actions":["Address the Senate"]}' },
     entities,
     worldState: { ...state.worldState, week: state.worldState.week + 1 },
     simulationState: createInitialGameState().simulationState,
@@ -98,7 +102,7 @@ function makeTurnCommit(state: GameDomainState, entities = state.entities): Extr
     ribbonMessage: { sender: 'ribbon', text: 'Week II' },
     suggestedActions: ['New pill'],
     currentEvents: ['New headline'],
-  };
+  } as TurnCommitWithPlayerMessage;
 }
 
 function makeSaveState(overrides: Partial<SaveGameState> = {}): SaveGameState {
@@ -132,15 +136,16 @@ describe('state/gameReducer', () => {
   });
 
   describe('TURN_STARTED', () => {
-    it('enters PROCESSING, clears the pills, and appends ONLY the player message', () => {
+    it('enters PROCESSING and clears the pills without committing the pending player artifact', () => {
       const state = makePlayingState();
       const playerMessage: Message = { sender: 'player', text: 'I address the Senate.' };
       const result = gameReducer(state, { type: 'TURN_STARTED', playerMessage });
 
       expect(result.gameState).toBe(GameState.PROCESSING);
       expect(result.suggestedActions).toEqual([]);
-      expect(result.messages).toEqual([...state.messages, playerMessage]);
-      // Nothing else may change - the pre-turn snapshot depends on it.
+      expect(result.messages).toBe(state.messages);
+      // Nothing else may change - the submitted artifact is only an
+      // in-flight UI projection until TURN_COMMITTED lands atomically.
       expect(result.entities).toBe(state.entities);
       expect(result.worldState).toBe(state.worldState);
       expect(result.turnNumber).toBe(state.turnNumber);
@@ -167,6 +172,7 @@ describe('state/gameReducer', () => {
       expect(result.currentEvents).toEqual(['New headline']);
       expect(result.messages).toEqual([
         ...state.messages,
+        action.playerMessage,
         action.gmMessage,
         action.monologueMessage,
         action.ribbonMessage,
@@ -321,14 +327,15 @@ describe('state/gameReducer', () => {
   });
 
   describe('TURN_ROLLED_BACK', () => {
-    it('restores the snapshot fields but never the chat log', () => {
+    it('restores every persisted slice including the exact pre-turn chat log', () => {
       const preTurn = makePlayingState();
       const snapshot = makeSaveState({
         turnNumber: preTurn.turnNumber,
         pendingIntelligenceFallout: ['An agent was spotted.'],
       });
-      // A half-attempted turn's transient additions: the player's message
-      // and the GM's error notice are already in the log and must survive.
+      // Simulate a future accidental partial write. Rollback must remove all
+      // attempted transcript artifacts; the retry notice belongs to App UI,
+      // outside committed messages and save state.
       const midFailure: GameDomainState = {
         ...preTurn,
         gameState: GameState.PROCESSING,
@@ -353,8 +360,7 @@ describe('state/gameReducer', () => {
       expect(result.currentEvents).toBe(snapshot.currentEvents);
       expect(result.gmInterventionText).toBe(snapshot.gmInterventionText);
       expect(result.pendingIntelligenceFallout).toEqual(['An agent was spotted.']);
-      // The chat log is deliberately NOT restored.
-      expect(result.messages).toBe(midFailure.messages);
+      expect(result.messages).toBe(snapshot.messages);
       // Fields never touched mid-turn are not part of the rollback.
       expect(result.playerCharacterId).toBe(midFailure.playerCharacterId);
       expect(result.metaNarrative).toBe(midFailure.metaNarrative);
