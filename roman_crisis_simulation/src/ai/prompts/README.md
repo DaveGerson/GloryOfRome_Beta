@@ -11,7 +11,7 @@ one of the builders below.
 
 | Call name | Builder | Model | Zod schema | Gemini schema | Pipeline stage |
 |---|---|---|---|---|---|
-| `assessment` | `assessment.ts::buildActionAssessmentPrompt` | flash | `zActionAssessment` | `ActionAssessmentSchema` | `turn.ts` step 0 (resolution layer gatekeeper, concurrent with `storyRelevance`) |
+| `assessment` | `assessment.ts::buildActionAssessmentPrompt` | flash | `zActionAssessment` | `ActionAssessmentSchema` | `turn.ts` step 0 (observable-attempt gatekeeper, concurrent with `storyRelevance`; skipped for question/private-only submissions) |
 | `adjudication` | `adjudication.ts::buildAdjudicationPrompt` | pro | `zAdjudication` | `AdjudicationSchema` | `turn.ts` step 2 (main turn) |
 | `narration` | `narration.ts::buildNarrationPrompt` | pro | - (prose) | - | `turn.ts` step 5 |
 | `playerMonologue` | `narration.ts::buildPlayerMonologuePrompt` | flash | - (prose) | - | `turn.ts` step 4 |
@@ -19,7 +19,7 @@ one of the builders below.
 | `npcMind` | `npcMind.ts::buildNpcMindPrompt` | flash | `zNpcMindDecision` | `NpcMindDecisionSchema` | `turn.ts` step 1.5 (per-spotlight minds, between the Director and adjudication - up to `MAX_MINDS_PER_TURN` in one `Promise.all`) |
 | `updatedSimulationState` | `intelligence.ts::buildSimulationStateUpdatePrompt` | pro | `zSimulationState` | `SimulationStateSchema` | `turn.ts` step 2.5 |
 | `relationshipUpdates` | `intelligence.ts::buildRelationshipUpdatesPrompt` | pro | `zRelationshipDeltas` | `RelationshipDeltasSchema` | `turn.ts` step 5.5 |
-| `relationshipObservations` | `relationshipObservations.ts::buildRelationshipObservationsPrompt` | flash | `zRelationshipObservations` | `RelationshipObservationsSchema` | selector seam; composition-root wiring is deferred |
+| `relationshipObservations` | `relationshipObservations.ts::buildRelationshipObservationsPrompt` | flash | `zRelationshipObservations` | `RelationshipObservationsSchema` | `App.tsx` turn and paid-investigation paths, before their atomic save/dispatch commits |
 | `privateConversation` | `intelligence.ts::buildPrivateConversationPrompt` | pro | `zConversationSimulation` | `ConversationSimulationSchema` | `turn.ts` step 2.5 (off-screen sim) |
 | `mortalityValidation` | `mortality.ts::buildMortalityValidationPrompt` | pro | `zMortalityValidation` | `MortalityValidationSchema` | `turn.ts` step 2.6 (`ai/core/mortality.ts::processMortality`, gate 1) |
 | `mortalityOutcome` | `mortality.ts::buildMortalityOutcomePrompt` | pro | `zMortalityOutcome` | `MortalityOutcomeSchema` | `turn.ts` step 2.6 (`ai/core/mortality.ts::processMortality`, gate 3) |
@@ -94,17 +94,18 @@ above (ROADMAP_0_MASTER_PLAN.md Phase 3 item 4) - they share its exact
 contract: **the model never decides whether an action succeeds, only
 narrates a pre-decided outcome.**
 
-- `assessment` runs on EVERY turn, launched CONCURRENTLY with
-  `storyRelevance` via `Promise.all` in `ai/core/turn.ts` (both read only
-  pre-turn state, so this costs zero extra wall-clock). It classifies the
-  player's action - `is_consequential`, `action_category`, `relevant_skill`
-  (`'oratory' | 'strategy' | 'intrigue' | null`), `difficulty` (5-25),
+- `assessment` runs only when the canonical submission has an observable
+  attempt. When present, it launches CONCURRENTLY with `storyRelevance` via
+  `Promise.all` in `ai/core/turn.ts` (both read only pre-turn state, so this
+  costs zero extra wall-clock). It classifies the player's action -
+  `is_consequential`, `action_category`, `relevant_skill` (`'oratory' |
+  'strategy' | 'intrigue' | null`), `difficulty` (5-25), and
   `opposing_entity_id` - but decides nothing mechanical itself.
-- Non-consequential actions (questions, idle conversation, pure information
-  requests) skip rolling ENTIRELY: no dice, no `PLAYER ACTION OUTCOME` block
-  in the adjudication prompt, no `resolutionTrace` on the turn's
-  `TurnHistoryEntry` (types.ts). The adjudicator behaves exactly as it did
-  before this feature existed.
+- Structured question-only and private-only submissions skip assessment and
+  rolling entirely. An assessed but non-consequential observable attempt
+  (idle conversation or a pure information request) also skips rolling: no
+  dice, no `PLAYER ACTION OUTCOME` block in the adjudication prompt, and no
+  `resolutionTrace` on the turn's `TurnHistoryEntry` (types.ts).
 - For a consequential action, `ai/core/turn.ts` resolves a HIDDEN
   `rollD20()` via `resolveAction` (`ai/core/resolution.ts`), using the
   player's own skill/personality (`derivePersonalityModifier`) and the
