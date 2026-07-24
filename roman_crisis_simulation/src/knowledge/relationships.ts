@@ -101,7 +101,7 @@ interface ValidationInput {
   drafts: RelationshipObservationDraft[];
   evidence: PlayerSafeEvidence[];
   entities: Array<Pick<Entity, 'entity_id' | 'name'>>;
-  knownEntityIds: string[];
+  knownEntityIds: readonly string[];
 }
 
 export function hasDuplicateEvidenceIds(evidence: PlayerSafeEvidence[]): boolean {
@@ -110,6 +110,18 @@ export function hasDuplicateEvidenceIds(evidence: PlayerSafeEvidence[]): boolean
 
 function escapeRegex(raw: string): string {
   return raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Matches one exact, case-sensitive display-name literal, never a substring of a longer word. */
+export function evidenceContainsExactEntityName(text: string, name: string): boolean {
+  const normalizedName = name.normalize('NFC');
+  if (normalizedName.length === 0) return false;
+  const normalizedText = text.normalize('NFC');
+  const wordContinuation = '\\p{L}\\p{N}\\p{M}\\p{Pc}\\u200C\\u200D';
+  return new RegExp(
+    `(?:^|[^${wordContinuation}])${escapeRegex(normalizedName)}(?=$|[^${wordContinuation}])`,
+    'u'
+  ).test(normalizedText);
 }
 
 /** Copies only the safe evidence fields, and derives quote attribution locally. */
@@ -144,7 +156,8 @@ export function validateRelationshipObservationDrafts(input: ValidationInput): R
     if (!evidence || !Array.isArray(raw.participantIds) || typeof raw.excerpt !== 'string' || raw.excerpt.trim().length === 0 || !evidence.text.includes(raw.excerpt)) continue;
     const participantIds = [...new Set(raw.participantIds)];
     if (participantIds.length < 2 || participantIds.some(id => !entityById.has(id))) continue;
-    if (participantIds.some(id => !knownIds.has(id) && !evidence.text.includes(entityById.get(id)!.name))) continue;
+    if (participantIds.some(id => !knownIds.has(id)
+      && !evidenceContainsExactEntityName(evidence.text, entityById.get(id)!.name))) continue;
     accepted.push({ evidenceId: raw.evidenceId, participantIds, excerpt: raw.excerpt });
   }
   return accepted;

@@ -20,28 +20,49 @@
  *    intents/reports/narrations/headlines after two further full-pipeline turns.
  */
 
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
 import {
   JourneyRunner,
+  ScriptedClient,
   JourneyTurnDef,
+  appButton,
+  appClick,
+  appControl,
+  appSetValue,
+  buildSaveStateFromThread,
+  clearAppGeminiScript,
   equivalenceSnapshot,
+  installAppGeminiScript,
   saveThread,
   loadThreadState,
+  mountJourneyApp,
+  mountJourneyAppFromAutosave,
+  scriptedJsonArray,
   threadFromSave,
+  waitForApp,
   clearSave,
 } from './harness';
 import {
   scriptAdjudication,
   scriptStoryRelevance,
   scriptAssessmentConsequential,
+  scriptAssessmentIdle,
+  scriptNarration,
+  scriptRelationshipDeltas,
+  scriptSimulationState,
   resourceDelta,
   relationDelta,
   rumorDelta,
 } from './fixtures';
+import { createInitialGameState, gameReducer } from '../../state/gameReducer';
+import { deserializeTurnSubmission } from '../../playerInput/turnSubmission';
+import { loadGame } from '../../persistence/saveGame';
 
 const PLAYER = 'severus_alexander';
 const SENATE = 'roman_senate';
 const THRAX = 'maximinus_thrax';
+
+afterEach(() => clearAppGeminiScript());
 
 /**
  * The one fixed, deterministic script for turn N (1-4). Both the control run
@@ -163,5 +184,79 @@ describe('journey: a save-reload-continue campaign (mid-journey persistence roun
     expect(equivalenceSnapshot(resumed.thread)).toEqual(equivalenceSnapshot(control.thread));
 
     clearSave();
+  });
+
+  it('round-trips structured history and relationship observations through App save, loadGame, and GAME_LOADED', async () => {
+    const seed = new JourneyRunner({ name: 'saveReload/phase6-slices' });
+    const excerpt = 'Severus Alexander entrusts Julia Mamaea with the palace correspondence.';
+    const privateIntent = 'Keep the correspondence beyond the Praetorian prefects.';
+    const client = new ScriptedClient({
+      storyRelevance: scriptStoryRelevance(),
+      assessment: scriptAssessmentIdle(),
+      adjudication: scriptAdjudication(1),
+      simulationState: scriptSimulationState(seed.thread.simulationState),
+      monologue: 'My mother can carry this burden, but the Guard need not know it.',
+      narration: scriptNarration('Julia Mamaea accepts the sealed correspondence.', [
+        'Await her reply',
+        'Consult the Senate',
+        'Review the palace watch',
+      ]),
+      relationshipUpdates: scriptRelationshipDeltas([]),
+      relationshipObservations: scriptedJsonArray([{
+        evidenceId: 'player-submission',
+        participantIds: [PLAYER, 'julia_mamaea'],
+        excerpt,
+      }]),
+    }, 'saveReload/phase6-slices');
+    installAppGeminiScript(client);
+    const app = await mountJourneyApp(buildSaveStateFromThread(seed.thread));
+    let reloaded: Awaited<ReturnType<typeof mountJourneyApp>> | null = null;
+    try {
+      await appClick(appButton(app.container, 'Structured'));
+      await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Action 1'), excerpt);
+      await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Private Intent'), privateIntent);
+      await appClick(appButton(app.container, 'Submit turn'));
+      await waitForApp(() => expect(loadThreadState().turnNumber).toBe(2));
+
+      // This state was assembled by App's private buildSaveState callback and
+      // persisted by its real saveGame transaction, not by this test.
+      const loaded = loadThreadState();
+      expect(deserializeTurnSubmission(loaded.turnHistory[0].playerIntent)).toMatchObject({
+        kind: 'structured',
+        actions: [excerpt],
+        privateIntent,
+      });
+      expect(loaded.knowledge).toContainEqual(expect.objectContaining({
+        claim: excerpt,
+        relationshipObservation: {
+          evidenceId: 'turn:1:player-submission',
+          participantIds: [PLAYER, 'julia_mamaea'],
+        },
+      }));
+
+      const reduced = gameReducer(createInitialGameState(), { type: 'GAME_LOADED', save: loaded });
+      expect(reduced.turnHistory).toEqual(loaded.turnHistory);
+      expect(reduced.knowledge).toEqual(loaded.knowledge);
+      expect(reduced.turnNumber).toBe(2);
+      client.expectCallSequence([
+        'storyRelevance', 'assessment', 'adjudication', 'simulationState',
+        'monologue', 'narration', 'relationshipUpdates', 'relationshipObservations',
+      ]);
+
+      const exactAutosave = structuredClone(loadGame());
+      await app.unmount();
+      reloaded = await mountJourneyAppFromAutosave();
+      expect(loadGame()).toEqual(exactAutosave);
+      expect(reloaded.container.textContent).toContain(excerpt);
+      const disclosure = Array.from(reloaded.container.querySelectorAll('details')).find(details =>
+        details.querySelector('summary')?.textContent === 'Private Intent');
+      expect(disclosure).toBeDefined();
+      expect(disclosure!.open).toBe(false);
+      expect(disclosure!.textContent).toContain(privateIntent);
+      expect(client.unconsumed()).toEqual([]);
+    } finally {
+      if (document.body.contains(app.container)) await app.unmount();
+      if (reloaded) await reloaded.unmount();
+    }
   });
 });
