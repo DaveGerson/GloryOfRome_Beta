@@ -58,3 +58,15 @@ Task 3: complete (commits `9a492ce..3cb8700`, review clean).
 - Scope: canonical visibility projections, prompt guards, mortality-safe trusted context, narration action-presence typing, ambition fail-closed routing, and mock parity; no App wiring or new gameplay mechanics
 
 Task 2: complete (commits `76f3b6d..cf4e4fc`, review clean).
+
+## Task 6: knowledge-backed Dramatis Personae
+
+- Reviewed task range: `b90481886442..76f13b680dc1`
+- Integration merge: `8038814`
+- TDD chain: test-only RED `cfec90f`; production GREEN `84d30aa`; adversarial coverage/documentation fix `76f13b6`
+- Initial Sol xhigh review found false-positive Personae coverage and stale Raw Thoughts documentation; every finding was fixed in the same task branch
+- Fresh post-fix Sol xhigh review: spec compliant; privacy, knownness, NPC/GM separation, test authenticity, and code quality approved; no Critical, Important, or Minor findings
+- Controller verification: focused Task 6 suite 75/75, NPC/GM regressions 58/58, typecheck exit 0, strict full-range changed-file lint exit 0, required leak greps empty, full unit suite 44 files and 834 tests passed, production build exit 0
+- Scope: player-only relation-delta filtering, known-entity Personae roster, sourced relationship-observation timeline, and retirement of the free Raw Thoughts family; paid investigations and Deep Analysis retained; no relationship scoring, gameplay mechanics, save schema, terminal semantics, NPC perception, or GM truth changes
+
+Task 6: complete (commits `cfec90f..76f13b6`, review clean).
