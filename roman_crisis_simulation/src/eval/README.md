@@ -44,11 +44,12 @@ Per turn:
 - **Schema validity** - each captured call's `rawResponse` is re-parsed
   (same cleaning as the live service) and re-validated against its call
   family's zod schema via an explicit callName -> schema map. Prose calls
-  (narration, monologue, clarification, raw thoughts, deep analysis,
-  epilogue) are skipped; unknown call names are reported as skipped, not
-  failed. A response that was truncated at capture time (~20k chars) shows
-  up as `unparseable_json` - the corpus no longer carries enough text to
-  re-check it.
+  (narration, monologue, clarification, deep analysis, epilogue) are
+  skipped. Historical corpora may contain the retired `rawThoughts` family;
+  it is accurately reported as `skipped_unknown`, rather than failed,
+  because the current runtime no longer emits it. A response that was
+  truncated at capture time (~20k chars) shows up as `unparseable_json` -
+  the corpus no longer carries enough text to re-check it.
 - **Consequence-density proxies** - delta count and headline count.
 - **Capture completeness** - how many calls carry full prompt text /
   system instruction, and whether the turn's seed was recorded.

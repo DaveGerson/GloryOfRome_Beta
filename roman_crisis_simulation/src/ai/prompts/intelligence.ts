@@ -4,7 +4,7 @@
  * Prompt builders for the "intelligence" tool family in
  * ai/tools/intelligence.ts: story relevance (Director spotlight-picking),
  * simulation-state updates, relationship updates, private NPC
- * conversations, investigations, clarifications, raw thoughts, and deep
+ * conversations, investigations, clarifications, and deep
  * analysis. Each builder returns { systemInstruction, prompt }, splitting
  * the stable role/task/format-contract text from the per-call dynamic
  * state, and is documented with PURPOSE/MODEL/CONSUMER/OUTPUT.

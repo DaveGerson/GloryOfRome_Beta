@@ -175,6 +175,14 @@ const observations: KnowledgeClaim[] = [
   }),
 ];
 
+const forbiddenRelationshipVisualClasses = [
+  'gor-meter-row',
+  'gor-meter-val',
+  'gor-trust',
+  'gor-trust-fill',
+  'gor-trust-zero',
+];
+
 function cardFor(container: HTMLElement, name: string): HTMLElement | null {
   return Array.from(container.querySelectorAll<HTMLElement>('section.gor-card'))
     .find(card => card.querySelector('.gor-card-title')?.textContent === name) ?? null;
@@ -250,7 +258,24 @@ describe('components/tabs/DramatisPersonaeTab - player-safe Personae', () => {
 
     expect(text).toContain(knownActor.position);
     expect(text).toContain('No observations yet');
-    expect(card?.querySelector('[role="meter"]')).toBeNull();
+    // This fixture carries extreme hidden scores. The old TrustBar expressed
+    // them through a meter, signed number, and laurel/crimson heat color;
+    // none of those interpretations may return under a different label.
+    expect(card?.querySelectorAll('[role="meter"], [aria-valuenow], progress')).toHaveLength(0);
+    for (const className of forbiddenRelationshipVisualClasses) {
+      expect(card?.querySelector(`.${className}`)).toBeNull();
+    }
+    const relationshipHeatOrTier = Array.from(card?.querySelectorAll<HTMLElement>('[class], [data-relationship-heat], [data-relationship-color], [aria-label]') ?? [])
+      .filter(element => /(?:heat|tier|relationship|sentiment|affinity)/i.test([
+        element.className,
+        element.dataset.relationshipHeat,
+        element.dataset.relationshipColor,
+        element.getAttribute('aria-label'),
+      ].filter(Boolean).join(' ')));
+    expect(relationshipHeatOrTier).toHaveLength(0);
+    const inlineRelationshipHeatColors = Array.from(card?.querySelectorAll<HTMLElement>('[style]') ?? [])
+      .filter(element => /var\(--(?:laurel|crimson|ink)-500\)/.test(element.getAttribute('style') ?? ''));
+    expect(inlineRelationshipHeatColors).toHaveLength(0);
     expect(text).not.toMatch(/\bTrust\b/);
     expect(text).not.toMatch(/\bRespect\b/);
     expect(text).not.toMatch(/\bThreat\b/);
@@ -259,6 +284,10 @@ describe('components/tabs/DramatisPersonaeTab - player-safe Personae', () => {
     for (const numericSentinel of ['9101', '9202', '9303', '9404', '9505']) {
       expect(text).not.toContain(numericSentinel);
     }
+    expect(text).not.toContain('ENGINE_RELATIONSHIP_TYPE_SENTINEL');
+    expect(text).not.toContain('ENGINE_RECENT_INTERACTION_SENTINEL');
+    expect(text).not.toMatch(/[←→↔↕]/);
+    expect(text).not.toMatch(/\b(?:Trusted Ally|Wary Acquaintance|Hostile Rival|Friendly|Hostile|Relationship Tier)\b/i);
   });
 
   it('never renders live state, goals, schemes, secret truth, free Raw Thoughts, or player notes while retaining paid intel controls', async () => {
@@ -316,7 +345,7 @@ describe('components/tabs/DramatisPersonaeTab - player-safe Personae', () => {
     expect(text).toMatch(/Turn\s+9|1\s+turn\s+ago/i);
   });
 
-  it('provides a collapsed accessible timeline whose expansion preserves contradictory evidence', async () => {
+  it('provides a collapsed accessible timeline whose expansion preserves every distinct observation', async () => {
     await render(observations);
     const card = cardFor(container, observedActor.name);
     const details = card?.querySelector('details');
@@ -330,20 +359,40 @@ describe('components/tabs/DramatisPersonaeTab - player-safe Personae', () => {
     });
 
     expect(details?.open).toBe(true);
-    const timelineText = details?.textContent ?? '';
-    expect(timelineText).toContain('quietly supported Severus before the first vote');
-    expect(timelineText).toContain('denounced Severus before the Senate');
-    expect(timelineText).toContain('defended Severus when the guard challenged him');
-    expect(timelineText.toLowerCase()).toContain('spy');
-    expect(timelineText).toMatch(/Turn\s+2|8\s+turns\s+ago/i);
+    const timelineRows = Array.from(details?.querySelectorAll<HTMLLIElement>('ul > li') ?? []);
+    expect(timelineRows).toHaveLength(observations.length);
+    expect(timelineRows.map(row => row.querySelector('span')?.textContent)).toEqual([
+      'Senator Livia quietly supported Severus before the first vote.',
+      'Senator Livia said, "I will stand beside Severus."',
+      'Senator Livia denounced Severus before the Senate.',
+      'Senator Livia defended Severus when the guard challenged him.',
+    ]);
+    expect(timelineRows.map(row => row.querySelector('small')?.textContent)).toEqual([
+      'spy · Turn 2 · 8 turns ago',
+      'rumor · Turn 5 · 5 turns ago',
+      'witnessed · Turn 7 · 3 turns ago',
+      'network · Turn 9 · 1 turn ago',
+    ]);
   });
 
   it('renders a trusted exact quote as quoted evidence without synthesizing a verdict', async () => {
     await render(observations);
     const card = cardFor(container, observedActor.name);
     const text = card?.textContent ?? '';
+    const trustedObservation = observations[1];
+    const trustedQuote = trustedObservation.relationshipObservation?.quote;
+    const quoteElements = Array.from(card?.querySelectorAll('q') ?? []);
 
-    expect(text).toMatch(/[\u201c"]I will stand beside Severus\.[\u201d"]/);
+    // The claim itself also contains the quote's words. Querying the semantic
+    // q element proves the quote is marked up, rather than accidentally
+    // passing because ordinary claim text happened to include the phrase.
+    expect(trustedQuote).toBeDefined();
+    expect(trustedObservation.claim).not.toBe(trustedQuote?.text);
+    expect(quoteElements).toHaveLength(2); // compact list plus expanded timeline
+    expect(quoteElements.map(quote => quote.textContent)).toEqual([
+      trustedQuote?.text,
+      trustedQuote?.text,
+    ]);
     expect(text).not.toMatch(/loyal|hostile|trustworthy|untrustworthy|relationship tier/i);
   });
 });
