@@ -20,7 +20,22 @@
  */
 
 import { Entity } from '../../types';
-import { getEntityBrief } from './fragments';
+
+export interface ApparentAmbitionPlayerBrief {
+  entityId: string;
+  name: string;
+  entityType: Entity['entity_type'];
+  position?: string;
+}
+
+export function buildApparentAmbitionPlayerBrief(player: Entity): ApparentAmbitionPlayerBrief {
+  return {
+    entityId: player.entity_id,
+    name: player.name,
+    entityType: player.entity_type,
+    ...(player.position ? { position: player.position } : {}),
+  };
+}
 
 const SYSTEM_INSTRUCTION = `
 ROLE: Silent Observer of Ambition.
@@ -40,12 +55,12 @@ OUTPUT: A single JSON object per the schema. Do not include any explanatory text
 
 /** Builds the { systemInstruction, prompt } pair for the D8 ambition-inference call. */
 export function buildAmbitionInferencePrompt(
-  player: Entity,
+  player: ApparentAmbitionPlayerBrief,
   recentIntents: string[],
   recentHeadlines: string[]
 ): { systemInstruction: string; prompt: string } {
   const prompt = `
-CHARACTER: ${getEntityBrief(player)}
+CHARACTER: ${JSON.stringify(player, null, 2)}
 
 RECENT ACTIONS THIS CHARACTER CHOSE TO TAKE (most recent last):
 ${recentIntents.length > 0 ? recentIntents.map((intent, i) => `${i + 1}. "${intent}"`).join('\n') : 'No actions recorded yet.'}

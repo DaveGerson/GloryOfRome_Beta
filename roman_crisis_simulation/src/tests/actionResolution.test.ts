@@ -19,7 +19,9 @@ import {
   ACTION_RESOLUTION_TIER_THRESHOLDS,
   type ActionResolutionTier,
 } from '../ai/core/resolution';
-import type { Entity, PersonalityTraits, Relationship } from '../types';
+import { buildActionAssessmentPrompt } from '../ai/prompts/assessment';
+import { projectForResolution } from '../playerInput/turnSubmission';
+import type { Entity, PersonalityTraits, Relationship, TurnSubmission } from '../types';
 
 function makePersonality(overrides: Partial<PersonalityTraits> = {}): PersonalityTraits {
   return { ambition: 5, paranoia: 5, loyalty: 5, cunning: 5, honor: 5, ...overrides };
@@ -127,6 +129,31 @@ describe('ai/core/resolution.ts resolveAction - margin/tier bands', () => {
       else if (margin < 10) expect(tier, `margin ${margin}`).toBe('success');
       else expect(tier, `margin ${margin}`).toBe('critical_success');
     }
+  });
+});
+
+describe('action-assessment submission boundary', () => {
+  it('the real assessment prompt receives observable action text and no private or question-only fields', () => {
+    const submission: TurnSubmission = {
+      version: 1,
+      kind: 'structured',
+      actions: ['Address the Senate in public.'],
+      privateIntent: 'PRIVATE_ASSESSMENT_FORBIDDEN_SENTINEL',
+      questionOrContext: 'QUESTION_ASSESSMENT_FORBIDDEN_SENTINEL',
+    };
+    const observableAttempt = projectForResolution(submission);
+    expect(observableAttempt).not.toBeNull();
+
+    const { prompt } = buildActionAssessmentPrompt({
+      playerIntent: observableAttempt!,
+      playerBrief: 'entity_id: player_1\nname: Gaius Testus',
+      worldSummary: 'Year 235, week 7.',
+      npcEntities: [],
+    });
+
+    expect(prompt).toContain('Address the Senate in public.');
+    expect(prompt).not.toContain('PRIVATE_ASSESSMENT_FORBIDDEN_SENTINEL');
+    expect(prompt).not.toContain('QUESTION_ASSESSMENT_FORBIDDEN_SENTINEL');
   });
 });
 

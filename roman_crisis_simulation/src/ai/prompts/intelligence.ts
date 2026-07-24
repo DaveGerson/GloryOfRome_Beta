@@ -347,7 +347,8 @@ ${JSON.stringify(oldState, null, 2)}
 export function buildRelationshipUpdatesPrompt(
   narration: string,
   headlines: string[],
-  entities: Entity[]
+  entities: Entity[],
+  hasObservableAttempt = true
 ): { systemInstruction: string; prompt: string } {
   const systemInstruction = `
     You are a narrative analyst AI. Your task is to read a summary of events and identify subtle shifts in relationships between characters. Based on the events, suggest specific, numerical changes to their relationship stats.
@@ -360,6 +361,9 @@ export function buildRelationshipUpdatesPrompt(
     - 'delta' should be a small integer, typically between -3 and 3, representing the change.
     - 'reason' should be a brief justification citing the event from the narration.
     - If no relationships were significantly affected, return an empty list for 'deltas'.
+    ${hasObservableAttempt
+      ? ''
+      : '- No observable player attempt was submitted this turn. Do not infer relationship changes from an invented player action; use only factual adjudicated events.'}
 
     Return a valid JSON object matching the schema.
     `;

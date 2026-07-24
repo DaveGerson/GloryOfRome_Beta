@@ -34,7 +34,7 @@ import { withOldSnapshotsDropped, KEEP_FULL_SNAPSHOTS } from '../state/gameReduc
 import { mockRunNewTurn, mockGetNpcMindDecision } from '../ai/mocks';
 import { getMockInitialState } from './mockData';
 import { ALL_INITIAL_ENTITIES, INITIAL_WORLD_STATE } from '../constants/baseScenario';
-import type { Entity, EventDelta, NpcMindDecision, Scheme, SimulationState, StoryRelevance, TurnHistoryEntry, WorldState } from '../types';
+import type { Entity, EventDelta, NpcMindDecision, Scheme, SimulationState, StoryRelevance, TurnHistoryEntry, TurnSubmission, WorldState } from '../types';
 
 // --- fixtures --------------------------------------------------------------
 
@@ -74,6 +74,8 @@ function makeEntity(overrides: Partial<Entity> = {}): Entity {
     ...overrides,
   };
 }
+
+const freeform = (text: string): TurnSubmission => ({ version: 1, kind: 'freeform', text });
 
 // The asymmetry cast: A and B are BOTH spotlights; each holds a secret
 // scheme and secrets the OTHER's mind must never see. They are placed in
@@ -295,7 +297,7 @@ function runAsymmetryTurn(harness: MindHarness) {
   // secret_truth: its motive reaches the (omniscient) adjudicator's
   // GM-SECRET block but must never reach any mind.
   return runNewTurn(
-    harness.ai, 'Hold court', player, 5, [player, npcA, npcB, makeHiddenSurvivor()], WORLD_STATE, SIM_STATE,
+    harness.ai, freeform('Hold court'), player, 5, [player, npcA, npcB, makeHiddenSurvivor()], WORLD_STATE, SIM_STATE,
     [makePreviousEntry()], [], [], [
       { entity_id: 'npc_thrax', intent: 'March the Rhine legions on Rome', continuity: 'continue' },
       { entity_id: 'npc_venena', intent: 'Slip the toxin into the palace kitchens', continuity: 'continue' },
@@ -510,7 +512,7 @@ describe('selectUnrememberedChanges + mind assembly: no line shows twice in one 
       { turn: 4, event_description: 'Your legion support grows.', emotional_impact: 'Notable', involved_entities: [] },
     ];
     await runNewTurn(
-      harness.ai, 'Hold court', player, 5, [player, npcA, npcB], WORLD_STATE, SIM_STATE,
+      harness.ai, freeform('Hold court'), player, 5, [player, npcA, npcB], WORLD_STATE, SIM_STATE,
       [makePreviousEntry()], [], [], [], '', false, 'Grim political thriller'
     );
 
@@ -533,7 +535,7 @@ describe('runNewTurn npc_minds: pipeline threading and adjudicator consumption',
     const onStage = vi.fn();
     const { player, npcA, npcB } = makeAsymmetryCast();
     const result = await runNewTurn(
-      harness.ai, 'Hold court', player, 5, [player, npcA, npcB], WORLD_STATE, SIM_STATE,
+      harness.ai, freeform('Hold court'), player, 5, [player, npcA, npcB], WORLD_STATE, SIM_STATE,
       [makePreviousEntry()], [], [], [], '', false, 'Grim political thriller', { onStage }
     );
 
@@ -616,7 +618,7 @@ describe('runNewTurn npc_minds: pipeline threading and adjudicator consumption',
 
     const { player, npcA, npcB } = makeAsymmetryCast();
     const turnPromise = runNewTurn(
-      ai, 'Hold court', player, 5, [player, npcA, npcB], WORLD_STATE, SIM_STATE,
+      ai, freeform('Hold court'), player, 5, [player, npcA, npcB], WORLD_STATE, SIM_STATE,
       [makePreviousEntry()], [], [], [], '', false, 'Grim political thriller'
     );
     turnPromise.catch(() => {}); // consumed properly below
@@ -640,7 +642,7 @@ describe('runNewTurn npc_minds: pipeline threading and adjudicator consumption',
     const onStage = vi.fn();
     const { player } = makeAsymmetryCast();
     const result = await runNewTurn(
-      harness.ai, 'Hold court', player, 5, [player], WORLD_STATE, SIM_STATE,
+      harness.ai, freeform('Hold court'), player, 5, [player], WORLD_STATE, SIM_STATE,
       [], [], [], [], '', false, 'Grim political thriller', { onStage }
     );
 
@@ -930,7 +932,7 @@ describe('D30: a mind evolves its OWN active_scheme (load-bearing scheme_adjustm
       const { player, npcA, npcB } = makeAsymmetryCast();
       const bystander = makeEntity({ entity_id: 'npc_bystander', name: 'A Bystander', location: 'Palatine Hill' });
       const result = await runNewTurn(
-        harness.ai, 'Hold court', player, 5, [player, npcA, npcB, bystander], WORLD_STATE, SIM_STATE,
+        harness.ai, freeform('Hold court'), player, 5, [player, npcA, npcB, bystander], WORLD_STATE, SIM_STATE,
         [makePreviousEntry()], [], [], [], '', false, 'Grim political thriller'
       );
 
@@ -1036,7 +1038,7 @@ describe('mock mode: minds for the mock spotlight pair (4C.4)', () => {
     // roster the offline loop actually runs against in mock mode.
     const entities = ALL_INITIAL_ENTITIES.map(e => ({ ...e }));
     const player = entities.find(e => e.entity_id === 'severus_alexander')!;
-    const result = await mockRunNewTurn('Hold court', player, 1, entities, INITIAL_WORLD_STATE, [], '', 'A crisis.', SIM_STATE, [], []);
+    const result = await mockRunNewTurn(freeform('Hold court'), player, 1, entities, INITIAL_WORLD_STATE, [], '', 'A crisis.', SIM_STATE, [], []);
     const minds = result.newHistoryEntry.npcMindResults;
     expect(minds).toBeDefined();
     expect(minds!.map(d => d.entity_id).sort()).toEqual(['maximinus_thrax', 'praetorian_guard']);

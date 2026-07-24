@@ -21,7 +21,7 @@ import type { GoogleGenAI } from '@google/genai';
 import { runNewTurn } from '../ai/core/turn';
 import { endTurnCapture } from '../ai/core/geminiService';
 import { rollD20, createSeededRng } from '../ai/core/resolution';
-import type { Entity, WorldState, SimulationState, Report, TruthLedgerEntry } from '../types';
+import type { Entity, WorldState, SimulationState, Report, TruthLedgerEntry, TurnSubmission } from '../types';
 
 // --- fixtures ---------------------------------------------------------
 
@@ -42,6 +42,8 @@ function makeEntity(overrides: Partial<Entity> = {}): Entity {
     ...overrides,
   };
 }
+
+const freeform = (text: string): TurnSubmission => ({ version: 1, kind: 'freeform', text });
 
 const worldState: WorldState = {
   year: 1,
@@ -194,6 +196,8 @@ interface Harness {
   response: Record<CallKind, Deferred<string>>;
   /** The `contents` (user prompt) string of the most recent call of each kind - lets a test inspect e.g. whether the adjudication prompt carried a PLAYER ACTION OUTCOME block. */
   promptsByKind: Partial<Record<CallKind, string>>;
+  /** The instruction paired with each prompt, retained for prompt-contract assertions. */
+  systemInstructionsByKind: Partial<Record<CallKind, string>>;
   generateContent: ReturnType<typeof vi.fn>;
   generateContentStream: ReturnType<typeof vi.fn>;
 }
@@ -211,11 +215,13 @@ function createHarness(streamNarration = false): Harness {
   const issued = Object.fromEntries(ALL_KINDS.map(k => [k, createDeferred<void>()])) as Record<CallKind, Deferred<void>>;
   const response = Object.fromEntries(ALL_KINDS.map(k => [k, createDeferred<string>()])) as Record<CallKind, Deferred<string>>;
   const promptsByKind: Partial<Record<CallKind, string>> = {};
+  const systemInstructionsByKind: Partial<Record<CallKind, string>> = {};
 
   const generateContent = vi.fn(async (params: { model: string; contents: string; config?: Record<string, unknown> }) => {
     const kind = classify(params.config?.systemInstruction);
     order.push(kind);
     promptsByKind[kind] = params.contents;
+    systemInstructionsByKind[kind] = String(params.config?.systemInstruction ?? '');
     issued[kind].resolve();
     const text = await response[kind].promise;
     return { text };
@@ -225,6 +231,7 @@ function createHarness(streamNarration = false): Harness {
     const kind = classify(params.config?.systemInstruction);
     order.push(kind);
     promptsByKind[kind] = params.contents;
+    systemInstructionsByKind[kind] = String(params.config?.systemInstruction ?? '');
     issued[kind].resolve();
     const fullText = await response[kind].promise;
     async function* gen() {
@@ -247,7 +254,7 @@ function createHarness(streamNarration = false): Harness {
     models: streamNarration ? { generateContent, generateContentStream } : { generateContent },
   } as unknown as GoogleGenAI;
 
-  return { ai, order, issued, response, promptsByKind, generateContent, generateContentStream };
+  return { ai, order, issued, response, promptsByKind, systemInstructionsByKind, generateContent, generateContentStream };
 }
 
 afterEach(() => {
@@ -266,7 +273,7 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
 
     const turnPromise = runNewTurn(
       h.ai,
-      'Address the Senate',
+      freeform('Address the Senate'),
       player,
       2,
       [player],
@@ -381,7 +388,7 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
 
     const turnPromise = runNewTurn(
       h.ai,
-      'Address the Senate',
+      freeform('Address the Senate'),
       player,
       2,
       [player],
@@ -437,7 +444,7 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
 
     try {
       const turnPromise = runNewTurn(
-        h.ai, 'Address the Senate', player, 2, [player], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
+        h.ai, freeform('Address the Senate'), player, 2, [player], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
       );
       turnPromise.catch(() => {}); // the turn's own rejection is handled deliberately - not what we're testing here
 
@@ -510,7 +517,7 @@ describe('ai/core/turn.ts runNewTurn - campaign truth-ledger threading (D11)', (
     h.response.relationshipUpdates.resolve(relationshipJson);
 
     const result = await runNewTurn(
-      h.ai, 'Hold court', player, 2, [player], worldState, simulationState, [], priorReports, priorLedger, [], '', false, 'Grim political thriller'
+      h.ai, freeform('Hold court'), player, 2, [player], worldState, simulationState, [], priorReports, priorLedger, [], '', false, 'Grim political thriller'
     );
 
     // The prior campaign entry survives verbatim at the head of the ledger...
@@ -562,7 +569,7 @@ describe("ai/core/turn.ts runNewTurn - step 5.5 keeps only 'relation' deltas", (
     h.response.relationshipUpdates.resolve(mixedRelationshipJson);
 
     const result = await runNewTurn(
-      h.ai, 'Snub the Senate', player, 2, [player, rival], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
+      h.ai, freeform('Snub the Senate'), player, 2, [player, rival], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
     );
 
     // The 'relation' delta was applied to state AND merged into the committed
@@ -630,7 +637,7 @@ describe('ai/core/turn.ts runNewTurn - mortality directives feed narration from 
     h.response.relationshipUpdates.resolve(relationshipJson);
 
     const result = await runNewTurn(
-      h.ai, 'Hold court', player, 2, [player, npc], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
+      h.ai, freeform('Hold court'), player, 2, [player, npc], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
     );
 
     const narrationPrompt = h.promptsByKind.narration ?? '';
@@ -716,7 +723,7 @@ describe('ai/core/turn.ts runNewTurn - Director continuity loop (4C.3)', () => {
     h.response.relationshipUpdates.resolve(relationshipJson);
 
     const result = await runNewTurn(
-      h.ai, 'Hold court', player, 2, [player, thrax, guard], worldState, simulationState, [], [], [], priorIntents, '', false, 'Grim political thriller'
+      h.ai, freeform('Hold court'), player, 2, [player, thrax, guard], worldState, simulationState, [], [], [], priorIntents, '', false, 'Grim political thriller'
     );
 
     // (a) The loop's INPUT: the prior committed intent reached the Director's
@@ -766,7 +773,7 @@ describe('ai/core/turn.ts runNewTurn - Director continuity loop (4C.3)', () => {
 
     const priorIntents = [{ entity_id: 'npc_gone', intent: 'A stale direction', continuity: 'new' as const }];
     const result = await runNewTurn(
-      h.ai, 'Hold court', player, 2, [player], worldState, simulationState, [], [], [], priorIntents, '', false, 'Grim political thriller'
+      h.ai, freeform('Hold court'), player, 2, [player], worldState, simulationState, [], [], [], priorIntents, '', false, 'Grim political thriller'
     );
 
     // Replacement semantics: the Director's output IS the durable state.
@@ -812,7 +819,7 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     });
 
     const turnPromise = runNewTurn(
-      h.ai, 'Give a rousing speech to the Senate', player, 2, [player], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
+      h.ai, freeform('Give a rousing speech to the Senate'), player, 2, [player], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
     );
     turnPromise.catch(() => {});
 
@@ -873,7 +880,7 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     const randomSpy = vi.spyOn(Math, 'random');
 
     const turnPromise = runNewTurn(
-      h.ai, 'What news from the forum?', player, 2, [player], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
+      h.ai, freeform('What news from the forum?'), player, 2, [player], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
     );
     turnPromise.catch(() => {});
 
@@ -951,7 +958,10 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
         { type: 'status', key: 'npc_1', delta: 0, reason: 'Cut down in the Curia.', new_status: 'dead' },
       ],
       headlines: ['Blood in the Curia.'],
-      gm_private: [],
+      gm_private: [
+        'GM_PRIVATE_SENTINEL_MUST_NOT_REACH_MORTALITY_6T2',
+        'Arbitrary adjudicator-authored private marker.',
+      ],
     });
 
     // Pre-resolve every response the pipeline could need. The pinned seed
@@ -973,8 +983,15 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     h.response.narration.resolve(narrationFullText);
     h.response.relationshipUpdates.resolve(relationshipJson);
 
+    const submission: TurnSubmission = {
+      version: 1,
+      kind: 'structured',
+      actions: ['OBSERVABLE_ASSASSINATION_ATTEMPT_6T2'],
+      privateIntent: 'PRIVATE_INTENT_MUST_NOT_REACH_MORTALITY_6T2',
+      questionOrContext: 'QUESTION_MUST_NOT_REACH_MORTALITY_6T2',
+    };
     const result = await runNewTurn(
-      h.ai, 'Send the assassin after Rufus', player, 2, [player, npc], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
+      h.ai, submission, player, 2, [player, npc], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
     );
 
     const entry = result.newHistoryEntry;
@@ -988,11 +1005,59 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     expect(entry.mortalityTrace![0]).toMatchObject({ entity_id: 'npc_1', valid: true });
     expect(entry.mortalityTrace![0].roll).toBe(expectedMortalityRoll);
 
+    // The mortality validator receives the adjudication's GM context. The
+    // resolution trace may contribute the observable action and mechanics,
+    // but it must never interpolate the persisted canonical submission,
+    // whose structured private fields are deliberately not observable here.
+    const mortalityValidationPrompt = h.promptsByKind.mortalityValidation ?? '';
+    expect(mortalityValidationPrompt).toContain('OBSERVABLE_ASSASSINATION_ATTEMPT_6T2');
+    expect(mortalityValidationPrompt).toContain('[Resolution]');
+    expect(mortalityValidationPrompt).not.toContain('GM_PRIVATE_SENTINEL_MUST_NOT_REACH_MORTALITY_6T2');
+    expect(mortalityValidationPrompt).not.toContain('Arbitrary adjudicator-authored private marker.');
+    expect(mortalityValidationPrompt).not.toContain('PRIVATE_INTENT_MUST_NOT_REACH_MORTALITY_6T2');
+    expect(mortalityValidationPrompt).not.toContain('QUESTION_MUST_NOT_REACH_MORTALITY_6T2');
+    expect(mortalityValidationPrompt).not.toContain('GOR_TURN_SUBMISSION/');
+    // The untrusted private trace remains available to the GM in the
+    // persisted adjudication; only the mortality AI input is projected.
+    expect(entry.adjudication.gm_private).toContain('GM_PRIVATE_SENTINEL_MUST_NOT_REACH_MORTALITY_6T2');
+
     // Replay: rebuilding the generator from the persisted seed reproduces
     // the turn's recorded rolls in draw order.
     const replayRng = createSeededRng(entry.turnSeed!);
     expect(rollD20(replayRng)).toBe(entry.resolutionTrace!.roll);
     expect(rollD20(replayRng)).toBe(entry.mortalityTrace![0].roll);
+  });
+
+  it('private-only submissions ask narration for a player-view reflection without inventing an action', async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+    const submission: TurnSubmission = {
+      version: 1,
+      kind: 'structured',
+      privateIntent: 'Gain the consul\'s confidence without exposing my source.',
+      questionOrContext: 'What do the empty benches suggest about tomorrow\'s vote?',
+    };
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    h.response.adjudication.resolve(adjudicationJson);
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologueText);
+    h.response.narration.resolve(narrationFullText);
+    h.response.relationshipUpdates.resolve(relationshipJson);
+
+    await runNewTurn(
+      h.ai, submission, player, 2, [player], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
+    );
+
+    const narrationSystemInstruction = h.systemInstructionsByKind.narration ?? '';
+    const narrationPrompt = h.promptsByKind.narration ?? '';
+    expect(narrationPrompt).toContain('Gain the consul\'s confidence');
+    expect(narrationPrompt).toContain('What do the empty benches suggest');
+    expect(narrationPrompt).not.toContain("PLAYER'S ACTION THIS TURN");
+    expect(narrationSystemInstruction).toContain('player-view response or reflection');
+    expect(narrationSystemInstruction).toContain('do not invent an action or immediate consequence');
+    expect(h.systemInstructionsByKind.relationshipUpdates).toContain('No observable player attempt was submitted');
   });
 });
 
@@ -1024,7 +1089,7 @@ describe('ai/core/turn.ts runNewTurn - pacing posture threading (4D.1, D23)', ()
     resolveWholePipeline(h);
 
     await runNewTurn(
-      h.ai, 'Hold court', player, 2, [player], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller',
+      h.ai, freeform('Hold court'), player, 2, [player], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller',
       { pacingPosture: 'dramatic' }
     );
 
@@ -1040,7 +1105,7 @@ describe('ai/core/turn.ts runNewTurn - pacing posture threading (4D.1, D23)', ()
     resolveWholePipeline(h);
 
     await runNewTurn(
-      h.ai, 'Hold court', player, 2, [player], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
+      h.ai, freeform('Hold court'), player, 2, [player], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
     );
 
     const sys = adjudicationSystemInstruction(h);
@@ -1058,7 +1123,7 @@ describe('ai/core/turn.ts runNewTurn - pacing posture threading (4D.1, D23)', ()
     // A failing economy makes grain_shortage's trigger fire for any player;
     // empty bookkeeping means it has never fired, so it is RIPE.
     await runNewTurn(
-      h.ai, 'Hold court', player, 2, [player], { ...worldState, economic_stability: 'Failing' },
+      h.ai, freeform('Hold court'), player, 2, [player], { ...worldState, economic_stability: 'Failing' },
       simulationState, [], [], [], [], '', false, 'Grim political thriller',
       { eventFirings: [] }
     );
@@ -1076,7 +1141,7 @@ describe('ai/core/turn.ts runNewTurn - pacing posture threading (4D.1, D23)', ()
     resolveWholePipeline(h);
 
     await runNewTurn(
-      h.ai, 'Hold court', player, 2, [player], { ...worldState, economic_stability: 'Failing' },
+      h.ai, freeform('Hold court'), player, 2, [player], { ...worldState, economic_stability: 'Failing' },
       simulationState, [], [], [], [], '', false, 'Grim political thriller'
     );
 

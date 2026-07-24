@@ -22,7 +22,8 @@ import { Type } from '@google/genai';
 import { z } from 'zod';
 import { Entity } from '../../types';
 import { GeminiClient, generateStructured, GEMINI_FLASH } from '../core/geminiService';
-import { buildAmbitionInferencePrompt } from '../prompts/ambition';
+import { buildAmbitionInferencePrompt, buildApparentAmbitionPlayerBrief } from '../prompts/ambition';
+import { deserializeTurnSubmission, isReservedTurnSubmissionArtifact, projectForExternalInference } from '../../playerInput/turnSubmission';
 
 /** Local zod schema for `inferAmbition`'s output - see the file-level doc comment for why this lives here instead of ai/core/zodSchemas.ts. */
 export const zAmbitionInference = z.object({
@@ -80,7 +81,22 @@ export async function inferAmbition(
     return MOCK_AMBITION_INFERENCE;
   }
 
-  const { systemInstruction, prompt } = buildAmbitionInferencePrompt(player, recentIntents, recentHeadlines);
+  const observableIntents = recentIntents.flatMap((intent) => {
+    const submission = deserializeTurnSubmission(intent);
+    // A reserved artifact namespace is canonical-only: malformed or future
+    // variants are not legacy freeform text and must never be inferred from.
+    const observable = submission
+      ? projectForExternalInference(submission)
+      : isReservedTurnSubmissionArtifact(intent)
+        ? null
+        : intent;
+    return observable ? [observable] : [];
+  });
+  const { systemInstruction, prompt } = buildAmbitionInferencePrompt(
+    buildApparentAmbitionPlayerBrief(player),
+    observableIntents,
+    recentHeadlines,
+  );
   return generateStructured<AmbitionInference>(ai, {
     callName: 'ambitionInference',
     model: GEMINI_FLASH,

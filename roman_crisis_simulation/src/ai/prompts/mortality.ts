@@ -34,8 +34,8 @@ export interface MortalityValidationPromptInput {
   candidates: MortalityValidationCandidate[];
   /** This turn's public headlines, for context on what actually happened. */
   headlines: string[];
-  /** This turn's gm_private notes so far (including any private-conversation log lines), for context. */
-  gmPrivate: string[];
+  /** Locally constructed resolution facts safe to share with the validator. */
+  trustedResolutionContext?: string;
 }
 
 const VALIDATION_SYSTEM_INSTRUCTION = `
@@ -57,14 +57,14 @@ OUTPUT: A single JSON object per the schema. Do not include any explanatory text
 export function buildMortalityValidationPrompt(
   input: MortalityValidationPromptInput
 ): { systemInstruction: string; prompt: string } {
-  const { candidates, headlines, gmPrivate } = input;
+  const { candidates, headlines, trustedResolutionContext } = input;
 
   const prompt = `
 THIS TURN'S PUBLIC HEADLINES:
 ${headlines.length > 0 ? headlines.join('\n') : 'None.'}
 
-THIS TURN'S GM-PRIVATE NOTES (context on what actually happened, including any off-screen events):
-${gmPrivate.length > 0 ? gmPrivate.join('\n') : 'None.'}
+LOCAL RESOLUTION CONTEXT (if a player attempt was mechanically resolved):
+${trustedResolutionContext ?? 'None.'}
 
 DEATH CLAIMS TO DISPOSITION:
 ${candidates

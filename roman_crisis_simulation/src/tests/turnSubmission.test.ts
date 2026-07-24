@@ -9,6 +9,8 @@ import {
   MAX_TURN_SUBMISSION_CHARACTERS,
   TURN_SUBMISSION_PREFIX,
   deserializeTurnSubmission,
+  isReservedTurnSubmissionArtifact,
+  normalizeTurnSubmissionInput,
   projectForAdjudication,
   projectForExternalInference,
   projectForPlayerHistory,
@@ -41,6 +43,33 @@ describe('canonical turn-submission constants', () => {
     expect(TURN_SUBMISSION_VERSION).toBe(1);
     expect(TURN_SUBMISSION_PREFIX).toBe('GOR_TURN_SUBMISSION/1\n');
     expect(MAX_TURN_SUBMISSION_CHARACTERS).toBe(20_000);
+  });
+});
+
+describe('serialization-owned artifact classification and input normalization', () => {
+  it('classifies every reserved namespace artifact, including malformed and future variants, without classifying ordinary legacy text', () => {
+    expect(isReservedTurnSubmissionArtifact('GOR_TURN_SUBMISSION/999\nmalformed')).toBe(true);
+    expect(isReservedTurnSubmissionArtifact('  GOR_TURN_SUBMISSION/not-json')).toBe(true);
+    expect(isReservedTurnSubmissionArtifact('ordinary legacy action')).toBe(false);
+  });
+
+  it('normalizes legacy strings and typed submissions through the same canonical boundary', () => {
+    const structured: TurnSubmission = {
+      version: 1,
+      kind: 'structured',
+      actions: ['  Address the Senate  '],
+    };
+
+    expect(normalizeTurnSubmissionInput('  ordinary legacy action  ')).toEqual({
+      version: 1,
+      kind: 'freeform',
+      text: 'ordinary legacy action',
+    });
+    expect(normalizeTurnSubmissionInput(structured)).toEqual({
+      version: 1,
+      kind: 'structured',
+      actions: ['Address the Senate'],
+    });
   });
 });
 

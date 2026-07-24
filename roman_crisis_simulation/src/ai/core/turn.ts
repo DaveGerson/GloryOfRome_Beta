@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent, TruthLedgerEntry, NpcIntent, NpcMindDecision, StoryRelevance, EntityAction, Memory, PacingPosture, EventFiringRecord, EventDelta, Scheme, SchemeStep } from '../../types';
+import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent, TruthLedgerEntry, NpcIntent, NpcMindDecision, StoryRelevance, EntityAction, Memory, PacingPosture, EventFiringRecord, EventDelta, Scheme, SchemeStep, TurnSubmission } from '../../types';
 import { AdjudicationSchema } from './schemas';
 import { applyAdjudication, applyDeltas } from './engine';
 import { mockRunNewTurn } from "../mocks";
@@ -17,6 +17,7 @@ import { buildNarrationPrompt, selectVoiceCast } from '../prompts/narration';
 import { processMortality, detectDeathClaims } from './mortality';
 import { createNarrationStreamGate } from './streamSplit';
 import { rollD20, resolveAction, derivePersonalityModifier, deriveOppositionModifier, createSeededRng, generateSeed } from './resolution';
+import { normalizeTurnSubmissionInput, projectForAdjudication, projectForNarration, projectForPlayerOwnedAi, projectForResolution, serializeTurnSubmission } from '../../playerInput/turnSubmission';
 
 // Adjudication is the highest-stakes, most consequence-dense call of the
 // turn - a moderate temperature keeps outcomes varied without letting the
@@ -327,7 +328,7 @@ export interface RunNewTurnOptions {
 
 export async function runNewTurn(
     ai: GoogleGenAI,
-    playerIntent: string,
+    submission: TurnSubmission | string,
     playerEntity: Entity,
     turnNumber: number,
     currentEntities: Entity[],
@@ -361,10 +362,16 @@ export async function runNewTurn(
     playerMonologue: string,
     newHistoryEntry: TurnHistoryEntry,
 }> {
+    const normalizedSubmission = normalizeTurnSubmissionInput(submission);
+    const playerIntent = serializeTurnSubmission(normalizedSubmission);
+    const resolutionAttempt = projectForResolution(normalizedSubmission);
+    const adjudicationSubmission = projectForAdjudication(normalizedSubmission);
+    const playerOwnedContext = projectForPlayerOwnedAi(normalizedSubmission);
+    const narrationSubmission = projectForNarration(normalizedSubmission);
     if (isMockMode) {
         if(!mockRunNewTurn) throw new Error("Mock function 'mockRunNewTurn' is not implemented.");
         // FIX: Pass currentSimulationState to the mock function to align with its updated signature.
-        return mockRunNewTurn(playerIntent, playerEntity, turnNumber, currentEntities, currentWorldState, currentReports, gmInterventionText, metaNarrative, currentSimulationState, currentTruthLedger, currentNpcIntents);
+        return mockRunNewTurn(normalizedSubmission, playerEntity, turnNumber, currentEntities, currentWorldState, currentReports, gmInterventionText, metaNarrative, currentSimulationState, currentTruthLedger, currentNpcIntents);
     }
 
     // Bracket the whole turn pipeline so every AI call made below (across
@@ -394,10 +401,11 @@ export async function runNewTurn(
     // single 'story_relevance' notification instead of a new stage).
     options?.onStage?.('story_relevance');
     const npcEntities = currentEntities.filter(e => e.entity_id !== playerEntity.entity_id);
-    const [storyRelevance, actionAssessment] = await Promise.all([
-        getStoryRelevance(ai, turnNumber, turnHistory.slice(-1)[0]?.adjudication.headlines || [], currentWorldState, npcEntities, currentNpcIntents, isMockMode),
-        getActionAssessment(ai, playerEntity, playerIntent, currentWorldState, npcEntities, isMockMode),
-    ]);
+    const storyRelevancePromise = getStoryRelevance(ai, turnNumber, turnHistory.slice(-1)[0]?.adjudication.headlines || [], currentWorldState, npcEntities, currentNpcIntents, isMockMode);
+    const actionAssessmentPromise = resolutionAttempt === null
+        ? Promise.resolve(undefined)
+        : getActionAssessment(ai, playerEntity, resolutionAttempt, currentWorldState, npcEntities, isMockMode);
+    const [storyRelevance, actionAssessment] = await Promise.all([storyRelevancePromise, actionAssessmentPromise]);
 
     // *** THE DIRECTOR'S DURABLE INTENTS (4C.3) ***
     // The single filtered/capped intent list every downstream consumer sees:
@@ -416,7 +424,7 @@ export async function runNewTurn(
     // adjudicator behaves exactly as it did before this feature existed.
     let playerActionOutcome: PlayerActionOutcomeContext | undefined;
     let resolutionTrace: ActionResolutionEvent | undefined;
-    if (actionAssessment.is_consequential) {
+    if (actionAssessment?.is_consequential) {
         const opposingEntity = actionAssessment.opposing_entity_id
             ? currentEntities.find(e => e.entity_id === actionAssessment.opposing_entity_id)
             : undefined;
@@ -529,7 +537,7 @@ export async function runNewTurn(
         playerEntity,
         npcEntities,
         history: recentHistory,
-        playerIntent,
+        submission: adjudicationSubmission,
         gmInterventionText,
         storyRelevance,
         metaNarrative,
@@ -560,10 +568,10 @@ export async function runNewTurn(
     // margin/tier) are fine here - gm_private is stripped entirely before
     // the player-facing narration call (see narration.ts's
     // sanitizeAdjudicationForNarration).
+    let trustedResolutionContext: string | undefined;
     if (resolutionTrace) {
-        adjudication.gm_private.push(
-            `[Resolution] Player action ("${playerIntent}", ${resolutionTrace.assessment.action_category}) - roll ${resolutionTrace.roll} + modifiers vs difficulty ${resolutionTrace.assessment.difficulty} -> margin ${resolutionTrace.margin.toFixed(1)} -> ${resolutionTrace.tier}.`
-        );
+        trustedResolutionContext = `[Resolution] Player action ("${resolutionAttempt ?? '(no observable attempt)'}", ${resolutionTrace.assessment.action_category}) - roll ${resolutionTrace.roll} + modifiers vs difficulty ${resolutionTrace.assessment.difficulty} -> margin ${resolutionTrace.margin.toFixed(1)} -> ${resolutionTrace.tier}.`;
+        adjudication.gm_private.push(trustedResolutionContext);
     }
 
     // *** ENTITY-ACTIONS-VS-INTENT CONSISTENCY (4C.3, soft contract) ***
@@ -687,7 +695,8 @@ export async function runNewTurn(
         playerEntity.entity_id,
         turnNumber,
         isMockMode,
-        turnRng
+        turnRng,
+        { trustedResolutionContext }
     );
 
     // 3. Apply the (mortality-transformed) adjudication to get new state.
@@ -702,7 +711,7 @@ export async function runNewTurn(
     // per-NPC digests are derived and discarded there; `perceivingNpcIds`
     // (recorded on the history entry below) is what lets the GM console
     // re-derive them for display.
-    let { updatedEntities, updatedWorldState, updatedReports, updatedTruthLedger, perceivingNpcIds } = applyAdjudication(
+    const appliedAdjudication = applyAdjudication(
         transformedAdjudication, currentEntities, currentWorldState, currentReports, currentTruthLedger,
         {
             playerEntityId: playerEntity.entity_id,
@@ -713,8 +722,10 @@ export async function runNewTurn(
             turnNumber,
         }
     );
+    let { updatedEntities } = appliedAdjudication;
+    const { updatedWorldState, updatedReports, updatedTruthLedger, perceivingNpcIds } = appliedAdjudication;
     const updatedPlayerEntity = updatedEntities.find(e => e.entity_id === playerEntity.entity_id) || playerEntity;
-    const recentPlayerIntents = turnHistory.map(h => h.playerIntent).slice(-6);
+    const recentPlayerIntents = [...turnHistory.map(h => h.playerIntent).slice(-6), playerOwnedContext];
 
     // *** NEW STEPS 2.7/4/5, PARALLELIZED (ROADMAP_0_MASTER_PLAN.md Phase 3
     // item 3) ***
@@ -795,7 +806,7 @@ export async function runNewTurn(
         transformedAdjudication.entityActions.map(a => a.id),
         updatedEntities
     );
-    const narrationPrompt = buildNarrationPrompt(metaNarrative, updatedPlayerEntity, playerIntent, transformedAdjudication, mortalityDirectives, voiceCast);
+    const narrationPrompt = buildNarrationPrompt(metaNarrative, updatedPlayerEntity, narrationSubmission, transformedAdjudication, mortalityDirectives, voiceCast);
     const narrationRequest = {
         callName: 'narration',
         model: GEMINI_PRO,
@@ -835,7 +846,7 @@ export async function runNewTurn(
 
     // 5.5 Get and apply relationship updates based on narrative
     options?.onStage?.('relationship_updates');
-    const relationshipUpdateResult = await getRelationshipUpdates(ai, narration, transformedAdjudication.headlines, updatedEntities, isMockMode);
+    const relationshipUpdateResult = await getRelationshipUpdates(ai, narration, transformedAdjudication.headlines, updatedEntities, isMockMode, narrationSubmission.hasObservableAttempt);
     // CONTRACT ENFORCEMENT: this call's contract is 'relation' deltas ONLY
     // (buildRelationshipUpdatesPrompt asks for nothing else), but the schema
     // pair it validates against (zRelationshipDeltas / RelationshipDeltasSchema)
