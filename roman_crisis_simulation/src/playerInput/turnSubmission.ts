@@ -276,6 +276,14 @@ export function validateAndNormalizeTurnSubmission(
   draft: TurnSubmission | StructuredTurnDraft,
   context: { knownRecipients: readonly KnownRecipientOption[] },
 ): ValidationResult {
+  return normalizeTurnSubmission(draft, context, true);
+}
+
+function normalizeTurnSubmission(
+  draft: TurnSubmission | StructuredTurnDraft,
+  context: { knownRecipients: readonly KnownRecipientOption[] },
+  enforceLimit: boolean,
+): ValidationResult {
   if (!isRecord(draft) || !context || !Array.isArray(context.knownRecipients)) {
     return issue('submission', 'Unsupported turn submission.');
   }
@@ -288,6 +296,7 @@ export function validateAndNormalizeTurnSubmission(
         context.knownRecipients,
         true,
       ),
+      enforceLimit,
     );
   }
 
@@ -301,6 +310,7 @@ export function validateAndNormalizeTurnSubmission(
           false,
         ),
         true,
+        enforceLimit,
       )
     : issue('submission', 'Unsupported structured submission.');
 }
@@ -315,22 +325,7 @@ export function canonicalArtifactForTurnSubmission(
   draft: TurnSubmission | StructuredTurnDraft,
   context: { knownRecipients: readonly KnownRecipientOption[] },
 ): { ok: true; submission: TurnSubmission; artifact: string } | { ok: false; issues: TurnSubmissionIssue[] } {
-  if (!isRecord(draft) || !context || !Array.isArray(context.knownRecipients)) {
-    return { ok: false, issues: [{ field: 'submission', message: 'Unsupported turn submission.' }] };
-  }
-
-  const result = ('kind' in draft || 'version' in draft)
-    ? normalizeVersionedSubmission(draft, (recipient) => normalizeRecipientFromKnownOptions(
-      recipient, context.knownRecipients, true,
-    ), false)
-    : (() => {
-      const fields = readStructuredFields(draft, false);
-      return fields
-        ? normalizeStructuredFields(fields, (recipient) => normalizeRecipientFromKnownOptions(
-          recipient, context.knownRecipients, false,
-        ), true, false)
-        : issue('submission', 'Unsupported structured submission.');
-    })();
+  const result = normalizeTurnSubmission(draft, context, false);
   if (result.ok) {
     return { ok: true, submission: result.submission, artifact: encodeCanonicalSubmission(result.submission) };
   }

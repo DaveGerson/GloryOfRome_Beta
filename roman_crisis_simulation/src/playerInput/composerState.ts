@@ -2,6 +2,30 @@ import { TURN_SUBMISSION_VERSION, type KnownRecipientOption, type MessageOrOrder
 import { MAX_TURN_SUBMISSION_CHARACTERS, canonicalArtifactForTurnSubmission } from './turnSubmission';
 
 const blankMessageOrOrder = (): MessageOrOrderDraft => ({ recipient: null, command: '' });
+const CUSTOM_RECIPIENT_SELECT_VALUE = 'custom';
+const KNOWN_RECIPIENT_SELECT_PREFIX = 'known:';
+
+export function encodeKnownRecipientSelectValue(entityId: string): string {
+  return `${KNOWN_RECIPIENT_SELECT_PREFIX}${encodeURIComponent(entityId)}`;
+}
+
+export function decodeRecipientSelectValue(value: string):
+  | { kind: 'blank' }
+  | { kind: 'custom' }
+  | { kind: 'known'; entityId: string }
+  | null {
+  if (!value) return { kind: 'blank' };
+  if (value === CUSTOM_RECIPIENT_SELECT_VALUE) return { kind: 'custom' };
+  if (!value.startsWith(KNOWN_RECIPIENT_SELECT_PREFIX)) return null;
+  try {
+    const entityId = decodeURIComponent(value.slice(KNOWN_RECIPIENT_SELECT_PREFIX.length));
+    return entityId ? { kind: 'known', entityId } : null;
+  } catch {
+    return null;
+  }
+}
+
+export const customRecipientSelectValue = (): string => CUSTOM_RECIPIENT_SELECT_VALUE;
 
 export function emptyStructuredDraft(): StructuredTurnDraft {
   return {
@@ -48,11 +72,12 @@ function updateMessageOrOrderRow(
 export function selectMessageRecipient(draft: StructuredTurnDraft, index: number, value: string): StructuredTurnDraft {
   const row = draft.messagesOrOrders[index];
   if (!row) return draft;
-  if (!value) return updateMessageOrOrderRow(draft, index, blankMessageOrOrder());
+  const selection = decodeRecipientSelectValue(value);
+  if (!selection || selection.kind === 'blank') return updateMessageOrOrderRow(draft, index, blankMessageOrOrder());
   return updateMessageOrOrderRow(draft, index, {
-    recipient: value === '__custom_recipient__'
+    recipient: selection.kind === 'custom'
       ? { kind: 'free_text', text: '' }
-      : { kind: 'known_entity', entityId: value },
+      : { kind: 'known_entity', entityId: selection.entityId },
     command: row.command,
   });
 }
@@ -81,12 +106,26 @@ export function updateQuestionOrContext(draft: StructuredTurnDraft, questionOrCo
 export function canonicalArtifactStatus(
   input: string | StructuredTurnDraft,
   recipientOptions: readonly KnownRecipientOption[],
-): { ok: true; characterCount: number; overLimit: boolean } | { ok: false; characterCount: 0; overLimit: false } {
+): { ok: true; characterCount: number; remainingCharacters: number; excessCharacters: number; overLimit: boolean }
+  | { ok: false; characterCount: null; remainingCharacters: null; excessCharacters: 0; overLimit: false; issues: readonly { field: string; message: string }[] } {
   const draft = typeof input === 'string'
     ? { version: TURN_SUBMISSION_VERSION, kind: 'freeform' as const, text: input }
     : input;
   const result = canonicalArtifactForTurnSubmission(draft, { knownRecipients: recipientOptions });
   return result.ok
-    ? { ok: true, characterCount: result.artifact.length, overLimit: result.artifact.length > MAX_TURN_SUBMISSION_CHARACTERS }
-    : { ok: false, characterCount: 0, overLimit: false };
+    ? {
+      ok: true,
+      characterCount: result.artifact.length,
+      remainingCharacters: Math.max(0, MAX_TURN_SUBMISSION_CHARACTERS - result.artifact.length),
+      excessCharacters: Math.max(0, result.artifact.length - MAX_TURN_SUBMISSION_CHARACTERS),
+      overLimit: result.artifact.length > MAX_TURN_SUBMISSION_CHARACTERS,
+    }
+    : {
+      ok: false,
+      characterCount: null,
+      remainingCharacters: null,
+      excessCharacters: 0,
+      overLimit: false,
+      issues: result.issues,
+    };
 }

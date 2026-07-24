@@ -22,6 +22,8 @@ export interface TurnComposerProps {
   onSubmit(input: string | StructuredTurnDraft): void;
 }
 
+const formatCharacterCount = (count: number): string => count.toLocaleString('en-US');
+
 export const TurnComposer: React.FC<TurnComposerProps> = ({
   chatDraft, structuredDraft, recipientOptions, suggestedActions, disabled, isProcessing,
   onChatDraftChange, onStructuredDraftChange, onSubmit, turnStage,
@@ -29,9 +31,15 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
   const [mode, setMode] = useState<ComposerMode>(() => getComposerMode());
   const locked = disabled || isProcessing;
   const artifactStatus = canonicalArtifactStatus(mode === 'chat' ? chatDraft : structuredDraft, recipientOptions);
-  const remaining = artifactStatus.ok ? MAX_TURN_SUBMISSION_CHARACTERS - artifactStatus.characterCount : 0;
+  const blankChat = mode === 'chat' && !chatDraft.trim();
+  const remaining = artifactStatus.ok
+    ? artifactStatus.remainingCharacters
+    : blankChat ? MAX_TURN_SUBMISSION_CHARACTERS : null;
   const overLimit = artifactStatus.ok && artifactStatus.overLimit;
   const statusId = 'composer-submission-status';
+  const validationMessage = artifactStatus.ok || blankChat
+    ? null
+    : artifactStatus.issues.map(issue => issue.message).join(' ');
 
   const selectMode = (next: ComposerMode) => {
     setMode(next);
@@ -75,18 +83,25 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
               }
             }} />
           {overLimit ? (
-            <p id={statusId} role="alert">{Math.abs(remaining)} character{Math.abs(remaining) === 1 ? '' : 's'} over limit</p>
+            <p id={statusId} role="alert">{formatCharacterCount(artifactStatus.excessCharacters)} character{artifactStatus.excessCharacters === 1 ? '' : 's'} over limit</p>
+          ) : validationMessage ? (
+            <p id={statusId} role="alert">{validationMessage} {remaining} characters remaining</p>
           ) : (
-            <p id={statusId} role="status">{remaining} characters remaining</p>
+            <p id={statusId} role="status">{formatCharacterCount(remaining ?? 0)} characters remaining</p>
           )}
           <button type="submit" aria-label="Send message" disabled={locked || overLimit || !artifactStatus.ok || !chatDraft.trim()}>Send message</button>
         </form>
       ) : (
         <>
-          {overLimit && (
-            <p id={statusId} role="alert">{Math.abs(remaining)} character{Math.abs(remaining) === 1 ? '' : 's'} over limit</p>
+          {overLimit ? (
+            <p id={statusId} role="alert">{formatCharacterCount(artifactStatus.excessCharacters)} character{artifactStatus.excessCharacters === 1 ? '' : 's'} over limit</p>
+          ) : validationMessage ? (
+            <p id={statusId} role="alert">{validationMessage}</p>
+          ) : (
+            <p id={statusId} role="status">{formatCharacterCount(remaining ?? 0)} characters remaining</p>
           )}
           <StructuredTurnComposer draft={structuredDraft} recipientOptions={recipientOptions} disabled={locked} submissionBlocked={overLimit || !artifactStatus.ok}
+            validationIssues={artifactStatus.ok ? [] : artifactStatus.issues} statusId={statusId}
             onChange={onStructuredDraftChange} onSubmit={submitStructured} />
         </>
       )}

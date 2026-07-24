@@ -16,6 +16,7 @@ import {
   projectForResolution,
   serializeTurnSubmission,
   validateAndNormalizeTurnSubmission,
+  canonicalArtifactForTurnSubmission,
 } from '../playerInput/turnSubmission';
 
 const KNOWN_RECIPIENTS: readonly KnownRecipientOption[] = [
@@ -44,6 +45,28 @@ describe('canonical turn-submission constants', () => {
 });
 
 describe('validateAndNormalizeTurnSubmission', () => {
+  it('keeps preview and submission normalization in parity for every input family except limit enforcement', () => {
+    const context = { knownRecipients: [{ entityId: 'julia_domna', displayName: 'Julia Domna' }] };
+    const inputs: Array<TurnSubmission | StructuredTurnDraft> = [
+      { version: 1 as const, kind: 'freeform' as const, text: ' Speak plainly ' },
+      { actions: ['Address the Senate'], messagesOrOrders: [], privateIntent: '', questionOrContext: '' },
+      { actions: [], messagesOrOrders: [], privateIntent: '', questionOrContext: '' },
+      { actions: [], messagesOrOrders: [{ recipient: { kind: 'known_entity', entityId: 'stale' }, command: 'Wait.' }], privateIntent: '', questionOrContext: '' },
+      { version: 1 as const, kind: 'freeform' as const, text: 'GOR_TURN_SUBMISSION/1\nnot JSON' },
+      { version: 1 as const, kind: 'freeform' as const, text: 'x'.repeat(20_001) },
+    ];
+    for (const input of inputs) {
+      const preview = canonicalArtifactForTurnSubmission(input, context);
+      const submitted = validateAndNormalizeTurnSubmission(input, context);
+      if (preview.ok && preview.artifact.length <= MAX_TURN_SUBMISSION_CHARACTERS) {
+        expect(submitted).toEqual({ ok: true, submission: preview.submission });
+      } else if (preview.ok) {
+        expect(submitted).toMatchObject({ ok: false, issues: [{ field: 'submission' }] });
+      } else {
+        expect(submitted).toEqual({ ok: false, issues: preview.issues });
+      }
+    }
+  });
   it('normalizes repeatable actions and both recipient variants while preserving internal authored whitespace', () => {
     const draft: StructuredTurnDraft = {
       actions: [

@@ -112,6 +112,8 @@ describe('components/TurnComposer', () => {
 
     expect(chatMode.getAttribute('aria-pressed')).toBe('true');
     expect(container.querySelector('textarea[aria-label="Chat input"]')).not.toBeNull();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.querySelector('[role="status"]')?.textContent).toMatch(/20,000 characters remaining/i);
 
     await click(structuredMode);
 
@@ -148,6 +150,10 @@ describe('components/TurnComposer', () => {
 
   it('builds every recipient selector only from safe options plus placeholder/custom, and discards custom text when a known recipient is selected', async () => {
     let latestDraft = emptyStructuredDraft();
+    const collisionOptions: readonly KnownRecipientOption[] = [
+      ...RECIPIENT_OPTIONS,
+      { entityId: '__custom_recipient__', displayName: 'Collision-proof known recipient' },
+    ];
 
     function Harness() {
       const [draft, setDraft] = useState(emptyStructuredDraft());
@@ -156,6 +162,7 @@ describe('components/TurnComposer', () => {
         <TurnComposer
           {...defaultProps()}
           structuredDraft={draft}
+          recipientOptions={collisionOptions}
           onStructuredDraftChange={setDraft}
         />
       );
@@ -173,12 +180,22 @@ describe('components/TurnComposer', () => {
         expect.stringMatching(/select|choose/i),
         'Julia Domna',
         'Cassius Dio',
+        'Collision-proof known recipient',
         'Someone else…',
       ]);
       expect(options[0].value).toBe('');
       expect(options[0].disabled).toBe(false);
     }
     expect(container.textContent).not.toContain(HIDDEN_NAME_SENTINEL);
+
+    const collisionOption = Array.from(selects[1].options).find(
+      option => option.textContent === 'Collision-proof known recipient',
+    )!;
+    expect(collisionOption.value).toMatch(/^known:/);
+    await setValue(selects[1], collisionOption.value);
+    expect(latestDraft.messagesOrOrders[1].recipient).toEqual({
+      kind: 'known_entity', entityId: '__custom_recipient__',
+    });
 
     const customOption = Array.from(selects[0].options).find(
       option => option.textContent === 'Someone else…',
@@ -312,7 +329,7 @@ describe('components/TurnComposer', () => {
       <TurnComposer {...defaultProps({ chatDraft: `  ${reserved}  ` , onSubmit })} />,
     );
     expect(container.querySelector('[role="status"]')?.textContent).toContain(
-      `${20_000 - (TURN_SUBMISSION_PREFIX.length + JSON.stringify({ version: 1, kind: 'freeform', text: reserved }).length)} characters remaining`,
+      `${(20_000 - (TURN_SUBMISSION_PREFIX.length + JSON.stringify({ version: 1, kind: 'freeform', text: reserved }).length)).toLocaleString('en-US')} characters remaining`,
     );
 
     const oversizedStructured: StructuredTurnDraft = {
@@ -352,8 +369,34 @@ describe('components/TurnComposer', () => {
     };
     const { container } = await mount(<TurnComposer {...defaultProps({ structuredDraft: invalid })} />);
     await click(buttonNamed(container, 'Structured'));
-    expect(byAriaLabel<HTMLTextAreaElement>(container, 'Message or order 1').disabled).toBe(false);
+    const command = byAriaLabel<HTMLTextAreaElement>(container, 'Message or order 1');
+    const recipient = byAriaLabel<HTMLSelectElement>(container, 'Recipient 1');
+    const error = container.querySelector<HTMLElement>('[role="alert"]');
+    expect(error?.textContent).toMatch(/recipient and command are both required/i);
+    expect(error?.textContent).not.toMatch(/characters remaining/i);
+    expect(command.disabled).toBe(false);
+    expect(recipient.disabled).toBe(false);
+    expect(command.getAttribute('aria-invalid')).toBe('true');
+    expect(recipient.getAttribute('aria-invalid')).toBe('true');
+    expect(command.getAttribute('aria-describedby')).toBe(error?.id);
+    expect(recipient.getAttribute('aria-describedby')).toBe(error?.id);
     expect(buttonNamed(container, 'Submit turn').disabled).toBe(true);
+  });
+
+  it('keeps structured validation reasons visible and associated for stale recipients', async () => {
+    const stale: StructuredTurnDraft = {
+      ...emptyStructuredDraft(),
+      messagesOrOrders: [{ recipient: { kind: 'known_entity', entityId: 'not-present' }, command: 'Wait.' }],
+    };
+    const { container } = await mount(<TurnComposer {...defaultProps({ structuredDraft: stale })} />);
+    await click(buttonNamed(container, 'Structured'));
+    const recipient = byAriaLabel<HTMLSelectElement>(container, 'Recipient 1');
+    const error = container.querySelector<HTMLElement>('[role="alert"]');
+    expect(error?.textContent).toMatch(/selected recipient is unavailable/i);
+    expect(error?.textContent).not.toMatch(/characters remaining/i);
+    expect(recipient.disabled).toBe(false);
+    expect(recipient.getAttribute('aria-invalid')).toBe('true');
+    expect(recipient.getAttribute('aria-describedby')).toBe(error?.id);
   });
 
   it('renders the public stage-specific processing label with an accessible live status', async () => {

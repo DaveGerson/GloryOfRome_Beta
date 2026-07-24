@@ -4,9 +4,12 @@ import {
   addActionRow,
   appendSuggestedAction,
   canonicalArtifactStatus,
+  decodeRecipientSelectValue,
+  encodeKnownRecipientSelectValue,
   emptyStructuredDraft,
   selectMessageRecipient,
   updateActionRow,
+  updateCustomRecipient,
   updateMessageCommand,
   updatePrivateIntent,
   updateQuestionOrContext,
@@ -49,7 +52,7 @@ describe('playerInput/composerState', () => {
           selectMessageRecipient(
             addActionRow(updateActionRow(initial, 0, 'Address the Senate')),
             0,
-            'julia_domna',
+            encodeKnownRecipientSelectValue('julia_domna'),
           ),
           0,
           'Bring the ledger',
@@ -80,5 +83,61 @@ describe('playerInput/composerState', () => {
     });
     expect(canonicalArtifactStatus('GOR_TURN_SUBMISSION/1\nnot JSON', []).characterCount)
       .toBeGreaterThan('GOR_TURN_SUBMISSION/1\nnot JSON'.length);
+  });
+
+  it('reports capacity, exact excess, and validation reasons without discarding editable draft data', () => {
+    expect(canonicalArtifactStatus('   ', [])).toMatchObject({
+      ok: false,
+      characterCount: null,
+      remainingCharacters: null,
+      issues: [{ field: 'text', message: 'Enter a turn submission.' }],
+    });
+    expect(canonicalArtifactStatus('x'.repeat(20_001), [])).toMatchObject({
+      ok: true,
+      characterCount: 20_001,
+      overLimit: true,
+      excessCharacters: 1,
+    });
+    const valid = canonicalArtifactStatus({
+      ...emptyStructuredDraft(), actions: ['Address the Senate'],
+    }, []);
+    expect(valid.ok).toBe(true);
+    if (!valid.ok) throw new Error('Expected valid structured artifact.');
+    expect(valid.remainingCharacters).toBe(20_000 - valid.characterCount);
+    expect(canonicalArtifactStatus({
+      ...emptyStructuredDraft(),
+      messagesOrOrders: [{ recipient: { kind: 'known_entity', entityId: 'stale' }, command: 'Wait.' }],
+    }, [])).toMatchObject({
+      ok: false,
+      issues: [{ field: 'messagesOrOrders.0.recipient', message: 'Selected recipient is unavailable.' }],
+    });
+  });
+
+  it('round-trips a known recipient whose id collides with the former custom sentinel', () => {
+    const encoded = encodeKnownRecipientSelectValue('__custom_recipient__');
+    expect(encoded).not.toBe('__custom_recipient__');
+    expect(decodeRecipientSelectValue(encoded)).toEqual({ kind: 'known', entityId: '__custom_recipient__' });
+    expect(selectMessageRecipient(emptyStructuredDraft(), 0, encoded).messagesOrOrders[0].recipient)
+      .toEqual({ kind: 'known_entity', entityId: '__custom_recipient__' });
+  });
+
+  it('updates only the requested custom-recipient row immutably and clears it when switching to known', () => {
+    const initial = {
+      ...emptyStructuredDraft(),
+      messagesOrOrders: [
+        { recipient: { kind: 'free_text' as const, text: 'First' }, command: 'One' },
+        { recipient: { kind: 'free_text' as const, text: 'Second' }, command: 'Two' },
+      ],
+    };
+    const updated = updateCustomRecipient(initial, 1, 'Changed');
+    expect(updated).not.toBe(initial);
+    expect(updated.messagesOrOrders).not.toBe(initial.messagesOrOrders);
+    expect(updated.messagesOrOrders[0]).toBe(initial.messagesOrOrders[0]);
+    expect(updated.messagesOrOrders[1]).toEqual({ recipient: { kind: 'free_text', text: 'Changed' }, command: 'Two' });
+    const known = selectMessageRecipient(updated, 1, encodeKnownRecipientSelectValue('julia_domna'));
+    expect(known.messagesOrOrders[1]).toEqual({
+      recipient: { kind: 'known_entity', entityId: 'julia_domna' }, command: 'Two',
+    });
+    expect(JSON.stringify(known)).not.toContain('Changed');
   });
 });
