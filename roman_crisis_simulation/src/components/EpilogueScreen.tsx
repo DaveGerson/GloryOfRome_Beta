@@ -4,6 +4,7 @@ import { generateText, GEMINI_PRO, GeminiClient } from '../ai/core/geminiService
 import { buildEpiloguePrompt, EpilogueTurnHeadlines, EpilogueEventChoice } from '../ai/prompts/epilogue';
 import { clearSave } from '../persistence/saveGame';
 import { GildedAquila, toRoman } from './ui/Brand';
+import { assertPlayerVisibleTextSafe } from '../ai/core/playerBoundary';
 
 // Epilogue prose is the single most "reward the player" text in the app -
 // same temperature reasoning as ai/core/turn.ts's NARRATION_TEMPERATURE.
@@ -66,6 +67,21 @@ const EpilogueScreen: React.FC<{
   const [usedFallback, setUsedFallback] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
 
+  // The ambition is inferred by a separate model call and is both rendered
+  // here and interpolated into the epilogue prompt. Classify it before either
+  // use; a rejected value becomes content-free rather than being reflected in
+  // UI or sent through another model.
+  let safeInferredAmbition = inferredAmbition;
+  let ambitionBoundaryError: unknown;
+  if (safeInferredAmbition) {
+    try {
+      assertPlayerVisibleTextSafe(safeInferredAmbition.apparent_ambition);
+    } catch (error) {
+      ambitionBoundaryError = error;
+      safeInferredAmbition = null;
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
 
@@ -77,6 +93,16 @@ const EpilogueScreen: React.FC<{
       // orchestrated directly in the component).
       if (isMockMode) {
         if (!cancelled) {
+          setEpitaph(buildStaticFallbackEpitaph(player, causeNarration));
+          setIsLoading(false);
+        }
+        return;
+      }
+
+      if (ambitionBoundaryError) {
+        console.error('EpilogueScreen: inferred ambition failed the player-visible boundary, using a static epitaph', ambitionBoundaryError);
+        if (!cancelled) {
+          setUsedFallback(true);
           setEpitaph(buildStaticFallbackEpitaph(player, causeNarration));
           setIsLoading(false);
         }
@@ -105,8 +131,8 @@ const EpilogueScreen: React.FC<{
         turnHeadlines,
         omittedTurnCount,
         eventChoices,
-        inferredAmbition: inferredAmbition
-          ? { apparent_ambition: inferredAmbition.apparent_ambition, confidence: inferredAmbition.confidence }
+        inferredAmbition: safeInferredAmbition
+          ? { apparent_ambition: safeInferredAmbition.apparent_ambition, confidence: safeInferredAmbition.confidence }
           : null,
       });
 
@@ -118,8 +144,10 @@ const EpilogueScreen: React.FC<{
           prompt,
           temperature: EPILOGUE_TEMPERATURE,
         });
+        const safeText = text && text.trim() ? text.trim() : buildStaticFallbackEpitaph(player, causeNarration);
+        assertPlayerVisibleTextSafe(safeText);
         if (!cancelled) {
-          setEpitaph(text && text.trim() ? text.trim() : buildStaticFallbackEpitaph(player, causeNarration));
+          setEpitaph(safeText);
           setIsLoading(false);
         }
       } catch (error) {
@@ -210,7 +238,7 @@ const EpilogueScreen: React.FC<{
                 <li>
                   Apparent ambition:{' '}
                   <span style={{ color: STELE_BRIGHT, fontStyle: 'italic' }}>
-                    {inferredAmbition ? inferredAmbition.apparent_ambition : 'Never became clear, even in hindsight.'}
+                    {safeInferredAmbition ? safeInferredAmbition.apparent_ambition : 'Never became clear, even in hindsight.'}
                   </span>
                 </li>
               </ul>

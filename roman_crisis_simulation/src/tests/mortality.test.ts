@@ -443,7 +443,7 @@ describe('ai/core/mortality.ts processMortality', () => {
 
   it.each([
     ['player resource', { type: 'resource', key: `${playerId}:denarii`, delta: -500, reason: 'The imperial treasury pays the price.' }],
-    ['player relation', { type: 'relation', key: `${playerId}:${npcId}:trust`, delta: -2, reason: 'The emperor now mistrusts the survivor.' }],
+    ['unrelated relation', { type: 'relation', key: `${playerId}:${playerId}:perceived_threat`, delta: -2, reason: 'The emperor now mistrusts himself.' }],
     ['world state', { type: 'world', key: 'political_climate', delta: 0, reason: 'The Empire collapses into panic.' }],
   ])('fails the mortality response before apply when an NPC outcome authors an unauthorized %s effect', async (_label, injectedDelta) => {
     mockRoll(20);

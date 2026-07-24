@@ -108,8 +108,11 @@ function isNpcFateOutcome(outcome: ResolvedOutcome): outcome is NpcFateOutcome {
 
 /**
  * Classifies outcome-call-authored deltas against the candidate whose fate
- * is being dressed. Mortality content may affect only that candidate, and
- * only through the four side-effect types promised by the outcome prompt.
+ * is being dressed. Resource and scheme effects belong directly to that
+ * candidate; relation fallout may put the candidate on either endpoint;
+ * rumor authorship is independent of its candidate subject key, so any real
+ * entity may be its origin (or it may be organic and omit origin_id).
+ * These are the four side-effect types promised by the outcome prompt.
  * Status remains a separately traced rejection because only the validated
  * fate roll may author it; every other unauthorized effect invalidates the
  * whole response rather than being silently sanitized into a partial commit.
@@ -117,6 +120,7 @@ function isNpcFateOutcome(outcome: ResolvedOutcome): outcome is NpcFateOutcome {
 export function partitionOutcomeDeltas(
   deltas: EventDelta[],
   candidateId: string,
+  knownEntityIds: ReadonlySet<string>,
 ): { safe: EventDelta[]; rejected: EventDelta[]; unauthorized: EventDelta[] } {
   const safe: EventDelta[] = [];
   const rejected: EventDelta[] = [];
@@ -127,23 +131,25 @@ export function partitionOutcomeDeltas(
       continue;
     }
 
-    const [rootEntityId] = delta.key.split(':');
-    const hasCandidateSubject = rootEntityId === candidateId;
     const keyParts = delta.key.split(':');
     const hasAuthorizedShape = (() => {
       switch (delta.type) {
         case 'resource':
-          return keyParts.length === 2 && keyParts[1].length > 0;
+          return keyParts.length === 2
+            && keyParts[0] === candidateId
+            && keyParts[1].length > 0;
         case 'relation':
           return keyParts.length === 3
-            && keyParts[1].length > 0
+            && knownEntityIds.has(keyParts[0])
+            && knownEntityIds.has(keyParts[1])
+            && (keyParts[0] === candidateId || keyParts[1] === candidateId)
             && ['trust_level', 'respect_level', 'perceived_threat', 'ideological_alignment', 'dependency_level']
               .includes(keyParts[2]);
         case 'scheme':
           return delta.key === candidateId;
         case 'rumor':
           return delta.key === candidateId
-            && (!delta.origin_id || delta.origin_id === candidateId)
+            && (!delta.origin_id || knownEntityIds.has(delta.origin_id))
             && typeof delta.is_true === 'boolean'
             && typeof delta.topic === 'string'
             && delta.topic.trim().length > 0;
@@ -152,7 +158,7 @@ export function partitionOutcomeDeltas(
       }
     })();
 
-    if (hasCandidateSubject && hasAuthorizedShape) safe.push(delta);
+    if (hasAuthorizedShape) safe.push(delta);
     else unauthorized.push(delta);
   }
   return { safe, rejected, unauthorized };
@@ -283,6 +289,7 @@ export async function processMortality(
   const gmPrivateNotes: string[] = [];
   const mortalityEvents: MortalityEvent[] = [];
   const extraDeltas: EventDelta[] = [];
+  const knownEntityIds = new Set(entities.map(entity => entity.entity_id));
 
   for (const r of resolved) {
     const { claim, originalCause, valid, reasoning } = r;
@@ -339,6 +346,7 @@ export async function processMortality(
       const { safe, rejected, unauthorized } = partitionOutcomeDeltas(
         contentOverride.deltas,
         claim.entity.entity_id,
+        knownEntityIds,
       );
       if (unauthorized.length > 0) {
         throw new Error(MORTALITY_OUTCOME_BOUNDARY_ERROR);

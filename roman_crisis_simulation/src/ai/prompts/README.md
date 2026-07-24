@@ -73,7 +73,12 @@ decides an outcome, only narrates one the code already rolled**
   only.
 - `mortalityOutcome` is only asked to dress an ALREADY-DECIDED band in
   concrete deltas and a one-line narration directive - it is told the band
-  up front and must not contradict or reinterpret it.
+  up front and must not contradict or reinterpret it. Its side effects keep
+  the prompt's existing type-aware scope: resource/scheme keys target the
+  candidate; a relation can place the candidate on either directional
+  endpoint; a rumor concerns the candidate but may be spread by any real
+  entity (or omit `origin_id` when genuinely organic). Status, unrelated
+  entity, region, faction, and world effects are rejected before apply.
 - The narration call (`narration.ts::buildNarrationPrompt`) receives those
   directives as non-negotiable staging notes, plus a SANITIZED adjudication
   (`sanitizeAdjudicationForNarration` strips `gm_private` and any

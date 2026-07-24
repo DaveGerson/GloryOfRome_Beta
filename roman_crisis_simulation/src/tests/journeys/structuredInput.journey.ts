@@ -65,7 +65,7 @@ function clientForTurn(
     } : {}),
     adjudication: scriptAdjudication(turn, options.adjudication),
     simulationState: scriptSimulationState(seed.thread.simulationState),
-    monologue: 'I will judge only what is before me, and keep counsel with myself.',
+    monologue: 'I intend to judge only what is before me, and keep counsel with myself.',
     narration: scriptNarration(options.narration ?? 'The Emperor hears the petitions of Rome.', [
       'Consult Julia Mamaea',
       'Address the Senate',

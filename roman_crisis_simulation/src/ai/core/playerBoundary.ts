@@ -40,12 +40,14 @@ const MECHANICAL_ROLL_PATTERNS = [
   /\bnatural\s+\d+\b/i,
   /\b\d+\s+(?:on|from)\s+(?:the\s+)?(?:die|dice|roll)\b/i,
   /\broll[\s-]+total\s*(?::|=|\b(?:was|is|of)\b)\s*[+-]?\d+\b/i,
+  /\bcheck[\s-]+total\s*(?::|=|\b(?:was|is|of)\b)\s*[+-]?\d+\b/i,
   /\bmargin\s*(?::|=|\b(?:was|is|of)\b)\s*[+-]?\d+\b/i,
+  /\baction[\s-]+modifier\s*(?::|=|\b(?:was|is|of)\b|[\u2013\u2014-])\s*[+-]?\d+\b/i,
 ] as const;
 
 const HUMANIZED_MECHANIC_LABEL_PATTERNS = [
-  /\boutcome[\s-]*tier\s*(?::|=|-)?\s*(?:critical[\s-]+failure|partial[\s-]+success|critical[\s-]+success|failure|success)\b/i,
-  /\bfate[\s-]*band\s*(?::|=|-)?\s*(?:survive[\s-]+with[\s-]+loss|survive[\s-]+with[\s-]+boon|confirmed[\s-]+dead|gravely[\s-]+wounded|presumed[\s-]+dead|escapes[\s-]+openly|dies)\b/i,
+  /\b(?:outcome|resolution|check|result)[\s-]*tier\s*(?:[.:=\u2013\u2014-]\s*)*(?:critical[\s-]+failure|partial[\s-]+success|critical[\s-]+success|failure|success)\b/i,
+  /\bfate[\s-]*band\s*(?:[.:=\u2013\u2014-]\s*)*(?:survives?[\s-]+with[\s-]+loss|survives?[\s-]+with[\s-]+boon|confirmed[\s-]+dead|gravely[\s-]+wounded|presumed[\s-]+dead|escapes[\s-]+openly|dies)\b/i,
 ] as const;
 
 /** Canonicalizes visually equivalent or invisibly separated provider text. */
@@ -139,8 +141,11 @@ function identityAliases(player: PlayerIdentity): string[] {
 
 function samePlayerIdentity(value: string | null | undefined, player: PlayerIdentity): boolean {
   if (!value) return false;
-  const candidate = compactIdentity(value);
-  return candidate.length > 0 && identityAliases(player).some(alias => compactIdentity(alias) === candidate);
+  const normalized = wordNormalized(value);
+  const candidates = [normalized, normalized.replace(/^the\s+/u, '')]
+    .map(compactIdentity)
+    .filter(candidate => candidate.length > 0);
+  return identityAliases(player).some(alias => candidates.includes(compactIdentity(alias)));
 }
 
 function escapeRegExp(value: string): string {
@@ -154,19 +159,35 @@ const NON_ACTION_PLAYER_PREDICATE = new RegExp(`^(?:${[
   '(?:know|knows|knew|known|think|thinks|thought|believe|believes|believed|suspect|suspects|suspected|wonder|wonders|wondered|understand|understands|understood|remember|remembers|remembered|recognize|recognizes|recognized|realize|realizes|realized|infer|infers|inferred|weigh|weighs|weighed)',
   // Feelings and stable internal conditions.
   '(?:feel|feels|felt|fear|fears|feared|dread|dreads|dreaded|regret|regrets|regretted|seem|seems|seemed|remain|remains|remained)',
-  // Intentions and modal/future contemplation are not accomplished acts.
-  '(?:intend|intends|intended|plan|plans|planned|hope|hopes|hoped|want|wants|wanted|wish|wishes|wished|consider|considers|considered|contemplate|contemplates|contemplated|expect|expects|expected|need|needs|needed|must|should|may|might|could|can|would|will)',
+  // Explicit intentions are not accomplished acts. Bare future/modal verbs
+  // are excluded: "you will dispatch" still authors player conduct.
+  '(?:intend|intends|intended|plan|plans|planned|hope|hopes|hoped|want|wants|wanted|wish|wishes|wished|consider|considers|considered|contemplate|contemplates|contemplated|expect|expects|expected|need|needs|needed)',
 ].join('|')})\\b`, 'u');
 
 const NEGATED_PLAYER_PREDICATE = /^(?:never\b|no\s+longer\b|(?:do|does|did|am|are|is|was|were|have|has|had|can|could|will|would|should|must|may|might)\s+not\b|cannot\b)/u;
 const COPULAR_STATE_PREDICATE = /^(?:am|are|is|was|were)\b(?!\s+[\p{L}\p{N}_-]+ing\b)/u;
+const CONTINUOUS_STATE_PREDICATE = /^(?:am|are|is|was|were)\s+(?:gaining|losing)\s+(?:favor|ground|influence|standing|support|the\s+senate)\b/u;
+const MODAL_NON_ACTION_PREDICATE = new RegExp(
+  `^(?:can|could|may|might|must|should|will|would)\\s+(?:${[
+    '(?:see|hear|notice|observe|perceive|witness|learn)',
+    '(?:know|think|believe|suspect|wonder|understand|remember|recognize|realize|infer|weigh)',
+    '(?:feel|fear|dread|regret|seem|remain)',
+    '(?:intend|plan|hope|want|wish|consider|contemplate|expect|need)',
+    '(?:be\\b(?!\\s+[\\p{L}\\p{N}_-]+ing\\b))',
+  ].join('|')})\\b`,
+  'u',
+);
+const SAFE_CONTEMPLATIVE_IDIOM = /^(?:must|should)\s+tread\s+carefully\b/u;
 const LEADING_PREDICATE_ADVERBS = /^(?:(?:also|already|clearly|currently|deeply|dimly|fully|inwardly|merely|now|perhaps|personally|plainly|privately|probably|publicly|quietly|secretly|still|then|truly|visibly|[\p{L}]+ly)\s+)*/u;
 
 function isAllowedNoAttemptPredicate(predicate: string): boolean {
   const withoutAdverbs = predicate.replace(LEADING_PREDICATE_ADVERBS, '');
   if (NEGATED_PLAYER_PREDICATE.test(withoutAdverbs)) return true;
   if (COPULAR_STATE_PREDICATE.test(withoutAdverbs)) return true;
-  return NON_ACTION_PLAYER_PREDICATE.test(withoutAdverbs);
+  return CONTINUOUS_STATE_PREDICATE.test(withoutAdverbs)
+    || NON_ACTION_PLAYER_PREDICATE.test(withoutAdverbs)
+    || MODAL_NON_ACTION_PREDICATE.test(withoutAdverbs)
+    || SAFE_CONTEMPLATIVE_IDIOM.test(withoutAdverbs);
 }
 
 function passiveAgentPattern(aliasPattern: string): RegExp {
@@ -174,45 +195,130 @@ function passiveAgentPattern(aliasPattern: string): RegExp {
   return new RegExp(`\\b${participle}\\s+by\\s+(?:the\\s+)?${aliasPattern}\\b`, 'u');
 }
 
+/** Expands only grammatical contractions needed to classify a predicate. */
+function normalizePlayerContractions(text: string): string {
+  const negativeContractions: Record<string, string> = {
+    "don't": 'do not', "doesn't": 'does not', "didn't": 'did not',
+    "isn't": 'is not', "aren't": 'are not', "wasn't": 'was not', "weren't": 'were not',
+    "haven't": 'have not', "hasn't": 'has not', "hadn't": 'had not',
+    "can't": 'can not', "couldn't": 'could not', "won't": 'will not', "wouldn't": 'would not',
+    "shouldn't": 'should not', "mustn't": 'must not', "mightn't": 'might not', "needn't": 'need not',
+  };
+  return text
+    .replace(/[\u2018\u2019]/gu, "'")
+    .replace(/\b(?:don't|doesn't|didn't|isn't|aren't|wasn't|weren't|haven't|hasn't|hadn't|can't|couldn't|won't|wouldn't|shouldn't|mustn't|mightn't|needn't)\b/gu,
+      match => negativeContractions[match])
+    .replace(/\b(you|i)'ll\b/gu, '$1 will')
+    .replace(/\bi'm\b/gu, 'i am')
+    .replace(/\byou're\b/gu, 'you are')
+    .replace(/\b(you|i)'ve\b/gu, '$1 have');
+}
+
+// These words establish that a following player alias is an object or the
+// complement of a preposition, rather than a grammatical subject. This is a
+// role classifier, not an action denylist: an unknown predicate attached to
+// an actual player subject still fails closed.
+const PLAYER_OBJECT_PREDECESSORS = new Set([
+  'to', 'for', 'from', 'of', 'by', 'with', 'without', 'near', 'beside', 'behind', 'before', 'after',
+  'around', 'toward', 'towards', 'against', 'among', 'tells', 'told', 'shows', 'showed', 'gives', 'gave',
+  'brings', 'brought', 'warns', 'warned', 'asks', 'asked', 'greets', 'greeted', 'addresses', 'addressed',
+  'approaches', 'approached', 'follows', 'followed', 'watches', 'watched', 'sees', 'saw', 'finds', 'found',
+]);
+
+function aliasIsObject(prefix: string): boolean {
+  const words = wordNormalized(prefix).split(/\s+/u).filter(Boolean);
+  while (['the', 'a', 'an'].includes(words.at(-1) ?? '')) words.pop();
+  return PLAYER_OBJECT_PREDECESSORS.has(words.at(-1) ?? '');
+}
+
+function earliestPlayerSubject(segment: string, aliases: string[]): { predicate: string } | null {
+  const normalizedSegment = wordNormalized(segment);
+  let earliest: { index: number; end: number } | null = null;
+  for (const alias of aliases) {
+    const normalizedAlias = wordNormalized(alias);
+    if (!normalizedAlias) continue;
+    const aliasPattern = escapeRegExp(normalizedAlias).replace(/\s+/g, '\\s+');
+    const pattern = new RegExp(`\\b(?:the\\s+)?${aliasPattern}\\b`, 'gu');
+    for (const match of normalizedSegment.matchAll(pattern)) {
+      const index = match.index ?? 0;
+      if (aliasIsObject(normalizedSegment.slice(0, index))) continue;
+      const end = index + match[0].length;
+      if (!earliest || index < earliest.index) earliest = { index, end };
+    }
+  }
+  if (!earliest) return null;
+  return { predicate: wordNormalized(normalizedSegment.slice(earliest.end)) };
+}
+
+function playerPossessivePredicate(segment: string): string | null {
+  const match = /\byour\s+(.+)$/u.exec(wordNormalized(segment));
+  if (!match) return null;
+  const words = match[1].split(/\s+/u).filter(Boolean);
+  if (words.length < 2) return '';
+  for (let index = 1; index < words.length; index += 1) {
+    const candidate = words.slice(index).join(' ');
+    if (isAllowedNoAttemptPredicate(candidate)) return candidate;
+  }
+  // A possessive player agent with an unknown predicate fails closed.
+  return words.slice(1).join(' ');
+}
+
 function containsPlayerAttributedAction(text: string, player: PlayerIdentity): boolean {
-  const normalized = normalizeBoundaryText(text).toLocaleLowerCase();
+  const normalized = normalizePlayerContractions(normalizeBoundaryText(text).toLocaleLowerCase());
   if (!wordNormalized(normalized)) return false;
   const aliases = [...identityAliases(player), 'i'];
 
-  return aliases.some(alias => {
-    const normalizedAlias = wordNormalized(alias);
-    if (!normalizedAlias) return false;
-    const aliasPattern = escapeRegExp(normalizedAlias).replace(/\s+/g, '\\s+');
-    for (const clause of normalized.split(/[.!?;\n]+/u)) {
-      const wordClause = clause
-        .replace(/[^\p{L}\p{N},:'_-]+/gu, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      if (!wordClause) continue;
+  for (const clause of normalized.split(/[.!?;\n]+/u)) {
+    const wordClause = clause
+      .replace(/[^\p{L}\p{N},:'_-]+/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!wordClause) continue;
 
-      const passivePattern = passiveAgentPattern(aliasPattern);
-      const passiveMatch = passivePattern.exec(wordClause);
+    const passiveClause = wordNormalized(wordClause);
+    for (const alias of aliases) {
+      const normalizedAlias = wordNormalized(alias);
+      if (!normalizedAlias) continue;
+      const aliasPattern = escapeRegExp(normalizedAlias).replace(/\s+/g, '\\s+');
+      const passiveMatch = passiveAgentPattern(aliasPattern).exec(passiveClause);
       if (passiveMatch) {
-        const passivePrefix = wordClause.slice(0, passiveMatch.index);
+        const passivePrefix = passiveClause.slice(0, passiveMatch.index);
         if (!/\b(?:not|never|no)\b/u.test(passivePrefix)) return true;
       }
-
-      // Treat aliases as grammatical subjects only at the start of a clause
-      // or after a clear discourse/clause boundary. This avoids mistaking
-      // ordinary object phrases such as "a messenger tells you the news" for
-      // player-authored acts while still failing closed on the predicate once
-      // the provider makes the player the subject.
-      const subjectPattern = new RegExp(
-        `(?:^|,\\s*|:\\s*|\\b(?:and|as|because|before|but|later|meanwhile|now|so|then|when|while)\\s+)(?:the\\s+)?${aliasPattern}\\s+(.+)$`,
-        'u',
-      );
-      const subjectMatch = subjectPattern.exec(wordClause);
-      if (!subjectMatch) continue;
-      const predicate = wordNormalized(subjectMatch[1]);
-      if (predicate && !isAllowedNoAttemptPredicate(predicate)) return true;
     }
-    return false;
-  });
+
+    const parts = wordClause.split(/(,|:|\b(?:and|but|that)\b)/u);
+    let inheritedPlayerSubject = false;
+    let precedingDelimiter = '';
+    for (const rawPart of parts) {
+      const part = rawPart.trim();
+      if (!part) continue;
+      if (/^(?:,|:|and|but|that)$/u.test(part)) {
+        precedingDelimiter = part;
+        if (part !== 'and' && part !== 'but') inheritedPlayerSubject = false;
+        continue;
+      }
+
+      const possessivePredicate = playerPossessivePredicate(part);
+      const explicitSubject = earliestPlayerSubject(part, aliases);
+      if (possessivePredicate !== null || explicitSubject) {
+        const predicate = possessivePredicate ?? explicitSubject!.predicate;
+        inheritedPlayerSubject = true;
+        precedingDelimiter = '';
+        if (predicate && !isAllowedNoAttemptPredicate(predicate)) return true;
+        continue;
+      }
+
+      if (inheritedPlayerSubject && (precedingDelimiter === 'and' || precedingDelimiter === 'but')) {
+        const predicate = wordNormalized(part);
+        if (predicate && !isAllowedNoAttemptPredicate(predicate)) return true;
+      } else {
+        inheritedPlayerSubject = false;
+      }
+      precedingDelimiter = '';
+    }
+  }
+  return false;
 }
 
 function valueContainsPlayerAttributedAction(value: unknown, player: PlayerIdentity): boolean {
@@ -226,9 +332,23 @@ function valueContainsPlayerAttributedAction(value: unknown, player: PlayerIdent
 }
 
 function playerOwnsDelta(delta: EventDelta, player: PlayerIdentity): boolean {
+  // A rumor's key is its subject, not its author. Only a player origin (or
+  // player-attributed prose, checked separately) makes it player-authored.
+  if (delta.type === 'rumor') return samePlayerIdentity(delta.origin_id, player);
   if (samePlayerIdentity(delta.origin_id, player)) return true;
   const [rootEntityId] = delta.key.split(':');
   return samePlayerIdentity(rootEntityId, player);
+}
+
+function valueRemovesPlayer(value: unknown, player: PlayerIdentity): boolean {
+  if (Array.isArray(value)) return value.some(item => valueRemovesPlayer(item, player));
+  if (!value || typeof value !== 'object') return false;
+  return Object.entries(value as Record<string, unknown>).some(([key, item]) => {
+    if (key === 'remove_entities' && Array.isArray(item)) {
+      return item.some(removed => typeof removed === 'string' && samePlayerIdentity(removed, player));
+    }
+    return valueRemovesPlayer(item, player);
+  });
 }
 
 /**
@@ -240,7 +360,10 @@ export function assertNoInventedPlayerVisibleAction(
   player: PlayerIdentity,
   hasObservableAttempt: boolean,
 ): void {
-  if (!hasObservableAttempt && valueContainsPlayerAttributedAction(value, player)) {
+  if (!hasObservableAttempt && (
+    valueContainsPlayerAttributedAction(value, player)
+    || valueRemovesPlayer(value, player)
+  )) {
     throw new Error(PLAYER_ACTION_BOUNDARY_ERROR);
   }
 }
@@ -276,8 +399,9 @@ export function assertNoInventedPlayerAction(
     }),
     remove_entities: adjudication.remove_entities,
   }, player);
+  const removesPlayer = valueRemovesPlayer({ remove_entities: adjudication.remove_entities }, player);
 
-  if (inventedAction || playerOriginatedDelta || providerAuthoredVisibleAction) {
+  if (inventedAction || playerOriginatedDelta || providerAuthoredVisibleAction || removesPlayer) {
     throw new Error(PLAYER_ACTION_BOUNDARY_ERROR);
   }
 }
