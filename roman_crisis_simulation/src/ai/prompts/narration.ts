@@ -145,7 +145,7 @@ ${lines.join('\n')}
 export function buildNarrationPrompt(
   metaNarrative: string,
   updatedPlayerEntity: Entity,
-  playerIntent: string,
+  playerOwnedContext: string,
   adjudication: Adjudication,
   mortalityDirectives: string[] = [],
   // 4C.5: the bounded on-stage cast whose voice/epithet lines the prompt
@@ -160,7 +160,7 @@ META-NARRATIVE: The story's theme is "${metaNarrative}". Your tone and focus sho
 
 Task:
 1.  **Narrate the Turn (2-3 paragraphs):** Write a narrative summary for the player. This MUST follow a specific structure:
-    a.  **Direct Consequences:** Begin by describing the immediate, observable results of the player's action ("${playerIntent}"). What happened right after they did it?
+    a.  **Direct Consequences:** Begin by describing the immediate, observable results of the player's submitted attempt ("${playerOwnedContext}"). Private intent is player-owned goal context only: do not turn it into facts, concealment, NPC knowledge, or an additional action. A question or context asks for a player-view answer and cannot make the avatar investigate or act.
     b.  **Observed & Reported Events:** Describe other major events from the adjudication (headlines, key NPC actions) BUT strictly from the player's vantage point. Consider their location, allies, and spies.
     c.  **Source Information:** For any information the player didn't witness directly, you MUST state how they learned of it. Be specific and creative. Examples: "A panicked messenger arrives...", "Whispers in the Senate, relayed by your ally Gaius Pontius, suggest...", "A coded message from your spymaster reveals...". This makes information potentially unreliable.
     d.  **Tone:** Maintain a tone of Tacitus meets field report. Focus on concrete outcomes. Do not invent new facts not present in the Adjudication JSON.
@@ -184,7 +184,7 @@ PLAYER CHARACTER PROFILE (for context):
 ${JSON.stringify(sanitizeEntityForNarration(updatedPlayerEntity), null, 2)}
 
 PLAYER'S ACTION THIS TURN:
-"${playerIntent}"
+"${playerOwnedContext}"
 ${buildVoiceCastBlock(voiceCast)}
 ADJUDICATION JSON (all events of the turn):
 ${JSON.stringify(sanitizeAdjudicationForNarration(adjudication), null, 2)}

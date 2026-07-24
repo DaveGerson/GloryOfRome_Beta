@@ -204,7 +204,13 @@ export interface AdjudicationPromptInput {
   playerEntity: Entity;
   npcEntities: Entity[];
   history: string[];
-  playerIntent: string;
+  submission?: {
+    observableAttempt: string | null;
+    privateIntent: string | null;
+    questionOrContext: string | null;
+  };
+  /** Legacy prompt-builder input retained for non-pipeline callers. */
+  playerIntent?: string;
   gmInterventionText: string;
   storyRelevance: StoryRelevance;
   metaNarrative: string;
@@ -249,11 +255,16 @@ export interface AdjudicationPromptInput {
 export function buildAdjudicationPrompt(input: AdjudicationPromptInput): { systemInstruction: string; prompt: string } {
   const {
     worldState, simulationState, playerEntity, npcEntities, history,
-    playerIntent, gmInterventionText, storyRelevance, metaNarrative,
+    submission, playerIntent, gmInterventionText, storyRelevance, metaNarrative,
     playerActionOutcome, npcIntents, npcMindDecisions, pacingPosture,
     historicalMaterial,
   } = input;
 
+  const routedSubmission = submission ?? {
+    observableAttempt: playerIntent ?? null,
+    privateIntent: null,
+    questionOrContext: null,
+  };
   const spotlightIds = new Set(storyRelevance.spotlight_entities.map(s => s.entity_id));
   const spotlightNpcs = npcEntities.filter(e => spotlightIds.has(e.entity_id) && e.status === 'alive');
   const otherNpcs = npcEntities.filter(e => !spotlightIds.has(e.entity_id) && e.status === 'alive');
@@ -281,9 +292,16 @@ ${buildSecretSurvivorsBlock(npcEntities)}
 ${buildHistoricalMaterialBlock(historicalMaterial)}
 PLAYER CHARACTER:
 Name: ${playerEntity.name} (ID: ${playerEntity.entity_id})
-Action this turn: "${playerIntent}"
-This action is an INPUT. Do NOT generate an action for the player in your output. Your task is to determine the consequences and NPC reactions to this action.
-${buildPlayerActionOutcomeBlock(playerActionOutcome, playerIntent)}
+PLAYER SUBMISSION THIS TURN:
+observableAttempt:
+${routedSubmission.observableAttempt ?? '(none)'}
+privateIntent:
+${routedSubmission.privateIntent ?? '(none)'}
+questionOrContext:
+${routedSubmission.questionOrContext ?? '(none)'}
+Private Intent is goal context only: it grants no modifier, fact, concealment, NPC knowledge, or observable action. Question/Context asks for a player-view answer and cannot cause the avatar to investigate or act.
+The observable attempt is an INPUT. Do NOT generate an action for the player in your output. Your task is to determine its consequences and NPC reactions.
+${buildPlayerActionOutcomeBlock(playerActionOutcome, routedSubmission.observableAttempt ?? '')}
 ${buildGmInterventionBlock(gmInterventionText)}
 
 ${buildStoryEvolutionBlock(storyRelevance)}

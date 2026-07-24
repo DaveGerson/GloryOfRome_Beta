@@ -1,9 +1,10 @@
 
 // ai/mocks.ts
 
-import { Adjudication, Entity, NpcIntent, NpcMindDecision, Report, SimulationState, StoryRelevance, TruthLedgerEntry, TurnHistoryEntry, WorldState, EventDelta, EntityStub } from '../types';
+import { Adjudication, Entity, NpcIntent, NpcMindDecision, Report, SimulationState, StoryRelevance, TruthLedgerEntry, TurnHistoryEntry, WorldState, EventDelta, EntityStub, TurnSubmission } from '../types';
 import { applyAdjudication, applyDeltas } from './core/engine';
 import { MAX_MINDS_PER_TURN } from './prompts/npcMind';
+import { projectForPlayerOwnedAi, serializeTurnSubmission } from '../playerInput/turnSubmission';
 
 // --- MOCK DATA ---
 const MOCK_NEW_MOBSTER: Entity = {
@@ -234,7 +235,7 @@ export const mockInitiateWorld = async (metaNarrative: string, playerCharacterDe
 };
 
 export const mockRunNewTurn = async (
-    playerIntent: string,
+    submission: TurnSubmission | string,
     playerEntity: Entity,
     turnNumber: number,
     currentEntities: Entity[],
@@ -258,6 +259,11 @@ export const mockRunNewTurn = async (
     playerMonologue: string,
     newHistoryEntry: TurnHistoryEntry,
 }> => {
+    const normalizedSubmission: TurnSubmission = typeof submission === 'string'
+        ? { version: 1, kind: 'freeform', text: submission }
+        : submission;
+    const playerIntent = serializeTurnSubmission(normalizedSubmission);
+    const playerOwnedContext = projectForPlayerOwnedAi(normalizedSubmission);
     console.log("--- MOCK TURN RUN ---");
     console.log("GM Intervention Text:", gmInterventionText);
     console.log("Meta Narrative:", metaNarrative);
@@ -345,7 +351,7 @@ export const mockRunNewTurn = async (
         }
     }
 
-    const narration = `(Mock Mode) Your action to "${playerIntent}" has been noted. In the city, Maximinus Thrax continues to stir up trouble, spreading rumors about the Emperor's weakness. The mood in the Praetorian Camp grows darker.`;
+    const narration = `(Mock Mode) Your action to "${playerOwnedContext}" has been noted. In the city, Maximinus Thrax continues to stir up trouble, spreading rumors about the Emperor's weakness. The mood in the Praetorian Camp grows darker.`;
     
     const suggestedActions = [
         "Mock: Investigate Thrax's rumors",
@@ -353,7 +359,7 @@ export const mockRunNewTurn = async (
         "Mock: Try to bribe the Praetorians",
     ];
 
-    const playerMonologue = await mockGetPlayerMonologue(playerEntity, MOCK_ADJUDICATION.headlines, [playerIntent]);
+    const playerMonologue = await mockGetPlayerMonologue(playerEntity, MOCK_ADJUDICATION.headlines, [playerOwnedContext]);
 
     const newHistoryEntry: TurnHistoryEntry = {
         turnNumber,
