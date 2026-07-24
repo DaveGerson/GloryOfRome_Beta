@@ -40,6 +40,8 @@ import { MortalityValidationSchema, MortalityOutcomeSchema } from './schemas';
 import { zMortalityValidation, zMortalityOutcome } from './zodSchemas';
 import { assertPlayerVisibleTextSafe } from './playerBoundary';
 
+const MORTALITY_OUTCOME_BOUNDARY_ERROR = 'AI output violated the mortality outcome boundary.';
+
 interface DeathClaim {
   delta: EventDelta;
   entity: Entity;
@@ -105,20 +107,55 @@ function isNpcFateOutcome(outcome: ResolvedOutcome): outcome is NpcFateOutcome {
 }
 
 /**
- * Splits outcome-call-authored deltas into those safe to apply (side-effect
- * types: resource/relation/rumor/scheme/region/world/faction...) and
- * rejected 'status' deltas, which may only ever originate from the
- * validated fate roll itself. See the security-gate comment at the call
- * site. Exported for direct unit testing.
+ * Classifies outcome-call-authored deltas against the candidate whose fate
+ * is being dressed. Mortality content may affect only that candidate, and
+ * only through the four side-effect types promised by the outcome prompt.
+ * Status remains a separately traced rejection because only the validated
+ * fate roll may author it; every other unauthorized effect invalidates the
+ * whole response rather than being silently sanitized into a partial commit.
  */
-export function partitionOutcomeDeltas(deltas: EventDelta[]): { safe: EventDelta[]; rejected: EventDelta[] } {
+export function partitionOutcomeDeltas(
+  deltas: EventDelta[],
+  candidateId: string,
+): { safe: EventDelta[]; rejected: EventDelta[]; unauthorized: EventDelta[] } {
   const safe: EventDelta[] = [];
   const rejected: EventDelta[] = [];
+  const unauthorized: EventDelta[] = [];
   for (const delta of deltas) {
-    if (delta.type === 'status') rejected.push(delta);
-    else safe.push(delta);
+    if (delta.type === 'status') {
+      rejected.push(delta);
+      continue;
+    }
+
+    const [rootEntityId] = delta.key.split(':');
+    const hasCandidateSubject = rootEntityId === candidateId;
+    const keyParts = delta.key.split(':');
+    const hasAuthorizedShape = (() => {
+      switch (delta.type) {
+        case 'resource':
+          return keyParts.length === 2 && keyParts[1].length > 0;
+        case 'relation':
+          return keyParts.length === 3
+            && keyParts[1].length > 0
+            && ['trust_level', 'respect_level', 'perceived_threat', 'ideological_alignment', 'dependency_level']
+              .includes(keyParts[2]);
+        case 'scheme':
+          return delta.key === candidateId;
+        case 'rumor':
+          return delta.key === candidateId
+            && (!delta.origin_id || delta.origin_id === candidateId)
+            && typeof delta.is_true === 'boolean'
+            && typeof delta.topic === 'string'
+            && delta.topic.trim().length > 0;
+        default:
+          return false;
+      }
+    })();
+
+    if (hasCandidateSubject && hasAuthorizedShape) safe.push(delta);
+    else unauthorized.push(delta);
   }
-  return { safe, rejected };
+  return { safe, rejected, unauthorized };
 }
 
 /**
@@ -299,7 +336,13 @@ export async function processMortality(
       // already carries the authoritative status for this candidate; drop
       // every 'status' delta from outcome content and record the rejection
       // for the GM console.
-      const { safe, rejected } = partitionOutcomeDeltas(contentOverride.deltas);
+      const { safe, rejected, unauthorized } = partitionOutcomeDeltas(
+        contentOverride.deltas,
+        claim.entity.entity_id,
+      );
+      if (unauthorized.length > 0) {
+        throw new Error(MORTALITY_OUTCOME_BOUNDARY_ERROR);
+      }
       extraDeltas.push(...safe);
       for (const dropped of rejected) {
         gmPrivateNotes.push(

@@ -726,6 +726,11 @@ export async function runNewTurn(
         turnRng,
         { trustedResolutionContext }
     );
+    assertNoInventedPlayerAction(
+        transformedAdjudication,
+        playerEntity,
+        narrationSubmission.hasObservableAttempt,
+    );
     assertPlayerVisibleAdjudicationSafe(transformedAdjudication);
 
     // 3. Apply the (mortality-transformed) adjudication to get new state.
@@ -860,8 +865,14 @@ export async function runNewTurn(
     const narrationPromise = onNarrationChunk
         ? generateTextStream(ai, narrationRequest, (textSoFar) => {
             const displayText = narrationStreamGate(textSoFar);
-            const completedText = playerVisibleStreamGate.push(displayText);
-            if (completedText !== null) onNarrationChunk(completedText);
+            // A no-attempt turn cannot establish prose ownership from a
+            // partial stream. Hold every UI emission until the complete
+            // parallel result has passed mechanics and player-subject
+            // validation below; then release one final safe narration.
+            if (narrationSubmission.hasObservableAttempt) {
+                const completedText = playerVisibleStreamGate.push(displayText);
+                if (completedText !== null) onNarrationChunk(completedText);
+            }
         })
         : generateText(ai, narrationRequest);
 
@@ -888,6 +899,11 @@ export async function runNewTurn(
     );
     assertNoInventedPlayerVisibleAction(
         fullText,
+        playerEntity,
+        narrationSubmission.hasObservableAttempt,
+    );
+    assertNoInventedPlayerVisibleAction(
+        playerMonologue,
         playerEntity,
         narrationSubmission.hasObservableAttempt,
     );

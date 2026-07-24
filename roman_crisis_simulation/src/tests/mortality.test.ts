@@ -474,7 +474,7 @@ describe('ai/core/mortality.ts processMortality', () => {
     expect(adjudication).toEqual(original);
   });
 
-  it('allows candidate-owned NPC resource and relation effects from a legitimate mortality outcome', async () => {
+  it('allows all four candidate-owned mortality side-effect types with their existing valid shapes', async () => {
     mockRoll(20);
     npc.resources = { influence: 5 };
     const adjudication = makeAdjudication([
@@ -488,6 +488,8 @@ describe('ai/core/mortality.ts processMortality', () => {
           deltas: [
             { type: 'resource', key: `${npcId}:influence`, delta: -2, reason: 'His failed defense costs political standing.' },
             { type: 'relation', key: `${npcId}:${playerId}:perceived_threat`, delta: 2, reason: 'He now fears the imperial court.' },
+            { type: 'scheme', key: npcId, delta: 0, reason: JSON.stringify({ name: 'Flight', overall_goal: 'Reach safety.', steps: [] }) },
+            { type: 'rumor', key: npcId, delta: 0.8, reason: 'Rufus survived an assassin.', is_true: true, origin_id: npcId, topic: 'survival' },
           ],
           narrative_directive: 'Narrate a visible, witnessed escape.',
         }],
@@ -499,7 +501,33 @@ describe('ai/core/mortality.ts processMortality', () => {
     expect(transformedAdjudication.deltas).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'resource', key: `${npcId}:influence`, delta: -2 }),
       expect.objectContaining({ type: 'relation', key: `${npcId}:${playerId}:perceived_threat`, delta: 2 }),
+      expect.objectContaining({ type: 'scheme', key: npcId }),
+      expect.objectContaining({ type: 'rumor', key: npcId, origin_id: npcId }),
     ]));
+  });
+
+  it('keeps the existing GM-traced status-delta drop when an NPC outcome tries to alter player status', async () => {
+    mockRoll(20);
+    const adjudication = makeAdjudication([
+      { type: 'status', key: npcId, delta: 0, reason: 'An assassin struck at the Senator.', new_status: 'dead' },
+    ]);
+    const { ai } = makeMockAi(
+      JSON.stringify({ dispositions: [{ entity_id: npcId, valid: true, reasoning: 'A real attempt occurred.' }] }),
+      JSON.stringify({
+        outcomes: [{
+          entity_id: npcId,
+          deltas: [{ type: 'status', key: playerId, delta: 0, reason: 'The emperor falls too.', new_status: 'dead' }],
+          narrative_directive: 'Narrate a visible, witnessed escape.',
+        }],
+      }),
+    );
+
+    const { transformedAdjudication } = await processMortality(ai, adjudication, entities, playerId, 5, false);
+
+    expect(transformedAdjudication.deltas.find(delta => delta.type === 'status' && delta.key === playerId)).toBeUndefined();
+    expect(transformedAdjudication.gm_private).toContainEqual(
+      expect.stringContaining(`REJECTED a 'status' delta authored by the outcome call (key: ${playerId})`),
+    );
   });
 
   it('never mutates the original adjudication object passed in', async () => {

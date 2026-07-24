@@ -25,29 +25,38 @@ import {
     buildPrivateConversationPrompt,
 } from '../prompts/intelligence';
 import { buildPlayerMonologuePrompt } from '../prompts/narration';
+import { assertPlayerVisibleTextSafe, assertPlayerVisibleValueSafe } from '../core/playerBoundary';
 
 export const getClarificationOnEvent = async (ai: GoogleGenAI, event: string, question: string, player: Entity, allEntities: Entity[], isMockMode: boolean): Promise<string> => {
     if (isMockMode) {
         if(!mockGetClarificationOnEvent) throw new Error("Mock function 'mockGetClarificationOnEvent' is not implemented.");
-        return mockGetClarificationOnEvent(event, question);
+        const text = await mockGetClarificationOnEvent(event, question);
+        assertPlayerVisibleTextSafe(text);
+        return text;
     }
     const entitiesInEvent = allEntities.filter(e => event.toLowerCase().includes(e.name.toLowerCase()));
     const isVisible = entitiesInEvent.every(e => player.visibility_network.includes(e.entity_id) || e.entity_id === player.entity_id);
 
     const { systemInstruction, prompt } = buildClarificationPrompt(event, question, player, isVisible);
     const text = await generateText(ai, { callName: 'clarification', model: GEMINI_FLASH, systemInstruction, prompt });
-    return text || "No response generated.";
+    const playerVisibleText = text || "No response generated.";
+    assertPlayerVisibleTextSafe(playerVisibleText);
+    return playerVisibleText;
 };
 
 export const getDeepAnalysis = async (ai: GoogleGenAI, target: Entity, player: Entity, isMockMode: boolean): Promise<string> => {
     if (isMockMode) {
         if(!mockGetDeepAnalysis) throw new Error("Mock function 'mockGetDeepAnalysis' is not implemented.");
-        return mockGetDeepAnalysis(target);
+        const text = await mockGetDeepAnalysis(target);
+        assertPlayerVisibleTextSafe(text);
+        return text;
     }
     const isVisible = player.visibility_network.includes(target.entity_id);
     const { systemInstruction, prompt } = buildDeepAnalysisPrompt(target, player, isVisible);
     const text = await generateText(ai, { callName: 'deepAnalysis', model: GEMINI_FLASH, systemInstruction, prompt });
-    return text || "Intelligence unavailable.";
+    const playerVisibleText = text || "Intelligence unavailable.";
+    assertPlayerVisibleTextSafe(playerVisibleText);
+    return playerVisibleText;
 };
 
 /** `isRisky` nudges the roll's difficulty up slightly - kept as a signature-compatible parameter (components/DramatisPersonaeTab.tsx always passes `true` today) rather than removed outright now that a real roll (not a prose "40% chance" line) decides the outcome. */
@@ -66,7 +75,9 @@ function isFailureTier(tier: ActionResolutionTier): tier is 'critical_failure' |
 export const getInvestigationResult = async (ai: GoogleGenAI, target: Entity, player: Entity, isRisky: boolean, isMockMode: boolean, subject: 'secrets' | 'beliefs' | 'scheme' = 'secrets'): Promise<{ report: string, consequences: string | null, reportData: string[], resolutionTrace?: ActionResolutionEvent }> => {
     if (isMockMode) {
         if(!mockGetInvestigationResult) throw new Error("Mock function 'mockGetInvestigationResult' is not implemented.");
-        return mockGetInvestigationResult(target, isRisky, subject);
+        const mockResult = await mockGetInvestigationResult(target, isRisky, subject);
+        assertPlayerVisibleValueSafe(mockResult);
+        return mockResult;
     }
 
     // Resolution layer (ROADMAP_0_MASTER_PLAN.md Phase 3 item 5): resolve a
@@ -147,18 +158,24 @@ export const getInvestigationResult = async (ai: GoogleGenAI, target: Entity, pl
         ? (result.consequences ?? DEFAULT_INVESTIGATION_CONSEQUENCE[resolution.tier])
         : (resolution.tier === 'partial_success' ? result.consequences : null);
 
-    return { report: result.report, consequences, reportData: result.reportData, resolutionTrace };
+    const playerVisibleResult = { report: result.report, consequences, reportData: result.reportData };
+    assertPlayerVisibleValueSafe(playerVisibleResult);
+    return { ...playerVisibleResult, resolutionTrace };
 };
 
 export const getPlayerMonologue = async (ai: GoogleGenAI, player: Entity, turnHeadlines: string[], recentPlayerIntents: string[], isMockMode: boolean): Promise<string> => {
     if (isMockMode) {
         if(!mockGetPlayerMonologue) throw new Error("Mock function 'mockGetPlayerMonologue' is not implemented.");
-        return mockGetPlayerMonologue(player, turnHeadlines, recentPlayerIntents);
+        const text = await mockGetPlayerMonologue(player, turnHeadlines, recentPlayerIntents);
+        assertPlayerVisibleTextSafe(text);
+        return text;
     }
 
     const { systemInstruction, prompt } = buildPlayerMonologuePrompt(player, turnHeadlines, recentPlayerIntents);
     const text = await generateText(ai, { callName: 'playerMonologue', model: GEMINI_FLASH, systemInstruction, prompt });
-    return text || "I am contemplative.";
+    const playerVisibleText = text || "I am contemplative.";
+    assertPlayerVisibleTextSafe(playerVisibleText);
+    return playerVisibleText;
 };
 
 export const getStoryRelevance = async (ai: GoogleGenAI, turnNumber: number, prevTurnHeadlines: string[], worldState: WorldState, npcEntities: Entity[], previousIntents: NpcIntent[], isMockMode: boolean): Promise<StoryRelevance> => {
@@ -180,10 +197,13 @@ export const getStoryRelevance = async (ai: GoogleGenAI, turnNumber: number, pre
 };
 
 export const getUpdatedSimulationState = async (ai: GoogleGenAI, adjudication: Adjudication, oldState: SimulationState, isMockMode: boolean): Promise<SimulationState> => {
-    if (isMockMode) return oldState;
+    if (isMockMode) {
+        assertPlayerVisibleValueSafe(oldState);
+        return oldState;
+    }
 
     const { systemInstruction, prompt } = buildSimulationStateUpdatePrompt(adjudication, oldState);
-    return generateStructured<SimulationState>(ai, {
+    const updatedState = await generateStructured<SimulationState>(ai, {
         callName: 'updatedSimulationState',
         model: GEMINI_PRO,
         systemInstruction,
@@ -192,6 +212,8 @@ export const getUpdatedSimulationState = async (ai: GoogleGenAI, adjudication: A
         zodSchema: zSimulationState,
         thinkingConfig: { thinkingBudget: 512 },
     });
+    assertPlayerVisibleValueSafe(updatedState);
+    return updatedState;
 };
 
 export const getRelationshipUpdates = async (

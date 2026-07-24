@@ -39,6 +39,13 @@ const MECHANICAL_ROLL_PATTERNS = [
   /\b(?:die|dice)\s+(?:roll(?:ed|s)?|show(?:ed|s)?|land(?:ed|s)?(?:\s+on)?|came\s+up|result(?:ed|s)?(?:\s+in)?|total(?:ed|s)?|was)\s+(?:(?:a|an)\s+)?(?:natural\s+)?\d+\b/i,
   /\bnatural\s+\d+\b/i,
   /\b\d+\s+(?:on|from)\s+(?:the\s+)?(?:die|dice|roll)\b/i,
+  /\broll[\s-]+total\s*(?::|=|\b(?:was|is|of)\b)\s*[+-]?\d+\b/i,
+  /\bmargin\s*(?::|=|\b(?:was|is|of)\b)\s*[+-]?\d+\b/i,
+] as const;
+
+const HUMANIZED_MECHANIC_LABEL_PATTERNS = [
+  /\boutcome[\s-]*tier\s*(?::|=|-)?\s*(?:critical[\s-]+failure|partial[\s-]+success|critical[\s-]+success|failure|success)\b/i,
+  /\bfate[\s-]*band\s*(?::|=|-)?\s*(?:survive[\s-]+with[\s-]+loss|survive[\s-]+with[\s-]+boon|confirmed[\s-]+dead|gravely[\s-]+wounded|presumed[\s-]+dead|escapes[\s-]+openly|dies)\b/i,
 ] as const;
 
 /** Canonicalizes visually equivalent or invisibly separated provider text. */
@@ -50,7 +57,8 @@ function containsHiddenMechanics(text: string): boolean {
   const normalized = normalizeBoundaryText(text);
   return HIDDEN_MECHANIC_TOKEN_PATTERN.test(normalized)
     || DICE_NOTATION_PATTERN.test(normalized)
-    || MECHANICAL_ROLL_PATTERNS.some(pattern => pattern.test(normalized));
+    || MECHANICAL_ROLL_PATTERNS.some(pattern => pattern.test(normalized))
+    || HUMANIZED_MECHANIC_LABEL_PATTERNS.some(pattern => pattern.test(normalized));
 }
 
 function valueContainsHiddenMechanics(value: unknown): boolean {
@@ -139,50 +147,69 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-const PLAYER_ACTION_VERB = [
-  'act(?:s|ed|ing)?',
-  'address(?:es|ed|ing)?',
-  'attack(?:s|ed|ing)?',
-  'attempt(?:s|ed|ing)?',
-  'bribe(?:s|d|ing)?',
-  'command(?:s|ed|ing)?',
-  'create(?:s|d|ing)?',
-  'decree(?:s|d|ing)?',
-  'dispatch(?:es|ed|ing)?',
-  'dissolve(?:s|d|ing)?',
-  'fortif(?:y|ies|ied|ying)',
-  'investigate(?:s|d|ing)?',
-  'march(?:es|ed|ing)?',
-  'negotiate(?:s|d|ing)?',
-  'open(?:s|ed|ing)?',
-  'order(?:s|ed|ing)?',
-  'plant(?:s|ed|ing)?',
-  'plot(?:s|ted|ting)?',
-  'recruit(?:s|ed|ing)?',
-  'scheme(?:s|d|ing)?',
-  'seal(?:s|ed|ing)?',
-  'seize(?:s|d|ing)?',
-  'send(?:s|ing)?',
-  'sent',
-  'spread(?:s|ing)?',
-].join('|');
+const NON_ACTION_PLAYER_PREDICATE = new RegExp(`^(?:${[
+  // Perception and received information.
+  '(?:see|sees|saw|seen|hear|hears|heard|notice|notices|noticed|observe|observes|observed|perceive|perceives|perceived|witness|witnesses|witnessed|learn|learns|learned|learnt)',
+  // Cognition, uncertainty, and internal questions.
+  '(?:know|knows|knew|known|think|thinks|thought|believe|believes|believed|suspect|suspects|suspected|wonder|wonders|wondered|understand|understands|understood|remember|remembers|remembered|recognize|recognizes|recognized|realize|realizes|realized|infer|infers|inferred|weigh|weighs|weighed)',
+  // Feelings and stable internal conditions.
+  '(?:feel|feels|felt|fear|fears|feared|dread|dreads|dreaded|regret|regrets|regretted|seem|seems|seemed|remain|remains|remained)',
+  // Intentions and modal/future contemplation are not accomplished acts.
+  '(?:intend|intends|intended|plan|plans|planned|hope|hopes|hoped|want|wants|wanted|wish|wishes|wished|consider|considers|considered|contemplate|contemplates|contemplated|expect|expects|expected|need|needs|needed|must|should|may|might|could|can|would|will)',
+].join('|')})\\b`, 'u');
 
-const PLAYER_ACTION_ADVERB = '(?:(?:also|boldly|immediately|openly|personally|publicly|quietly|secretly|then)\\s+)*';
+const NEGATED_PLAYER_PREDICATE = /^(?:never\b|no\s+longer\b|(?:do|does|did|am|are|is|was|were|have|has|had|can|could|will|would|should|must|may|might)\s+not\b|cannot\b)/u;
+const COPULAR_STATE_PREDICATE = /^(?:am|are|is|was|were)\b(?!\s+[\p{L}\p{N}_-]+ing\b)/u;
+const LEADING_PREDICATE_ADVERBS = /^(?:(?:also|already|clearly|currently|deeply|dimly|fully|inwardly|merely|now|perhaps|personally|plainly|privately|probably|publicly|quietly|secretly|still|then|truly|visibly|[\p{L}]+ly)\s+)*/u;
+
+function isAllowedNoAttemptPredicate(predicate: string): boolean {
+  const withoutAdverbs = predicate.replace(LEADING_PREDICATE_ADVERBS, '');
+  if (NEGATED_PLAYER_PREDICATE.test(withoutAdverbs)) return true;
+  if (COPULAR_STATE_PREDICATE.test(withoutAdverbs)) return true;
+  return NON_ACTION_PLAYER_PREDICATE.test(withoutAdverbs);
+}
+
+function passiveAgentPattern(aliasPattern: string): RegExp {
+  const participle = '(?:[\\p{L}]+(?:ed|en|wn)|sent|made|done|held|cast|put|set|built|brought|bought|caught|taught|taken|given|seen|known|shown|told|left|kept|met|read|said|paid|led|found|lost|won)';
+  return new RegExp(`\\b${participle}\\s+by\\s+(?:the\\s+)?${aliasPattern}\\b`, 'u');
+}
 
 function containsPlayerAttributedAction(text: string, player: PlayerIdentity): boolean {
-  const normalized = wordNormalized(text);
-  if (!normalized) return false;
-  return identityAliases(player).some(alias => {
+  const normalized = normalizeBoundaryText(text).toLocaleLowerCase();
+  if (!wordNormalized(normalized)) return false;
+  const aliases = [...identityAliases(player), 'i'];
+
+  return aliases.some(alias => {
     const normalizedAlias = wordNormalized(alias);
     if (!normalizedAlias) return false;
     const aliasPattern = escapeRegExp(normalizedAlias).replace(/\s+/g, '\\s+');
-    const pattern = new RegExp(`\\b${aliasPattern}\\s+${PLAYER_ACTION_ADVERB}(?:${PLAYER_ACTION_VERB})\\b`, 'giu');
-    for (const match of normalized.matchAll(pattern)) {
-      const prefix = normalized.slice(0, match.index ?? 0);
-      // "without the player acting" and equivalent absence clauses describe
-      // independent world motion, not an invented avatar act.
-      if (/\b(?:never|no|not|without)\s+(?:the\s+)?$/u.test(prefix)) continue;
-      return true;
+    for (const clause of normalized.split(/[.!?;\n]+/u)) {
+      const wordClause = clause
+        .replace(/[^\p{L}\p{N},:'_-]+/gu, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (!wordClause) continue;
+
+      const passivePattern = passiveAgentPattern(aliasPattern);
+      const passiveMatch = passivePattern.exec(wordClause);
+      if (passiveMatch) {
+        const passivePrefix = wordClause.slice(0, passiveMatch.index);
+        if (!/\b(?:not|never|no)\b/u.test(passivePrefix)) return true;
+      }
+
+      // Treat aliases as grammatical subjects only at the start of a clause
+      // or after a clear discourse/clause boundary. This avoids mistaking
+      // ordinary object phrases such as "a messenger tells you the news" for
+      // player-authored acts while still failing closed on the predicate once
+      // the provider makes the player the subject.
+      const subjectPattern = new RegExp(
+        `(?:^|,\\s*|:\\s*|\\b(?:and|as|because|before|but|later|meanwhile|now|so|then|when|while)\\s+)(?:the\\s+)?${aliasPattern}\\s+(.+)$`,
+        'u',
+      );
+      const subjectMatch = subjectPattern.exec(wordClause);
+      if (!subjectMatch) continue;
+      const predicate = wordNormalized(subjectMatch[1]);
+      if (predicate && !isAllowedNoAttemptPredicate(predicate)) return true;
     }
     return false;
   });
