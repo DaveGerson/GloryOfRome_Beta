@@ -262,6 +262,19 @@ describe('runNewTurn submission visibility routing', () => {
     expect(prompt).toContain(`questionOrContext:\n${QUESTION_SENTINEL}`);
   });
 
+  it('puts private-intent and question/context non-action guards in the adjudication and monologue system instructions', async () => {
+    const { calls } = await runRealTurn(FULL_SUBMISSION);
+    const adjudicationSystem = calls.find(call => call.kind === 'adjudication')?.systemInstruction ?? '';
+    const monologueSystem = calls.find(call => call.kind === 'monologue')?.systemInstruction ?? '';
+
+    expect(adjudicationSystem).toContain('Private Intent is player-owned goal context only');
+    expect(adjudicationSystem).toContain('does not grant an action, modifier, fact, concealment, or NPC knowledge');
+    expect(adjudicationSystem).toContain('Question/Context asks for a player-view answer only');
+    expect(adjudicationSystem).toContain('must not investigate, act, or create a roll');
+    expect(monologueSystem).toContain('player-owned context, not necessarily strategic actions');
+    expect(monologueSystem).toContain('Never reinterpret Private Intent or Question/Context as an avatar action');
+  });
+
   it.each([
     ['question-only', { version: 1, kind: 'structured', questionOrContext: QUESTION_SENTINEL } as const],
     ['private-only', { version: 1, kind: 'structured', privateIntent: PRIVATE_SENTINEL } as const],
@@ -304,5 +317,32 @@ describe('runNewTurn submission visibility routing', () => {
     if (submission.kind === 'freeform') {
       expect(canonical).toBe(submission.text);
     }
+  });
+
+  it.each([
+    ['private-only', { version: 1, kind: 'structured', privateIntent: PRIVATE_SENTINEL } as const],
+    ['question-only', { version: 1, kind: 'structured', questionOrContext: QUESTION_SENTINEL } as const],
+  ])('mock mode does not call a %s submission an action', async (_label, submission) => {
+    const { player, npcA, npcB } = makeCast();
+    const mock = await runNewTurn(
+      { models: { generateContent: vi.fn() } } as unknown as GoogleGenAI,
+      submission,
+      player,
+      7,
+      [player, npcA, npcB],
+      WORLD_STATE,
+      SIMULATION_STATE,
+      [],
+      [],
+      [],
+      [],
+      '',
+      true,
+      'A political thriller',
+    );
+
+    expect(mock.narration).not.toContain('Your action');
+    expect(mock.narration).toContain(_label === 'private-only' ? 'private intent' : 'question');
+    expect(mock.narration).toContain('No action is taken');
   });
 });

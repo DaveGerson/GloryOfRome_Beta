@@ -711,7 +711,7 @@ export async function runNewTurn(
     // per-NPC digests are derived and discarded there; `perceivingNpcIds`
     // (recorded on the history entry below) is what lets the GM console
     // re-derive them for display.
-    let { updatedEntities, updatedWorldState, updatedReports, updatedTruthLedger, perceivingNpcIds } = applyAdjudication(
+    const appliedAdjudication = applyAdjudication(
         transformedAdjudication, currentEntities, currentWorldState, currentReports, currentTruthLedger,
         {
             playerEntityId: playerEntity.entity_id,
@@ -722,6 +722,8 @@ export async function runNewTurn(
             turnNumber,
         }
     );
+    let { updatedEntities } = appliedAdjudication;
+    const { updatedWorldState, updatedReports, updatedTruthLedger, perceivingNpcIds } = appliedAdjudication;
     const updatedPlayerEntity = updatedEntities.find(e => e.entity_id === playerEntity.entity_id) || playerEntity;
     const recentPlayerIntents = [...turnHistory.map(h => h.playerIntent).slice(-6), playerOwnedContext];
 

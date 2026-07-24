@@ -4,7 +4,7 @@
 import { Adjudication, Entity, NpcIntent, NpcMindDecision, Report, SimulationState, StoryRelevance, TruthLedgerEntry, TurnHistoryEntry, WorldState, EventDelta, EntityStub, TurnSubmission } from '../types';
 import { applyAdjudication, applyDeltas } from './core/engine';
 import { MAX_MINDS_PER_TURN } from './prompts/npcMind';
-import { projectForPlayerOwnedAi, serializeTurnSubmission } from '../playerInput/turnSubmission';
+import { projectForPlayerOwnedAi, projectForResolution, serializeTurnSubmission } from '../playerInput/turnSubmission';
 
 // --- MOCK DATA ---
 const MOCK_NEW_MOBSTER: Entity = {
@@ -183,6 +183,8 @@ const MOCK_PLAYER_IN_CUSTOM_WORLD: Entity = {
 // --- MOCK FUNCTIONS ---
 
 export const mockGenerateScenarioStructure = async (metaNarrative: string, playerCharacterDescription: string): Promise<{ worldState: WorldState, playerStub: EntityStub, npcStubs: EntityStub[] }> => {
+    void metaNarrative;
+    void playerCharacterDescription;
     console.log("--- MOCK SCENARIO STRUCTURE GENERATION ---");
     const playerStub: EntityStub = {
         entity_id: 'mock_player_character',
@@ -217,6 +219,9 @@ export const mockGenerateScenarioStructure = async (metaNarrative: string, playe
 }
 
 export const mockGenerateEntitiesDetails = async (worldState: WorldState, playerStub: EntityStub, npcStubs: EntityStub[]): Promise<Entity[]> => {
+    void worldState;
+    void playerStub;
+    void npcStubs;
     console.log("--- MOCK ENTITY DETAILS GENERATION ---");
     // Return the pre-defined mock entities which match the stubs
     return [...MOCK_CUSTOM_ENTITIES, MOCK_PLAYER_IN_CUSTOM_WORLD];
@@ -327,11 +332,13 @@ export const mockRunNewTurn = async (
     // Same perception context the real pipeline passes (ai/core/turn.ts):
     // the player is excluded from the NPC memory loop, and the mock
     // Director's spotlight pair stands in as the spotlight cast.
-    let { updatedEntities, updatedWorldState, updatedReports, updatedTruthLedger, perceivingNpcIds } = applyAdjudication(adjudication, currentEntities, currentWorldState, currentReports, currentTruthLedger, {
+    const appliedAdjudication = applyAdjudication(adjudication, currentEntities, currentWorldState, currentReports, currentTruthLedger, {
         playerEntityId: playerEntity.entity_id,
         spotlightIds: storyRelevance.spotlight_entities.map(s => s.entity_id),
         turnNumber,
     });
+    let { updatedEntities, updatedWorldState } = appliedAdjudication;
+    const { updatedReports, updatedTruthLedger, perceivingNpcIds } = appliedAdjudication;
 
     // MOCK CONVERSATION SIMULATION
     const npc1 = updatedEntities.find(e => e.entity_id === 'maximinus_thrax');
@@ -351,7 +358,12 @@ export const mockRunNewTurn = async (
         }
     }
 
-    const narration = `(Mock Mode) Your action to "${playerOwnedContext}" has been noted. In the city, Maximinus Thrax continues to stir up trouble, spreading rumors about the Emperor's weakness. The mood in the Praetorian Camp grows darker.`;
+    const observableAttempt = projectForResolution(normalizedSubmission);
+    const narration = observableAttempt
+        ? `(Mock Mode) Your action to "${observableAttempt}" has been noted. In the city, Maximinus Thrax continues to stir up trouble, spreading rumors about the Emperor's weakness. The mood in the Praetorian Camp grows darker.`
+        : normalizedSubmission.kind === 'structured' && normalizedSubmission.questionOrContext
+            ? '(Mock Mode) Your question has been received. Mock mode cannot answer it from live simulation state. No action is taken.'
+            : '(Mock Mode) Your private intent remains private. No action is taken.';
     
     const suggestedActions = [
         "Mock: Investigate Thrax's rumors",
@@ -394,6 +406,7 @@ export const mockCreateCharacter = async (description: string): Promise<Entity> 
 };
 
 export const mockGetClarificationOnEvent = async (event: string, question: string): Promise<string> => {
+    void question;
     console.log("--- MOCK CLARIFICATION ---");
     return `(Mock) Regarding "${event}", the general consensus is that it was orchestrated by a rival faction to sow discord. The motives seem purely political.`;
 };

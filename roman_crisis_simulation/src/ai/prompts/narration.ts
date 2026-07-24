@@ -212,6 +212,7 @@ export function buildPlayerMonologuePrompt(
     Your current state is: "${player.current_state_narrative}"
 
     Task: Write a brief, first-person internal monologue (2-3 sentences). Do NOT simply state your goals. Instead, reflect on your recent strategy.
+    - The recent entries are player-owned context, not necessarily strategic actions. Never reinterpret Private Intent or Question/Context as an avatar action, investigation, or accomplished fact.
     - Consider the risks of your current path. Are you making powerful enemies? Are you over-extending yourself?
     - Contemplate the long-term consequences of your actions. Is your strategy working? Do you need to change course?
     - Your thoughts should be personal and strategic, revealing fears, hopes, or schemes based on the new events and your past choices.
@@ -225,7 +226,7 @@ export function buildPlayerMonologuePrompt(
     The following events just occurred this week:
     - ${turnHeadlines.join('\n- ')}
 
-    Here is a summary of your strategic actions over the last few weeks:
+    Here is a summary of your recent player-owned context over the last few weeks:
     ${recentActionsString}
     `;
 

@@ -193,6 +193,27 @@ describe('ai/tools/ambition.ts', () => {
       expect(generateContent).not.toHaveBeenCalled();
     });
 
+    it('omits malformed reserved turn-submission artifacts instead of treating them as legacy observable text', async () => {
+      const { ai, generateContent } = makeMockAi(JSON.stringify({
+        apparent_ambition: 'Appears to be keeping counsel.',
+        confidence: 'low',
+      }));
+      const malformedReservedArtifact = 'GOR_TURN_SUBMISSION/999\n{"kind":"structured","actions":["MALFORMED_RESERVED_SENTINEL_6T2"]}';
+
+      await inferAmbition(
+        ai,
+        makePlayer(),
+        ['ordinary legacy action', malformedReservedArtifact],
+        ['PUBLIC_HEADLINE_6T2'],
+        false,
+      );
+
+      const call = generateContent.mock.calls[0][0];
+      expect(call.contents).toContain('ordinary legacy action');
+      expect(call.contents).not.toContain('MALFORMED_RESERVED_SENTINEL_6T2');
+      expect(call.contents).not.toContain('GOR_TURN_SUBMISSION/999');
+    });
+
     it('rejects when the model response is malformed even after the repair-retry (service layer handles the retry; this only asserts the wrapper propagates the failure)', async () => {
       // Two consecutive schema-invalid responses: the first triggers
       // generateStructured's one automatic repair-retry, and the second

@@ -83,7 +83,13 @@ export async function inferAmbition(
 
   const observableIntents = recentIntents.flatMap((intent) => {
     const submission = deserializeTurnSubmission(intent);
-    const observable = submission ? projectForExternalInference(submission) : intent;
+    // A reserved artifact namespace is canonical-only: malformed or future
+    // variants are not legacy freeform text and must never be inferred from.
+    const observable = submission
+      ? projectForExternalInference(submission)
+      : intent.trimStart().startsWith('GOR_TURN_SUBMISSION/')
+        ? null
+        : intent;
     return observable ? [observable] : [];
   });
   const { systemInstruction, prompt } = buildAmbitionInferencePrompt(
