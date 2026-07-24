@@ -174,7 +174,7 @@ describe('components/TurnComposer', () => {
         'Someone else…',
       ]);
       expect(options[0].value).toBe('');
-      expect(options[0].disabled).toBe(true);
+      expect(options[0].disabled).toBe(false);
     }
     expect(container.textContent).not.toContain(HIDDEN_NAME_SENTINEL);
 
@@ -203,6 +203,43 @@ describe('components/TurnComposer', () => {
     });
     expect(JSON.stringify(latestDraft)).not.toContain('An unnamed dockmaster');
     expect(container.textContent).not.toContain(HIDDEN_NAME_SENTINEL);
+  });
+
+  it('lets a selected recipient with no command return to a valid blank row', async () => {
+    let latestDraft = emptyStructuredDraft();
+
+    function Harness() {
+      const [draft, setDraft] = useState(emptyStructuredDraft());
+      latestDraft = draft;
+      return (
+        <TurnComposer
+          {...defaultProps()}
+          structuredDraft={draft}
+          onStructuredDraftChange={setDraft}
+        />
+      );
+    }
+
+    const { container } = await mount(<Harness />);
+    await click(buttonNamed(container, 'Structured'));
+
+    const recipient = byAriaLabel<HTMLSelectElement>(container, 'Recipient 1');
+    const placeholder = recipient.options[0];
+    const knownRecipient = Array.from(recipient.options).find(
+      option => option.textContent === 'Julia Domna',
+    )!;
+
+    await setValue(recipient, knownRecipient.value);
+    expect(latestDraft.messagesOrOrders[0]).toEqual({
+      recipient: { kind: 'known_entity', entityId: 'julia_domna' },
+      command: '',
+    });
+
+    expect(placeholder.disabled).toBe(false);
+    await setValue(recipient, placeholder.value);
+
+    expect(recipient.value).toBe('');
+    expect(latestDraft.messagesOrOrders[0]).toEqual({ recipient: null, command: '' });
   });
 
   it('adds repeatable action and message/order rows and locks form actions while processing', async () => {

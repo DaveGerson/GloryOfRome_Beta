@@ -76,7 +76,7 @@ export const StructuredTurnComposer: React.FC<StructuredTurnComposerProps> = ({
                   onChange(updateMessage(draft, index, { ...row, recipient }));
                 }}
               >
-                <option value="" disabled>Select a recipient</option>
+                <option value="">Select a recipient</option>
                 {recipientOptions.map(option => <option key={option.entityId} value={option.entityId}>{option.displayName}</option>)}
                 <option value={CUSTOM_RECIPIENT_VALUE}>Someone else…</option>
               </select>
