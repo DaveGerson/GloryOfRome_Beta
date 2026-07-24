@@ -70,3 +70,16 @@ Task 2: complete (commits `76f3b6d..cf4e4fc`, review clean).
 - Scope: player-only relation-delta filtering, known-entity Personae roster, sourced relationship-observation timeline, and retirement of the free Raw Thoughts family; paid investigations and Deep Analysis retained; no relationship scoring, gameplay mechanics, save schema, terminal semantics, NPC perception, or GM truth changes
 
 Task 6: complete (commits `cfec90f..76f13b6`, review clean).
+
+## Task 4: App integration and durable domain mutations
+
+- Reviewed task range: `f2a5bbee3bce..58af51032303`
+- Integration merge: `344adbc8dd29`
+- TDD and repair chain: test-only RED `78f90d5`; initial GREEN `4eedf88`; first repair `e3a2ff4`; UI RED `994e09f`; transaction RED `a4a3fc6`; GREEN `9325bd2`; adversarial repairs `c5c0433`, `0308f0f`, `8514b9a`, `978b36e`, and `58af510`
+- Review loop dispositioned every finding in the same task branch: reserved-envelope/history false positives; mutable retry and save-failure paths; GM modal lifecycle; shared turn/non-turn mutation serialization; stale transaction errors; precommit suggestion loss; monotonic ambition and full-save race protection; abandoned App/campaign callbacks; false-positive composer/barrier tests; React StrictMode custom-character retry; failed save deletion in Start anew and Epilogue flows; and paid-intelligence resolve/reject after Personae unmount
+- Fresh final Sol xhigh read-only review after the last repair: PASS; zero Critical, Important, or Minor findings. The reviewer independently mutation-tested the durable-deletion and component-lifetime guards and ran 67/67 focused tests
+- Controller verification on exact head `58af510`: selected Task 4 suite 197/197; adjacent privacy/relationship suite 222/222; full unit suite 47 files and 889 tests passed; journeys 4/4; typecheck exit 0; production build exit 0; strict zero-warning lint across all 23 changed TS/TSX files; diff-check exit 0; worktree clean
+- Owner verification also established 196 distinct Task 4 tests and 234 expanded adjacent tests, including exact save/resource/knowledge/fallout comparisons and mutation-based anti-vacuity checks
+- Scope: canonical chat/structured App orchestration, exact retry/history, v1 `buildSaveState` persistence boundaries, shared mutation serialization, inferred-ambition ordering, campaign/component lifecycle cancellation, GM/event/custom-character durability, and player-facing UI integration. No turn-engine mechanic, resolution, mortality, prompt, schema, model-routing, or save-version change
+
+Task 4: complete (commits `78f90d5..58af510`, review clean).
