@@ -1,5 +1,9 @@
 import type { PlayerSafeEvidence, RelationshipObservationDraft } from '../../knowledge/store';
-import { hasDuplicateEvidenceIds, validateRelationshipObservationDrafts } from '../../knowledge/relationships';
+import {
+  evidenceContainsExactEntityName,
+  hasDuplicateEvidenceIds,
+  validateRelationshipObservationDrafts,
+} from '../../knowledge/relationships';
 import { GEMINI_FLASH, generateStructured, type GeminiClient } from '../core/geminiService';
 import { RelationshipObservationsSchema } from '../core/schemas';
 import { zRelationshipObservations } from '../core/zodSchemas';
@@ -18,10 +22,15 @@ export async function getRelationshipObservations(
   if (hasDuplicateEvidenceIds(evidence)) {
     throw new Error('duplicate evidence id at relationship observation boundary');
   }
+  const knownIds = new Set(knownEntityIds);
+  const promptEntities = entities
+    .filter(entity => knownIds.has(entity.entity_id)
+      || evidence.some(item => evidenceContainsExactEntityName(item.text, entity.name)))
+    .map(entity => ({ entity_id: entity.entity_id, name: entity.name }));
   const drafts = isMockMode
     ? zRelationshipObservations.parse([])
     : await (async () => {
-      const { systemInstruction, prompt } = buildRelationshipObservationsPrompt(evidence, entities);
+      const { systemInstruction, prompt } = buildRelationshipObservationsPrompt(evidence, promptEntities);
       return generateStructured<RelationshipObservationDraft[]>(ai, {
         callName: 'relationshipObservations',
         model: GEMINI_FLASH,

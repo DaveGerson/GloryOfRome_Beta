@@ -203,7 +203,11 @@ describe('journey: relationship observations discover a previously hidden charac
 
       const observationCall = client.calls.find(call => call.kind === 'relationshipObservations');
       expect(observationCall?.prompt).toContain(CLAIM);
-      expect(observationCall?.prompt).toContain('Gaius Pontius Magnus');
+      expect(observationCall?.prompt).toContain(
+        '{"entity_id":"gaius_pontius_magnus","name":"Gaius Pontius Magnus"}'
+      );
+      expect(observationCall?.prompt).not.toContain(PRESUMED_DEAD);
+      expect(observationCall?.prompt).not.toContain('Lycinia Stolo');
       expectNoDeadPoison(observationCall?.prompt ?? '', 'relationship selector prompt');
       expect(observationCall?.prompt).not.toContain('Restoration of the Republic');
     } finally {

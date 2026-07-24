@@ -184,6 +184,71 @@ describe('getRelationshipObservations', () => {
     await expect(getRelationshipObservations(ai, evidence, directory)).resolves.toEqual([validDraft]);
   });
 
+  it('sends only known or exactly cited identities while retaining the full directory for local validation', async () => {
+    const citedText = 'Gaius Pontius Magnus publicly rebuked the Roman Senate beneath the Curia steps.';
+    const citedEvidence: PlayerSafeEvidence[] = [{ id: 'report_cited', source: 'rumor', text: citedText }];
+    const completeDirectory = [
+      { entity_id: 'severus_alexander', name: 'Severus Alexander' },
+      { entity_id: 'gaius_pontius_magnus', name: 'Gaius Pontius Magnus' },
+      { entity_id: 'lycinia_stolo', name: 'Lycinia Stolo' },
+    ];
+    const citedUnknown = {
+      evidenceId: 'report_cited',
+      participantIds: ['severus_alexander', 'gaius_pontius_magnus'],
+      excerpt: citedText,
+    };
+    const uncitedHidden = {
+      ...citedUnknown,
+      participantIds: ['severus_alexander', 'lycinia_stolo'],
+    };
+    const { ai, generateContent } = makeMockAi(
+      [citedUnknown],
+      [uncitedHidden],
+      [citedUnknown, uncitedHidden],
+    );
+
+    await expect(getRelationshipObservations(
+      ai, citedEvidence, completeDirectory, ['severus_alexander']
+    )).resolves.toEqual([citedUnknown]);
+    await expect(getRelationshipObservations(
+      ai, citedEvidence, completeDirectory, ['severus_alexander']
+    )).rejects.toThrow(/semantic validation rejected/i);
+    await expect(getRelationshipObservations(
+      ai, citedEvidence, completeDirectory, ['severus_alexander']
+    )).rejects.toThrow(/semantic validation rejected/i);
+
+    expect(generateContent).toHaveBeenCalledTimes(3);
+    for (const [request] of generateContent.mock.calls) {
+      expect(request.contents).toContain('{"entity_id":"severus_alexander","name":"Severus Alexander"}');
+      expect(request.contents).toContain('{"entity_id":"gaius_pontius_magnus","name":"Gaius Pontius Magnus"}');
+      expect(request.contents).not.toContain('lycinia_stolo');
+      expect(request.contents).not.toContain('Lycinia Stolo');
+    }
+  });
+
+  it('does not treat a display name embedded inside a longer word as cited identity evidence', async () => {
+    const fragmentEvidence: PlayerSafeEvidence[] = [{
+      id: 'report_fragment',
+      source: 'rumor',
+      text: 'An Annex was posted beside Severus Alexander in the Forum.',
+    }];
+    const fragmentDirectory = [
+      { entity_id: 'severus_alexander', name: 'Severus Alexander' },
+      { entity_id: 'ann', name: 'Ann' },
+    ];
+    const fragmentSelection = [{
+      evidenceId: 'report_fragment',
+      participantIds: ['severus_alexander', 'ann'],
+      excerpt: fragmentEvidence[0].text,
+    }];
+    const { ai, generateContent } = makeMockAi(fragmentSelection);
+
+    await expect(getRelationshipObservations(
+      ai, fragmentEvidence, fragmentDirectory, ['severus_alexander']
+    )).rejects.toThrow(/semantic validation rejected/i);
+    expect(generateContent.mock.calls[0][0].contents).not.toContain('{"entity_id":"ann","name":"Ann"}');
+  });
+
   it('rejects a schema-valid non-empty selection that cites nonexistent evidence', async () => {
     const nonexistent = { ...validDraft, evidenceId: 'missing_evidence' };
     const { ai } = makeMockAi([nonexistent]);
