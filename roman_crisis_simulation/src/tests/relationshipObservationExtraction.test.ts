@@ -63,6 +63,8 @@ describe('relationship observation schema boundary', () => {
     [{ participantIds: ['severus_alexander', 'lucius'], excerpt: SAFE_TEXT }],
     [{ evidenceId: 'report_7_1', participantIds: 'lucius', excerpt: SAFE_TEXT }],
     [{ evidenceId: 'report_7_1', participantIds: ['lucius'], excerpt: 7 }],
+    [{ ...validDraft, excerpt: '' }],
+    [{ ...validDraft, excerpt: '   ' }],
   ])('rejects malformed structured output: %j', malformed => {
     expect(zRelationshipObservations.safeParse(malformed).success).toBe(false);
   });
@@ -74,6 +76,17 @@ describe('relationship observation schema boundary', () => {
     expect(serialized).toContain('excerpt');
     for (const forbiddenField of ['quote', 'source', 'sentiment', 'direction', 'confidence', 'tier', 'score', 'analysis']) {
       expect(serialized).not.toContain(`"${forbiddenField}"`);
+    }
+  });
+
+  it('rejects duplicate evidence ids before the selector prompt is built, regardless of order', async () => {
+    for (const duplicateEvidence of [
+      [{ ...evidence[0], source: 'rumor' as const }, { ...evidence[0], source: 'scout' as const }],
+      [{ ...evidence[0], source: 'scout' as const }, { ...evidence[0], source: 'rumor' as const }],
+    ]) {
+      const { ai, generateContent } = makeMockAi([]);
+      await expect(getRelationshipObservations(ai, duplicateEvidence, directory)).rejects.toThrow('duplicate evidence id');
+      expect(generateContent).not.toHaveBeenCalled();
     }
   });
 });

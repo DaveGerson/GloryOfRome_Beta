@@ -10,7 +10,7 @@ export const RelationshipObservationsSchema = {
         properties: {
             evidenceId: { type: Type.STRING },
             participantIds: { type: Type.ARRAY, items: { type: Type.STRING } },
-            excerpt: { type: Type.STRING },
+            excerpt: { type: Type.STRING, minLength: 1, description: 'A non-empty exact substring of the cited evidence.' },
         },
         required: ['evidenceId', 'participantIds', 'excerpt'],
     },

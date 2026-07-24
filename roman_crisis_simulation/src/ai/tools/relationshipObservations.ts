@@ -1,4 +1,5 @@
 import type { PlayerSafeEvidence, RelationshipObservationDraft } from '../../knowledge/store';
+import { hasDuplicateEvidenceIds } from '../../knowledge/relationships';
 import { GEMINI_FLASH, generateStructured, type GeminiClient } from '../core/geminiService';
 import { RelationshipObservationsSchema } from '../core/schemas';
 import { zRelationshipObservations } from '../core/zodSchemas';
@@ -10,6 +11,9 @@ export function getRelationshipObservations(
   evidence: PlayerSafeEvidence[],
   entities: Array<{ entity_id: string; name: string }>
 ): Promise<RelationshipObservationDraft[]> {
+  if (hasDuplicateEvidenceIds(evidence)) {
+    return Promise.reject(new Error('duplicate evidence id at relationship observation boundary'));
+  }
   const { systemInstruction, prompt } = buildRelationshipObservationsPrompt(evidence, entities);
   return generateStructured<RelationshipObservationDraft[]>(ai, {
     callName: 'relationshipObservations',

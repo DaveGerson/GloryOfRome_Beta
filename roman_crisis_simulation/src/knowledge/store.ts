@@ -295,7 +295,7 @@ function lastUpdatedTurn(claim: KnowledgeClaim): number {
  * graph never dangles (D29). Returns the input reference when nothing needs
  * evicting.
  */
-function evictOverCap(store: KnowledgeClaim[]): KnowledgeClaim[] {
+export function enforceKnowledgeClaimCap(store: KnowledgeClaim[]): KnowledgeClaim[] {
   if (store.length <= MAX_KNOWLEDGE_CLAIMS) return store;
   const excess = store.length - MAX_KNOWLEDGE_CLAIMS;
   const evictIndices = new Set(
@@ -428,7 +428,7 @@ function upsertClaim(store: KnowledgeClaim[], artifact: IngestArtifact): Knowled
   if (edges.length > 0) {
     newClaim.edges = edges;
   }
-  return evictOverCap([...store, newClaim]);
+  return enforceKnowledgeClaimCap([...store, newClaim]);
 }
 
 /**
@@ -740,5 +740,5 @@ export function ingestSchemeClue(
   if (edges.length > 0) {
     newClaim.edges = edges;
   }
-  return evictOverCap([...store, newClaim]);
+  return enforceKnowledgeClaimCap([...store, newClaim]);
 }

@@ -129,6 +129,8 @@ describe('relationship observation semantic validation and ingestion', () => {
     ['fewer than two unique participants', draft({ participantIds: ['lucius', 'lucius'] })],
     ['a nonexistent participant id', draft({ participantIds: ['severus_alexander', 'not_an_entity'] })],
     ['a model-rewritten excerpt', draft({ excerpt: 'Lucius loyally supported the emperor.' })],
+    ['an empty excerpt', draft({ excerpt: '' })],
+    ['a whitespace-only excerpt', draft({ excerpt: '   ' })],
   ])('rejects %s fail-closed', (_label, invalidDraft) => {
     expect(validate([invalidDraft])).toEqual([]);
     expect(ingest([], [invalidDraft])).toEqual([]);
@@ -252,7 +254,35 @@ describe('relationship observation semantic validation and ingestion', () => {
       firstLearnedTurn: index,
       updates: [{ turn: index, source: 'public', text: `old claim ${index}` }],
     }));
-    expect(ingest(prior, [draft()])).toHaveLength(MAX_KNOWLEDGE_CLAIMS);
+    const next = ingest(prior, [draft()]);
+    expect(next).toHaveLength(MAX_KNOWLEDGE_CLAIMS);
+    expect(next.some(claim => claim.id === 'old_0')).toBe(false);
+    expect(next.some(claim => claim.relationshipObservation?.evidenceId === 'report_7_1')).toBe(true);
+  });
+
+  it('allocates the next relationship ordinal after the maximum existing ordinal, not the count', () => {
+    const existing = ingest([], [draft()], [evidence()], 7).concat({
+      id: 'claim_7_relationship-observation:7:3', subject: 'lucius', claim: 'Existing gap marker',
+      topic: 'relationship-observation', claimKey: 'relationship-observation:7:3', firstLearnedTurn: 7,
+      updates: [{ turn: 7, source: 'rumor' as const, text: 'Existing gap marker' }],
+      relationshipObservation: { evidenceId: 'existing_3', participantIds: ['lucius', 'severus_alexander'] },
+    });
+    const nextEvidence = evidence({ id: 'report_7_2', text: 'Senator Lucius warned Severus Alexander before the Curia.' });
+    const next = ingest(existing, [draft({ evidenceId: nextEvidence.id, excerpt: nextEvidence.text })], [nextEvidence]);
+    expect(next.at(-1)?.claimKey).toBe('relationship-observation:7:4');
+    expect(new Set(next.map(claim => claim.id)).size).toBe(next.length);
+  });
+
+  it('fails closed for duplicate evidence ids before semantic validation or ingestion, regardless of order', () => {
+    const duplicateEvidence = [
+      evidence({ id: 'same', source: 'rumor', text: 'Senator Lucius defended Severus Alexander.' }),
+      evidence({ id: 'same', source: 'scout', text: 'Senator Lucius condemned Severus Alexander.' }),
+    ];
+    const duplicateDraft = draft({ evidenceId: 'same', excerpt: duplicateEvidence[0].text });
+    for (const ordered of [duplicateEvidence, duplicateEvidence.slice().reverse()]) {
+      expect(validate([duplicateDraft], ordered)).toEqual([]);
+      expect(ingest([], [duplicateDraft], ordered)).toEqual([]);
+    }
   });
 });
 
@@ -276,6 +306,7 @@ describe('deterministic trusted quote attribution', () => {
     'Someone said, "Severus has my support."',
     'Senator Lucius said, "I support Severus," while Caius replied, "I do not."',
     'Senator Lucius said one thing and later said, "I support Severus," then said, "For now."',
+    'In front of Senator Lucius, a guard said, "The gates are open."',
   ])('fails closed to ordinary evidence for ambiguous or non-explicit prose: %s', text => {
     expect(buildPlayerSafeEvidence({ id: 'direct_8_1', source: 'witnessed', text }, entities).trustedQuote)
       .toBeUndefined();
