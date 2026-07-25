@@ -150,7 +150,7 @@ describe('legacy entities flow through every builder with no "undefined" artifac
     expect(withoutCast.prompt).not.toContain('CAST VOICES');
     expect(withoutCast.prompt).not.toContain('undefined');
     // ...and an explicitly all-legacy cast behaves identically.
-    const withLegacyCast = buildNarrationPrompt('A crisis.', legacy, 'Hold court', [], [], [makeLegacyEntity()]);
+    const withLegacyCast = buildNarrationPrompt('A crisis.', legacy, 'Hold court', [], [makeLegacyEntity()]);
     expect(withLegacyCast.prompt).not.toContain('CAST VOICES');
     expect(withLegacyCast.prompt).not.toContain('undefined');
   });

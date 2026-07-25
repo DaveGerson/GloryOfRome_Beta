@@ -829,17 +829,6 @@ export async function runNewTurn(
     options?.onStage?.('narration');
     const narrationStreamGate = createNarrationStreamGate();
     const playerVisibleStreamGate = createPlayerVisibleStreamGate();
-    // Only VALID mortality events become narration directives (D4). An
-    // invalidated claim's `outcomeSummary` is "Death claim invalidated -
-    // <validation reasoning>", and that validator reasoning is GM-only
-    // (recorded in gm_private / the mortalityTrace, never player-facing) -
-    // forwarding it here would leak it into this player-output-bound prompt.
-    // The invalidated claim's diegetically-rewritten delta `reason` (set in
-    // ai/core/mortality.ts) already carries what the player should read, and
-    // rides into the prompt via the sanitized adjudication like any delta.
-    const mortalityDirectives = mortalityEvents
-        .filter(ev => ev.valid)
-        .map(ev => `- ${ev.entity_name} (${ev.entity_id}): ${ev.outcomeSummary}`);
     const playerPerceivedDigest = buildPlayerPerceivedDigest(
         transformedAdjudication.deltas,
         updatedPlayerEntity,
@@ -848,15 +837,19 @@ export async function runNewTurn(
     );
     const playerNarrationEvents = playerPerceivedDigest
         .map(({ text, source }) => ({ text, source }));
-    // 4C.5: voice flavor is allowed only for entities already named by a
-    // player-visible event. Raw spotlight/entityAction membership is GM
-    // routing data and must not select hidden characters into this prompt.
+    // 4C.5: voice flavor is allowed only for identities explicitly rendered
+    // in player-visible event text. PerceivedChange.subject/deltaKey remain
+    // knowledge provenance and must not select hidden rumor subjects.
+    const explicitlyVisibleEntityIds = updatedEntities
+        .filter(entity => entity.name.trim().length > 0
+            && playerNarrationEvents.some(event => event.text.includes(entity.name)))
+        .map(entity => entity.entity_id);
     const voiceCast = selectVoiceCast(
         [],
-        playerPerceivedDigest.map(change => change.subject),
+        explicitlyVisibleEntityIds,
         updatedEntities
     );
-    const narrationPrompt = buildNarrationPrompt(metaNarrative, updatedPlayerEntity, narrationSubmission, playerNarrationEvents, mortalityDirectives, voiceCast);
+    const narrationPrompt = buildNarrationPrompt(metaNarrative, updatedPlayerEntity, narrationSubmission, playerNarrationEvents, voiceCast);
     const narrationRequest = {
         callName: 'narration',
         model: GEMINI_PRO,

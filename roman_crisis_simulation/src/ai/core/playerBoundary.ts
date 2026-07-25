@@ -56,9 +56,19 @@ const HUMANIZED_MECHANIC_LABEL_PATTERNS = [
 // ordinary prose such as "the levy was a partial success because ...".
 const STANDALONE_HUMANIZED_MECHANIC_LABEL_PATTERN = /^\s*(?:it\s+(?:was|is)\s+(?:a\s+)?)?(?:critical[\s-]+failure|partial[\s-]+success|critical[\s-]+success|survives?[\s-]+with[\s-]+loss|survives?[\s-]+with[\s-]+boon|confirmed[\s-]+dead|gravely[\s-]+wounded|presumed[\s-]+dead|escapes[\s-]+openly)\s*[.!?]?\s*$/i;
 
+function stripBoundedPresentationWrappers(segment: string): string {
+  return segment
+    .trim()
+    .replace(/^(?:(?:[-+*]|\d+[.)])\s+)+/u, '')
+    .replace(/^[*_`"'“”‘’([{\s]+/u, '')
+    .replace(/[*_`"'“”‘’)}\]\s]+$/u, '')
+    .trim();
+}
+
 function containsStandaloneHumanizedMechanicLabel(text: string): boolean {
   return text
-    .split(/(?:[.!?](?:\s+|$)|[\r\n]+)/u)
+    .split(/(?:[.!?](?:[*_`"'”’)}\]]*)(?:\s+|$)|[\r\n]+)/u)
+    .map(stripBoundedPresentationWrappers)
     .some(segment => STANDALONE_HUMANIZED_MECHANIC_LABEL_PATTERN.test(segment));
 }
 

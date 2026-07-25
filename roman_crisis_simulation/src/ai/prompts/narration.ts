@@ -137,17 +137,14 @@ ${lines.join('\n')}
  * The event input accepts only `text` and `source` from the D5 visibility
  * seam; no raw adjudication/entityAction/delta/headline field can enter this
  * player-output request. `updatedPlayerEntity` is independently sanitized.
- * `mortalityDirectives` (from
- * `ai/core/mortality.ts::processMortality`'s trace, forwarded by
- * `turn.ts`) are pre-decided narration instructions for any death claims
- * resolved this turn - the model narrates them, it does not re-decide them.
+ * Mortality reaches this prompt through the same perceived-event input;
+ * raw mortality trace directives are GM-side state and are never accepted.
  */
 export function buildNarrationPrompt(
   metaNarrative: string,
   updatedPlayerEntity: Entity,
   playerOwned: NarrationSubmissionProjection | string,
   perceivedEvents: readonly Pick<PerceivedChange, 'text' | 'source'>[],
-  mortalityDirectives: string[] = [],
   // 4C.5: the bounded on-stage cast whose voice/epithet lines the prompt
   // may carry - callers pass `selectVoiceCast`'s output (spotlight +
   // involved entities only, never the whole roster). Defaults to [] so
@@ -180,16 +177,7 @@ Task:
 
 2.  **Suggest Next Actions:** After the narration, on new lines, suggest exactly 3 brief, interesting, actionable next steps for the player, each prefixed with "SUGGESTION:". The suggestions should be tailored to the player's character, goals, and the new situation.
 
-IMPORTANT: If the prompt includes "MORTALITY NARRATION DIRECTIVES", these are non-negotiable staging notes about outcomes that have already been mechanically decided (by a roll you never see). Follow each directive exactly for its named entity - do not contradict it, soften it, or hint at any information it says to withhold.
     `;
-
-  const mortalityBlock =
-    mortalityDirectives.length > 0
-      ? `
-MORTALITY NARRATION DIRECTIVES:
-${mortalityDirectives.join('\n')}
-`
-      : '';
 
   const prompt = `
 PLAYER CHARACTER PROFILE (for context):
@@ -200,7 +188,7 @@ ${playerContextLabel}
 ${buildVoiceCastBlock(voiceCast)}
 PLAYER-PERCEIVED TURN EVENTS:
 ${JSON.stringify(perceivedEvents.map(({ text, source }) => ({ text, source })), null, 2)}
-${mortalityBlock}`;
+`;
 
   return { systemInstruction, prompt };
 }
