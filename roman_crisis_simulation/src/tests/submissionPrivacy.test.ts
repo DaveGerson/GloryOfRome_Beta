@@ -213,6 +213,27 @@ async function runRealTurn(submission: TurnSubmission, overrides: ResponseOverri
   return { ...started, result };
 }
 
+async function runMockTurn(submission: TurnSubmission) {
+  const { player, npcA, npcB } = makeCast();
+  const result = await runNewTurn(
+    { models: { generateContent: vi.fn() } } as unknown as GoogleGenAI,
+    submission,
+    player,
+    7,
+    [player, npcA, npcB],
+    WORLD_STATE,
+    SIMULATION_STATE,
+    [],
+    [],
+    [],
+    [],
+    '',
+    true,
+    'A political thriller',
+  );
+  return { result, player };
+}
+
 function fullCallText(call: CapturedCall): string {
   return `${call.systemInstruction}\n${call.prompt}`;
 }
@@ -740,28 +761,63 @@ describe('runNewTurn submission visibility routing', () => {
   it.each([
     ['private-only', { version: 1, kind: 'structured', privateIntent: PRIVATE_SENTINEL } as const],
     ['question-only', { version: 1, kind: 'structured', questionOrContext: QUESTION_SENTINEL } as const],
-  ])('mock mode does not call a %s submission an action', async (_label, submission) => {
-    const { player, npcA, npcB } = makeCast();
-    const mock = await runNewTurn(
-      { models: { generateContent: vi.fn() } } as unknown as GoogleGenAI,
-      submission,
-      player,
-      7,
-      [player, npcA, npcB],
-      WORLD_STATE,
-      SIMULATION_STATE,
-      [],
-      [],
-      [],
-      [],
-      '',
-      true,
-      'A political thriller',
-    );
+    ['question-plus-private', {
+      version: 1,
+      kind: 'structured',
+      privateIntent: PRIVATE_SENTINEL,
+      questionOrContext: QUESTION_SENTINEL,
+    } as const],
+  ])('mock mode suppresses no-attempt presentation for %s while preserving the simulated turn', async (_label, submission) => {
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      const { result: mock } = await runMockTurn(submission);
 
-    expect(mock.narration).not.toContain('Your action');
-    expect(mock.narration).toContain(_label === 'private-only' ? 'private intent' : 'question');
-    expect(mock.narration).toContain('No action is taken');
+      expect(mock.narration).toBe('');
+      expect(mock.playerMonologue).toBe('');
+      expect(mock.suggestedActions).toEqual([
+        'Consider your next move carefully.',
+        'Consolidate your power.',
+        'Seek new allies.',
+      ]);
+      expect(mock.newHistoryEntry.narration).toBe('');
+      expect(mock.newHistoryEntry.playerIntent).toBe(serializeTurnSubmission(submission));
+      expect(mock.newHistoryEntry.adjudication.entityActions).toHaveLength(2);
+      expect(mock.newHistoryEntry.adjudication.deltas.length).toBeGreaterThan(0);
+      expect(mock.updatedWorldState.regions['Temple of Jupiter']).toBeDefined();
+      expect(mock.updatedEntities).toContainEqual(expect.objectContaining({ entity_id: 'flavius_fulco' }));
+      expect(mock.updatedSimulationState).toEqual(SIMULATION_STATE);
+      expect(mock.headlines).toEqual(mock.newHistoryEntry.adjudication.headlines);
+      expect(consoleLog).not.toHaveBeenCalledWith('--- MOCK PLAYER MONOLOGUE ---');
+    } finally {
+      consoleLog.mockRestore();
+    }
+  });
+
+  it('mock mode preserves observable Action + Question + Private Intent presentation and mechanics', async () => {
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      const { result: mock, player } = await runMockTurn(FULL_SUBMISSION);
+
+      expect(consoleLog).toHaveBeenCalledWith('--- MOCK PLAYER MONOLOGUE ---');
+      expect(mock.narration).toContain(OBSERVABLE_SENTINEL);
+      expect(mock.playerMonologue).toContain(OBSERVABLE_SENTINEL);
+      expect(mock.playerMonologue).toContain(PRIVATE_SENTINEL);
+      expect(mock.playerMonologue).toContain(QUESTION_SENTINEL);
+      expect(mock.suggestedActions).toEqual([
+        "Mock: Investigate Thrax's rumors",
+        'Mock: Send a message to the Senate',
+        'Mock: Try to bribe the Praetorians',
+      ]);
+      expect(mock.newHistoryEntry.narration).toBe(mock.narration);
+      expect(mock.newHistoryEntry.adjudication.deltas).toContainEqual(
+        expect.objectContaining({ type: 'rumor', origin_id: player.entity_id }),
+      );
+      expect(mock.updatedTruthLedger).toContainEqual(expect.objectContaining({ originId: player.entity_id }));
+      expect(mock.updatedWorldState.regions['Temple of Jupiter']).toBeDefined();
+      expect(mock.updatedEntities).toContainEqual(expect.objectContaining({ entity_id: 'flavius_fulco' }));
+    } finally {
+      consoleLog.mockRestore();
+    }
   });
 
   it.each([
