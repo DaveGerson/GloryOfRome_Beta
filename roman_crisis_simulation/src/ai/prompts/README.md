@@ -20,6 +20,7 @@ one of the builders below.
 | `updatedSimulationState` | `intelligence.ts::buildSimulationStateUpdatePrompt` | pro | `zSimulationState` | `SimulationStateSchema` | `turn.ts` step 2.5 |
 | `relationshipUpdates` | `intelligence.ts::buildRelationshipUpdatesPrompt` | pro | `zRelationshipDeltas` | `RelationshipDeltasSchema` | `turn.ts` step 5.5 |
 | `relationshipObservations` | `relationshipObservations.ts::buildRelationshipObservationsPrompt` | flash | `zRelationshipObservations` | `RelationshipObservationsSchema` | `App.tsx` turn and paid-investigation paths, before their atomic save/dispatch commits |
+| `noAttemptEvidenceSelection` | `noAttemptResponse.ts::buildNoAttemptEvidenceSelectionPrompt` | flash | `zNoAttemptEvidenceSelection` | `NoAttemptEvidenceSelectionSchema` | question-only player response; evidence IDs only |
 | `privateConversation` | `intelligence.ts::buildPrivateConversationPrompt` | pro | `zConversationSimulation` | `ConversationSimulationSchema` | `turn.ts` step 2.5 (off-screen sim) |
 | `mortalityValidation` | `mortality.ts::buildMortalityValidationPrompt` | pro | `zMortalityValidation` | `MortalityValidationSchema` | `turn.ts` step 2.6 (`ai/core/mortality.ts::processMortality`, gate 1) |
 | `mortalityOutcome` | `mortality.ts::buildMortalityOutcomePrompt` | pro | `zMortalityOutcome` | `MortalityOutcomeSchema` | `turn.ts` step 2.6 (`ai/core/mortality.ts::processMortality`, gate 3) |

@@ -34,6 +34,7 @@ import {
   zInvestigationResult,
   zMortalityOutcome,
   zMortalityValidation,
+  zNoAttemptEvidenceSelection,
   zNpcMindDecision,
   zRelationshipDeltas,
   zRelationshipObservations,
@@ -70,6 +71,7 @@ export const STRUCTURED_CALL_SCHEMAS: Record<string, ZodType> = {
   characterCreation: zEntity,
   ambitionInference: zAmbitionInference,
   relationshipObservations: zRelationshipObservations,
+  noAttemptEvidenceSelection: zNoAttemptEvidenceSelection,
 };
 
 /** Prose call families (per ai/prompts/README.md) - no JSON to validate, skipped by the schema check. */

@@ -16,6 +16,20 @@ export const RelationshipObservationsSchema = {
     },
 };
 
+/** Strict evidence-ID selector for question-only no-attempt responses. */
+export const NoAttemptEvidenceSelectionSchema = {
+    type: Type.OBJECT,
+    properties: {
+        decision: { type: Type.STRING, enum: ['answer', 'no_answer'] },
+        evidenceIds: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING },
+            maxItems: 5,
+        },
+    },
+    required: ['decision', 'evidenceIds'],
+};
+
 const EntityActionSchema = {
     type: Type.OBJECT,
     properties: {

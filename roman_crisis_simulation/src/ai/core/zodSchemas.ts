@@ -356,3 +356,24 @@ export const zRelationshipObservations = z.array(z.object({
   participantIds: z.array(z.string()),
   excerpt: z.string().refine(value => value.trim().length > 0, 'excerpt must contain non-whitespace text'),
 }).strict());
+
+/** Strict model boundary: a semantic decision plus offered evidence IDs only. */
+export const zNoAttemptEvidenceSelection = z.object({
+  decision: z.enum(['answer', 'no_answer']),
+  evidenceIds: z.array(z.string()).max(5),
+}).strict().superRefine((selection, context) => {
+  if (selection.decision === 'answer' && selection.evidenceIds.length === 0) {
+    context.addIssue({
+      code: 'custom',
+      path: ['evidenceIds'],
+      message: 'answer requires one to five evidence IDs',
+    });
+  }
+  if (selection.decision === 'no_answer' && selection.evidenceIds.length !== 0) {
+    context.addIssue({
+      code: 'custom',
+      path: ['evidenceIds'],
+      message: 'no_answer requires an empty evidence ID list',
+    });
+  }
+});
