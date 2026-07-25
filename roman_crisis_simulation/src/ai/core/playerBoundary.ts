@@ -51,10 +51,16 @@ const HUMANIZED_MECHANIC_LABEL_PATTERNS = [
 ] as const;
 
 // A provider sometimes emits the hidden tier without its usual
-// "outcome tier"/"fate band" label. Reject only when the whole response is
-// the tier verdict (optionally wrapped in "It was ..."); the anchors preserve
+// "outcome tier"/"fate band" label. Reject only when a whole sentence or line
+// is the tier verdict (optionally wrapped in "It was ..."); the anchors preserve
 // ordinary prose such as "the levy was a partial success because ...".
 const STANDALONE_HUMANIZED_MECHANIC_LABEL_PATTERN = /^\s*(?:it\s+(?:was|is)\s+(?:a\s+)?)?(?:critical[\s-]+failure|partial[\s-]+success|critical[\s-]+success|survives?[\s-]+with[\s-]+loss|survives?[\s-]+with[\s-]+boon|confirmed[\s-]+dead|gravely[\s-]+wounded|presumed[\s-]+dead|escapes[\s-]+openly)\s*[.!?]?\s*$/i;
+
+function containsStandaloneHumanizedMechanicLabel(text: string): boolean {
+  return text
+    .split(/(?:[.!?](?:\s+|$)|[\r\n]+)/u)
+    .some(segment => STANDALONE_HUMANIZED_MECHANIC_LABEL_PATTERN.test(segment));
+}
 
 /** Canonicalizes visually equivalent or invisibly separated provider text. */
 function normalizeBoundaryText(text: string): string {
@@ -67,7 +73,7 @@ function containsHiddenMechanics(text: string): boolean {
     || DICE_NOTATION_PATTERN.test(normalized)
     || MECHANICAL_ROLL_PATTERNS.some(pattern => pattern.test(normalized))
     || HUMANIZED_MECHANIC_LABEL_PATTERNS.some(pattern => pattern.test(normalized))
-    || STANDALONE_HUMANIZED_MECHANIC_LABEL_PATTERN.test(normalized);
+    || containsStandaloneHumanizedMechanicLabel(normalized);
 }
 
 function valueContainsHiddenMechanics(value: unknown): boolean {

@@ -54,6 +54,8 @@ describe('player-visible mechanics boundary', () => {
     'Survives with loss.',
     'It was presumed dead.',
     'It was gravely wounded.',
+    'The Senate fell silent. It was a critical success. The consul departed.',
+    'The messenger paused. Presumed dead. No body was recovered.',
   ])('rejects a standalone humanized hidden tier: %s', poison => {
     const error = boundaryError(poison);
     expect(error.message).toBe('AI output violated the player-visible mechanics boundary.');
