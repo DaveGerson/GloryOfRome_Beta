@@ -208,18 +208,18 @@ deliberate binary triage before the manifest can change.
   characterization-tested substantive change.
 - **ACCEPT — `react-hooks/set-state-in-effect` (1 occurrence:
   `components/OnboardingOverlay.tsx:69`).** Opening the overlay synchronously
-  resets its local step to the beginning, but effects run after render.
-  Reopening can therefore briefly render the retained old step before the
-  effect resets it, and assistive technology may briefly announce that stale
-  step. The degradation is a silent, localized visual/accessibility mismatch
-  plus one extra render; the state then converges and no update loop is
-  present. The blast radius is limited to onboarding-overlay reopen timing
-  and cannot affect game state, saves, AI prompts, or mechanics. Accept
-  because no user-visible complaint is observed and the real fix is an
-  event-driven state-lifecycle redesign that needs focused component
-  characterization, not warning suppression. Revisit immediately if the
-  stale-step flash/announcement is observed or the open/reset lifecycle is
-  redesigned.
+  resets its local step to the beginning. In the current App integration the
+  overlay is conditionally mounted and unmounted, so every open creates a new
+  component whose state already initializes to step `0`; there is no retained
+  old step and therefore no current stale-step flash or assistive-technology
+  announcement. The effect can cause only one redundant, bounded render, a
+  silent client-timing cost localized to the onboarding overlay. It cannot
+  affect game state, saves, AI prompts, or mechanics. Accept because no
+  user-visible performance problem is observed and the current behavior is
+  correct. A stale-step visual/accessibility risk would become real only if a
+  future integration keeps the component mounted while toggling `isOpen`.
+  Revisit if that lifecycle changes, or if overlay-open rendering becomes a
+  measurable performance concern.
 
 ### B12 — Task 4b vendor-chunk-split interactive preview smoke: not yet run
 When Task 4b split the single oversized JS bundle into deterministic vendor
