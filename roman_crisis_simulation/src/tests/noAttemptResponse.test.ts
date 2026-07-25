@@ -338,13 +338,15 @@ describe('renderNoAttemptResponse', () => {
     );
   });
 
-  it.each(Object.entries(SOURCE_LABELS) as Array<[KnowledgeSource, string]>)
-  ('renders the fixed label for %s evidence', (source, label) => {
-    expect(renderNoAttemptResponse({
-      kind: 'answer',
-      evidence: [{ id: 'evidence-1', source, text: 'Observed.' }],
-    })).toBe(`What you can currently tell:\n- ${label}: Observed.`);
-  });
+  it.each(Object.entries(SOURCE_LABELS) as Array<[KnowledgeSource, string]>)(
+    'renders the fixed label for %s evidence',
+    (source, label) => {
+      expect(renderNoAttemptResponse({
+        kind: 'answer',
+        evidence: [{ id: 'evidence-1', source, text: 'Observed.' }],
+      })).toBe(`What you can currently tell:\n- ${label}: Observed.`);
+    },
+  );
 
   it.each([
     'no_evidence',
