@@ -10,8 +10,8 @@
  * save/legacy compatibility), THE LEGACY PIN (entities without the fields
  * flow through every builder emitting NOTHING - never the literal string
  * "undefined"), the mind prompt carrying the character's OWN voice, the
- * narration prompt's bounded CAST VOICES block (selectVoiceCast: spotlight
- * + acting entities only, capped, never the whole roster) threaded through
+ * narration prompt's bounded CAST VOICES block (selected from player-visible
+ * event subjects, capped, never the whole roster) threaded through
  * the real pipeline, the epithet-only rule for the omniscient adjudicator
  * briefs (voice never enters getEntityBrief), base-scenario authoring
  * completeness, and the generation prompts requesting both fields. The
@@ -32,7 +32,7 @@ import { runNewTurn } from '../ai/core/turn';
 import { endTurnCapture } from '../ai/core/geminiService';
 import { mockCreateCharacter, mockGenerateEntitiesDetails, mockGenerateScenarioStructure } from '../ai/mocks';
 import { ALL_INITIAL_ENTITIES } from '../constants/baseScenario';
-import type { Adjudication, Entity, SimulationState, WorldState } from '../types';
+import type { Entity, SimulationState, WorldState } from '../types';
 
 // --- fixtures --------------------------------------------------------------
 
