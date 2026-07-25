@@ -18,8 +18,12 @@ import * as turnCore from '../ai/core/turn';
 import * as geminiService from '../ai/core/geminiService';
 import { loadGame, saveGame, type SaveGameState } from '../persistence/saveGame';
 import { AiServiceError } from '../ai/core/geminiService';
-import type { Entity } from '../types';
+import type { Entity, TurnSubmission } from '../types';
 import { getMockInitialState } from './mockData';
+import {
+  NO_ATTEMPT_NO_ANSWER,
+  PRIVATE_INTENT_ACKNOWLEDGEMENT,
+} from '../playerView/noAttemptResponse';
 
 vi.mock('../ai/mocks', async importOriginal => {
   const actual = await importOriginal<typeof import('../ai/mocks')>();
@@ -54,6 +58,7 @@ vi.mock('../ai/core/geminiService', async importOriginal => {
   const actual = await importOriginal<typeof import('../ai/core/geminiService')>();
   return {
     ...actual,
+    generateStructured: vi.fn(actual.generateStructured),
     resetSessionCallLog: vi.fn(actual.resetSessionCallLog),
   };
 });
@@ -66,6 +71,7 @@ const mockGetInvestigationResult = vi.mocked(aiMocks.mockGetInvestigationResult)
 const mockCreateCharacter = vi.mocked(aiMocks.mockCreateCharacter);
 const mockInferAmbition = vi.mocked(ambitionTool.inferAmbition);
 const mockRunNewTurnCore = vi.mocked(turnCore.runNewTurn);
+const mockGenerateStructured = vi.mocked(geminiService.generateStructured);
 const mockResetSessionCallLog = vi.mocked(geminiService.resetSessionCallLog);
 const defaultRunNewTurn = mockRunNewTurn.getMockImplementation()!;
 const defaultDeepAnalysis = mockGetDeepAnalysis.getMockImplementation()!;
@@ -73,6 +79,7 @@ const defaultInvestigation = mockGetInvestigationResult.getMockImplementation()!
 const defaultCreateCharacter = mockCreateCharacter.getMockImplementation()!;
 const defaultInferAmbition = mockInferAmbition.getMockImplementation()!;
 const defaultRunNewTurnCore = mockRunNewTurnCore.getMockImplementation()!;
+const defaultGenerateStructured = mockGenerateStructured.getMockImplementation()!;
 const mounted: Array<{ root: Root; container: HTMLDivElement }> = [];
 
 beforeEach(() => {
@@ -90,6 +97,8 @@ beforeEach(() => {
   mockInferAmbition.mockImplementation(defaultInferAmbition);
   mockRunNewTurnCore.mockClear();
   mockRunNewTurnCore.mockImplementation(defaultRunNewTurnCore);
+  mockGenerateStructured.mockClear();
+  mockGenerateStructured.mockImplementation(defaultGenerateStructured);
   mockResetSessionCallLog.mockClear();
   Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
     configurable: true,
@@ -117,6 +126,8 @@ afterEach(async () => {
   mockInferAmbition.mockImplementation(defaultInferAmbition);
   mockRunNewTurnCore.mockClear();
   mockRunNewTurnCore.mockImplementation(defaultRunNewTurnCore);
+  mockGenerateStructured.mockClear();
+  mockGenerateStructured.mockImplementation(defaultGenerateStructured);
   mockResetSessionCallLog.mockClear();
   vi.useRealTimers();
 });
@@ -220,7 +231,7 @@ function makeAppSave(overrides: Partial<SaveGameState> = {}): SaveGameState {
   };
 }
 
-async function renderApp(continueSave: boolean): Promise<HTMLDivElement> {
+async function renderApp(continueSave: boolean, mockMode = true): Promise<HTMLDivElement> {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -232,16 +243,18 @@ async function renderApp(continueSave: boolean): Promise<HTMLDivElement> {
   if (!continueSave) return container;
   await click(buttonNamed(container, 'Continue Your Reign'));
   await waitFor(() => expect(container.querySelector('[aria-label="Chat input"]')).not.toBeNull());
-  const mockToggle = container.querySelector<HTMLInputElement>('#mock-toggle');
-  expect(mockToggle).not.toBeNull();
-  await click(mockToggle!);
-  expect(mockToggle!.checked).toBe(true);
+  if (mockMode) {
+    const mockToggle = container.querySelector<HTMLInputElement>('#mock-toggle');
+    expect(mockToggle).not.toBeNull();
+    await click(mockToggle!);
+    expect(mockToggle!.checked).toBe(true);
+  }
   return container;
 }
 
-async function mountApp(state = makeAppSave(), continueSave = true): Promise<HTMLDivElement> {
+async function mountApp(state = makeAppSave(), continueSave = true, mockMode = true): Promise<HTMLDivElement> {
   saveGame(state);
-  return renderApp(continueSave);
+  return renderApp(continueSave, mockMode);
 }
 
 function failBothSaveWrites(): ReturnType<typeof vi.spyOn> {
@@ -325,6 +338,121 @@ async function playOneTurn(container: HTMLElement, text = 'Open the transaction 
   await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), text);
   await click(buttonNamed(container, 'Send message'));
   await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
+}
+
+type ResolvedTurn = Awaited<ReturnType<typeof turnCore.runNewTurn>>;
+
+const SAFE_EVIDENCE_TEXT = 'The west benches are empty before the scheduled vote.';
+const SAFE_EVIDENCE_ANSWER = `What you can currently tell:\n- From a scout: ${SAFE_EVIDENCE_TEXT}`;
+const BASE_GM_PRIVATE = 'BASE_GM_PRIVATE_SENTINEL: retain this only in the GM artifact.';
+const RESPONSE_DIAGNOSTIC = '[No-attempt response] Evidence selection failed; the player received the safe no-answer fallback.';
+
+async function makeResolvedTurn(
+  state: SaveGameState,
+  submission: TurnSubmission,
+  options: { prospectiveEvidence?: boolean; narration?: string; playerMonologue?: string } = {},
+): Promise<ResolvedTurn> {
+  const player = state.entities.find(entity => entity.entity_id === state.playerCharacterId)!;
+  const result = await defaultRunNewTurn(
+    submission,
+    player,
+    state.turnNumber,
+    state.entities,
+    state.worldState,
+    state.reports,
+    state.gmInterventionText,
+    state.metaNarrative,
+    state.simulationState,
+    state.truthLedger,
+    state.npcIntents,
+  );
+  const prospectiveEvidence = options.prospectiveEvidence !== false;
+  const report = {
+    id: `report_${state.turnNumber}_safe_question`,
+    turn: state.turnNumber,
+    source: 'scout' as const,
+    about: 'roman_senate',
+    claim: SAFE_EVIDENCE_TEXT,
+    credibility: 0.9,
+  };
+  const narration = options.narration ?? result.narration;
+  const playerMonologue = options.playerMonologue ?? result.playerMonologue;
+  return {
+    ...result,
+    narration,
+    playerMonologue,
+    updatedReports: prospectiveEvidence ? [...state.reports, report] : state.reports,
+    newHistoryEntry: {
+      ...result.newHistoryEntry,
+      narration,
+      adjudication: {
+        ...result.newHistoryEntry.adjudication,
+        deltas: prospectiveEvidence ? result.newHistoryEntry.adjudication.deltas : [],
+        gm_private: [...result.newHistoryEntry.adjudication.gm_private, BASE_GM_PRIVATE],
+      },
+    },
+  };
+}
+
+interface ObservedSelectorCall {
+  prompt: string;
+  systemInstruction: string;
+}
+
+type SelectorBehavior =
+  | 'select_safe_evidence'
+  | { decision: 'answer' | 'no_answer'; evidenceIds: readonly string[] }
+  | Error;
+
+function installStructuredAi(behavior: SelectorBehavior): ObservedSelectorCall[] {
+  const selectorCalls: ObservedSelectorCall[] = [];
+  mockGenerateStructured.mockImplementation(async (_ai, request) => {
+    if (request.callName === 'relationshipObservations') return [] as never;
+    if (request.callName !== 'noAttemptEvidenceSelection') {
+      throw new Error(`Unexpected structured call: ${request.callName}`);
+    }
+    selectorCalls.push({
+      prompt: request.prompt,
+      systemInstruction: String(request.systemInstruction ?? ''),
+    });
+    if (behavior instanceof Error) throw behavior;
+    if (behavior !== 'select_safe_evidence') return behavior as never;
+    const offered = JSON.parse(request.prompt.split('OFFERED EVIDENCE:\n')[1]) as Array<{
+      id: string;
+      source: string;
+      text: string;
+    }>;
+    const selected = offered.find(item => item.text === SAFE_EVIDENCE_TEXT);
+    if (!selected) throw new Error('safe prospective evidence was not offered');
+    return { decision: 'answer', evidenceIds: [selected.id] } as never;
+  });
+  return selectorCalls;
+}
+
+async function mountRealApp(state: SaveGameState): Promise<HTMLDivElement> {
+  localStorage.setItem('gloryOfRome:apiKey', 'task-4-transaction-provider-key');
+  return mountApp(state, true, false);
+}
+
+async function submitStructured(
+  container: HTMLElement,
+  draft: {
+    action?: string;
+    privateIntent?: string;
+    questionOrContext?: string;
+  },
+): Promise<void> {
+  await click(buttonNamed(container, 'Structured'));
+  if (draft.action !== undefined) {
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Action 1'), draft.action);
+  }
+  if (draft.privateIntent !== undefined) {
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Private Intent'), draft.privateIntent);
+  }
+  if (draft.questionOrContext !== undefined) {
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Question / Context'), draft.questionOrContext);
+  }
+  await click(buttonNamed(container, 'Submit turn'));
 }
 
 describe('App non-turn save atomicity', () => {
@@ -1375,4 +1503,298 @@ describe('App in-flight transaction barrier', () => {
       errorSpy.mockRestore();
     });
   }
+});
+
+describe('App no-attempt response transaction', () => {
+  it('selects only prospective safe knowledge and commits one identical deterministic question answer everywhere', async () => {
+    const state = makeAppSave();
+    const question = 'What can I tell from the west benches?';
+    const submission: TurnSubmission = {
+      version: 1,
+      kind: 'structured',
+      questionOrContext: question,
+    };
+    const resolved = await makeResolvedTurn(state, submission);
+    mockRunNewTurnCore.mockResolvedValueOnce(resolved);
+    const selectorCalls = installStructuredAi('select_safe_evidence');
+    const container = await mountRealApp(state);
+
+    await submitStructured(container, { questionOrContext: question });
+    await waitFor(() => expect(loadGame()!.state.turnNumber).toBe(state.turnNumber + 1));
+
+    const saved = loadGame()!.state;
+    const entry = saved.turnHistory.at(-1)!;
+    const committedMessages = saved.messages.slice(-3);
+    expect(mockRunNewTurnCore).toHaveBeenCalledTimes(1);
+    expect(selectorCalls).toHaveLength(1);
+    expect(selectorCalls[0].prompt).toContain(JSON.stringify(question));
+    expect(selectorCalls[0].prompt).toContain(SAFE_EVIDENCE_TEXT);
+    expect(selectorCalls[0].prompt).not.toContain(BASE_GM_PRIVATE);
+    expect(entry.narration).toBe(SAFE_EVIDENCE_ANSWER);
+    expect(committedMessages).toEqual([
+      expect.objectContaining({ sender: 'player' }),
+      { sender: 'gm', text: SAFE_EVIDENCE_ANSWER },
+      expect.objectContaining({ sender: 'ribbon' }),
+    ]);
+    expect(container.textContent).toContain(SAFE_EVIDENCE_ANSWER);
+    expect(entry.adjudication.gm_private).toEqual([BASE_GM_PRIVATE]);
+    expect(resolved.newHistoryEntry.adjudication.gm_private).toEqual([BASE_GM_PRIVATE]);
+  });
+
+  for (const scenario of [
+    {
+      label: 'no evidence',
+      prospectiveEvidence: false,
+      behavior: 'select_safe_evidence' as const,
+      selectorExpected: false,
+      diagnosticExpected: false,
+    },
+    {
+      label: 'explicit model no-answer',
+      prospectiveEvidence: true,
+      behavior: { decision: 'no_answer', evidenceIds: [] } as const,
+      selectorExpected: true,
+      diagnosticExpected: false,
+    },
+    {
+      label: 'invalid evidence IDs',
+      prospectiveEvidence: true,
+      behavior: { decision: 'answer', evidenceIds: ['not-offered'] } as const,
+      selectorExpected: true,
+      diagnosticExpected: true,
+    },
+    {
+      label: 'schema failure',
+      prospectiveEvidence: true,
+      behavior: new AiServiceError(
+        'fatal',
+        'noAttemptEvidenceSelection',
+        'SCHEMA_FAILURE_SENTINEL: malformed provider result',
+      ),
+      selectorExpected: true,
+      diagnosticExpected: true,
+    },
+    {
+      label: 'provider failure',
+      prospectiveEvidence: true,
+      behavior: new Error('PROVIDER_FAILURE_SENTINEL: socket closed'),
+      selectorExpected: true,
+      diagnosticExpected: true,
+    },
+  ]) {
+    it(`commits the resolved world turn once with the fixed safe fallback after ${scenario.label}`, async () => {
+      const state = makeAppSave();
+      const question = `QUESTION_SENTINEL_${scenario.label}: what is established?`;
+      const submission: TurnSubmission = {
+        version: 1,
+        kind: 'structured',
+        questionOrContext: question,
+      };
+      const resolved = await makeResolvedTurn(state, submission, {
+        prospectiveEvidence: scenario.prospectiveEvidence,
+      });
+      mockRunNewTurnCore.mockResolvedValueOnce(resolved);
+      const selectorCalls = installStructuredAi(scenario.behavior);
+      const container = await mountRealApp(state);
+
+      await submitStructured(container, { questionOrContext: question });
+      await waitFor(() => expect(loadGame()!.state.turnNumber).toBe(state.turnNumber + 1));
+
+      const saved = loadGame()!.state;
+      const entry = saved.turnHistory.at(-1)!;
+      const diagnostics = entry.adjudication.gm_private.filter(item => item.startsWith('[No-attempt response]'));
+      expect(mockRunNewTurnCore).toHaveBeenCalledTimes(1);
+      expect(saved.turnHistory).toHaveLength(state.turnHistory.length + 1);
+      expect(entry.narration).toBe(NO_ATTEMPT_NO_ANSWER);
+      expect(saved.messages.filter(message => message.sender === 'gm').at(-1)?.text).toBe(NO_ATTEMPT_NO_ANSWER);
+      expect(container.textContent).toContain(NO_ATTEMPT_NO_ANSWER);
+      expect(selectorCalls).toHaveLength(scenario.selectorExpected ? 1 : 0);
+      expect(diagnostics).toEqual(scenario.diagnosticExpected ? [RESPONSE_DIAGNOSTIC] : []);
+      if (scenario.diagnosticExpected) {
+        expect(diagnostics[0]).not.toContain(question);
+        expect(diagnostics[0]).not.toContain(SAFE_EVIDENCE_TEXT);
+        expect(diagnostics[0]).not.toMatch(/SCHEMA_FAILURE_SENTINEL|PROVIDER_FAILURE_SENTINEL/);
+        expect(resolved.newHistoryEntry.adjudication.gm_private).toEqual([BASE_GM_PRIVATE]);
+      }
+    });
+  }
+});
+
+describe('App no-attempt response privacy and atomicity', () => {
+  it('commits the fixed private-intent acknowledgement without selecting evidence or adding Inner Thoughts', async () => {
+    const state = makeAppSave();
+    const privateIntent = 'PRIVATE_ONLY_SENTINEL: wait for a better moment.';
+    const submission: TurnSubmission = {
+      version: 1,
+      kind: 'structured',
+      privateIntent,
+    };
+    const resolved = await makeResolvedTurn(state, submission, { prospectiveEvidence: false });
+    mockRunNewTurnCore.mockResolvedValueOnce(resolved);
+    const selectorCalls = installStructuredAi('select_safe_evidence');
+    const container = await mountRealApp(state);
+
+    await submitStructured(container, { privateIntent });
+    await waitFor(() => expect(loadGame()!.state.turnNumber).toBe(state.turnNumber + 1));
+
+    const saved = loadGame()!.state;
+    expect(selectorCalls).toHaveLength(0);
+    expect(saved.turnHistory.at(-1)?.narration).toBe(PRIVATE_INTENT_ACKNOWLEDGEMENT);
+    expect(saved.messages.slice(-3)).toEqual([
+      expect.objectContaining({ sender: 'player' }),
+      { sender: 'gm', text: PRIVATE_INTENT_ACKNOWLEDGEMENT },
+      expect.objectContaining({ sender: 'ribbon' }),
+    ]);
+    expect(saved.messages.some(message => message.sender === 'player_monologue')).toBe(false);
+    expect(container.textContent).toContain(PRIVATE_INTENT_ACKNOWLEDGEMENT);
+  });
+
+  it('sends a question and prospective evidence to the selector without sending or rendering Private Intent', async () => {
+    const state = makeAppSave();
+    const question = 'QUESTION_WITH_PRIVATE_SENTINEL: what do the benches show?';
+    const privateIntent = 'PRIVATE_SELECTOR_POISON_SENTINEL: exploit whichever senator is absent.';
+    const submission: TurnSubmission = {
+      version: 1,
+      kind: 'structured',
+      questionOrContext: question,
+      privateIntent,
+    };
+    const resolved = await makeResolvedTurn(state, submission);
+    mockRunNewTurnCore.mockResolvedValueOnce(resolved);
+    const selectorCalls = installStructuredAi('select_safe_evidence');
+    const container = await mountRealApp(state);
+
+    await submitStructured(container, { questionOrContext: question, privateIntent });
+    await waitFor(() => expect(loadGame()!.state.turnNumber).toBe(state.turnNumber + 1));
+
+    const saved = loadGame()!.state;
+    expect(selectorCalls).toHaveLength(1);
+    expect(selectorCalls[0].prompt).toContain(question);
+    expect(selectorCalls[0].prompt).toContain(SAFE_EVIDENCE_TEXT);
+    expect(selectorCalls[0].prompt).not.toContain(privateIntent);
+    expect(saved.turnHistory.at(-1)?.narration).toBe(SAFE_EVIDENCE_ANSWER);
+    expect(SAFE_EVIDENCE_ANSWER).not.toContain(privateIntent);
+    expect(saved.messages.filter(message => message.sender === 'gm').at(-1)?.text).not.toContain(privateIntent);
+  });
+
+  it('does not invoke the selector for an observable submission and preserves its presentation bytes', async () => {
+    const state = makeAppSave();
+    const action = 'OBSERVABLE_ACTION_SENTINEL: address the west benches.';
+    const question = 'OBSERVABLE_QUESTION_SENTINEL: who answers?';
+    const privateIntent = 'OBSERVABLE_PRIVATE_SENTINEL: test their loyalty.';
+    const narration = 'OBSERVABLE_NARRATION_SENTINEL: the Senate answers in a single voice.';
+    const monologue = 'OBSERVABLE_MONOLOGUE_SENTINEL: their unity may be useful.';
+    const submission: TurnSubmission = {
+      version: 1,
+      kind: 'structured',
+      actions: [action],
+      questionOrContext: question,
+      privateIntent,
+    };
+    const resolved = await makeResolvedTurn(state, submission, { narration, playerMonologue: monologue });
+    mockRunNewTurnCore.mockImplementationOnce(async (...args) => {
+      args[14]?.onNarrationChunk?.(narration);
+      return resolved;
+    });
+    const selectorCalls = installStructuredAi('select_safe_evidence');
+    const container = await mountRealApp(state);
+
+    await submitStructured(container, { action, questionOrContext: question, privateIntent });
+    await waitFor(() => expect(loadGame()!.state.turnNumber).toBe(state.turnNumber + 1));
+
+    const saved = loadGame()!.state;
+    expect(selectorCalls).toHaveLength(0);
+    expect(saved.turnHistory.at(-1)?.narration).toBe(narration);
+    expect(saved.messages.slice(-4)).toEqual([
+      expect.objectContaining({ sender: 'player' }),
+      { sender: 'gm', text: narration },
+      { sender: 'player_monologue', text: monologue },
+      expect.objectContaining({ sender: 'ribbon' }),
+    ]);
+    expect(saved.suggestedActions).toEqual(resolved.suggestedActions);
+    expect(container.textContent).toContain(narration);
+    expect(container.textContent).toContain(monologue);
+  });
+
+  it('does not save or reduce a question turn whose transaction is superseded while selector resolution is pending', async () => {
+    const state = makeAppSave();
+    const question = 'SUPERSEDED_QUESTION_SENTINEL: what is visible?';
+    const submission: TurnSubmission = {
+      version: 1,
+      kind: 'structured',
+      questionOrContext: question,
+    };
+    const resolved = await makeResolvedTurn(state, submission);
+    mockRunNewTurnCore.mockResolvedValueOnce(resolved);
+    let resolveSelector!: (value: { decision: 'answer'; evidenceIds: string[] }) => void;
+    const selectorGate = new Promise<{ decision: 'answer'; evidenceIds: string[] }>(resolve => {
+      resolveSelector = resolve;
+    });
+    const selectorCalls: ObservedSelectorCall[] = [];
+    mockGenerateStructured.mockImplementation(async (_ai, request) => {
+      if (request.callName === 'relationshipObservations') return [] as never;
+      selectorCalls.push({ prompt: request.prompt, systemInstruction: String(request.systemInstruction ?? '') });
+      return selectorGate as never;
+    });
+    const container = await mountRealApp(state);
+    const storageSpy = vi.spyOn(Storage.prototype, 'setItem');
+    await submitStructured(container, { questionOrContext: question });
+    await waitFor(() => expect(selectorCalls).toHaveLength(1));
+    expect(
+      storageSpy.mock.calls.filter(([key]) => key === 'gloryOfRome:autosave'),
+    ).toHaveLength(0);
+    storageSpy.mockRestore();
+
+    const oldInstance = mounted.pop()!;
+    await act(async () => oldInstance.root.unmount());
+    oldInstance.container.remove();
+    const replacement = makeAppSave({ turnNumber: 41 });
+    saveGame(replacement);
+    const replacementBytes = localStorage.getItem('gloryOfRome:autosave');
+    const offered = JSON.parse(selectorCalls[0].prompt.split('OFFERED EVIDENCE:\n')[1]) as Array<{ id: string; text: string }>;
+    resolveSelector({
+      decision: 'answer',
+      evidenceIds: [offered.find(item => item.text === SAFE_EVIDENCE_TEXT)!.id],
+    });
+    await flush();
+
+    expect(localStorage.getItem('gloryOfRome:autosave')).toBe(replacementBytes);
+    expect(loadGame()!.state).toEqual(replacement);
+    expect(mockRunNewTurnCore).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores the exact structured draft and commits no prospective response or knowledge when saving fails', async () => {
+    const state = makeAppSave();
+    const question = 'SAVE_FAILURE_QUESTION_SENTINEL: what is visible?';
+    const privateIntent = 'SAVE_FAILURE_PRIVATE_SENTINEL: preserve this exact draft.';
+    const submission: TurnSubmission = {
+      version: 1,
+      kind: 'structured',
+      questionOrContext: question,
+      privateIntent,
+    };
+    const resolved = await makeResolvedTurn(state, submission);
+    mockRunNewTurnCore.mockResolvedValueOnce(resolved);
+    const selectorCalls = installStructuredAi('select_safe_evidence');
+    const container = await mountRealApp(state);
+    const beforeBytes = localStorage.getItem('gloryOfRome:autosave');
+    const beforeState = loadGame()!.state;
+    const failingStorage = failBothSaveWrites();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await submitStructured(container, { questionOrContext: question, privateIntent });
+    await waitFor(() => expect(container.textContent).toContain('draft has been restored'));
+    failingStorage.mockRestore();
+
+    expect(localStorage.getItem('gloryOfRome:autosave')).toBe(beforeBytes);
+    expect(loadGame()!.state).toEqual(beforeState);
+    expect(selectorCalls).toHaveLength(1);
+    expect(byAriaLabel<HTMLTextAreaElement>(container, 'Question / Context').value).toBe(question);
+    expect(byAriaLabel<HTMLTextAreaElement>(container, 'Private Intent').value).toBe(privateIntent);
+    expect(container.textContent).not.toContain(SAFE_EVIDENCE_ANSWER);
+    expect(JSON.stringify(loadGame()!.state.knowledge)).not.toContain(SAFE_EVIDENCE_TEXT);
+    errorSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
 });

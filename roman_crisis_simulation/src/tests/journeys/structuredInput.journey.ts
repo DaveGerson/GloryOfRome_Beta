@@ -16,6 +16,7 @@ import {
   mountJourneyAppFromAutosave,
   scriptedFailure,
   scriptedJsonArray,
+  threadFromSave,
   waitForApp,
 } from './harness';
 import {
@@ -30,6 +31,7 @@ import {
 } from './fixtures';
 import { deserializeTurnSubmission } from '../../playerInput/turnSubmission';
 import { loadGame } from '../../persistence/saveGame';
+import { PRIVATE_INTENT_ACKNOWLEDGEMENT } from '../../playerView/noAttemptResponse';
 
 afterEach(() => clearAppGeminiScript());
 
@@ -41,12 +43,14 @@ function clientForTurn(
     relationshipFailure?: Error;
     narration?: string;
     includeAssessment?: boolean;
+    includePlayerPresentation?: boolean;
     includeRelationshipUpdates?: boolean;
+    includeAmbition?: boolean;
     adjudication?: Parameters<typeof scriptAdjudication>[1];
   } = {},
 ): ScriptedClient {
   const spotlight = label.includes('/failure') || label.includes('/retry');
-  const ambition = label.includes('/retry');
+  const ambition = options.includeAmbition ?? label.includes('/retry');
   return new ScriptedClient({
     storyRelevance: spotlight
       ? scriptStoryRelevance(
@@ -65,12 +69,14 @@ function clientForTurn(
     } : {}),
     adjudication: scriptAdjudication(turn, options.adjudication),
     simulationState: scriptSimulationState(seed.thread.simulationState),
-    monologue: 'I intend to judge only what is before me, and keep counsel with myself.',
-    narration: scriptNarration(options.narration ?? 'The Emperor hears the petitions of Rome.', [
-      'Consult Julia Mamaea',
-      'Address the Senate',
-      'Inspect the Guard',
-    ]),
+    ...(options.includePlayerPresentation === false ? {} : {
+      monologue: 'I intend to judge only what is before me, and keep counsel with myself.',
+      narration: scriptNarration(options.narration ?? 'The Emperor hears the petitions of Rome.', [
+        'Consult Julia Mamaea',
+        'Address the Senate',
+        'Inspect the Guard',
+      ]),
+    }),
     ...(options.includeRelationshipUpdates === false
       ? {}
       : { relationshipUpdates: scriptRelationshipDeltas([]) }),
@@ -84,6 +90,44 @@ function clientForTurn(
       },
     } : {}),
   }, label);
+}
+
+interface SelectorBoundaryCall {
+  question: string;
+  evidence: Array<{ id: string; source: string; text: string }>;
+  prompt: string;
+  systemInstruction: string;
+}
+
+function installClientWithEvidenceSelection(
+  client: ScriptedClient,
+  selectedEvidenceText: string,
+  selectorCalls: SelectorBoundaryCall[],
+): void {
+  const models = client.ai.models as unknown as {
+    generateContent: (params: {
+      model: string;
+      contents: string;
+      config?: Record<string, unknown>;
+    }) => Promise<{ text?: string }>;
+  };
+  const generateContent = models.generateContent.bind(models);
+  models.generateContent = async params => {
+    const systemInstruction = String(params.config?.systemInstruction ?? '');
+    if (!systemInstruction.includes('No-Attempt Evidence Selector')) {
+      return generateContent(params);
+    }
+    const [questionBlock, evidenceBlock] = params.contents
+      .replace('QUESTION:\n', '')
+      .split('\n\nOFFERED EVIDENCE:\n');
+    const question = JSON.parse(questionBlock) as string;
+    const evidence = JSON.parse(evidenceBlock) as Array<{ id: string; source: string; text: string }>;
+    selectorCalls.push({ question, evidence, prompt: params.contents, systemInstruction });
+    const selected = evidence.find(item => item.text === selectedEvidenceText);
+    if (!selected) throw new Error(`journey selector did not receive evidence text: ${selectedEvidenceText}`);
+    return { text: JSON.stringify({ decision: 'answer', evidenceIds: [selected.id] }) };
+  };
+  installAppGeminiScript(client);
 }
 
 describe('journey: structured player input through the real App transaction', () => {
@@ -262,14 +306,22 @@ describe('journey: structured player input through the real App transaction', ()
     }
   });
 
-  it('answers a question from the avatar viewpoint without assessing or fabricating an action', async () => {
+  it('commits question-only, private-only, and observable mixed responses atomically across save and reload', async () => {
     const seed = new JourneyRunner({ name: 'structuredInput/question-only' });
     const hiddenWorld = 'HIDDEN_WORLD_SENTINEL: the eastern governor has already rebelled.';
     const hiddenEntity = 'HIDDEN_ENTITY_SENTINEL: Magnus commands an unseen midnight cohort.';
     const hiddenConversation = 'PRIVATE_CONVERSATION_SENTINEL: Magnus promised Thrax the palace keys.';
+    const hiddenTruth = 'SECRET_TRUTH_POISON_SENTINEL: the palace prefect forged the roster.';
+    const gmPrivatePoison = 'GM_PRIVATE_POISON_SENTINEL: the selector must never receive this.';
+    const rawDeltaPoison = 'RAW_DELTA_POISON_SENTINEL: hidden mechanics must not become response prose.';
     seed.thread.worldState.political_climate = hiddenWorld;
     seed.entity('gaius_pontius_magnus').current_state_narrative = hiddenEntity;
     seed.entity('gaius_pontius_magnus').short_term_goals = [hiddenEntity];
+    seed.entity('gaius_pontius_magnus').secret_truth = {
+      actually_alive: true,
+      hidden_since_turn: 1,
+      motive: hiddenTruth,
+    };
     seed.thread.turnHistory.push({
       turnNumber: 1,
       playerIntent: 'Receive the ordinary public petitions.',
@@ -277,7 +329,11 @@ describe('journey: structured player input through the real App transaction', ()
       narration: 'The public audience concluded without incident.',
     });
     seed.thread.turnNumber = 2;
-    const answer = 'From the imperial dais, you can see the senatorial benches are unusually sparse; nothing beyond that is established.';
+    const selectedEvidence = "Maximinus Thrax's independent preparations grows.";
+    const answer = `What you can currently tell:\n- Via your network: ${selectedEvidence}`;
+    const question = 'What can I tell from the empty benches?';
+    const selectorCalls: SelectorBoundaryCall[] = [];
+    let reloaded: Awaited<ReturnType<typeof mountJourneyAppFromAutosave>> | null = null;
     const poisonedPlayerAction = 'POISONED_PLAYER_ACTION: the avatar investigates without permission.';
     const poisonedPlayerDelta = 'POISONED_PLAYER_DELTA: the fabricated investigation creates an artifact.';
     const poisoned = clientForTurn(seed, 2, 'structuredInput/question-only/poisoned', {
@@ -313,7 +369,7 @@ describe('journey: structured player input through the real App transaction', ()
     const app = await mountJourneyApp(buildSaveStateFromThread(seed.thread));
     try {
       await appClick(appButton(app.container, 'Structured'));
-      await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Question / Context'), 'What can I tell from the empty benches?');
+      await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Question / Context'), question);
       const expectedConsole = vi.spyOn(console, 'error').mockImplementation(() => {});
       await appClick(appButton(app.container, 'Submit turn'));
       await waitForApp(() => expect(app.container.textContent).toContain('Your draft has been restored'));
@@ -332,8 +388,8 @@ describe('journey: structured player input through the real App transaction', ()
 
       const client = clientForTurn(seed, 2, 'structuredInput/question-only/conforming', {
         includeAssessment: false,
+        includePlayerPresentation: false,
         includeRelationshipUpdates: false,
-        narration: answer,
         adjudication: {
           entityActions: [{
             id: 'maximinus_thrax',
@@ -345,12 +401,13 @@ describe('journey: structured player input through the real App transaction', ()
             type: 'resource',
             key: 'maximinus_thrax:independent_preparations',
             delta: 1,
-            reason: 'Thrax advances his own preparations without the player acting.',
+            reason: rawDeltaPoison,
           }],
           headlines: ['Thrax quietly strengthens his camp.'],
+          gm_private: [gmPrivatePoison],
         },
       });
-      installAppGeminiScript(client);
+      installClientWithEvidenceSelection(client, selectedEvidence, selectorCalls);
       await appClick(appButton(app.container, 'Retry the last action'));
       await waitForApp(() => expect(loadThreadState().turnNumber).toBe(3));
 
@@ -358,21 +415,20 @@ describe('journey: structured player input through the real App transaction', ()
       const entry = loaded.turnHistory.at(-1)!;
       expect(app.container.textContent).toContain(answer);
       client.expectCallSequence([
-        'storyRelevance', 'adjudication', 'simulationState', 'monologue',
-        'narration', 'relationshipObservations',
+        'storyRelevance', 'adjudication', 'simulationState', 'relationshipObservations',
       ]);
+      expect(selectorCalls).toHaveLength(1);
+      expect(selectorCalls[0].question).toBe(question);
+      expect(selectorCalls[0].evidence).toContainEqual(expect.objectContaining({ text: selectedEvidence }));
+      expect(selectorCalls[0].prompt).not.toContain(hiddenWorld);
+      expect(selectorCalls[0].prompt).not.toContain(hiddenEntity);
+      expect(selectorCalls[0].prompt).not.toContain(hiddenConversation);
+      expect(selectorCalls[0].prompt).not.toContain(hiddenTruth);
+      expect(selectorCalls[0].prompt).not.toContain(gmPrivatePoison);
+      expect(selectorCalls[0].prompt).not.toContain(rawDeltaPoison);
       expect(client.promptsFor('storyRelevance').join('\n')).toContain(hiddenWorld);
       expect(client.promptsFor('adjudication').join('\n')).toContain(hiddenEntity);
       expect(loaded.turnHistory[0].adjudication.gm_private).toContain(`[Secret Meeting] ${hiddenConversation}`);
-      for (const kind of ['narration', 'monologue'] as const) {
-        const avatarSafePrompt = [
-          ...client.promptsFor(kind),
-          ...client.systemInstructionsFor(kind),
-        ].join('\n');
-        expect(avatarSafePrompt).not.toContain(hiddenWorld);
-        expect(avatarSafePrompt).not.toContain(hiddenEntity);
-        expect(avatarSafePrompt).not.toContain(hiddenConversation);
-      }
       expect(client.calls.some(call => call.kind === 'assessment')).toBe(false);
       expect(client.calls.some(call => call.kind === 'npcMind')).toBe(false);
       expect(client.calls.some(call => call.kind === 'privateConversation')).toBe(false);
@@ -415,8 +471,131 @@ describe('journey: structured player input through the real App transaction', ()
       expect(playerPerceivedOutputs).not.toContain(hiddenWorld);
       expect(playerPerceivedOutputs).not.toContain(hiddenEntity);
       expect(playerPerceivedOutputs).not.toContain(hiddenConversation);
-    } finally {
+
+      const privateIntent = 'PRIVATE_SEQUENCE_SENTINEL: wait until the Senate divides.';
+      const monologuesBeforePrivate = loaded.messages.filter(message => message.sender === 'player_monologue').length;
+      const privateRunner = new JourneyRunner({
+        name: 'structuredInput/private-only',
+        thread: threadFromSave(loadThreadState()),
+      });
+      const privateClient = clientForTurn(privateRunner, 3, 'structuredInput/private-only', {
+        includeAssessment: false,
+        includePlayerPresentation: false,
+        includeRelationshipUpdates: false,
+        includeAmbition: true,
+      });
+      installAppGeminiScript(privateClient);
+      await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Private Intent'), privateIntent);
+      await appClick(appButton(app.container, 'Submit turn'));
+      await waitForApp(() => expect(loadThreadState().turnNumber).toBe(4));
+      await waitForApp(() => expect(privateClient.calls.some(call => call.kind === 'ambition')).toBe(true));
+
+      const afterPrivate = loadThreadState();
+      privateClient.expectCallSequence([
+        'storyRelevance', 'adjudication', 'simulationState', 'relationshipObservations', 'ambition',
+      ]);
+      expect(selectorCalls).toHaveLength(1);
+      expect(afterPrivate.turnHistory.at(-1)?.narration).toBe(PRIVATE_INTENT_ACKNOWLEDGEMENT);
+      expect(afterPrivate.messages.filter(message => message.sender === 'gm').at(-1)?.text)
+        .toBe(PRIVATE_INTENT_ACKNOWLEDGEMENT);
+      expect(afterPrivate.messages.filter(message => message.sender === 'player_monologue')).toHaveLength(monologuesBeforePrivate);
+      expect(privateClient.calls.flatMap(call => [call.prompt, call.systemInstruction]).join('\n'))
+        .not.toContain(privateIntent);
+
+      const mixedAction = 'Address the Senate and ask the western benches to name their absent members.';
+      const mixedQuestion = 'Which senators answer publicly?';
+      const mixedPrivateIntent = 'PRIVATE_MIXED_SENTINEL: remember who hesitates.';
+      const mixedNarration = 'The western benches answer in public, each senator naming the colleagues they expected to attend.';
+      const mixedMonologue = 'I intend to judge only what is before me, and keep counsel with myself.';
+      const mixedRunner = new JourneyRunner({
+        name: 'structuredInput/observable-mixed',
+        thread: threadFromSave(loadThreadState()),
+      });
+      const mixedClient = clientForTurn(mixedRunner, 4, 'structuredInput/observable-mixed', {
+        narration: mixedNarration,
+      });
+      installAppGeminiScript(mixedClient);
+      await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Action 1'), mixedAction);
+      await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Question / Context'), mixedQuestion);
+      await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Private Intent'), mixedPrivateIntent);
+      await appClick(appButton(app.container, 'Submit turn'));
+      await waitForApp(() => expect(loadThreadState().turnNumber).toBe(5));
+
+      const afterMixed = loadThreadState();
+      mixedClient.expectCallSequence([
+        'storyRelevance', 'assessment', 'adjudication', 'simulationState',
+        'monologue', 'narration', 'relationshipUpdates', 'relationshipObservations',
+      ]);
+      expect(selectorCalls).toHaveLength(1);
+      expect(afterMixed.turnHistory.at(-1)?.narration).toBe(mixedNarration);
+      expect(afterMixed.messages.filter(message => message.sender === 'gm').at(-1)?.text).toBe(mixedNarration);
+      expect(afterMixed.messages.filter(message => message.sender === 'player_monologue').at(-1)?.text).toBe(mixedMonologue);
+      expect(mixedClient.promptsFor('narration').join('\n')).toContain(mixedPrivateIntent);
+      expect(mixedClient.promptsFor('monologue').join('\n')).toContain(mixedPrivateIntent);
+      for (const kind of [
+        'storyRelevance', 'assessment', 'adjudication', 'simulationState',
+        'relationshipUpdates', 'relationshipObservations',
+      ] as const) {
+        expect(mixedClient.promptsFor(kind).join('\n')).not.toContain(mixedPrivateIntent);
+      }
+
+      const finalResponses = [answer, PRIVATE_INTENT_ACKNOWLEDGEMENT, mixedNarration];
+      expect(afterMixed.turnHistory.slice(-3).map(historyEntry => historyEntry.narration)).toEqual(finalResponses);
+      expect(afterMixed.messages.filter(message => message.sender === 'gm').slice(-3).map(message => message.text))
+        .toEqual(finalResponses);
+      const playerVisibleResponseText = afterMixed.messages
+        .filter(message => message.sender !== 'player')
+        .map(message => message.text)
+        .join('\n');
+      for (const forbidden of [
+        hiddenEntity,
+        hiddenConversation,
+        hiddenTruth,
+        gmPrivatePoison,
+        rawDeltaPoison,
+        poisonedPlayerAction,
+        poisonedPlayerDelta,
+        'gm_private',
+        'secret_truth',
+        'resolutionTrace',
+        'mortalityTrace',
+        'outcome_tier',
+      ]) {
+        expect(playerVisibleResponseText).not.toContain(forbidden);
+      }
+
+      const playerDisclosure = Array.from(app.container.querySelectorAll('details')).find(details =>
+        details.querySelector('summary')?.textContent === 'Private Intent');
+      expect(playerDisclosure).toBeDefined();
+      expect(playerDisclosure!.open).toBe(false);
+      const { act } = await import('react');
+      await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'G',
+        ctrlKey: true,
+        shiftKey: true,
+        bubbles: true,
+      })));
+      await waitForApp(() => expect(app.container.textContent).toContain('GM Log'));
+      await appClick(appButton(app.container, 'GM Log'));
+      await waitForApp(() => expect(app.container.textContent).toContain(privateIntent));
+      expect(app.container.textContent).toContain(mixedPrivateIntent);
+
+      const exactAutosave = structuredClone(loadGame());
+      expect(exactAutosave?.version).toBe(1);
       await app.unmount();
+      reloaded = await mountJourneyAppFromAutosave();
+      expect(loadGame()).toEqual(exactAutosave);
+      const reloadedState = loadThreadState();
+      expect(reloadedState.turnNumber).toBe(5);
+      expect(reloadedState.turnHistory.slice(-3).map(historyEntry => historyEntry.narration)).toEqual(finalResponses);
+      expect(reloadedState.messages.filter(message => message.sender === 'gm').slice(-3).map(message => message.text))
+        .toEqual(finalResponses);
+      for (const response of finalResponses) {
+        expect(reloaded.container.textContent).toContain(response);
+      }
+    } finally {
+      if (document.body.contains(app.container)) await app.unmount();
+      if (reloaded) await reloaded.unmount();
     }
   });
 });

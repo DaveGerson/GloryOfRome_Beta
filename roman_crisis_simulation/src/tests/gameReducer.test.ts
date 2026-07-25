@@ -181,6 +181,24 @@ describe('state/gameReducer', () => {
       expect(result.gmInterventionText).toBe('');
     });
 
+    it('omits the Inner Thoughts message entirely when the committed turn has no monologue', () => {
+      const state = makePlayingState({ gameState: GameState.PROCESSING });
+      const action = {
+        ...makeTurnCommit(state),
+        monologueMessage: null,
+      } as unknown as Extract<GameAction, { type: 'TURN_COMMITTED' }>;
+
+      const result = gameReducer(state, action);
+
+      expect(result.messages).toEqual([
+        ...state.messages,
+        action.playerMessage,
+        action.gmMessage,
+        action.ribbonMessage,
+      ]);
+      expect(result.messages.some(message => message?.sender === 'player_monologue')).toBe(false);
+    });
+
     it('keeps the phase as-is while the player lives (the event-trigger check resolves it)', () => {
       const state = makePlayingState({ gameState: GameState.PROCESSING });
       const result = gameReducer(state, makeTurnCommit(state));
