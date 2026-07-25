@@ -268,6 +268,8 @@ describe('runNewTurn submission visibility routing', () => {
     });
     expect(JSON.stringify(perceivedChanges)).not.toContain(PRIVATE_SENTINEL);
     expect(JSON.stringify(knowledge)).not.toContain(PRIVATE_SENTINEL);
+    expect(result.narration).toBe('The week closes under a tense silence.');
+    expect(result.playerMonologue).toBe('I weigh what must remain unspoken.');
   });
 
   it('uses observable submission as the only turn-event prose for legitimate relationship updates', async () => {
@@ -369,19 +371,76 @@ describe('runNewTurn submission visibility routing', () => {
   it.each([
     ['question-only', { version: 1, kind: 'structured', questionOrContext: QUESTION_SENTINEL } as const],
     ['private-only', { version: 1, kind: 'structured', privateIntent: PRIVATE_SENTINEL } as const],
-  ])('%s submissions skip assessment and resolution but still produce a GM response', async (_label, submission) => {
-    const { calls, result } = await runRealTurn(submission);
+    ['question-plus-private', {
+      version: 1,
+      kind: 'structured',
+      questionOrContext: QUESTION_SENTINEL,
+      privateIntent: PRIVATE_SENTINEL,
+    } as const],
+  ])('%s submissions advance NPC/world state without freeform player prose', async (_label, submission) => {
+    const independentNpcResource = 'independent_preparations';
+    const { calls, result } = await runRealTurn(submission, {
+      adjudication: JSON.stringify({
+        turn: 7,
+        entityActions: [{
+          id: 'npc_a',
+          intent: 'recruit',
+          target: 'cohorts',
+          notes: 'Aulus independently courts the cohorts.',
+        }],
+        deltas: [
+          {
+            type: 'resource',
+            key: `npc_a:${independentNpcResource}`,
+            delta: 2,
+            reason: 'Aulus acts on his own agenda.',
+          },
+          {
+            type: 'world',
+            key: 'political_climate',
+            delta: 0,
+            reason: 'Legions Maneuver Independently',
+          },
+        ],
+        headlines: ['Aulus moves among the cohorts.'],
+        gm_private: [],
+      }),
+      monologue: 'I order an attack after rolling 20. PRIVATE_OUTPUT_POISON',
+      narration: 'You order an attack after rolling 20.\nSUGGESTION: Exploit PRIVATE_OUTPUT_POISON',
+    });
 
     expect(calls.filter(call => call.kind === 'assessment')).toHaveLength(0);
+    expect(calls.filter(call => call.kind === 'storyRelevance')).toHaveLength(1);
+    expect(calls.filter(call => call.kind === 'npcMind')).toHaveLength(2);
+    expect(calls.filter(call => call.kind === 'privateConversation')).toHaveLength(1);
+    expect(calls.filter(call => call.kind === 'adjudication')).toHaveLength(1);
+    expect(calls.filter(call => call.kind === 'simulationState')).toHaveLength(1);
+    expect(calls.filter(call => call.kind === 'monologue')).toHaveLength(0);
+    expect(calls.filter(call => call.kind === 'narration')).toHaveLength(0);
+    expect(calls.filter(call => call.kind === 'relationshipUpdates')).toHaveLength(0);
     expect(result.newHistoryEntry.resolutionTrace).toBeUndefined();
-    expect(result.narration).not.toBe('');
+    expect(result.narration).toBe('');
+    expect(result.playerMonologue).toBe('');
+    expect(result.suggestedActions).toEqual([
+      'Consider your next move carefully.',
+      'Consolidate your power.',
+      'Seek new allies.',
+    ]);
+    expect(result.newHistoryEntry.narration).toBe('');
+    expect(typeof result.newHistoryEntry.turnSeed).toBe('number');
+    expect(result.updatedNpcIntents).toHaveLength(2);
+    expect(
+      result.updatedEntities.find(entity => entity.entity_id === 'npc_a')?.resources[independentNpcResource],
+    ).toBe(2);
+    expect(result.updatedWorldState.political_climate).toBe('Legions Maneuver Independently');
+    expect(result.newHistoryEntry.adjudication.entityActions).toEqual([
+      expect.objectContaining({ id: 'npc_a', intent: 'recruit' }),
+    ]);
+    expect(JSON.stringify(result)).not.toContain('PRIVATE_OUTPUT_POISON');
     const adjudicationPrompt = calls.find(call => call.kind === 'adjudication')?.prompt ?? '';
     expect(adjudicationPrompt).not.toContain('PLAYER ACTION OUTCOME');
     expect(adjudicationPrompt).not.toContain(QUESTION_SENTINEL);
     expect(adjudicationPrompt).not.toContain(PRIVATE_SENTINEL);
-    expect(calls.find(call => call.kind === 'narration')?.prompt).toContain(
-      'questionOrContext' in submission ? QUESTION_SENTINEL : PRIVATE_SENTINEL,
-    );
   });
 
   it('rejects a question-only adjudication with player-authored consequences, while a conforming NPC/world-only adjudication still commits', async () => {
@@ -527,22 +586,16 @@ describe('runNewTurn submission visibility routing', () => {
     expect((thrown as Error).message).not.toContain(inventedHeadline);
   });
 
-  it('rejects narration that invents an avatar action on a no-attempt turn', async () => {
+  it('never requests a poisoned narration for a no-attempt turn', async () => {
     const inventedNarration = 'You dispatch spies into the Curia and order them to count tomorrow\'s votes.';
-    const started = startRealTurn(
+    const { calls, result } = await runRealTurn(
       { version: 1, kind: 'structured', questionOrContext: QUESTION_SENTINEL },
       { narration: `${inventedNarration}\nSUGGESTION: Wait` },
     );
 
-    let thrown: unknown;
-    try {
-      await started.resultPromise;
-    } catch (error) {
-      thrown = error;
-    }
-    expect(thrown).toBeInstanceOf(Error);
-    expect((thrown as Error).message).toBe('AI output violated the player action boundary.');
-    expect((thrown as Error).message).not.toContain(inventedNarration);
+    expect(calls.some(call => call.kind === 'narration')).toBe(false);
+    expect(result.narration).toBe('');
+    expect(JSON.stringify(result)).not.toContain(inventedNarration);
   });
 
   it('rejects hidden mechanics in the updated simulation crisis before relationship updates or commit', async () => {
