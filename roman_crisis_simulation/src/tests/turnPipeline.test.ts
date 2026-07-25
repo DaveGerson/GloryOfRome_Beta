@@ -751,9 +751,10 @@ describe('ai/core/turn.ts runNewTurn - mortality directives feed narration from 
     expect(narrationPrompt).not.toContain(VALIDATION_REASONING);
     expect(narrationPrompt).not.toContain('Death claim invalidated');
     expect(narrationPrompt).not.toContain('MORTALITY NARRATION DIRECTIVES');
-    // What the player SHOULD read - the diegetic rewrite mortality.ts put on
-    // the (now-alive) status delta's own reason - still reaches the narrator.
-    expect(narrationPrompt).toContain("comes through the turn's events unharmed");
+    // What the player SHOULD read crosses the existing visibility seam: the
+    // invalid claim's authoritative rewrite to alive remains visible without
+    // forwarding the raw delta reason.
+    expect(narrationPrompt).toContain('Senator Rufus is now alive.');
 
     // The reasoning is still recorded GM-side for the console (D4): on the
     // mortalityTrace and in gm_private.

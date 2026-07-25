@@ -50,6 +50,12 @@ const HUMANIZED_MECHANIC_LABEL_PATTERNS = [
   /\bfate[\s-]*band\s*(?:[.:=\u2013\u2014-]\s*)*(?:survives?[\s-]+with[\s-]+loss|survives?[\s-]+with[\s-]+boon|confirmed[\s-]+dead|gravely[\s-]+wounded|presumed[\s-]+dead|escapes[\s-]+openly|dies)\b/i,
 ] as const;
 
+// A provider sometimes emits the hidden tier without its usual
+// "outcome tier"/"fate band" label. Reject only when the whole response is
+// the tier verdict (optionally wrapped in "It was ..."); the anchors preserve
+// ordinary prose such as "the levy was a partial success because ...".
+const STANDALONE_HUMANIZED_MECHANIC_LABEL_PATTERN = /^\s*(?:it\s+(?:was|is)\s+(?:a\s+)?)?(?:critical[\s-]+failure|partial[\s-]+success|critical[\s-]+success|survives?[\s-]+with[\s-]+loss|survives?[\s-]+with[\s-]+boon|confirmed[\s-]+dead|gravely[\s-]+wounded|presumed[\s-]+dead|escapes[\s-]+openly)\s*[.!?]?\s*$/i;
+
 /** Canonicalizes visually equivalent or invisibly separated provider text. */
 function normalizeBoundaryText(text: string): string {
   return text.normalize('NFKC').replace(/\p{Default_Ignorable_Code_Point}/gu, '');
@@ -60,7 +66,8 @@ function containsHiddenMechanics(text: string): boolean {
   return HIDDEN_MECHANIC_TOKEN_PATTERN.test(normalized)
     || DICE_NOTATION_PATTERN.test(normalized)
     || MECHANICAL_ROLL_PATTERNS.some(pattern => pattern.test(normalized))
-    || HUMANIZED_MECHANIC_LABEL_PATTERNS.some(pattern => pattern.test(normalized));
+    || HUMANIZED_MECHANIC_LABEL_PATTERNS.some(pattern => pattern.test(normalized))
+    || STANDALONE_HUMANIZED_MECHANIC_LABEL_PATTERN.test(normalized);
 }
 
 function valueContainsHiddenMechanics(value: unknown): boolean {

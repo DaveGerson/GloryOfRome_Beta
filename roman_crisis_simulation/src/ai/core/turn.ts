@@ -8,7 +8,7 @@ import { getActionAssessment } from '../tools/assessment';
 import { getNpcMindDecision } from '../tools/npcMind';
 import { MAX_MINDS_PER_TURN } from '../prompts/npcMind';
 import { buildWorldSummary } from '../prompts/fragments';
-import { buildPerceivedDigest, PerceivedChange } from '../../perception/visibility';
+import { buildPerceivedDigest, buildPlayerPerceivedDigest, PerceivedChange } from '../../perception/visibility';
 import { generateStructured, generateText, generateTextStream, GEMINI_PRO, beginTurnCapture, endTurnCapture } from './geminiService';
 import { zAdjudication } from './zodSchemas';
 import { buildAdjudicationPrompt, PlayerActionOutcomeContext, HistoricalMaterialEntry } from '../prompts/adjudication';
@@ -822,11 +822,10 @@ export async function runNewTurn(
         ? Promise.resolve('')
         : getPlayerMonologue(ai, updatedPlayerEntity, transformedAdjudication.headlines, recentPlayerIntents, isMockMode);
 
-    // Get narration and suggested actions. `buildNarrationPrompt` receives a
-    // SANITIZED adjudication (gm_private and any secret_truth trace stripped
-    // - see ai/prompts/narration.ts) plus the mortality pipeline's
-    // pre-decided narrative directives, so the model narrates outcomes
-    // without ever seeing GM-private ground truth (DESIGN_DECISIONS.md D3/D4).
+    // Get narration and suggested actions. The event input crosses the D5
+    // visibility seam first, then is narrowed field-by-field to text/source.
+    // Raw adjudication actions, headlines, delta keys/reasons, and private
+    // truth never enter this player-output request.
     options?.onStage?.('narration');
     const narrationStreamGate = createNarrationStreamGate();
     const playerVisibleStreamGate = createPlayerVisibleStreamGate();
@@ -841,17 +840,23 @@ export async function runNewTurn(
     const mortalityDirectives = mortalityEvents
         .filter(ev => ev.valid)
         .map(ev => `- ${ev.entity_name} (${ev.entity_id}): ${ev.outcomeSummary}`);
-    // 4C.5: the narration prompt's voice-cast block is BOUNDED to the
-    // characters actually on stage this turn - the Director's spotlight
-    // picks plus the adjudication's acting entities, resolved against the
-    // post-apply roster (so entities added this turn can carry their voice)
-    // and capped inside selectVoiceCast. Never the whole roster.
+    const playerPerceivedDigest = buildPlayerPerceivedDigest(
+        transformedAdjudication.deltas,
+        updatedPlayerEntity,
+        updatedEntities,
+        updatedWorldState
+    );
+    const playerNarrationEvents = playerPerceivedDigest
+        .map(({ text, source }) => ({ text, source }));
+    // 4C.5: voice flavor is allowed only for entities already named by a
+    // player-visible event. Raw spotlight/entityAction membership is GM
+    // routing data and must not select hidden characters into this prompt.
     const voiceCast = selectVoiceCast(
-        storyRelevance.spotlight_entities.map(s => s.entity_id),
-        transformedAdjudication.entityActions.map(a => a.id),
+        [],
+        playerPerceivedDigest.map(change => change.subject),
         updatedEntities
     );
-    const narrationPrompt = buildNarrationPrompt(metaNarrative, updatedPlayerEntity, narrationSubmission, transformedAdjudication, mortalityDirectives, voiceCast);
+    const narrationPrompt = buildNarrationPrompt(metaNarrative, updatedPlayerEntity, narrationSubmission, playerNarrationEvents, mortalityDirectives, voiceCast);
     const narrationRequest = {
         callName: 'narration',
         model: GEMINI_PRO,

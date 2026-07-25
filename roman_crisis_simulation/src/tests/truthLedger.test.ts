@@ -357,40 +357,22 @@ describe('leak prevention: dispositions never reach the player-facing narration 
     expect(sanitized.deltas[0].delta).toBe(0.7);
   });
 
-  it('buildNarrationPrompt actually applies the sanitizer: the BUILT prompt carries no GM-private keys while keeping the rumor text', () => {
+  it('buildNarrationPrompt accepts only player-perceived text/source fields', () => {
     const { entities } = getMockInitialState();
     const player = entities[0];
-    const adjudication: Adjudication = {
-      ...deepCopy(baseAdjudication),
-      deltas: [
-        rumorDelta({ is_true: false, origin_id: 'maximinus_thrax' }),
-        {
-          type: 'status',
-          key: 'gaius_pontius_magnus',
-          delta: 0,
-          reason: 'Struck down in the forum, so the city believes.',
-          new_status: 'dead',
-          secret_truth: { actually_alive: true, hidden_since_turn: 4, motive: 'Bide time and return for revenge.' },
-        },
-      ],
-      gm_private: ['[Mortality] validated death claim -> roll 14 -> presumed_dead'],
-    };
-
-    // The call site under test: the prompt builder itself must run the
-    // sanitizer - a sanitizer that is only ever tested in isolation pins
-    // nothing about the player-facing prompt actually built each turn.
     const { systemInstruction, prompt } = buildNarrationPrompt(
-      'A succession crisis.', player, 'Hold court', adjudication, []
+      'A succession crisis.', player, 'Hold court', [
+        { text: 'Rumor reaches you: "The Emperor bargains with the Germans."', source: 'network' },
+        { text: 'Gaius Pontius Magnus is now dead.', source: 'witnessed' },
+      ], []
     );
     const built = systemInstruction + prompt;
 
     for (const forbidden of ['is_true', 'origin_id', 'gm_private', 'secret_truth', 'actually_alive', 'presumed_dead']) {
       expect(built).not.toContain(forbidden);
     }
-    // The rumor still reaches the narrator as narrative content, at its
-    // stated credibility, with no disposition attached.
-    expect(prompt).toContain('The Emperor is said to be bargaining with the Germans.');
-    expect(prompt).toContain('Struck down in the forum, so the city believes.');
+    expect(prompt).toContain('The Emperor bargains with the Germans.');
+    expect(prompt).toContain('Gaius Pontius Magnus is now dead.');
   });
 });
 
@@ -420,23 +402,20 @@ describe("D28: a scheme's nature never reaches a player-output-bound prompt", ()
     expect(sanitized.deltas[1].reason).toBe('Bribes');
   });
 
-  it('buildNarrationPrompt: the BUILT prompt carries the opaque marker, never a scheme name/goal/step', () => {
+  it('buildNarrationPrompt carries only the opaque perceived scheme line', () => {
     const { entities } = getMockInitialState();
     const player = entities[0];
-    const adjudication: Adjudication = {
-      ...deepCopy(baseAdjudication),
-      deltas: [schemeDelta()],
-    };
-
     const { systemInstruction, prompt } = buildNarrationPrompt(
-      'A succession crisis.', player, 'Hold court', adjudication, []
+      'A succession crisis.', player, 'Hold court', [
+        { text: 'You sense Maximinus is plotting something.', source: 'network' },
+      ], []
     );
     const built = systemInstruction + prompt;
 
     expect(built).not.toContain(SCHEME_NAME);
     expect(built).not.toContain(SCHEME_GOAL);
     expect(built).not.toContain(SCHEME_STEP);
-    expect(prompt).toContain(REDACTED_SCHEME_REASON);
+    expect(prompt).toContain('You sense Maximinus is plotting something.');
   });
 
   it('buildSimulationStateUpdatePrompt: the Key Deltas line redacts a scheme reason (its output renders in WorldStateTab)', () => {
