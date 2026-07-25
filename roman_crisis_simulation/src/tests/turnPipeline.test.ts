@@ -1408,6 +1408,68 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     expect(result.playerMonologue).toBe('');
     expect(JSON.stringify(result)).not.toContain('I sign the decree and summon the legions.');
   });
+
+  it.each([
+    ['visible', 'Rome', true],
+    ['off-screen', 'Antioch', false],
+  ] as const)(
+    'a valid %s NPC mortality event reaches narration only through the player-perceived digest',
+    async (_label, npcLocation, shouldBeVisible) => {
+      const randomSpy = mockRoll(14); // gravely wounded: outcome call authors a unique directive
+      const h = createHarness(false);
+      const player = makeEntity();
+      const npc = makeEntity({
+        entity_id: 'npc_mortality',
+        name: 'MORTALITY_NPC_NAME',
+        location: npcLocation,
+      });
+      const RAW_OUTCOME_DIRECTIVE = 'RAW_MORTALITY_OUTCOME_DIRECTIVE_MUST_NOT_BYPASS_VISIBILITY';
+
+      h.response.storyRelevance.resolve(storyRelevanceJson);
+      h.response.assessment.resolve(nonConsequentialAssessmentJson);
+      h.response.adjudication.resolve(JSON.stringify({
+        turn: 2,
+        entityActions: [],
+        deltas: [{
+          type: 'status', key: 'npc_mortality', delta: 0,
+          reason: 'An assassin strikes.', new_status: 'dead',
+        }],
+        headlines: ['A hidden blade falls.'],
+        gm_private: [],
+      }));
+      h.response.mortalityValidation.resolve(JSON.stringify({
+        dispositions: [{ entity_id: 'npc_mortality', valid: true, reasoning: 'The attack was earned.' }],
+      }));
+      h.response.mortalityOutcome.resolve(JSON.stringify({
+        outcomes: [{
+          entity_id: 'npc_mortality', deltas: [],
+          narrative_directive: RAW_OUTCOME_DIRECTIVE, secret_motive: null,
+        }],
+      }));
+      h.response.simulationState.resolve(simStateJson);
+      h.response.monologue.resolve(monologueText);
+      h.response.narration.resolve(narrationFullText);
+      h.response.relationshipUpdates.resolve(relationshipJson);
+
+      const result = await runNewTurn(
+        h.ai, freeform('Hold court'), player, 2, [player, npc],
+        worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller',
+      );
+      randomSpy.mockRestore();
+
+      const narrationPrompt = h.promptsByKind.narration ?? '';
+      expect(narrationPrompt).not.toContain(RAW_OUTCOME_DIRECTIVE);
+      expect(narrationPrompt).not.toContain('MORTALITY NARRATION DIRECTIVES');
+      if (shouldBeVisible) {
+        expect(narrationPrompt).toContain('MORTALITY_NPC_NAME is now alive.');
+      } else {
+        expect(narrationPrompt).not.toContain('MORTALITY_NPC_NAME');
+        expect(narrationPrompt).not.toContain('npc_mortality');
+      }
+      expect(result.newHistoryEntry.mortalityTrace?.[0].outcomeSummary).toBe(RAW_OUTCOME_DIRECTIVE);
+      expect(result.updatedEntities.find(e => e.entity_id === 'npc_mortality')?.status).toBe('alive');
+    },
+  );
 });
 
 describe('ai/core/turn.ts runNewTurn - player-perceived narration input', () => {
@@ -1486,6 +1548,66 @@ describe('ai/core/turn.ts runNewTurn - player-perceived narration input', () => 
     const result = await turnPromise;
     expect(result.updatedEntities.find(e => e.entity_id === 'player_1')?.resources.denarii).toBe(1025);
     expect(result.updatedEntities.find(e => e.entity_id === 'npc_hidden')?.resources.denarii).toBe(1050);
+  });
+
+  it('never derives voice identity from a public rumor subject, but keeps voice for an entity named in visible event text', async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+    const hiddenRumorSubject = makeEntity({
+      entity_id: 'npc_hidden_rumor_subject',
+      name: 'HIDDEN_RUMOR_NAME_POISON',
+      location: 'Antioch',
+      voice: 'HIDDEN_RUMOR_VOICE_POISON',
+      epithet: 'HIDDEN_RUMOR_EPITHET_POISON',
+    });
+    const visibleNpc = makeEntity({
+      entity_id: 'npc_visible',
+      name: 'VISIBLE_NPC_NAME',
+      location: 'Rome',
+      resources: { denarii: 10 },
+      voice: 'VISIBLE_NPC_VOICE',
+      epithet: 'VISIBLE_NPC_EPITHET',
+    });
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    h.response.adjudication.resolve(JSON.stringify({
+      turn: 2,
+      entityActions: [],
+      deltas: [
+        {
+          type: 'rumor', key: 'npc_hidden_rumor_subject', delta: 0.5,
+          reason: 'A nameless panic spreads through the grain markets.',
+          is_true: false, origin_id: 'npc_visible',
+        },
+        {
+          type: 'resource', key: 'npc_visible:denarii', delta: 5,
+          reason: 'A public collection.',
+        },
+      ],
+      headlines: ['Market whispers spread.'],
+      gm_private: [],
+    }));
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologueText);
+    h.response.narration.resolve(narrationFullText);
+    h.response.relationshipUpdates.resolve(relationshipJson);
+
+    await runNewTurn(
+      h.ai, freeform('Address the Senate'), player, 2,
+      [player, hiddenRumorSubject, visibleNpc], worldState, simulationState,
+      [], [], [], [], '', false, 'Grim political thriller',
+    );
+
+    const narrationPrompt = h.promptsByKind.narration ?? '';
+    expect(narrationPrompt).toContain('A nameless panic spreads through the grain markets.');
+    expect(narrationPrompt).toContain('VISIBLE_NPC_NAME');
+    expect(narrationPrompt).toContain('VISIBLE_NPC_VOICE');
+    expect(narrationPrompt).toContain('VISIBLE_NPC_EPITHET');
+    expect(narrationPrompt).not.toContain('HIDDEN_RUMOR_NAME_POISON');
+    expect(narrationPrompt).not.toContain('HIDDEN_RUMOR_VOICE_POISON');
+    expect(narrationPrompt).not.toContain('HIDDEN_RUMOR_EPITHET_POISON');
+    expect(narrationPrompt).not.toContain('npc_hidden_rumor_subject');
   });
 });
 

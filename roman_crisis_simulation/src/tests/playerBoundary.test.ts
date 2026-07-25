@@ -4,6 +4,7 @@ import {
   assertNoInventedPlayerVisibleAction,
   assertPlayerVisibleAdjudicationSafe,
   assertPlayerVisibleTextSafe,
+  createPlayerVisibleStreamGate,
 } from '../ai/core/playerBoundary';
 import type { Adjudication, Entity } from '../types';
 
@@ -63,6 +64,28 @@ describe('player-visible mechanics boundary', () => {
   });
 
   it.each([
+    '- It was a critical success.',
+    '* “It was a partial success.”',
+    '+ "It was a critical failure."',
+    '(Presumed dead.)',
+    '**It was gravely wounded.**',
+    '_Survives with loss._',
+    '`Critical success.`',
+    'The Curia quieted. **“It was a partial success.”** Debate resumed.',
+  ])('rejects a standalone hidden tier inside common presentation wrappers: %s', poison => {
+    const error = boundaryError(poison);
+    expect(error.message).toBe('AI output violated the player-visible mechanics boundary.');
+    expect(error.message).not.toContain(poison);
+  });
+
+  it('blocks a wrapped tier sentence before cumulative streamed prose is released', () => {
+    const gate = createPlayerVisibleStreamGate();
+    expect(gate.push('The Senate falls silent.')).toBe('The Senate falls silent.');
+    expect(() => gate.push('The Senate falls silent.\n- “It was a critical success.”'))
+      .toThrow('AI output violated the player-visible mechanics boundary.');
+  });
+
+  it.each([
     '20 soldiers die before dawn.',
     'Soldiers die in 20 days if the fever holds.',
     'The die is cast; Rome awaits Caesar.',
@@ -76,6 +99,8 @@ describe('player-visible mechanics boundary', () => {
     'The campaign was a critical failure of logistics, not courage.',
     'The vote was a success.',
     'The campaign ended in failure.',
+    '- **The levy was a partial success because three cohorts never arrived.**',
+    '“The speech was a critical success with the crowd, and the Senate adjourned.”',
   ])('accepts ordinary casualty or Roman-idiom prose: %s', prose => {
     expect(() => assertPlayerVisibleTextSafe(prose)).not.toThrow();
   });
