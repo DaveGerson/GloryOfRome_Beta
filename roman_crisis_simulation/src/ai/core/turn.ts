@@ -17,7 +17,7 @@ import { buildNarrationPrompt, selectVoiceCast } from '../prompts/narration';
 import { processMortality, detectDeathClaims } from './mortality';
 import { createNarrationStreamGate } from './streamSplit';
 import { rollD20, resolveAction, derivePersonalityModifier, deriveOppositionModifier, createSeededRng, generateSeed } from './resolution';
-import { normalizeTurnSubmissionInput, projectForAdjudication, projectForNarration, projectForPlayerOwnedAi, projectForResolution, serializeTurnSubmission } from '../../playerInput/turnSubmission';
+import { normalizeTurnSubmissionInput, projectForAdjudication, projectForNarration, projectForNoAttemptResponse, projectForPlayerOwnedAi, projectForResolution, serializeTurnSubmission } from '../../playerInput/turnSubmission';
 import {
     assertNoInventedPlayerAction,
     assertNoInventedPlayerVisibleAction,
@@ -371,6 +371,7 @@ export async function runNewTurn(
     newHistoryEntry: TurnHistoryEntry,
 }> {
     const normalizedSubmission = normalizeTurnSubmissionInput(submission);
+    const noAttemptResponse = projectForNoAttemptResponse(normalizedSubmission);
     const playerIntent = serializeTurnSubmission(normalizedSubmission);
     const resolutionAttempt = projectForResolution(normalizedSubmission);
     const fullAdjudicationSubmission = projectForAdjudication(normalizedSubmission);
@@ -781,6 +782,9 @@ export async function runNewTurn(
     //       streams via `onNarrationChunk`/the stream gate exactly as before
     //       this refactor, just launched inside the parallel block instead
     //       of sequentially after the monologue call.
+    // For a structured no-attempt submission, (b) and (c) remain present as
+    // already-resolved empty promises so the join and TurnStage sequence stay
+    // unchanged, but neither player-prose provider call is issued.
     // `getRelationshipUpdates` is deliberately NOT in this group. It no
     // longer consumes narration (that was a privacy defect); keeping it
     // after the join means provider-authored player output passes the
@@ -814,7 +818,9 @@ export async function runNewTurn(
     const simulationStatePromise = getUpdatedSimulationState(ai, transformedAdjudication, currentSimulationState, isMockMode);
 
     options?.onStage?.('monologue');
-    const monologuePromise = getPlayerMonologue(ai, updatedPlayerEntity, transformedAdjudication.headlines, recentPlayerIntents, isMockMode);
+    const monologuePromise = noAttemptResponse
+        ? Promise.resolve('')
+        : getPlayerMonologue(ai, updatedPlayerEntity, transformedAdjudication.headlines, recentPlayerIntents, isMockMode);
 
     // Get narration and suggested actions. `buildNarrationPrompt` receives a
     // SANITIZED adjudication (gm_private and any secret_truth trace stripped
@@ -862,19 +868,15 @@ export async function runNewTurn(
     // ever sees display-safe text with any `SUGGESTION:` tail withheld -
     // see streamSplit.ts.
     const onNarrationChunk = options?.onNarrationChunk;
-    const narrationPromise = onNarrationChunk
-        ? generateTextStream(ai, narrationRequest, (textSoFar) => {
-            const displayText = narrationStreamGate(textSoFar);
-            // A no-attempt turn cannot establish prose ownership from a
-            // partial stream. Hold every UI emission until the complete
-            // parallel result has passed mechanics and player-subject
-            // validation below; then release one final safe narration.
-            if (narrationSubmission.hasObservableAttempt) {
+    const narrationPromise = noAttemptResponse
+        ? Promise.resolve('')
+        : onNarrationChunk
+            ? generateTextStream(ai, narrationRequest, (textSoFar) => {
+                const displayText = narrationStreamGate(textSoFar);
                 const completedText = playerVisibleStreamGate.push(displayText);
                 if (completedText !== null) onNarrationChunk(completedText);
-            }
-        })
-        : generateText(ai, narrationRequest);
+            })
+            : generateText(ai, narrationRequest);
 
     // The join. If any of the three rejects, `Promise.all` rejects
     // immediately with that leg's error (fail-fast) - the other two keep
