@@ -191,15 +191,41 @@ describe('validateNoAttemptSelection', () => {
     text: `Observation ${index + 1}`,
   }));
 
-  it('resolves one to five unique offered IDs to canonical evidence order', () => {
-    const selection: NoAttemptEvidenceSelection = {
-      decision: 'answer',
+  it.each([
+    {
+      count: 1,
+      evidenceIds: ['evidence-3'],
+      expectedEvidence: [evidence[2]],
+    },
+    {
+      count: 2,
+      evidenceIds: ['evidence-4', 'evidence-2'],
+      expectedEvidence: [evidence[1], evidence[3]],
+    },
+    {
+      count: 3,
+      evidenceIds: ['evidence-5', 'evidence-1', 'evidence-3'],
+      expectedEvidence: [evidence[0], evidence[2], evidence[4]],
+    },
+    {
+      count: 4,
+      evidenceIds: ['evidence-4', 'evidence-1', 'evidence-3', 'evidence-2'],
+      expectedEvidence: [evidence[0], evidence[1], evidence[2], evidence[3]],
+    },
+    {
+      count: 5,
       evidenceIds: ['evidence-5', 'evidence-3', 'evidence-1', 'evidence-4', 'evidence-2'],
-    };
+      expectedEvidence: evidence.slice(0, 5),
+    },
+  ])('resolves $count unique offered IDs to canonical evidence order', ({
+    evidenceIds,
+    expectedEvidence,
+  }) => {
+    const selection: NoAttemptEvidenceSelection = { decision: 'answer', evidenceIds };
 
     expect(validateNoAttemptSelection(selection, evidence)).toEqual({
       kind: 'answer',
-      evidence: evidence.slice(0, 5),
+      evidence: expectedEvidence,
     });
   });
 
@@ -278,6 +304,37 @@ describe('renderNoAttemptResponse', () => {
       }],
     })).toBe(
       'What you can currently tell:\n- Via your network: Lucius left the forum before the vote.',
+    );
+  });
+
+  it('renders a validated multi-item selection in complete canonical order', () => {
+    const evidence: NoAttemptEvidence[] = [
+      {
+        id: 'evidence-1',
+        source: 'network',
+        text: 'Lucius left the forum before the vote.',
+      },
+      {
+        id: 'evidence-2',
+        source: 'public',
+        text: 'The eastern doors remain open.',
+      },
+      {
+        id: 'evidence-3',
+        source: 'spy',
+        text: 'A courier entered the Curia at dusk.',
+      },
+    ];
+    const result = validateNoAttemptSelection({
+      decision: 'answer',
+      evidenceIds: ['evidence-3', 'evidence-1', 'evidence-2'],
+    }, evidence);
+
+    expect(renderNoAttemptResponse(result)).toBe(
+      'What you can currently tell:\n'
+      + '- Via your network: Lucius left the forum before the vote.\n'
+      + '- Common knowledge: The eastern doors remain open.\n'
+      + '- From a spy: A courier entered the Curia at dusk.',
     );
   });
 
