@@ -35,6 +35,22 @@ const ADJUDICATION_TEMPERATURE = 0.8;
 // creative, varied chronicling of the same underlying adjudication JSON.
 const NARRATION_TEMPERATURE = 1.0;
 
+function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Matches a rendered display name without ASCII-only `\b` semantics. */
+function textContainsWholeDisplayName(text: string, displayName: string): boolean {
+    const normalizedName = displayName.normalize('NFKC').trim();
+    if (!normalizedName) return false;
+    const normalizedText = text.normalize('NFKC');
+    const pattern = new RegExp(
+        `(?:^|[^\\p{L}\\p{N}\\p{M}])${escapeRegExp(normalizedName)}(?=$|[^\\p{L}\\p{N}\\p{M}])`,
+        'iu'
+    );
+    return pattern.test(normalizedText);
+}
+
 /**
  * Upper bound on the persisted per-turn intent list (4C.3): intents exist
  * for spotlight NPCs only, and the Director is instructed to pick 2-4
@@ -842,7 +858,7 @@ export async function runNewTurn(
     // knowledge provenance and must not select hidden rumor subjects.
     const explicitlyVisibleEntityIds = updatedEntities
         .filter(entity => entity.name.trim().length > 0
-            && playerNarrationEvents.some(event => event.text.includes(entity.name)))
+            && playerNarrationEvents.some(event => textContainsWholeDisplayName(event.text, entity.name)))
         .map(entity => entity.entity_id);
     const voiceCast = selectVoiceCast(
         [],

@@ -59,6 +59,7 @@ const STANDALONE_HUMANIZED_MECHANIC_LABEL_PATTERN = /^\s*(?:it\s+(?:was|is)\s+(?
 function stripBoundedPresentationWrappers(segment: string): string {
   return segment
     .trim()
+    .replace(/^(?:>\s*)+/u, '')
     .replace(/^(?:(?:[-+*]|\d+[.)])\s+)+/u, '')
     .replace(/^[*_`"'“”‘’([{\s]+/u, '')
     .replace(/[*_`"'“”‘’)}\]\s]+$/u, '')
