@@ -215,7 +215,7 @@ export type GameAction =
       turnHistory: TurnHistoryEntry[];
       playerMessage: Message;
       gmMessage: Message;
-      monologueMessage: Message;
+      monologueMessage: Message | null;
       ribbonMessage: Message;
       suggestedActions: string[];
       currentEvents: string[];
@@ -326,7 +326,13 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         // state this reducer returns; this application stays as the
         // in-memory backstop.
         turnHistory: withOldSnapshotsDropped(action.turnHistory),
-        messages: [...state.messages, action.playerMessage, action.gmMessage, action.monologueMessage, action.ribbonMessage],
+        messages: [
+          ...state.messages,
+          action.playerMessage,
+          action.gmMessage,
+          ...(action.monologueMessage ? [action.monologueMessage] : []),
+          action.ribbonMessage,
+        ],
         suggestedActions: action.suggestedActions,
         currentEvents: action.currentEvents,
         // ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - the fallout queue is

@@ -48,10 +48,17 @@ import { emptyStructuredDraft } from './playerInput/composerState';
 import {
     deserializeTurnSubmission,
     projectForExternalInference,
+    projectForNoAttemptResponse,
     serializeTurnSubmission,
     validateAndNormalizeTurnSubmission,
     deepFreezeTurnSubmission,
 } from './playerInput/turnSubmission';
+import { selectNoAttemptEvidence } from './ai/tools/noAttemptResponse';
+import {
+    buildNoAttemptEvidence,
+    PRIVATE_INTENT_ACKNOWLEDGEMENT,
+    renderNoAttemptResponse,
+} from './playerView/noAttemptResponse';
 import { appendFallout, buildInterventionTextWithFallout, hasFallout } from './components/investigationLoop';
 import { Button } from './components/ui/Core';
 import { Tooltip } from './components/ui/Feedback';
@@ -66,6 +73,8 @@ import nocturneUrl from './design/nocturne.css?url';
 // infers the player's apparent ambition fires, counted in COMMITTED turns
 // (the turn number just finished, not the upcoming one - see executeTurn).
 const AMBITION_INFERENCE_TURN_INTERVAL = 3;
+const NO_ATTEMPT_SELECTION_FAILURE_DIAGNOSTIC =
+    '[No-attempt response] Evidence selection failed; the player received the safe no-answer fallback.';
 
 // ROADMAP_PHASE_4.md 4D item 1 (D23) - the Fates pacing selector's three
 // options, in-fiction labels for the PacingPosture enum. ONE unobtrusive
@@ -576,6 +585,7 @@ const App: React.FC = () => {
     const executeTurn = useCallback(async (submission: TurnSubmission, draftToRestore: string | StructuredTurnDraft): Promise<boolean> => {
         const mutation = await runDomainMutation(async transaction => {
         const serialized = serializeTurnSubmission(submission);
+        const noAttemptResponse = projectForNoAttemptResponse(submission);
         const playerMessage: Message = { sender: 'player', text: serialized };
         const restoreDraft: string | StructuredTurnDraft = typeof draftToRestore === 'string'
             ? draftToRestore
@@ -696,16 +706,7 @@ const App: React.FC = () => {
                 return { ...result.updatedWorldState, year: newYear, week: newWeek };
             })();
             // Add post-turn entity state to history for GM view
-            const historyEntryWithState = { ...result.newHistoryEntry, playerIntent: serialized, postTurnEntities: result.updatedEntities };
-            // Bound the snapshot window HERE, once, because this same array
-            // feeds BOTH the TURN_COMMITTED dispatch and the autosave below -
-            // the reducer's own trim only bounds in-memory state, so an
-            // autosave built from the raw array would persist every snapshot
-            // (and re-persist all of a legacy save's per-entry snapshots each
-            // session). Applying it here also self-heals such legacy saves on
-            // their first commit; the reducer's trim is idempotent on the
-            // already-bounded array.
-            const newTurnHistory = withOldSnapshotsDropped([...turnHistory, historyEntryWithState]);
+            const baseHistoryEntryWithState = { ...result.newHistoryEntry, playerIntent: serialized, postTurnEntities: result.updatedEntities };
             const newTurnNumber = turnNumber + 1;
 
             // D21 knowledge-store ingestion (knowledge/commit.ts): the next
@@ -720,7 +721,7 @@ const App: React.FC = () => {
             // nothing.
             const playerAfterTurn = result.updatedEntities.find(e => e.entity_id === playerCharacterId) ?? null;
             const perceivedThisTurn = playerAfterTurn
-                ? buildPlayerPerceivedDigest(historyEntryWithState.adjudication.deltas, playerAfterTurn, result.updatedEntities, newWorldState)
+                ? buildPlayerPerceivedDigest(baseHistoryEntryWithState.adjudication.deltas, playerAfterTurn, result.updatedEntities, newWorldState)
                 : [];
             const priorReportIds = new Set(reports.map(report => report.id));
             const reportsThisTurn = result.updatedReports.filter(report => !priorReportIds.has(report.id));
@@ -761,11 +762,59 @@ const App: React.FC = () => {
                     knownEntityIds,
                 },
             });
-            const gmMessage: Message = { sender: 'gm', text: result.narration };
-            const monologueMessage: Message = { sender: 'player_monologue', text: result.playerMonologue };
+            let finalNarration = result.narration;
+            let finalAdjudication = baseHistoryEntryWithState.adjudication;
+            if (noAttemptResponse?.kind === 'question') {
+                const evidence = buildNoAttemptEvidence(newKnowledge);
+                const selection = await selectNoAttemptEvidence(
+                    ai,
+                    noAttemptResponse.question,
+                    evidence,
+                    isMockMode,
+                );
+                if (!transaction.isCurrent()) return;
+                finalNarration = renderNoAttemptResponse(selection);
+                if (selection.kind === 'no_answer'
+                    && (selection.reason === 'invalid_selection' || selection.reason === 'selector_failure')) {
+                    finalAdjudication = {
+                        ...finalAdjudication,
+                        gm_private: [
+                            ...finalAdjudication.gm_private,
+                            NO_ATTEMPT_SELECTION_FAILURE_DIAGNOSTIC,
+                        ],
+                    };
+                }
+            } else if (noAttemptResponse?.kind === 'private_intent') {
+                finalNarration = PRIVATE_INTENT_ACKNOWLEDGEMENT;
+            }
+
+            const historyEntryWithState = {
+                ...baseHistoryEntryWithState,
+                narration: finalNarration,
+                adjudication: finalAdjudication,
+            };
+            // Bound the snapshot window HERE, once, because this same array
+            // feeds BOTH the TURN_COMMITTED dispatch and the autosave below -
+            // the reducer's own trim only bounds in-memory state, so an
+            // autosave built from the raw array would persist every snapshot
+            // (and re-persist all of a legacy save's per-entry snapshots each
+            // session). Applying it here also self-heals such legacy saves on
+            // their first commit; the reducer's trim is idempotent on the
+            // already-bounded array.
+            const newTurnHistory = withOldSnapshotsDropped([...turnHistory, historyEntryWithState]);
+            const gmMessage: Message = { sender: 'gm', text: historyEntryWithState.narration };
+            const monologueMessage: Message | null = result.playerMonologue
+                ? { sender: 'player_monologue', text: result.playerMonologue }
+                : null;
             // Week-advance ribbon written into the stream once the turn commits
             // (rendered as a TurnRibbon divider, not a speech bubble).
             const ribbonMessage: Message = { sender: 'ribbon', text: `Week ${toRoman(newWorldState.week)} · The chronicler sets down the day` };
+            const committedMessages = [
+                playerMessage,
+                gmMessage,
+                ...(monologueMessage ? [monologueMessage] : []),
+                ribbonMessage,
+            ];
 
             // The single atomic commit for this turn (state/gameReducer.ts's
             // TURN_COMMITTED): entities, world, history, chat log, pills and
@@ -785,7 +834,7 @@ const App: React.FC = () => {
                 npcIntents: result.updatedNpcIntents,
                 turnNumber: newTurnNumber,
                 turnHistory: newTurnHistory,
-                messages: [...messages, playerMessage, gmMessage, monologueMessage, ribbonMessage],
+                messages: [...messages, ...committedMessages],
                 suggestedActions: result.suggestedActions,
                 currentEvents: result.headlines,
                 gmInterventionText: '',

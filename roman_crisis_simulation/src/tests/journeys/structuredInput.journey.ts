@@ -532,8 +532,9 @@ describe('journey: structured player input through the real App transaction', ()
       expect(afterMixed.messages.filter(message => message.sender === 'player_monologue').at(-1)?.text).toBe(mixedMonologue);
       expect(mixedClient.promptsFor('narration').join('\n')).toContain(mixedPrivateIntent);
       expect(mixedClient.promptsFor('monologue').join('\n')).toContain(mixedPrivateIntent);
+      expect(mixedClient.promptsFor('adjudication').join('\n')).toContain(mixedPrivateIntent);
       for (const kind of [
-        'storyRelevance', 'assessment', 'adjudication', 'simulationState',
+        'storyRelevance', 'assessment', 'simulationState',
         'relationshipUpdates', 'relationshipObservations',
       ] as const) {
         expect(mixedClient.promptsFor(kind).join('\n')).not.toContain(mixedPrivateIntent);

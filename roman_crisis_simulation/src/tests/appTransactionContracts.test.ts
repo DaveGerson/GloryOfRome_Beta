@@ -1515,6 +1515,7 @@ describe('App no-attempt response transaction', () => {
       questionOrContext: question,
     };
     const resolved = await makeResolvedTurn(state, submission);
+    const originalGmPrivate = [...resolved.newHistoryEntry.adjudication.gm_private];
     mockRunNewTurnCore.mockResolvedValueOnce(resolved);
     const selectorCalls = installStructuredAi('select_safe_evidence');
     const container = await mountRealApp(state);
@@ -1537,8 +1538,8 @@ describe('App no-attempt response transaction', () => {
       expect.objectContaining({ sender: 'ribbon' }),
     ]);
     expect(container.textContent).toContain(SAFE_EVIDENCE_ANSWER);
-    expect(entry.adjudication.gm_private).toEqual([BASE_GM_PRIVATE]);
-    expect(resolved.newHistoryEntry.adjudication.gm_private).toEqual([BASE_GM_PRIVATE]);
+    expect(entry.adjudication.gm_private).toEqual(originalGmPrivate);
+    expect(resolved.newHistoryEntry.adjudication.gm_private).toEqual(originalGmPrivate);
   });
 
   for (const scenario of [
@@ -1593,6 +1594,7 @@ describe('App no-attempt response transaction', () => {
       const resolved = await makeResolvedTurn(state, submission, {
         prospectiveEvidence: scenario.prospectiveEvidence,
       });
+      const originalGmPrivate = [...resolved.newHistoryEntry.adjudication.gm_private];
       mockRunNewTurnCore.mockResolvedValueOnce(resolved);
       const selectorCalls = installStructuredAi(scenario.behavior);
       const container = await mountRealApp(state);
@@ -1610,12 +1612,17 @@ describe('App no-attempt response transaction', () => {
       expect(container.textContent).toContain(NO_ATTEMPT_NO_ANSWER);
       expect(selectorCalls).toHaveLength(scenario.selectorExpected ? 1 : 0);
       expect(diagnostics).toEqual(scenario.diagnosticExpected ? [RESPONSE_DIAGNOSTIC] : []);
+      expect(entry.adjudication.gm_private).toEqual(
+        scenario.diagnosticExpected
+          ? [...originalGmPrivate, RESPONSE_DIAGNOSTIC]
+          : originalGmPrivate,
+      );
       if (scenario.diagnosticExpected) {
         expect(diagnostics[0]).not.toContain(question);
         expect(diagnostics[0]).not.toContain(SAFE_EVIDENCE_TEXT);
         expect(diagnostics[0]).not.toMatch(/SCHEMA_FAILURE_SENTINEL|PROVIDER_FAILURE_SENTINEL/);
-        expect(resolved.newHistoryEntry.adjudication.gm_private).toEqual([BASE_GM_PRIVATE]);
       }
+      expect(resolved.newHistoryEntry.adjudication.gm_private).toEqual(originalGmPrivate);
     });
   }
 });
