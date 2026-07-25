@@ -47,6 +47,20 @@ describe('player-visible mechanics boundary', () => {
   });
 
   it.each([
+    'It was a critical success.',
+    'It was a partial success.',
+    'It was a critical failure.',
+    'Critical success.',
+    'Survives with loss.',
+    'It was presumed dead.',
+    'It was gravely wounded.',
+  ])('rejects a standalone humanized hidden tier: %s', poison => {
+    const error = boundaryError(poison);
+    expect(error.message).toBe('AI output violated the player-visible mechanics boundary.');
+    expect(error.message).not.toContain(poison);
+  });
+
+  it.each([
     '20 soldiers die before dawn.',
     'Soldiers die in 20 days if the fever holds.',
     'The die is cast; Rome awaits Caesar.',
@@ -55,6 +69,11 @@ describe('player-visible mechanics boundary', () => {
     'The action modifier was a senator whose speech changed the debate.',
     'The check total was debated by the accountants.',
     'The outcome tier. Critical debate followed in the Curia.',
+    'The speech was a critical success with the crowd, and the Senate adjourned.',
+    'The levy was only a partial success because three cohorts never arrived.',
+    'The campaign was a critical failure of logistics, not courage.',
+    'The vote was a success.',
+    'The campaign ended in failure.',
   ])('accepts ordinary casualty or Roman-idiom prose: %s', prose => {
     expect(() => assertPlayerVisibleTextSafe(prose)).not.toThrow();
   });

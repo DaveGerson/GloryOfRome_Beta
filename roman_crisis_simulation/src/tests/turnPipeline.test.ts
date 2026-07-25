@@ -1409,6 +1409,85 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
   });
 });
 
+describe('ai/core/turn.ts runNewTurn - player-perceived narration input', () => {
+  it('excludes invisible adjudication poison from the real narration request while retaining the submitted action and visible digest', async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+    const hiddenNpc = makeEntity({
+      entity_id: 'npc_hidden',
+      name: 'INVISIBLE_NPC_NAME_POISON',
+      location: 'Antioch',
+      resources: { denarii: 1000 },
+      voice: 'INVISIBLE_VOICE_POISON',
+      epithet: 'INVISIBLE_EPITHET_POISON',
+    });
+    const poisonedAdjudication = JSON.stringify({
+      turn: 2,
+      entityActions: [{
+        id: 'npc_hidden',
+        intent: 'intrigue',
+        target: 'player_1',
+        notes: 'INVISIBLE_ACTION_NOTES_POISON',
+      }],
+      deltas: [
+        {
+          type: 'resource', key: 'npc_hidden:denarii', delta: 50,
+          reason: 'INVISIBLE_RESOURCE_REASON_POISON',
+        },
+        {
+          type: 'resource', key: 'player_1:denarii', delta: 25,
+          reason: 'VISIBLE_RAW_REASON_MUST_NOT_APPEAR',
+        },
+      ],
+      headlines: ['INVISIBLE_HEADLINE_POISON'],
+      gm_private: ['INVISIBLE_GM_SECRET_POISON'],
+    });
+
+    const turnPromise = runNewTurn(
+      h.ai, freeform('Address the Senate'), player, 2, [player, hiddenNpc],
+      worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller',
+    );
+    turnPromise.catch(() => {});
+
+    await Promise.all([h.issued.storyRelevance.promise, h.issued.assessment.promise]);
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    await h.issued.adjudication.promise;
+    h.response.adjudication.resolve(poisonedAdjudication);
+    await Promise.all([h.issued.simulationState.promise, h.issued.monologue.promise, h.issued.narration.promise]);
+
+    const narrationPrompt = h.promptsByKind.narration ?? '';
+    expect(narrationPrompt).toContain('Address the Senate');
+    expect(narrationPrompt).toContain('Your denarii grows.');
+    for (const poison of [
+      'INVISIBLE_NPC_NAME_POISON',
+      'INVISIBLE_VOICE_POISON',
+      'INVISIBLE_EPITHET_POISON',
+      'INVISIBLE_ACTION_NOTES_POISON',
+      'INVISIBLE_RESOURCE_REASON_POISON',
+      'VISIBLE_RAW_REASON_MUST_NOT_APPEAR',
+      'INVISIBLE_HEADLINE_POISON',
+      'INVISIBLE_GM_SECRET_POISON',
+      'npc_hidden:denarii',
+    ]) {
+      expect(narrationPrompt).not.toContain(poison);
+    }
+    expect(narrationPrompt).not.toContain('"entityActions"');
+    expect(narrationPrompt).not.toContain('"intent"');
+    expect(narrationPrompt).not.toContain('"deltas"');
+    expect(narrationPrompt).not.toContain('"headlines"');
+
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologueText);
+    h.response.narration.resolve(narrationFullText);
+    await h.issued.relationshipUpdates.promise;
+    h.response.relationshipUpdates.resolve(relationshipJson);
+    const result = await turnPromise;
+    expect(result.updatedEntities.find(e => e.entity_id === 'player_1')?.resources.denarii).toBe(1025);
+    expect(result.updatedEntities.find(e => e.entity_id === 'npc_hidden')?.resources.denarii).toBe(1050);
+  });
+});
+
 // --- Pacing posture threading (ROADMAP_PHASE_4.md 4D item 1, D23) ---------
 
 describe('ai/core/turn.ts runNewTurn - pacing posture threading (4D.1, D23)', () => {
