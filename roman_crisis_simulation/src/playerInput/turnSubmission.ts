@@ -24,6 +24,11 @@ export interface NarrationSubmissionProjection {
   hasObservableAttempt: boolean;
 }
 
+export type NoAttemptResponseProjection =
+  | { kind: 'question'; question: string }
+  | { kind: 'private_intent' }
+  | null;
+
 export interface TurnSubmissionIssue {
   field: string;
   message: string;
@@ -417,6 +422,19 @@ export function deepFreezeTurnSubmission(submission: TurnSubmission): TurnSubmis
 export function projectForResolution(submission: TurnSubmission): string | null {
   const lines = observableLines(submission);
   return lines.length ? lines.join('\n\n') : null;
+}
+
+export function projectForNoAttemptResponse(
+  submission: TurnSubmission,
+): NoAttemptResponseProjection {
+  if (projectForResolution(submission) !== null || submission.kind !== 'structured') {
+    return null;
+  }
+
+  const question = submission.questionOrContext?.trim();
+  if (question) return { kind: 'question', question };
+  if (submission.privateIntent?.trim()) return { kind: 'private_intent' };
+  return null;
 }
 
 export function projectForAdjudication(submission: TurnSubmission): AdjudicationSubmissionProjection {
