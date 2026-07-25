@@ -190,6 +190,26 @@ describe('eval/harness checkRawCallSchema', () => {
     );
     expect(modelAuthoredQuote.status).toBe('schema_violation');
   });
+
+  it('maps noAttemptEvidenceSelection to its strict IDs-only schema', () => {
+    expect(schemaForCallName('noAttemptEvidenceSelection')).not.toBeNull();
+    const valid = checkRawCallSchema(
+      makeRawCall('noAttemptEvidenceSelection', JSON.stringify({
+        decision: 'answer',
+        evidenceIds: ['evidence-1'],
+      }))
+    );
+    expect(valid.status).toBe('valid');
+
+    const modelAuthoredProse = checkRawCallSchema(
+      makeRawCall('noAttemptEvidenceSelection', JSON.stringify({
+        decision: 'answer',
+        evidenceIds: ['evidence-1'],
+        prose: 'Lucius is afraid.',
+      }))
+    );
+    expect(modelAuthoredProse.status).toBe('schema_violation');
+  });
 });
 
 // --- Call-name inventory drift ---------------------------------------------
@@ -214,6 +234,7 @@ describe('eval/harness call-name inventory (drift guard)', () => {
     'characterCreation', // ai/tools/characterCreator.ts
     'ambitionInference', // ai/tools/ambition.ts
     'relationshipObservations', // ai/tools/relationshipObservations.ts
+    'noAttemptEvidenceSelection', // ai/tools/noAttemptResponse.ts
     // 'entityBatch:<batchName>' (ai/core/initiator.ts) and
     // 'npcMind:<entity_id>' (ai/tools/npcMind.ts) are deliberately not
     // listed: their callNames are suffixed at runtime and resolved by
