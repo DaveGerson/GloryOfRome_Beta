@@ -168,10 +168,12 @@ leaving stale capacity behind.
 
 A dedicated Terra-medium debt triage read the exact remaining 17 occurrences
 and assigned every group the binary ACCEPT disposition below. This inventory
-is enforced, not advisory: the lint script runs `eslint . --max-warnings 17`,
-so an eighteenth warning fails the gate loudly. Shrinking the count is always
-safe and must lower this ratchet again; growing it requires a new deliberate
-triage and an explicit ratchet change.
+is enforced, not advisory: `npm run lint` compares ESLint output to the exact
+file, location, rule, and message fingerprints in
+`tooling/eslint-warning-baseline.json`. Any added, removed, or substituted
+warning fails the gate loudly, as does any ESLint error. A resolved warning
+must lower both the manifest and this ledger; a new warning requires a new
+deliberate binary triage before the manifest can change.
 
 - **ACCEPT — unused/dead bindings (4 occurrences:
   `ai/core/engine.ts:343,353`; `ai/core/initiator.ts:5`;
@@ -206,15 +208,18 @@ triage and an explicit ratchet change.
   characterization-tested substantive change.
 - **ACCEPT — `react-hooks/set-state-in-effect` (1 occurrence:
   `components/OnboardingOverlay.tsx:69`).** Opening the overlay synchronously
-  resets its local step to the beginning. This can add one render pass on
-  open, so the possible degradation is a silent, localized rendering cost;
-  the state value converges immediately and no update loop or correctness
-  failure is present. The blast radius is limited to onboarding-overlay open
-  timing and cannot affect game state, saves, prompts, or mechanics. Accept
-  because no user-visible performance problem is observed and the real fix is
-  an event-driven state-lifecycle redesign that needs focused component
-  characterization, not a warning suppression. Revisit if the overlay shows
-  measurable render latency or its open/reset lifecycle is redesigned.
+  resets its local step to the beginning, but effects run after render.
+  Reopening can therefore briefly render the retained old step before the
+  effect resets it, and assistive technology may briefly announce that stale
+  step. The degradation is a silent, localized visual/accessibility mismatch
+  plus one extra render; the state then converges and no update loop is
+  present. The blast radius is limited to onboarding-overlay reopen timing
+  and cannot affect game state, saves, AI prompts, or mechanics. Accept
+  because no user-visible complaint is observed and the real fix is an
+  event-driven state-lifecycle redesign that needs focused component
+  characterization, not warning suppression. Revisit immediately if the
+  stale-step flash/announcement is observed or the open/reset lifecycle is
+  redesigned.
 
 ### B12 — Task 4b vendor-chunk-split interactive preview smoke: not yet run
 When Task 4b split the single oversized JS bundle into deterministic vendor
