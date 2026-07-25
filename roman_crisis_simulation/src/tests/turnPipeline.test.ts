@@ -1609,6 +1609,57 @@ describe('ai/core/turn.ts runNewTurn - player-perceived narration input', () => 
     expect(narrationPrompt).not.toContain('HIDDEN_RUMOR_EPITHET_POISON');
     expect(narrationPrompt).not.toContain('npc_hidden_rumor_subject');
   });
+
+  it('matches a voice identity only as a Unicode-aware whole display name, never as the Cato prefix of Catonian', async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+    const hiddenCato = makeEntity({
+      entity_id: 'npc_hidden_cato',
+      name: 'Cato',
+      location: 'Antioch',
+      voice: 'HIDDEN_CATO_VOICE_POISON',
+      epithet: 'HIDDEN_CATO_EPITHET_POISON',
+    });
+    const visibleCatonian = makeEntity({
+      entity_id: 'npc_visible_catonian',
+      name: 'Catonian Tribune',
+      location: 'Rome',
+      resources: { denarii: 10 },
+      voice: 'VISIBLE_CATONIAN_VOICE',
+      epithet: 'VISIBLE_CATONIAN_EPITHET',
+    });
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    h.response.adjudication.resolve(JSON.stringify({
+      turn: 2,
+      entityActions: [],
+      deltas: [{
+        type: 'resource', key: 'npc_visible_catonian:denarii', delta: 5,
+        reason: 'A collection in the Forum.',
+      }],
+      headlines: ['The Forum watches.'],
+      gm_private: [],
+    }));
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologueText);
+    h.response.narration.resolve(narrationFullText);
+    h.response.relationshipUpdates.resolve(relationshipJson);
+
+    await runNewTurn(
+      h.ai, freeform('Address the Senate'), player, 2,
+      [player, hiddenCato, visibleCatonian], worldState, simulationState,
+      [], [], [], [], '', false, 'Grim political thriller',
+    );
+
+    const narrationPrompt = h.promptsByKind.narration ?? '';
+    expect(narrationPrompt).toContain("Catonian Tribune's denarii grows.");
+    expect(narrationPrompt).toContain('VISIBLE_CATONIAN_VOICE');
+    expect(narrationPrompt).toContain('VISIBLE_CATONIAN_EPITHET');
+    expect(narrationPrompt).not.toContain('HIDDEN_CATO_VOICE_POISON');
+    expect(narrationPrompt).not.toContain('HIDDEN_CATO_EPITHET_POISON');
+    expect(narrationPrompt).not.toContain('npc_hidden_cato');
+  });
 });
 
 // --- Pacing posture threading (ROADMAP_PHASE_4.md 4D item 1, D23) ---------
