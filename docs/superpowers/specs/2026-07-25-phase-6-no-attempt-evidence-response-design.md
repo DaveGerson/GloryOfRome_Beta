@@ -23,7 +23,7 @@ Every valid submission still advances one turn. The adjudicator, NPC/world simul
 1. The composition root builds a bounded, numbered evidence list from the player knowledge store after the current turn's perception-safe digest, new Reports, and validated relationship observations have been ingested into the prospective next store.
 2. Each evidence item contains only an opaque local ID, its player-visible source label, and exact player-visible text. No Entity object, raw delta, adjudication, headline, `SimulationState`, trace, roll, outcome tier, `gm_private`, `secret_truth`, truth-ledger field, or Private Intent crosses this boundary.
 3. The model receives the player's Question/Context plus that evidence list. It returns only a strict selection object: `decision` (`answer` or `no_answer`) and zero or more evidence IDs. It cannot return answer prose.
-4. Code validates the selection against the offered evidence, rejects duplicates and unknown IDs, and caps an answer at five items.
+4. Code validates the selection against the offered evidence, rejects duplicates and unknown IDs, caps an answer at five items, and restores the selected items to canonical evidence order so the model cannot control presentation order.
 5. Code renders the response from the canonical evidence text. The model never controls a displayed word.
 6. The response begins with `What you can currently tell:` and lists the selected observations. Source framing is a fixed local label; evidence text is copied exactly.
 7. Empty evidence, an explicit `no_answer`, invalid semantic output, schema failure, or provider failure renders the same fixed no-answer response: `Nothing in your current observations answers that yet.`
@@ -98,7 +98,7 @@ interface NoAttemptEvidenceSelection {
 }
 ```
 
-Valid `answer` output contains one to five unique IDs, all present in the offered list. Valid `no_answer` output contains no IDs. Any other combination is invalid and becomes the fixed no-answer fallback.
+Valid `answer` output contains one to five unique IDs, all present in the offered list. Valid `no_answer` output contains no IDs. Any other combination is invalid and becomes the fixed no-answer fallback. Valid selections render in the evidence list's canonical order, never the provider's returned order.
 
 In mock mode, the adapter deterministically selects the first available evidence item, or returns `no_answer` when the list is empty. This keeps journeys off the network while exercising the real evidence builder, validator, renderer, transaction, persistence, and UI.
 
