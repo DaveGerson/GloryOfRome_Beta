@@ -4,7 +4,7 @@
 import { Adjudication, Entity, NpcIntent, NpcMindDecision, Report, SimulationState, StoryRelevance, TruthLedgerEntry, TurnHistoryEntry, WorldState, EventDelta, EntityStub, TurnSubmission } from '../types';
 import { applyAdjudication, applyDeltas } from './core/engine';
 import { MAX_MINDS_PER_TURN } from './prompts/npcMind';
-import { normalizeTurnSubmissionInput, projectForPlayerOwnedAi, projectForResolution, serializeTurnSubmission } from '../playerInput/turnSubmission';
+import { normalizeTurnSubmissionInput, projectForNoAttemptResponse, projectForPlayerOwnedAi, projectForResolution, serializeTurnSubmission } from '../playerInput/turnSubmission';
 
 // --- MOCK DATA ---
 const MOCK_NEW_MOBSTER: Entity = {
@@ -265,6 +265,7 @@ export const mockRunNewTurn = async (
     newHistoryEntry: TurnHistoryEntry,
 }> => {
     const normalizedSubmission = normalizeTurnSubmissionInput(submission);
+    const noAttemptResponse = projectForNoAttemptResponse(normalizedSubmission);
     const playerIntent = serializeTurnSubmission(normalizedSubmission);
     const playerOwnedContext = projectForPlayerOwnedAi(normalizedSubmission);
     const observableAttempt = projectForResolution(normalizedSubmission);
@@ -359,19 +360,25 @@ export const mockRunNewTurn = async (
         }
     }
 
-    const narration = observableAttempt
-        ? `(Mock Mode) Your action to "${observableAttempt}" has been noted. In the city, Maximinus Thrax continues to stir up trouble, spreading rumors about the Emperor's weakness. The mood in the Praetorian Camp grows darker.`
-        : normalizedSubmission.kind === 'structured' && normalizedSubmission.questionOrContext
-            ? '(Mock Mode) Your question has been received. Mock mode cannot answer it from live simulation state. No action is taken.'
-            : '(Mock Mode) Your private intent remains private. No action is taken.';
-    
-    const suggestedActions = [
-        "Mock: Investigate Thrax's rumors",
-        "Mock: Send a message to the Senate",
-        "Mock: Try to bribe the Praetorians",
-    ];
+    const narration = noAttemptResponse
+        ? ''
+        : `(Mock Mode) Your action to "${observableAttempt}" has been noted. In the city, Maximinus Thrax continues to stir up trouble, spreading rumors about the Emperor's weakness. The mood in the Praetorian Camp grows darker.`;
 
-    const playerMonologue = await mockGetPlayerMonologue(playerEntity, MOCK_ADJUDICATION.headlines, [playerOwnedContext]);
+    const suggestedActions = noAttemptResponse
+        ? [
+            'Consider your next move carefully.',
+            'Consolidate your power.',
+            'Seek new allies.',
+        ]
+        : [
+            "Mock: Investigate Thrax's rumors",
+            'Mock: Send a message to the Senate',
+            'Mock: Try to bribe the Praetorians',
+        ];
+
+    const playerMonologue = noAttemptResponse
+        ? ''
+        : await mockGetPlayerMonologue(playerEntity, MOCK_ADJUDICATION.headlines, [playerOwnedContext]);
 
     const newHistoryEntry: TurnHistoryEntry = {
         turnNumber,
