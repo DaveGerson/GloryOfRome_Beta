@@ -1891,7 +1891,19 @@ describe('App turn-commit boundary and hidden-error surfacing (C1)', () => {
   });
 
   it('reports a no-longer-eligible private-scene target inside the dialog and permits retry', async () => {
-    const container = await mountApp();
+    // The retry below must reach a real successful commit, which requires a
+    // non-empty NPC current_state_narrative (the private-scene prompt's
+    // selfDescription field, ai/prompts/privateScene.ts) - unlike every
+    // other test above, which never exercises a full private-scene commit.
+    // mockData.ts's fixture entities carry "" there; patched here (not in
+    // that shared, out-of-ownership file) via the same makeAppSave overrides
+    // every other test in this file already uses.
+    const state = makeAppSave({
+      entities: makeAppSave().entities.map(entity => entity.entity_id === 'maximinus_thrax'
+        ? { ...entity, current_state_narrative: 'Watches the capital with grim, patient calculation.' }
+        : entity),
+    });
+    const container = await mountApp(state);
     await click(buttonNamed(container, 'Private scene'));
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Private-scene opening'), 'A word in private, general.');
     // Flip handler-time eligibility only - the rendered select survives
