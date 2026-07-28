@@ -475,13 +475,40 @@ function playerPredicateAttributesAction(predicate: string, scope: ClauseScope):
 
 /**
  * The single part-level classifier shared by the comma path and by every
- * subordinate clause. Returns null when the part names no player subject,
- * '' when it names one inertly, otherwise that subject's predicate.
+ * subordinate clause. Returns null when the part names no player at all,
+ * '' when every role it names is inert, otherwise the offending predicate.
+ *
+ * One clause can name the player in BOTH roles at once - as a possessive
+ * determiner and as an explicit subject - and playerPossessivePredicate binds
+ * the first determiner ANYWHERE in the clause, including one sitting in OBJECT
+ * position. Deciding the clause on the possessive alone is therefore fail-OPEN
+ * in both directions:
+ *
+ *   - an object-position possessive ends classification before the subject is
+ *     examined, because its possessed phrase is an inert bare noun ("you
+ *     burned YOUR granary" -> "granary"), and
+ *   - a trailing possessive CONDITION launders a real head action ("you seize
+ *     the treasury though YOUR standing declines").
+ *
+ * So both roles are classified and EITHER may fail the clause. Each candidate
+ * is reduced through predicateOffense here rather than by the caller, so the
+ * value returned is the INNERMOST offender in exactly the sense predicateOffense
+ * documents: it carries no subordinator and is not an allowed predicate, so a
+ * caller re-checking it under a narrower ClauseScope reaches the same verdict.
+ * The possessive is examined first, keeping the reported offender stable for
+ * clauses that were already failing on that branch alone.
  */
 function playerClausePredicate(part: string, scope: ClauseScope): string | null {
-  const possessive = playerPossessivePredicate(part, scope);
-  if (possessive !== null) return possessive;
-  return earliestPlayerSubject(part, scope)?.predicate ?? null;
+  const candidates = [
+    playerPossessivePredicate(part, scope),
+    earliestPlayerSubject(part, scope)?.predicate ?? null,
+  ];
+  if (candidates.every(candidate => candidate === null)) return null;
+  for (const candidate of candidates) {
+    const offense = candidate ? predicateOffense(candidate, scope) : '';
+    if (offense) return offense;
+  }
+  return '';
 }
 
 function isAllowedNoAttemptPredicate(predicate: string): boolean {
@@ -493,6 +520,16 @@ function isAllowedNoAttemptPredicate(predicate: string): boolean {
     || MODAL_NON_ACTION_PREDICATE.test(withoutAdverbs)
     || SAFE_CONTEMPLATIVE_IDIOM.test(withoutAdverbs);
 }
+
+/**
+ * Oblique first-person forms. English never lets these head a clause, so they
+ * widen the PASSIVE-agent scan only: 'i' already covers the subject position,
+ * while "the granary was burned by me" / "... by my agents" names the player as
+ * the agent just as surely. They are deliberately excluded from subjectAliases,
+ * where they would misread every ordinary object ("the Senate warned me") as
+ * the player acting.
+ */
+const OBLIQUE_FIRST_PERSON_PASSIVE_AGENTS = ['me', 'my'];
 
 function passiveAgentPattern(aliasPattern: string): RegExp {
   const participle = '(?:[\\p{L}]+(?:ed|en|wn)|sent|made|done|held|cast|put|set|built|brought|bought|caught|taught|taken|given|seen|known|shown|told|left|kept|met|read|said|paid|led|found|lost|won)';
@@ -589,7 +626,7 @@ function containsPlayerAttributedAction(text: string, player: PlayerIdentity): b
     if (!wordClause) continue;
 
     const passiveClause = wordNormalized(wordClause);
-    for (const alias of scope.subjectAliases) {
+    for (const alias of [...scope.subjectAliases, ...OBLIQUE_FIRST_PERSON_PASSIVE_AGENTS]) {
       const normalizedAlias = wordNormalized(alias);
       if (!normalizedAlias) continue;
       const aliasPattern = escapeRegExp(normalizedAlias).replace(/\s+/g, '\\s+');
