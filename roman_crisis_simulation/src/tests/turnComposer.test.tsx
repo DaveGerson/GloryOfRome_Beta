@@ -599,7 +599,15 @@ describe('components/TurnComposer', () => {
   });
 
   it('renders no validation alert for a pristine Structured draft until content is entered', async () => {
-    const { container } = await mount(<TurnComposer {...defaultProps()} />);
+    function Harness() {
+      const [draft, setDraft] = useState(emptyStructuredDraft());
+      return (
+        <TurnComposer
+          {...defaultProps({ structuredDraft: draft, onStructuredDraftChange: setDraft })}
+        />
+      );
+    }
+    const { container } = await mount(<Harness />);
     await click(buttonNamed(container, 'Structured'));
 
     expect(container.querySelector('[role="alert"]')).toBeNull();
