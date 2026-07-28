@@ -18,7 +18,7 @@ import { buildNarrationPrompt, selectVoiceCast } from '../prompts/narration';
 import { processMortality, detectDeathClaims } from './mortality';
 import { createNarrationStreamGate } from './streamSplit';
 import { rollD20, resolveAction, derivePersonalityModifier, deriveOppositionModifier, createSeededRng, generateSeed } from './resolution';
-import { normalizeTurnSubmissionInput, projectForAdjudication, projectForNarration, projectForNoAttemptResponse, projectForPlayerOwnedAi, projectForResolution, serializeTurnSubmission } from '../../playerInput/turnSubmission';
+import { deserializeTurnSubmission, isReservedTurnSubmissionArtifact, normalizeTurnSubmissionInput, projectForAdjudication, projectForNarration, projectForNoAttemptResponse, projectForPlayerReflection, projectForResolution, serializeTurnSubmission } from '../../playerInput/turnSubmission';
 import {
     assertNoInventedPlayerAction,
     assertNoInventedPlayerVisibleAction,
@@ -398,7 +398,6 @@ export async function runNewTurn(
     const adjudicationSubmission = resolutionAttempt === null
         ? { observableAttempt: null, questionOrContext: null }
         : projectForAdjudication(normalizedSubmission);
-    const playerOwnedContext = projectForPlayerOwnedAi(normalizedSubmission);
     const narrationSubmission = projectForNarration(normalizedSubmission);
     if (isMockMode) {
         if(!mockRunNewTurn) throw new Error("Mock function 'mockRunNewTurn' is not implemented.");
@@ -747,7 +746,21 @@ export async function runNewTurn(
     const { updatedEntities } = appliedAdjudication;
     const { updatedWorldState, updatedReports, updatedTruthLedger, perceivingNpcIds } = appliedAdjudication;
     const updatedPlayerEntity = updatedEntities.find(e => e.entity_id === playerEntity.entity_id) || playerEntity;
-    const recentPlayerIntents = [...turnHistory.map(h => h.playerIntent).slice(-6), playerOwnedContext];
+    // Player-owned reflection context for the monologue (a player-owned
+    // surface): every history entry is re-projected through
+    // projectForPlayerReflection so the raw canonical serialization
+    // (GOR_TURN_SUBMISSION namespace, recipient entity ids) never reaches the
+    // prompt. A reserved-namespace artifact that fails to deserialize is
+    // canonical-only and is dropped, never echoed (same rule as
+    // ai/tools/ambition.ts); legacy plain freeform strings pass through.
+    const recentPlayerIntents = [
+        ...turnHistory.slice(-6).flatMap(entry => {
+            const parsed = deserializeTurnSubmission(entry.playerIntent);
+            if (parsed) return [projectForPlayerReflection(parsed)];
+            return isReservedTurnSubmissionArtifact(entry.playerIntent) ? [] : [entry.playerIntent];
+        }),
+        projectForPlayerReflection(normalizedSubmission),
+    ];
 
     // *** NEW STEPS 2.7/4/5, PARALLELIZED (ROADMAP_0_MASTER_PLAN.md Phase 3
     // item 3) ***
