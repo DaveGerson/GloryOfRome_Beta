@@ -30,6 +30,7 @@ import { Type } from '@google/genai';
 import type { z } from 'zod';
 import * as zodSchemas from '../ai/core/zodSchemas';
 import * as geminiSchemas from '../ai/core/schemas';
+import { stripActorsFromAdjudication } from '../ai/core/actorsBoundary';
 
 const {
   zAdjudication,
@@ -236,6 +237,35 @@ describe('actors contract: zAdjudication headlines ({ text, actors } items; acto
     expect(
       zAdjudication.safeParse(attributedAdjudication({ headlines: [{ text: 'Maximinus Thrax seizes the mint.' }] })).success,
     ).toBe(false);
+  });
+});
+
+// --- Parse boundary: stripActorsFromAdjudication seals every actors key ----
+// (deep scan) - a model-emitted stray TOP-LEVEL `actors` key must not ride
+// zAdjudication's deliberate `.passthrough()` into the committed Adjudication.
+
+describe('actorsBoundary: stripActorsFromAdjudication seals every actors key, including a stray top-level one', () => {
+  it('a stray top-level actors key survives the passthrough parse but not the strip (no "actors" key at any level)', () => {
+    const payloadWithStrayTopLevelActors = {
+      ...attributedAdjudication(),
+      // A model should never emit this - only per-field actors are
+      // declared - but .passthrough() is a deliberate fail-soft policy, so
+      // the raw parse must still accept it.
+      actors: [ACTOR_ID],
+    };
+    const parsed = zAdjudication.safeParse(payloadWithStrayTopLevelActors);
+    expect(parsed.success, 'passthrough must still accept a stray top-level actors key').toBe(true);
+    if (!parsed.success) return;
+    expect(
+      (parsed.data as unknown as { actors?: unknown }).actors,
+      'the stray top-level key survives the raw (pre-strip) parse',
+    ).toEqual([ACTOR_ID]);
+
+    const stripped = stripActorsFromAdjudication(parsed.data);
+    expect(
+      JSON.stringify(stripped),
+      'no "actors" key may survive the strip boundary at any level (top-level, deltas, entityActions, headlines)',
+    ).not.toContain('"actors"');
   });
 });
 

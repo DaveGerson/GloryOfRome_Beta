@@ -60,10 +60,25 @@ export function stripActorsFromEntityAction(action: EntityActionInterchange): En
  * Drops `actors` from every entityAction/delta and collapses each
  * `{ text, actors }` headline back to its bare `text` string - the shape
  * types.ts's Adjudication (and every persisted turnHistory entry) requires.
+ *
+ * Explicit top-level destructure (not a blind `...adjudication` spread):
+ * zAdjudication is `.passthrough()` (a deliberate fail-soft policy, kept
+ * as-is), so a model that emits a stray TOP-LEVEL `actors` key alongside the
+ * real per-field ones would otherwise ride the spread straight into the
+ * committed Adjudication and saved turnHistory - exactly the leak this
+ * module exists to prevent.
+ *
+ * Cast at the end: zEntity's add_entities/remove_entities infer `| null`
+ * via `.nullable().optional()`, while types.ts's Adjudication declares them
+ * optional-only (`| undefined`) - the same nullable-vs-optional gap
+ * `stripActorsFromEventDelta` documents above; `.passthrough()` also means
+ * the interchange type carries extra untyped keys `Adjudication` doesn't
+ * declare, which a structural check alone won't paper over.
  */
 export function stripActorsFromAdjudication(adjudication: AdjudicationInterchange): Adjudication {
+  const { actors: _interchangeOnly, ...rest } = adjudication;
   return {
-    ...adjudication,
+    ...rest,
     entityActions: adjudication.entityActions.map(stripActorsFromEntityAction),
     deltas: adjudication.deltas.map(stripActorsFromEventDelta),
     headlines: adjudication.headlines.map(headline => headline.text),
@@ -76,7 +91,14 @@ export function stripActorsFromSimulationState(state: SimulationStateInterchange
   return rest;
 }
 
-/** Drops the interchange-only `actors` off a parsed no-attempt evidence selection. */
+/**
+ * Drops the interchange-only `actors` off a parsed no-attempt evidence
+ * selection. Return type is written out inline rather than importing
+ * `NoAttemptEvidenceSelection` from playerView/noAttemptResponse.ts:
+ * ai/core/** never imports playerView/** (playerView sits above ai/core in
+ * the dependency direction - ai/tools/noAttemptResponse.ts is the one that
+ * bridges the two); the two shapes are kept in lockstep by hand instead.
+ */
 export function stripActorsFromNoAttemptEvidenceSelection(
   selection: NoAttemptEvidenceSelectionInterchange
 ): { decision: 'answer' | 'no_answer'; evidenceIds: string[] } {

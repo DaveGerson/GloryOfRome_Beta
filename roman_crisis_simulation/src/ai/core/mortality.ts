@@ -41,8 +41,8 @@ import { stripActorsFromEventDelta } from './actorsBoundary';
 import { assertPlayerVisibleTextSafe } from './playerBoundary';
 import type { z } from 'zod';
 
-// Exported generic pin for generateStructured below - TS cannot always infer
-// T from an optional `zodSchema` property alone (see ai/core/actorsBoundary.ts).
+// Module-local generic pin for generateStructured below - TS cannot always
+// infer T from an optional `zodSchema` property alone (see ai/core/actorsBoundary.ts).
 type MortalityOutcomeInterchange = z.infer<typeof zMortalityOutcome>;
 
 const MORTALITY_OUTCOME_BOUNDARY_ERROR = 'AI output violated the mortality outcome boundary.';
