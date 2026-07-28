@@ -1713,3 +1713,201 @@ describe('ai/core/turn.ts runNewTurn - pacing posture threading (4D.1, D23)', ()
     expect(h.promptsByKind.adjudication!).not.toContain('HISTORICAL MATERIAL');
   });
 });
+
+// --- No-attempt player ownership boundary (P0: DEBT HAS TEETH reject loop) --
+//
+// The pure assert functions in tests/playerBoundary.test.ts are necessary but
+// not sufficient: mock mode skips runNewTurn's boundary gates entirely, so a
+// gate that deterministically rejects legitimate world-driven output only
+// surfaces on the REAL pipeline. These tests exercise that path with the
+// scripted fake client: the adjudicator obeying its own DEBT HAS TEETH rule
+// on a question-only turn must COMMIT, while genuinely invented player
+// actions must still reject the whole turn.
+
+describe('ai/core/turn.ts runNewTurn - no-attempt player ownership boundary (DEBT HAS TEETH)', () => {
+  const questionOnly: TurnSubmission = {
+    version: 1,
+    kind: 'structured',
+    questionOrContext: 'Can the treasury still service the debt to Crassus?',
+  };
+
+  // adjudicationJson above deliberately carries a player-keyed resource
+  // delta (player agency - rejected on no-attempt turns), so question-only
+  // tests that are not themselves about deltas use this neutral response.
+  const neutralAdjudicationJson = JSON.stringify({
+    turn: 2,
+    entityActions: [],
+    deltas: [],
+    headlines: ['The week advances.'],
+    gm_private: [],
+  });
+
+  it('commits a question-only turn whose adjudication raises the indebted player\'s dependency_level toward a creditor', async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+    const crassus = makeEntity({ entity_id: 'npc_crassus', name: 'Crassus' });
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.adjudication.resolve(JSON.stringify({
+      turn: 2,
+      entityActions: [],
+      deltas: [{
+        type: 'relation',
+        key: 'player_1:npc_crassus:dependency_level',
+        delta: 2,
+        reason: 'Mounting arrears leave the palace beholden to Crassus.',
+        origin_id: 'npc_crassus',
+      }],
+      headlines: ['Creditors circle the Palatine.'],
+      gm_private: [],
+    }));
+    h.response.simulationState.resolve(simStateJson);
+
+    const result = await runNewTurn(
+      h.ai, questionOnly, player, 2, [player, crassus], worldState, simulationState,
+      [], [], [], [], '', false, 'Grim political thriller',
+    );
+
+    expect(h.order).toEqual(['storyRelevance', 'adjudication', 'simulationState']);
+    expect(
+      result.updatedEntities.find(e => e.entity_id === 'player_1')?.relationships['npc_crassus']?.dependency_level,
+    ).toBe(2);
+    expect(result.headlines).toEqual(['Creditors circle the Palatine.']);
+    expect(result.narration).toBe('');
+  });
+
+  it('steers the adjudicator on a no-attempt turn: the world may act ON the player, never author an act BY the player', async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.adjudication.resolve(neutralAdjudicationJson);
+    h.response.simulationState.resolve(simStateJson);
+
+    await runNewTurn(
+      h.ai, { version: 1, kind: 'structured', questionOrContext: 'What news?' }, player, 2, [player],
+      worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller',
+    );
+
+    expect(h.systemInstructionsByKind.adjudication).toContain('NO-ATTEMPT TURNS');
+    expect(h.promptsByKind.adjudication).toContain('NO OBSERVABLE ATTEMPT THIS TURN');
+  });
+
+  it('does not inject the no-attempt steering line when an observable attempt exists', async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    h.response.adjudication.resolve(adjudicationJson);
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologueText);
+    h.response.narration.resolve(narrationFullText);
+
+    await runNewTurn(
+      h.ai, freeform('Hold court'), player, 2, [player], worldState, simulationState,
+      [], [], [], [], '', false, 'Grim political thriller',
+    );
+
+    expect(h.promptsByKind.adjudication).not.toContain('NO OBSERVABLE ATTEMPT THIS TURN');
+  });
+
+  it.each([
+    ['a player entityAction', {
+      entityActions: [{ id: 'player_1', intent: 'negotiate', target: 'npc_crassus', notes: 'A quiet accommodation is sought.' }],
+      deltas: [],
+    }],
+    ['a player-originated dependency_level delta', {
+      entityActions: [],
+      deltas: [{
+        type: 'relation', key: 'player_1:npc_crassus:dependency_level', delta: -2,
+        reason: 'The debt is quietly restructured.', origin_id: 'player_1',
+      }],
+    }],
+    ['a trust_level delta keyed under the player', {
+      entityActions: [],
+      deltas: [{ type: 'relation', key: 'player_1:npc_crassus:trust_level', delta: 2, reason: 'A new opinion forms.' }],
+    }],
+  ])('still rejects %s on a question-only turn', async (_label, shape) => {
+    const h = createHarness(false);
+    const player = makeEntity();
+    const crassus = makeEntity({ entity_id: 'npc_crassus', name: 'Crassus' });
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.adjudication.resolve(JSON.stringify({
+      turn: 2,
+      ...shape,
+      headlines: ['The week advances.'],
+      gm_private: [],
+    }));
+    h.response.simulationState.resolve(simStateJson);
+
+    const turnPromise = runNewTurn(
+      h.ai, questionOnly, player, 2, [player, crassus], worldState, simulationState,
+      [], [], [], [], '', false, 'Grim political thriller',
+    );
+
+    await expect(turnPromise).rejects.toThrow('player action boundary');
+  });
+
+  it('commits a question-only turn whose headline styles a third party by the player\'s shared title', async () => {
+    const h = createHarness(false);
+    const player = makeEntity({ position: 'Senator' });
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.adjudication.resolve(JSON.stringify({
+      turn: 2,
+      entityActions: [],
+      deltas: [],
+      headlines: ['The Senator Gaius Pontius withdraws to his estate.'],
+      gm_private: [],
+    }));
+    h.response.simulationState.resolve(simStateJson);
+
+    const result = await runNewTurn(
+      h.ai, questionOnly, player, 2, [player], worldState, simulationState,
+      [], [], [], [], '', false, 'Grim political thriller',
+    );
+
+    expect(result.headlines).toEqual(['The Senator Gaius Pontius withdraws to his estate.']);
+  });
+
+  it('commits a question-only turn whose crisis text describes the player\'s slipping condition possessively', async () => {
+    const h = createHarness(false);
+    const player = makeEntity({ position: 'Emperor' });
+    const crisis = 'The Emperor\'s grip weakens.';
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.adjudication.resolve(neutralAdjudicationJson);
+    h.response.simulationState.resolve(JSON.stringify({ ...simStateResponse, major_ongoing_crisis: crisis }));
+
+    const result = await runNewTurn(
+      h.ai, questionOnly, player, 2, [player], worldState, simulationState,
+      [], [], [], [], '', false, 'Grim political thriller',
+    );
+
+    expect(result.updatedSimulationState.major_ongoing_crisis).toBe(crisis);
+  });
+
+  it('still rejects a question-only turn whose headline has the player acting by name', async () => {
+    const h = createHarness(false);
+    const player = makeEntity({ position: 'Senator' });
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.adjudication.resolve(JSON.stringify({
+      turn: 2,
+      entityActions: [],
+      deltas: [],
+      headlines: ['Gaius Testus withdraws to his estate.'],
+      gm_private: [],
+    }));
+    h.response.simulationState.resolve(simStateJson);
+
+    const turnPromise = runNewTurn(
+      h.ai, questionOnly, player, 2, [player], worldState, simulationState,
+      [], [], [], [], '', false, 'Grim political thriller',
+    );
+
+    await expect(turnPromise).rejects.toThrow('player action boundary');
+  });
+});
