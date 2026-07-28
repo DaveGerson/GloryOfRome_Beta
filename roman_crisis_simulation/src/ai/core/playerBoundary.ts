@@ -152,6 +152,27 @@ function wordNormalized(value: string): string {
     .trim();
 }
 
+/**
+ * Ranks held by many officeholders at once. In free prose such a title can
+ * name ANY holder - "The Senator Gaius Pontius withdraws" styles a third
+ * party, not the player - so a shared title cannot by itself attribute
+ * conduct to the player; singular offices (e.g. 'Emperor') keep matching.
+ * Compared via compactIdentity. A campaign-authored shared title missing
+ * from this set merely over-rejects (fail closed) - it can never leak.
+ */
+const SHARED_TITLE_POSITIONS = new Set([
+  'senator', 'consul', 'proconsul', 'tribune', 'legate', 'general',
+  'governor', 'prefect', 'praetor', 'quaestor', 'aedile', 'censor',
+  'centurion', 'magistrate', 'priest', 'augur', 'patrician', 'commander',
+  'officer',
+]);
+
+/**
+ * Aliases for IDENTITY SLOTS: delta key roots, origin ids, entityAction
+ * ids, and remove_entities entries. These fields hold exactly one identity,
+ * so even a shared title written there denotes the player and fails closed;
+ * prose subjecthood uses the narrower proseSubjectAliases below.
+ */
 function identityAliases(player: PlayerIdentity): string[] {
   return [...new Set([
     player.entity_id,
@@ -161,6 +182,15 @@ function identityAliases(player: PlayerIdentity): string[] {
     'avatar',
     'you',
   ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0))];
+}
+
+/**
+ * Aliases eligible to act as a PROSE SUBJECT. Shared titles are excluded:
+ * in narrative text they name an officeholder class that may be a third
+ * party, and third-party prose must never read as the player acting.
+ */
+function proseSubjectAliases(player: PlayerIdentity): string[] {
+  return identityAliases(player).filter(alias => !SHARED_TITLE_POSITIONS.has(compactIdentity(alias)));
 }
 
 function samePlayerIdentity(value: string | null | undefined, player: PlayerIdentity): boolean {
@@ -203,6 +233,55 @@ const MODAL_NON_ACTION_PREDICATE = new RegExp(
 );
 const SAFE_CONTEMPLATIVE_IDIOM = /^(?:must|should)\s+tread\s+carefully\b/u;
 const LEADING_PREDICATE_ADVERBS = /^(?:(?:also|already|clearly|currently|deeply|dimly|fully|inwardly|merely|now|perhaps|personally|plainly|privately|probably|publicly|quietly|secretly|still|then|truly|visibly|[\p{L}]+ly)\s+)*/u;
+
+/**
+ * A possessed noun phrase whose head undergoes an INTRANSITIVE change of
+ * condition ("The Emperor's grip weakens", "Your influence wanes") is the
+ * world pressing on the player - a circumstance, not an act. The condition
+ * verb must end its clause or be followed only by an adverbial or
+ * prepositional tail: a direct object ("weakens the walls") means the
+ * possessed instrument is ACTING, which stays player conduct and fails
+ * closed.
+ */
+const POSSESSED_CONDITION_PREDICATE = new RegExp(`^(?:${[
+  'weakens?', 'weakened', 'wanes?', 'waned', 'erodes?', 'eroded',
+  'falters?', 'faltered', 'slips?', 'slipped', 'fades?', 'faded',
+  'crumbles?', 'crumbled', 'loosens?', 'loosened', 'slackens?', 'slackened',
+  'tightens?', 'tightened', 'strengthens?', 'strengthened',
+  'hardens?', 'hardened', 'deepens?', 'deepened', 'sours?', 'soured',
+  'worsens?', 'worsened', 'improves?', 'improved', 'grows?', 'grew',
+  'withers?', 'withered', 'dwindles?', 'dwindled', 'wavers?', 'wavered',
+  'falls?', 'fell', 'rises?', 'rose', 'endures?', 'endured',
+  'persists?', 'persisted', 'holds?', 'held',
+].join('|')})(?:\\s+(?:[\\p{L}]+ly|further|still|apace|again|anew|by|with|within|under|in|on|over|amid|among|across|despite|after|before|as|while|through|toward|towards|at)\\b[\\p{L}\\p{N}\\s]*)?$`, 'u');
+
+/**
+ * "'s" also contracts "is"/"has": a single-word possessed phrase that is a
+ * gerund or participle ("The Emperor's marching", "The Emperor's fled")
+ * conceals a player action and fails closed; a bare possessed noun
+ * ("the Emperor's grip") is inert. Shares the irregular-participle
+ * inventory with passiveAgentPattern below.
+ */
+const POSSESSED_VERBAL_REMNANT = /^(?:[\p{L}]+(?:ing|ed|en|wn)|sent|made|done|held|cast|put|set|built|brought|bought|caught|taught|taken|given|seen|known|shown|told|left|kept|met|read|said|paid|led|found|lost|won|gone|come|run)$/u;
+
+/**
+ * Classifies the remainder of a possessive player reference ("your X ...",
+ * "<player>'s X ..."). Returns '' when the possessed phrase is inert - a
+ * bare non-verbal noun, an allowed no-attempt predicate at some suffix, or
+ * an intransitive condition of the possessed noun. Otherwise returns the
+ * offending predicate: a possessive player agent with an unknown predicate
+ * fails closed.
+ */
+function possessedPhrasePredicate(phrase: string): string {
+  const words = phrase.split(/\s+/u).filter(Boolean);
+  if (words.length === 0) return '';
+  if (words.length === 1) return POSSESSED_VERBAL_REMNANT.test(words[0]) ? words[0] : '';
+  for (let index = 1; index < words.length; index += 1) {
+    const candidate = words.slice(index).join(' ');
+    if (isAllowedNoAttemptPredicate(candidate) || POSSESSED_CONDITION_PREDICATE.test(candidate)) return '';
+  }
+  return words.slice(1).join(' ');
+}
 
 function isAllowedNoAttemptPredicate(predicate: string): boolean {
   const withoutAdverbs = predicate.replace(LEADING_PREDICATE_ADVERBS, '');
@@ -271,26 +350,25 @@ function earliestPlayerSubject(segment: string, aliases: string[]): { predicate:
     }
   }
   if (!earliest) return null;
-  return { predicate: wordNormalized(normalizedSegment.slice(earliest.end)) };
+  const predicate = wordNormalized(normalizedSegment.slice(earliest.end));
+  // wordNormalized reduces "<alias>'s" to "<alias> s": a leading bare "s"
+  // marks the alias as a POSSESSOR, not the clause's acting subject, so the
+  // possessed phrase is classified exactly like a "your ..." possessive.
+  const possessive = /^s(?:\s+|$)/u.exec(predicate);
+  if (possessive) return { predicate: possessedPhrasePredicate(predicate.slice(possessive[0].length)) };
+  return { predicate };
 }
 
 function playerPossessivePredicate(segment: string): string | null {
   const match = /\byour\s+(.+)$/u.exec(wordNormalized(segment));
   if (!match) return null;
-  const words = match[1].split(/\s+/u).filter(Boolean);
-  if (words.length < 2) return '';
-  for (let index = 1; index < words.length; index += 1) {
-    const candidate = words.slice(index).join(' ');
-    if (isAllowedNoAttemptPredicate(candidate)) return candidate;
-  }
-  // A possessive player agent with an unknown predicate fails closed.
-  return words.slice(1).join(' ');
+  return possessedPhrasePredicate(match[1]);
 }
 
 function containsPlayerAttributedAction(text: string, player: PlayerIdentity): boolean {
   const normalized = normalizePlayerContractions(normalizeBoundaryText(text).toLocaleLowerCase());
   if (!wordNormalized(normalized)) return false;
-  const aliases = [...identityAliases(player), 'i'];
+  const aliases = [...proseSubjectAliases(player), 'i'];
 
   for (const clause of normalized.split(/[.!?;\n]+/u)) {
     const wordClause = clause
@@ -355,10 +433,29 @@ function valueContainsPlayerAttributedAction(value: unknown, player: PlayerIdent
   return false;
 }
 
+/**
+ * Relation attributes that measure external LEVERAGE over their key's root
+ * rather than the root's own stance. DEBT HAS TEETH
+ * (ai/prompts/adjudication.ts) explicitly directs the adjudicator to raise
+ * an indebted player's 'dependency_level' toward a creditor via a
+ * 'relation' delta keyed under the player - the world acting ON the
+ * player, legal on a no-attempt turn. Every other relation attribute
+ * (trust/respect/perceived_threat/ideological_alignment) is the player's
+ * own interior stance and stays player-owned.
+ */
+const WORLD_DRIVEN_RELATION_ATTRIBUTES = new Set(['dependency_level']);
+
 function playerOwnsDelta(delta: EventDelta, player: PlayerIdentity): boolean {
   // A rumor's key is its subject, not its author. Only a player origin (or
   // player-attributed prose, checked separately) makes it player-authored.
   if (delta.type === 'rumor') return samePlayerIdentity(delta.origin_id, player);
+  // A world-leverage relation delta's key likewise names whose ledger
+  // moves, not who acted: ownership follows origin, so a player origin
+  // still claims player authorship and fails closed. The attribute index
+  // mirrors ai/core/engine.ts's 'relation' key parsing exactly.
+  if (delta.type === 'relation' && WORLD_DRIVEN_RELATION_ATTRIBUTES.has(delta.key.split(':')[2] ?? '')) {
+    return samePlayerIdentity(delta.origin_id, player);
+  }
   if (samePlayerIdentity(delta.origin_id, player)) return true;
   const [rootEntityId] = delta.key.split(':');
   return samePlayerIdentity(rootEntityId, player);

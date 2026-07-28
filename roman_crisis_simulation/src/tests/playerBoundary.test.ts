@@ -251,4 +251,125 @@ describe('no-attempt player ownership boundary', () => {
         .toThrow('player action boundary');
     },
   );
+
+  // DEBT HAS TEETH (ai/prompts/adjudication.ts): the adjudicator is
+  // INSTRUCTED to raise an indebted player's dependency_level toward a
+  // creditor via a 'relation' delta keyed under the player. That is the
+  // world pressing ON the player, not an act BY the player - it must never
+  // invalidate a no-attempt turn, or debt turns question-only submissions
+  // into a deterministic reject-retry loop.
+  it.each([
+    ['an explicit non-player origin', 'npc_crassus'],
+    ['no recorded origin', undefined],
+  ])('allows a world-driven dependency_level rise keyed under the indebted player with %s', (_label, origin) => {
+    const adjudication: Adjudication = {
+      turn: 7,
+      entityActions: [],
+      deltas: [{
+        type: 'relation',
+        key: 'player_1:npc_crassus:dependency_level',
+        delta: 2,
+        reason: 'Mounting arrears leave the palace beholden to Crassus.',
+        ...(origin === undefined ? {} : { origin_id: origin }),
+      }],
+      headlines: ['Creditors circle the Palatine.'],
+      gm_private: [],
+    };
+
+    expect(() => assertNoInventedPlayerAction(adjudication, player, false)).not.toThrow();
+  });
+
+  it.each([
+    ['a dependency_level delta the provider originates from the player', {
+      type: 'relation', key: 'player_1:npc_crassus:dependency_level', delta: -2, reason: 'The debt is quietly restructured.', origin_id: 'player_1',
+    }],
+    ['a trust_level delta keyed under the player - their own opinions stay player-owned', {
+      type: 'relation', key: 'player_1:npc_crassus:trust_level', delta: 2, reason: 'A new opinion forms.',
+    }],
+    ['a resource delta keyed under the player - expenditure is player agency', {
+      type: 'resource', key: 'player_1:denarii', delta: -200, reason: 'Gold changes hands.',
+    }],
+  ] satisfies Array<[string, Adjudication['deltas'][number]]>)(
+    'still rejects a no-attempt turn carrying %s',
+    (_label, delta) => {
+      const adjudication: Adjudication = {
+        turn: 7,
+        entityActions: [],
+        deltas: [delta],
+        headlines: ['The week advances.'],
+        gm_private: [],
+      };
+      expect(() => assertNoInventedPlayerAction(adjudication, player, false))
+        .toThrow('player action boundary');
+    },
+  );
+
+  it('still rejects a no-attempt entityAction bearing the player id', () => {
+    const adjudication: Adjudication = {
+      turn: 7,
+      entityActions: [{ id: 'player_1', intent: 'negotiate', target: 'npc_crassus', notes: 'A quiet accommodation is sought.' }],
+      deltas: [],
+      headlines: ['The week advances.'],
+      gm_private: [],
+    };
+    expect(() => assertNoInventedPlayerAction(adjudication, player, false))
+      .toThrow('player action boundary');
+  });
+});
+
+describe('no-attempt title-collision prose boundary', () => {
+  // A SHARED title ('Senator') is a class of officeholders, not a name -
+  // third-party prose styling someone ELSE by the player's title must not
+  // read as the player acting.
+  const senatorPlayer: Pick<Entity, 'entity_id' | 'name' | 'position'> = {
+    entity_id: 'player_1',
+    name: 'Gaius Testus',
+    position: 'Senator',
+  };
+  // 'Emperor' is a singular office - prose subjecthood legitimately keeps it.
+  const emperorPlayer: Pick<Entity, 'entity_id' | 'name' | 'position'> = {
+    entity_id: 'player_1',
+    name: 'Gaius Testus',
+    position: 'Emperor',
+  };
+
+  it('allows a headline styling a third party by the player\'s shared title', () => {
+    expect(() => assertNoInventedPlayerVisibleAction(
+      'The Senator Gaius Pontius withdraws to his estate.', senatorPlayer, false,
+    )).not.toThrow();
+  });
+
+  it('still rejects the player acting by name even though their shared title no longer matches prose', () => {
+    expect(() => assertNoInventedPlayerVisibleAction(
+      'Gaius Testus withdraws to his estate.', senatorPlayer, false,
+    )).toThrow('player action boundary');
+  });
+
+  it('still treats a shared title as the player inside identity slots', () => {
+    expect(() => assertNoInventedPlayerVisibleAction(
+      { remove_entities: ['the senator'] }, senatorPlayer, false,
+    )).toThrow('player action boundary');
+  });
+
+  it('allows a possessive condition of the player\'s unique title - the world pressing ON the player', () => {
+    expect(() => assertNoInventedPlayerVisibleAction(
+      { major_ongoing_crisis: 'The Emperor\'s grip weakens.' }, emperorPlayer, false,
+    )).not.toThrow();
+  });
+
+  it('allows the second-person form of the same possessive condition', () => {
+    expect(() => assertNoInventedPlayerVisibleAction(
+      'Your grip weakens.', emperorPlayer, false,
+    )).not.toThrow();
+  });
+
+  it.each([
+    ['a possessive player agent acting through their instrument', 'The Emperor\'s guards arrest the envoy.'],
+    ['a possessive contraction concealing a continuous player action', 'The Emperor\'s marching on Rome.'],
+    ['a possessed instrument acting transitively on an object', 'The Emperor\'s army weakens the walls of Ravenna.'],
+    ['the unique title acting directly', 'The Emperor votes with the optimates.'],
+  ])('still rejects %s', (_label, prose) => {
+    expect(() => assertNoInventedPlayerVisibleAction(prose, emperorPlayer, false))
+      .toThrow('player action boundary');
+  });
 });
