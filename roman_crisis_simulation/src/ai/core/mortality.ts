@@ -294,6 +294,13 @@ export async function processMortality(
     const { claim, originalCause, valid, reasoning } = r;
     const entityLabel = `${claim.entity.name} (${claim.entity.entity_id})`;
 
+    // D3 defense-in-depth: an adjudicator-authored secret_truth can never ride
+    // a death-claim delta past this pipeline. zEventDelta already strips it at
+    // the model boundary; this delete guarantees the invariant for any direct
+    // caller that bypasses that parse. The secretlyAlive branch below then
+    // attaches the pipeline's OWN write.
+    delete claim.delta.secret_truth;
+
     if (!valid) {
       // INVALIDATED: strip the death. Always set an explicit new_status so
       // engine.ts's structured path is taken regardless of what the
