@@ -68,7 +68,7 @@ OUTPUT: A single JSON object with exactly those five keys, each an object of the
 /**
  * Builds the { systemInstruction, prompt } pair for the offline eval judge
  * call. `playerIntent` reaches here as the corpus's own captured player
- * text; every field below is delimited via `asPromptData` (D2) rather than
+ * text; every field below is delimited via `asPromptData` (D41) rather than
  * bare `JSON.stringify` - `playerIntent` in particular was previously
  * interpolated inside bare literal quotes with NO escaping at all, so an
  * embedded quote could break out of the "PLAYER'S ACTION THIS TURN" quoting

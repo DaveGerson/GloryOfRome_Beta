@@ -38,7 +38,7 @@ const NEXT_LINE = String.fromCharCode(0x0085);
 
 /**
  * Delimits a player-authored value as JSON DATA for interpolation into a
- * provider prompt (D2). JSON.stringify escapes newlines, quotes, and
+ * provider prompt (D41). JSON.stringify escapes newlines, quotes, and
  * backslashes but leaves the JS line separators U+2028/U+2029 raw; both
  * providers and JS ^-anchored multiline regexes treat those as line breaks,
  * so a raw one lets player text occupy line-start position and forge an
@@ -178,7 +178,7 @@ ${decisions.map(d => `- ${d.entity_id} chose to: "${d.chosen_action}" — method
 /**
  * The GM-intervention directive block, shared by any prompt that should
  * honor it. `gmInterventionText` is user-settable through the GM directive
- * UI (App.tsx) - delimited via `asPromptData` (D2) so it can never forge a
+ * UI (App.tsx) - delimited via `asPromptData` (D41) so it can never forge a
  * neighboring engine block (e.g. "STORY EVOLUTION SUGGESTIONS").
  */
 export function buildGmInterventionBlock(gmInterventionText: string): string {
@@ -213,7 +213,7 @@ ${storyEvolutionParts.join('\n')}
 
 /**
  * The meta-narrative theme block, shared by prompts that should honor the
- * campaign's genre/tone. Delimited via `asPromptData` (D2) - its own quotes
+ * campaign's genre/tone. Delimited via `asPromptData` (D41) - its own quotes
  * replace the previous literal quoting, so an embedded quote or line
  * separator can never forge a neighboring engine block (e.g.
  * "GM INTERVENTION").

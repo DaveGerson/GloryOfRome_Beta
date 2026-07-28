@@ -11,7 +11,7 @@ Return no_answer when the evidence is insufficient.`;
 /**
  * Builds the question-selector prompt from a field-by-field safe evidence
  * projection. `question` is the player's own `questionOrContext` free text -
- * delimited via `asPromptData` (D2) so a forged line-separator payload can
+ * delimited via `asPromptData` (D41) so a forged line-separator payload can
  * never masquerade as a second "OFFERED EVIDENCE:" block.
  */
 export function buildNoAttemptEvidenceSelectionPrompt(

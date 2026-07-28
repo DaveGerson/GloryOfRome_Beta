@@ -7,6 +7,7 @@
  */
 
 import { WorldState, EntityStub } from '../../types';
+import { asPromptData } from './fragments';
 
 /**
  * PURPOSE: Step 1 of world generation - create the WorldState skeleton and
@@ -35,9 +36,16 @@ export function buildScenarioStructurePrompt(
     **IMPORTANT:** Output ONLY the JSON object. Do not include any conversational text.
     `;
 
+  // metaNarrative/playerCharacterDescription are player-typed free text -
+  // the earliest reachable point in the app, straight from the two text
+  // inputs on the character-creation screen (components/CharacterSelection.tsx's
+  // `metaNarrative`/`customDescription` useState fields). Delimited via
+  // `asPromptData` (D41) so an embedded quote or line separator can never
+  // break the surrounding quoting or forge a neighboring labeled line (e.g.
+  // a fake "**Player Concept:**").
   const prompt = `
-    **Meta-Narrative:** "${metaNarrative}"
-    **Player Concept:** "${playerCharacterDescription}"
+    **Meta-Narrative:** ${asPromptData(metaNarrative)}
+    **Player Concept:** ${asPromptData(playerCharacterDescription)}
     `;
 
   return { systemInstruction, prompt };
@@ -85,8 +93,12 @@ export function buildEntityBatchPrompt(
   const castListContext = allStubs.map(s => `- ${s.name} (${s.entity_id}): ${s.position}. ${s.brief_description}`).join('\n');
   const regionNames = Object.keys(worldState.regions).join(', ');
 
+  // metaNarrative is player-typed free text (see the doc comment on
+  // buildScenarioStructurePrompt above) - delimited via `asPromptData` (D41)
+  // so it can never forge a neighboring labeled line (e.g. a fake
+  // "**Regions Available:**").
   const prompt = `
-    **Meta-Narrative:** "${metaNarrative}"
+    **Meta-Narrative:** ${asPromptData(metaNarrative)}
     **Regions Available:** ${regionNames}
 
     **Full Cast Context (Use this for relationships):**

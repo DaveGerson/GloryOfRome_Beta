@@ -100,7 +100,7 @@ export interface NpcMindPromptInput {
  * three-record cap even when a caller supplies more.
  *
  * `line.text`/`act.text`/`lastWord` are the PLAYER's own typed private-scene
- * utterances (speaker:'player' entries) - delimited via `asPromptData` (D2)
+ * utterances (speaker:'player' entries) - delimited via `asPromptData` (D41)
  * so a forged line-separator payload can never masquerade as this block's
  * own "Hidden intent" / "Your private state afterward:" labels and corrupt
  * this character's OWN mind decision (which feeds buildMindSchemeDeltas in

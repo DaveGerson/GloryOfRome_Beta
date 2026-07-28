@@ -20,6 +20,7 @@
  */
 
 import { Entity } from '../../types';
+import { asPromptData } from './fragments';
 
 export interface ApparentAmbitionPlayerBrief {
   entityId: string;
@@ -53,7 +54,12 @@ RULES:
 OUTPUT: A single JSON object per the schema. Do not include any explanatory text or markdown.
 `;
 
-/** Builds the { systemInstruction, prompt } pair for the D8 ambition-inference call. */
+/**
+ * Builds the { systemInstruction, prompt } pair for the D8 ambition-inference
+ * call. `recentIntents` are player-typed free text - each entry is
+ * delimited via `asPromptData` (D41) so it can never forge a neighboring
+ * labeled block (e.g. a fake "RECENT PUBLIC HEADLINES..." section).
+ */
 export function buildAmbitionInferencePrompt(
   player: ApparentAmbitionPlayerBrief,
   recentIntents: string[],
@@ -63,7 +69,7 @@ export function buildAmbitionInferencePrompt(
 CHARACTER: ${JSON.stringify(player, null, 2)}
 
 RECENT ACTIONS THIS CHARACTER CHOSE TO TAKE (most recent last):
-${recentIntents.length > 0 ? recentIntents.map((intent, i) => `${i + 1}. "${intent}"`).join('\n') : 'No actions recorded yet.'}
+${recentIntents.length > 0 ? recentIntents.map((intent, i) => `${i + 1}. ${asPromptData(intent)}`).join('\n') : 'No actions recorded yet.'}
 
 RECENT PUBLIC HEADLINES FROM THOSE ACTIONS' AFTERMATH:
 ${recentHeadlines.length > 0 ? recentHeadlines.map(h => `- ${h}`).join('\n') : 'None recorded.'}
