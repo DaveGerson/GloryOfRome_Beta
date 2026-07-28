@@ -390,15 +390,13 @@ export async function runNewTurn(
     const noAttemptResponse = projectForNoAttemptResponse(normalizedSubmission);
     const playerIntent = serializeTurnSubmission(normalizedSubmission);
     const resolutionAttempt = projectForResolution(normalizedSubmission);
-    const fullAdjudicationSubmission = projectForAdjudication(normalizedSubmission);
-    // Private Intent and Question/Context are useful to the player's own
-    // narration and monologue, but are structurally untrusted as mechanics
-    // inputs when no observable attempt exists. The adjudicator still runs
-    // so independent NPC/world events can advance; it receives no player
-    // prose from which it could fabricate an avatar action.
+    // Question/Context remains non-canonical context on mixed observable
+    // submissions. With no observable attempt, the adjudicator still runs so
+    // independent NPC/world events can advance, but receives no player prose
+    // from which it could fabricate an avatar action.
     const adjudicationSubmission = resolutionAttempt === null
-        ? { observableAttempt: null, privateIntent: null, questionOrContext: null }
-        : fullAdjudicationSubmission;
+        ? { observableAttempt: null, questionOrContext: null }
+        : projectForAdjudication(normalizedSubmission);
     const playerOwnedContext = projectForPlayerOwnedAi(normalizedSubmission);
     const narrationSubmission = projectForNarration(normalizedSubmission);
     if (isMockMode) {

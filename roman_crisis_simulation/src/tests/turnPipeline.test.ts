@@ -277,6 +277,46 @@ afterEach(() => {
 // --- tests ---------------------------------------------------------------
 
 describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization', () => {
+  it('keeps mixed-submission Private Intent out of adjudication but in player-owned calls', async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+    const privateIntent = 'PRIVATE_INTENT_MUST_STAY_PLAYER_OWNED';
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    h.response.adjudication.resolve(adjudicationJson);
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologueText);
+    h.response.narration.resolve(narrationFullText);
+    h.response.relationshipUpdates.resolve(relationshipJson);
+
+    await runNewTurn(
+      h.ai,
+      {
+        version: 1,
+        kind: 'structured',
+        actions: ['Attend the Senate'],
+        privateIntent,
+      },
+      player,
+      2,
+      [player],
+      worldState,
+      simulationState,
+      [],
+      [],
+      [],
+      [],
+      '',
+      false,
+      'Grim political thriller',
+    );
+
+    expect(h.promptsByKind.adjudication).not.toContain(privateIntent);
+    expect(h.promptsByKind.narration).toContain(privateIntent);
+    expect(h.promptsByKind.monologue).toContain(privateIntent);
+  });
+
   it('runs simulation-state/monologue/narration concurrently, keeps story-relevance -> adjudication sequential, and defers relationship-updates until narration resolves', async () => {
     const h = createHarness(false);
     const player = makeEntity();

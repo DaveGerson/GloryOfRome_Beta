@@ -8,7 +8,7 @@ import { serializeTurnSubmission } from '../playerInput/turnSubmission';
 import type { Entity, EventDelta, SimulationState, TurnSubmission, WorldState } from '../types';
 
 const OBSERVABLE_SENTINEL = 'OBSERVABLE_ATTEMPT_SENTINEL_6T2';
-const PRIVATE_SENTINEL = 'PRIVATE_INTENT_SENTINEL_6T2';
+const PRIVATE_SENTINEL = 'PRIVATE_INTENT_MUST_STAY_PLAYER_OWNED';
 const QUESTION_SENTINEL = 'QUESTION_CONTEXT_SENTINEL_6T2';
 const SAFE_HEADLINE_SENTINEL = 'SAFE_PUBLIC_HEADLINE_SENTINEL_6T2';
 const SAFE_FACT_SENTINEL = 'SAFE_ADJUDICATED_FACT_SENTINEL_6T2';
@@ -243,14 +243,15 @@ afterEach(() => {
 });
 
 describe('runNewTurn submission visibility routing', () => {
-  it('sends Private Intent only to adjudication and player-owned narration/monologue boundaries', async () => {
+  it('keeps Private Intent out of adjudication while retaining it in player-owned narration and monologue', async () => {
     const { calls, result, player } = await runRealTurn(FULL_SUBMISSION);
     const callsByKind = (kind: CallKind) => calls.filter(call => call.kind === kind);
 
     expect(callsByKind('adjudication')).toHaveLength(1);
     expect(callsByKind('narration')).toHaveLength(1);
     expect(callsByKind('monologue')).toHaveLength(1);
-    for (const kind of ['adjudication', 'narration', 'monologue'] as const) {
+    expect(fullCallText(callsByKind('adjudication')[0])).not.toContain(PRIVATE_SENTINEL);
+    for (const kind of ['narration', 'monologue'] as const) {
       expect(fullCallText(callsByKind(kind)[0]), kind).toContain(PRIVATE_SENTINEL);
     }
     for (const kind of ['narration', 'monologue'] as const) {
@@ -367,24 +368,24 @@ describe('runNewTurn submission visibility routing', () => {
     ).toBe(1);
   });
 
-  it('gives adjudication three separately labeled projections', async () => {
+  it('gives adjudication observable attempt and non-canonical question context but no Private Intent', async () => {
     const { calls } = await runRealTurn(FULL_SUBMISSION);
     const prompt = calls.find(call => call.kind === 'adjudication')?.prompt ?? '';
 
     expect(prompt).toContain(`observableAttempt:\n${OBSERVABLE_SENTINEL}`);
-    expect(prompt).toContain(`privateIntent:\n${PRIVATE_SENTINEL}`);
+    expect(prompt).not.toContain('privateIntent:');
+    expect(prompt).not.toContain(PRIVATE_SENTINEL);
     expect(prompt).toContain(`questionOrContext:\n${QUESTION_SENTINEL}`);
   });
 
-  it('puts private-intent and question/context non-action guards in the adjudication and monologue system instructions', async () => {
+  it('keeps Question/Context non-canonical in adjudication and Private Intent player-owned in monologue', async () => {
     const { calls } = await runRealTurn(FULL_SUBMISSION);
     const adjudicationSystem = calls.find(call => call.kind === 'adjudication')?.systemInstruction ?? '';
     const monologueSystem = calls.find(call => call.kind === 'monologue')?.systemInstruction ?? '';
 
-    expect(adjudicationSystem).toContain('Private Intent is player-owned goal context only');
-    expect(adjudicationSystem).toContain('does not grant an action, modifier, fact, concealment, or NPC knowledge');
-    expect(adjudicationSystem).toContain('Question/Context asks for a player-view answer only');
-    expect(adjudicationSystem).toContain('must not investigate, act, or create a roll');
+    expect(adjudicationSystem).toContain('Question/Context is non-canonical player context only');
+    expect(adjudicationSystem).toContain('must not be treated as fact');
+    expect(adjudicationSystem).toContain('authorize an investigation or other avatar action');
     expect(monologueSystem).toContain('player-owned context, not necessarily strategic actions');
     expect(monologueSystem).toContain('Never reinterpret Private Intent or Question/Context as an avatar action');
   });

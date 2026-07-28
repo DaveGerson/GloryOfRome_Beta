@@ -255,6 +255,8 @@ describe('journey: structured player input through the real App transaction', ()
         expect(playerOwnedPrompt).toContain(privateIntent);
         expect(playerOwnedPrompt).toContain(question);
       }
+      expect(retried.promptsFor('adjudication').join('\n')).not.toContain(privateIntent);
+      expect(retried.promptsFor('adjudication').join('\n')).toContain(question);
 
       const playerPerceivedOutputs = JSON.stringify({
         messages: loaded.messages.filter(message => message.sender !== 'player'),
@@ -504,7 +506,7 @@ describe('journey: structured player input through the real App transaction', ()
 
       const mixedAction = 'Address the Senate and ask the western benches to name their absent members.';
       const mixedQuestion = 'Which senators answer publicly?';
-      const mixedPrivateIntent = 'PRIVATE_MIXED_SENTINEL: remember who hesitates.';
+      const mixedPrivateIntent = 'PRIVATE_INTENT_MUST_STAY_PLAYER_OWNED';
       const mixedNarration = 'The western benches answer in public, each senator naming the colleagues they expected to attend.';
       const mixedMonologue = 'I intend to judge only what is before me, and keep counsel with myself.';
       const mixedRunner = new JourneyRunner({
@@ -532,7 +534,8 @@ describe('journey: structured player input through the real App transaction', ()
       expect(afterMixed.messages.filter(message => message.sender === 'player_monologue').at(-1)?.text).toBe(mixedMonologue);
       expect(mixedClient.promptsFor('narration').join('\n')).toContain(mixedPrivateIntent);
       expect(mixedClient.promptsFor('monologue').join('\n')).toContain(mixedPrivateIntent);
-      expect(mixedClient.promptsFor('adjudication').join('\n')).toContain(mixedPrivateIntent);
+      expect(mixedClient.promptsFor('adjudication').join('\n')).not.toContain(mixedPrivateIntent);
+      expect(mixedClient.promptsFor('adjudication').join('\n')).toContain(mixedQuestion);
       for (const kind of [
         'storyRelevance', 'assessment', 'simulationState',
         'relationshipUpdates', 'relationshipObservations',

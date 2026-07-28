@@ -14,7 +14,6 @@ export const MAX_TURN_SUBMISSION_CHARACTERS = 20_000;
 
 export interface AdjudicationSubmissionProjection {
   observableAttempt: string | null;
-  privateIntent: string | null;
   questionOrContext: string | null;
 }
 
@@ -439,11 +438,10 @@ export function projectForNoAttemptResponse(
 
 export function projectForAdjudication(submission: TurnSubmission): AdjudicationSubmissionProjection {
   return submission.kind === 'freeform'
-    ? { observableAttempt: submission.text, privateIntent: null, questionOrContext: null }
+    ? { observableAttempt: submission.text, questionOrContext: null }
     : {
         observableAttempt: projectForResolution(submission),
-        privateIntent: submission.privateIntent ?? null,
-        questionOrContext: submission.questionOrContext ?? null,
+        questionOrContext: submission.questionOrContext?.trim() || null,
       };
 }
 
