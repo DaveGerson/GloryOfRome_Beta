@@ -51,11 +51,11 @@ them touching `npm test`.
 `ScriptedClient` (in `tests/journeys/harness.ts`) is a fake `GoogleGenAI` that
 **classifies** every incoming call by its `systemInstruction` text — each
 prompt builder in `ai/prompts/*.ts` has distinct, stable role wording. The
-harness covers all **twelve** call kinds the current pipeline can make:
+harness covers all **ten** call kinds the current pipeline can make:
 
 `storyRelevance` · `assessment` · **`npcMind`** · `adjudication` ·
-`privateConversation` · `mortalityValidation` · `mortalityOutcome` ·
-`simulationState` · `monologue` · `narration` · `relationshipUpdates` ·
+`mortalityValidation` · `mortalityOutcome` · `simulationState` ·
+`monologue` · `narration` ·
 `investigation` (the between-turns side call).
 
 It **answers from per-kind queues** of canned responses (a two-spotlight turn
@@ -119,7 +119,7 @@ campaign can be `toEqual`-compared against a never-reloaded control run.
 
 | Invariant | What it guards |
 |---|---|
-| **INV-SHAPE** | `TurnStage` notifications fire once each, in canonical order; the conditional `npc_minds` / `private_conversation` / `mortality` stages fire exactly when their triggers exist; all mandatory stages present |
+| **INV-SHAPE** | `TurnStage` notifications fire once each, in canonical order; the conditional `npc_minds` / `mortality` stages fire exactly when their triggers exist; all mandatory stages present |
 | **INV-SCHEMA** | every call the pipeline made was captured (`rawCalls` count matches) and every response parsed + zod-validated with zero repair retries |
 | **INV-LEAK** (headline) | no GM-private datum reaches a player-facing surface — scanned surfaces: the narration & monologue **prompts and system instructions** (the true enforcement seam), narration/monologue/suggestions text, headlines, the perceived digest, new report claims, **and the committed player knowledge store**. Forbidden data: every `gm_private` note (full string); the `[Mortality]`/`[Resolution]`/`[Secret Meeting]`/`[Narrative Analyst]`/`[Director]`/`[Mind]`/`[Pacing]`/`GM-SECRET` markers; `secret_truth`/`actually_alive` + every secret motive; rumor `is_true`/`origin_id` fields; each mind's `private_reasoning`; every **non-player** entity's scheme name/goal/steps (D28 — the player's OWN scheme is self-knowledge and exempt); invalidated claims' validation reasoning; underscore-bearing band/tier tokens (`presumed_dead`, `survive_with_loss`, `partial_success`, …); and roll mechanics as prose (`/\broll(ed)? \d+/i`) |
 | **INV-DIGEST** | every perceived change carries a source attribution (`self`/`witnessed`/`network`/`public`) |
@@ -180,9 +180,8 @@ jsdom` pragma (same pattern as `tests/persistence.test.ts`).
      assessment), then one roll per **validated** death claim in delta order.
      `rolls: []` asserts the turn touches no dice — INV-ROLL fails loudly on
      any mismatch;
-   - ≥2 spotlight entities ⇒ you MUST script `privateConversation` AND one
-     `npcMind` per spotlight (queue an array); 1 spotlight ⇒ one `npcMind`, no
-     private conversation; any death delta ⇒ script `mortalityValidation` (and
+   - Spotlight entities require one `npcMind` per spotlight (queue an array).
+     No autonomous private-conversation call or stage exists; any death delta ⇒ script `mortalityValidation` (and
      `mortalityOutcome` iff a validated claim lands in a band with
      `needsOutcomeContent`).
 3. Assert on the returned `TurnOutcome`: committed state via
