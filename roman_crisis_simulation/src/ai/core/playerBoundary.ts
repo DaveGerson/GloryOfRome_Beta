@@ -1,3 +1,27 @@
+/**
+ * ai/core/playerBoundary.ts
+ *
+ * Two independent code-side boundaries enforced on provider output before it
+ * can reach or affect a player-visible surface:
+ *  1. Hidden-mechanics leakage (`assertPlayerVisibleValueSafe` /
+ *     `assertPlayerVisibleTextSafe` / `assertPlayerVisibleAdjudicationSafe`):
+ *     raw resolution-tier/fate-band tokens, dice notation, and humanized
+ *     mechanic labels must never surface in player-facing text.
+ *  2. Invented player action (`assertNoInventedPlayerVisibleAction` /
+ *     `assertNoInventedPlayerAction`): on a no-observable-attempt turn, no
+ *     provider response may author an avatar action or a player-originated
+ *     state change - a hard semantic postcondition, not merely prompt
+ *     guidance.
+ *
+ * The invented-player-action classifier is deliberately NOT antecedent-aware
+ * and does NOT catch every possessive-passive construction - both are
+ * intentional, accepted gaps rather than oversights, to avoid over-rejecting
+ * legitimate third-person prose about rivals on a surface validated every
+ * turn. The gaps are enumerated with their exact rationale in
+ * `tests/playerBoundary.test.ts` (search "DECLARED GAP" and "KNOWN, symmetric
+ * gap") - a maintainer reading only this implementation cannot otherwise tell
+ * they are intentional rather than bugs.
+ */
 import type { Adjudication, Entity, EventDelta } from '../../types';
 
 const PLAYER_ACTION_BOUNDARY_ERROR = 'AI output violated the player action boundary.';

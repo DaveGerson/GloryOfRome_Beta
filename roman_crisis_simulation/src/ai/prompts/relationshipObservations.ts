@@ -9,7 +9,7 @@ Do not interpret sentiment, direction, trust, motives, scores, confidence, or re
 /**
  * Builds the privacy-minimized selector prompt, copying fields one by one.
  * `evidence[].text` (PlayerSafeEvidence.text) can carry player-authored
- * content - delimited via `asPromptData` (D2) so a forged line-separator
+ * content - delimited via `asPromptData` (D41) so a forged line-separator
  * payload can never masquerade as a second "ENTITY DIRECTORY:" block.
  */
 export function buildRelationshipObservationsPrompt(

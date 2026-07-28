@@ -438,3 +438,34 @@ already-resolved action. The main adjudicator receives a compact partitioned
 outcome rather than the full transcript; the full transcript remains available
 to the player, participating NPC memory, and GM console. No hidden NPC state is
 rendered to the player.
+
+---
+
+## D41 - Player-authored text is delimited as DATA at every prompt boundary
+Every prompt interpolation of player-authored free text (the meta-narrative
+theme, the initial character concept, chat/structured turn submissions,
+private-scene utterances, recent chosen-action intents fed back into later
+calls, GM-intervention text, etc.) is passed through `asPromptData`
+(`ai/prompts/fragments.ts`) rather than bare string interpolation or bare
+`JSON.stringify`. `JSON.stringify` alone escapes quotes, backslashes, and
+ordinary newlines, but leaves the JS line-separator characters U+2028/U+2029
+unescaped (and, defensively, U+0085 NEL, which Unicode still classifies as a
+line break even though JS's own regexes do not treat it as one); both a
+model provider's own tokenizer/renderer and this codebase's `^`-anchored
+multiline regexes treat an unescaped U+2028/U+2029 as a line break, so
+leaving it raw lets player-authored text occupy line-start position inside a
+prompt and forge a structural engine block (e.g. a fake "PLAYER ACTION
+OUTCOME" or "STORY EVOLUTION SUGGESTIONS" line) that the model may then
+follow as if it were the engine's own instruction. `asPromptData` closes
+this: it JSON-quotes the value AND escapes U+2028/U+2029/U+0085 to their
+`\uXXXX` forms, so the quoted value can never start or span a prompt line
+while still round-tripping byte-identical through `JSON.parse`.
+*Enforced at:* every prompt builder in `ai/prompts/*.ts` that interpolates
+player-authored text - `adjudication.ts`, `privateScene.ts`, `assessment.ts`,
+`npcMind.ts`, `noAttemptResponse.ts`, `relationshipObservations.ts`,
+`evalJudge.ts`, `worldGen.ts`, `narration.ts`, `epilogue.ts`, `ambition.ts` -
+guarded against regression by the directory-walking scan in
+`tests/promptDataBoundary.test.ts`. Two further instances of the same
+pattern (`ai/prompts/characterCreation.ts`'s `description`,
+`ai/prompts/intelligence.ts`'s `event`/`question`) were found but not yet
+closed; tracked in `BACKLOG.md` B7.
