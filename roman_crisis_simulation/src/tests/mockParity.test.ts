@@ -11,6 +11,7 @@ import { describe, it, expect } from 'vitest';
 import { mockRunNewTurn } from '../ai/mocks';
 import { getMockInitialState } from './mockData';
 import { INITIAL_SIMULATION_STATE, ALL_INITIAL_ENTITIES } from '../constants/baseScenario';
+import { playerOwnsDelta, samePlayerIdentity } from '../ai/core/playerBoundary';
 import { Entity, TurnSubmission } from '../types';
 
 const freeform = (text: string): TurnSubmission => ({ version: 1, kind: 'freeform', text });
@@ -62,7 +63,9 @@ describe('mockRunNewTurn / real-pipeline boundary parity (E2)', () => {
   // INVARIANT (remove everything the actual player owns, on every surface the
   // structural gates examine) rather than a list of surfaces.
   it.each(PLAYABLE_PRESET_IDS)('a no-attempt mock turn commits for preset %s', async entityId => {
-    const entities = getMockInitialState().entities;
+    // ALL_INITIAL_ENTITIES is the SHIPPED roster components/CharacterSelection.tsx
+    // draws from; tests/mockData.ts's fixture holds only three of the four.
+    const entities = ALL_INITIAL_ENTITIES;
     const player = findEntity(entities, entityId);
 
     const question = await run(questionOnly('What is whispered in the Curia?'), player, entities);
@@ -73,16 +76,19 @@ describe('mockRunNewTurn / real-pipeline boundary parity (E2)', () => {
   });
 
   it.each(PLAYABLE_PRESET_IDS)('a no-attempt mock turn owns nothing of preset %s', async entityId => {
-    const entities = getMockInitialState().entities;
+    const entities = ALL_INITIAL_ENTITIES;
     const player = findEntity(entities, entityId);
 
     const { newHistoryEntry } = await run(questionOnly('What is whispered in the Curia?'), player, entities);
     const { adjudication } = newHistoryEntry;
 
-    expect(adjudication.entityActions.some(action => action.id === entityId)).toBe(false);
-    expect(adjudication.deltas.some(delta => delta.key.split(':')[0] === entityId)).toBe(false);
-    expect(adjudication.deltas.some(delta => delta.origin_id === entityId)).toBe(false);
-    expect(adjudication.remove_entities ?? []).not.toContain(entityId);
+    // Asserted through playerBoundary.ts's OWN ownership predicate, not a
+    // restatement of it: the invariant is "owns nothing", and the carve-outs
+    // the predicate encodes (an NPC-authored rumor keyed under the player, a
+    // world-driven dependency_level rise) are legitimately still present.
+    expect(adjudication.entityActions.some(action => samePlayerIdentity(action.id, player))).toBe(false);
+    expect(adjudication.deltas.some(delta => playerOwnsDelta(delta, player))).toBe(false);
+    expect((adjudication.remove_entities ?? []).some(id => samePlayerIdentity(id, player))).toBe(false);
   });
 
   // The gate-wiring lever, rebuilt from INJECTED content so it no longer
@@ -91,7 +97,7 @@ describe('mockRunNewTurn / real-pipeline boundary parity (E2)', () => {
   it.each(PLAYABLE_PRESET_IDS)(
     'the real structural gate still fires in mock mode for preset %s',
     async entityId => {
-      const entities = getMockInitialState().entities;
+      const entities = ALL_INITIAL_ENTITIES;
       const player = findEntity(entities, entityId);
       const sim = { ...INITIAL_SIMULATION_STATE, remove_entities: [entityId] } as unknown as typeof INITIAL_SIMULATION_STATE;
 
@@ -116,7 +122,7 @@ describe('mockRunNewTurn / real-pipeline boundary parity (E2)', () => {
   it.each(PLAYABLE_PRESET_IDS)(
     'a no-attempt turn redacts player-attributed simulation-state prose for preset %s',
     async entityId => {
-      const entities = getMockInitialState().entities;
+      const entities = ALL_INITIAL_ENTITIES;
       const player = findEntity(entities, entityId);
       const invented = `${player.name} marches on the Praetorian camp.`;
       const sim = { ...INITIAL_SIMULATION_STATE, major_ongoing_crisis: invented };
