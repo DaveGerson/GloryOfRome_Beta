@@ -134,6 +134,7 @@ describe('beginPrivateScene', () => {
       macroTurn: 7,
       player,
       npc,
+      knownEntityIds: ['npc_network'],
       opening: '  Stand with me.  ',
       response: modelResponse,
       existing: [],
@@ -158,6 +159,7 @@ describe('beginPrivateScene', () => {
       macroTurn: 8,
       player,
       npc,
+      knownEntityIds: ['npc_network'],
       opening: 'Help me.',
       response: response('refused'),
       existing: [],
@@ -178,7 +180,49 @@ describe('beginPrivateScene', () => {
       macroTurn: 7,
       player,
       npc,
+      knownEntityIds: ['npc_network'],
       opening: 'Another audience.',
+      response: response(),
+      existing,
+    })).toMatchObject({ ok: false });
+    expect(existing).toEqual(before);
+  });
+
+  it('rejects a target absent from the perception-safe known-entity IDs even when network-accessible', () => {
+    const modelResponse = response();
+    const before = structuredClone(modelResponse);
+
+    expect(beginPrivateScene({
+      sceneId: 'scene_unknown',
+      macroTurn: 9,
+      player,
+      npc,
+      knownEntityIds: [],
+      opening: 'Reveal yourself.',
+      response: modelResponse,
+      existing: [],
+    })).toMatchObject({ ok: false });
+    expect(modelResponse).toEqual(before);
+  });
+
+  it.each([
+    ['active', cloneScene(ACTIVE_SCENE)],
+    ['awaiting a last word', {
+      ...cloneScene(ACTIVE_SCENE),
+      status: 'awaiting_last_word' as const,
+      closureReason: 'player_ended' as const,
+    }],
+  ])('rejects a new scene when an earlier-turn scene is %s', (_label, existingScene) => {
+    const existing = [{ ...existingScene, macroTurn: 6 }];
+    const before = structuredClone(existing);
+
+    expect(beginPrivateScene({
+      sceneId: 'scene_9_1',
+      macroTurn: 9,
+      player,
+      npc,
+      knownEntityIds: ['npc_network'],
+      opening: 'A new audience.',
       response: response(),
       existing,
     })).toMatchObject({ ok: false });
@@ -201,6 +245,7 @@ describe('beginPrivateScene', () => {
       macroTurn: 9,
       player,
       npc,
+      knownEntityIds: ['npc_network'],
       opening,
       response: modelResponse,
       existing: [],
@@ -262,6 +307,19 @@ describe('appendPrivateSceneExchange', () => {
 
     expect(scene.status).toBe('awaiting_last_word');
     expect(scene.closureReason).toBe('npc_ended');
+  });
+
+  it('rejects a refused disposition after the invitation response without mutating the scene', () => {
+    const source = cloneScene(ACTIVE_SCENE);
+    const before = cloneScene(source);
+
+    expect(appendPrivateSceneExchange({
+      scene: source,
+      expectedNpcResponseCount: 1,
+      playerUtterance: 'Reconsider.',
+      response: response('refused', 2),
+    })).toMatchObject({ ok: false });
+    expect(source).toEqual(before);
   });
 
   it('automatically ends response 6 at the hard response limit', () => {

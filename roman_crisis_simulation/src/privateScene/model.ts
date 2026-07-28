@@ -190,6 +190,7 @@ export function beginPrivateScene(input: {
   macroTurn: number;
   player: Entity;
   npc: Entity;
+  knownEntityIds: readonly string[];
   opening: string;
   response: PrivateSceneModelResponse;
   existing: readonly PrivateSceneRecord[];
@@ -198,6 +199,9 @@ export function beginPrivateScene(input: {
   if (!sceneId.ok) return failure(sceneId.error);
   if (!validTurn(input.macroTurn)) return failure('macro turn is invalid');
   if (input.existing.some(scene => scene.sceneId === sceneId.value)) return failure('scene ID already exists');
+  if (input.existing.some(scene => scene.status === 'active' || scene.status === 'awaiting_last_word')) {
+    return failure('another private scene is still open');
+  }
   if (input.existing.some(scene => scene.macroTurn === input.macroTurn)) {
     return failure('the macro turn already contains a committed private scene');
   }
@@ -207,6 +211,9 @@ export function beginPrivateScene(input: {
   const npcId = trimmedRequired(input.npc.entity_id, 'NPC ID');
   if (!npcId.ok) return failure(npcId.error);
   if (playerId.value === npcId.value) return failure('the player cannot open a private scene with themselves');
+  if (!Array.isArray(input.knownEntityIds) || !input.knownEntityIds.includes(input.npc.entity_id)) {
+    return failure('the private-scene target is not known to the player');
+  }
   if (input.npc.entity_type !== 'individual' || input.npc.status !== 'alive') {
     return failure('the private-scene target must be a living individual');
   }
@@ -260,6 +267,9 @@ export function appendPrivateSceneExchange(input: {
   }
   if (input.scene.npcResponseCount >= PRIVATE_SCENE_MAX_NPC_RESPONSES) {
     return failure('the private scene has reached its response limit');
+  }
+  if (input.response?.disposition === 'refused') {
+    return failure('refusal is valid only for the invitation response');
   }
 
   const playerUtterance = trimmedRequired(
