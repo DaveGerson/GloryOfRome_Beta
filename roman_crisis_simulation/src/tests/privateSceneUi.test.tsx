@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { PrivateScene } from '../components/PrivateScene';
@@ -26,13 +26,13 @@ afterEach(async () => {
   }
 });
 
-function render(view: PrivateScenePlayerView[] = [projectPrivateSceneForPlayer(rawScene)]): HTMLDivElement {
+function render(view: PrivateScenePlayerView[] = [projectPrivateSceneForPlayer(rawScene)], canStartScene = true): HTMLDivElement {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
   mounted.push({ root, container });
   act(() => root.render(<PrivateScene
-    scenes={view}
+    scenes={view} currentMacroTurn={3} canStartScene={canStartScene}
     eligibleTargets={[{ entityId: 'maximinus', displayName: 'Maximinus Thrax' }]}
     openingDraft="" replyDraft="" lastWordDraft="" loading={false} error={null}
     onOpeningDraftChange={() => {}} onReplyDraftChange={() => {}} onLastWordDraftChange={() => {}}
@@ -62,5 +62,55 @@ describe('private scene player UI', () => {
     expect(container.textContent).toContain('I have heard nothing.');
     expect(container.querySelector('[aria-label="Private-scene last word"]')).not.toBeNull();
     expect(container.textContent).not.toContain('HIDDEN_INTENT_POISON');
+  });
+
+  it('shows completed history while restoring invite controls only when this turn still has entitlement', () => {
+    const closed = projectPrivateSceneForPlayer({ ...rawScene, status: 'closed', macroTurn: 2 });
+    const container = render([closed], true);
+    act(() => Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'Private scene')!.click());
+    expect(container.textContent).toContain('Past private scenes');
+    expect(container.querySelector('[aria-label="Private-scene opening"]')).not.toBeNull();
+  });
+
+  it('does not offer another invitation after a scene has consumed the current turn entitlement', () => {
+    const closed = projectPrivateSceneForPlayer({ ...rawScene, status: 'closed', macroTurn: 3 });
+    const container = render([closed], false);
+    act(() => Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'Private scene')!.click());
+    expect(container.querySelector('[aria-label="Private-scene opening"]')).toBeNull();
+    expect(container.textContent).toMatch(/already held.*this turn/i);
+  });
+
+  it('uses a modal dialog, moves focus inside, traps Tab, closes presentation on Escape, and restores opener focus', async () => {
+    const container = render([], true);
+    const opener = Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent === 'Private scene')!;
+    opener.focus();
+    await act(async () => opener.click());
+    const dialog = container.querySelector('dialog');
+    expect(dialog?.hasAttribute('open')).toBe(true);
+    expect(dialog?.contains(document.activeElement)).toBe(true);
+    await act(async () => dialog!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true })));
+    expect(dialog?.contains(document.activeElement)).toBe(true);
+    await act(async () => dialog!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })));
+    expect(container.querySelector('dialog[open]')).toBeNull();
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it('bounds every draft at 2,000 characters and preserves an over-limit last word with an accessible error', () => {
+    const onLastWord = vi.fn();
+    const container = document.createElement('div'); document.body.appendChild(container);
+    const root = createRoot(container); mounted.push({ root, container });
+    act(() => root.render(<PrivateScene scenes={[projectPrivateSceneForPlayer(rawScene)]} currentMacroTurn={3} canStartScene={false}
+      eligibleTargets={[]} openingDraft="" replyDraft="" lastWordDraft={'x'.repeat(2001)} loading={false} error={null}
+      onOpeningDraftChange={() => {}} onReplyDraftChange={() => {}} onLastWordDraftChange={() => {}}
+      onInvite={() => {}} onReply={() => {}} onEnd={() => {}} onLastWord={onLastWord} onSkipLastWord={() => {}} />));
+    act(() => Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'Private scene')!.click());
+    const field = container.querySelector<HTMLTextAreaElement>('[aria-label="Private-scene last word"]')!;
+    expect(field.maxLength).toBe(2000);
+    expect(field.value).toHaveLength(2001);
+    expect(field.getAttribute('aria-invalid')).toBe('true');
+    expect(container.querySelector('[role="alert"]')?.textContent).toMatch(/2,000/);
+    act(() => Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent === 'Leave last word')!.click());
+    expect(onLastWord).not.toHaveBeenCalled();
+    expect(field.value).toHaveLength(2001);
   });
 });

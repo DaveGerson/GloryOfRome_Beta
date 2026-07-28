@@ -130,8 +130,10 @@
 .gor-event-choice-title{font-family:var(--font-display);font-weight:700;font-size:15px;letter-spacing:.05em;color:var(--crimson-500)}
 .gor-event-choice-desc{font-size:14px;font-style:italic;color:var(--text-muted)}
 
-.gor-private-scene{position:fixed;z-index:90;inset:12vh 50% auto 50%;transform:translateX(-50%);width:min(620px,calc(100vw - 32px));max-height:76vh;overflow:auto;padding:20px;background:var(--surface-card);border:1px solid var(--border-strong);box-shadow:var(--shadow-raised)}
+.gor-private-scene{position:fixed;z-index:90;inset:12vh 50% auto 50%;transform:translateX(-50%);width:min(620px,calc(100vw - 32px));max-height:76vh;overflow:auto;padding:20px;background:var(--surface-card);border:1px solid var(--border-strong);box-shadow:var(--shadow-raised);color:var(--text-body)}
+.gor-private-scene::backdrop{background:rgba(24,16,10,.62)}
 .gor-private-scene header{display:flex;justify-content:space-between;align-items:center;gap:12px}.gor-private-scene textarea,.gor-private-scene select{display:block;width:100%;margin:10px 0;padding:8px}.gor-private-scene button{margin:4px}
+.gor-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 
 @media (prefers-reduced-motion:reduce){
 .gor-msg,.gor-pill,.gor-typing,.gor-crisis-glyph{animation:none}
