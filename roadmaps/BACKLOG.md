@@ -154,7 +154,7 @@ nudges compose with `resolution.ts` seeded rolls per invariant 11; raw fact
 edits need fiat-truth handling in the D11 ledger to avoid breaking D26's
 honest window); and who "witnessed" a miracle, for the perception layer.
 
-### B11 — Accepted lint debt: 17 ESLint warnings triaged and tracked  *(Phase 6 quality-gate ratchet)*
+### B11 — ESLint warning inventory cleared  *(Phase 6 quality-gate ratchet)*
 Task 5 landed a non-disruptive ESLint flat-config gate that surfaced 82
 warnings at 0 errors (commit `9ca98c7` against parent `1cef76e`). The
 dedicated Task 5 review (`.superpowers/sdd/task-5-review.md`) read every
@@ -166,60 +166,13 @@ SidePanel state-in-effect sites; and both exhaustive-deps findings no longer
 appear in current lint output. Those fixes lower the ratchet rather than
 leaving stale capacity behind.
 
-A dedicated Terra-medium debt triage read the exact remaining 17 occurrences
-and assigned every group the binary ACCEPT disposition below. This inventory
-is enforced, not advisory: `npm run lint` compares ESLint output to the exact
-file, location, rule, and message fingerprints in
-`tooling/eslint-warning-baseline.json`. Any added, removed, or substituted
-warning fails the gate loudly, as does any ESLint error. A resolved warning
-must lower both the manifest and this ledger; a new warning requires a new
-deliberate binary triage before the manifest can change.
-
-- **ACCEPT — unused/dead bindings (4 occurrences:
-  `ai/core/engine.ts:343,353`; `ai/core/initiator.ts:5`;
-  `events/engine.ts:1`).** The two engine catch bindings are never read, and
-  both imports are dead. They cannot change runtime output because no
-  execution path consumes the names; there is therefore no loud or silent
-  functional failure and the blast radius is zero. Keeping them does leave
-  local intent noisier for maintainers, but removing them has no player,
-  save, prompt, or mechanics effect. Accept until one of these files is
-  substantively edited, then convert the catches to `catch {}` and remove the
-  imports under the file's normal characterization gate.
-- **ACCEPT — `no-explicit-any` (9 occurrences: `components/ui/Core.tsx` ×4;
-  `components/ui/Forms.tsx` ×3; `tests/director.test.ts`;
-  `tests/engine.test.ts`).** The two test occurrences never ship. The seven UI
-  occurrences widen generic rest-prop buckets, so TypeScript cannot reject a
-  misspelled or incompatible extra prop before runtime; that is a silent
-  loss of compile-time protection, not a known runtime defect. React and the
-  browser still enforce their actual DOM behavior, and all explicitly named
-  component props remain typed. The potential blast radius is limited to
-  callers of these small UI primitives; game state, saves, AI prompts, and
-  mechanics are unaffected. Accept because there is no observed bad caller
-  and a proper fix requires deliberately retyping the component prop surfaces
-  rather than assertion-casting the warning away. Revisit in a scoped UI type
-  hygiene pass or immediately if an invalid rest prop causes a real defect.
-- **ACCEPT — `prefer-const` (3 occurrences: `ai/core/engine.ts:459`).** These
-  names share one destructuring statement with a sibling that is reassigned,
-  but the three warned bindings are not themselves mutated. `let` versus
-  `const` changes only the static mutability guarantee, so there is no runtime
-  failure mode and the blast radius is zero. Accept because splitting the
-  engine destructure solely for style would touch a mechanics-critical module
-  without functional benefit. Revisit when that statement is already under
-  characterization-tested substantive change.
-- **ACCEPT — `react-hooks/set-state-in-effect` (1 occurrence:
-  `components/OnboardingOverlay.tsx:69`).** Opening the overlay synchronously
-  resets its local step to the beginning. In the current App integration the
-  overlay is conditionally mounted and unmounted, so every open creates a new
-  component whose state already initializes to step `0`; there is no retained
-  old step and therefore no current stale-step flash or assistive-technology
-  announcement. The effect can cause only one redundant, bounded render, a
-  silent client-timing cost localized to the onboarding overlay. It cannot
-  affect game state, saves, AI prompts, or mechanics. Accept because no
-  user-visible performance problem is observed and the current behavior is
-  correct. A stale-step visual/accessibility risk would become real only if a
-  future integration keeps the component mounted while toggling `isOpen`.
-  Revisit if that lifecycle changes, or if overlay-open rendering becomes a
-  measurable performance concern.
+The final 17 warnings were fixed in the Phase 6 quality cleanup: unused catch
+bindings and imports were removed, the mixed-mutability engine destructure was
+split, the redundant onboarding reset effect was removed, shared UI primitives
+now expose native element prop types, and the two test assertions use narrow
+structural checks. `tooling/eslint-warning-baseline.json` now has an empty
+inventory. `npm run lint` therefore fails loudly for every future ESLint
+warning; no B11 warning remains accepted debt.
 
 ### B12 — Task 4b vendor-chunk-split interactive preview smoke: not yet run
 When Task 4b split the single oversized JS bundle into deterministic vendor

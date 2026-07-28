@@ -83,7 +83,7 @@ describe('Director schema pair: spotlight_intents in zStoryRelevance + StoryRele
 
   it('the Gemini responseSchema requires spotlight_intents with the SAME per-item fields and continuity enum (lockstep pin)', () => {
     expect(StoryRelevanceSchema.required).toContain('spotlight_intents');
-    const intentsSchema = (StoryRelevanceSchema.properties as Record<string, any>).spotlight_intents;
+    const intentsSchema = StoryRelevanceSchema.properties.spotlight_intents;
     expect(intentsSchema.type).toBe(Type.ARRAY);
     expect(intentsSchema.items.required).toEqual(['entity_id', 'intent', 'continuity']);
     expect(intentsSchema.items.properties.continuity.enum).toEqual(NpcIntentContinuityEnum);

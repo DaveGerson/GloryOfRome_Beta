@@ -340,7 +340,7 @@ export function applyDeltas(
                     if (entity) {
                         try {
                             entity.active_scheme = JSON.parse(delta.reason);
-                        } catch (e) {
+                        } catch {
                             console.error(`Failed to parse scheme JSON for ${delta.key}:`, delta.reason);
                         }
                     }
@@ -350,7 +350,7 @@ export function applyDeltas(
                     try {
                         const newRegionState = JSON.parse(delta.reason);
                         updatedWorldState.regions[delta.key] = newRegionState;
-                    } catch (e) {
+                    } catch {
                         console.error(`Failed to parse RegionState JSON for ${delta.key}:`, delta.reason);
                     }
                     break;
@@ -456,7 +456,8 @@ export function applyAdjudication(
     perceptionContext: PerceptionStampContext = {}
 ): { updatedEntities: Entity[], updatedWorldState: WorldState, updatedReports: Report[], updatedTruthLedger: TruthLedgerEntry[], perceivingNpcIds: string[] } {
 
-    let { updatedEntities: entitiesAfterDeltas, updatedWorldState, newReports, newTruthLedgerEntries } = applyDeltas(adjudication.deltas, currentEntities, currentWorldState, adjudication.turn);
+    const { updatedEntities, updatedWorldState, newReports, newTruthLedgerEntries } = applyDeltas(adjudication.deltas, currentEntities, currentWorldState, adjudication.turn);
+    let entitiesAfterDeltas = updatedEntities;
     const updatedReports = [...currentReports, ...newReports];
     const updatedTruthLedger = appendTruthLedgerEntries(currentTruthLedger, newTruthLedgerEntries);
 

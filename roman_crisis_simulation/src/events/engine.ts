@@ -1,4 +1,4 @@
-import { WorldState, Entity, GameEvent, PlayerEventChoice, EventDelta, EventFiringRecord, SimulationState } from '../types';
+import { WorldState, Entity, GameEvent, PlayerEventChoice, EventFiringRecord, SimulationState } from '../types';
 import { ALL_EVENTS } from '../constants/events';
 import { applyDeltas } from '../ai/core/engine';
 
