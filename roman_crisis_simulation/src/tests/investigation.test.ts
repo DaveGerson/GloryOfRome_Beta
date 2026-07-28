@@ -273,6 +273,7 @@ describe('ai/tools/intelligence.ts direct player-output mechanics boundaries', (
       makePlayer(),
       ['The Curia empties.'],
       [],
+      true,
       false,
     )).rejects.toThrow('player-visible mechanics boundary');
   });

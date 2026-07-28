@@ -160,7 +160,7 @@ export const getInvestigationResult = async (ai: GoogleGenAI, target: Entity, pl
     return { ...playerVisibleResult, resolutionTrace };
 };
 
-export const getPlayerMonologue = async (ai: GoogleGenAI, player: Entity, turnHeadlines: string[], recentPlayerIntents: string[], isMockMode: boolean): Promise<string> => {
+export const getPlayerMonologue = async (ai: GoogleGenAI, player: Entity, turnHeadlines: string[], recentPlayerIntents: string[], hasObservableAttempt: boolean, isMockMode: boolean): Promise<string> => {
     if (isMockMode) {
         if(!mockGetPlayerMonologue) throw new Error("Mock function 'mockGetPlayerMonologue' is not implemented.");
         const text = await mockGetPlayerMonologue(player, turnHeadlines, recentPlayerIntents);
@@ -168,7 +168,7 @@ export const getPlayerMonologue = async (ai: GoogleGenAI, player: Entity, turnHe
         return text;
     }
 
-    const { systemInstruction, prompt } = buildPlayerMonologuePrompt(player, turnHeadlines, recentPlayerIntents);
+    const { systemInstruction, prompt } = buildPlayerMonologuePrompt(player, turnHeadlines, recentPlayerIntents, hasObservableAttempt);
     const text = await generateText(ai, { callName: 'playerMonologue', model: GEMINI_FLASH, systemInstruction, prompt });
     const playerVisibleText = text || "I am contemplative.";
     assertPlayerVisibleTextSafe(playerVisibleText);
@@ -193,13 +193,13 @@ export const getStoryRelevance = async (ai: GoogleGenAI, turnNumber: number, pre
     });
 };
 
-export const getUpdatedSimulationState = async (ai: GoogleGenAI, adjudication: Adjudication, oldState: SimulationState, isMockMode: boolean): Promise<SimulationState> => {
+export const getUpdatedSimulationState = async (ai: GoogleGenAI, adjudication: Adjudication, oldState: SimulationState, hasObservableAttempt: boolean, isMockMode: boolean): Promise<SimulationState> => {
     if (isMockMode) {
         assertPlayerVisibleValueSafe(oldState);
         return oldState;
     }
 
-    const { systemInstruction, prompt } = buildSimulationStateUpdatePrompt(adjudication, oldState);
+    const { systemInstruction, prompt } = buildSimulationStateUpdatePrompt(adjudication, oldState, hasObservableAttempt);
     const rawUpdatedState = await generateStructured<SimulationStateInterchange>(ai, {
         callName: 'updatedSimulationState',
         model: GEMINI_PRO,

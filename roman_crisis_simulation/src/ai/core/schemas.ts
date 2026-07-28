@@ -12,7 +12,7 @@ import {
  * below - entity ids whose ACTIONS the sibling prose narrates, never every
  * entity a text merely mentions.
  */
-const ACTORS_DESCRIPTION = "Entity ids whose ACTIONS this text narrates - NOT every entity mentioned. Merely mentioning an entity (as object, victim, or bystander) does not make it an actor; only the entity(ies) actually DOING something here belong here. Empty array if this text is pure world/state description with no one's actions narrated.";
+export const ACTORS_DESCRIPTION = "Entity ids whose ACTIONS this text narrates - NOT every entity mentioned. Merely mentioning an entity (as object, victim, or bystander) does not make it an actor; only the entity(ies) actually DOING something here belong here. Empty array if this text is pure world/state description with no one's actions narrated.";
 
 /** Provider-side shape for one bounded private-scene response. */
 export const PrivateSceneModelResponseSchema = {

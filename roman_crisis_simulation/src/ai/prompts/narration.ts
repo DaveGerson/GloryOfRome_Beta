@@ -10,6 +10,7 @@ import { Adjudication, Entity } from '../../types';
 import type { NarrationSubmissionProjection } from '../../playerInput/turnSubmission';
 import type { PerceivedChange } from '../../perception/visibility';
 import { REDACTED_SCHEME_REASON, asPromptData } from './fragments';
+import { ACTORS_DESCRIPTION } from '../core/schemas';
 
 /**
  * Strips GM-only / secret-survival state from an Entity before it's
@@ -164,7 +165,7 @@ export function buildNarrationPrompt(
     : playerOwned;
   const playerTurnInstruction = playerSubmission.hasObservableAttempt
     ? 'Begin with the direct, observable consequences of the player\'s submitted attempt. Private intent remains player-owned goal context only: do not turn it into facts, concealment, NPC knowledge, or an additional action.'
-    : 'Begin with a player-view response or reflection on the submitted private intent and question/context. No observable attempt was submitted: do not invent an action or immediate consequence, and do not make the avatar investigate or act.';
+    : "Begin with a player-view response or reflection on the submitted private intent and question/context. No observable attempt was submitted: do not invent an action or immediate consequence, and do not make the avatar investigate or act. The player's id must NEVER appear in any 'actors' list this turn.";
   const playerContextLabel = playerSubmission.hasObservableAttempt
     ? "PLAYER'S OBSERVABLE ATTEMPT THIS TURN:"
     : 'PLAYER-OWNED CONTEXT THIS TURN (NO OBSERVABLE ACTION SUBMITTED):';
@@ -182,6 +183,7 @@ Task:
     c.  **Source Information:** For any information the player didn't witness directly, you MUST state how they learned of it. Be specific and creative. Examples: "A panicked messenger arrives...", "Whispers in the Senate, relayed by your ally Gaius Pontius, suggest...", "A coded message from your spymaster reveals...". This makes information potentially unreliable.
     d.  **Tone:** Maintain a tone of Tacitus meets field report. Focus on concrete outcomes. Do not invent new facts not present in the PLAYER-PERCEIVED TURN EVENTS.
     e.  **Moment Line (ROADMAP_PHASE_4.md 4D item 3):** When a named character's visible action clearly culminates or detonates in the PLAYER-PERCEIVED TURN EVENTS, give that character ONE short signature spoken line, quoted in their own voice (per CAST VOICES when present): the line a chronicler would set down. At most one line per character, only at a true culmination, and reveal nothing beyond those player-perceived events.
+    f.  **Actors Attribution:** ${ACTORS_DESCRIPTION}
 
 2.  **Suggest Next Actions:** After the narration, on new lines, suggest exactly 3 brief, interesting, actionable next steps for the player, each prefixed with "SUGGESTION:". The suggestions should be tailored to the player's character, goals, and the new situation.
 
@@ -217,7 +219,16 @@ ${JSON.stringify(perceivedEvents.map(({ text, source }) => ({ text, source })), 
 export function buildPlayerMonologuePrompt(
   player: Entity,
   turnHeadlines: string[],
-  recentPlayerIntents: string[]
+  recentPlayerIntents: string[],
+  /**
+   * Whether this turn carried an observable player attempt - threaded from
+   * ai/core/turn.ts's `narrationSubmission.hasObservableAttempt` via
+   * `getPlayerMonologue` (ai/tools/intelligence.ts). Defaults to `true` (an
+   * ordinary attempt turn) so pre-existing call sites keep producing the
+   * same prompt they always have; only an explicit `false` adds the
+   * no-attempt player-exclusion line below.
+   */
+  hasObservableAttempt: boolean = true
 ): { systemInstruction: string; prompt: string } {
   // `current_state_narrative` is left bare-quoted deliberately (D41 scope
   // note): it is a model-authored, schema-required string produced during
@@ -235,7 +246,8 @@ export function buildPlayerMonologuePrompt(
     - Consider the risks of your current path. Are you making powerful enemies? Are you over-extending yourself?
     - Contemplate the long-term consequences of your actions. Is your strategy working? Do you need to change course?
     - Your thoughts should be personal and strategic, revealing fears, hopes, or schemes based on the new events and your past choices.
-    `;
+    - ACTORS ATTRIBUTION: if your monologue's own actors field is present, it follows this contract: ${ACTORS_DESCRIPTION}
+    ${hasObservableAttempt ? '' : "- NO OBSERVABLE ATTEMPT THIS TURN: your own player id must NEVER appear in any 'actors' list this turn.\n"}`;
 
   const recentActionsString = recentPlayerIntents.length > 0
     ? recentPlayerIntents.map((intent, i) => `${i + 1}. ${asPromptData(intent)}`).join('\n')

@@ -304,19 +304,29 @@ describe('no-attempt turns: the prompt bars the player id from every actors list
     ).toBe(true);
   });
 
-  // WIRING GAPS - see header. These builders cannot know hasObservableAttempt
-  // today; turn.ts holds the flag at both call sites but does not thread it.
-  // The implementer must extend the builder signatures (and the two tool
-  // functions in ai/tools/intelligence.ts) before these tests can be written
-  // against a real no-attempt render; encoding them now against the current
-  // signatures would either force an unconditional rule the model cannot
-  // scope to the turn, or silently fake the flag.
-  it.todo(
-    'simulation-state update (WIRING GAP): buildSimulationStateUpdatePrompt(adjudication, oldState) cannot know hasObservableAttempt - thread it from turn.ts via getUpdatedSimulationState, then assert the player-exclusion line on a no-attempt render',
-  );
-  it.todo(
-    'player monologue (WIRING GAP): buildPlayerMonologuePrompt(player, headlines, intents) cannot know hasObservableAttempt - thread it from turn.ts via getPlayerMonologue, then assert the player-exclusion line on a no-attempt render',
-  );
+  // WIRING GAPS - CLOSED. `hasObservableAttempt` is now threaded from
+  // turn.ts's `narrationSubmission.hasObservableAttempt` through
+  // getUpdatedSimulationState/getPlayerMonologue (ai/tools/intelligence.ts)
+  // into these two builders (default `true` so every pre-existing call site,
+  // including the unconditional CONTRACT_SURFACES ones above, keeps
+  // rendering an ordinary-attempt-turn prompt byte-for-byte as before).
+  it('simulation-state update (hasObservableAttempt false): states the player id never appears in the actors list', () => {
+    const full = fullText(buildSimulationStateUpdatePrompt(ADJUDICATION_FIXTURE, SIM_STATE, false));
+
+    expect(
+      hasLineWith(full, 'player', 'actors', ['never', 'not']),
+      "simulation-state update: no line states the player's id must not appear in the top-level 'actors' list on a no-attempt turn",
+    ).toBe(true);
+  });
+
+  it('player monologue (hasObservableAttempt false): states the player id never appears in the actors list', () => {
+    const full = fullText(buildPlayerMonologuePrompt(makePlayer(), ['The city was quiet.'], ['Hold court'], false));
+
+    expect(
+      hasLineWith(full, 'player', 'actors', ['never', 'not']),
+      "player monologue: no line states the player's id must not appear in any 'actors' list on a no-attempt turn",
+    ).toBe(true);
+  });
 });
 
 // --- Negative controls ------------------------------------------------------

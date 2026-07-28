@@ -789,12 +789,12 @@ export async function runNewTurn(
     //    first, which build BRAND NEW objects via spread/`.map()` (they
     //    never assign onto `adjudication`/`updatedPlayerEntity`).
     options?.onStage?.('simulation_state');
-    const simulationStatePromise = getUpdatedSimulationState(ai, transformedAdjudication, currentSimulationState, isMockMode);
+    const simulationStatePromise = getUpdatedSimulationState(ai, transformedAdjudication, currentSimulationState, narrationSubmission.hasObservableAttempt, isMockMode);
 
     options?.onStage?.('monologue');
     const monologuePromise = noAttemptResponse
         ? Promise.resolve('')
-        : getPlayerMonologue(ai, updatedPlayerEntity, transformedAdjudication.headlines, recentPlayerIntents, isMockMode);
+        : getPlayerMonologue(ai, updatedPlayerEntity, transformedAdjudication.headlines, recentPlayerIntents, narrationSubmission.hasObservableAttempt, isMockMode);
 
     // Get narration and suggested actions. The event input crosses the D5
     // visibility seam first, then is narrowed field-by-field to text/source.
