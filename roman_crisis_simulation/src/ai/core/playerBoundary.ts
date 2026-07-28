@@ -524,12 +524,20 @@ function isAllowedNoAttemptPredicate(predicate: string): boolean {
 /**
  * Oblique first-person forms. English never lets these head a clause, so they
  * widen the PASSIVE-agent scan only: 'i' already covers the subject position,
- * while "the granary was burned by me" / "... by my agents" names the player as
- * the agent just as surely. They are deliberately excluded from subjectAliases,
- * where they would misread every ordinary object ("the Senate warned me") as
- * the player acting.
+ * while "the granary was burned by me" names the player as the agent just as
+ * surely. Deliberately excluded from subjectAliases, where they would misread
+ * every ordinary object ("the Senate warned me") as the player acting.
+ *
+ * The possessive 'my' is deliberately NOT here. The passive scan rejects on a
+ * bare alias match with no predicate classification, so "by my <noun>" would
+ * reject every third party merely related to the player ("sealed by my
+ * predecessor"). That lands hardest on the monologue, whose prompt mandates
+ * first-person prose about rivals - and it buys little, because the dominant
+ * second-person register of the same hole ("burned by your agents") is not
+ * caught either. Closing that passive gap for ALL possessives is the coherent
+ * fix; a first-person-only half of it is pure false-positive cost.
  */
-const OBLIQUE_FIRST_PERSON_PASSIVE_AGENTS = ['me', 'my'];
+const OBLIQUE_FIRST_PERSON_PASSIVE_AGENTS = ['me'];
 
 function passiveAgentPattern(aliasPattern: string): RegExp {
   const participle = '(?:[\\p{L}]+(?:ed|en|wn)|sent|made|done|held|cast|put|set|built|brought|bought|caught|taught|taken|given|seen|known|shown|told|left|kept|met|read|said|paid|led|found|lost|won)';

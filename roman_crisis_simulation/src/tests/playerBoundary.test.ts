@@ -736,9 +736,23 @@ describe('no-attempt possessive/subject clause precedence boundary', () => {
   it.each([
     'The granary was burned by me.',
     'The decree was signed by me.',
-    'The granary was burned by my agents.',
     'Your grip weakens because the granary was burned by me.',
   ])('rejects an oblique first-person passive agent: %s', expectRejected);
+
+  // Possessive passive agents are a KNOWN, symmetric gap: the passive scan
+  // rejects on a bare alias match with no predicate classification, so
+  // admitting 'my' would reject every third party merely related to the player
+  // ("sealed by my predecessor") on the monologue surface, whose prompt
+  // mandates first-person prose about rivals. The second-person form is not
+  // caught either, so a first-person-only rule buys nothing. Closing this
+  // needs the possessive passive handled for ALL persons at once.
+  it.each([
+    'The granary was burned by my agents.',
+    'The granary was burned by your agents.',
+    'The treaty was sealed by my predecessor.',
+  ])('documents the unclosed possessive passive-agent gap: %s', prose => {
+    expect(() => assertNoInventedPlayerVisibleAction(prose, player, false)).not.toThrow();
+  });
 
   it.each([
     'The granary was not burned by me.',
