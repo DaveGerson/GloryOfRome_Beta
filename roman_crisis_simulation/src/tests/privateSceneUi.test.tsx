@@ -143,6 +143,70 @@ describe('private scene player UI', () => {
     expect(document.activeElement).toBe(opener);
   });
 
+  it('reconciles the selected target when the eligible list changes while mounted', async () => {
+    const onInvite = vi.fn();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    mounted.push({ root, container });
+
+    const mountWithTargets = (eligibleTargets: readonly { entityId: string; displayName: string }[]) => (
+      <PrivateScene
+        scenes={[]} currentMacroTurn={3} canStartScene
+        eligibleTargets={eligibleTargets}
+        openingDraft="Come." replyDraft="" lastWordDraft="" loading={false} error={null}
+        onOpeningDraftChange={() => {}} onReplyDraftChange={() => {}} onLastWordDraftChange={() => {}}
+        onInvite={onInvite} onReply={() => {}} onEnd={() => {}} onLastWord={() => {}} onSkipLastWord={() => {}}
+      />
+    );
+
+    await act(async () => root.render(mountWithTargets([
+      { entityId: 'a', displayName: 'Aulus' },
+      { entityId: 'b', displayName: 'Balbus' },
+    ])));
+    const opener = Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'Private scene')!;
+    await act(async () => opener.click());
+
+    const select = () => container.querySelector<HTMLSelectElement>('[aria-label="Private-scene target"]');
+    await act(async () => {
+      const target = select()!;
+      const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(target), 'value');
+      descriptor!.set!.call(target, 'b');
+      target.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(select()!.value).toBe('b');
+
+    // Step 1: explicit choice preserved while it remains eligible.
+    await act(async () => root.render(mountWithTargets([
+      { entityId: 'b', displayName: 'Balbus' },
+      { entityId: 'c', displayName: 'Cato' },
+    ])));
+    expect(select()!.value).toBe('b');
+
+    // Step 2: chosen target drops out of the list -> fallback to first eligible, not '' or stale 'b'.
+    await act(async () => root.render(mountWithTargets([
+      { entityId: 'c', displayName: 'Cato' },
+      { entityId: 'd', displayName: 'Decimus' },
+    ])));
+    expect(select()!.value).toBe('c');
+    const inviteButton = Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent === 'Send invitation')!;
+    await act(async () => inviteButton.click());
+    expect(onInvite).toHaveBeenCalledTimes(1);
+    expect(onInvite).toHaveBeenCalledWith('c');
+
+    // Step 3: empty list -> no select, fallback copy renders; then a fresh list -> select shows the new first target.
+    await act(async () => root.render(mountWithTargets([])));
+    expect(select()).toBeNull();
+    expect(container.textContent).toContain('No known contact is currently within reach.');
+
+    await act(async () => root.render(mountWithTargets([
+      { entityId: 'e', displayName: 'Ennius' },
+    ])));
+    expect(select()!.value).toBe('e');
+    const inviteButtonAfterEmpty = Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent === 'Send invitation')!;
+    expect(inviteButtonAfterEmpty.disabled).toBe(false);
+  });
+
   it('bounds every draft at 2,000 characters and preserves an over-limit last word with an accessible error', () => {
     const onLastWord = vi.fn();
     const container = document.createElement('div'); document.body.appendChild(container);
