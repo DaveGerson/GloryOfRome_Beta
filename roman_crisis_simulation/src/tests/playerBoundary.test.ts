@@ -470,6 +470,27 @@ describe('no-attempt subordinate-clause classification boundary', () => {
     expectRejected('Your grip weakens, because you burned the granary.');
   });
 
+  // A third-person possessor is an antecedent for its WHOLE possessed phrase:
+  // a subordinate clause can point back at the player with a pronoun subject,
+  // a possessive determiner, or a passive agent.
+  it.each([
+    'Gaius Testus\'s grip weakens because she burned the granary.',
+    'Gaius Testus\'s grip weakens because they burned the granary.',
+    'Gaius Testus\'s grip weakens because his legions sacked the city.',
+    'Gaius Testus\'s grip weakens because the granary was burned by him.',
+  ])('rejects an anaphoric subordinate clause of a third-person possessive: %s', expectRejected);
+
+  // A SECOND-person possessive has no third-person antecedent of its own: in
+  // "your grip weakens because he burned the granary" the player is addressed
+  // as "you" throughout, so "he" is a rival. Binding third-person pronouns
+  // here would only over-reject ordinary world prose about other characters,
+  // on a surface that is validated every turn.
+  it('allows a third-person subordinate subject under a second-person possessive', () => {
+    expect(() => assertNoInventedPlayerVisibleAction(
+      'Your grip weakens because he burned the granary.', player, false,
+    )).not.toThrow();
+  });
+
   it.each([
     // The head clause is the action; the tail is the laundering condition.
     'Your agents burn the granary as the resistance weakens.',
@@ -511,6 +532,24 @@ describe('no-attempt subordinate-clause classification boundary', () => {
     'Your as-yet-unnamed agents burn the granary as the resistance weakens.',
     'Your though-battered cohorts storm the gate while the Senate falters.',
   ])('rejects a subordinator-headed phrase with a real trailing clause: %s', expectRejected);
+
+  // A subordinator directly behind a possessive SEVERS that possessive from
+  // its possession, so neither fragment can be classified. The severed span
+  // fails closed rather than splitting into two individually inert halves.
+  it.each([
+    'Your grip weakens because your as-yet-unnamed agents burned the granary.',
+    'Your influence wanes although your though-battered cohorts storm the gate.',
+    'Your grip weakens because Gaius Testus\'s as-yet-unnamed agents burned the granary.',
+    'Your agents burn the granary the as the resistance weakens.',
+  ])('rejects a subordinator that severs a possessive from its possession: %s', expectRejected);
+
+  // Plain articles do not carry a player link, so a subordinator behind one
+  // must stay an ordinary clause boundary instead of over-rejecting prose.
+  it('allows an article-headed compound modifier in an inert clause', () => {
+    expect(() => assertNoInventedPlayerVisibleAction(
+      'You see the as-yet-unnamed courier.', player, false,
+    )).not.toThrow();
+  });
 
   it.each([
     // "you" is the OBJECT of the subordinate clause, not its actor.

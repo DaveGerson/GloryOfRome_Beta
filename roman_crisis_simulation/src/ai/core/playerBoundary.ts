@@ -305,6 +305,7 @@ const POSSESSED_PHRASE_SUBORDINATORS = new Set([
  */
 const ANAPHORIC_SUBJECT_PRONOUNS = ['he', 'she', 'they'];
 const ANAPHORIC_POSSESSIVE_DETERMINERS = ['his', 'her', 'their'];
+const ANAPHORIC_PASSIVE_AGENTS = ['him', 'her', 'them'];
 
 /**
  * Which surface forms count as the player within the span being classified.
@@ -314,10 +315,17 @@ const ANAPHORIC_POSSESSIVE_DETERMINERS = ['his', 'her', 'their'];
 interface ClauseScope {
   subjectAliases: string[];
   possessiveDeterminers: string[];
+  /**
+   * Passive AGENTS ("... because the granary was burned by him") bound to the
+   * player inside this span. Empty at the top level, where
+   * containsPlayerAttributedAction already scans the whole clause for every
+   * alias; only the anaphoric third-person forms need adding.
+   */
+  passiveAgents: string[];
 }
 
 function baseClauseScope(aliases: string[]): ClauseScope {
-  return { subjectAliases: aliases, possessiveDeterminers: ['your'] };
+  return { subjectAliases: aliases, possessiveDeterminers: ['your'], passiveAgents: [] };
 }
 
 function anaphoricClauseScope(scope: ClauseScope): ClauseScope {
@@ -326,22 +334,42 @@ function anaphoricClauseScope(scope: ClauseScope): ClauseScope {
     possessiveDeterminers: [
       ...new Set([...scope.possessiveDeterminers, ...ANAPHORIC_POSSESSIVE_DETERMINERS]),
     ],
+    passiveAgents: [...new Set([...scope.passiveAgents, ...ANAPHORIC_PASSIVE_AGENTS])],
   };
 }
 
 /**
- * Splits normalized text into [headClause, ...subordinateClauses]. A
- * subordinator whose preceding span is EMPTY is not a clause boundary: it is
- * a fragment of the head noun phrase, reached because wordNormalized turns
+ * Possessive openers that cannot END a clause: each demands a head noun after
+ * it. A subordinator sitting immediately behind one has SEVERED a possessive
+ * from its possession rather than opened a clause ("... because your |
+ * as-yet-unnamed agents burned the granary"), and once severed the possessor
+ * can never be matched to what it possesses. Plain articles are excluded:
+ * losing "the" loses no player link, and treating them as severing would
+ * reject ordinary prose ("you see the as-yet-unnamed courier").
+ */
+const DANGLING_POSSESSIVE_OPENERS = new Set([
+  'your', 'my', 'our', 'his', 'her', 'its', 'their',
+  // wordNormalized reduces "<name>'s" to "<name> s".
+  's',
+]);
+
+/**
+ * Splits normalized text into [headClause, ...subordinateClauses], or null
+ * when a subordinator severs a possessive - an unclassifiable span, which
+ * every caller must fail closed on.
+ *
+ * A subordinator whose preceding span is EMPTY is not a clause boundary: it
+ * is a fragment of the head noun phrase, reached because wordNormalized turns
  * hyphens into spaces ("your as-yet-unnamed heir" -> "as yet unnamed heir").
  * Absorbing it keeps that noun phrase classifiable instead of erasing it,
  * while a genuine later subordinator still opens its own clause.
  */
-function splitSubordinateClauses(text: string): string[] {
+function splitSubordinateClauses(text: string): string[] | null {
   const clauses: string[][] = [[]];
   for (const word of text.split(/\s+/u).filter(Boolean)) {
     const current = clauses[clauses.length - 1];
     if (current.length > 0 && POSSESSED_PHRASE_SUBORDINATORS.has(word)) {
+      if (DANGLING_POSSESSIVE_OPENERS.has(current[current.length - 1])) return null;
       clauses.push([]);
       continue;
     }
@@ -376,7 +404,9 @@ function possessedHeadPredicate(clause: string): string {
  * predicate - in ANY of its clauses - fails closed.
  */
 function possessedPhrasePredicate(phrase: string, scope: ClauseScope): string {
-  const [head, ...subordinates] = splitSubordinateClauses(phrase);
+  const clauses = splitSubordinateClauses(phrase);
+  if (!clauses) return phrase;
+  const [head, ...subordinates] = clauses;
   const headPredicate = possessedHeadPredicate(head);
   if (headPredicate) return headPredicate;
   for (const subordinate of subordinates) {
@@ -392,9 +422,28 @@ function possessedPhrasePredicate(phrase: string, scope: ClauseScope): string {
  * allowed, means the clause attributes nothing.
  */
 function subordinateClauseOffense(clause: string, scope: ClauseScope): string {
+  const passiveOffense = anaphoricPassiveAgentOffense(clause, scope);
+  if (passiveOffense) return passiveOffense;
   const predicate = playerClausePredicate(clause, scope);
   if (!predicate) return '';
   return predicateOffense(predicate, scope);
+}
+
+/**
+ * A subordinate clause naming the enclosing possessor as its passive AGENT
+ * ("... because the granary was burned by him") attributes the act just as
+ * surely as an active subject would.
+ */
+function anaphoricPassiveAgentOffense(clause: string, scope: ClauseScope): string {
+  if (scope.passiveAgents.length === 0) return '';
+  const normalized = wordNormalized(clause);
+  for (const agent of scope.passiveAgents) {
+    const match = passiveAgentPattern(escapeRegExp(agent)).exec(normalized);
+    if (!match || /\b(?:not|never|no)\b/u.test(normalized.slice(0, match.index))) continue;
+    const offense = predicateOffense(match[0], scope);
+    if (offense) return offense;
+  }
+  return '';
 }
 
 /**
@@ -409,7 +458,9 @@ function subordinateClauseOffense(clause: string, scope: ClauseScope): string {
  * re-checking it under a narrower ClauseScope reaches the same verdict.
  */
 function predicateOffense(predicate: string, scope: ClauseScope): string {
-  const [head, ...subordinates] = splitSubordinateClauses(predicate);
+  const clauses = splitSubordinateClauses(predicate);
+  if (!clauses) return predicate;
+  const [head, ...subordinates] = clauses;
   if (head && !isAllowedNoAttemptPredicate(head)) return head;
   for (const subordinate of subordinates) {
     const offense = subordinateClauseOffense(subordinate, scope);
