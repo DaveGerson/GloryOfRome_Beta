@@ -20,16 +20,32 @@ vi.mock('../ai/core/turn', async importOriginal => {
   const actual = await importOriginal<typeof import('../ai/core/turn')>();
   return { ...actual, runNewTurn: vi.fn(actual.runNewTurn) };
 });
+vi.mock('../components/GameMasterScreen', () => ({
+  default: ({ onSetIntervention }: { onSetIntervention: (text: string) => Promise<boolean> }) => (
+    <button type="button" aria-label="Force GM intervention callback"
+      onClick={() => { void onSetIntervention('This must not cross the private-scene barrier.'); }}>
+      Force GM intervention callback
+    </button>
+  ),
+}));
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const mockContinue = vi.mocked(sceneTool.continuePrivateScene);
 const mockRunNewTurn = vi.mocked(turnCore.runNewTurn);
 const mounted: Array<{ root: Root; container: HTMLDivElement }> = [];
 let dispatchGame: React.Dispatch<GameAction> | null = null;
+let livePrivateScenes: PrivateSceneRecord[] | null = null;
 
 const DispatchCaptor: React.FC = () => {
-  const { dispatch } = useGame();
-  useLayoutEffect(() => { dispatchGame = dispatch; return () => { dispatchGame = null; }; }, [dispatch]);
+  const { state, dispatch } = useGame();
+  useLayoutEffect(() => {
+    dispatchGame = dispatch;
+    livePrivateScenes = state.privateScenes;
+    return () => {
+      dispatchGame = null;
+      livePrivateScenes = null;
+    };
+  }, [dispatch, state.privateScenes]);
   return null;
 };
 
@@ -71,7 +87,7 @@ async function invite(container: HTMLElement, text = 'Speak with me.'): Promise<
   await click(button(container, 'Send invitation'));
 }
 
-beforeEach(() => { localStorage.clear(); mockContinue.mockReset(); mockRunNewTurn.mockClear(); Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() }); });
+beforeEach(() => { localStorage.clear(); livePrivateScenes = null; mockContinue.mockReset(); mockRunNewTurn.mockClear(); Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() }); });
 afterEach(async () => { while (mounted.length) { const item = mounted.pop()!; await act(async () => item.root.unmount()); item.container.remove(); } localStorage.clear(); vi.restoreAllMocks(); });
 
 describe('private-scene App transaction boundary', () => {
@@ -97,6 +113,37 @@ describe('private-scene App transaction boundary', () => {
     expect(container.textContent).toContain('NPC reply 1');
   });
 
+  it('reaches the durable-write boundary with the candidate while reducer state and DOM still show the prior scene list', async () => {
+    mockContinue.mockResolvedValueOnce(response(1));
+    const container = await mount();
+    const originalSetItem = Storage.prototype.setItem;
+    let candidateTranscriptAtWriteBoundary: string[] | null = null;
+    const storage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
+      const envelope = JSON.parse(value) as { state?: { privateScenes?: PrivateSceneRecord[] } };
+      const candidate = envelope.state?.privateScenes;
+      if (key === 'gloryOfRome:autosave' && candidate?.[0]?.transcript.some(line => line.text === 'NPC reply 1')) {
+        candidateTranscriptAtWriteBoundary = candidate[0].transcript.map(line => line.text);
+        expect(livePrivateScenes).toEqual([]);
+        expect(container.textContent).not.toContain('NPC reply 1');
+      }
+      return originalSetItem.call(this, key, value);
+    });
+
+    await invite(container, 'Durable boundary invitation');
+    await waitFor(() => expect(livePrivateScenes).toHaveLength(1));
+
+    expect(candidateTranscriptAtWriteBoundary).toEqual([
+      'Durable boundary invitation',
+      'NPC reply 1',
+    ]);
+    expect(livePrivateScenes?.[0].transcript.map(line => line.text)).toEqual([
+      'Durable boundary invitation',
+      'NPC reply 1',
+    ]);
+    expect(container.textContent).toContain('NPC reply 1');
+    storage.mockRestore();
+  });
+
   it('save failure preserves the prior record and reply draft, then end/skip make zero provider calls', async () => {
     const existing = { ...closedScene(2), status: 'active' as const, closureReason: undefined, npcResponseCount: 1 };
     mockContinue.mockResolvedValueOnce(response(2));
@@ -106,6 +153,8 @@ describe('private-scene App transaction boundary', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     await click(button(container, 'Send reply')); await waitFor(() => expect(container.querySelector('[role="alert"]')?.textContent).toMatch(/could not be saved/i));
     expect(loadGame()!.state.privateScenes![0]).toEqual(existing);
+    expect(livePrivateScenes).toEqual([existing]);
+    expect(container.textContent).not.toContain('NPC reply 2');
     expect(container.querySelector<HTMLTextAreaElement>('[aria-label="Private-scene reply"]')!.value).toBe('Keep this reply');
     storage.mockRestore(); warn.mockRestore(); mockContinue.mockClear();
     await click(button(container, 'End scene')); await waitFor(() => expect(loadGame()!.state.privateScenes![0].status).toBe('awaiting_last_word'));
@@ -173,6 +222,31 @@ describe('private-scene App transaction boundary', () => {
     expect(mockRunNewTurn).not.toHaveBeenCalled();
     expect(loadGame()!.state.turnNumber).toBe(3);
     expect(loadGame()!.state.privateScenes).toEqual([existing]);
+  });
+
+  it('rejects a forced GM intervention at the central scene barrier before save or reducer effect', async () => {
+    const existing = { ...closedScene(3), status: 'active' as const, closureReason: undefined };
+    const historyEntry = {
+      turnNumber: 2,
+      playerIntent: 'Wait and observe.',
+      adjudication: { turn: 2, entityActions: [], deltas: [], headlines: [], gm_private: [] },
+      narration: 'Rome waits.',
+    };
+    const container = await mount(appSave({ privateScenes: [existing], turnHistory: [historyEntry] }));
+    // Close only the presentation. The active scene remains committed and
+    // must continue to own the central mutation barrier.
+    await click(container.querySelector<HTMLButtonElement>('[aria-label="Close private scene"]')!);
+    await click(container.querySelector<HTMLInputElement>('#gm-console-toggle')!);
+    await click(button(container, 'GM Log'));
+    const storage = vi.spyOn(Storage.prototype, 'setItem');
+
+    await click(container.querySelector<HTMLButtonElement>('[aria-label="Force GM intervention callback"]')!);
+    await flush();
+
+    expect(storage).not.toHaveBeenCalled();
+    expect(loadGame()!.state.gmInterventionText).toBe('');
+    expect(livePrivateScenes).toEqual([existing]);
+    storage.mockRestore();
   });
 });
 
