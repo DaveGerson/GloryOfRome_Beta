@@ -18,9 +18,9 @@ one of the builders below.
 | `storyRelevance` | `intelligence.ts::buildStoryRelevancePrompt` | pro | `zStoryRelevance` | `StoryRelevanceSchema` | `turn.ts` step 0 (Director) |
 | `npcMind` | `npcMind.ts::buildNpcMindPrompt` | flash | `zNpcMindDecision` | `NpcMindDecisionSchema` | `turn.ts` step 1.5 (per-spotlight minds, between the Director and adjudication - up to `MAX_MINDS_PER_TURN` in one `Promise.all`) |
 | `updatedSimulationState` | `intelligence.ts::buildSimulationStateUpdatePrompt` | pro | `zSimulationState` | `SimulationStateSchema` | `turn.ts` step 2.5 |
-| `relationshipUpdates` | `intelligence.ts::buildRelationshipUpdatesPrompt` | pro | `zRelationshipDeltas` | `RelationshipDeltasSchema` | `turn.ts` step 5.5 |
 | `relationshipObservations` | `relationshipObservations.ts::buildRelationshipObservationsPrompt` | flash | `zRelationshipObservations` | `RelationshipObservationsSchema` | `App.tsx` turn and paid-investigation paths, before their atomic save/dispatch commits |
-| `privateConversation` | `intelligence.ts::buildPrivateConversationPrompt` | pro | `zConversationSimulation` | `ConversationSimulationSchema` | `turn.ts` step 2.5 (off-screen sim) |
+| `noAttemptEvidenceSelection` | `noAttemptResponse.ts::buildNoAttemptEvidenceSelectionPrompt` | flash | `zNoAttemptEvidenceSelection` | `NoAttemptEvidenceSelectionSchema` | question-only player response; evidence IDs only |
+| `privateScene` | `privateScene.ts::buildPrivateScenePrompt` | pro | `zPrivateSceneModelResponse` | `PrivateSceneModelResponseSchema` | Player-initiated one-NPC private-scene micro-loop; bounded self brief and transcript only |
 | `mortalityValidation` | `mortality.ts::buildMortalityValidationPrompt` | pro | `zMortalityValidation` | `MortalityValidationSchema` | `turn.ts` step 2.6 (`ai/core/mortality.ts::processMortality`, gate 1) |
 | `mortalityOutcome` | `mortality.ts::buildMortalityOutcomePrompt` | pro | `zMortalityOutcome` | `MortalityOutcomeSchema` | `turn.ts` step 2.6 (`ai/core/mortality.ts::processMortality`, gate 3) |
 | `investigation` | `intelligence.ts::buildInvestigationPrompt` | pro | `zInvestigationResult` | `buildInvestigationResultSchema(subject)` | Player-triggered intel action |
@@ -73,7 +73,12 @@ decides an outcome, only narrates one the code already rolled**
   only.
 - `mortalityOutcome` is only asked to dress an ALREADY-DECIDED band in
   concrete deltas and a one-line narration directive - it is told the band
-  up front and must not contradict or reinterpret it.
+  up front and must not contradict or reinterpret it. Its side effects keep
+  the prompt's existing type-aware scope: resource/scheme keys target the
+  candidate; a relation can place the candidate on either directional
+  endpoint; a rumor concerns the candidate but may be spread by any real
+  entity (or omit `origin_id` when genuinely organic). Status, unrelated
+  entity, region, faction, and world effects are rejected before apply.
 - The narration call (`narration.ts::buildNarrationPrompt`) receives those
   directives as non-negotiable staging notes, plus a SANITIZED adjudication
   (`sanitizeAdjudicationForNarration` strips `gm_private` and any
@@ -276,14 +281,13 @@ purity of the split.
 
 ## The directional relationship-delta rule
 
-One rule is deliberately duplicated verbatim in three places and must stay
+One rule is deliberately duplicated verbatim in two places and must stay
 in sync if it ever changes:
 
 - `adjudication.ts` (the main turn's `RELATIONSHIP DELTAS` rule)
-- `intelligence.ts` (`buildRelationshipUpdatesPrompt`'s equivalent rule)
 - `ai/core/schemas.ts`'s `EventDeltaSchema.key` description
 
-All three say the same thing: a `relation` delta keyed `A:B:attribute`
+Both say the same thing: a `relation` delta keyed `A:B:attribute`
 changes **A's perception of B only** (relationships are asymmetric); a
 mutual change requires two deltas, one per direction.
 

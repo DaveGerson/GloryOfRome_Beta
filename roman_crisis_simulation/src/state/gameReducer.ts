@@ -35,6 +35,7 @@ import {
 } from '../types';
 import type { SaveGameState, InferredAmbitionState } from '../persistence/saveGame';
 import type { KnowledgeClaim } from '../knowledge/store';
+import type { PrivateSceneRecord } from '../privateScene/model';
 import { INITIAL_WORLD_STATE, INITIAL_SIMULATION_STATE } from '../constants/baseScenario';
 import { normalizeEventFirings } from '../events/engine';
 import { clearFallout } from '../components/investigationLoop';
@@ -80,6 +81,12 @@ export interface GameDomainState {
    * player-facing surface.
    */
   npcIntents: NpcIntent[];
+  /**
+   * Phase 6 private-scene records. This GM-only state is a separate slice:
+   * no scene transcript or NPC-private interpretation is copied into
+   * messages, entity memories, knowledge, reports, or turn history.
+   */
+  privateScenes: PrivateSceneRecord[];
   turnNumber: number;
   playerCharacterId: string | null;
   turnHistory: TurnHistoryEntry[];
@@ -109,9 +116,9 @@ export interface GameDomainState {
   metaNarrative: string;
   /**
    * DESIGN_DECISIONS.md D8 - the latest "apparent ambition" reading, if any
-   * has been computed yet this campaign. GM-console/epilogue only (see
-   * GameMasterScreen's "Apparent Ambition" line and EpilogueScreen) -
-   * never rendered as a player-facing goal UI.
+   * has been computed yet this campaign. It is retained only for
+   * GameMasterScreen's GM inspection/tuning view and never feeds the player
+   * epilogue, NPC reactions, or any other player-facing surface.
    */
   inferredAmbition: InferredAmbitionState | null;
 }
@@ -129,6 +136,7 @@ export function createInitialGameState(): GameDomainState {
     truthLedger: [],
     knowledge: [],
     npcIntents: [],
+    privateScenes: [],
     turnNumber: 1,
     playerCharacterId: null,
     turnHistory: [],
@@ -211,11 +219,13 @@ export type GameAction =
       knowledge: KnowledgeClaim[];
       /** The Director's committed intents for this turn (runNewTurn's updatedNpcIntents, 4C.3) - replaces the slice wholesale. */
       npcIntents: NpcIntent[];
+      /** Scene records already atomically finalized/consumed for this turn. */
+      privateScenes: PrivateSceneRecord[];
       turnNumber: number;
       turnHistory: TurnHistoryEntry[];
       playerMessage: Message;
       gmMessage: Message;
-      monologueMessage: Message;
+      monologueMessage: Message | null;
       ribbonMessage: Message;
       suggestedActions: string[];
       currentEvents: string[];
@@ -229,6 +239,8 @@ export type GameAction =
    * happen even when no snapshot exists to restore.
    */
   | { type: 'TURN_ROLLED_BACK'; snapshot: SaveGameState }
+  /** Atomically replace the isolated private-scene slice only. */
+  | { type: 'PRIVATE_SCENES_COMMITTED'; privateScenes: PrivateSceneRecord[] }
   /** An authored event fired after a committed turn - open its modal. */
   | { type: 'EVENT_TRIGGERED'; event: GameEvent }
   /**
@@ -317,6 +329,7 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         truthLedger: action.truthLedger,
         knowledge: action.knowledge,
         npcIntents: action.npcIntents,
+        privateScenes: action.privateScenes,
         turnNumber: action.turnNumber,
         // Older entries shed their full entity snapshots here - the one
         // commit point every turn passes through, so state and autosave
@@ -326,7 +339,13 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         // state this reducer returns; this application stays as the
         // in-memory backstop.
         turnHistory: withOldSnapshotsDropped(action.turnHistory),
-        messages: [...state.messages, action.playerMessage, action.gmMessage, action.monologueMessage, action.ribbonMessage],
+        messages: [
+          ...state.messages,
+          action.playerMessage,
+          action.gmMessage,
+          ...(action.monologueMessage ? [action.monologueMessage] : []),
+          action.ribbonMessage,
+        ],
         suggestedActions: action.suggestedActions,
         currentEvents: action.currentEvents,
         // ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - the fallout queue is
@@ -358,6 +377,7 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         // Optional field (4C.3) - same normalization; a failed turn never
         // committed its Director output, so the pre-turn intents stand.
         npcIntents: snapshot.npcIntents ?? [],
+        privateScenes: Array.isArray(snapshot.privateScenes) ? snapshot.privateScenes : [],
         turnNumber: snapshot.turnNumber,
         turnHistory: snapshot.turnHistory,
         eventHistory: snapshot.eventHistory,
@@ -417,6 +437,7 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         gameState: GameState.AWAITING_PLAYER_INPUT,
         messages: [...state.messages, action.introMessage],
         suggestedActions: action.suggestedActions,
+        privateScenes: [],
       };
 
     case 'GAME_LOADED': {
@@ -453,6 +474,7 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         // persistent intents existed, so this normalizes it to an empty
         // list; the next turn's Director then rules everything 'new'.
         npcIntents: s.npcIntents ?? [],
+        privateScenes: Array.isArray(s.privateScenes) ? s.privateScenes : [],
         // Optional field (D8) - absent on saves from before this field
         // existed, so this normalizes it to `null` rather than `undefined`
         // for InferredAmbitionState | null's sake.
@@ -475,6 +497,9 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
 
     case 'RESOURCE_SPENT':
       return { ...state, entities: action.entities };
+
+    case 'PRIVATE_SCENES_COMMITTED':
+      return { ...state, privateScenes: action.privateScenes };
 
     case 'INVESTIGATION_COMMITTED':
       return {

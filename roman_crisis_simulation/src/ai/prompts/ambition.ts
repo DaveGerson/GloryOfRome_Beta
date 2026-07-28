@@ -6,9 +6,9 @@
  * DESIGN_DECISIONS.md D8. The player never declares a goal (no quest log,
  * no picked ambition) - this is a code-and-model reading of the pattern in
  * their behavior, exactly the way another character in the world would
- * form an impression of them. Feeds two THINGS ONLY: the epilogue's framing
- * (components/EpilogueScreen.tsx) and the GM console's "Apparent Ambition"
- * line (components/GameMasterScreen.tsx) - never a player-facing surface.
+ * form an impression of them. Feeds one thing only: the GM console's
+ * "Apparent Ambition" line (components/GameMasterScreen.tsx). It never
+ * reaches a player-facing prompt or surface.
  * MODEL: flash (GEMINI_FLASH) - this is the "cheap periodic model call" D8
  * calls for, run every 3rd committed turn (see App.tsx), not every turn.
  * CONSUMER: ai/tools/ambition.ts `inferAmbition`.

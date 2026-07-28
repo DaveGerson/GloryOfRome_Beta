@@ -34,6 +34,7 @@ import type {
   Message,
 } from '../../types';
 import type { KnowledgeClaim } from '../../knowledge/store';
+import type { PrivateSceneModelResponse, PrivateSceneRecord, PrivateSceneSpeechActKind } from '../../privateScene/model';
 import {
   ALL_INITIAL_ENTITIES,
   INITIAL_WORLD_STATE,
@@ -55,6 +56,7 @@ export interface ScenarioSeed {
   truthLedger: TruthLedgerEntry[];
   knowledge: KnowledgeClaim[];
   npcIntents: NpcIntent[];
+  privateScenes: PrivateSceneRecord[];
   turnHistory: TurnHistoryEntry[];
   messages: Message[];
   turnNumber: number;
@@ -72,6 +74,7 @@ export function baseScenario(): ScenarioSeed {
     truthLedger: [],
     knowledge: [],
     npcIntents: [],
+    privateScenes: [],
     turnHistory: [],
     messages: [],
     turnNumber: 1,
@@ -142,8 +145,7 @@ export function worldDelta(key: 'economic_stability' | 'political_climate', newV
 /**
  * getStoryRelevance (the Director) response. Current schema (zStoryRelevance)
  * REQUIRES `spotlight_intents` alongside `spotlight_entities` - so both are
- * always emitted. Default: no spotlights and no intents (no minds, no
- * private-conversation step).
+ * always emitted. Default: no spotlights and no intents, so no mind calls.
  */
 export function scriptStoryRelevance(
   spotlights: Array<{ entity_id: string; reason: string }> = [],
@@ -218,16 +220,6 @@ export function scriptNarration(prose: string, suggestions: [string, string, str
   return `${prose}\nSUGGESTION: ${suggestions[0]}\nSUGGESTION: ${suggestions[1]}\nSUGGESTION: ${suggestions[2]}`;
 }
 
-/** getRelationshipUpdates response (the post-narration narrative-analyst call). Contract: 'relation' deltas only. */
-export function scriptRelationshipDeltas(deltas: EventDelta[]) {
-  return { deltas };
-}
-
-/** simulatePrivateConversation response (the off-screen spotlight-NPC meeting). */
-export function scriptPrivateConversation(dialogueSnippet: string, deltas: EventDelta[]) {
-  return { dialogueSnippet, deltas };
-}
-
 /**
  * One per-spotlight NPC MIND decision (ai/tools/npcMind.ts). The pipeline
  * normalizes `entity_id` to the character it actually asked, so for two
@@ -282,6 +274,34 @@ export function scriptInvestigation(opts: {
   consequences: string | null;
 }) {
   return { reportData: opts.reportData, report: opts.report, consequences: opts.consequences };
+}
+
+/** One schema-valid private-scene response at the requested exchange. */
+export function scriptPrivateSceneResponse(opts: {
+  exchange: number;
+  disposition?: PrivateSceneModelResponse['disposition'];
+  npcUtterance: string;
+  speechActKind: Exclude<PrivateSceneSpeechActKind, 'unclassified'>;
+  speechActText?: string;
+  sincerity: string;
+  hiddenIntent: string;
+  plannedFollowThrough?: string[];
+}): PrivateSceneModelResponse {
+  return {
+    disposition: opts.disposition ?? 'continues',
+    npcUtterance: opts.npcUtterance,
+    speechActs: [{
+      speaker: 'npc',
+      kind: opts.speechActKind,
+      text: opts.speechActText ?? opts.npcUtterance,
+      exchange: opts.exchange,
+    }],
+    npcPrivate: {
+      sincerity: opts.sincerity,
+      hiddenIntent: opts.hiddenIntent,
+      plannedFollowThrough: opts.plannedFollowThrough ?? [],
+    },
+  };
 }
 
 // --- Shared default flavor text ------------------------------------------

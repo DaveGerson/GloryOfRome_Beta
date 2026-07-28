@@ -25,7 +25,7 @@ import { zNpcMindDecision } from '../ai/core/zodSchemas';
 import { NpcMindDecisionSchema } from '../ai/core/schemas';
 import { buildNpcMindPrompt, buildMindSelfBrief, MAX_MINDS_PER_TURN, MIND_MEMORY_LINES } from '../ai/prompts/npcMind';
 import { buildNpcMindDecisionsBlock } from '../ai/prompts/fragments';
-import { runNewTurn, selectMindEntities, selectUnrememberedChanges, evolveSchemeFromAdjustment, buildMindSchemeDeltas, MAX_SCHEME_STEPS } from '../ai/core/turn';
+import { runNewTurn, selectMindEntities, selectUnrememberedChanges, evolveSchemeFromAdjustment, buildMindSchemeDeltas, MAX_SCHEME_STEPS, type RunNewTurnOptions } from '../ai/core/turn';
 import { applyDeltas } from '../ai/core/engine';
 import { MAX_NPC_MEMORY_LINES_PER_TURN } from '../perception/npcPerception';
 import { buildPerceivedDigest, type PerceivedChange } from '../perception/visibility';
@@ -34,6 +34,7 @@ import { withOldSnapshotsDropped, KEEP_FULL_SNAPSHOTS } from '../state/gameReduc
 import { mockRunNewTurn, mockGetNpcMindDecision } from '../ai/mocks';
 import { getMockInitialState } from './mockData';
 import { ALL_INITIAL_ENTITIES, INITIAL_WORLD_STATE } from '../constants/baseScenario';
+import type { PrivateSceneNpcMemoryProjection } from '../privateScene/model';
 import type { Entity, EventDelta, NpcMindDecision, Scheme, SimulationState, StoryRelevance, TurnHistoryEntry, TurnSubmission, WorldState } from '../types';
 
 // --- fixtures --------------------------------------------------------------
@@ -90,6 +91,10 @@ const PLAYER_SCHEME_NAME = 'Hold the Throne Against All';
 // A publicly-dead hidden survivor (D3 secret_truth) in the roster: its
 // GM-private motive must never reach any mind's prompt.
 const HIDDEN_MOTIVE = 'Waits in a Capri villa to reclaim the purple';
+const PRIVATE_SCENE_NPC_SPEECH = 'Three cohorts have sworn to me.';
+const PRIVATE_SCENE_NPC_INTENT = 'Bluff; only one cohort is loyal.';
+const PRIVATE_SCENE_UNRELATED_TRUTH = 'WORLD_TRUTH_SENTINEL: exactly one cohort exists.';
+const PRIVATE_SCENE_PLAYER_INTENT = 'PLAYER_PRIVATE_INTENT_MUST_NOT_REACH_NPC_MIND';
 
 function makeHiddenSurvivor(): Entity {
   return makeEntity({
@@ -189,10 +194,8 @@ const adjudicationJson = JSON.stringify({
   gm_private: [],
 });
 
-const privateConversationJson = JSON.stringify({ dialogueSnippet: 'They met briefly.', deltas: [] });
 const simStateJson = JSON.stringify(SIM_STATE);
 const narrationText = 'The city holds its breath.\nSUGGESTION: Wait';
-const relationshipJson = JSON.stringify({ deltas: [] });
 
 const THRAX_REASONING = 'PRIVATE: I fear my own men more than the Emperor.';
 const VENENA_REASONING = 'PRIVATE: The kitchens are watched; the wine cellar is not.';
@@ -239,11 +242,9 @@ function classifyCall(systemInstruction: string, contents: string): string {
     return `npcMind:${match?.[1] ?? 'unknown'}`;
   }
   if (systemInstruction.includes('Roman Crisis Adjudicator & Simulation Engine')) return 'adjudication';
-  if (systemInstruction.includes('secret observer')) return 'privateConversation';
   if (systemInstruction.includes('Roman historian analyzing the state of the Empire')) return 'simulationState';
   if (systemInstruction.includes('the inner voice of')) return 'monologue';
   if (systemInstruction.includes('Chronicler of the Empire & Intelligence Briefer')) return 'narration';
-  if (systemInstruction.includes('narrative analyst AI')) return 'relationshipUpdates';
   throw new Error(`npcMinds test fake: unrecognized call. systemInstruction: ${systemInstruction.slice(0, 120)}`);
 }
 
@@ -283,25 +284,23 @@ function baseResponses(): Record<string, string | Error> {
     'npcMind:npc_thrax': thraxDecisionJson,
     'npcMind:npc_venena': venenaDecisionJson,
     adjudication: adjudicationJson,
-    privateConversation: privateConversationJson,
     simulationState: simStateJson,
     monologue: 'I watch the roads.',
     narration: narrationText,
-    relationshipUpdates: relationshipJson,
   };
 }
 
-function runAsymmetryTurn(harness: MindHarness) {
+function runAsymmetryTurn(harness: MindHarness, options?: RunNewTurnOptions, submission: TurnSubmission = freeform('Hold court')) {
   const { player, npcA, npcB } = makeAsymmetryCast();
   // The hidden survivor rides in the roster so the asymmetry pin covers
   // secret_truth: its motive reaches the (omniscient) adjudicator's
   // GM-SECRET block but must never reach any mind.
   return runNewTurn(
-    harness.ai, freeform('Hold court'), player, 5, [player, npcA, npcB, makeHiddenSurvivor()], WORLD_STATE, SIM_STATE,
+    harness.ai, submission, player, 5, [player, npcA, npcB, makeHiddenSurvivor()], WORLD_STATE, SIM_STATE,
     [makePreviousEntry()], [], [], [
       { entity_id: 'npc_thrax', intent: 'March the Rhine legions on Rome', continuity: 'continue' },
       { entity_id: 'npc_venena', intent: 'Slip the toxin into the palace kitchens', continuity: 'continue' },
-    ], '', false, 'Grim political thriller'
+    ], '', false, 'Grim political thriller', options
   );
 }
 
@@ -409,6 +408,50 @@ describe('buildNpcMindPrompt: in-character address with bounded knowledge', () =
 // --- THE ASYMMETRY PIN (D10/D22 - the point of the stage) -------------------
 
 describe('runNewTurn npc_minds: the information-asymmetry pin', () => {
+  it('routes at most three completed private-scene memories only to their participating NPC mind', async () => {
+    const harness = createMindHarness(baseResponses());
+    const memory = (index: number): PrivateSceneNpcMemoryProjection & { unrelatedTruth: string } => ({
+      closureReason: 'player_ended',
+      transcript: [
+        { sequence: 1, speaker: 'player', text: `PARTICIPANT_TRANSCRIPT_${index}` },
+        { sequence: 2, speaker: 'npc', text: `NPC_TRANSCRIPT_${index}` },
+      ],
+      speechActs: [{ speaker: 'npc', kind: 'claim', text: `${PRIVATE_SCENE_NPC_SPEECH} [memory ${index}]` }],
+      lastWord: `Last word ${index}`,
+      npcPrivate: {
+        sincerity: 'deceptive',
+        hiddenIntent: `${PRIVATE_SCENE_NPC_INTENT} [memory ${index}]`,
+        plannedFollowThrough: [`Plan ${index}`],
+      },
+      unrelatedTruth: PRIVATE_SCENE_UNRELATED_TRUTH,
+    });
+
+    await runAsymmetryTurn(
+      harness,
+      { privateSceneNpcMemoriesByNpcId: { npc_thrax: [memory(1), memory(2), memory(3), memory(4)] } },
+      { version: 1, kind: 'structured', actions: ['Hold court'], privateIntent: PRIVATE_SCENE_PLAYER_INTENT },
+    );
+
+    const thraxPrompt = harness.prompts['npcMind:npc_thrax'];
+    const venenaPrompt = harness.prompts['npcMind:npc_venena'];
+    const thraxBlock = thraxPrompt.match(/PRIVATE AUDIENCE MEMORIES[\s\S]*?END PRIVATE AUDIENCE MEMORIES/)?.[0] ?? '';
+    expect(thraxBlock).toContain(`${PRIVATE_SCENE_NPC_SPEECH} [memory 1]`);
+    expect(thraxBlock).toContain(`${PRIVATE_SCENE_NPC_SPEECH} [memory 2]`);
+    expect(thraxBlock).toContain(`${PRIVATE_SCENE_NPC_SPEECH} [memory 3]`);
+    expect(thraxBlock).not.toContain(`${PRIVATE_SCENE_NPC_SPEECH} [memory 4]`);
+    expect(thraxBlock).toContain(PRIVATE_SCENE_NPC_INTENT);
+    expect(thraxBlock).toContain('PARTICIPANT_TRANSCRIPT_1');
+    expect(thraxBlock).toContain('NPC_TRANSCRIPT_3');
+    expect(thraxBlock).not.toContain('PARTICIPANT_TRANSCRIPT_4');
+    expect(thraxBlock).not.toContain(PRIVATE_SCENE_UNRELATED_TRUTH);
+    expect(thraxBlock).not.toContain(PRIVATE_SCENE_PLAYER_INTENT);
+    expect(venenaPrompt).not.toContain('PRIVATE AUDIENCE MEMORIES');
+    expect(venenaPrompt).not.toContain(PRIVATE_SCENE_NPC_SPEECH);
+    expect(`${harness.systems['npcMind:npc_thrax']}\n${thraxPrompt}`).toMatch(/spoken .*claims, not .*truth/i);
+    expect(`${harness.systems['npcMind:npc_thrax']}\n${thraxPrompt}`).toMatch(/hidden intent .*plan, not .*happened/i);
+    expect(`${harness.systems['npcMind:npc_thrax']}\n${thraxPrompt}`).toMatch(/only .*adjudication.*deltas.*consequences/i);
+  });
+
   it("a mind's prompt contains its OWN scheme/secrets but NEVER the rival's, the player's privates, gm_private, or rumor truth flags", async () => {
     const harness = createMindHarness(baseResponses());
     await runAsymmetryTurn(harness);
@@ -703,20 +746,24 @@ describe('runNewTurn npc_minds: per-mind failure degrades softly', () => {
   });
 });
 
-// --- step 5.5: narrative-analyst relation deltas join the committed record ---
+// --- main adjudication relation deltas join the committed record -----------
 
-describe('runNewTurn step 5.5: relationship deltas are committed, applied once, and player-perceivable', () => {
-  it('appends the applied deltas to the committed adjudication, leaves state singly-applied, and the player digest classifies a self-visible one', async () => {
+describe('runNewTurn main adjudication: relationship deltas are committed, applied once, and player-perceivable', () => {
+  it('commits and applies an adjudicator relation delta once, and the player digest classifies a self-visible one', async () => {
     const responses = baseResponses();
-    responses.relationshipUpdates = JSON.stringify({
+    responses.adjudication = JSON.stringify({
+      turn: 5,
+      entityActions: [],
       deltas: [
         { type: 'relation', key: 'player_1:npc_thrax:trust_level', delta: -2, reason: 'The vial changing hands gnaws at him.' },
       ],
+      headlines: ['The Rhine stirs.'],
+      gm_private: [],
     });
     const harness = createMindHarness(responses);
     const result = await runAsymmetryTurn(harness);
 
-    // Committed: the step-5.5 delta is part of the entry's ground-truth
+    // Committed: the adjudicator delta is part of the entry's ground-truth
     // record - visible to the GM console, the player digest, and next
     // turn's NPC mind digests.
     const committed = result.newHistoryEntry.adjudication.deltas.filter(
@@ -954,42 +1001,6 @@ describe('D30: a mind evolves its OWN active_scheme (load-bearing scheme_adjustm
       expect(byst.active_scheme?.name).toBe('Bystander Scheme');
 
       // The supersession is traced for the GM console (D4/D5 - GM-only).
-      const mindNotes = result.newHistoryEntry.adjudication.gm_private.filter(n => n.startsWith('[Mind]'));
-      expect(mindNotes.some(n => n.includes('Superseded') && n.includes('npc_thrax'))).toBe(true);
-    });
-
-    it("ordering (D30): a private-conversation 'scheme' delta for a MINDED entity cannot overwrite the mind's own evolution", async () => {
-      // The off-screen conversation (npc_thrax <-> npc_venena) tries to author
-      // npc_thrax's scheme. But Thrax is minded and its mind evolved its own
-      // scheme this turn (thraxDecisionJson) - the conversation deltas are
-      // merged BEFORE the mind-scheme dedup, so the conversation's scheme
-      // delta is superseded, never applied. A minded entity's interior plan
-      // is owned by its mind, not an off-screen meeting.
-      const responses = baseResponses();
-      responses.privateConversation = JSON.stringify({
-        dialogueSnippet: 'They plotted in the dark.',
-        deltas: [
-          { type: 'scheme', key: 'npc_thrax', delta: 0, reason: JSON.stringify({ name: 'Conversation Override', overall_goal: "Not the mind's plan.", steps: [] }) },
-        ],
-      });
-      const harness = createMindHarness(responses);
-      const result = await runAsymmetryTurn(harness);
-
-      // Exactly one scheme delta for Thrax survives: the mind's evolution,
-      // never the conversation's override.
-      const thraxScheme = result.newHistoryEntry.adjudication.deltas.filter(
-        (d: EventDelta) => d.type === 'scheme' && d.key === 'npc_thrax'
-      );
-      expect(thraxScheme).toHaveLength(1);
-      expect((JSON.parse(thraxScheme[0].reason) as Scheme).name).toBe(OWN_SCHEME_NAME);
-      expect(thraxScheme[0].reason).not.toContain('Conversation Override');
-
-      // Applied to state: Thrax's active_scheme is the mind's evolution.
-      const thrax = result.updatedEntities.find(e => e.entity_id === 'npc_thrax')!;
-      expect(thrax.active_scheme?.name).toBe(OWN_SCHEME_NAME);
-      expect(thrax.active_scheme?.steps.map(s => s.objective)).toContain('The recruitment step is complete; the march begins.');
-
-      // The supersession of the competing conversation delta is traced (D4/D5).
       const mindNotes = result.newHistoryEntry.adjudication.gm_private.filter(n => n.startsWith('[Mind]'));
       expect(mindNotes.some(n => n.includes('Superseded') && n.includes('npc_thrax'))).toBe(true);
     });

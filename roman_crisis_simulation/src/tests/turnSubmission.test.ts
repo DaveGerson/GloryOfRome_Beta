@@ -727,7 +727,7 @@ describe('consumer-specific audience projections', () => {
         command: 'Hold the eastern gate',
       },
     ],
-    privateIntent: 'PRIVATE_SENTINEL_BACK_CLODIUS',
+    privateIntent: 'PRIVATE_INTENT_MUST_STAY_PLAYER_OWNED',
     questionOrContext: 'What can I infer from the empty benches?',
   };
 
@@ -740,7 +740,7 @@ describe('consumer-specific audience projections', () => {
     expect(projected).toContain('Attend the Senate');
     expect(projected).toContain('To: Lucius [lucius]');
     expect(projected).toContain('To: the night watch');
-    expect(projected).not.toContain('PRIVATE_SENTINEL');
+    expect(projected).not.toContain('PRIVATE_INTENT_MUST_STAY_PLAYER_OWNED');
     expect(projected).not.toContain('What can I infer');
   });
 
@@ -750,21 +750,22 @@ describe('consumer-specific audience projections', () => {
     expect(projected).toContain('Attend the Senate');
     expect(projected).toContain('To: Lucius [lucius]');
     expect(projected).toContain('To: the night watch');
-    expect(projected).toContain('PRIVATE_SENTINEL_BACK_CLODIUS');
+    expect(projected).toContain('PRIVATE_INTENT_MUST_STAY_PLAYER_OWNED');
     expect(projected).toContain('What can I infer from the empty benches?');
   });
 
-  it('keeps adjudication channels separate instead of blending private material into the observable attempt', () => {
-    const projected = projectForAdjudication(submission);
+  it('excludes player Private Intent from the objective adjudication projection', () => {
+    const privateSubmission: TurnSubmission = {
+      version: 1,
+      kind: 'structured',
+      actions: ['Attend the Senate'],
+      privateIntent: 'PRIVATE_INTENT_MUST_STAY_PLAYER_OWNED',
+    };
 
-    expect(projected.observableAttempt).toContain('Attend the Senate');
-    expect(projected.observableAttempt).toContain('To: Lucius [lucius]');
-    expect(projected.observableAttempt).not.toContain('PRIVATE_SENTINEL');
-    expect(projected.observableAttempt).not.toContain('What can I infer');
-    expect(projected.privateIntent).toBe('PRIVATE_SENTINEL_BACK_CLODIUS');
-    expect(projected.questionOrContext).toBe(
-      'What can I infer from the empty benches?',
-    );
+    expect(projectForAdjudication(privateSubmission)).toEqual({
+      observableAttempt: 'Attend the Senate',
+      questionOrContext: null,
+    });
   });
 
   it('renders a human recipient label in player history without exposing the implementation-only ID', () => {

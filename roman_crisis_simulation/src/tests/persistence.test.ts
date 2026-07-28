@@ -14,6 +14,7 @@ import {
 } from '../persistence/saveGame';
 import type { TurnHistoryEntry, RawCallRecord, Memory } from '../types';
 import type { KnowledgeClaim } from '../knowledge/store';
+import type { PrivateSceneRecord } from '../privateScene/model';
 import { serializeTurnSubmission } from '../playerInput/turnSubmission';
 
 function makeState(overrides: Partial<SaveGameState> = {}): SaveGameState {
@@ -79,6 +80,32 @@ function makeHistoryEntry(turnNumber: number, withRawCalls: boolean): TurnHistor
   };
 }
 
+function makePrivateScene(overrides: Partial<PrivateSceneRecord> = {}): PrivateSceneRecord {
+  return {
+    sceneId: 'scene_4_1',
+    macroTurn: 4,
+    playerId: 'severus_alexander',
+    npcId: 'maximinus_thrax',
+    playerName: 'Severus Alexander',
+    npcName: 'Maximinus Thrax',
+    status: 'closed',
+    transcript: [
+      { sequence: 1, speaker: 'player', text: 'Speak plainly.' },
+      { sequence: 2, speaker: 'npc', text: 'I have heard you.' },
+    ],
+    npcResponseCount: 1,
+    speechActs: [{ speaker: 'npc', kind: 'claim', text: 'I have heard you.', exchange: 1 }],
+    npcPrivate: {
+      sincerity: 'Guarded.',
+      hiddenIntent: 'Measure the emperor before choosing a side.',
+      plannedFollowThrough: ['Question the camp prefect.'],
+    },
+    closureReason: 'player_ended',
+    consequenceStatus: 'pending',
+    ...overrides,
+  };
+}
+
 describe('persistence/saveGame', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -87,6 +114,88 @@ describe('persistence/saveGame', () => {
   afterEach(() => {
     localStorage.clear();
     vi.restoreAllMocks();
+  });
+
+  it('round-trips the optional private-scene records without promoting their private fields', () => {
+    const scenes = [
+      makePrivateScene({ status: 'active', closureReason: undefined }),
+      makePrivateScene({ sceneId: 'scene_4_2', status: 'awaiting_last_word', closureReason: 'refused' }),
+      makePrivateScene({ sceneId: 'scene_4_3', consequenceStatus: 'consumed', consumedByTurn: 5 }),
+    ];
+    saveGame(makeState({ privateScenes: scenes }));
+
+    const loaded = loadGame();
+    expect(loaded?.state.privateScenes).toEqual(scenes);
+    expect(JSON.stringify(loaded?.state.privateScenes)).toContain('hiddenIntent');
+    expect(loaded?.state).not.toHaveProperty('hiddenIntent');
+    expect(loaded?.state).not.toHaveProperty('sincerity');
+  });
+
+  it('persists only canonical private-scene fields without mutating the runtime record', () => {
+    const canonical: PrivateSceneRecord = {
+      sceneId: 'scene_4_canonical',
+      macroTurn: 4,
+      playerId: 'severus_alexander',
+      npcId: 'maximinus_thrax',
+      playerName: 'Severus Alexander',
+      npcName: 'Maximinus Thrax',
+      status: 'closed',
+      transcript: [
+        { sequence: 1, speaker: 'player', text: 'Speak plainly.' },
+        { sequence: 2, speaker: 'npc', text: 'I have heard you.' },
+        { sequence: 3, speaker: 'player', text: 'Then remember it.' },
+      ],
+      npcResponseCount: 1,
+      speechActs: [
+        { speaker: 'npc', kind: 'claim', text: 'I have heard you.', exchange: 1 },
+        { speaker: 'player', kind: 'unclassified', text: 'Then remember it.', exchange: 2 },
+      ],
+      npcPrivate: {
+        sincerity: 'Guarded.',
+        hiddenIntent: 'Measure the emperor before choosing a side.',
+        plannedFollowThrough: ['Question the camp prefect.'],
+      },
+      closureReason: 'player_ended',
+      lastWord: 'Then remember it.',
+      consequenceStatus: 'consumed',
+      consumedByTurn: 5,
+    };
+    const runtimeScene = {
+      ...canonical,
+      promptText: 'TOP_LEVEL_PROMPT_MUST_NOT_PERSIST',
+      transcript: canonical.transcript.map(line => ({
+        ...line,
+        mechanicsTrace: 'TRANSCRIPT_EXTRA_MUST_NOT_PERSIST',
+      })),
+      speechActs: canonical.speechActs.map(act => ({
+        ...act,
+        modelRationale: 'SPEECH_ACT_EXTRA_MUST_NOT_PERSIST',
+      })),
+      npcPrivate: {
+        ...canonical.npcPrivate,
+        plannedFollowThrough: [...canonical.npcPrivate.plannedFollowThrough],
+        systemInstruction: 'NPC_PRIVATE_EXTRA_MUST_NOT_PERSIST',
+      },
+    } as PrivateSceneRecord & { promptText: string };
+    const sourceBeforeSave = structuredClone(runtimeScene);
+
+    expect(saveGame(makeState({ privateScenes: [runtimeScene] }))).toEqual({ ok: true });
+
+    const stored = JSON.parse(localStorage.getItem('gloryOfRome:autosave')!);
+    expect(stored.state.privateScenes).toEqual([canonical]);
+    expect(loadGame()?.state.privateScenes).toEqual([canonical]);
+    expect(runtimeScene).toEqual(sourceBeforeSave);
+  });
+
+  it('accepts a v1 save which predates private scenes', () => {
+    const legacy = makeState();
+    localStorage.setItem('gloryOfRome:autosave', JSON.stringify({
+      version: SAVE_VERSION,
+      savedAt: new Date().toISOString(),
+      state: legacy,
+    }));
+
+    expect(loadGame()?.state.privateScenes).toBeUndefined();
   });
 
   it('round-trips a save through save/load', () => {

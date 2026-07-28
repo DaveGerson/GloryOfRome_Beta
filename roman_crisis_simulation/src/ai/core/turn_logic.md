@@ -75,13 +75,6 @@ The game's code now takes the AI's Adjudication plan and executes it, permanentl
 * **Mechanics**: The applyAdjudication function in ai/core/engine.ts iterates through every delta in the Adjudication object and applies the changes to the entities and worldState objects being managed in App.tsx. Resources are updated, relationships shift, statuses change, and new reports (from rumors) are created.  
 * **Player Implication**: This is the point of no return. The consequences of the week's events are now locked in. Your resources have been spent, your reputation has changed, and the world has moved on. You can see these new values reflected in the Side Panel tabs.
 
-### **6.5. Off-Screen NPC Communication Simulation**
-
-To create a deeper sense of a living world, the simulation performs one final, secret step before telling you what happened.
-
-*   **Mechanics**: After the main turn's state changes are applied, and only if there are at least 2 spotlight entities from Step 2, a new Gemini call (`simulatePrivateConversation`, on the **gemini-3-pro-preview** model) is made using the two most important "spotlight" NPCs as inputs. The AI generates a summary of a secret conversation between them and 1-3 resulting `EventDeltas` (e.g., trust increases, a new secret is created). These deltas are immediately applied to the game state, and the summary is added to the private GM Log. If fewer than 2 spotlight entities exist this turn, this step is skipped entirely.
-*   **Player Implication**: This adds a layer of genuine intrigue. The world evolves not just in response to your actions, but through the independent scheming of its inhabitants. You won't be told about these secret meetings directly. You will only see their consequences—a sudden change in an NPC's attitude, an unexpected new resource appearing for a rival—creating new mysteries for you to solve through espionage.
-
 ### **7\. Narrative Generation (Crafting the Story)**
 
 The game world is updated, but you, the player, see numbers and stats. The simulation now translates these mechanical changes into a compelling narrative, in two more sequential Gemini calls.
@@ -90,13 +83,6 @@ The game world is updated, but you, the player, see numbers and stats. The simul
   1. **Player Monologue** (called first): getPlayerMonologue (ai/tools/intelligence.ts), on the **gemini-2.5-flash** model. It sends your *updated* character profile (with new resources, relationships, etc.), this week's headlines, and your last few turns' intents, asking the AI to generate a brief, first-person inner thought reflecting your character's personality and recent strategy.  
   2. **Main Narration** (called second): A direct `ai.models.generateContent` call inline in runNewTurn, on the **gemini-3-pro-preview** model (`thinkingConfig.thinkingBudget: 512`). It sends the entire Adjudication object plus your updated character profile and asks the AI to write a 2-3 paragraph story summarizing the turn from your perspective (direct consequences → observed/reported events → sourced information), followed by exactly 3 "SUGGESTION:"-prefixed next actions, which are parsed out of the response text.  
 * **Player Implication**: This is how the game communicates the results to you. Instead of just seeing "-5000 denarii," you read a story about the crippling cost of the grain dole you authorized. The monologue gives you insight into your character's evolving state of mind, enhancing your future decisions.
-
-### **7.5. Relationship Update Pass**
-
-With the narration text now in hand, the game makes one last pass to catch relationship shifts that the main adjudication might have missed or under-specified.
-
-* **Mechanics**: getRelationshipUpdates (ai/tools/intelligence.ts), on the **gemini-3-pro-preview** model. It sends the finished narration and headlines, plus a brief of every living entity's current relationships, and asks the AI to propose 'relation' deltas (trust\_level, respect\_level, perceived\_threat, ideological\_alignment, dependency\_level) for pairs whose feelings were directly or strongly implicitly affected by the turn's events. If any are returned, they are applied immediately via applyDeltas and logged to the private GM log.  
-* **Player Implication**: This keeps relationship stats honest with the story you actually read, rather than only what the earlier, more mechanically-focused adjudication call thought to change.
 
 ### **8\. Event Check (Checking for Fateful Events)**
 
@@ -107,7 +93,7 @@ Finally, with the new state of the world in place, the game checks if this new r
 
 ### **Summary of Gemini AI Calls Per Turn**
 
-A single player turn (runNewTurn in ai/core/turn.ts) makes **6 sequential Gemini calls, plus 1 conditional call** (7 total in the best case). Every call except the player monologue uses **gemini-3-pro-preview**; the monologue call uses the cheaper/faster **gemini-2.5-flash**. isMockMode bypasses all of them via mockRunNewTurn.
+A single player turn (`runNewTurn` in `ai/core/turn.ts`) makes a variable number of Gemini calls because the assessment and per-spotlight NPC mind calls are conditional. The main adjudication is the sole authority for turn consequences, including directional relationship deltas. `isMockMode` bypasses the provider calls via `mockRunNewTurn`.
 
 1.  **getStoryRelevance** — *gemini-3-pro-preview*  
    * **Purpose**: Determine which 2-4 NPCs are the primary drivers of the story for this turn (and optionally suggest adding/removing an entity or location).  
@@ -121,20 +107,12 @@ A single player turn (runNewTurn in ai/core/turn.ts) makes **6 sequential Gemini
    * **Purpose**: Update the empire-wide `SimulationState` (imperial\_status, senate\_status, military\_status, plebeian\_mood, major\_ongoing\_crisis) based on the Adjudication's headlines and deltas.  
    * **Result Usage**: Returned SimulationState is stored as-is; this happens before `applyAdjudication` mutates entities/world state.  
    * *(Non-AI step in between: `applyAdjudication`/`applyDeltas` mechanically apply all of the Adjudication's deltas to entities, worldState, and reports.)*  
-4.  **simulatePrivateConversation** — *gemini-3-pro-preview* — **conditional**: only runs if Step 1 produced 2+ spotlight entities.  
-   * **Purpose**: Simulate a secret off-screen conversation between the top 2 spotlight NPCs.  
-   * **Result Usage**: Its 1-3 `EventDelta`s are applied immediately via `applyDeltas`; its dialogue snippet is appended to `adjudication.gm_private`.  
-5.  **getPlayerMonologue** — *gemini-2.5-flash*  
+4.  **getPlayerMonologue** — *gemini-2.5-flash*
    * **Purpose**: Generate a brief first-person inner thought for the player character.  
    * **Context Included**: The player's *updated* Entity profile, this turn's headlines, and the player's last few turns' intents.  
    * **Result Usage**: Displayed to the player as the "Inner Thoughts" monologue.  
-6.  **Main Narration Call** (inline `ai.models.generateContent`, not a named tool function) — *gemini-3-pro-preview* (`thinkingBudget: 512`)  
+5.  **Main Narration Call** (inline `ai.models.generateContent`, not a named tool function) — *gemini-3-pro-preview* (`thinkingBudget: 512`)
    * **Purpose**: Turn the Adjudication JSON into a 2-3 paragraph narrative plus exactly 3 suggested next actions.  
    * **Context Included**: The full Adjudication object and the player's updated Entity profile.  
    * **Result Usage**: Split on the `SUGGESTION:` marker into the displayed narration text and the 3 suggested-action prompts.  
-7.  **getRelationshipUpdates** — *gemini-3-pro-preview*  
-   * **Purpose**: Propose additional relationship deltas based on the finished narration text (a pass the main adjudication call may under-specify).  
-   * **Context Included**: The narration, headlines, and a brief of every living entity's current relationships.  
-   * **Result Usage**: Any returned deltas are applied immediately via `applyDeltas` and logged to `adjudication.gm_private`.
-
 After all of this, `runNewTurn` returns and App.tsx commits the results, increments its own `turnNumber` state, and then `checkForTriggeredEvent` (events/engine.ts, Step 8 above) runs — a synchronous, non-AI check.

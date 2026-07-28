@@ -10,8 +10,8 @@
  * save/legacy compatibility), THE LEGACY PIN (entities without the fields
  * flow through every builder emitting NOTHING - never the literal string
  * "undefined"), the mind prompt carrying the character's OWN voice, the
- * narration prompt's bounded CAST VOICES block (selectVoiceCast: spotlight
- * + acting entities only, capped, never the whole roster) threaded through
+ * narration prompt's bounded CAST VOICES block (selected from player-visible
+ * event subjects, capped, never the whole roster) threaded through
  * the real pipeline, the epithet-only rule for the omniscient adjudicator
  * briefs (voice never enters getEntityBrief), base-scenario authoring
  * completeness, and the generation prompts requesting both fields. The
@@ -32,7 +32,7 @@ import { runNewTurn } from '../ai/core/turn';
 import { endTurnCapture } from '../ai/core/geminiService';
 import { mockCreateCharacter, mockGenerateEntitiesDetails, mockGenerateScenarioStructure } from '../ai/mocks';
 import { ALL_INITIAL_ENTITIES } from '../constants/baseScenario';
-import type { Adjudication, Entity, SimulationState, WorldState } from '../types';
+import type { Entity, SimulationState, WorldState } from '../types';
 
 // --- fixtures --------------------------------------------------------------
 
@@ -146,13 +146,11 @@ describe('legacy entities flow through every builder with no "undefined" artifac
   });
 
   it('buildNarrationPrompt: default/legacy call sites produce no CAST VOICES block and no "undefined"', () => {
-    const adjudication: Adjudication = { turn: 3, entityActions: [], deltas: [], headlines: [], gm_private: [] };
-    // The pre-4C.5 five-argument call shape still works unchanged...
-    const withoutCast = buildNarrationPrompt('A crisis.', legacy, 'Hold court', adjudication, []);
+    const withoutCast = buildNarrationPrompt('A crisis.', legacy, 'Hold court', [], []);
     expect(withoutCast.prompt).not.toContain('CAST VOICES');
     expect(withoutCast.prompt).not.toContain('undefined');
     // ...and an explicitly all-legacy cast behaves identically.
-    const withLegacyCast = buildNarrationPrompt('A crisis.', legacy, 'Hold court', adjudication, [], [makeLegacyEntity()]);
+    const withLegacyCast = buildNarrationPrompt('A crisis.', legacy, 'Hold court', [], [makeLegacyEntity()]);
     expect(withLegacyCast.prompt).not.toContain('CAST VOICES');
     expect(withLegacyCast.prompt).not.toContain('undefined');
   });
@@ -258,11 +256,9 @@ function classifyCall(systemInstruction: string, contents: string): string {
     return `npcMind:${match?.[1] ?? 'unknown'}`;
   }
   if (systemInstruction.includes('Roman Crisis Adjudicator & Simulation Engine')) return 'adjudication';
-  if (systemInstruction.includes('secret observer')) return 'privateConversation';
   if (systemInstruction.includes('Roman historian analyzing the state of the Empire')) return 'simulationState';
   if (systemInstruction.includes('the inner voice of')) return 'monologue';
   if (systemInstruction.includes('Chronicler of the Empire & Intelligence Briefer')) return 'narration';
-  if (systemInstruction.includes('narrative analyst AI')) return 'relationshipUpdates';
   throw new Error(`voice test fake: unrecognized call. systemInstruction: ${systemInstruction.slice(0, 120)}`);
 }
 
@@ -280,8 +276,8 @@ function createHarness(responses: Record<string, string>) {
   return { ai, prompts };
 }
 
-describe('runNewTurn: the narration prompt carries the BOUNDED on-stage voice cast', () => {
-  it('includes spotlight + actor voices, excludes bystanders, keeps voice out of the adjudicator', async () => {
+describe('runNewTurn: the narration prompt carries the BOUNDED visible-event voice cast', () => {
+  it('includes voices for player-visible event subjects, excludes bystanders, keeps voice out of the adjudicator', async () => {
     const player = makeLegacyEntity({ entity_id: 'player_1', name: 'Gaius Testus' });
     // Spotlight (and mind-eligible) NPC with full flavor.
     const npcA = makeEntity({ entity_id: 'npc_a', name: 'Titus Ferrus', position: 'General', voice: VOICE_A, epithet: EPITHET_A });
@@ -308,12 +304,15 @@ describe('runNewTurn: the narration prompt carries the BOUNDED on-stage voice ca
           { id: 'npc_a', intent: 'march', target: null, notes: 'The column moves.' },
           { id: 'npc_c', intent: 'intrigue', target: 'player_1', notes: 'A whisper campaign.' },
         ],
-        deltas: [], headlines: ['The column moves.'], gm_private: [],
+        deltas: [
+          { type: 'resource', key: 'npc_a:denarii', delta: 1, reason: 'A visible payment.' },
+          { type: 'resource', key: 'npc_c:denarii', delta: 1, reason: 'A visible payment.' },
+        ],
+        headlines: ['The column moves.'], gm_private: [],
       }),
       simulationState: JSON.stringify(SIM_STATE),
       monologue: 'I watch the roads.',
       narration: 'The city stirs.\nSUGGESTION: Wait',
-      relationshipUpdates: JSON.stringify({ deltas: [] }),
     };
     const harness = createHarness(responses);
 
@@ -323,7 +322,7 @@ describe('runNewTurn: the narration prompt carries the BOUNDED on-stage voice ca
     );
 
     // The narration prompt carries the CAST VOICES block for exactly the
-    // on-stage cast: the spotlight NPC and the acting NPC...
+    // NPCs already named by player-visible events...
     const narrationPrompt = harness.prompts.narration;
     expect(narrationPrompt).toContain('CAST VOICES');
     expect(narrationPrompt).toContain(`- Titus Ferrus "${EPITHET_A}": ${VOICE_A}`);

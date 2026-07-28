@@ -8,6 +8,7 @@ import { getSessionCallLog } from '../ai/core/geminiService';
 import { toRoman } from './ui/Brand';
 import { createFocusTrap, FocusTrap } from './ui/focusTrap';
 import { structuredSubmissionForHistory, TurnSubmissionHistory } from './TurnSubmissionHistory';
+import type { PrivateSceneRecord } from '../privateScene/model';
 
 /**
  * Game Master Tools — "the Fates' ledger": a dark tablinum modal over the
@@ -151,6 +152,66 @@ const PrivateView: React.FC<{ adjudication: Adjudication }> = ({ adjudication })
             <p style={{ color: DIM, margin: 0 }}>No private GM notes for this turn.</p>
         )}
     </>
+);
+
+/** Raw private-scene inspection. This component is reachable only inside the GM console. */
+const PrivateSceneGmView: React.FC<{ scenes: readonly PrivateSceneRecord[] }> = ({ scenes }) => (
+    <section aria-label="Private scene GM ledger" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <span style={{ ...lbl, color: GOLD }}>Private Scene Ledger</span>
+        {scenes.length === 0 ? (
+            <p style={{ color: DIM, margin: 0 }}>No private scenes have been recorded.</p>
+        ) : scenes.slice().reverse().map(scene => (
+            <details key={scene.sceneId} style={well}>
+                <summary style={{ cursor: 'pointer', color: PARCH }}>
+                    Turn {scene.macroTurn} · {scene.playerName} / {scene.npcName} · {scene.status}
+                </summary>
+                <div style={{ marginTop: 8, fontSize: 13 }}>
+                    <div><strong style={{ color: DIM }}>Scene ID:</strong> <span style={{ fontFamily: MONO }}>{scene.sceneId}</span></div>
+                    {scene.closureReason && <div><strong style={{ color: DIM }}>Closure:</strong> {scene.closureReason}</div>}
+                    {scene.lastWord && <div><strong style={{ color: DIM }}>Last word:</strong> {scene.lastWord}</div>}
+                    <div>
+                        <strong style={{ color: DIM }}>Consequence:</strong> {scene.consequenceStatus}
+                        {scene.consequenceStatus === 'consumed' && scene.consumedByTurn !== undefined
+                            ? ` · Consumed by turn ${scene.consumedByTurn}`
+                            : ''}
+                    </div>
+                </div>
+                <div style={{ marginTop: 8 }}>
+                    <span style={lbl}>Transcript</span>
+                    {scene.transcript.map(line => (
+                        <p key={line.sequence} style={{ margin: '3px 0', fontSize: 14 }}>
+                            <strong style={{ color: DIM }}>{line.speaker === 'player' ? scene.playerName : scene.npcName}:</strong> {line.text}
+                        </p>
+                    ))}
+                </div>
+                <div style={{ marginTop: 8 }}>
+                    <span style={lbl}>Speech acts</span>
+                    {scene.speechActs.length === 0 ? (
+                        <p style={{ color: DIM, margin: '3px 0' }}>None recorded.</p>
+                    ) : (
+                        <ul style={{ margin: '3px 0', paddingLeft: 18 }}>
+                            {scene.speechActs.map((act, index) => (
+                                <li key={index} style={{ fontSize: 13 }}>
+                                    Exchange {act.exchange} · {act.speaker} · {act.kind}: {act.text}
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
+                <div style={{ ...well, marginTop: 8, border: '1px solid rgba(179,58,43,.45)' }}>
+                    <span style={{ ...lbl, color: RED }}>NPC private intent — GM only</span>
+                    <div style={{ fontSize: 13, marginTop: 4 }}><strong style={{ color: DIM }}>Sincerity:</strong> {scene.npcPrivate.sincerity}</div>
+                    <div style={{ fontSize: 13 }}><strong style={{ color: DIM }}>Hidden intent:</strong> {scene.npcPrivate.hiddenIntent}</div>
+                    <div style={{ fontSize: 13 }}>
+                        <strong style={{ color: DIM }}>Planned follow-through:</strong>{' '}
+                        {scene.npcPrivate.plannedFollowThrough.length > 0
+                            ? scene.npcPrivate.plannedFollowThrough.join(' · ')
+                            : 'None recorded.'}
+                    </div>
+                </div>
+            </details>
+        ))}
+    </section>
 );
 
 const SchemeLine: React.FC<{ scheme: Scheme }> = ({ scheme }) => (
@@ -549,6 +610,8 @@ const GameMasterScreen: React.FC<{
      * to show them. Optional - a legacy campaign simply has none yet.
      */
     npcIntents?: NpcIntent[];
+    /** Raw private-scene records. This prop is GM-only and must never be forwarded to player components. */
+    privateScenes?: readonly PrivateSceneRecord[];
     /**
      * DESIGN_DECISIONS.md D32 - the configuration menu's GM-Intervention-
      * availability toggle (persistence/uiPrefs.ts). Defaults to `true`
@@ -559,7 +622,7 @@ const GameMasterScreen: React.FC<{
      * `interventionText`.
      */
     gmInterventionEnabled?: boolean;
-}> = ({ history, onClose, interventionText, onSetIntervention, interactionLocked = false, playerCharacterId, worldState, turnNumber, inferredAmbition, pendingIntelligenceFallout, truthLedger, reports, knowledge, npcIntents, gmInterventionEnabled = true }) => {
+}> = ({ history, onClose, interventionText, onSetIntervention, interactionLocked = false, playerCharacterId, worldState, turnNumber, inferredAmbition, pendingIntelligenceFallout, truthLedger, reports, knowledge, npcIntents, privateScenes, gmInterventionEnabled = true }) => {
     const [activeTab, setActiveTab] = useState('summary');
     const [interventionInput, setInterventionInput] = useState(interventionText);
     const [showConfirmation, setShowConfirmation] = useState(false);
@@ -658,7 +721,7 @@ const GameMasterScreen: React.FC<{
                     </div>
                 </div>
 
-                {/* DESIGN_DECISIONS.md D8 - the ONE other sanctioned surface for the inferred ambition besides EpilogueScreen. Never rendered on any player-facing view. */}
+                {/* DESIGN_DECISIONS.md D8 - the sole rendered owner of inferred ambition, for GM inspection and tuning only. It never feeds the player epilogue, NPC reactions, or any player-facing view. */}
                 {inferredAmbition && (
                     <div style={{ flex: 'none', ...well, fontSize: 14 }}>
                         <span style={lbl}>Apparent Ambition</span>{' '}
@@ -760,6 +823,7 @@ const GameMasterScreen: React.FC<{
                 </div>
 
                 <div style={{ flex: 1, overflowY: 'auto', paddingRight: 6, display: 'flex', flexDirection: 'column', gap: 20, color: PARCH }}>
+                    {activeTab === 'private' && <PrivateSceneGmView scenes={privateScenes ?? []} />}
                     {/* The truth ledger and the player knowledge store are each one campaign-wide bounded collection (D11/D21), not per-turn data - rendered once, outside the per-turn loop below. */}
                     {activeTab === 'truth ledger' ? (
                         <TruthLedgerView ledger={truthLedger ?? []} reports={reports ?? []} />

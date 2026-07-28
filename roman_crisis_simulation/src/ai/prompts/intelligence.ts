@@ -3,8 +3,7 @@
  *
  * Prompt builders for the "intelligence" tool family in
  * ai/tools/intelligence.ts: story relevance (Director spotlight-picking),
- * simulation-state updates, relationship updates, private NPC
- * conversations, investigations, clarifications, and deep
+ * simulation-state updates, investigations, clarifications, and deep
  * analysis. Each builder returns { systemInstruction, prompt }, splitting
  * the stable role/task/format-contract text from the per-call dynamic
  * state, and is documented with PURPOSE/MODEL/CONSUMER/OUTPUT.
@@ -15,7 +14,7 @@
 
 import { Adjudication, Entity, WorldState, SimulationState, NpcIntent } from '../../types';
 import type { ActionResolutionTier } from '../core/resolution';
-import { getLightEntityBrief, REDACTED_SCHEME_REASON } from './fragments';
+import { REDACTED_SCHEME_REASON } from './fragments';
 
 /**
  * PURPOSE: Answer a player's question about a past event via their
@@ -45,7 +44,6 @@ export function buildClarificationPrompt(
 
   return { systemInstruction, prompt };
 }
-
 /**
  * PURPOSE: A trusted advisor's detailed intelligence report/threat
  * assessment on another character.
@@ -66,7 +64,6 @@ export function buildDeepAnalysisPrompt(
 
   return { systemInstruction, prompt };
 }
-
 /**
  * Per-tier authoring guidance for the investigation report call, keyed by
  * the exact tier strings from ai/core/resolution.ts. Replaces the old prose
@@ -154,7 +151,7 @@ export function buildInvestigationPrompt(
 
   return { systemInstruction, prompt };
 }
-
+// End of player-safe intelligence prompt builders.
 /**
  * PURPOSE: The player character's first-person internal monologue is built
  * in ai/prompts/narration.ts (`buildPlayerMonologuePrompt`) - grouped there
@@ -306,113 +303,6 @@ ${JSON.stringify(oldState, null, 2)}
 - Headlines: ${adjudication.headlines.join('. ')}
 - Key Deltas: ${adjudication.deltas.slice(0, 5).map(d => `${d.type} on ${d.key} because ${d.type === 'scheme' ? REDACTED_SCHEME_REASON : d.reason}`).join('; ')}
 `;
-
-  return { systemInstruction, prompt };
-}
-
-/**
- * PURPOSE: Derive 'relation' EventDeltas for relationships directly or
- * strongly implicitly affected by this turn's narration/headlines.
- * MODEL: pro (GEMINI_PRO).
- * CONSUMER: ai/core/turn.ts `runNewTurn`, step 5.5 (`getRelationshipUpdates`
- * in ai/tools/intelligence.ts).
- * OUTPUT: validated against `zRelationshipDeltas` (ai/core/zodSchemas.ts) /
- * `RelationshipDeltasSchema` (ai/core/schemas.ts).
- *
- * The directional relation-delta rule below is preserved verbatim - it
- * must stay in lockstep with the identical rule in
- * ai/prompts/adjudication.ts and the `EventDeltaSchema` description in
- * ai/core/schemas.ts.
- */
-export function buildRelationshipUpdatesPrompt(
-  narration: string,
-  headlines: string[],
-  entities: Entity[],
-  hasObservableAttempt = true
-): { systemInstruction: string; prompt: string } {
-  const systemInstruction = `
-    You are a narrative analyst AI. Your task is to read a summary of events and identify subtle shifts in relationships between characters. Based on the events, suggest specific, numerical changes to their relationship stats.
-
-    **Task:**
-    Based *only* on the events described above, generate a list of 'relation' deltas to reflect how the characters' feelings towards each other might have changed.
-    - Only generate deltas for relationships that were directly or strongly implicitly affected by the events.
-    - The 'key' for a relation delta MUST be in the format 'entity_a_id:entity_b_id:attribute'. Valid attributes are 'trust_level', 'respect_level', 'perceived_threat', 'ideological_alignment', 'dependency_level'.
-    - A delta changes entity_a's perception of entity_b ONLY (relationships are asymmetric). If both characters' feelings changed, emit two deltas — one per direction. The two directions need not be equal.
-    - 'delta' should be a small integer, typically between -3 and 3, representing the change.
-    - 'reason' should be a brief justification citing the event from the narration.
-    - If no relationships were significantly affected, return an empty list for 'deltas'.
-    ${hasObservableAttempt
-      ? ''
-      : '- No observable player attempt was submitted this turn. Do not infer relationship changes from an invented player action; use only factual adjudicated events.'}
-
-    Return a valid JSON object matching the schema.
-    `;
-
-  const entityBriefs = entities
-    .filter(e => e.status === 'alive')
-    .map(e => getLightEntityBrief(e, entities))
-    .join('\n');
-
-  const prompt = `
-    **Current Character Relationships:**
-    ${entityBriefs}
-
-    **Events of the Turn:**
-    Headlines:
-    - ${headlines.join('\n- ')}
-
-    Narration:
-    "${narration}"
-    `;
-
-  return { systemInstruction, prompt };
-}
-
-/**
- * PURPOSE: Simulate the outcome of a secret off-screen meeting between two
- * spotlight NPCs (alliance/betrayal/secret exchange) and the mechanical
- * EventDeltas that result.
- * MODEL: pro (GEMINI_PRO).
- * CONSUMER: ai/core/turn.ts `runNewTurn`, step 3.5 (`simulatePrivateConversation`
- * in ai/tools/intelligence.ts).
- * OUTPUT: validated against `zConversationSimulation` (ai/core/zodSchemas.ts) /
- * `ConversationSimulationSchema` (ai/core/schemas.ts).
- */
-export function buildPrivateConversationPrompt(
-  npc1: Entity,
-  npc2: Entity,
-  adjudication: Adjudication
-): { systemInstruction: string; prompt: string } {
-  const systemInstruction = `
-    You are a secret observer in a Roman political simulation, reporting on clandestine meetings.
-
-    **Task:**
-    Simulate the outcome of their private conversation. What did they discuss? Did they form an alliance, betray one another, or exchange secrets?
-    1.  **dialogueSnippet:** Write a short, third-person summary of their conversation for the Game Master's log.
-    2.  **deltas:** Generate 1-3 'EventDelta' objects that mechanically represent the outcome. This could be changing their 'trust_level' or 'perceived_threat' towards each other, or creating a new 'resource' like 'blackmail_on_${npc1.entity_id}'.
-
-    RUMOR DELTAS: if any delta is a 'rumor' (e.g. the pair agree to seed a story after the meeting), it MUST also carry two GM-private bookkeeping fields:
-    - 'is_true' (boolean, ALWAYS set): whether the claim is ACTUALLY TRUE in the simulation's reality, ruled STRICTLY by world-truth - never omit it, and there is no "unknown". Authorship never changes the ruling: a fabricated lie is false because its claim is false; a deliberately spread truth is still true.
-    - 'origin_id' (string): the entity_id of whichever participant starts or spreads the rumor.
-    Both fields are GM-private ledger data: neither may surface in the delta's 'reason' text, the 'dialogueSnippet', or anything else that could reach the player.
-    Every 'rumor' delta MUST also carry one NON-private categorization field:
-    - 'topic' (string, ALWAYS set): a short lowercase hyphenated slug naming WHAT about the subject the rumor concerns (e.g. 'health', 'tribute', 'succession-plot', 'legion-loyalty'). Two rumors about DIFFERENT matters of the same subject MUST get DIFFERENT topics so they stay distinct; a follow-up about the SAME matter reuses the SAME topic. Unlike is_true/origin_id this is a neutral label, not truth - it may reach the player and must never hint at whether the claim is true or planted.
-    - 'stance' ('corroborates' | 'contradicts'): set ONLY when this rumor is a counterplay follow-up that reuses an existing rumor's 'key' AND 'topic' - 'corroborates' if it backs the running claim, 'contradicts' if it refutes it. Omit on a first emission or an ordinary restatement.
-
-    Return a valid JSON object matching the schema.
-    `;
-
-  const prompt = `
-    Two characters, ${npc1.name} and ${npc2.name}, have met in secret this week.
-
-    **Character Profiles:**
-    - ${npc1.name} (${npc1.position}): Goals: ${npc1.short_term_goals.join(', ')}. Personality: Ambition(${npc1.personality?.ambition}), Cunning(${npc1.personality?.cunning}), Loyalty(${npc1.personality?.loyalty}).
-    - ${npc2.name} (${npc2.position}): Goals: ${npc2.short_term_goals.join(', ')}. Personality: Ambition(${npc2.personality?.ambition}), Cunning(${npc2.personality?.cunning}), Loyalty(${npc2.personality?.loyalty}).
-
-    **Context: Events of the Week**
-    - Headlines: ${adjudication.headlines.join('. ')}
-    - Player Action Summary: A player character took an action that resulted in these events.
-    `;
 
   return { systemInstruction, prompt };
 }

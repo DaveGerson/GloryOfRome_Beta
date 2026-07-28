@@ -8,6 +8,7 @@
 
 import { Adjudication, Entity } from '../../types';
 import type { NarrationSubmissionProjection } from '../../playerInput/turnSubmission';
+import type { PerceivedChange } from '../../perception/visibility';
 import { REDACTED_SCHEME_REASON } from './fragments';
 
 /**
@@ -115,7 +116,7 @@ export function buildVoiceCastBlock(cast: Entity[]): string {
   if (lines.length === 0) return '';
   return `
 CAST VOICES (speech-style notes for this turn's named characters - flavor only):
-When you quote or closely paraphrase a character listed here, let them SOUND like themselves per their voice note - distinct registers, never interchangeable prose. Epithets are public bynames you may use as texture. These notes style HOW people speak; they never add events, facts, or knowledge beyond the Adjudication JSON.
+When you quote or closely paraphrase a character listed here, let them SOUND like themselves per their voice note - distinct registers, never interchangeable prose. Epithets are public bynames you may use as texture. These notes style HOW people speak; they never add events, facts, or knowledge beyond the PLAYER-PERCEIVED TURN EVENTS.
 ${lines.join('\n')}
 `;
 }
@@ -131,24 +132,19 @@ ${lines.join('\n')}
  * Split along the system/user boundary: the ROLE and the fixed
  * narration/suggestion task instructions are stable across every turn and
  * now live in `systemInstruction`; the per-turn player profile, action,
- * and adjudication JSON are the dynamic `prompt`. Wording preserved
- * verbatim from the former inline template literal in turn.ts.
+ * and player-perceived events are the dynamic `prompt`.
  *
- * `adjudication` and `updatedPlayerEntity` are sanitized (see
- * `sanitizeAdjudicationForNarration`/`sanitizeEntityForNarration` above)
- * before being embedded - this is the one call in the pipeline that talks
- * directly to the player, so it must never see `gm_private` or a
- * `secret_truth` trace. `mortalityDirectives` (from
- * `ai/core/mortality.ts::processMortality`'s trace, forwarded by
- * `turn.ts`) are pre-decided narration instructions for any death claims
- * resolved this turn - the model narrates them, it does not re-decide them.
+ * The event input accepts only `text` and `source` from the D5 visibility
+ * seam; no raw adjudication/entityAction/delta/headline field can enter this
+ * player-output request. `updatedPlayerEntity` is independently sanitized.
+ * Mortality reaches this prompt through the same perceived-event input;
+ * raw mortality trace directives are GM-side state and are never accepted.
  */
 export function buildNarrationPrompt(
   metaNarrative: string,
   updatedPlayerEntity: Entity,
   playerOwned: NarrationSubmissionProjection | string,
-  adjudication: Adjudication,
-  mortalityDirectives: string[] = [],
+  perceivedEvents: readonly Pick<PerceivedChange, 'text' | 'source'>[],
   // 4C.5: the bounded on-stage cast whose voice/epithet lines the prompt
   // may carry - callers pass `selectVoiceCast`'s output (spotlight +
   // involved entities only, never the whole roster). Defaults to [] so
@@ -174,23 +170,14 @@ META-NARRATIVE: The story's theme is "${metaNarrative}". Your tone and focus sho
 Task:
 1.  **Narrate the Turn (2-3 paragraphs):** Write a narrative summary for the player. This MUST follow a specific structure:
     a.  **Player Turn Context:** ${playerTurnInstruction}
-    b.  **Observed & Reported Events:** Describe other major events from the adjudication (headlines, key NPC actions) BUT strictly from the player's vantage point. Consider their location, allies, and spies.
+    b.  **Observed & Reported Events:** Describe the PLAYER-PERCEIVED TURN EVENTS strictly from the player's vantage point.
     c.  **Source Information:** For any information the player didn't witness directly, you MUST state how they learned of it. Be specific and creative. Examples: "A panicked messenger arrives...", "Whispers in the Senate, relayed by your ally Gaius Pontius, suggest...", "A coded message from your spymaster reveals...". This makes information potentially unreliable.
-    d.  **Tone:** Maintain a tone of Tacitus meets field report. Focus on concrete outcomes. Do not invent new facts not present in the Adjudication JSON.
-    e.  **Moment Line (ROADMAP_PHASE_4.md 4D item 3):** When a named character's scheme visibly culminates or detonates this turn - look at the Adjudication JSON's 'scheme' deltas and headline events for a plan coming to fruition or to ruin - give that character ONE short signature spoken line, quoted in their own voice (per CAST VOICES when present): the line a chronicler would set down. At most one line per character, and only at a true culmination - never for routine scheming - and the line must reveal nothing beyond what the Adjudication JSON already states.
+    d.  **Tone:** Maintain a tone of Tacitus meets field report. Focus on concrete outcomes. Do not invent new facts not present in the PLAYER-PERCEIVED TURN EVENTS.
+    e.  **Moment Line (ROADMAP_PHASE_4.md 4D item 3):** When a named character's visible action clearly culminates or detonates in the PLAYER-PERCEIVED TURN EVENTS, give that character ONE short signature spoken line, quoted in their own voice (per CAST VOICES when present): the line a chronicler would set down. At most one line per character, only at a true culmination, and reveal nothing beyond those player-perceived events.
 
 2.  **Suggest Next Actions:** After the narration, on new lines, suggest exactly 3 brief, interesting, actionable next steps for the player, each prefixed with "SUGGESTION:". The suggestions should be tailored to the player's character, goals, and the new situation.
 
-IMPORTANT: If the prompt includes "MORTALITY NARRATION DIRECTIVES", these are non-negotiable staging notes about outcomes that have already been mechanically decided (by a roll you never see). Follow each directive exactly for its named entity - do not contradict it, soften it, or hint at any information it says to withhold.
     `;
-
-  const mortalityBlock =
-    mortalityDirectives.length > 0
-      ? `
-MORTALITY NARRATION DIRECTIVES:
-${mortalityDirectives.join('\n')}
-`
-      : '';
 
   const prompt = `
 PLAYER CHARACTER PROFILE (for context):
@@ -199,9 +186,9 @@ ${JSON.stringify(sanitizeEntityForNarration(updatedPlayerEntity), null, 2)}
 ${playerContextLabel}
 "${playerSubmission.context}"
 ${buildVoiceCastBlock(voiceCast)}
-ADJUDICATION JSON (all events of the turn):
-${JSON.stringify(sanitizeAdjudicationForNarration(adjudication), null, 2)}
-${mortalityBlock}`;
+PLAYER-PERCEIVED TURN EVENTS:
+${JSON.stringify(perceivedEvents.map(({ text, source }) => ({ text, source })), null, 2)}
+`;
 
   return { systemInstruction, prompt };
 }

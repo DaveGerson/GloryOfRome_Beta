@@ -2,9 +2,7 @@
  * ai/prompts/fragments.ts
  *
  * Shared, reusable prompt-text builders extracted from `ai/core/engine.ts`'s
- * former `compileContext`/`getEntityBrief` (and a near-duplicate brief
- * builder that had been re-implemented in `ai/tools/intelligence.ts`'s
- * `getRelationshipUpdates`). This is the one source of truth for each
+ * former `compileContext`/`getEntityBrief`. This is the one source of truth for each
  * fragment - every prompt builder in ai/prompts/*.ts that needs an entity
  * brief, a world-state summary, the GM-intervention block, or a
  * relationship listing pulls it from here instead of re-serializing state
@@ -61,22 +59,6 @@ export function getEntityBrief(entity: Entity): string {
   const beliefs = entity.beliefs ? `Beliefs: ${entity.beliefs.join('; ')}` : '';
   const scheme = entity.active_scheme ? `Active Scheme: ${JSON.stringify(entity.active_scheme)}` : '';
   return `${entity.name}${entity.epithet ? ` "${entity.epithet}"` : ''} (${entity.position || entity.entity_type}) [Status: ${entity.status}, Location: ${entity.location}] Goals: ${entity.short_term_goals.join(', ')}. ${scheme}. ${personality}. ${skills}. ${beliefs}. Relationships: ${relationships}`;
-}
-
-/**
- * Lightweight per-entity relationship summary (name + trust/threat only),
- * used where a full brief would be overkill. Moved verbatim from
- * `intelligence.ts`'s `getRelationshipUpdates` (previously an inline
- * `.map()` building `entityBriefs`).
- */
-export function getLightEntityBrief(entity: Entity, allEntities: Entity[]): string {
-  const rels = Object.entries(entity.relationships)
-    .filter(([, rel]) => rel) // Add a filter to remove null or undefined relationships
-    .map(([id, rel]) => {
-      const targetName = allEntities.find(t => t.entity_id === id)?.name || id;
-      return `${targetName}(T:${rel.trust_level}, Th:${rel.perceived_threat ?? 0})`;
-    }).join(', ');
-  return `- ${entity.name} (ID: ${entity.entity_id}). Relationships: ${rels || 'None'}`;
 }
 
 /** One-line world summary (year/week/political climate/economic stability). */

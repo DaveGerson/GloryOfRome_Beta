@@ -190,6 +190,46 @@ describe('eval/harness checkRawCallSchema', () => {
     );
     expect(modelAuthoredQuote.status).toBe('schema_violation');
   });
+
+  it('maps noAttemptEvidenceSelection to its strict IDs-only schema', () => {
+    expect(schemaForCallName('noAttemptEvidenceSelection')).not.toBeNull();
+    const valid = checkRawCallSchema(
+      makeRawCall('noAttemptEvidenceSelection', JSON.stringify({
+        decision: 'answer',
+        evidenceIds: ['evidence-1'],
+      }))
+    );
+    expect(valid.status).toBe('valid');
+
+    const modelAuthoredProse = checkRawCallSchema(
+      makeRawCall('noAttemptEvidenceSelection', JSON.stringify({
+        decision: 'answer',
+        evidenceIds: ['evidence-1'],
+        prose: 'Lucius is afraid.',
+      }))
+    );
+    expect(modelAuthoredProse.status).toBe('schema_violation');
+  });
+
+  it('maps privateScene to its strict dialogue-and-intent schema', () => {
+    expect(schemaForCallName('privateScene')).not.toBeNull();
+    const valid = checkRawCallSchema(makeRawCall('privateScene', JSON.stringify({
+      disposition: 'continues',
+      npcUtterance: 'I will consider it.',
+      speechActs: [{ speaker: 'npc', kind: 'promise', text: 'I will consider it.', exchange: 1 }],
+      npcPrivate: { sincerity: 'guarded', hiddenIntent: 'delay', plannedFollowThrough: [] },
+    })));
+    expect(valid.status).toBe('valid');
+
+    const polluted = checkRawCallSchema(makeRawCall('privateScene', JSON.stringify({
+      disposition: 'continues',
+      npcUtterance: 'I will consider it.',
+      speechActs: [],
+      npcPrivate: { sincerity: 'guarded', hiddenIntent: 'delay', plannedFollowThrough: [] },
+      deltas: [{ type: 'relation', key: 'npc:player:trust_level', delta: 5 }],
+    })));
+    expect(polluted.status).toBe('schema_violation');
+  });
 });
 
 // --- Call-name inventory drift ---------------------------------------------
@@ -205,8 +245,6 @@ describe('eval/harness call-name inventory (drift guard)', () => {
     'assessment', // ai/tools/assessment.ts
     'storyRelevance', // ai/tools/intelligence.ts
     'updatedSimulationState', // ai/tools/intelligence.ts
-    'relationshipUpdates', // ai/tools/intelligence.ts
-    'privateConversation', // ai/tools/intelligence.ts
     'investigation', // ai/tools/intelligence.ts
     'mortalityValidation', // ai/core/mortality.ts
     'mortalityOutcome', // ai/core/mortality.ts
@@ -214,6 +252,8 @@ describe('eval/harness call-name inventory (drift guard)', () => {
     'characterCreation', // ai/tools/characterCreator.ts
     'ambitionInference', // ai/tools/ambition.ts
     'relationshipObservations', // ai/tools/relationshipObservations.ts
+    'noAttemptEvidenceSelection', // ai/tools/noAttemptResponse.ts
+    'privateScene', // ai/tools/privateScene.ts
     // 'entityBatch:<batchName>' (ai/core/initiator.ts) and
     // 'npcMind:<entity_id>' (ai/tools/npcMind.ts) are deliberately not
     // listed: their callNames are suffixed at runtime and resolved by

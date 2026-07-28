@@ -2,7 +2,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { Entity, WorldState, EntityStub } from '../../types';
 import { ScenarioStructureSchema, EntityListSchema } from './schemas';
-import { mockGenerateScenarioStructure, mockGenerateEntitiesDetails, mockInitiateWorld } from '../mocks';
+import { mockGenerateScenarioStructure, mockInitiateWorld } from '../mocks';
 import { generateStructured, GEMINI_PRO } from './geminiService';
 import { zScenarioStructure, zEntityBatch } from './zodSchemas';
 import { buildScenarioStructurePrompt, buildEntityBatchPrompt } from '../prompts/worldGen';

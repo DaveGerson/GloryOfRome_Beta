@@ -70,8 +70,9 @@ mortality rolls/traces.
 
 ## D8 — Player ambition is inferred, never declared
 No quest log, no chosen goals. A cheap periodic model call infers what the
-player *appears* to be pursuing from their actions. Used for: epilogue
-framing, and NPC reactions to the player's apparent (not actual) agenda.
+player *appears* to be pursuing from their actions. The persisted snapshot is
+used only by `GameMasterScreen` for GM inspection and tuning. It never feeds
+the player epilogue, NPC reactions, or any other player-facing surface.
 
 ---
 
@@ -390,3 +391,50 @@ evidence source because it may be shaped by Private Intent. Hidden numeric
 relationship state and relationship deltas remain available to the engine
 and GM console but never select player-facing prose or UI pulses. The MVP
 adds no player-authored NPC notes.
+
+---
+
+Rulings D37-D40 are the Phase 6 private-scene and authority-boundary round
+(July 2026). They supersede the earlier off-screen NPC-conversation wiring
+and narrow D35's original Private Intent projection.
+
+## D37 - Player Private Intent is player-owned, not adjudication evidence
+Private Intent may shape only player-owned narration, inner monologue,
+suggested actions, the author's collapsed history, and the GM ledger. It
+does not enter objective adjudication, world state, NPC minds, relationship
+mechanics, apparent ambition, knowledge, perception, or resolution. The
+human player supplies the avatar's private interpretation; an omniscient
+engine may not turn an unspoken thought into an objective cause.
+*Narrows:* D35 and the Phase 6 grill's original adjudicator allowance.
+
+## D38 - The main adjudicator alone owns ordinary-turn relationship consequences
+The main adjudicator may emit directional relationship deltas while resolving
+the turn's actual outcome. A second post-hoc Relationship Analyst may not infer
+and apply another set from the attempted action alone. Player-facing
+relationship observations remain a separate, perception-safe evidence
+presentation layer and never write hidden numeric state.
+
+## D39 - Private scenes are player-initiated micro-loops between macro turns
+A private scene is a synchronous vignette between the human player's avatar
+and one AI-controlled character while the macro world is frozen. NPCs never
+initiate scenes and never run autonomous NPC-NPC scenes. The player may commit
+at most one scene per macro turn, with a target who is known and either
+co-located or already connected through the player's network. The invitee may
+refuse; a committed refusal consumes the scene and returns an in-character
+response. An accepted scene permits at most six NPC responses, may end early,
+and closes with an optional one-way player last word that causes no model call.
+
+No individual utterance changes world or relationship state. Closing produces
+one compact outcome for the next main adjudication, which alone decides any
+consequence.
+
+## D40 - NPC speech, NPC hidden intent, and world truth are separate channels
+The player sees the transcript and attributed speech acts. An NPC may lie,
+withhold, or manipulate: its statements remain claims unless independently
+established by simulation state. The NPC's sincerity, hidden intent, and
+planned follow-through are durable GM-private participant memory and may guide
+future NPC minds and the main adjudicator, but they are not world truth or an
+already-resolved action. The main adjudicator receives a compact partitioned
+outcome rather than the full transcript; the full transcript remains available
+to the player, participating NPC memory, and GM console. No hidden NPC state is
+rendered to the player.

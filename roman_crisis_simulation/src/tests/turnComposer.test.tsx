@@ -9,6 +9,7 @@ import React, { act, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { TurnComposer, type TurnComposerProps } from '../components/TurnComposer';
+import { TURN_STAGE_STATUS_COPY } from '../components/Chat';
 import { emptyStructuredDraft } from '../playerInput/composerState';
 import { TURN_SUBMISSION_PREFIX } from '../playerInput/turnSubmission';
 import type { KnownRecipientOption, StructuredTurnDraft } from '../types';
@@ -448,11 +449,11 @@ describe('components/TurnComposer', () => {
 
   it('renders the public stage-specific processing label with an accessible live status', async () => {
     const { container } = await mount(
-      <TurnComposer {...defaultProps({ isProcessing: true, turnStage: 'relationship_updates' })} />,
+      <TurnComposer {...defaultProps({ isProcessing: true, turnStage: 'narration' })} />,
     );
     const status = container.querySelector<HTMLElement>('[role="status"]');
     expect(status?.getAttribute('aria-live')).toBe('polite');
-    expect(status?.textContent).toMatch(/loyalties quietly shift/i);
+    expect(status?.textContent).toBe(TURN_STAGE_STATUS_COPY.narration);
   });
 
   it('keeps Chat Enter/Shift+Enter behavior while Structured uses newline Enter and Ctrl/Cmd+Enter submission', async () => {

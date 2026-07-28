@@ -11,7 +11,8 @@
     "eval": "vitest run --config vitest.eval.config.ts",
     "test:journeys": "vitest run --config vitest.journeys.config.ts",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint . --max-warnings 52"
+    "test:lint-baseline": "node --test tooling/lint-baseline.node-test.mjs",
+    "lint": "node tooling/lint-baseline.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.22.0",

@@ -12,8 +12,8 @@
  * playthrough:
  *
  *   INV-SHAPE      the pipeline's stage order (TurnStage doc contract),
- *                  incl. the conditional npc_minds / private_conversation /
- *                  mortality stages firing exactly when their triggers exist
+ *                  incl. the conditional npc_minds / mortality stages firing
+ *                  exactly when their triggers exist
  *   INV-SCHEMA     every call the pipeline made was captured (rawCalls count)
  *                  and every scripted response survived real zod validation
  *                  with zero repair retries
@@ -51,6 +51,7 @@ import { buildPerceivedDigest, PerceivedChange } from '../../perception/visibili
 import { computeTurnKnowledge, computeInvestigationKnowledge } from '../../knowledge/commit';
 import type { KnowledgeClaim, InvestigationKind } from '../../knowledge/store';
 import { saveGame, loadGame, clearSave as clearPersistedSave, SaveGameState } from '../../persistence/saveGame';
+import type { PrivateSceneRecord } from '../../privateScene/model';
 import type {
   Entity,
   Message,
@@ -102,33 +103,31 @@ vi.mock('@google/genai', async importOriginal => {
 // inside production code.
 
 export type CallKind =
+  | 'privateScene'
   | 'storyRelevance'
   | 'assessment'
   | 'npcMind'
   | 'adjudication'
-  | 'privateConversation'
   | 'mortalityValidation'
   | 'mortalityOutcome'
   | 'simulationState'
   | 'monologue'
   | 'narration'
-  | 'relationshipUpdates'
   | 'relationshipObservations'
   | 'ambition'
   | 'investigation';
 
 const CALL_MARKERS: Array<[string, CallKind]> = [
+  ['You portray exactly one NPC', 'privateScene'],
   ['master storyteller and game master', 'storyRelevance'],
   ['Action Assessor', 'assessment'],
   ["character's own private mind", 'npcMind'],
   ['Roman Crisis Adjudicator & Simulation Engine', 'adjudication'],
-  ['secret observer', 'privateConversation'],
   ['Mortality Validator', 'mortalityValidation'],
   ['Mortality Outcome Author', 'mortalityOutcome'],
   ['Roman historian analyzing the state of the Empire', 'simulationState'],
   ['the inner voice of', 'monologue'],
   ['Chronicler of the Empire & Intelligence Briefer', 'narration'],
-  ['narrative analyst AI', 'relationshipUpdates'],
   ['Relationship Observation Selector', 'relationshipObservations'],
   ['Silent Observer of Ambition', 'ambition'],
   ['head of intelligence for', 'investigation'],
@@ -334,6 +333,7 @@ export interface GameThread {
   truthLedger: TruthLedgerEntry[];
   knowledge: KnowledgeClaim[];
   npcIntents: NpcIntent[];
+  privateScenes: PrivateSceneRecord[];
   turnHistory: TurnHistoryEntry[];
   messages: Message[];
   suggestedActions: string[];
@@ -352,6 +352,7 @@ function threadFromSeed(seed: ScenarioSeed): GameThread {
     truthLedger: seed.truthLedger,
     knowledge: seed.knowledge,
     npcIntents: seed.npcIntents,
+    privateScenes: seed.privateScenes,
     turnHistory: seed.turnHistory,
     messages: seed.messages,
     suggestedActions: [],
@@ -375,6 +376,7 @@ export function threadFromSave(state: SaveGameState): GameThread {
     truthLedger: structuredClone(state.truthLedger ?? []),
     knowledge: structuredClone(state.knowledge ?? []),
     npcIntents: structuredClone(state.npcIntents ?? []),
+    privateScenes: structuredClone(state.privateScenes ?? []),
     turnHistory: structuredClone(state.turnHistory),
     messages: structuredClone(state.messages),
     suggestedActions: [...state.suggestedActions],
@@ -395,6 +397,7 @@ export function buildSaveStateFromThread(thread: GameThread): SaveGameState {
     truthLedger: thread.truthLedger,
     knowledge: thread.knowledge,
     npcIntents: thread.npcIntents,
+    privateScenes: thread.privateScenes,
     turnNumber: thread.turnNumber,
     playerCharacterId: thread.playerId,
     turnHistory: thread.turnHistory,
@@ -430,6 +433,7 @@ export function equivalenceSnapshot(thread: GameThread) {
       truthLedger: thread.truthLedger.map((t, i) => ({ ...t, id: `norm_${t.turn}_${i}`, reportId: `normr_${t.turn}_${i}` })),
       knowledge: thread.knowledge.map(normalizeClaimIds),
       npcIntents: thread.npcIntents,
+      privateScenes: thread.privateScenes,
       turnNumber: thread.turnNumber,
       reports: thread.reports.map((r, i) => ({ ...r, id: `normalized_${r.turn}_${i}` })),
       narrations: thread.turnHistory.map(h => h.narration ?? ''),
@@ -487,15 +491,13 @@ const CANONICAL_STAGE_ORDER: TurnStage[] = [
   'story_relevance',
   'npc_minds',
   'adjudication',
-  'private_conversation',
   'mortality',
   'simulation_state',
   'monologue',
   'narration',
-  'relationship_updates',
 ];
 
-const OPTIONAL_STAGES = new Set<TurnStage>(['npc_minds', 'private_conversation', 'mortality']);
+const OPTIONAL_STAGES = new Set<TurnStage>(['npc_minds', 'mortality']);
 
 function assertStageOrder(stages: TurnStage[], label: string): void {
   // Each stage fires at most once...
@@ -723,7 +725,6 @@ export class JourneyRunner {
         '\nSUGGESTION: Court the goodwill of the Senate' +
         '\nSUGGESTION: Sound out the Praetorian prefects' +
         '\nSUGGESTION: Review the treasury accounts',
-      relationshipUpdates: { deltas: [] },
     };
     return { ...defaults, ...script };
   }

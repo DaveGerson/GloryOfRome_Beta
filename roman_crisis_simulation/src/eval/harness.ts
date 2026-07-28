@@ -28,14 +28,14 @@ import { createSeededRng, rollD20 } from '../ai/core/resolution';
 import {
   zActionAssessment,
   zAdjudication,
-  zConversationSimulation,
   zEntity,
   zEntityBatch,
   zInvestigationResult,
   zMortalityOutcome,
   zMortalityValidation,
+  zNoAttemptEvidenceSelection,
   zNpcMindDecision,
-  zRelationshipDeltas,
+  zPrivateSceneModelResponse,
   zRelationshipObservations,
   zScenarioStructure,
   zSimulationState,
@@ -61,8 +61,6 @@ export const STRUCTURED_CALL_SCHEMAS: Record<string, ZodType> = {
   adjudication: zAdjudication,
   storyRelevance: zStoryRelevance,
   updatedSimulationState: zSimulationState,
-  relationshipUpdates: zRelationshipDeltas,
-  privateConversation: zConversationSimulation,
   mortalityValidation: zMortalityValidation,
   mortalityOutcome: zMortalityOutcome,
   investigation: zInvestigationResult,
@@ -70,6 +68,8 @@ export const STRUCTURED_CALL_SCHEMAS: Record<string, ZodType> = {
   characterCreation: zEntity,
   ambitionInference: zAmbitionInference,
   relationshipObservations: zRelationshipObservations,
+  noAttemptEvidenceSelection: zNoAttemptEvidenceSelection,
+  privateScene: zPrivateSceneModelResponse,
 };
 
 /** Prose call families (per ai/prompts/README.md) - no JSON to validate, skipped by the schema check. */

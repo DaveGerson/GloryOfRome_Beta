@@ -29,6 +29,74 @@ import {
   NpcIntentContinuityEnum,
   RumorStanceEnum,
 } from '../../types';
+import {
+  PRIVATE_SCENE_MAX_NPC_RESPONSES,
+  PRIVATE_SCENE_MAX_UTTERANCE_CHARS,
+} from '../../privateScene/model';
+import { assertPlayerVisibleValueSafe } from './playerBoundary';
+
+const zPrivateSceneText = z.string().trim().min(1).max(PRIVATE_SCENE_MAX_UTTERANCE_CHARS);
+const PRIVATE_SCENE_RELATIONSHIP_TERM = '(?:relationship|trust|respect|threat|alignment|dependency|loyalty)';
+const PRIVATE_SCENE_NUMBER = '\\d+(?:\\.\\d+)?';
+const PRIVATE_SCENE_EXPLICIT_RELATIONSHIP_MECHANICS = [
+  new RegExp(`\\b${PRIVATE_SCENE_RELATIONSHIP_TERM}[\\s_-]+(?:level|score|rating)\\s*(?:(?:is|at|equals?|to)\\s*|[:=]\\s*)?[+-]?${PRIVATE_SCENE_NUMBER}(?:\\s*(?:/|out\\s+of|of)\\s*${PRIVATE_SCENE_NUMBER})?\\b`, 'i'),
+  new RegExp(`\\b${PRIVATE_SCENE_RELATIONSHIP_TERM}\\s*[:=]\\s*[+-]?${PRIVATE_SCENE_NUMBER}(?:\\s*(?:/|out\\s+of|of)\\s*${PRIVATE_SCENE_NUMBER})?\\b`, 'i'),
+  new RegExp(`\\b${PRIVATE_SCENE_RELATIONSHIP_TERM}\\s+(?:(?:is|at|equals?|to)\\s+)?(?:[+-]\\s*${PRIVATE_SCENE_NUMBER}|${PRIVATE_SCENE_NUMBER}\\s*(?:/|out\\s+of|of)\\s*${PRIVATE_SCENE_NUMBER})\\b`, 'i'),
+  new RegExp(`\\b[+-]?${PRIVATE_SCENE_NUMBER}\\s*(?:/|out\\s+of|of)\\s*${PRIVATE_SCENE_NUMBER}\\s+${PRIVATE_SCENE_RELATIONSHIP_TERM}(?:[\\s_-]+(?:level|score|rating))?\\b`, 'i'),
+] as const;
+const PRIVATE_SCENE_PLAIN_RELATIONSHIP_NUMBER = new RegExp(
+  `\\b${PRIVATE_SCENE_RELATIONSHIP_TERM}\\s+(?:(?:is|at|equals?|to)\\s+)?${PRIVATE_SCENE_NUMBER}\\b`,
+  'ig',
+);
+const PRIVATE_SCENE_ORDINARY_COUNT_OR_UNIT = /^\s+(?:cohorts?|legions?|soldiers?|guards?|senators?|allies|enemies|men|women|people|ships?|cities|provinces?|families|witnesses|votes?|letters?|messengers?|agents?|conspirators?|factions?|armies|years?|months?|weeks?|days?|hours?|decades?|miles?|feet|paces?|denarii|sesterces|talents?|pounds?|times?)\b/i;
+
+function privateSceneResponseStrings(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.flatMap(privateSceneResponseStrings);
+  if (value && typeof value === 'object') return Object.values(value).flatMap(privateSceneResponseStrings);
+  return [];
+}
+
+function containsPrivateSceneNumericRelationshipMechanics(text: string): boolean {
+  if (PRIVATE_SCENE_EXPLICIT_RELATIONSHIP_MECHANICS.some(pattern => pattern.test(text))) return true;
+  for (const match of text.matchAll(PRIVATE_SCENE_PLAIN_RELATIONSHIP_NUMBER)) {
+    const tail = text.slice((match.index ?? 0) + match[0].length);
+    if (!PRIVATE_SCENE_ORDINARY_COUNT_OR_UNIT.test(tail)) return true;
+  }
+  return false;
+}
+
+/** Strict runtime boundary: this micro-loop cannot return world-state authority. */
+export const zPrivateSceneModelResponse = z.object({
+  disposition: z.enum(['refused', 'continues', 'ends']),
+  npcUtterance: zPrivateSceneText,
+  speechActs: z.array(z.object({
+    speaker: z.literal('npc'),
+    kind: z.enum(['claim', 'disclosure', 'request', 'promise', 'agreement', 'refusal', 'threat']),
+    text: zPrivateSceneText,
+    exchange: z.number().int().min(1).max(PRIVATE_SCENE_MAX_NPC_RESPONSES),
+  }).strict()).max(16),
+  npcPrivate: z.object({
+    sincerity: zPrivateSceneText,
+    hiddenIntent: zPrivateSceneText,
+    plannedFollowThrough: z.array(zPrivateSceneText).max(8),
+  }).strict(),
+}).strict().superRefine((response, context) => {
+  try {
+    assertPlayerVisibleValueSafe(response);
+  } catch {
+    context.addIssue({
+      code: 'custom',
+      message: 'private-scene response contains hidden mechanics',
+    });
+  }
+  if (privateSceneResponseStrings(response).some(containsPrivateSceneNumericRelationshipMechanics)) {
+    context.addIssue({
+      code: 'custom',
+      message: 'private-scene response contains numeric relationship mechanics',
+    });
+  }
+});
 
 // --- Entity sub-schemas (types.ts mirror) --------------------------------
 
@@ -234,17 +302,6 @@ export const zSimulationState = z.object({
   major_ongoing_crisis: z.string().nullable(),
 }).passthrough();
 
-/** Validates getRelationshipUpdates's output (intelligence.ts). */
-export const zRelationshipDeltas = z.object({
-  deltas: z.array(zEventDelta),
-}).passthrough();
-
-/** Validates simulatePrivateConversation's output (intelligence.ts). */
-export const zConversationSimulation = z.object({
-  dialogueSnippet: z.string(),
-  deltas: z.array(zEventDelta),
-}).passthrough();
-
 /** Validates getInvestigationResult's output (intelligence.ts). `reportData`
  * is a string list for every subject: findings for secrets/beliefs, and for
  * 'scheme' a list of partial clues (D28 - a scheme investigation returns
@@ -356,3 +413,24 @@ export const zRelationshipObservations = z.array(z.object({
   participantIds: z.array(z.string()),
   excerpt: z.string().refine(value => value.trim().length > 0, 'excerpt must contain non-whitespace text'),
 }).strict());
+
+/** Strict model boundary: a semantic decision plus offered evidence IDs only. */
+export const zNoAttemptEvidenceSelection = z.object({
+  decision: z.enum(['answer', 'no_answer']),
+  evidenceIds: z.array(z.string()).max(5),
+}).strict().superRefine((selection, context) => {
+  if (selection.decision === 'answer' && selection.evidenceIds.length === 0) {
+    context.addIssue({
+      code: 'custom',
+      path: ['evidenceIds'],
+      message: 'answer requires one to five evidence IDs',
+    });
+  }
+  if (selection.decision === 'no_answer' && selection.evidenceIds.length !== 0) {
+    context.addIssue({
+      code: 'custom',
+      path: ['evidenceIds'],
+      message: 'no_answer requires an empty evidence ID list',
+    });
+  }
+});

@@ -14,7 +14,6 @@ export const MAX_TURN_SUBMISSION_CHARACTERS = 20_000;
 
 export interface AdjudicationSubmissionProjection {
   observableAttempt: string | null;
-  privateIntent: string | null;
   questionOrContext: string | null;
 }
 
@@ -23,6 +22,11 @@ export interface NarrationSubmissionProjection {
   context: string;
   hasObservableAttempt: boolean;
 }
+
+export type NoAttemptResponseProjection =
+  | { kind: 'question'; question: string }
+  | { kind: 'private_intent' }
+  | null;
 
 export interface TurnSubmissionIssue {
   field: string;
@@ -419,13 +423,25 @@ export function projectForResolution(submission: TurnSubmission): string | null 
   return lines.length ? lines.join('\n\n') : null;
 }
 
+export function projectForNoAttemptResponse(
+  submission: TurnSubmission,
+): NoAttemptResponseProjection {
+  if (projectForResolution(submission) !== null || submission.kind !== 'structured') {
+    return null;
+  }
+
+  const question = submission.questionOrContext?.trim();
+  if (question) return { kind: 'question', question };
+  if (submission.privateIntent?.trim()) return { kind: 'private_intent' };
+  return null;
+}
+
 export function projectForAdjudication(submission: TurnSubmission): AdjudicationSubmissionProjection {
   return submission.kind === 'freeform'
-    ? { observableAttempt: submission.text, privateIntent: null, questionOrContext: null }
+    ? { observableAttempt: submission.text, questionOrContext: null }
     : {
         observableAttempt: projectForResolution(submission),
-        privateIntent: submission.privateIntent ?? null,
-        questionOrContext: submission.questionOrContext ?? null,
+        questionOrContext: submission.questionOrContext?.trim() || null,
       };
 }
 

@@ -37,7 +37,10 @@ function buildSystemInstruction(): string {
     playerEntity: entities[0],
     npcEntities: entities.slice(1),
     history: [],
-    playerIntent: 'Spread word that Thrax steals from his own men',
+    submission: {
+      observableAttempt: 'Spread word that Thrax steals from his own men',
+      questionOrContext: null,
+    },
     gmInterventionText: '',
     storyRelevance: { spotlight_entities: [], spotlight_intents: [] },
     metaNarrative: 'A succession crisis.',

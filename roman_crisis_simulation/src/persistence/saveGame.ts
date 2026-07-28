@@ -36,6 +36,7 @@ import type {
 } from '../types';
 import type { AmbitionInference } from '../ai/tools/ambition';
 import type { KnowledgeClaim } from '../knowledge/store';
+import type { PrivateSceneRecord } from '../privateScene/model';
 
 /** Bump this whenever `SaveGameState`'s shape changes in a backwards-incompatible way. */
 export const SAVE_VERSION = 1 as const;
@@ -44,9 +45,9 @@ const SAVE_KEY = 'gloryOfRome:autosave';
 
 /**
  * The periodic D8 ambition-inference snapshot (App.tsx / ai/tools/ambition.ts),
- * plus the turn number it was computed as of - so a consumer (GameMasterScreen,
- * EpilogueScreen) can tell a fresh read from a stale one on a long-since-moved-on
- * campaign. GM-console/epilogue only - never rendered as a player-facing goal UI.
+ * plus the turn number it was computed as of, persisted solely so
+ * GameMasterScreen can inspect and tune a fresh or stale read. It never feeds
+ * the player epilogue, NPC reactions, or any other player-facing surface.
  */
 export interface InferredAmbitionState extends AmbitionInference {
   asOfTurn: number;
@@ -139,6 +140,13 @@ export interface SaveGameState {
    * stamped with the loaded turn, so cooldowns restart from load).
    */
   eventFirings?: EventFiringRecord[];
+  /**
+   * Phase 6 private-scene records. Optional so old v1 saves remain valid;
+   * GAME_LOADED and TURN_ROLLED_BACK normalize an absent field to an empty
+   * in-memory list. NPC-private fields stay nested in this GM-only record
+   * and are never copied into any player-facing save slice.
+   */
+  privateScenes?: PrivateSceneRecord[];
 }
 
 /** The versioned envelope actually written to storage. */
@@ -185,6 +193,62 @@ function stripCapturedCallText(turnHistory: TurnHistoryEntry[]): TurnHistoryEntr
   });
 }
 
+function canonicalPrivateSceneTranscriptLine(
+  line: PrivateSceneRecord['transcript'][number],
+): PrivateSceneRecord['transcript'][number] {
+  return {
+    sequence: line.sequence,
+    speaker: line.speaker,
+    text: line.text,
+  };
+}
+
+function canonicalPrivateSceneSpeechAct(
+  act: PrivateSceneRecord['speechActs'][number],
+): PrivateSceneRecord['speechActs'][number] {
+  return {
+    speaker: act.speaker,
+    kind: act.kind,
+    text: act.text,
+    exchange: act.exchange,
+  };
+}
+
+function canonicalPrivateSceneNpcPrivate(
+  npcPrivate: PrivateSceneRecord['npcPrivate'],
+): PrivateSceneRecord['npcPrivate'] {
+  return {
+    sincerity: npcPrivate.sincerity,
+    hiddenIntent: npcPrivate.hiddenIntent,
+    plannedFollowThrough: [...npcPrivate.plannedFollowThrough],
+  };
+}
+
+/**
+ * Rebuilds the persisted private-scene shape from its allowlisted contract.
+ * Runtime-only additions must not silently cross the storage boundary, and
+ * the source record remains available unchanged to the in-session GM tools.
+ */
+function canonicalPrivateScene(scene: PrivateSceneRecord): PrivateSceneRecord {
+  return {
+    sceneId: scene.sceneId,
+    macroTurn: scene.macroTurn,
+    playerId: scene.playerId,
+    npcId: scene.npcId,
+    playerName: scene.playerName,
+    npcName: scene.npcName,
+    status: scene.status,
+    transcript: scene.transcript.map(canonicalPrivateSceneTranscriptLine),
+    npcResponseCount: scene.npcResponseCount,
+    speechActs: scene.speechActs.map(canonicalPrivateSceneSpeechAct),
+    npcPrivate: canonicalPrivateSceneNpcPrivate(scene.npcPrivate),
+    ...(scene.closureReason === undefined ? {} : { closureReason: scene.closureReason }),
+    ...(scene.lastWord === undefined ? {} : { lastWord: scene.lastWord }),
+    consequenceStatus: scene.consequenceStatus,
+    ...(scene.consumedByTurn === undefined ? {} : { consumedByTurn: scene.consumedByTurn }),
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -216,6 +280,9 @@ export function saveGame(state: SaveGameState): SaveGameResult {
   const leanState: SaveGameState = {
     ...state,
     turnHistory: stripCapturedCallText(state.turnHistory),
+    ...(state.privateScenes === undefined
+      ? {}
+      : { privateScenes: state.privateScenes.map(canonicalPrivateScene) }),
   };
 
   const envelope: SaveGame = {

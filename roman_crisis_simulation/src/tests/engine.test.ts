@@ -501,7 +501,7 @@ describe('applyAdjudication', () => {
       const { updatedWorldState } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
 
       expect(updatedWorldState).toEqual(mockWorldState);
-      expect((updatedWorldState as any).imperial_mood).toBeUndefined();
+      expect('imperial_mood' in updatedWorldState).toBe(false);
     });
   });
 
