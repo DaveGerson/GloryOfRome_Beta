@@ -14,7 +14,8 @@ const EventModal: React.FC<{
     event: GameEvent;
     onChoose: (choice: PlayerEventChoice) => void;
     interactionLocked?: boolean;
-}> = ({ event, onChoose, interactionLocked = false }) => {
+    error?: string | null;
+}> = ({ event, onChoose, interactionLocked = false, error }) => {
     const dialogRef = useRef<HTMLDivElement>(null);
     const trapRef = useRef<FocusTrap | null>(null);
 
@@ -48,6 +49,7 @@ const EventModal: React.FC<{
                     <div className="gor-dialog-rule"></div>
                 </div>
                 <div className="gor-dialog-body" style={{ textAlign: 'center', whiteSpace: 'pre-wrap' }}>{event.description}</div>
+                {error && <p role="alert">{error}</p>}
                 <div style={{ padding: '0 22px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {event.options.map((option, index) => (
                         <button key={index} type="button" className="gor-event-choice" onClick={() => onChoose(option)} disabled={interactionLocked}>
