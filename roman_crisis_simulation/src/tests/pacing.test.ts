@@ -37,7 +37,7 @@ function buildSystem(pacingPosture?: PacingPosture): string {
     playerEntity: entities[0],
     npcEntities: entities.slice(1),
     history: [],
-    playerIntent: 'Hold court',
+    submission: { observableAttempt: 'Hold court', questionOrContext: null },
     gmInterventionText: '',
     storyRelevance: { spotlight_entities: [], spotlight_intents: [] },
     metaNarrative: 'A succession crisis.',
@@ -200,9 +200,6 @@ describe('mockRunNewTurn: the pacing judgment loop runs offline (4D.1)', () => {
     const second = await mockRunNewTurn('Hold court again', entities[0], 2, entities, worldState, [], '', 'A crisis.', SIM_STATE, [], []);
     for (const result of [first, second]) {
       expect(result.newHistoryEntry.adjudication.gm_private.filter(n => n.startsWith('[Pacing]'))).toHaveLength(1);
-      // The private-conversation push must not accumulate either - each
-      // turn's adjudication owns a fresh gm_private array.
-      expect(result.newHistoryEntry.adjudication.gm_private.filter(n => n.startsWith('[Secret Meeting]')).length).toBeLessThanOrEqual(1);
     }
   });
 });

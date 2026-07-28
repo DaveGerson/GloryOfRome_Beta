@@ -27,6 +27,31 @@ export default defineConfig(({ mode, command }) => {
         alias: {
           '@': path.resolve(__dirname, '.'),
         }
-      }
+      },
+      // Task 4b (bundle-triage.md, FIX_NOW_DEFECT): split slow-changing
+      // node_modules code into stable, package-keyed vendor chunks so a
+      // first-party code deploy doesn't invalidate the vendor cache for
+      // returning players. Build-output shaping only; no import, lazy-load,
+      // or runtime behavior change.
+      build: {
+        rollupOptions: {
+          output: {
+            manualChunks(id) {
+              if (id.includes('node_modules')) {
+                if (id.includes('node_modules/react-dom')) {
+                  return 'vendor-react-dom';
+                }
+                if (id.includes('node_modules/react')) {
+                  return 'vendor-react';
+                }
+                if (id.includes('node_modules/@google/genai')) {
+                  return 'vendor-genai';
+                }
+                return 'vendor-other';
+              }
+            },
+          },
+        },
+      },
     };
 });

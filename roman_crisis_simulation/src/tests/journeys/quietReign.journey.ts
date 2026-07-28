@@ -61,7 +61,7 @@ describe('journey: a quiet reign (3 turns of ordinary governance)', () => {
     expect(t1.entry.mortalityTrace).toBeUndefined();
     // Exactly the mandatory stages fired - no minds, no private meeting, no mortality.
     expect(t1.stages).toEqual([
-      'story_relevance', 'adjudication', 'simulation_state', 'monologue', 'narration', 'relationship_updates',
+      'story_relevance', 'adjudication', 'simulation_state', 'monologue', 'narration',
     ]);
 
     // Ground truth committed for BOTH the player and the off-network senator.

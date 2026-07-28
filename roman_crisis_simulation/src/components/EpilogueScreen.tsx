@@ -4,6 +4,7 @@ import { generateText, GEMINI_PRO, GeminiClient } from '../ai/core/geminiService
 import { buildEpiloguePrompt, EpilogueTurnHeadlines, EpilogueEventChoice } from '../ai/prompts/epilogue';
 import { clearSave } from '../persistence/saveGame';
 import { GildedAquila, toRoman } from './ui/Brand';
+import { assertPlayerVisibleTextSafe } from '../ai/core/playerBoundary';
 
 // Epilogue prose is the single most "reward the player" text in the app -
 // same temperature reasoning as ai/core/turn.ts's NARRATION_TEMPERATURE.
@@ -21,13 +22,6 @@ const MAX_TURNS_IN_EPILOGUE_PROMPT = 25;
 // run-stats box below the obituary - a display concern, independent of the
 // prompt-sizing cap above.
 const NOTABLE_HEADLINES_SHOWN = 5;
-
-/** The GM-console-only ambition snapshot (App.tsx / ai/tools/ambition.ts), as displayed here and passed into the epilogue prompt. Never a player-facing goal UI (D8) - this is its ONE sanctioned appearance in front of the player, framed as retrospective flavor rather than a quest readout. */
-export interface EpilogueInferredAmbition {
-  apparent_ambition: string;
-  confidence: 'low' | 'medium' | 'high';
-  asOfTurn: number;
-}
 
 /**
  * A dignified, purely static epitaph used both in Mock Mode (no real model
@@ -52,18 +46,16 @@ const EpilogueScreen: React.FC<{
   player: Entity;
   /** Persisted GM narration for the final events, independent of *why* the run ended (a committed turn's death vs. a fatal event-choice) - see App.tsx's derivation from `messages`. */
   causeNarration: string;
-  /** ai/core/mortality.ts's pre-decided narrative directive for this death, when the mortality pipeline (rather than an authored event choice) ended the run. */
-  mortalityOutcomeSummary?: string;
   turnHistory: TurnHistoryEntry[];
   eventHistory: EventHistoryEntry[];
   metaNarrative: string;
-  inferredAmbition: EpilogueInferredAmbition | null;
   ai: GeminiClient;
   isMockMode: boolean;
-}> = ({ player, causeNarration, mortalityOutcomeSummary, turnHistory, eventHistory, metaNarrative, inferredAmbition, ai, isMockMode }) => {
+}> = ({ player, causeNarration, turnHistory, eventHistory, metaNarrative, ai, isMockMode }) => {
   const [epitaph, setEpitaph] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [usedFallback, setUsedFallback] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,13 +92,9 @@ const EpilogueScreen: React.FC<{
         metaNarrative,
         turnCount: turnHistory.length,
         causeNarration,
-        mortalityOutcomeSummary,
         turnHeadlines,
         omittedTurnCount,
         eventChoices,
-        inferredAmbition: inferredAmbition
-          ? { apparent_ambition: inferredAmbition.apparent_ambition, confidence: inferredAmbition.confidence }
-          : null,
       });
 
       try {
@@ -117,8 +105,10 @@ const EpilogueScreen: React.FC<{
           prompt,
           temperature: EPILOGUE_TEMPERATURE,
         });
+        const safeText = text && text.trim() ? text.trim() : buildStaticFallbackEpitaph(player, causeNarration);
+        assertPlayerVisibleTextSafe(safeText);
         if (!cancelled) {
-          setEpitaph(text && text.trim() ? text.trim() : buildStaticFallbackEpitaph(player, causeNarration));
+          setEpitaph(safeText);
           setIsLoading(false);
         }
       } catch (error) {
@@ -158,7 +148,11 @@ const EpilogueScreen: React.FC<{
    * trade-off is already made by ErrorBoundary.tsx's recovery button.
    */
   const handleNewChronicle = () => {
-    clearSave();
+    if (!clearSave().ok) {
+      setResetError('Your finished reign could not be removed. Please try again.');
+      return;
+    }
+    setResetError(null);
     window.location.reload();
   };
 
@@ -202,12 +196,6 @@ const EpilogueScreen: React.FC<{
                 <li>
                   Turns survived: <span style={{ color: STELE_BRIGHT, fontVariantNumeric: 'tabular-nums' }}>{toRoman(Math.max(1, turnHistory.length))} ({turnHistory.length})</span>
                 </li>
-                <li>
-                  Apparent ambition:{' '}
-                  <span style={{ color: STELE_BRIGHT, fontStyle: 'italic' }}>
-                    {inferredAmbition ? inferredAmbition.apparent_ambition : 'Never became clear, even in hindsight.'}
-                  </span>
-                </li>
               </ul>
             </div>
             <div style={{ background: 'rgba(0,0,0,.32)', border: '1px solid rgba(227,199,102,.25)', borderRadius: 'var(--radius-sm)', padding: '14px 16px' }}>
@@ -225,7 +213,8 @@ const EpilogueScreen: React.FC<{
           </div>
         )}
 
-        <div style={{ marginTop: 48, display: 'flex', justifyContent: 'center' }}>
+        <div style={{ marginTop: 48, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+          {resetError && <p role="alert" style={{ margin: 0, color: STELE_BRIGHT }}>{resetError}</p>}
           <button onClick={handleNewChronicle} className="gor-btn gor-btn-lg gor-btn-primary">
             Begin a New Chronicle
           </button>

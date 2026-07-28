@@ -12,7 +12,10 @@ import {
   type SaveGameState,
   type InferredAmbitionState,
 } from '../persistence/saveGame';
-import type { TurnHistoryEntry, RawCallRecord } from '../types';
+import type { TurnHistoryEntry, RawCallRecord, Memory } from '../types';
+import type { KnowledgeClaim } from '../knowledge/store';
+import type { PrivateSceneRecord } from '../privateScene/model';
+import { serializeTurnSubmission } from '../playerInput/turnSubmission';
 
 function makeState(overrides: Partial<SaveGameState> = {}): SaveGameState {
   return {
@@ -77,6 +80,32 @@ function makeHistoryEntry(turnNumber: number, withRawCalls: boolean): TurnHistor
   };
 }
 
+function makePrivateScene(overrides: Partial<PrivateSceneRecord> = {}): PrivateSceneRecord {
+  return {
+    sceneId: 'scene_4_1',
+    macroTurn: 4,
+    playerId: 'severus_alexander',
+    npcId: 'maximinus_thrax',
+    playerName: 'Severus Alexander',
+    npcName: 'Maximinus Thrax',
+    status: 'closed',
+    transcript: [
+      { sequence: 1, speaker: 'player', text: 'Speak plainly.' },
+      { sequence: 2, speaker: 'npc', text: 'I have heard you.' },
+    ],
+    npcResponseCount: 1,
+    speechActs: [{ speaker: 'npc', kind: 'claim', text: 'I have heard you.', exchange: 1 }],
+    npcPrivate: {
+      sincerity: 'Guarded.',
+      hiddenIntent: 'Measure the emperor before choosing a side.',
+      plannedFollowThrough: ['Question the camp prefect.'],
+    },
+    closureReason: 'player_ended',
+    consequenceStatus: 'pending',
+    ...overrides,
+  };
+}
+
 describe('persistence/saveGame', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -85,6 +114,88 @@ describe('persistence/saveGame', () => {
   afterEach(() => {
     localStorage.clear();
     vi.restoreAllMocks();
+  });
+
+  it('round-trips the optional private-scene records without promoting their private fields', () => {
+    const scenes = [
+      makePrivateScene({ status: 'active', closureReason: undefined }),
+      makePrivateScene({ sceneId: 'scene_4_2', status: 'awaiting_last_word', closureReason: 'refused' }),
+      makePrivateScene({ sceneId: 'scene_4_3', consequenceStatus: 'consumed', consumedByTurn: 5 }),
+    ];
+    saveGame(makeState({ privateScenes: scenes }));
+
+    const loaded = loadGame();
+    expect(loaded?.state.privateScenes).toEqual(scenes);
+    expect(JSON.stringify(loaded?.state.privateScenes)).toContain('hiddenIntent');
+    expect(loaded?.state).not.toHaveProperty('hiddenIntent');
+    expect(loaded?.state).not.toHaveProperty('sincerity');
+  });
+
+  it('persists only canonical private-scene fields without mutating the runtime record', () => {
+    const canonical: PrivateSceneRecord = {
+      sceneId: 'scene_4_canonical',
+      macroTurn: 4,
+      playerId: 'severus_alexander',
+      npcId: 'maximinus_thrax',
+      playerName: 'Severus Alexander',
+      npcName: 'Maximinus Thrax',
+      status: 'closed',
+      transcript: [
+        { sequence: 1, speaker: 'player', text: 'Speak plainly.' },
+        { sequence: 2, speaker: 'npc', text: 'I have heard you.' },
+        { sequence: 3, speaker: 'player', text: 'Then remember it.' },
+      ],
+      npcResponseCount: 1,
+      speechActs: [
+        { speaker: 'npc', kind: 'claim', text: 'I have heard you.', exchange: 1 },
+        { speaker: 'player', kind: 'unclassified', text: 'Then remember it.', exchange: 2 },
+      ],
+      npcPrivate: {
+        sincerity: 'Guarded.',
+        hiddenIntent: 'Measure the emperor before choosing a side.',
+        plannedFollowThrough: ['Question the camp prefect.'],
+      },
+      closureReason: 'player_ended',
+      lastWord: 'Then remember it.',
+      consequenceStatus: 'consumed',
+      consumedByTurn: 5,
+    };
+    const runtimeScene = {
+      ...canonical,
+      promptText: 'TOP_LEVEL_PROMPT_MUST_NOT_PERSIST',
+      transcript: canonical.transcript.map(line => ({
+        ...line,
+        mechanicsTrace: 'TRANSCRIPT_EXTRA_MUST_NOT_PERSIST',
+      })),
+      speechActs: canonical.speechActs.map(act => ({
+        ...act,
+        modelRationale: 'SPEECH_ACT_EXTRA_MUST_NOT_PERSIST',
+      })),
+      npcPrivate: {
+        ...canonical.npcPrivate,
+        plannedFollowThrough: [...canonical.npcPrivate.plannedFollowThrough],
+        systemInstruction: 'NPC_PRIVATE_EXTRA_MUST_NOT_PERSIST',
+      },
+    } as PrivateSceneRecord & { promptText: string };
+    const sourceBeforeSave = structuredClone(runtimeScene);
+
+    expect(saveGame(makeState({ privateScenes: [runtimeScene] }))).toEqual({ ok: true });
+
+    const stored = JSON.parse(localStorage.getItem('gloryOfRome:autosave')!);
+    expect(stored.state.privateScenes).toEqual([canonical]);
+    expect(loadGame()?.state.privateScenes).toEqual([canonical]);
+    expect(runtimeScene).toEqual(sourceBeforeSave);
+  });
+
+  it('accepts a v1 save which predates private scenes', () => {
+    const legacy = makeState();
+    localStorage.setItem('gloryOfRome:autosave', JSON.stringify({
+      version: SAVE_VERSION,
+      savedAt: new Date().toISOString(),
+      state: legacy,
+    }));
+
+    expect(loadGame()?.state.privateScenes).toBeUndefined();
   });
 
   it('round-trips a save through save/load', () => {
@@ -99,6 +210,46 @@ describe('persistence/saveGame', () => {
     expect(typeof loaded!.savedAt).toBe('string');
     expect(() => new Date(loaded!.savedAt).toISOString()).not.toThrow();
     expect(loaded!.state).toEqual(state);
+  });
+
+  it('keeps legacy and canonical structured submissions in the single v1 plaintext history/message field', () => {
+    const legacy = makeHistoryEntry(1, false);
+    legacy.playerIntent = 'Hold court and hear the petitioners.';
+    const canonical = serializeTurnSubmission({
+      version: 1,
+      kind: 'structured',
+      actions: ['Address the Senate'],
+      messagesOrOrders: [{
+        recipient: { kind: 'free_text', text: 'the night watch' },
+        command: 'Keep the eastern gate open',
+      }],
+      privateIntent: 'Preserve room to bargain',
+      questionOrContext: 'Which benches are empty?',
+    });
+    const structured = { ...makeHistoryEntry(2, false), playerIntent: canonical };
+
+    saveGame(makeState({
+      turnNumber: 3,
+      turnHistory: [legacy, structured],
+      messages: [
+        { sender: 'player', text: legacy.playerIntent },
+        { sender: 'player', text: canonical },
+      ],
+    }));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.version).toBe(1);
+    expect(loaded!.state.turnHistory.map(entry => entry.playerIntent)).toEqual([
+      legacy.playerIntent,
+      canonical,
+    ]);
+    expect(loaded!.state.messages.map(message => message.text)).toEqual([
+      legacy.playerIntent,
+      canonical,
+    ]);
+    expect(JSON.stringify(loaded)).not.toContain('"turnSubmission"');
+    expect(Object.keys(loaded!.state.turnHistory[1])).not.toContain('submission');
   });
 
   it('hasSave returns false when nothing has been saved', () => {
@@ -161,6 +312,41 @@ describe('persistence/saveGame', () => {
     expect(loaded!.state.knowledge).toEqual(knowledge);
   });
 
+  it('round-trips optional relationship observation markers while retaining legacy claims under save version 1', () => {
+    const legacy: KnowledgeClaim = {
+      id: 'claim_1_report:lucius:general:rumor',
+      subject: 'lucius',
+      claim: 'A legacy report about Lucius.',
+      claimKey: 'report:lucius:general:rumor',
+      firstLearnedTurn: 1,
+      updates: [{ turn: 1, source: 'rumor', text: 'A legacy report about Lucius.' }],
+    };
+    const observation: KnowledgeClaim = {
+      id: 'claim_7_relationship-observation:7:0',
+      subject: 'severus_alexander',
+      claim: 'Senator Lucius said, "I stand with Severus."',
+      claimKey: 'relationship-observation:7:0',
+      firstLearnedTurn: 7,
+      updates: [{
+        turn: 7,
+        source: 'witnessed',
+        text: 'Senator Lucius said, "I stand with Severus."',
+      }],
+      relationshipObservation: {
+        evidenceId: 'direct_7_1',
+        participantIds: ['severus_alexander', 'lucius'],
+        quote: { speakerId: 'lucius', text: 'I stand with Severus.' },
+      },
+    };
+
+    saveGame(makeState({ turnNumber: 7, knowledge: [legacy, observation] }));
+    const loaded = loadGame();
+
+    expect(loaded?.version).toBe(1);
+    expect(loaded?.state.knowledge).toEqual([legacy, observation]);
+    expect(loaded?.state.knowledge?.[0].relationshipObservation).toBeUndefined();
+  });
+
   it('round-trips the optional Director intents slice (4C.3), and their absence on a pre-Director save', () => {
     const npcIntents = [
       { entity_id: 'maximinus_thrax', intent: 'Court the Rhine legions for a march on Rome', continuity: 'continue' as const },
@@ -189,12 +375,12 @@ describe('persistence/saveGame', () => {
       status: 'alive' as const,
       location: 'Praetorian Camp',
       relationships: {},
-      memories: [],
+      memories: [] as Memory[],
       resources: {},
-      visibility_network: [],
+      visibility_network: [] as string[],
       current_state_narrative: 'A giant of a man.',
-      short_term_goals: [],
-      long_term_ambitions: [],
+      short_term_goals: [] as string[],
+      long_term_ambitions: [] as string[],
     };
     const flavored = {
       ...baseEntity,
@@ -470,6 +656,21 @@ describe('persistence/saveGame', () => {
       expect(loaded!.state.inferredAmbition).toEqual(ambition);
     });
 
+    it('does not let an older async result overwrite a newer stored ambition', () => {
+      const newer: InferredAmbitionState = {
+        apparent_ambition: 'Command the Rhine legions and dictate terms to Rome',
+        confidence: 'high',
+        asOfTurn: 6,
+      };
+      saveGame(makeState({ turnNumber: 7, inferredAmbition: newer }));
+      const before = localStorage.getItem('gloryOfRome:autosave');
+
+      updateSavedAmbition(ambition);
+
+      expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
+      expect(loadGame()!.state.inferredAmbition).toEqual(newer);
+    });
+
     it('no-ops safely when no save exists', () => {
       expect(() => updateSavedAmbition(ambition)).not.toThrow();
       expect(hasSave()).toBe(false);
@@ -488,10 +689,25 @@ describe('persistence/saveGame', () => {
     saveGame(makeState());
     expect(hasSave()).toBe(true);
 
-    clearSave();
+    expect(clearSave()).toEqual({ ok: true });
 
     expect(hasSave()).toBe(false);
     expect(loadGame()).toBeNull();
+  });
+
+  it('clearSave reports a failed removal and leaves the autosave retrievable', () => {
+    saveGame(makeState());
+    const before = localStorage.getItem('gloryOfRome:autosave');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new DOMException('storage unavailable', 'SecurityError');
+    });
+
+    expect(clearSave()).toEqual({ ok: false });
+
+    expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
+    expect(loadGame()).not.toBeNull();
+    expect(warnSpy).toHaveBeenCalledOnce();
   });
 
   it('returns null and warns on a version mismatch', () => {
@@ -536,7 +752,7 @@ describe('persistence/saveGame', () => {
       throw err;
     });
 
-    expect(() => saveGame(makeState())).not.toThrow();
+    expect(saveGame(makeState())).toEqual({ ok: false });
     // Both the initial attempt and the stripped retry failed, so nothing
     // should have been persisted.
     expect(warnSpy).toHaveBeenCalledTimes(2);

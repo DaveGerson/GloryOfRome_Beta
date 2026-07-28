@@ -13,6 +13,48 @@ export enum GameState {
   GAME_OVER,
 }
 
+export const TURN_SUBMISSION_VERSION = 1 as const;
+
+export interface KnownRecipientOption {
+  entityId: string;
+  displayName: string;
+}
+
+export type MessageRecipient =
+  | { kind: 'known_entity'; entityId: string; displayName: string }
+  | { kind: 'free_text'; text: string };
+
+export interface MessageOrOrder {
+  recipient: MessageRecipient;
+  command: string;
+}
+
+export interface MessageOrOrderDraft {
+  recipient:
+    | { kind: 'known_entity'; entityId: string }
+    | { kind: 'free_text'; text: string }
+    | null;
+  command: string;
+}
+
+export type TurnSubmission =
+  | { version: typeof TURN_SUBMISSION_VERSION; kind: 'freeform'; text: string }
+  | {
+      version: typeof TURN_SUBMISSION_VERSION;
+      kind: 'structured';
+      actions?: readonly string[];
+      messagesOrOrders?: readonly MessageOrOrder[];
+      privateIntent?: string;
+      questionOrContext?: string;
+    };
+
+export interface StructuredTurnDraft {
+  actions: string[];
+  messagesOrOrders: MessageOrOrderDraft[];
+  privateIntent: string;
+  questionOrContext: string;
+}
+
 /**
  * Represents a single message in the chat interface.
  */
@@ -191,7 +233,6 @@ export interface WorldState {
   economic_stability: string;
   political_climate: string;
   regions: Record<string, RegionState>;
-  [key: string]: any;
 }
 
 export const EntityActionIntentEnum = [

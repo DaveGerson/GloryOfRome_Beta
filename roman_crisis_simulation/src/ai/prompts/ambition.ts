@@ -6,9 +6,9 @@
  * DESIGN_DECISIONS.md D8. The player never declares a goal (no quest log,
  * no picked ambition) - this is a code-and-model reading of the pattern in
  * their behavior, exactly the way another character in the world would
- * form an impression of them. Feeds two THINGS ONLY: the epilogue's framing
- * (components/EpilogueScreen.tsx) and the GM console's "Apparent Ambition"
- * line (components/GameMasterScreen.tsx) - never a player-facing surface.
+ * form an impression of them. Feeds one thing only: the GM console's
+ * "Apparent Ambition" line (components/GameMasterScreen.tsx). It never
+ * reaches a player-facing prompt or surface.
  * MODEL: flash (GEMINI_FLASH) - this is the "cheap periodic model call" D8
  * calls for, run every 3rd committed turn (see App.tsx), not every turn.
  * CONSUMER: ai/tools/ambition.ts `inferAmbition`.
@@ -20,7 +20,22 @@
  */
 
 import { Entity } from '../../types';
-import { getEntityBrief } from './fragments';
+
+export interface ApparentAmbitionPlayerBrief {
+  entityId: string;
+  name: string;
+  entityType: Entity['entity_type'];
+  position?: string;
+}
+
+export function buildApparentAmbitionPlayerBrief(player: Entity): ApparentAmbitionPlayerBrief {
+  return {
+    entityId: player.entity_id,
+    name: player.name,
+    entityType: player.entity_type,
+    ...(player.position ? { position: player.position } : {}),
+  };
+}
 
 const SYSTEM_INSTRUCTION = `
 ROLE: Silent Observer of Ambition.
@@ -40,12 +55,12 @@ OUTPUT: A single JSON object per the schema. Do not include any explanatory text
 
 /** Builds the { systemInstruction, prompt } pair for the D8 ambition-inference call. */
 export function buildAmbitionInferencePrompt(
-  player: Entity,
+  player: ApparentAmbitionPlayerBrief,
   recentIntents: string[],
   recentHeadlines: string[]
 ): { systemInstruction: string; prompt: string } {
   const prompt = `
-CHARACTER: ${getEntityBrief(player)}
+CHARACTER: ${JSON.stringify(player, null, 2)}
 
 RECENT ACTIONS THIS CHARACTER CHOSE TO TAKE (most recent last):
 ${recentIntents.length > 0 ? recentIntents.map((intent, i) => `${i + 1}. "${intent}"`).join('\n') : 'No actions recorded yet.'}

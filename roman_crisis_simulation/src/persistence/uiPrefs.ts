@@ -21,6 +21,7 @@
 
 const GM_CONSOLE_ENABLED_KEY = 'gloryOfRome:gmConsoleEnabled';
 const GM_INTERVENTION_ENABLED_KEY = 'gloryOfRome:gmInterventionEnabled';
+const COMPOSER_MODE_KEY = 'gloryOfRome:composerMode';
 
 /** Default for both toggles below - "available", i.e. today's behavior. */
 const DEFAULT_ENABLED = true;
@@ -65,4 +66,24 @@ export function getGmInterventionEnabled(): boolean {
 /** Persists the D32 GM-Intervention-availability toggle (the configuration menu). */
 export function setGmInterventionEnabled(enabled: boolean): void {
   setBoolPref(GM_INTERVENTION_ENABLED_KEY, enabled);
+}
+
+/** The input surface is a browser preference, not campaign state. */
+export function getComposerMode(): 'chat' | 'structured' {
+  try {
+    const stored = localStorage.getItem(COMPOSER_MODE_KEY);
+    return stored === 'structured' || stored === 'chat' ? stored : 'chat';
+  } catch (e) {
+    console.warn('getComposerMode: localStorage.getItem failed', e);
+    return 'chat';
+  }
+}
+
+/** Persists only the selected input surface; drafts never enter localStorage. */
+export function setComposerMode(mode: 'chat' | 'structured'): void {
+  try {
+    localStorage.setItem(COMPOSER_MODE_KEY, mode);
+  } catch (e) {
+    console.warn('setComposerMode: localStorage.setItem failed', e);
+  }
 }

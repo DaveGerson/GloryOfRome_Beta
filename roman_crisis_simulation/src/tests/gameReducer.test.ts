@@ -16,9 +16,13 @@ import {
 import { GameState, Message, TurnHistoryEntry, GameEvent } from '../types';
 import type { SaveGameState } from '../persistence/saveGame';
 import type { KnowledgeClaim } from '../knowledge/store';
+import type { PrivateSceneRecord } from '../privateScene/model';
 import { getMockInitialState } from './mockData';
 
 const PLAYER_ID = 'severus_alexander';
+type TurnCommitWithPlayerMessage = Extract<GameAction, { type: 'TURN_COMMITTED' }> & {
+  playerMessage: Message;
+};
 
 function makeHistoryEntry(turnNumber: number): TurnHistoryEntry {
   return {
@@ -77,9 +81,23 @@ function makeKnowledgeClaim(id: string, turn: number): KnowledgeClaim {
   };
 }
 
-function makeTurnCommit(state: GameDomainState, entities = state.entities): Extract<GameAction, { type: 'TURN_COMMITTED' }> {
+function makePrivateScene(overrides: Partial<PrivateSceneRecord> = {}): PrivateSceneRecord {
+  return {
+    sceneId: 'scene_3_1', macroTurn: 3, playerId: PLAYER_ID, npcId: 'maximinus_thrax',
+    playerName: 'Severus Alexander', npcName: 'Maximinus Thrax', status: 'closed',
+    transcript: [{ sequence: 1, speaker: 'player', text: 'Speak.' }, { sequence: 2, speaker: 'npc', text: 'I hear you.' }],
+    npcResponseCount: 1,
+    speechActs: [{ speaker: 'npc', kind: 'claim', text: 'I hear you.', exchange: 1 }],
+    npcPrivate: { sincerity: 'Guarded.', hiddenIntent: 'Assess the offer.', plannedFollowThrough: ['Consult allies.'] },
+    closureReason: 'player_ended', consequenceStatus: 'pending',
+    ...overrides,
+  };
+}
+
+function makeTurnCommit(state: GameDomainState, entities = state.entities): TurnCommitWithPlayerMessage {
   return {
     type: 'TURN_COMMITTED',
+    playerMessage: { sender: 'player', text: 'GOR_TURN_SUBMISSION/1\n{"version":1,"kind":"structured","actions":["Address the Senate"]}' },
     entities,
     worldState: { ...state.worldState, week: state.worldState.week + 1 },
     simulationState: createInitialGameState().simulationState,
@@ -91,6 +109,7 @@ function makeTurnCommit(state: GameDomainState, entities = state.entities): Extr
     npcIntents: [
       { entity_id: 'maximinus_thrax', intent: 'Court the Rhine legions for a march on Rome', continuity: 'new' },
     ],
+    privateScenes: state.privateScenes,
     turnNumber: state.turnNumber + 1,
     turnHistory: [...state.turnHistory, makeHistoryEntry(state.turnNumber)],
     gmMessage: { sender: 'gm', text: 'The die is cast.' },
@@ -98,7 +117,7 @@ function makeTurnCommit(state: GameDomainState, entities = state.entities): Extr
     ribbonMessage: { sender: 'ribbon', text: 'Week II' },
     suggestedActions: ['New pill'],
     currentEvents: ['New headline'],
-  };
+  } as TurnCommitWithPlayerMessage;
 }
 
 function makeSaveState(overrides: Partial<SaveGameState> = {}): SaveGameState {
@@ -132,15 +151,16 @@ describe('state/gameReducer', () => {
   });
 
   describe('TURN_STARTED', () => {
-    it('enters PROCESSING, clears the pills, and appends ONLY the player message', () => {
+    it('enters PROCESSING without changing any committed domain slice', () => {
       const state = makePlayingState();
       const playerMessage: Message = { sender: 'player', text: 'I address the Senate.' };
       const result = gameReducer(state, { type: 'TURN_STARTED', playerMessage });
 
       expect(result.gameState).toBe(GameState.PROCESSING);
-      expect(result.suggestedActions).toEqual([]);
-      expect(result.messages).toEqual([...state.messages, playerMessage]);
-      // Nothing else may change - the pre-turn snapshot depends on it.
+      expect(result.suggestedActions).toBe(state.suggestedActions);
+      expect(result.messages).toBe(state.messages);
+      // Nothing else may change - the submitted artifact is only an
+      // in-flight UI projection until TURN_COMMITTED lands atomically.
       expect(result.entities).toBe(state.entities);
       expect(result.worldState).toBe(state.worldState);
       expect(result.turnNumber).toBe(state.turnNumber);
@@ -167,12 +187,31 @@ describe('state/gameReducer', () => {
       expect(result.currentEvents).toEqual(['New headline']);
       expect(result.messages).toEqual([
         ...state.messages,
+        action.playerMessage,
         action.gmMessage,
         action.monologueMessage,
         action.ribbonMessage,
       ]);
       expect(result.pendingIntelligenceFallout).toEqual([]);
       expect(result.gmInterventionText).toBe('');
+    });
+
+    it('omits the Inner Thoughts message entirely when the committed turn has no monologue', () => {
+      const state = makePlayingState({ gameState: GameState.PROCESSING });
+      const action = {
+        ...makeTurnCommit(state),
+        monologueMessage: null,
+      } as unknown as Extract<GameAction, { type: 'TURN_COMMITTED' }>;
+
+      const result = gameReducer(state, action);
+
+      expect(result.messages).toEqual([
+        ...state.messages,
+        action.playerMessage,
+        action.gmMessage,
+        action.ribbonMessage,
+      ]);
+      expect(result.messages.some(message => message?.sender === 'player_monologue')).toBe(false);
     });
 
     it('keeps the phase as-is while the player lives (the event-trigger check resolves it)', () => {
@@ -194,6 +233,19 @@ describe('state/gameReducer', () => {
       // An empty Director turn clears the slice the same way.
       const cleared = gameReducer(state, { ...makeTurnCommit(state), npcIntents: [] });
       expect(cleared.npcIntents).toEqual([]);
+    });
+
+    it('commits the supplied private scenes alongside the turn without mutating any other committed slice', () => {
+      const state = makePlayingState({ gameState: GameState.PROCESSING, privateScenes: [makePrivateScene({ sceneId: 'old' })] });
+      const privateScenes = [makePrivateScene({ consequenceStatus: 'consumed', consumedByTurn: 4 })];
+      const action = { ...makeTurnCommit(state), privateScenes };
+      const result = gameReducer(state, action);
+
+      expect(result.privateScenes).toBe(privateScenes);
+      expect(result.entities).toBe(action.entities);
+      expect(result.worldState).toBe(action.worldState);
+      expect(result.reports).toBe(action.reports);
+      expect(result.knowledge).toBe(action.knowledge);
     });
 
     it('resolves the phase to GAME_OVER when the committed entities show the player dead (D1)', () => {
@@ -321,14 +373,15 @@ describe('state/gameReducer', () => {
   });
 
   describe('TURN_ROLLED_BACK', () => {
-    it('restores the snapshot fields but never the chat log', () => {
+    it('restores every persisted slice including the exact pre-turn chat log', () => {
       const preTurn = makePlayingState();
       const snapshot = makeSaveState({
         turnNumber: preTurn.turnNumber,
         pendingIntelligenceFallout: ['An agent was spotted.'],
       });
-      // A half-attempted turn's transient additions: the player's message
-      // and the GM's error notice are already in the log and must survive.
+      // Simulate a future accidental partial write. Rollback must remove all
+      // attempted transcript artifacts; the retry notice belongs to App UI,
+      // outside committed messages and save state.
       const midFailure: GameDomainState = {
         ...preTurn,
         gameState: GameState.PROCESSING,
@@ -353,14 +406,39 @@ describe('state/gameReducer', () => {
       expect(result.currentEvents).toBe(snapshot.currentEvents);
       expect(result.gmInterventionText).toBe(snapshot.gmInterventionText);
       expect(result.pendingIntelligenceFallout).toEqual(['An agent was spotted.']);
-      // The chat log is deliberately NOT restored.
-      expect(result.messages).toBe(midFailure.messages);
+      expect(result.messages).toBe(snapshot.messages);
+      expect(result.privateScenes).toEqual(snapshot.privateScenes ?? []);
       // Fields never touched mid-turn are not part of the rollback.
       expect(result.playerCharacterId).toBe(midFailure.playerCharacterId);
       expect(result.metaNarrative).toBe(midFailure.metaNarrative);
       expect(result.inferredAmbition).toBe(midFailure.inferredAmbition);
       // The phase transition is a separate GAME_STATE_SET, not part of this action.
       expect(result.gameState).toBe(GameState.PROCESSING);
+    });
+
+    it('restores private scenes from the snapshot and normalizes a legacy snapshot to an empty list', () => {
+      const state = makePlayingState({ privateScenes: [makePrivateScene({ sceneId: 'mid-turn' })] });
+      const snapshot = makeSaveState({ privateScenes: [makePrivateScene({ sceneId: 'pre-turn' })] });
+      expect(gameReducer(state, { type: 'TURN_ROLLED_BACK', snapshot }).privateScenes).toEqual(snapshot.privateScenes);
+
+      const legacy = makeSaveState();
+      delete legacy.privateScenes;
+      expect(gameReducer(state, { type: 'TURN_ROLLED_BACK', snapshot: legacy }).privateScenes).toEqual([]);
+    });
+
+    it('normalizes a corrupted non-array private-scenes snapshot to an empty list without changing other rollback fields', () => {
+      const state = makePlayingState({ privateScenes: [makePrivateScene({ sceneId: 'mid-turn' })] });
+      for (const corrupt of [{}, 'not-a-scene-list']) {
+        const snapshot = makeSaveState({
+          turnNumber: 9,
+          messages: [{ sender: 'gm', text: 'Rollback sentinel.' }],
+          privateScenes: corrupt as unknown as PrivateSceneRecord[],
+        });
+        const result = gameReducer(state, { type: 'TURN_ROLLED_BACK', snapshot });
+        expect(result.privateScenes).toEqual([]);
+        expect(result.turnNumber).toBe(9);
+        expect(result.messages).toBe(snapshot.messages);
+      }
     });
 
     it('normalizes a snapshot without the optional fallout field to an empty queue', () => {
@@ -514,6 +592,7 @@ describe('state/gameReducer', () => {
       expect(result.truthLedger).toEqual(save.truthLedger);
       expect(result.knowledge).toEqual(save.knowledge);
       expect(result.npcIntents).toEqual(save.npcIntents);
+      expect(result.privateScenes).toEqual(save.privateScenes ?? []);
       expect(result.gameState).toBe(GameState.AWAITING_PLAYER_INPUT);
     });
 
@@ -524,6 +603,7 @@ describe('state/gameReducer', () => {
       delete save.truthLedger;
       delete save.knowledge;
       delete save.npcIntents;
+      delete save.privateScenes;
       const result = gameReducer(createInitialGameState(), { type: 'GAME_LOADED', save });
       expect(result.inferredAmbition).toBeNull();
       expect(result.pendingIntelligenceFallout).toEqual([]);
@@ -534,6 +614,21 @@ describe('state/gameReducer', () => {
       // 4C.3 - a legacy (pre-Director) save starts with no intents; the
       // next Director run rules everything 'new'.
       expect(result.npcIntents).toEqual([]);
+      expect(result.privateScenes).toEqual([]);
+    });
+
+    it('normalizes present-but-non-array private scenes to an empty list without disturbing the loaded campaign', () => {
+      for (const corrupt of [{}, 'not-a-scene-list']) {
+        const save = makeSaveState({
+          turnNumber: 11,
+          metaNarrative: 'Corruption sentinel.',
+          privateScenes: corrupt as unknown as PrivateSceneRecord[],
+        });
+        const result = gameReducer(createInitialGameState(), { type: 'GAME_LOADED', save });
+        expect(result.privateScenes).toEqual([]);
+        expect(result.turnNumber).toBe(11);
+        expect(result.metaNarrative).toBe('Corruption sentinel.');
+      }
     });
 
     it('re-derives GAME_OVER from a save whose player is dead (D1 - GAME_OVER itself is never persisted)', () => {
@@ -550,7 +645,7 @@ describe('state/gameReducer', () => {
 
   describe('GAME_STARTED', () => {
     it('starts a campaign in the default world when no custom world is provided', () => {
-      const state = createInitialGameState();
+      const state = { ...createInitialGameState(), privateScenes: [makePrivateScene()] };
       const { entities } = getMockInitialState();
       const introMessage: Message = { sender: 'gm', text: 'You have chosen.' };
       const result = gameReducer(state, {
@@ -566,6 +661,7 @@ describe('state/gameReducer', () => {
       expect(result.gameState).toBe(GameState.AWAITING_PLAYER_INPUT);
       expect(result.messages).toEqual([introMessage]);
       expect(result.suggestedActions).toEqual(['First move']);
+      expect(result.privateScenes).toEqual([]);
       // The defaults stand when the campaign isn't a custom world.
       expect(result.worldState).toBe(state.worldState);
       expect(result.metaNarrative).toBe(state.metaNarrative);
@@ -608,6 +704,26 @@ describe('state/gameReducer', () => {
     });
   });
 
+  describe('PRIVATE_SCENES_COMMITTED', () => {
+    it('replaces only the scene slice, preserving every world, numeric, and relationship reference', () => {
+      const state = makePlayingState({ privateScenes: [makePrivateScene({ sceneId: 'before' })] });
+      const privateScenes = [makePrivateScene({ sceneId: 'after', status: 'awaiting_last_word', closureReason: 'refused' })];
+
+      const result = gameReducer(state, { type: 'PRIVATE_SCENES_COMMITTED', privateScenes });
+
+      expect(result.privateScenes).toBe(privateScenes);
+      expect(result.entities).toBe(state.entities);
+      expect(result.entities[0].relationships).toBe(state.entities[0].relationships);
+      expect(result.worldState).toBe(state.worldState);
+      expect(result.simulationState).toBe(state.simulationState);
+      expect(result.reports).toBe(state.reports);
+      expect(result.turnNumber).toBe(state.turnNumber);
+      expect(result.knowledge).toBe(state.knowledge);
+      expect(result.messages).toBe(state.messages);
+      expect(result.turnHistory).toBe(state.turnHistory);
+    });
+  });
+
   describe('simple field actions', () => {
     it('MESSAGE_ADDED appends to the chat log', () => {
       const state = makePlayingState();
@@ -633,6 +749,17 @@ describe('state/gameReducer', () => {
       const inferredAmbition = { apparent_ambition: 'Appears set on ruling Rome.', confidence: 'low' as const, asOfTurn: 3 };
       const result = gameReducer(makePlayingState(), { type: 'AMBITION_INFERRED', inferredAmbition });
       expect(result.inferredAmbition).toBe(inferredAmbition);
+    });
+
+    it('AMBITION_INFERRED cannot replace a newer reading with an older async result', () => {
+      const newer = { apparent_ambition: 'Commands the Rhine legions.', confidence: 'high' as const, asOfTurn: 6 };
+      const older = { apparent_ambition: 'Courts a few senators.', confidence: 'low' as const, asOfTurn: 3 };
+      const state = makePlayingState({ inferredAmbition: newer });
+
+      const result = gameReducer(state, { type: 'AMBITION_INFERRED', inferredAmbition: older });
+
+      expect(result).toBe(state);
+      expect(result.inferredAmbition).toBe(newer);
     });
 
     it('RESOURCE_SPENT replaces the entity roster', () => {

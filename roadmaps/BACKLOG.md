@@ -75,16 +75,30 @@ flip.
 ### B4 — Journey smoke-harness integration  *(LANDED)*
 Done: the multi-turn journey suite runs the real turn pipeline via scripted
 fake clients (`tests/journeys/` — quietReign, schemeWar, mortalityFates,
-saveReload — over `harness.ts`), invoked on demand as `npm run test:journeys`
-(separate from `npm test`). Landed in the pre-Phase-5 close-out (commit
-`0831889`). Kept here as memory; new substrate paths should gain journey
-coverage as they land.
+saveReload — over `harness.ts`), invoked as `npm run test:journeys` (a
+separate vitest config from `npm test`) and CI-gated on every push/PR since
+commit `609505e`. Landed in the pre-Phase-5 close-out (commit `0831889`).
+Kept here as memory; new substrate paths should gain journey coverage as
+they land.
 
 ### B5 — Golden turns + judge calibration
 The eval judge (5 axes incl. `character_richness`) is wired but uncalibrated.
 It needs ~10 golden turns from a real owner-played session (export via the GM
 console, Ctrl+Shift+G). Only the owner can produce these — the judge is a
 scorer with nothing to score until then.
+
+Once the golden-turn corpus lands, also check in one representative corpus
+fixture and add a CI step running only `eval`'s deterministic-checks leg
+(`GOR_EVAL_CORPUS=<fixture path> npx vitest run --config vitest.eval.config.ts -t "deterministic checks"`)
+against it — the LLM-judge leg stays manual/local given three still-open
+blockers: uncalibrated scoring (no baseline to compare against yet), real
+recurring Gemini API cost/non-determinism per run, and fork-PR secret-exposure
+risk from wiring `GEMINI_API_KEY` into a workflow that triggers on
+`push`/`pull_request` with no fork restriction. Revisit the judge leg only
+once the corpus exists, its scores have been manually validated as a
+baseline, and a deliberate decision is made to accept the recurring cost and
+adopt fork-safe secret handling (e.g. `pull_request_target` with explicit
+review gating, or a manual/scheduled workflow instead of every push).
 
 ### B6 — Faction-level collective minds  *(D22 seam)*
 The mind system has a documented seam for modeling a bloc (Plebs, Senate,
@@ -107,13 +121,6 @@ actor in its own right.
   leaked to the player; pinned by the `mortalityFates` journey). Kept as-is;
   if a future fix clears it on revival, update that journey's expectation.
   Related to the `secret_truth`-not-cleared-on-revival item above.
-- *(Phase 5 adversarial-review flags, July 2026:)* Chat now renders HTML
-  entities literally (`&amp;` shows as `&amp;`) since the
-  escape-by-construction fix — if the model emits entities often, add a
-  decode-then-escape single pass in `components/textFormat.ts`. Ctrl+Shift+G
-  still `preventDefault`s when the GM console is disabled in settings
-  (keystroke swallowed, nothing shown). `ROADMAP_6_MAINTAINABILITY.md`
-  references a pre-archive DesignDocs path (historical doc, cosmetic).
 
 ### B8 — Raw relationship numbers on the Personae tab  *(ruling needed)*
 `DramatisPersonaeTab` renders the player's own Trust/Respect/Threat/
@@ -146,6 +153,55 @@ denarii + omens hybrid was the leading candidate); scope bounds (probability
 nudges compose with `resolution.ts` seeded rolls per invariant 11; raw fact
 edits need fiat-truth handling in the D11 ledger to avoid breaking D26's
 honest window); and who "witnessed" a miracle, for the perception layer.
+
+### B11 — ESLint warning inventory cleared  *(Phase 6 quality-gate ratchet)*
+Task 5 landed a non-disruptive ESLint flat-config gate that surfaced 82
+warnings at 0 errors (commit `9ca98c7` against parent `1cef76e`). The
+dedicated Task 5 review (`.superpowers/sdd/task-5-review.md`) read every
+occurrence individually and initially accepted 52. Subsequent Phase 6 work
+resolved 35 of those warnings: the App, mock, eval, and smoke-test unused
+bindings; the `geminiService`, `Game`, eval, and additional test `any` sites;
+the turn/mock `prefer-const` sites; `preserve-caught-error`; the App and
+SidePanel state-in-effect sites; and both exhaustive-deps findings no longer
+appear in current lint output. Those fixes lower the ratchet rather than
+leaving stale capacity behind.
+
+The final 17 warnings were fixed in the Phase 6 quality cleanup: unused catch
+bindings and imports were removed, the mixed-mutability engine destructure was
+split, the redundant onboarding reset effect was removed, shared UI primitives
+now expose native element prop types, and the two test assertions use narrow
+structural checks. `tooling/eslint-warning-baseline.json` now has an empty
+inventory. `npm run lint` therefore fails loudly for every future ESLint
+warning; no B11 warning remains accepted debt.
+
+### B12 — Task 4b vendor-chunk-split interactive preview smoke: not yet run
+When Task 4b split the single oversized JS bundle into deterministic vendor
+chunks (`vite.config.ts`'s `manualChunks`, commit `1cef76e`), the task brief
+called for an interactive preview smoke check afterward — start `npm run
+preview`, walk character creation through one turn, toggle the GM console via
+Ctrl+Shift+G, and confirm no console errors — as direct, DOM-level evidence
+that the multi-chunk build actually boots correctly in a real browser. The
+controller started the production preview on `127.0.0.1:4173` and confirmed
+it served HTTP 200, but the browser-control runtime reported that no in-app or
+Chrome browser backend was available in that session, so the interactive
+walkthrough itself could not be executed
+(`.superpowers/sdd/task-4b-report.md` §8).
+
+This is recorded as an explicit verification-evidence gap, not accepted code
+debt and not a claimed pass. The evidence that does exist bounds the risk
+without closing it: an independent reviewer verified the emitted inter-chunk
+imports form a clean DAG, `dist/index.html` preloads all required vendor
+chunks, the production preview serves successfully, `npm run typecheck`
+passes, and all 665 tests pass. None of that substitutes for actually loading
+the app in a browser and watching it run. If a defect exists that this
+evidence can't see — a runtime-only ESM chunk-loading failure that only
+manifests once a real browser parses and executes the split bundles — its
+consequence would be loud and global: the app would fail to boot for every
+player, not a subtle or silent gameplay-corruption failure. Trigger to
+revisit: rerun the interactive smoke (character creation → one turn →
+Ctrl+Shift+G toggle → confirm zero console errors) the next time a session
+has a working browser backend available, and treat it as blocking before
+treating the vendor-chunk split as fully verified end-to-end.
 
 ---
 

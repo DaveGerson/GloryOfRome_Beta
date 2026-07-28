@@ -33,6 +33,34 @@
  */
 
 import { Entity, EventDelta, EventDeltaType, WorldState } from '../types';
+import type { PrivateSceneRecord, PrivateSceneStatus, PrivateSceneClosureReason, PrivateSceneSpeaker, PrivateSceneSpeechAct } from '../privateScene/model';
+
+export interface PrivateScenePlayerView {
+  sceneId: string;
+  npcId: string;
+  npcName: string;
+  status: PrivateSceneStatus;
+  transcript: Array<{ sequence: number; speaker: PrivateSceneSpeaker; text: string }>;
+  speechActs: PrivateSceneSpeechAct[];
+  npcResponseCount: number;
+  closureReason?: PrivateSceneClosureReason;
+  lastWord?: string;
+}
+
+/** Explicit D5 boundary for player components: intentionally excludes every GM-private scene field. */
+export function projectPrivateSceneForPlayer(scene: PrivateSceneRecord): PrivateScenePlayerView {
+  return {
+    sceneId: scene.sceneId,
+    npcId: scene.npcId,
+    npcName: scene.npcName,
+    status: scene.status,
+    transcript: scene.transcript.map(line => ({ ...line })),
+    speechActs: scene.speechActs.map(act => ({ ...act })),
+    npcResponseCount: scene.npcResponseCount,
+    ...(scene.closureReason ? { closureReason: scene.closureReason } : {}),
+    ...(scene.lastWord ? { lastWord: scene.lastWord } : {}),
+  };
+}
 
 /** How a visible change reached the viewer. `null` only ever pairs with
  * `visible: false` - there is no source for something nobody perceived. */
@@ -441,4 +469,16 @@ export function buildPerceivedDigest(
     });
   }
   return changes;
+}
+
+/** Player-only projection: keep NPC perception semantics intact while
+ * withholding relationship-mechanic deltas from player intelligence. */
+export function buildPlayerPerceivedDigest(
+  deltas: EventDelta[],
+  player: Entity,
+  entities: Entity[],
+  world: WorldState
+): PerceivedChange[] {
+  return buildPerceivedDigest(deltas, player, entities, world)
+    .filter(change => change.deltaType !== 'relation');
 }

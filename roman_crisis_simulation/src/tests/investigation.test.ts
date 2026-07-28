@@ -11,7 +11,12 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { GoogleGenAI } from '@google/genai';
-import { getInvestigationResult } from '../ai/tools/intelligence';
+import {
+  getClarificationOnEvent,
+  getDeepAnalysis,
+  getInvestigationResult,
+  getPlayerMonologue,
+} from '../ai/tools/intelligence';
 import { endTurnCapture } from '../ai/core/geminiService';
 import { rollD20, createSeededRng } from '../ai/core/resolution';
 import type { Entity } from '../types';
@@ -68,12 +73,38 @@ function makeMockAi(responseJson: object): { ai: GoogleGenAI; generateContent: R
   return { ai: { models: { generateContent } } as unknown as GoogleGenAI, generateContent };
 }
 
+function makeMockTextAi(text: string): GoogleGenAI {
+  return { models: { generateContent: vi.fn().mockResolvedValue({ text }) } } as unknown as GoogleGenAI;
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   endTurnCapture(); // defensive drain, mirrors tests/turnPipeline.test.ts
 });
 
 describe('ai/tools/intelligence.ts getInvestigationResult - resolution layer wiring', () => {
+  it.each([
+    ['report', { reportData: ['A secret.'], report: 'Outcome tier: critical failure.', consequences: null }, 18],
+    ['consequences', { reportData: ['A secret.'], report: 'The inquiry went badly.', consequences: 'The margin was -3 after modifiers.' }, 5],
+    ['reportData', { reportData: ['Fate band: presumed dead.'], report: 'A witness speaks.', consequences: null }, 18],
+  ])('rejects hidden mechanics returned in player-rendered %s with a content-free error', async (_field, response, roll) => {
+    mockRoll(roll);
+    const { ai } = makeMockAi(response);
+
+    let thrown: unknown;
+    try {
+      await getInvestigationResult(ai, makeBaselineTarget(), makePlayer(), false, false, 'secrets');
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe('AI output violated the player-visible mechanics boundary.');
+    expect((thrown as Error).message).not.toContain('critical failure');
+    expect((thrown as Error).message).not.toContain('margin');
+    expect((thrown as Error).message).not.toContain('presumed dead');
+  });
+
   it('rolls BEFORE the model call and embeds the pre-decided tier in the prompt (never a roll number)', async () => {
     mockRoll(18); // baseline difficulty 12 (isRisky=false) -> margin 6 -> 'success'
     const { ai, generateContent } = makeMockAi({ reportData: ['A secret.'], report: 'Found a secret.', consequences: null });
@@ -210,5 +241,39 @@ describe('ai/tools/intelligence.ts getInvestigationResult - resolution layer wir
     const result = await getInvestigationResult(ai, makeBaselineTarget(), makePlayer(), false, false, 'secrets');
 
     expect(result.resolutionTrace).toMatchObject({ roll: 18, total: 18, margin: 6, tier: 'success' });
+  });
+});
+
+describe('ai/tools/intelligence.ts direct player-output mechanics boundaries', () => {
+  it('validates clarification text before returning it to the player', async () => {
+    const player = makePlayer({ visibility_network: ['target_1'] });
+    const target = makeBaselineTarget();
+    await expect(getClarificationOnEvent(
+      makeMockTextAi('The roll total was 7.'),
+      'Senator Rufus left the Curia.',
+      'Why?',
+      player,
+      [player, target],
+      false,
+    )).rejects.toThrow('player-visible mechanics boundary');
+  });
+
+  it('validates deep-analysis text before returning it to the player', async () => {
+    await expect(getDeepAnalysis(
+      makeMockTextAi('Outcome tier: critical failure.'),
+      makeBaselineTarget(),
+      makePlayer(),
+      false,
+    )).rejects.toThrow('player-visible mechanics boundary');
+  });
+
+  it('validates player-monologue text at the helper return boundary', async () => {
+    await expect(getPlayerMonologue(
+      makeMockTextAi('I fear a fate band: presumed dead.'),
+      makePlayer(),
+      ['The Curia empties.'],
+      [],
+      false,
+    )).rejects.toThrow('player-visible mechanics boundary');
   });
 });

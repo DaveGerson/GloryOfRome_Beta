@@ -44,7 +44,7 @@ export const getNpcMindDecision = async (
   isMockMode: boolean
 ): Promise<NpcMindDecision> => {
   if (isMockMode) {
-    return mockGetNpcMindDecision(input.self, input.directorIntent);
+    return mockGetNpcMindDecision(input.self, input.directorIntent, input.privateSceneMemories);
   }
 
   const { systemInstruction, prompt } = buildNpcMindPrompt(input);

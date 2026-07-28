@@ -22,7 +22,8 @@ import { Type } from '@google/genai';
 import { z } from 'zod';
 import { Entity } from '../../types';
 import { GeminiClient, generateStructured, GEMINI_FLASH } from '../core/geminiService';
-import { buildAmbitionInferencePrompt } from '../prompts/ambition';
+import { buildAmbitionInferencePrompt, buildApparentAmbitionPlayerBrief } from '../prompts/ambition';
+import { deserializeTurnSubmission, isReservedTurnSubmissionArtifact, projectForExternalInference } from '../../playerInput/turnSubmission';
 
 /** Local zod schema for `inferAmbition`'s output - see the file-level doc comment for why this lives here instead of ai/core/zodSchemas.ts. */
 export const zAmbitionInference = z.object({
@@ -59,8 +60,7 @@ const MOCK_AMBITION_INFERENCE: AmbitionInference = {
  * Infers the player's APPARENT ambition (D8) from their recent chosen
  * actions and the public headlines those actions produced. Never asks the
  * player to declare a goal, and its output is never rendered on any
- * player-facing surface - only the GM console (GameMasterScreen) and the
- * epilogue (EpilogueScreen) may read it.
+ * player-facing surface. Only the GM console (GameMasterScreen) may read it.
  *
  * `ai` is typed as the narrow `GeminiClient` structural interface (rather
  * than `GoogleGenAI`, the convention elsewhere in ai/tools/*.ts) so a test
@@ -80,7 +80,22 @@ export async function inferAmbition(
     return MOCK_AMBITION_INFERENCE;
   }
 
-  const { systemInstruction, prompt } = buildAmbitionInferencePrompt(player, recentIntents, recentHeadlines);
+  const observableIntents = recentIntents.flatMap((intent) => {
+    const submission = deserializeTurnSubmission(intent);
+    // A reserved artifact namespace is canonical-only: malformed or future
+    // variants are not legacy freeform text and must never be inferred from.
+    const observable = submission
+      ? projectForExternalInference(submission)
+      : isReservedTurnSubmissionArtifact(intent)
+        ? null
+        : intent;
+    return observable ? [observable] : [];
+  });
+  const { systemInstruction, prompt } = buildAmbitionInferencePrompt(
+    buildApparentAmbitionPlayerBrief(player),
+    observableIntents,
+    recentHeadlines,
+  );
   return generateStructured<AmbitionInference>(ai, {
     callName: 'ambitionInference',
     model: GEMINI_FLASH,

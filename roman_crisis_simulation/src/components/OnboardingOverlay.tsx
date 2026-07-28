@@ -64,11 +64,6 @@ const OnboardingOverlay: React.FC<OnboardingOverlayProps> = ({ isOpen, onClose }
   const dialogRef = useRef<HTMLDivElement>(null);
   const trapRef = useRef<FocusTrap | null>(null);
 
-  // Never resume mid-sequence - every time the overlay opens it starts at step 1.
-  useEffect(() => {
-    if (isOpen) setStep(0);
-  }, [isOpen]);
-
   // Focus the dialog on open (components/ui/focusTrap.ts's `activate` -
   // remembers whatever was focused beforehand and moves focus in); on close
   // (isOpen -> false, or unmount), return focus to the chat input

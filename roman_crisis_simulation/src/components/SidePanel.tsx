@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { GameState, Entity, InvestigationResult, WorldState, Report, EventHistoryEntry, SimulationState } from '../types';
 import { GoogleGenAI } from "@google/genai";
 import CurrentEventsTab from './tabs/CurrentEventsTab';
@@ -11,6 +11,7 @@ import ChronicleTab from './tabs/ChronicleTab';
 import WorldStateTab from './tabs/WorldStateTab';
 import { TabId } from '../perception/visibility';
 import type { KnowledgeClaim } from '../knowledge/store';
+import type { DomainMutationContext, RunDomainMutation } from '../state/domainMutation';
 
 /**
  * The intelligence dashboard — player dossier header, Tyrian-pennant tab bar,
@@ -41,9 +42,11 @@ const SidePanel: React.FC<{
     knowledge: KnowledgeClaim[];
     /** The App's authoritative turn counter - the staleness clock D27 prices a dossier refresh against. */
     turnNumber: number;
-    onSpendDeepAnalysis: (cost: number) => void;
+    onSpendDeepAnalysis: (cost: number, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
     /** One atomic callback per investigation reveal - spend + blackmail + fallout in a single state/save pass (see App.tsx's handleInvestigationOutcome). */
-    onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult) => void;
+    onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult, request: DomainMutationContext) => Promise<boolean | void>;
+    runDomainMutation: RunDomainMutation;
+    interactionLocked?: boolean;
     ai: GoogleGenAI;
     isMockMode: boolean;
     eventHistory: EventHistoryEntry[];
@@ -52,18 +55,16 @@ const SidePanel: React.FC<{
      * tabsForDelta and App.tsx's pulsingTabs). Gets a brief CSS pulse so the
      * player notices where to look, without leaking anything the perception
      * filter didn't already let through - this set is built strictly from
-     * buildPerceivedDigest's output, never raw deltas. */
+     * buildPlayerPerceivedDigest's output, never raw deltas. */
     pulsingTabs: Set<TabId>;
-}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, ai, isMockMode, eventHistory, pulsingTabs }) => {
+}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, pulsingTabs }) => {
     const [activeTab, setActiveTab] = useState<TabId>('world_state');
     // Tabs the player has already looked at since the current pulsingTabs
     // set arrived - clicking a pulsing tab dismisses its own pulse
     // immediately rather than waiting for the next turn to clear it.
-    const [dismissed, setDismissed] = useState<Set<TabId>>(new Set());
-
-    useEffect(() => {
-        setDismissed(new Set());
-    }, [pulsingTabs]);
+    const pulseKey = [...pulsingTabs].sort().join('|');
+    const [dismissal, setDismissal] = useState<{ pulseKey: string; tabs: Set<TabId> }>({ pulseKey, tabs: new Set() });
+    const dismissed = dismissal.pulseKey === pulseKey ? dismissal.tabs : new Set<TabId>();
 
     if (gameState === GameState.SETUP) {
         return (
@@ -75,7 +76,10 @@ const SidePanel: React.FC<{
 
     const handleTabClick = (id: TabId) => {
         setActiveTab(id);
-        setDismissed(prev => new Set(prev).add(id));
+        setDismissal(previous => ({
+            pulseKey,
+            tabs: new Set(previous.pulseKey === pulseKey ? previous.tabs : []).add(id),
+        }));
     };
 
     return (
@@ -120,10 +124,12 @@ const SidePanel: React.FC<{
                     turnNumber={turnNumber}
                     onSpendDeepAnalysis={onSpendDeepAnalysis}
                     onInvestigationOutcome={onInvestigationOutcome}
+                    runDomainMutation={runDomainMutation}
+                    interactionLocked={interactionLocked}
                     ai={ai}
                     isMockMode={isMockMode}
                 />}
-                {activeTab === 'locations' && <EmpireTab worldState={worldState} entities={entities} playerEntity={playerEntity} />}
+                {activeTab === 'locations' && <EmpireTab worldState={worldState} entities={entities} playerEntity={playerEntity} knowledge={knowledge} />}
                 {activeTab === 'resources' && <ResourcesTab playerEntity={playerEntity} />}
             </div>
         </aside>

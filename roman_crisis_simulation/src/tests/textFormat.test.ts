@@ -20,8 +20,44 @@ describe('toSegments', () => {
       expect(toSegments('**<b>x</b>**')).toEqual([{ bold: true, text: '<b>x</b>' }]);
     });
 
-    it('passes HTML entities through verbatim (no pre-escaping - React re-escapes at render)', () => {
-      const input = '&amp; &lt;';
+    it('decodes HTML entities to literal characters as inert text data (React re-escapes at render, so this stays safe)', () => {
+      expect(toSegments('&amp; &lt;')).toEqual([{ bold: false, text: '& <' }]);
+    });
+  });
+
+  describe('entity decoding', () => {
+    it('decodes a named entity embedded in surrounding text', () => {
+      expect(toSegments('Marcus &amp; Sons')).toEqual([{ bold: false, text: 'Marcus & Sons' }]);
+    });
+
+    it('decodes common named entities', () => {
+      expect(toSegments('&lt;&gt;&quot;&apos;&nbsp;')).toEqual([{ bold: false, text: '<>"\' ' }]);
+    });
+
+    it('decodes decimal and hexadecimal numeric entities', () => {
+      expect(toSegments('&#38; &#x26;')).toEqual([{ bold: false, text: '& &' }]);
+    });
+
+    it('decodes uppercase-X hexadecimal numeric entities', () => {
+      expect(toSegments('&#X41;')).toEqual([{ bold: false, text: 'A' }]);
+    });
+
+    it('keeps entity text that decodes to markup as inert string data, not parsed markup', () => {
+      const input = '&lt;script&gt;alert(1)&lt;/script&gt;';
+      expect(toSegments(input)).toEqual([{ bold: false, text: '<script>alert(1)</script>' }]);
+    });
+
+    it('decodes entities inside bold segments too', () => {
+      expect(toSegments('**Marcus &amp; Sons**')).toEqual([{ bold: true, text: 'Marcus & Sons' }]);
+    });
+
+    it('leaves unknown or malformed entity-like text unchanged', () => {
+      expect(toSegments('AT&T &notarealentity;')).toEqual([{ bold: false, text: 'AT&T &notarealentity;' }]);
+    });
+
+    it('does not throw on a numeric entity outside the valid Unicode code point range', () => {
+      const input = 'x&#99999999;y';
+      expect(() => toSegments(input)).not.toThrow();
       expect(toSegments(input)).toEqual([{ bold: false, text: input }]);
     });
   });

@@ -3,18 +3,15 @@ import {
     mockRunNewTurn,
     mockCreateCharacter,
     mockGetClarificationOnEvent,
-    mockGetRawThoughts,
     mockGetDeepAnalysis,
     mockGetInvestigationResult,
     mockGetPlayerMonologue,
     mockGetStoryRelevance,
     mockInitiateWorld,
-    mockSimulatePrivateConversation,
     mockGenerateScenarioStructure,
     mockGenerateEntitiesDetails
 } from '../ai/mocks';
 import { ALL_INITIAL_ENTITIES, INITIAL_WORLD_STATE, INITIAL_SIMULATION_STATE } from '../constants/baseScenario';
-import { Entity } from '../types';
 
 /**
  * Runs a "smoke test" on application startup to validate that all mock functions
@@ -25,7 +22,7 @@ export const runSmokeTest = async () => {
     console.log('%c[SMOKE TEST] Starting validation of mock functions...', 'color: blue; font-weight: bold;');
     
     // An array of test cases, each with a name and a function to execute.
-    const testCases: { name: string, fn: () => Promise<any> }[] = [
+    const testCases: { name: string, fn: () => Promise<unknown> }[] = [
         {
             name: 'mockRunNewTurn',
             fn: async () => {
@@ -51,14 +48,6 @@ export const runSmokeTest = async () => {
         {
             name: 'mockGetClarificationOnEvent',
             fn: () => mockGetClarificationOnEvent('A riot in the Suburra', 'Who was responsible?')
-        },
-        {
-            name: 'mockGetRawThoughts',
-            fn: () => {
-                 const target = ALL_INITIAL_ENTITIES.find(e => e.entity_id === 'maximinus_thrax');
-                 if (!target) throw new Error("Setup failed: Target 'maximinus_thrax' not found for getRawThoughts.");
-                 return mockGetRawThoughts(target);
-            }
         },
         {
             name: 'mockGetDeepAnalysis',
@@ -136,15 +125,6 @@ export const runSmokeTest = async () => {
                 return result;
             }
         },
-        {
-            name: 'mockSimulatePrivateConversation',
-            fn: () => {
-                const npc1 = ALL_INITIAL_ENTITIES.find(e => e.entity_id === 'maximinus_thrax');
-                const npc2 = ALL_INITIAL_ENTITIES.find(e => e.entity_id === 'gaius_pontius_magnus');
-                if (!npc1 || !npc2) throw new Error("Setup failed: NPCs for conversation not found.");
-                return mockSimulatePrivateConversation(npc1, npc2);
-            }
-        },
     ];
 
     // Execute all test cases sequentially.
@@ -160,7 +140,7 @@ export const runSmokeTest = async () => {
         } catch (error) {
             console.error(`[SMOKE TEST] ❌ FAILED: ${test.name}`, error);
             // Re-throw a more informative error to be caught by the main app.
-            throw new Error(`[SMOKE TEST] The application is not a passing build. Mock function '${test.name}' failed. See console for details.`);
+            throw new Error(`[SMOKE TEST] The application is not a passing build. Mock function '${test.name}' failed. See console for details.`, { cause: error });
         }
     }
 

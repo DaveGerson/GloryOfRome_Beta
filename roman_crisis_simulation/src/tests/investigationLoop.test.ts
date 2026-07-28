@@ -151,6 +151,7 @@ describe('components/investigationLoop.ts', () => {
     it('the queue is cleared only once the turn that consumed it commits successfully', () => {
       let queue: FalloutQueue = [];
       queue = appendFallout(queue, makeResult('An agent was spotted near the Senate.'));
+      expect(queue).toEqual(['An agent was spotted near the Senate.']);
 
       // Attempt succeeds this time - App.tsx's success path calls clearFallout().
       queue = clearFallout();
@@ -162,6 +163,7 @@ describe('components/investigationLoop.ts', () => {
 
     it('a fresh investigation queued after a successful clear starts a new, independent queue', () => {
       let queue: FalloutQueue = appendFallout([], makeResult('First fallout.'));
+      expect(queue).toEqual(['First fallout.']);
       queue = clearFallout(); // consumed by a committed turn
       queue = appendFallout(queue, makeResult('Second fallout, unrelated to the first.'));
 

@@ -21,7 +21,7 @@ import { AdjudicationSchema } from '../ai/core/schemas';
 import { sanitizeAdjudicationForNarration, buildNarrationPrompt } from '../ai/prompts/narration';
 import { buildAdjudicationPrompt } from '../ai/prompts/adjudication';
 import { buildMortalityOutcomePrompt } from '../ai/prompts/mortality';
-import { buildPrivateConversationPrompt, buildSimulationStateUpdatePrompt } from '../ai/prompts/intelligence';
+import { buildSimulationStateUpdatePrompt } from '../ai/prompts/intelligence';
 import { REDACTED_SCHEME_REASON } from '../ai/prompts/fragments';
 import { getMockInitialState } from './mockData';
 import { Adjudication, Entity, EventDelta, Report, SimulationState, TruthLedgerEntry, WorldState } from '../types';
@@ -135,7 +135,7 @@ describe('schema pair: rumor truth fields (is_true/origin_id)', () => {
       playerEntity: player,
       npcEntities: entities.slice(1),
       history: [],
-      playerIntent: 'Hold court',
+      submission: { observableAttempt: 'Hold court', questionOrContext: null },
       gmInterventionText: '',
       storyRelevance: { spotlight_entities: [], spotlight_intents: [] },
       metaNarrative: 'A succession crisis.',
@@ -176,39 +176,6 @@ describe('D11 lockstep: every other delta-producing prompt demands truth disposi
     expect(systemInstruction).toContain('the world-truth is that they live');
   });
 
-  it('the private-conversation prompt demands is_true/origin_id on any rumor delta it returns', () => {
-    const { entities } = getMockInitialState();
-    const adjudication = deepCopy(baseAdjudication);
-    const { systemInstruction } = buildPrivateConversationPrompt(entities[1], entities[2], adjudication);
-
-    expect(systemInstruction).toContain("'is_true'");
-    expect(systemInstruction).toContain('ALWAYS set');
-    expect(systemInstruction).toContain('never omit it');
-    expect(systemInstruction).toContain("'origin_id'");
-    expect(systemInstruction).toContain('GM-private ledger data');
-    // World-truth ruling, consistent with the schema description's wording.
-    expect(systemInstruction).toContain('Authorship never changes the ruling');
-  });
-
-  it('the private-conversation prompt demands topic (+ stance for follow-ups) on any rumor delta (D29 lockstep)', () => {
-    const { entities } = getMockInitialState();
-    const adjudication = deepCopy(baseAdjudication);
-    const { systemInstruction } = buildPrivateConversationPrompt(entities[1], entities[2], adjudication);
-
-    // Without a topic a conversation rumor defaults to 'general' and
-    // re-merges with unrelated claims - the flat-list over-merge D29 fixed.
-    // The prompt must demand a topic on every rumor, mirroring the
-    // adjudication prompt's rumor rule.
-    expect(systemInstruction).toContain("'topic'");
-    expect(systemInstruction).toContain('ALWAYS set');
-    expect(systemInstruction).toContain('reuses the SAME topic');
-    // topic is a neutral, player-safe label - never a truth hint.
-    expect(systemInstruction).toContain('never hint at whether the claim is true');
-    // Counterplay follow-ups carry a stance toward the claim they continue.
-    expect(systemInstruction).toContain("'stance'");
-    expect(systemInstruction).toContain('corroborates');
-    expect(systemInstruction).toContain('contradicts');
-  });
 });
 
 describe('engine: the truth ledger write site (ai/core/engine.ts rumor case)', () => {
@@ -357,40 +324,22 @@ describe('leak prevention: dispositions never reach the player-facing narration 
     expect(sanitized.deltas[0].delta).toBe(0.7);
   });
 
-  it('buildNarrationPrompt actually applies the sanitizer: the BUILT prompt carries no GM-private keys while keeping the rumor text', () => {
+  it('buildNarrationPrompt accepts only player-perceived text/source fields', () => {
     const { entities } = getMockInitialState();
     const player = entities[0];
-    const adjudication: Adjudication = {
-      ...deepCopy(baseAdjudication),
-      deltas: [
-        rumorDelta({ is_true: false, origin_id: 'maximinus_thrax' }),
-        {
-          type: 'status',
-          key: 'gaius_pontius_magnus',
-          delta: 0,
-          reason: 'Struck down in the forum, so the city believes.',
-          new_status: 'dead',
-          secret_truth: { actually_alive: true, hidden_since_turn: 4, motive: 'Bide time and return for revenge.' },
-        },
-      ],
-      gm_private: ['[Mortality] validated death claim -> roll 14 -> presumed_dead'],
-    };
-
-    // The call site under test: the prompt builder itself must run the
-    // sanitizer - a sanitizer that is only ever tested in isolation pins
-    // nothing about the player-facing prompt actually built each turn.
     const { systemInstruction, prompt } = buildNarrationPrompt(
-      'A succession crisis.', player, 'Hold court', adjudication, []
+      'A succession crisis.', player, 'Hold court', [
+        { text: 'Rumor reaches you: "The Emperor bargains with the Germans."', source: 'network' },
+        { text: 'Gaius Pontius Magnus is now dead.', source: 'witnessed' },
+      ], []
     );
     const built = systemInstruction + prompt;
 
     for (const forbidden of ['is_true', 'origin_id', 'gm_private', 'secret_truth', 'actually_alive', 'presumed_dead']) {
       expect(built).not.toContain(forbidden);
     }
-    // The rumor still reaches the narrator as narrative content, at its
-    // stated credibility, with no disposition attached.
-    expect(prompt).toContain('The Emperor is said to be bargaining with the Germans.');
-    expect(prompt).toContain('Struck down in the forum, so the city believes.');
+    expect(prompt).toContain('The Emperor bargains with the Germans.');
+    expect(prompt).toContain('Gaius Pontius Magnus is now dead.');
   });
 });
 
@@ -420,23 +369,20 @@ describe("D28: a scheme's nature never reaches a player-output-bound prompt", ()
     expect(sanitized.deltas[1].reason).toBe('Bribes');
   });
 
-  it('buildNarrationPrompt: the BUILT prompt carries the opaque marker, never a scheme name/goal/step', () => {
+  it('buildNarrationPrompt carries only the opaque perceived scheme line', () => {
     const { entities } = getMockInitialState();
     const player = entities[0];
-    const adjudication: Adjudication = {
-      ...deepCopy(baseAdjudication),
-      deltas: [schemeDelta()],
-    };
-
     const { systemInstruction, prompt } = buildNarrationPrompt(
-      'A succession crisis.', player, 'Hold court', adjudication, []
+      'A succession crisis.', player, 'Hold court', [
+        { text: 'You sense Maximinus is plotting something.', source: 'network' },
+      ], []
     );
     const built = systemInstruction + prompt;
 
     expect(built).not.toContain(SCHEME_NAME);
     expect(built).not.toContain(SCHEME_GOAL);
     expect(built).not.toContain(SCHEME_STEP);
-    expect(prompt).toContain(REDACTED_SCHEME_REASON);
+    expect(prompt).toContain('You sense Maximinus is plotting something.');
   });
 
   it('buildSimulationStateUpdatePrompt: the Key Deltas line redacts a scheme reason (its output renders in WorldStateTab)', () => {

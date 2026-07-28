@@ -3,6 +3,8 @@ import { WorldState, RegionState, Entity } from '../../types';
 import GlossaryTooltip from '../GlossaryTooltip';
 import { Card } from '../ui/Core';
 import { isRegionKnownToPlayer } from './WorldStateTab';
+import { isEntityKnownToPlayer } from '../../knowledge/relationships';
+import type { KnowledgeClaim } from '../../knowledge/store';
 
 const locationGlossary = {
     'Palatine Hill': {
@@ -39,8 +41,17 @@ const statusTone = (stability: string): string => {
  * Location lore (the glossary) stays on hidden rows - what the Palatine IS
  * is common knowledge; what's happening there this week is not.
  */
-const EmpireTab: React.FC<{ worldState: WorldState; entities: Entity[]; playerEntity: Entity | null }> = ({ worldState, entities, playerEntity }) => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+const EmpireTab: React.FC<{
+    worldState: WorldState;
+    entities: Entity[];
+    playerEntity: Entity | null;
+    knowledge: KnowledgeClaim[];
+}> = ({ worldState, entities, playerEntity, knowledge }) => {
+    const knownEntities = playerEntity
+        ? entities.filter(entity => isEntityKnownToPlayer(playerEntity, entity, knowledge))
+        : [];
+
+    return <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <h3 className="gor-label" style={{ color: 'var(--crimson-500)' }}>Locations in Rome</h3>
         {Object.entries(worldState.regions).map(([name, region]: [string, RegionState]) => {
             const glossaryEntry = locationGlossary[name as keyof typeof locationGlossary];
@@ -60,7 +71,7 @@ const EmpireTab: React.FC<{ worldState: WorldState; entities: Entity[]; playerEn
                 );
             }
 
-            const charactersInLocation = entities.filter(e => e.location === name && e.entity_type === 'individual' && e.status === 'alive');
+            const charactersInLocation = knownEntities.filter(e => e.location === name && e.entity_type === 'individual' && e.status === 'alive');
             return (
                 <Card
                     key={name}
@@ -79,7 +90,7 @@ const EmpireTab: React.FC<{ worldState: WorldState; entities: Entity[]; playerEn
                 </Card>
             );
         })}
-    </div>
-);
+    </div>;
+};
 
 export default EmpireTab;

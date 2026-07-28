@@ -2,6 +2,8 @@ import React, { useRef, useEffect } from 'react';
 import { Message } from '../types';
 import { TurnStage } from '../ai/core/turn';
 import { ActionPill } from './ui/Game';
+import { structuredSubmissionForHistory, TurnSubmissionHistory } from './TurnSubmissionHistory';
+import { deserializeTurnSubmission } from '../playerInput/turnSubmission';
 import { TurnRibbon } from './ui/Brand';
 import { Button } from './ui/Core';
 import { toSegments } from './textFormat';
@@ -10,26 +12,24 @@ import { toSegments } from './textFormat';
 // Phase 3 item 1) - one line per real `runNewTurn` pipeline step (see
 // ai/core/turn.ts's `TurnStage`), shown live as the ACTUAL stage the
 // pipeline just entered, replacing the old timer-based random rotation.
-const STAGE_STATUS_COPY: Record<TurnStage, string> = {
+export const TURN_STAGE_STATUS_COPY: Record<TurnStage, string> = {
     story_relevance: 'The chronicler surveys the week…',
     npc_minds: 'Behind shuttered doors, minds settle on their designs…',
     adjudication: 'Your rivals move in the dark…',
-    private_conversation: 'Two figures withdraw behind a curtain…',
     mortality: 'The Fates weigh a life…',
     simulation_state: 'Couriers ride from the frontier…',
     monologue: 'Your own thoughts gather…',
     narration: 'The chronicler sets down the day…',
-    relationship_updates: 'Loyalties quietly shift…',
 };
 
 // Shown whenever PROCESSING is true but no stage has been reported yet -
 // e.g. the brief instant before runNewTurn's first onStage call lands, or
 // Mock Mode's mockRunNewTurn, which resolves near-instantly and never
 // reports a stage at all (see App.tsx's executeTurn). Never left blank.
-const DEFAULT_PROCESSING_STATUS = STAGE_STATUS_COPY.story_relevance;
+const DEFAULT_PROCESSING_STATUS = TURN_STAGE_STATUS_COPY.story_relevance;
 
 function getStageStatusText(stage: TurnStage | null | undefined): string {
-    return stage ? STAGE_STATUS_COPY[stage] : DEFAULT_PROCESSING_STATUS;
+    return stage ? TURN_STAGE_STATUS_COPY[stage] : DEFAULT_PROCESSING_STATUS;
 }
 
 /**
@@ -106,9 +106,16 @@ export const ChatMessage: React.FC<{ message: Message }> = ({ message }) => {
     }
 
     const isPlayer = message.sender === 'player';
+    const historySubmission = isPlayer ? structuredSubmissionForHistory(message.text) : null;
+    const parsedPlayerSubmission = isPlayer ? deserializeTurnSubmission(message.text) : null;
+    const playerText = parsedPlayerSubmission?.kind === 'freeform' ? parsedPlayerSubmission.text : message.text;
     return (
         <div style={{ display: 'flex', justifyContent: isPlayer ? 'flex-end' : 'flex-start', marginBottom: 14 }}>
-            <div className={`gor-msg ${isPlayer ? 'gor-msg-player' : 'gor-msg-gm'}`}><FormattedText text={message.text} /></div>
+            <div className={`gor-msg ${isPlayer ? 'gor-msg-player' : 'gor-msg-gm'}`}>
+                {historySubmission && historySubmission.kind !== 'freeform'
+                    ? <TurnSubmissionHistory submission={historySubmission} audience="player" />
+                    : <FormattedText text={playerText} />}
+            </div>
         </div>
     );
 };

@@ -2,25 +2,30 @@ import React from 'react';
 
 /** Form primitives from the Glory of Rome design system (components/forms). */
 
-export const Switch: React.FC<{ label?: React.ReactNode; style?: React.CSSProperties; [key: string]: any }> =
+type SwitchProps = { label?: React.ReactNode; style?: React.CSSProperties } & Omit<React.ComponentPropsWithoutRef<'input'>, 'style' | 'type'>;
+
+export const Switch: React.FC<SwitchProps> =
     ({ label, style, ...rest }) => (
         <label className="gor-switch" style={style}><input type="checkbox" role="switch" {...rest} />{label}</label>
     );
 
-export const Radio: React.FC<{ label?: React.ReactNode; style?: React.CSSProperties; [key: string]: any }> =
+type RadioProps = { label?: React.ReactNode; style?: React.CSSProperties } & Omit<React.ComponentPropsWithoutRef<'input'>, 'style' | 'type'>;
+
+export const Radio: React.FC<RadioProps> =
     ({ label, style, ...rest }) => (
         <label className="gor-check" style={style}><input type="radio" {...rest} />{label}</label>
     );
 
-export const Textarea: React.FC<{
+type TextareaProps = {
     label?: React.ReactNode;
     hint?: React.ReactNode;
     error?: React.ReactNode;
     id?: string;
     style?: React.CSSProperties;
     rows?: number;
-    [key: string]: any;
-}> = ({ label, hint, error, id, style, rows = 4, ...rest }) => {
+} & Omit<React.ComponentPropsWithoutRef<'textarea'>, 'id' | 'rows' | 'style'>;
+
+export const Textarea: React.FC<TextareaProps> = ({ label, hint, error, id, style, rows = 4, ...rest }) => {
     const uid = id || (label ? 'ta-' + String(label).toLowerCase().replace(/\W+/g, '-') : undefined);
     return (
         <div className="gor-field" style={style}>

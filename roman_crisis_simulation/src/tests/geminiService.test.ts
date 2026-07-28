@@ -21,13 +21,13 @@ import {
 } from '../ai/core/geminiService';
 
 /** Minimal mock client matching GeminiClient's structural shape. */
-function makeMockAi(generateContent: (...args: any[]) => Promise<{ text?: string }>): GeminiClient {
+function makeMockAi(generateContent: GeminiClient['models']['generateContent']): GeminiClient {
   return { models: { generateContent } };
 }
 
 /** Minimal mock client for streaming - `generateContent` is stubbed but unused. */
 function makeStreamMockAi(
-  generateContentStream: (...args: any[]) => Promise<AsyncIterable<{ text?: string }>>
+  generateContentStream: NonNullable<GeminiClient['models']['generateContentStream']>
 ): GeminiClient {
   return {
     models: {
@@ -35,6 +35,12 @@ function makeStreamMockAi(
       generateContentStream,
     },
   };
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(settle => { resolve = settle; });
+  return { promise, resolve };
 }
 
 /** Builds an async generator yielding one chunk per string in `texts`. */
@@ -550,6 +556,48 @@ describe('geminiService', () => {
       // No bracket was open, so a later bracket sees none of it.
       beginTurnCapture();
       expect(endTurnCapture()).toHaveLength(0);
+    });
+
+    it('keeps concurrent calls in their origin capture and never appends a late completion to a replacement capture', async () => {
+      const firstResponse = deferred<{ text: string }>();
+      const secondResponse = deferred<{ text: string }>();
+      const generateContent = vi.fn()
+        .mockImplementationOnce(() => firstResponse.promise)
+        .mockImplementationOnce(() => secondResponse.promise);
+      const ai = makeMockAi(generateContent);
+
+      beginTurnCapture();
+      const lateOldCall = generateText(ai, {
+        callName: 'old-turn-late', model: 'test-model', prompt: 'old prompt',
+      });
+      const completedOldCall = generateText(ai, {
+        callName: 'old-turn-complete', model: 'test-model', prompt: 'old prompt 2',
+      });
+      secondResponse.resolve({ text: 'completed in the origin capture' });
+      await completedOldCall;
+      const originRecords = endTurnCapture();
+
+      beginTurnCapture();
+      firstResponse.resolve({ text: 'completed after the replacement began' });
+      await lateOldCall;
+      const replacementRecords = endTurnCapture();
+
+      expect(originRecords.map(record => record.callName)).toEqual(['old-turn-complete']);
+      expect(replacementRecords).toEqual([]);
+    });
+
+    it('does not append an abandoned call to a session created after reset', async () => {
+      const oldResponse = deferred<{ text: string }>();
+      const ai = makeMockAi(vi.fn(() => oldResponse.promise));
+
+      const abandonedCall = generateText(ai, {
+        callName: 'abandoned-campaign-call', model: 'test-model', prompt: 'old campaign prompt',
+      });
+      resetSessionCallLog();
+      oldResponse.resolve({ text: 'late old campaign response' });
+      await abandonedCall;
+
+      expect(getSessionCallLog()).toEqual([]);
     });
 
     it('evicts the oldest records once the session log exceeds its cap', async () => {

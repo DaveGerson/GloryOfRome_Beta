@@ -28,14 +28,15 @@ import { createSeededRng, rollD20 } from '../ai/core/resolution';
 import {
   zActionAssessment,
   zAdjudication,
-  zConversationSimulation,
   zEntity,
   zEntityBatch,
   zInvestigationResult,
   zMortalityOutcome,
   zMortalityValidation,
+  zNoAttemptEvidenceSelection,
   zNpcMindDecision,
-  zRelationshipDeltas,
+  zPrivateSceneModelResponse,
+  zRelationshipObservations,
   zScenarioStructure,
   zSimulationState,
   zStoryRelevance,
@@ -55,19 +56,20 @@ import { zAmbitionInference } from '../ai/tools/ambition';
  * callNames are suffixed (e.g. `entityBatch:NPCs_1`,
  * `npcMind:maximinus_thrax`), handled by `schemaForCallName` below.
  */
-export const STRUCTURED_CALL_SCHEMAS: Record<string, ZodType<any, any, any>> = {
+export const STRUCTURED_CALL_SCHEMAS: Record<string, ZodType> = {
   assessment: zActionAssessment,
   adjudication: zAdjudication,
   storyRelevance: zStoryRelevance,
   updatedSimulationState: zSimulationState,
-  relationshipUpdates: zRelationshipDeltas,
-  privateConversation: zConversationSimulation,
   mortalityValidation: zMortalityValidation,
   mortalityOutcome: zMortalityOutcome,
   investigation: zInvestigationResult,
   scenarioStructure: zScenarioStructure,
   characterCreation: zEntity,
   ambitionInference: zAmbitionInference,
+  relationshipObservations: zRelationshipObservations,
+  noAttemptEvidenceSelection: zNoAttemptEvidenceSelection,
+  privateScene: zPrivateSceneModelResponse,
 };
 
 /** Prose call families (per ai/prompts/README.md) - no JSON to validate, skipped by the schema check. */
@@ -75,13 +77,12 @@ export const PROSE_CALL_NAMES: ReadonlySet<string> = new Set([
   'narration',
   'playerMonologue',
   'clarification',
-  'rawThoughts',
   'deepAnalysis',
   'epilogue',
 ]);
 
 /** Resolves a captured callName to its zod schema, or null when no mapping exists. */
-export function schemaForCallName(callName: string): ZodType<any, any, any> | null {
+export function schemaForCallName(callName: string): ZodType | null {
   if (callName === 'entityBatch' || callName.startsWith('entityBatch:')) return zEntityBatch;
   // Per-spotlight mind calls (4C.4) are suffixed per character, e.g.
   // 'npcMind:maximinus_thrax' - same convention as entityBatch above.
@@ -219,7 +220,7 @@ export function replayTurnRolls(turn: EvalCorpusTurn): TurnRollReplay {
   if (turn.turnSeed === null || turn.turnSeed === undefined) {
     return {
       status: 'no_seed',
-      rolls: recorded.map(r => ({ source: r.source, entityId: r.entityId, recorded: r.roll, rederived: null, match: false })),
+      rolls: recorded.map((r): RollCheck => ({ source: r.source, entityId: r.entityId, recorded: r.roll, rederived: null, match: false })),
     };
   }
 

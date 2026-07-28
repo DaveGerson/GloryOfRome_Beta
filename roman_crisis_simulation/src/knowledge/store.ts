@@ -173,6 +173,31 @@ export interface KnowledgeClaim {
    * SchemeDiscovery and ingestSchemeClue.
    */
   schemeDiscovery?: SchemeDiscovery;
+  /** A sourced, perception-safe observation of named participants. Optional for save-v1 compatibility. */
+  relationshipObservation?: RelationshipObservationMarker;
+}
+
+/** Player-safe evidence that may be offered to the relationship selector. */
+export interface PlayerSafeEvidence {
+  id: string;
+  source: KnowledgeSource;
+  text: string;
+  /** Set only by deterministic local parsing of explicit quotation syntax. */
+  trustedQuote?: { speakerId: string; text: string };
+}
+
+/** The strictly limited, untrusted model selection shape. */
+export interface RelationshipObservationDraft {
+  evidenceId: string;
+  participantIds: string[];
+  excerpt: string;
+}
+
+/** The persisted, validated relationship-observation marker. */
+export interface RelationshipObservationMarker {
+  evidenceId: string;
+  participantIds: string[];
+  quote?: { speakerId: string; text: string };
 }
 
 /**
@@ -270,7 +295,7 @@ function lastUpdatedTurn(claim: KnowledgeClaim): number {
  * graph never dangles (D29). Returns the input reference when nothing needs
  * evicting.
  */
-function evictOverCap(store: KnowledgeClaim[]): KnowledgeClaim[] {
+export function enforceKnowledgeClaimCap(store: KnowledgeClaim[]): KnowledgeClaim[] {
   if (store.length <= MAX_KNOWLEDGE_CLAIMS) return store;
   const excess = store.length - MAX_KNOWLEDGE_CLAIMS;
   const evictIndices = new Set(
@@ -403,7 +428,7 @@ function upsertClaim(store: KnowledgeClaim[], artifact: IngestArtifact): Knowled
   if (edges.length > 0) {
     newClaim.edges = edges;
   }
-  return evictOverCap([...store, newClaim]);
+  return enforceKnowledgeClaimCap([...store, newClaim]);
 }
 
 /**
@@ -715,5 +740,5 @@ export function ingestSchemeClue(
   if (edges.length > 0) {
     newClaim.edges = edges;
   }
-  return evictOverCap([...store, newClaim]);
+  return enforceKnowledgeClaimCap([...store, newClaim]);
 }

@@ -1,6 +1,78 @@
 
 import { Type } from "@google/genai";
 import { EntityActionIntentEnum, EventDeltaTypeEnum, NpcIntentContinuityEnum } from '../../types';
+import {
+    PRIVATE_SCENE_MAX_NPC_RESPONSES,
+    PRIVATE_SCENE_MAX_UTTERANCE_CHARS,
+} from '../../privateScene/model';
+
+/** Provider-side shape for one bounded private-scene response. */
+export const PrivateSceneModelResponseSchema = {
+    type: Type.OBJECT,
+    properties: {
+        disposition: { type: Type.STRING, enum: ['refused', 'continues', 'ends'] },
+        npcUtterance: { type: Type.STRING, minLength: 1, maxLength: PRIVATE_SCENE_MAX_UTTERANCE_CHARS },
+        speechActs: {
+            type: Type.ARRAY,
+            maxItems: 16,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    speaker: { type: Type.STRING, enum: ['npc'] },
+                    kind: { type: Type.STRING, enum: ['claim', 'disclosure', 'request', 'promise', 'agreement', 'refusal', 'threat'] },
+                    text: { type: Type.STRING, minLength: 1, maxLength: PRIVATE_SCENE_MAX_UTTERANCE_CHARS },
+                    exchange: { type: Type.INTEGER, minimum: 1, maximum: PRIVATE_SCENE_MAX_NPC_RESPONSES },
+                },
+                required: ['speaker', 'kind', 'text', 'exchange'],
+                additionalProperties: false,
+            },
+        },
+        npcPrivate: {
+            type: Type.OBJECT,
+            properties: {
+                sincerity: { type: Type.STRING, minLength: 1, maxLength: PRIVATE_SCENE_MAX_UTTERANCE_CHARS },
+                hiddenIntent: { type: Type.STRING, minLength: 1, maxLength: PRIVATE_SCENE_MAX_UTTERANCE_CHARS },
+                plannedFollowThrough: {
+                    type: Type.ARRAY,
+                    maxItems: 8,
+                    items: { type: Type.STRING, minLength: 1, maxLength: PRIVATE_SCENE_MAX_UTTERANCE_CHARS },
+                },
+            },
+            required: ['sincerity', 'hiddenIntent', 'plannedFollowThrough'],
+            additionalProperties: false,
+        },
+    },
+    required: ['disposition', 'npcUtterance', 'speechActs', 'npcPrivate'],
+    additionalProperties: false,
+};
+
+/** Strict selector output for perception-safe relationship observations. */
+export const RelationshipObservationsSchema = {
+    type: Type.ARRAY,
+    items: {
+        type: Type.OBJECT,
+        properties: {
+            evidenceId: { type: Type.STRING },
+            participantIds: { type: Type.ARRAY, items: { type: Type.STRING } },
+            excerpt: { type: Type.STRING, minLength: 1, description: 'A non-empty exact substring of the cited evidence.' },
+        },
+        required: ['evidenceId', 'participantIds', 'excerpt'],
+    },
+};
+
+/** Strict evidence-ID selector for question-only no-attempt responses. */
+export const NoAttemptEvidenceSelectionSchema = {
+    type: Type.OBJECT,
+    properties: {
+        decision: { type: Type.STRING, enum: ['answer', 'no_answer'] },
+        evidenceIds: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING },
+            maxItems: 5,
+        },
+    },
+    required: ['decision', 'evidenceIds'],
+};
 
 const EntityActionSchema = {
     type: Type.OBJECT,
@@ -243,34 +315,6 @@ export const AdjudicationSchema = {
         }
     },
     required: ['turn', 'entityActions', 'deltas', 'headlines', 'gm_private'],
-};
-
-export const RelationshipDeltasSchema = {
-    type: Type.OBJECT,
-    properties: {
-        deltas: {
-            type: Type.ARRAY,
-            items: EventDeltaSchema,
-            description: "A list of 'relation' type deltas to apply."
-        }
-    },
-    required: ['deltas']
-};
-
-export const ConversationSimulationSchema = {
-    type: Type.OBJECT,
-    properties: {
-        dialogueSnippet: {
-            type: Type.STRING,
-            description: "A short, third-person summary of the conversation for the GM Log (e.g., 'Maximinus and Pontius met in secret. Maximinus offered support in exchange for future concessions. Pontius agreed.')."
-        },
-        deltas: {
-            type: Type.ARRAY,
-            items: EventDeltaSchema,
-            description: "A small set of EventDeltas resulting from the conversation (e.g., relationship changes, new secrets)."
-        }
-    },
-    required: ['dialogueSnippet', 'deltas']
 };
 
 export const StoryRelevanceSchema = {

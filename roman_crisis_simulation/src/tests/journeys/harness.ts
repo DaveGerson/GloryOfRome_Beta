@@ -12,8 +12,8 @@
  * playthrough:
  *
  *   INV-SHAPE      the pipeline's stage order (TurnStage doc contract),
- *                  incl. the conditional npc_minds / private_conversation /
- *                  mortality stages firing exactly when their triggers exist
+ *                  incl. the conditional npc_minds / mortality stages firing
+ *                  exactly when their triggers exist
  *   INV-SCHEMA     every call the pipeline made was captured (rawCalls count)
  *                  and every scripted response survived real zod validation
  *                  with zero repair retries
@@ -50,7 +50,8 @@ import { createSeededRng, rollD20 } from '../../ai/core/resolution';
 import { buildPerceivedDigest, PerceivedChange } from '../../perception/visibility';
 import { computeTurnKnowledge, computeInvestigationKnowledge } from '../../knowledge/commit';
 import type { KnowledgeClaim, InvestigationKind } from '../../knowledge/store';
-import { saveGame, loadGame, clearSave, SaveGameState } from '../../persistence/saveGame';
+import { saveGame, loadGame, clearSave as clearPersistedSave, SaveGameState } from '../../persistence/saveGame';
+import type { PrivateSceneRecord } from '../../privateScene/model';
 import type {
   Entity,
   Message,
@@ -64,6 +65,36 @@ import type {
 } from '../../types';
 import { baseScenario, ScenarioSeed } from './fixtures';
 
+type GeminiParams = { model: string; contents: string; config?: Record<string, unknown> };
+type GeminiResponse = { text?: string };
+
+const appSdkBoundary = vi.hoisted(() => ({
+  generateContent: null as null | ((params: GeminiParams) => Promise<GeminiResponse>),
+  generateContentStream: null as null | ((params: GeminiParams) => Promise<AsyncIterable<GeminiResponse>>),
+}));
+
+// App owns the real SDK construction. Journeys replace only the constructed
+// client's network methods; every production caller above that boundary stays
+// intact (App orchestration, runNewTurn, selectors, prompts, reducer, saves).
+vi.mock('@google/genai', async importOriginal => {
+  const actual = await importOriginal<typeof import('@google/genai')>();
+  return {
+    ...actual,
+    GoogleGenAI: class {
+      readonly models = {
+        generateContent: (params: GeminiParams) => {
+          if (!appSdkBoundary.generateContent) throw new Error('journey harness: App Gemini boundary has no active script');
+          return appSdkBoundary.generateContent(params);
+        },
+        generateContentStream: (params: GeminiParams) => {
+          if (!appSdkBoundary.generateContentStream) throw new Error('journey harness: App Gemini stream boundary has no active script');
+          return appSdkBoundary.generateContentStream(params);
+        },
+      };
+    },
+  };
+});
+
 // --- Call classification --------------------------------------------------
 //
 // Same seam as tests/turnPipeline.test.ts: every prompt builder in
@@ -72,31 +103,33 @@ import { baseScenario, ScenarioSeed } from './fixtures';
 // inside production code.
 
 export type CallKind =
+  | 'privateScene'
   | 'storyRelevance'
   | 'assessment'
   | 'npcMind'
   | 'adjudication'
-  | 'privateConversation'
   | 'mortalityValidation'
   | 'mortalityOutcome'
   | 'simulationState'
   | 'monologue'
   | 'narration'
-  | 'relationshipUpdates'
+  | 'relationshipObservations'
+  | 'ambition'
   | 'investigation';
 
 const CALL_MARKERS: Array<[string, CallKind]> = [
+  ['You portray exactly one NPC', 'privateScene'],
   ['master storyteller and game master', 'storyRelevance'],
   ['Action Assessor', 'assessment'],
   ["character's own private mind", 'npcMind'],
   ['Roman Crisis Adjudicator & Simulation Engine', 'adjudication'],
-  ['secret observer', 'privateConversation'],
   ['Mortality Validator', 'mortalityValidation'],
   ['Mortality Outcome Author', 'mortalityOutcome'],
   ['Roman historian analyzing the state of the Empire', 'simulationState'],
   ['the inner voice of', 'monologue'],
   ['Chronicler of the Empire & Intelligence Briefer', 'narration'],
-  ['narrative analyst AI', 'relationshipUpdates'],
+  ['Relationship Observation Selector', 'relationshipObservations'],
+  ['Silent Observer of Ambition', 'ambition'],
   ['head of intelligence for', 'investigation'],
 ];
 
@@ -115,8 +148,26 @@ export function classifyCall(systemInstruction: unknown): CallKind {
 /** A canned response: a plain object (stringified for the client) or raw text (narration/monologue). */
 export type ScriptValue = string | object;
 
+export interface ScriptedJsonArray {
+  readonly scriptedJsonArray: readonly unknown[];
+}
+
+export interface ScriptedFailure {
+  readonly scriptedFailure: Error;
+}
+
+export function scriptedJsonArray(value: readonly unknown[]): ScriptedJsonArray {
+  return { scriptedJsonArray: value };
+}
+
+export function scriptedFailure(error: Error): ScriptedFailure {
+  return { scriptedFailure: error };
+}
+
+type ScriptedOutcome = ScriptValue | ScriptedJsonArray | ScriptedFailure;
+
 /** Per-call-kind queues of canned responses for one turn (or one side call). */
-export type TurnScript = Partial<Record<CallKind, ScriptValue | ScriptValue[]>>;
+export type TurnScript = Partial<Record<CallKind, ScriptedOutcome | ScriptedOutcome[]>>;
 
 export interface RecordedCall {
   kind: CallKind;
@@ -136,14 +187,18 @@ export interface RecordedCall {
 export class ScriptedClient {
   readonly calls: RecordedCall[] = [];
   readonly ai: GoogleGenAI;
-  private readonly queues = new Map<CallKind, string[]>();
+  private readonly queues = new Map<CallKind, Array<string | Error>>();
 
   constructor(script: TurnScript, private readonly label: string) {
-    for (const [kind, value] of Object.entries(script) as Array<[CallKind, ScriptValue | ScriptValue[]]>) {
+    for (const [kind, value] of Object.entries(script) as Array<[CallKind, ScriptedOutcome | ScriptedOutcome[]]>) {
       const values = Array.isArray(value) ? value : [value];
       this.queues.set(
         kind,
-        values.map(v => (typeof v === 'string' ? v : JSON.stringify(v)))
+        values.map(v => {
+          if (typeof v === 'object' && v !== null && 'scriptedFailure' in v) return v.scriptedFailure;
+          if (typeof v === 'object' && v !== null && 'scriptedJsonArray' in v) return JSON.stringify(v.scriptedJsonArray);
+          return typeof v === 'string' ? v : JSON.stringify(v);
+        })
       );
     }
 
@@ -161,10 +216,19 @@ export class ScriptedClient {
             `either script one for this turn or the pipeline made a call this journey did not anticipate.`
         );
       }
-      return { text: queue.shift()! };
+      const next = queue.shift()!;
+      if (next instanceof Error) throw next;
+      return { text: next };
     };
 
-    this.ai = { models: { generateContent } } as unknown as GoogleGenAI;
+    const generateContentStream = async (params: { model: string; contents: string; config?: Record<string, unknown> }) => {
+      const response = await generateContent(params);
+      return (async function* () {
+        yield response;
+      })();
+    };
+
+    this.ai = { models: { generateContent, generateContentStream } } as unknown as GoogleGenAI;
   }
 
   promptsFor(kind: CallKind): string[] {
@@ -175,6 +239,22 @@ export class ScriptedClient {
     return this.calls.filter(c => c.kind === kind).map(c => c.systemInstruction);
   }
 
+  /**
+   * Proves this provider attempt crossed every expected boundary in global
+   * launch order and consumed its complete script. Per-kind queues alone
+   * cannot detect reordered calls; this assertion deliberately can.
+   */
+  expectCallSequence(expected: readonly CallKind[]): void {
+    expect(
+      this.calls.map(call => call.kind),
+      `[${this.label}] provider call sequence`,
+    ).toEqual([...expected]);
+    expect(
+      this.unconsumed(),
+      `[${this.label}] scripted responses left unconsumed`,
+    ).toEqual([]);
+  }
+
   /** Kinds still holding un-consumed canned responses (INV-SCRIPT). */
   unconsumed(): string[] {
     const leftovers: string[] = [];
@@ -183,6 +263,21 @@ export class ScriptedClient {
     }
     return leftovers;
   }
+}
+
+/** Routes App's already-constructed SDK client to one scripted provider attempt. */
+export function installAppGeminiScript(client: ScriptedClient): void {
+  const models = client.ai.models as unknown as {
+    generateContent: (params: GeminiParams) => Promise<GeminiResponse>;
+    generateContentStream: (params: GeminiParams) => Promise<AsyncIterable<GeminiResponse>>;
+  };
+  appSdkBoundary.generateContent = params => models.generateContent(params);
+  appSdkBoundary.generateContentStream = params => models.generateContentStream(params);
+}
+
+export function clearAppGeminiScript(): void {
+  appSdkBoundary.generateContent = null;
+  appSdkBoundary.generateContentStream = null;
 }
 
 // --- Scripted dice (seeded-RNG era) ---------------------------------------
@@ -238,6 +333,7 @@ export interface GameThread {
   truthLedger: TruthLedgerEntry[];
   knowledge: KnowledgeClaim[];
   npcIntents: NpcIntent[];
+  privateScenes: PrivateSceneRecord[];
   turnHistory: TurnHistoryEntry[];
   messages: Message[];
   suggestedActions: string[];
@@ -256,6 +352,7 @@ function threadFromSeed(seed: ScenarioSeed): GameThread {
     truthLedger: seed.truthLedger,
     knowledge: seed.knowledge,
     npcIntents: seed.npcIntents,
+    privateScenes: seed.privateScenes,
     turnHistory: seed.turnHistory,
     messages: seed.messages,
     suggestedActions: [],
@@ -279,6 +376,7 @@ export function threadFromSave(state: SaveGameState): GameThread {
     truthLedger: structuredClone(state.truthLedger ?? []),
     knowledge: structuredClone(state.knowledge ?? []),
     npcIntents: structuredClone(state.npcIntents ?? []),
+    privateScenes: structuredClone(state.privateScenes ?? []),
     turnHistory: structuredClone(state.turnHistory),
     messages: structuredClone(state.messages),
     suggestedActions: [...state.suggestedActions],
@@ -299,6 +397,7 @@ export function buildSaveStateFromThread(thread: GameThread): SaveGameState {
     truthLedger: thread.truthLedger,
     knowledge: thread.knowledge,
     npcIntents: thread.npcIntents,
+    privateScenes: thread.privateScenes,
     turnNumber: thread.turnNumber,
     playerCharacterId: thread.playerId,
     turnHistory: thread.turnHistory,
@@ -334,6 +433,7 @@ export function equivalenceSnapshot(thread: GameThread) {
       truthLedger: thread.truthLedger.map((t, i) => ({ ...t, id: `norm_${t.turn}_${i}`, reportId: `normr_${t.turn}_${i}` })),
       knowledge: thread.knowledge.map(normalizeClaimIds),
       npcIntents: thread.npcIntents,
+      privateScenes: thread.privateScenes,
       turnNumber: thread.turnNumber,
       reports: thread.reports.map((r, i) => ({ ...r, id: `normalized_${r.turn}_${i}` })),
       narrations: thread.turnHistory.map(h => h.narration ?? ''),
@@ -391,15 +491,13 @@ const CANONICAL_STAGE_ORDER: TurnStage[] = [
   'story_relevance',
   'npc_minds',
   'adjudication',
-  'private_conversation',
   'mortality',
   'simulation_state',
   'monologue',
   'narration',
-  'relationship_updates',
 ];
 
-const OPTIONAL_STAGES = new Set<TurnStage>(['npc_minds', 'private_conversation', 'mortality']);
+const OPTIONAL_STAGES = new Set<TurnStage>(['npc_minds', 'mortality']);
 
 function assertStageOrder(stages: TurnStage[], label: string): void {
   // Each stage fires at most once...
@@ -627,7 +725,6 @@ export class JourneyRunner {
         '\nSUGGESTION: Court the goodwill of the Senate' +
         '\nSUGGESTION: Sound out the Praetorian prefects' +
         '\nSUGGESTION: Review the treasury accounts',
-      relationshipUpdates: { deltas: [] },
     };
     return { ...defaults, ...script };
   }
@@ -866,4 +963,121 @@ export function loadThreadState(): SaveGameState {
   return envelope.state;
 }
 
-export { clearSave };
+export function clearSave(): void {
+  clearPersistedSave();
+}
+
+// --- Real App journey helpers --------------------------------------------
+
+export async function flushApp(): Promise<void> {
+  const { act } = await import('react');
+  await act(async () => {
+    await Promise.resolve();
+    await new Promise(resolve => setTimeout(resolve, 0));
+  });
+}
+
+export async function waitForApp(assertion: () => void, attempts = 80): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await flushApp();
+    }
+  }
+  throw lastError;
+}
+
+export function appControl<T extends Element>(container: HTMLElement, label: string): T {
+  const control = container.querySelector(`[aria-label="${label}"]`);
+  expect(control, `control with aria-label="${label}"`).not.toBeNull();
+  return control as T;
+}
+
+export function appButton(container: HTMLElement, name: string): HTMLButtonElement {
+  const button = Array.from(container.querySelectorAll('button')).find(candidate =>
+    candidate.textContent?.trim() === name || candidate.getAttribute('aria-label') === name);
+  expect(button, `button named "${name}"`).toBeDefined();
+  return button as HTMLButtonElement;
+}
+
+export async function appClick(element: HTMLElement): Promise<void> {
+  const { act } = await import('react');
+  await act(async () => element.click());
+}
+
+export async function appSetValue(
+  element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+  value: string,
+): Promise<void> {
+  const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), 'value');
+  expect(descriptor?.set, `native value setter for ${element.tagName}`).toBeTypeOf('function');
+  const { act } = await import('react');
+  await act(async () => {
+    descriptor!.set!.call(element, value);
+    element.dispatchEvent(new Event(element instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }));
+  });
+}
+
+export interface MountedJourneyApp {
+  container: HTMLDivElement;
+  unmount(): Promise<void>;
+}
+
+async function renderJourneyApp(): Promise<MountedJourneyApp> {
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
+
+  const React = await import('react');
+  const { createRoot } = await import('react-dom/client');
+  const [{ default: App }, { GameProvider }] = await Promise.all([
+    import('../../App'),
+    import('../../state/GameContext'),
+  ]);
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await React.act(async () => root.render(React.createElement(GameProvider, null, React.createElement(App))));
+  await waitForApp(() => expect(container.textContent).toContain('Choose Your Destiny'));
+  await appClick(appButton(container, 'Continue Your Reign'));
+  await waitForApp(() => expect(
+    container.querySelector('[aria-label="Chat input"], [aria-label="Action 1"]'),
+  ).not.toBeNull());
+  return {
+    container,
+    async unmount() {
+      await React.act(async () => root.unmount());
+      container.remove();
+    },
+  };
+}
+
+/**
+ * Boots App from a real v1 autosave and dispatches its real GAME_LOADED path.
+ * The caller must first install a ScriptedClient at the SDK boundary.
+ */
+export async function mountJourneyApp(state: SaveGameState): Promise<MountedJourneyApp> {
+  if (typeof document === 'undefined') throw new Error('mountJourneyApp requires the jsdom environment');
+  (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  localStorage.clear();
+  localStorage.setItem('gloryOfRome:onboardingSeen', '1');
+  localStorage.setItem('gloryOfRome:apiKey', 'journey-provider-boundary-key');
+  const saved = saveGame(state);
+  if (!saved.ok) throw new Error('mountJourneyApp: initial save failed');
+  return renderJourneyApp();
+}
+
+/**
+ * Boots a new App tree from the autosave and device preferences already in
+ * localStorage. Unlike mountJourneyApp, this does not clear storage or write
+ * a caller-supplied save first; it exercises App's real loadGame/GAME_LOADED
+ * continuation path against the exact bytes the previous App committed.
+ */
+export async function mountJourneyAppFromAutosave(): Promise<MountedJourneyApp> {
+  if (typeof document === 'undefined') throw new Error('mountJourneyAppFromAutosave requires the jsdom environment');
+  (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  if (!loadGame()) throw new Error('mountJourneyAppFromAutosave: no valid autosave exists');
+  return renderJourneyApp();
+}

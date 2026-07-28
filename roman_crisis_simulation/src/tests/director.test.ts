@@ -83,7 +83,7 @@ describe('Director schema pair: spotlight_intents in zStoryRelevance + StoryRele
 
   it('the Gemini responseSchema requires spotlight_intents with the SAME per-item fields and continuity enum (lockstep pin)', () => {
     expect(StoryRelevanceSchema.required).toContain('spotlight_intents');
-    const intentsSchema = (StoryRelevanceSchema.properties as Record<string, any>).spotlight_intents;
+    const intentsSchema = StoryRelevanceSchema.properties.spotlight_intents;
     expect(intentsSchema.type).toBe(Type.ARRAY);
     expect(intentsSchema.items.required).toEqual(['entity_id', 'intent', 'continuity']);
     expect(intentsSchema.items.properties.continuity.enum).toEqual(NpcIntentContinuityEnum);
@@ -134,7 +134,7 @@ describe('buildStoryRelevancePrompt: the Director input (previous intents, schem
       turn: i + 1,
       event_description: `Witnessed event number ${i + 1}`,
       emotional_impact: 'Notable',
-      involved_entities: [],
+      involved_entities: [] as string[],
     }));
     const npc = makeNpc({ memories });
     const previous = [makeIntent({ intent: 'Court the Rhine legions in secret', continuity: 'continue' })];
@@ -201,7 +201,7 @@ describe('buildAdjudicationPrompt: the Director intents block (prompt lockstep)'
       playerEntity: entities[0],
       npcEntities: entities.slice(1),
       history: [],
-      playerIntent: 'Hold court',
+      submission: { observableAttempt: 'Hold court', questionOrContext: null },
       gmInterventionText: '',
       storyRelevance: makeRelevance(),
       metaNarrative: 'A succession crisis.',
@@ -227,7 +227,7 @@ describe('buildAdjudicationPrompt: the Director intents block (prompt lockstep)'
     const { entities, worldState } = getMockInitialState();
     const { systemInstruction } = buildAdjudicationPrompt({
       worldState, simulationState: SIM_STATE, playerEntity: entities[0], npcEntities: entities.slice(1),
-      history: [], playerIntent: 'Hold court', gmInterventionText: '', storyRelevance: makeRelevance(),
+      history: [], submission: { observableAttempt: 'Hold court', questionOrContext: null }, gmInterventionText: '', storyRelevance: makeRelevance(),
       metaNarrative: 'A succession crisis.',
     });
     // The precedence rule is stated once as a principle...

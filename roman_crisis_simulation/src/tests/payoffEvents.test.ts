@@ -320,7 +320,7 @@ describe('buildAdjudicationPrompt: the GM-private HISTORICAL MATERIAL block (4D.
       playerEntity: entities[0],
       npcEntities: entities.slice(1),
       history: [],
-      playerIntent: 'Hold court',
+      submission: { observableAttempt: 'Hold court', questionOrContext: null },
       gmInterventionText: '',
       storyRelevance: { spotlight_entities: [], spotlight_intents: [] },
       metaNarrative: 'A succession crisis.',
@@ -364,16 +364,14 @@ describe('buildAdjudicationPrompt: the GM-private HISTORICAL MATERIAL block (4D.
 describe('buildNarrationPrompt: the moment-line clause (4D.3)', () => {
   it('asks for ONE signature spoken line, in the character\'s voice, only when a scheme visibly culminates (pin)', () => {
     const player = makeEntity();
-    const { systemInstruction } = buildNarrationPrompt('A crisis.', player, 'Hold court', {
-      turn: 3, entityActions: [], deltas: [], headlines: [], gm_private: [],
-    });
+    const { systemInstruction } = buildNarrationPrompt('A crisis.', player, 'Hold court', []);
     expect(systemInstruction).toContain('Moment Line');
-    expect(systemInstruction).toContain("When a named character's scheme visibly culminates or detonates this turn");
+    expect(systemInstruction).toContain("When a named character's visible action clearly culminates or detonates");
     expect(systemInstruction).toContain('ONE short signature spoken line, quoted in their own voice (per CAST VOICES when present)');
     // Bounded: per-character cap, culminations only, no invented facts.
     expect(systemInstruction).toContain('At most one line per character');
-    expect(systemInstruction).toContain('never for routine scheming');
-    expect(systemInstruction).toContain('reveal nothing beyond what the Adjudication JSON already states');
+    expect(systemInstruction).toContain('only at a true culmination');
+    expect(systemInstruction).toContain('reveal nothing beyond those player-perceived events');
   });
 });
 

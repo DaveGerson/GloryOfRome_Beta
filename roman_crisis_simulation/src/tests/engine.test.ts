@@ -444,7 +444,7 @@ describe('applyAdjudication', () => {
 
     it('should add a new region to the world state', () => {
         const adjudication = deepCopy(baseAdjudication);
-        const newRegionState = { stability: 'Peaceful', controlling_faction: null, current_events: ['A new market has opened.'] };
+        const newRegionState = { stability: 'Peaceful', controlling_faction: null as string | null, current_events: ['A new market has opened.'] };
         adjudication.deltas.push({ type: 'add_region', key: 'Capitoline Hill', delta: 0, reason: JSON.stringify(newRegionState) });
 
         const { updatedWorldState } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
@@ -501,7 +501,7 @@ describe('applyAdjudication', () => {
       const { updatedWorldState } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
 
       expect(updatedWorldState).toEqual(mockWorldState);
-      expect((updatedWorldState as any).imperial_mood).toBeUndefined();
+      expect('imperial_mood' in updatedWorldState).toBe(false);
     });
   });
 

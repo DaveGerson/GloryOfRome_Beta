@@ -70,8 +70,9 @@ mortality rolls/traces.
 
 ## D8 — Player ambition is inferred, never declared
 No quest log, no chosen goals. A cheap periodic model call infers what the
-player *appears* to be pursuing from their actions. Used for: epilogue
-framing, and NPC reactions to the player's apparent (not actual) agenda.
+player *appears* to be pursuing from their actions. The persisted snapshot is
+used only by `GameMasterScreen` for GM inspection and tuning. It never feeds
+the player epilogue, NPC reactions, or any other player-facing surface.
 
 ---
 
@@ -347,3 +348,93 @@ reading `GEMINI_API_KEY` from `.env` for local development). No public
 turn quota is needed — each player pays their own way. An owner-funded
 hosted mode (proxy + quota policy + in-fiction limit framing) is parked in
 the backlog.
+
+---
+
+Rulings D35–D36 are the Phase 6 player-input and observability round
+(July 2026), answering the Phase 6 grill and its first addendum. They refine
+D5, D8, D13, D21, and D25 without changing the hidden resolution or
+relationship mechanics.
+
+## D35 — Structured input guides one ordinary turn; it does not create a stronger action
+Chat remains the default composer. The player may switch to a Structured
+composer containing repeatable Actions, repeatable Messages or Orders,
+Private Intent, and Question or Context. All populated fields form one
+submission and one turn. Actions and orders are attempts, Private Intent is
+player-owned context rather than an observable or modifier, and a question
+asks the GM to answer from the avatar's present viewpoint without inventing
+an investigation or acting for the avatar.
+
+Each Message or Order row selects a recipient from entities the player is
+already permitted to know, with a "Someone else..." option for free text.
+The selector never receives the hidden roster; custom text does not prove
+that its named recipient exists or is reachable. The canonical submission
+is compact plaintext stored in the existing `playerIntent` history/save
+field, with explicit audience projections before AI use. The complete
+artifact is capped at 20,000 characters and is blocked, never truncated,
+when over the limit. Save version 1 remains compatible. An exact retry
+resends the normalized artifact and may commit the turn only once.
+
+## D36 — The player reads relationships from sourced observations, never engine sentiment
+Player-facing Personae surfaces show dated, sourced behavioral evidence and
+conservatively attributed direct quotes. They do not show trust or respect
+scores, bars, arrows, tiers, heat colors, synthesized relationship labels,
+AI-authored "Raw Thoughts," live NPC goals, or live NPC state narratives.
+Contradictory observations coexist; the player supplies the interpretation.
+
+An entity that the player has not learned exists is absent from the roster
+and recipient selector. Public roles become displayable only after the
+entity itself is known. Relationship observations are selected from the
+observable submission, the player-specific perception digest, sourced
+reports, and paid investigation output. Player-owned narration is not an
+evidence source because it may be shaped by Private Intent. Hidden numeric
+relationship state and relationship deltas remain available to the engine
+and GM console but never select player-facing prose or UI pulses. The MVP
+adds no player-authored NPC notes.
+
+---
+
+Rulings D37-D40 are the Phase 6 private-scene and authority-boundary round
+(July 2026). They supersede the earlier off-screen NPC-conversation wiring
+and narrow D35's original Private Intent projection.
+
+## D37 - Player Private Intent is player-owned, not adjudication evidence
+Private Intent may shape only player-owned narration, inner monologue,
+suggested actions, the author's collapsed history, and the GM ledger. It
+does not enter objective adjudication, world state, NPC minds, relationship
+mechanics, apparent ambition, knowledge, perception, or resolution. The
+human player supplies the avatar's private interpretation; an omniscient
+engine may not turn an unspoken thought into an objective cause.
+*Narrows:* D35 and the Phase 6 grill's original adjudicator allowance.
+
+## D38 - The main adjudicator alone owns ordinary-turn relationship consequences
+The main adjudicator may emit directional relationship deltas while resolving
+the turn's actual outcome. A second post-hoc Relationship Analyst may not infer
+and apply another set from the attempted action alone. Player-facing
+relationship observations remain a separate, perception-safe evidence
+presentation layer and never write hidden numeric state.
+
+## D39 - Private scenes are player-initiated micro-loops between macro turns
+A private scene is a synchronous vignette between the human player's avatar
+and one AI-controlled character while the macro world is frozen. NPCs never
+initiate scenes and never run autonomous NPC-NPC scenes. The player may commit
+at most one scene per macro turn, with a target who is known and either
+co-located or already connected through the player's network. The invitee may
+refuse; a committed refusal consumes the scene and returns an in-character
+response. An accepted scene permits at most six NPC responses, may end early,
+and closes with an optional one-way player last word that causes no model call.
+
+No individual utterance changes world or relationship state. Closing produces
+one compact outcome for the next main adjudication, which alone decides any
+consequence.
+
+## D40 - NPC speech, NPC hidden intent, and world truth are separate channels
+The player sees the transcript and attributed speech acts. An NPC may lie,
+withhold, or manipulate: its statements remain claims unless independently
+established by simulation state. The NPC's sincerity, hidden intent, and
+planned follow-through are durable GM-private participant memory and may guide
+future NPC minds and the main adjudicator, but they are not world truth or an
+already-resolved action. The main adjudicator receives a compact partitioned
+outcome rather than the full transcript; the full transcript remains available
+to the player, participating NPC memory, and GM console. No hidden NPC state is
+rendered to the player.

@@ -298,8 +298,8 @@ function truncateForCapture(text: string, maxChars: number = MAX_RAW_RESPONSE_CH
 // lean per D18; persistence/saveGame.ts strips the text fields on
 // serialize):
 //
-//  - Turn bracket: a turn makes several sequential AI calls (adjudication,
-//    narration, relationship updates, etc). `beginTurnCapture`/
+//  - Turn bracket: a turn makes several AI calls (adjudication, simulation
+//    state, monologue, narration, etc). `beginTurnCapture`/
 //    `endTurnCapture` let turn.ts bracket the whole pipeline and collect
 //    every call made in between into one array, without threading a
 //    capture parameter through every intelligence.ts/turn.ts function
@@ -310,19 +310,33 @@ function truncateForCapture(text: string, maxChars: number = MAX_RAW_RESPONSE_CH
 //    session-scoped log bounded at MAX_SESSION_CALL_RECORDS (oldest
 //    evicted first). In-memory only; it does not survive a reload.
 
-let activeCapture: RawCallRecord[] | null = null;
+interface TurnCapture {
+  records: RawCallRecord[];
+  open: boolean;
+}
+
+interface CallLogOwner {
+  turnCapture: TurnCapture | null;
+  sessionGeneration: number;
+}
+
+let activeCapture: TurnCapture | null = null;
 let sessionCallLog: RawCallRecord[] = [];
+let sessionGeneration = 0;
 
 /** Starts collecting raw call records for the current turn. */
 export function beginTurnCapture(): void {
-  activeCapture = [];
+  if (activeCapture) activeCapture.open = false;
+  activeCapture = { records: [], open: true };
 }
 
 /** Stops collecting and returns everything captured since `beginTurnCapture`. */
 export function endTurnCapture(): RawCallRecord[] {
-  const records = activeCapture ?? [];
+  const capture = activeCapture;
+  if (!capture) return [];
+  capture.open = false;
   activeCapture = null;
-  return records;
+  return capture.records;
 }
 
 /** Snapshot (oldest first) of the bounded session-wide call log. */
@@ -333,9 +347,14 @@ export function getSessionCallLog(): RawCallRecord[] {
 /** Empties the session-wide call log. Does not touch an active turn bracket. */
 export function resetSessionCallLog(): void {
   sessionCallLog = [];
+  sessionGeneration += 1;
 }
 
-function recordCall(record: RawCallRecord): void {
+function currentCallLogOwner(): CallLogOwner {
+  return { turnCapture: activeCapture, sessionGeneration };
+}
+
+function recordCall(record: RawCallRecord, owner: CallLogOwner): void {
   const bounded: RawCallRecord = {
     ...record,
     rawResponse: truncateForCapture(record.rawResponse),
@@ -346,12 +365,14 @@ function recordCall(record: RawCallRecord): void {
   if (bounded.systemInstruction !== undefined) {
     bounded.systemInstruction = truncateForCapture(bounded.systemInstruction, MAX_CAPTURED_PROMPT_CHARS);
   }
-  sessionCallLog.push(bounded);
-  if (sessionCallLog.length > MAX_SESSION_CALL_RECORDS) {
-    sessionCallLog.splice(0, sessionCallLog.length - MAX_SESSION_CALL_RECORDS);
+  if (owner.sessionGeneration === sessionGeneration) {
+    sessionCallLog.push(bounded);
+    if (sessionCallLog.length > MAX_SESSION_CALL_RECORDS) {
+      sessionCallLog.splice(0, sessionCallLog.length - MAX_SESSION_CALL_RECORDS);
+    }
   }
-  if (activeCapture) {
-    activeCapture.push(bounded);
+  if (owner.turnCapture?.open && activeCapture === owner.turnCapture) {
+    owner.turnCapture.records.push(bounded);
   }
 }
 
@@ -439,6 +460,7 @@ export interface GenerateStructuredRequest<T> {
   // (even for a plain `z.object({...})` with no transforms). Loosening the
   // 2nd/3rd params to `any` is the documented escape hatch for "accept any
   // zod schema that outputs T" without losing `T` itself.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Zod's concrete Input and Internals vary by schema.
   zodSchema?: ZodType<T, any, any>;
   thinkingConfig?: ThinkingConfigLike;
   temperature?: number;
@@ -484,6 +506,7 @@ function formatRepairSuffix(issuePaths: string[]): string {
  */
 export async function generateStructured<T>(ai: GeminiClient, req: GenerateStructuredRequest<T>): Promise<T> {
   const { callName, model, zodSchema } = req;
+  const callLogOwner = currentCallLogOwner();
   let currentPrompt = req.prompt;
 
   for (let repairAttempt = 0; repairAttempt <= 1; repairAttempt++) {
@@ -513,7 +536,7 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
         systemInstruction: req.systemInstruction,
         rawResponse: network.text,
         validated: false,
-      });
+      }, callLogOwner);
       if (repairAttempt === 0) {
         const message = e instanceof Error ? e.message : String(e);
         currentPrompt = `${req.prompt}${formatRepairSuffix([`(unparseable JSON: ${message})`])}`;
@@ -544,7 +567,7 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
         systemInstruction: req.systemInstruction,
         rawResponse: network.text,
         validated: true,
-      });
+      }, callLogOwner);
       return parsed;
     }
 
@@ -560,7 +583,7 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
         systemInstruction: req.systemInstruction,
         rawResponse: network.text,
         validated: true,
-      });
+      }, callLogOwner);
       return result.data;
     }
 
@@ -575,7 +598,7 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
       systemInstruction: req.systemInstruction,
       rawResponse: network.text,
       validated: false,
-    });
+    }, callLogOwner);
 
     if (repairAttempt === 0) {
       currentPrompt = `${req.prompt}${formatRepairSuffix(issuePaths)}`;
@@ -617,6 +640,7 @@ export interface GenerateTextRequest {
  */
 export async function generateText(ai: GeminiClient, req: GenerateTextRequest): Promise<string> {
   const { callName, model } = req;
+  const callLogOwner = currentCallLogOwner();
   const config = buildConfig({
     systemInstruction: req.systemInstruction,
     thinkingConfig: req.thinkingConfig,
@@ -638,7 +662,7 @@ export async function generateText(ai: GeminiClient, req: GenerateTextRequest): 
     systemInstruction: req.systemInstruction,
     rawResponse: network.text,
     validated: true,
-  });
+  }, callLogOwner);
 
   return network.text;
 }
@@ -675,6 +699,7 @@ export async function generateTextStream(
   onChunk: (textSoFar: string) => void
 ): Promise<string> {
   const { callName, model } = req;
+  const callLogOwner = currentCallLogOwner();
   const streamFn = ai.models.generateContentStream;
   if (!streamFn) {
     throw new AiServiceError(
@@ -731,7 +756,7 @@ export async function generateTextStream(
     systemInstruction: req.systemInstruction,
     rawResponse: textSoFar,
     validated: true,
-  });
+  }, callLogOwner);
 
   return textSoFar;
 }

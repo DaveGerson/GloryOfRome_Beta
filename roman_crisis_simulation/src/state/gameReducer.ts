@@ -35,6 +35,7 @@ import {
 } from '../types';
 import type { SaveGameState, InferredAmbitionState } from '../persistence/saveGame';
 import type { KnowledgeClaim } from '../knowledge/store';
+import type { PrivateSceneRecord } from '../privateScene/model';
 import { INITIAL_WORLD_STATE, INITIAL_SIMULATION_STATE } from '../constants/baseScenario';
 import { normalizeEventFirings } from '../events/engine';
 import { clearFallout } from '../components/investigationLoop';
@@ -80,6 +81,12 @@ export interface GameDomainState {
    * player-facing surface.
    */
   npcIntents: NpcIntent[];
+  /**
+   * Phase 6 private-scene records. This GM-only state is a separate slice:
+   * no scene transcript or NPC-private interpretation is copied into
+   * messages, entity memories, knowledge, reports, or turn history.
+   */
+  privateScenes: PrivateSceneRecord[];
   turnNumber: number;
   playerCharacterId: string | null;
   turnHistory: TurnHistoryEntry[];
@@ -109,9 +116,9 @@ export interface GameDomainState {
   metaNarrative: string;
   /**
    * DESIGN_DECISIONS.md D8 - the latest "apparent ambition" reading, if any
-   * has been computed yet this campaign. GM-console/epilogue only (see
-   * GameMasterScreen's "Apparent Ambition" line and EpilogueScreen) -
-   * never rendered as a player-facing goal UI.
+   * has been computed yet this campaign. It is retained only for
+   * GameMasterScreen's GM inspection/tuning view and never feeds the player
+   * epilogue, NPC reactions, or any other player-facing surface.
    */
   inferredAmbition: InferredAmbitionState | null;
 }
@@ -129,6 +136,7 @@ export function createInitialGameState(): GameDomainState {
     truthLedger: [],
     knowledge: [],
     npcIntents: [],
+    privateScenes: [],
     turnNumber: 1,
     playerCharacterId: null,
     turnHistory: [],
@@ -189,10 +197,10 @@ export type GameAction =
   /** Bare phase transition, for paths that change nothing else. */
   | { type: 'GAME_STATE_SET'; gameState: GameState }
   /**
-   * A fresh turn attempt begins: enter PROCESSING, clear the suggested-action
-   * pills, and put the player's action into the chat log. Nothing else may
-   * change here - the pre-turn snapshot App.tsx takes right after this
-   * dispatch must describe exactly the committed state plus this message.
+   * A fresh turn attempt begins: enter PROCESSING. Every committed domain
+   * slice, including suggested-action pills, remains unchanged until the
+   * successful TURN_COMMITTED batch lands; App hides the old pills while
+   * processing as presentation state.
    */
   | { type: 'TURN_STARTED'; playerMessage: Message }
   /**
@@ -211,24 +219,28 @@ export type GameAction =
       knowledge: KnowledgeClaim[];
       /** The Director's committed intents for this turn (runNewTurn's updatedNpcIntents, 4C.3) - replaces the slice wholesale. */
       npcIntents: NpcIntent[];
+      /** Scene records already atomically finalized/consumed for this turn. */
+      privateScenes: PrivateSceneRecord[];
       turnNumber: number;
       turnHistory: TurnHistoryEntry[];
+      playerMessage: Message;
       gmMessage: Message;
-      monologueMessage: Message;
+      monologueMessage: Message | null;
       ribbonMessage: Message;
       suggestedActions: string[];
       currentEvents: string[];
     }
   /**
-   * Restore the pre-turn snapshot after a mid-turn failure. `messages` is
-   * deliberately NOT restored - the player's message and the GM's error
-   * notice should stay in the chat log. `playerCharacterId`, `metaNarrative`
-   * and `inferredAmbition` are never touched mid-turn, so they are not part
-   * of the rollback either. The phase transition back to
+   * Restore the pre-turn snapshot after a mid-turn failure, including its
+   * exact committed chat log. `playerCharacterId`, `metaNarrative` and
+   * `inferredAmbition` are never touched mid-turn, so they are not part of
+   * the rollback either. The phase transition back to
    * AWAITING_PLAYER_INPUT is a separate GAME_STATE_SET, because it must
    * happen even when no snapshot exists to restore.
    */
   | { type: 'TURN_ROLLED_BACK'; snapshot: SaveGameState }
+  /** Atomically replace the isolated private-scene slice only. */
+  | { type: 'PRIVATE_SCENES_COMMITTED'; privateScenes: PrivateSceneRecord[] }
   /** An authored event fired after a committed turn - open its modal. */
   | { type: 'EVENT_TRIGGERED'; event: GameEvent }
   /**
@@ -271,7 +283,7 @@ export type GameAction =
    * state transition - split across separate commits, whichever landed last
    * would silently revert the others' fields in the autosave.
    */
-  | { type: 'INVESTIGATION_COMMITTED'; entities: Entity[]; pendingIntelligenceFallout: string[]; knowledge: KnowledgeClaim[] }
+  | { type: 'INVESTIGATION_COMMITTED'; entities: Entity[]; pendingIntelligenceFallout: string[]; knowledge: KnowledgeClaim[]; falloutMessage?: Message }
   /** GM-console operator authored (or cleared) the intervention text. */
   | { type: 'GM_INTERVENTION_SET'; text: string }
   /** DESIGN_DECISIONS.md D8 - a periodic ambition inference resolved. */
@@ -299,8 +311,6 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
       return {
         ...state,
         gameState: GameState.PROCESSING,
-        suggestedActions: [],
-        messages: [...state.messages, action.playerMessage],
       };
 
     case 'TURN_COMMITTED': {
@@ -319,6 +329,7 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         truthLedger: action.truthLedger,
         knowledge: action.knowledge,
         npcIntents: action.npcIntents,
+        privateScenes: action.privateScenes,
         turnNumber: action.turnNumber,
         // Older entries shed their full entity snapshots here - the one
         // commit point every turn passes through, so state and autosave
@@ -328,7 +339,13 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         // state this reducer returns; this application stays as the
         // in-memory backstop.
         turnHistory: withOldSnapshotsDropped(action.turnHistory),
-        messages: [...state.messages, action.gmMessage, action.monologueMessage, action.ribbonMessage],
+        messages: [
+          ...state.messages,
+          action.playerMessage,
+          action.gmMessage,
+          ...(action.monologueMessage ? [action.monologueMessage] : []),
+          action.ribbonMessage,
+        ],
         suggestedActions: action.suggestedActions,
         currentEvents: action.currentEvents,
         // ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - the fallout queue is
@@ -360,9 +377,11 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         // Optional field (4C.3) - same normalization; a failed turn never
         // committed its Director output, so the pre-turn intents stand.
         npcIntents: snapshot.npcIntents ?? [],
+        privateScenes: Array.isArray(snapshot.privateScenes) ? snapshot.privateScenes : [],
         turnNumber: snapshot.turnNumber,
         turnHistory: snapshot.turnHistory,
         eventHistory: snapshot.eventHistory,
+        messages: snapshot.messages,
         triggeredEventIds: snapshot.triggeredEventIds,
         // Optional field (4D.2) - snapshots built in-session always carry
         // it, but a legacy-shaped snapshot normalizes exactly like
@@ -418,6 +437,7 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         gameState: GameState.AWAITING_PLAYER_INPUT,
         messages: [...state.messages, action.introMessage],
         suggestedActions: action.suggestedActions,
+        privateScenes: [],
       };
 
     case 'GAME_LOADED': {
@@ -454,6 +474,7 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         // persistent intents existed, so this normalizes it to an empty
         // list; the next turn's Director then rules everything 'new'.
         npcIntents: s.npcIntents ?? [],
+        privateScenes: Array.isArray(s.privateScenes) ? s.privateScenes : [],
         // Optional field (D8) - absent on saves from before this field
         // existed, so this normalizes it to `null` rather than `undefined`
         // for InferredAmbitionState | null's sake.
@@ -477,18 +498,25 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
     case 'RESOURCE_SPENT':
       return { ...state, entities: action.entities };
 
+    case 'PRIVATE_SCENES_COMMITTED':
+      return { ...state, privateScenes: action.privateScenes };
+
     case 'INVESTIGATION_COMMITTED':
       return {
         ...state,
         entities: action.entities,
         pendingIntelligenceFallout: action.pendingIntelligenceFallout,
         knowledge: action.knowledge,
+        messages: action.falloutMessage ? [...state.messages, action.falloutMessage] : state.messages,
       };
 
     case 'GM_INTERVENTION_SET':
       return { ...state, gmInterventionText: action.text };
 
     case 'AMBITION_INFERRED':
+      if (state.inferredAmbition && state.inferredAmbition.asOfTurn > action.inferredAmbition.asOfTurn) {
+        return state;
+      }
       return { ...state, inferredAmbition: action.inferredAmbition };
 
     default:

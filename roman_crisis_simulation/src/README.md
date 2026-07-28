@@ -18,16 +18,21 @@ DESIGN_DECISIONS.md D34: bring-your-own-key is the default, preferred way to pla
 
 ## **Current Structure of Game Files**
 
-The project is structured as a modern React application using TypeScript and Vite. The file organization separates the UI (components), game logic (ai, events, constants), and core application setup.
+The project is structured as a modern React application using TypeScript and Vite. The file organization separates the UI (components), game logic (ai, events, constants), centralized state (state), and core application setup.
 
 * **/ (Root)**: Contains the main entry point (index.html), React app setup (App.tsx, index.tsx), and project configurations (package.json, vite.config.ts, tsconfig.json).  
 * **/ai**: The brain of the simulation. It's responsible for processing turns, making AI-driven decisions, and managing game logic.  
-  * **/ai/core**: Contains the essential engine for running the simulation.  
+  * **/ai/core**: Contains the essential engine for running the simulation, including the single Gemini service wrapper (`ai/core/geminiService.ts`) that every AI call goes through.
   * **/ai/tools**: Holds specialized functions that use the AI for specific tasks like intelligence gathering or character generation.  
 * **/components**: Houses all the reusable React components that form the user interface.  
   * **/components/tabs**: Contains the components for each tab in the side panel (e.g., Events, Reports).  
 * **/constants**: Stores static, read-only data that defines the starting conditions of the game.  
 * **/events**: Manages the logic for scripted, triggerable in-game events.  
+* **/state**: Owns the centralized game-domain state. `state/GameContext.tsx` is the React context/provider; `state/gameReducer.ts` is the reducer, action types, and initial-state factory. `App.tsx` is the sole consumer of the context and stays the composition root for persistence.
+* **/knowledge**: Manages what the player has learned — report commitment, credibility framing, and dossier costing for intelligence gathering.
+* **/perception**: Filters simulation state down to what a given viewer (player or NPC) is allowed to see, so raw deltas and GM-private detail never reach the UI.
+* **/persistence**: Handles everything saved to or read from the browser — save games, settings, the API key, onboarding state, and the eval-corpus export.
+* **/eval**: Houses the offline evaluation harness and judge used to score AI output quality outside of normal gameplay.
 * **/tests**: Contains unit tests to ensure the core game logic functions correctly.
 
 ## **Description of Each File**
@@ -107,9 +112,7 @@ The simulation's data is primarily structured around the types defined in types.
 
 ## **Proposed Codebase Organization Changes**
 
-* **Create an AI Service Layer**: Consolidate all functions that make fetch calls to the Gemini API into a single service file (e.g., ai/geminiService.ts). This would abstract the direct API interaction away from the game logic files (turn.ts, intelligence.ts). This makes the code cleaner, easier to mock for tests, and simplifies future updates to the API calls.  
-* **Introduce** a State **Management Hook**: While a full library isn't necessary for a low-code environment, a custom React hook (e.g., useGameState) could be created to encapsulate all the state variables (entities, worldState, reports, etc.) and the logic for updating them. This would clean up the App.tsx component significantly and centralize state management logic.  
-* **Separate Logic from Components**: Some components, like DramatisPersonaeTab.tsx, contain significant logic for handling intelligence gathering. This logic could be extracted into custom hooks (e.g., useIntelligence(targetEntity)) to make the components purely responsible for rendering the UI, improving separation of concerns.
+* **Separate Logic from Components (optional, not yet implemented)**: `DramatisPersonaeTab.tsx` still contains significant logic for handling intelligence gathering directly in the component. This logic could be extracted into a custom hook (e.g., `useIntelligence(targetEntity)`) to make the component purely responsible for rendering the UI, improving separation of concerns. This is the only open item in this section — the AI service layer and centralized state management described in earlier drafts of this document have shipped as `ai/core/geminiService.ts` and `state/GameContext.tsx` / `state/gameReducer.ts` respectively.
 
 ## **Proposed Feature Enhancements**
 
