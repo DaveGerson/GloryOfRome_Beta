@@ -377,7 +377,7 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         // Optional field (4C.3) - same normalization; a failed turn never
         // committed its Director output, so the pre-turn intents stand.
         npcIntents: snapshot.npcIntents ?? [],
-        privateScenes: snapshot.privateScenes ?? [],
+        privateScenes: Array.isArray(snapshot.privateScenes) ? snapshot.privateScenes : [],
         turnNumber: snapshot.turnNumber,
         turnHistory: snapshot.turnHistory,
         eventHistory: snapshot.eventHistory,
@@ -474,7 +474,7 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         // persistent intents existed, so this normalizes it to an empty
         // list; the next turn's Director then rules everything 'new'.
         npcIntents: s.npcIntents ?? [],
-        privateScenes: s.privateScenes ?? [],
+        privateScenes: Array.isArray(s.privateScenes) ? s.privateScenes : [],
         // Optional field (D8) - absent on saves from before this field
         // existed, so this normalizes it to `null` rather than `undefined`
         // for InferredAmbitionState | null's sake.

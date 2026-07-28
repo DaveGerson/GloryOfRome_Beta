@@ -426,6 +426,21 @@ describe('state/gameReducer', () => {
       expect(gameReducer(state, { type: 'TURN_ROLLED_BACK', snapshot: legacy }).privateScenes).toEqual([]);
     });
 
+    it('normalizes a corrupted non-array private-scenes snapshot to an empty list without changing other rollback fields', () => {
+      const state = makePlayingState({ privateScenes: [makePrivateScene({ sceneId: 'mid-turn' })] });
+      for (const corrupt of [{}, 'not-a-scene-list']) {
+        const snapshot = makeSaveState({
+          turnNumber: 9,
+          messages: [{ sender: 'gm', text: 'Rollback sentinel.' }],
+          privateScenes: corrupt as unknown as PrivateSceneRecord[],
+        });
+        const result = gameReducer(state, { type: 'TURN_ROLLED_BACK', snapshot });
+        expect(result.privateScenes).toEqual([]);
+        expect(result.turnNumber).toBe(9);
+        expect(result.messages).toBe(snapshot.messages);
+      }
+    });
+
     it('normalizes a snapshot without the optional fallout field to an empty queue', () => {
       const state = makePlayingState();
       const snapshot = makeSaveState();
@@ -600,6 +615,20 @@ describe('state/gameReducer', () => {
       // next Director run rules everything 'new'.
       expect(result.npcIntents).toEqual([]);
       expect(result.privateScenes).toEqual([]);
+    });
+
+    it('normalizes present-but-non-array private scenes to an empty list without disturbing the loaded campaign', () => {
+      for (const corrupt of [{}, 'not-a-scene-list']) {
+        const save = makeSaveState({
+          turnNumber: 11,
+          metaNarrative: 'Corruption sentinel.',
+          privateScenes: corrupt as unknown as PrivateSceneRecord[],
+        });
+        const result = gameReducer(createInitialGameState(), { type: 'GAME_LOADED', save });
+        expect(result.privateScenes).toEqual([]);
+        expect(result.turnNumber).toBe(11);
+        expect(result.metaNarrative).toBe('Corruption sentinel.');
+      }
     });
 
     it('re-derives GAME_OVER from a save whose player is dead (D1 - GAME_OVER itself is never persisted)', () => {
