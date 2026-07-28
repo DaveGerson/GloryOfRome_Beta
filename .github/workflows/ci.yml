@@ -25,6 +25,8 @@ jobs:
 
       - run: npm run lint
 
+      - run: npm run test:lint-baseline
+
       - run: npm test
 
       - run: npm run test:journeys
