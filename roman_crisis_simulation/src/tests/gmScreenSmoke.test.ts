@@ -207,6 +207,54 @@ async function mountAppFromSave(state = makeAppSave()): Promise<HTMLDivElement> 
 }
 
 describe('components/GameMasterScreen - legacy-save smoke render', () => {
+  it('renders GM private-scene ledger separators as middle dots without mojibake', async () => {
+    const privateScenes: PrivateSceneRecord[] = [{
+      sceneId: 'scene-ledger-separators',
+      macroTurn: 4,
+      playerId: 'player',
+      npcId: 'marcia',
+      playerName: 'Lucius',
+      npcName: 'Marcia',
+      status: 'closed',
+      transcript: [{ sequence: 1, speaker: 'player', text: 'Speak with me.' }],
+      npcResponseCount: 1,
+      speechActs: [{ speaker: 'player', kind: 'unclassified', text: 'Speak with me.', exchange: 1 }],
+      npcPrivate: {
+        sincerity: 'guarded',
+        hiddenIntent: 'Keep her patronage concealed.',
+        plannedFollowThrough: ['Send a servant', 'Watch the Forum'],
+      },
+      closureReason: 'player_ended',
+      consequenceStatus: 'consumed',
+      consumedByTurn: 5,
+    }];
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    try {
+      await act(async () => {
+        root.render(React.createElement(GameMasterScreen, {
+          history: [], onClose: () => {}, interventionText: '', onSetIntervention: () => {},
+          playerCharacterId: 'player', worldState, turnNumber: 5, privateScenes,
+        }));
+      });
+      await click(buttonNamed(container, 'private'));
+
+      const ledger = byAriaLabel<HTMLElement>(container, 'Private scene GM ledger');
+      expect(ledger.textContent).toContain('Turn 4 · Lucius / Marcia · closed');
+      expect(ledger.textContent).toContain('Consumed by turn 5');
+      expect(ledger.textContent).toContain('Exchange 1 · player · unclassified: Speak with me.');
+      expect(ledger.textContent).toContain('Send a servant · Watch the Forum');
+      expect(ledger.textContent).not.toContain('Â');
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+      container.remove();
+    }
+  });
+
   it('renders with legacy-shaped props (undefined truthLedger/knowledge/reports/ambition/fallout, empty history) without throwing', async () => {
     const container = document.createElement('div');
     document.body.appendChild(container);

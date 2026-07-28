@@ -163,7 +163,7 @@ const PrivateSceneGmView: React.FC<{ scenes: readonly PrivateSceneRecord[] }> = 
         ) : scenes.slice().reverse().map(scene => (
             <details key={scene.sceneId} style={well}>
                 <summary style={{ cursor: 'pointer', color: PARCH }}>
-                    Turn {scene.macroTurn} Â· {scene.playerName} / {scene.npcName} Â· {scene.status}
+                    Turn {scene.macroTurn} · {scene.playerName} / {scene.npcName} · {scene.status}
                 </summary>
                 <div style={{ marginTop: 8, fontSize: 13 }}>
                     <div><strong style={{ color: DIM }}>Scene ID:</strong> <span style={{ fontFamily: MONO }}>{scene.sceneId}</span></div>
@@ -172,7 +172,7 @@ const PrivateSceneGmView: React.FC<{ scenes: readonly PrivateSceneRecord[] }> = 
                     <div>
                         <strong style={{ color: DIM }}>Consequence:</strong> {scene.consequenceStatus}
                         {scene.consequenceStatus === 'consumed' && scene.consumedByTurn !== undefined
-                            ? ` Â· Consumed by turn ${scene.consumedByTurn}`
+                            ? ` · Consumed by turn ${scene.consumedByTurn}`
                             : ''}
                     </div>
                 </div>
@@ -192,7 +192,7 @@ const PrivateSceneGmView: React.FC<{ scenes: readonly PrivateSceneRecord[] }> = 
                         <ul style={{ margin: '3px 0', paddingLeft: 18 }}>
                             {scene.speechActs.map((act, index) => (
                                 <li key={index} style={{ fontSize: 13 }}>
-                                    Exchange {act.exchange} Â· {act.speaker} Â· {act.kind}: {act.text}
+                                    Exchange {act.exchange} · {act.speaker} · {act.kind}: {act.text}
                                 </li>
                             ))}
                         </ul>
@@ -205,7 +205,7 @@ const PrivateSceneGmView: React.FC<{ scenes: readonly PrivateSceneRecord[] }> = 
                     <div style={{ fontSize: 13 }}>
                         <strong style={{ color: DIM }}>Planned follow-through:</strong>{' '}
                         {scene.npcPrivate.plannedFollowThrough.length > 0
-                            ? scene.npcPrivate.plannedFollowThrough.join(' Â· ')
+                            ? scene.npcPrivate.plannedFollowThrough.join(' · ')
                             : 'None recorded.'}
                     </div>
                 </div>
