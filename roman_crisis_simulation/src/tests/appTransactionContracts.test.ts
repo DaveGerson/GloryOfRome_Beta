@@ -16,6 +16,7 @@ import * as aiMocks from '../ai/mocks';
 import * as ambitionTool from '../ai/tools/ambition';
 import * as turnCore from '../ai/core/turn';
 import * as geminiService from '../ai/core/geminiService';
+import * as privateSceneModel from '../privateScene/model';
 import { loadGame, saveGame, type SaveGameState } from '../persistence/saveGame';
 import { AiServiceError } from '../ai/core/geminiService';
 import type { Entity, TurnSubmission } from '../types';
@@ -63,6 +64,11 @@ vi.mock('../ai/core/geminiService', async importOriginal => {
   };
 });
 
+vi.mock('../privateScene/model', async importOriginal => {
+  const actual = await importOriginal<typeof import('../privateScene/model')>();
+  return { ...actual, eligiblePrivateSceneTargets: vi.fn(actual.eligiblePrivateSceneTargets) };
+});
+
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const mockRunNewTurn = vi.mocked(aiMocks.mockRunNewTurn);
@@ -73,6 +79,7 @@ const mockInferAmbition = vi.mocked(ambitionTool.inferAmbition);
 const mockRunNewTurnCore = vi.mocked(turnCore.runNewTurn);
 const mockGenerateStructured = vi.mocked(geminiService.generateStructured);
 const mockResetSessionCallLog = vi.mocked(geminiService.resetSessionCallLog);
+const mockEligibleTargets = vi.mocked(privateSceneModel.eligiblePrivateSceneTargets);
 const defaultRunNewTurn = mockRunNewTurn.getMockImplementation()!;
 const defaultDeepAnalysis = mockGetDeepAnalysis.getMockImplementation()!;
 const defaultInvestigation = mockGetInvestigationResult.getMockImplementation()!;
@@ -80,6 +87,7 @@ const defaultCreateCharacter = mockCreateCharacter.getMockImplementation()!;
 const defaultInferAmbition = mockInferAmbition.getMockImplementation()!;
 const defaultRunNewTurnCore = mockRunNewTurnCore.getMockImplementation()!;
 const defaultGenerateStructured = mockGenerateStructured.getMockImplementation()!;
+const defaultEligibleTargets = mockEligibleTargets.getMockImplementation()!;
 const mounted: Array<{ root: Root; container: HTMLDivElement }> = [];
 
 beforeEach(() => {
@@ -99,6 +107,8 @@ beforeEach(() => {
   mockRunNewTurnCore.mockImplementation(defaultRunNewTurnCore);
   mockGenerateStructured.mockClear();
   mockGenerateStructured.mockImplementation(defaultGenerateStructured);
+  mockEligibleTargets.mockClear();
+  mockEligibleTargets.mockImplementation(defaultEligibleTargets);
   mockResetSessionCallLog.mockClear();
   Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
     configurable: true,
@@ -128,6 +138,8 @@ afterEach(async () => {
   mockRunNewTurnCore.mockImplementation(defaultRunNewTurnCore);
   mockGenerateStructured.mockClear();
   mockGenerateStructured.mockImplementation(defaultGenerateStructured);
+  mockEligibleTargets.mockClear();
+  mockEligibleTargets.mockImplementation(defaultEligibleTargets);
   mockResetSessionCallLog.mockClear();
   vi.useRealTimers();
 });
@@ -1804,5 +1816,118 @@ describe('App no-attempt response privacy and atomicity', () => {
     expect(JSON.stringify(loadGame()!.state.knowledge)).not.toContain(SAFE_EVIDENCE_TEXT);
     errorSpy.mockRestore();
     warnSpy.mockRestore();
+  });
+});
+
+describe('App turn-commit boundary and hidden-error surfacing (C1)', () => {
+  it('keeps the durable commit and never rolls back or offers Retry when post-commit work throws', async () => {
+    const container = await mountApp(makeAppSave({ turnNumber: 3 }));
+    // A sync throw from the direct (unawaited) inferAmbition call at
+    // App.tsx:1129 - not a rejected promise, which the existing
+    // .catch(console.warn) already absorbs.
+    mockInferAmbition.mockImplementationOnce(() => {
+      throw new Error('SYNC_POST_COMMIT_SENTINEL');
+    });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Trigger post-commit failure');
+    await click(buttonNamed(container, 'Send message'));
+    await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(4));
+
+    // Autosave stays at N+1.
+    expect(loadGame()!.state.turnHistory).toHaveLength(1);
+    expect(loadGame()!.state.messages.some(message => message.text.includes('Trigger post-commit failure'))).toBe(true);
+
+    // No rollback / no Retry.
+    expect(container.textContent).not.toContain('draft has been restored');
+    expect(container.querySelector('[aria-label="Retry the last action"]')).toBeNull();
+    expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').value).toBe('');
+
+    // Non-destructive surfacing.
+    const alerts = container.querySelectorAll('[role="alert"]');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].textContent).toMatch(/turn was saved.*follow-up step failed/i);
+    expect(errorSpy).toHaveBeenCalled();
+
+    // Liveness: no PROCESSING soft-lock, and no double resolution.
+    await waitFor(() => expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').disabled).toBe(false));
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Play continues');
+    await click(buttonNamed(container, 'Send message'));
+    await waitFor(() => expect(loadGame()!.state.turnNumber).toBe(5));
+    expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);
+
+    errorSpy.mockRestore();
+  });
+
+  it('surfaces a failed event-choice save inside the modal dialog and keeps the choice retryable', async () => {
+    const base = makeAppSave();
+    const state = makeAppSave({
+      worldState: { ...base.worldState, economic_stability: 'Failing' },
+    });
+    const container = await mountApp(state);
+    await playOneTurn(container, 'Inspect the failing grain supply');
+    await waitFor(() => expect(container.textContent).toContain('Grain Shortage in the Capital'));
+    const storageSpy = failBothSaveWrites();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const choice = buttonContaining(container, 'Spend your own fortune on grain');
+    await click(choice);
+    await waitFor(() => expect(storageSpy).toHaveBeenCalledTimes(2));
+
+    const dialog = container.querySelector('[role="dialog"]')!;
+    expect(dialog).not.toBeNull();
+    const dialogAlerts = dialog.querySelectorAll('[role="alert"]');
+    expect(dialogAlerts).toHaveLength(1);
+    expect(dialogAlerts[0].textContent).toMatch(/could not be saved.*try again/i);
+    expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1);
+    expect(choice.disabled).toBe(false);
+
+    storageSpy.mockRestore();
+    await click(choice);
+    await waitFor(() => expect(loadGame()!.state.eventHistory).toHaveLength(1));
+    expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    warnSpy.mockRestore();
+  });
+
+  it('reports a no-longer-eligible private-scene target inside the dialog and permits retry', async () => {
+    const container = await mountApp();
+    await click(buttonNamed(container, 'Private scene'));
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Private-scene opening'), 'A word in private, general.');
+    // Flip handler-time eligibility only - the rendered select survives
+    // (privateSceneTargets useMemo at App.tsx:429-432 doesn't recompute on
+    // draft typing).
+    mockEligibleTargets.mockReturnValue([]);
+
+    const before = localStorage.getItem('gloryOfRome:autosave');
+    await click(buttonNamed(container, 'Send invitation'));
+    await flush();
+
+    const dialogAlert = container.querySelector('dialog')!.querySelector('[role="alert"]')!;
+    expect(dialogAlert.textContent).toMatch(/no longer within reach/i);
+    expect(loadGame()!.state.privateScenes ?? []).toHaveLength(0);
+    expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
+
+    // Retry.
+    mockEligibleTargets.mockImplementation(defaultEligibleTargets);
+    await click(buttonNamed(container, 'Send invitation'));
+    await waitFor(() => expect(loadGame()!.state.privateScenes ?? []).toHaveLength(1));
+    expect(container.querySelector('dialog')!.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('reports a vanished private-scene contact inside the dialog', async () => {
+    mockEligibleTargets.mockReturnValue([{ entityId: 'ghost_contact', displayName: 'A Vanished Contact' }]);
+    const container = await mountApp();
+    await click(buttonNamed(container, 'Private scene'));
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Private-scene opening'), 'A word in private, general.');
+
+    const before = localStorage.getItem('gloryOfRome:autosave');
+    await click(buttonNamed(container, 'Send invitation'));
+    await flush();
+
+    const dialogAlert = container.querySelector('dialog')!.querySelector('[role="alert"]')!;
+    expect(dialogAlert.textContent).toMatch(/no longer be found/i);
+    expect(loadGame()!.state.privateScenes ?? []).toHaveLength(0);
+    expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
   });
 });
