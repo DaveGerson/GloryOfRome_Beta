@@ -7,6 +7,8 @@ import { MAX_MINDS_PER_TURN } from './prompts/npcMind';
 import { normalizeTurnSubmissionInput, projectForNoAttemptResponse, projectForPlayerReflection, projectForResolution, serializeTurnSubmission } from '../playerInput/turnSubmission';
 import type { PrivateSceneAdjudicatorProjection, PrivateSceneModelResponse, PrivateSceneNpcMemoryProjection } from '../privateScene/model';
 import type { PrivateScenePromptInput } from './prompts/privateScene';
+import { assertNoInventedPlayerAction, assertNoInventedPlayerVisibleAction, assertPlayerVisibleAdjudicationSafe } from './core/playerBoundary';
+import { selectDurableIntents } from './core/directorIntents';
 
 /** Deterministic, provider-free private-scene fixture for local play and tests. */
 export function mockContinuePrivateScene(input: PrivateScenePromptInput): PrivateSceneModelResponse {
@@ -272,6 +274,24 @@ export const mockInitiateWorld = async (metaNarrative: string, playerCharacterDe
     };
 };
 
+/**
+ * What a boundary-compliant provider returns on a no-attempt turn: the same
+ * world-driven canned content minus everything that authors the standard
+ * scenario's player (severus_alexander / 'Emperor'). The exported real-path
+ * gates below then VERIFY it, exactly as ai/core/turn.ts verifies model
+ * output - so a player identity the canned world content does author
+ * (e.g. gaius_pontius_magnus's status delta) still throws, in parity with
+ * the real pipeline.
+ */
+function projectMockAdjudicationForNoAttempt(adjudication: Adjudication): Adjudication {
+  return {
+    ...adjudication,
+    entityActions: adjudication.entityActions.filter(action => action.id !== 'severus_alexander'),
+    deltas: adjudication.deltas.filter(delta => !(delta.type === 'relation' && delta.key.startsWith('severus_alexander:'))),
+    headlines: adjudication.headlines.filter(headline => headline !== 'Emperor promises bonus to Praetorian Guard.'),
+  };
+}
+
 export const mockRunNewTurn = async (
     submission: TurnSubmission | string,
     playerEntity: Entity,
@@ -368,10 +388,21 @@ export const mockRunNewTurn = async (
         ],
     };
 
+    // Real-path boundary gates (E2): the mock previously never ran these,
+    // the exact hole that hid a P0 - a compliant provider's no-attempt
+    // response is projected here and the SAME gates ai/core/turn.ts runs on
+    // real model output verify it, so a canned identity collision (e.g.
+    // gaius_pontius_magnus's status delta) still throws in parity with the
+    // real pipeline.
+    const hasObservableAttempt = observableAttempt !== null;
+    const gatedAdjudication = hasObservableAttempt ? adjudication : projectMockAdjudicationForNoAttempt(adjudication);
+    assertNoInventedPlayerAction(gatedAdjudication, playerEntity, hasObservableAttempt);
+    assertPlayerVisibleAdjudicationSafe(gatedAdjudication);
+
     // Same perception context the real pipeline passes (ai/core/turn.ts):
     // the player is excluded from the NPC memory loop, and the mock
     // Director's spotlight pair stands in as the spotlight cast.
-    const appliedAdjudication = applyAdjudication(adjudication, currentEntities, currentWorldState, currentReports, currentTruthLedger, {
+    const appliedAdjudication = applyAdjudication(gatedAdjudication, currentEntities, currentWorldState, currentReports, currentTruthLedger, {
         playerEntityId: playerEntity.entity_id,
         spotlightIds: storyRelevance.spotlight_entities.map(s => s.entity_id),
         turnNumber,
@@ -399,16 +430,34 @@ export const mockRunNewTurn = async (
         ? ''
         : await mockGetPlayerMonologue(playerEntity, MOCK_ADJUDICATION.headlines, [playerReflectionContext]);
 
+    // Durable-intent filter parity (E2): commit only intents that survive
+    // selectDurableIntents' spotlight+alive+dedupe gate (ai/core/turn.ts),
+    // instead of the raw, unfiltered Director output - so a spotlighted
+    // entity absent from (or dead in) the current roster never persists a
+    // phantom intent.
+    const durableIntents = selectDurableIntents(storyRelevance, currentEntities);
+
     const newHistoryEntry: TurnHistoryEntry = {
         turnNumber,
         playerIntent,
-        adjudication,
+        adjudication: gatedAdjudication,
         narration,
         postTurnEntities: updatedEntities,
         perceivingNpcIds,
-        npcIntents: storyRelevance.spotlight_intents,
+        npcIntents: durableIntents.length > 0 ? durableIntents : undefined,
         npcMindResults: mindDecisions.length > 0 ? mindDecisions : undefined,
     };
+
+    // Visible-surface gates (E2): the same three assertNoInventedPlayerVisibleAction
+    // calls the real pipeline runs on updatedSimulationState/narration/
+    // playerMonologue (ai/core/turn.ts). Deliberately excluded:
+    // assertPlayerVisibleTextSafe/assertPlayerVisibleValueSafe on narration/
+    // monologue, because mock narration embeds the player's own echoed
+    // submission text rather than provider output; the mechanics boundary is
+    // covered on the adjudication via assertPlayerVisibleAdjudicationSafe above.
+    assertNoInventedPlayerVisibleAction(currentSimulationState, playerEntity, hasObservableAttempt);
+    assertNoInventedPlayerVisibleAction(narration, playerEntity, hasObservableAttempt);
+    assertNoInventedPlayerVisibleAction(playerMonologue, playerEntity, hasObservableAttempt);
 
     return {
         updatedEntities,
@@ -416,9 +465,9 @@ export const mockRunNewTurn = async (
         updatedSimulationState: currentSimulationState,
         updatedReports,
         updatedTruthLedger,
-        updatedNpcIntents: storyRelevance.spotlight_intents,
+        updatedNpcIntents: durableIntents,
         narration,
-        headlines: adjudication.headlines,
+        headlines: gatedAdjudication.headlines,
         suggestedActions,
         playerMonologue,
         newHistoryEntry,
