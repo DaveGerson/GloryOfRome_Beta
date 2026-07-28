@@ -114,10 +114,21 @@ const CORRUPT_SCENE_VARIANTS: Array<{ label: string; scene: unknown }> = (() => 
     speechActs: makePrivateScene().speechActs.map(({ exchange, ...rest }) => rest),
   };
 
+  const { closureReason, ...closedWithoutClosureReason } = {
+    ...makePrivateScene(),
+    status: 'closed' as const,
+    closureReason: 'player_ended' as const,
+  };
+
   return [
     { label: 'null entry', scene: null },
     { label: "primitive entry ('not-a-scene')", scene: 'not-a-scene' },
     { label: "near-empty record ({ sceneId: 'x' })", scene: { sceneId: 'x' } },
+    // A closed scene with no closureReason survives every structural check but
+    // makes buildPrivateSceneAdjudicatorProjection throw pre-commit on the next
+    // turn, rolling it back and leaving the record pending forever - a
+    // permanent campaign lock. Dropped on load instead.
+    { label: 'closed scene missing closureReason', scene: closedWithoutClosureReason },
     { label: 'missing transcript', scene: missingTranscript },
     { label: "non-array transcript ('not-lines')", scene: { ...makePrivateScene(), transcript: 'not-lines' } },
     {

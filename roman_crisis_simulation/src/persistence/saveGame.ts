@@ -334,6 +334,15 @@ function isPersistedPrivateScene(value: unknown): value is PrivateSceneRecord {
     value['speechActs'].every(isPersistedSpeechAct) &&
     isPersistedNpcPrivate(value['npcPrivate']) &&
     (value['closureReason'] === undefined || isOneOf(value['closureReason'], PRIVATE_SCENE_CLOSURE_REASONS)) &&
+    // A closed scene MUST carry its closure reason. This is the one semantic
+    // rule the structural validator enforces, because it is the only shape
+    // whose omission reaches a `throw` rather than a graceful `{ok:false}`:
+    // buildPrivateSceneAdjudicatorProjection requires the reason, and it runs
+    // pre-commit inside executeTurn, so a closed+pending record without one
+    // would roll the turn back and stay pending - locking the campaign on
+    // every subsequent turn. No app write path produces it (closure always
+    // sets a reason first); a corrupted or hand-edited save can.
+    (value['status'] !== 'closed' || value['closureReason'] !== undefined) &&
     (value['lastWord'] === undefined || typeof value['lastWord'] === 'string') &&
     isOneOf(value['consequenceStatus'], PRIVATE_SCENE_CONSEQUENCE_STATUSES) &&
     (value['consumedByTurn'] === undefined || isNonNegativeInteger(value['consumedByTurn']))
