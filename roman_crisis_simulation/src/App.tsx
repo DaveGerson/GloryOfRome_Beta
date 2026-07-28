@@ -1727,6 +1727,7 @@ const App: React.FC = () => {
                 reports={reports}
                 knowledge={knowledge}
                 npcIntents={npcIntents}
+                privateScenes={state.privateScenes}
                 gmInterventionEnabled={gmInterventionAvailable}
             />}
             {activeEvent && <EventModal

@@ -29,6 +29,16 @@ export interface PrivateSceneProps {
   onSkipLastWord(sceneId: string): void;
 }
 
+function describeClosure(scene: PrivateScenePlayerView): string {
+  switch (scene.closureReason) {
+    case 'refused': return `${scene.npcName} refused the invitation.`;
+    case 'player_ended': return 'You ended the scene.';
+    case 'npc_ended': return `${scene.npcName} ended the scene.`;
+    case 'response_limit': return 'The exchange reached its natural limit.';
+    default: return 'The scene ended.';
+  }
+}
+
 /** Player-only surface. Raw scene records and NPC private state never cross this prop boundary. */
 export const PrivateScene: React.FC<PrivateSceneProps> = ({
   scenes, currentMacroTurn, canStartScene, eligibleTargets, openingDraft, replyDraft, lastWordDraft, loading, error,
@@ -115,7 +125,9 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
         </>}
       </>}
       {completed.length > 0 && <section aria-label="Past private scenes"><h3>Past private scenes</h3>{completed.map(scene => <details key={scene.sceneId}><summary>{scene.npcName}</summary>
-        <div>{scene.transcript.map(line => <p key={line.sequence}><strong>{line.speaker === 'player' ? 'You' : scene.npcName}:</strong> {line.text}</p>)}</div>
+        <div aria-label={`Transcript with ${scene.npcName}`}>{scene.transcript.map(line => <p key={line.sequence}><strong>{line.speaker === 'player' ? 'You' : scene.npcName}:</strong> {line.text}</p>)}</div>
+        <p><strong>Closure:</strong> {describeClosure(scene)}</p>
+        {scene.lastWord && <p><strong>Last word:</strong> {scene.lastWord}</p>}
       </details>)}</section>}
       <span className="gor-sr-only">Turn {currentMacroTurn}</span>
     </dialog>}

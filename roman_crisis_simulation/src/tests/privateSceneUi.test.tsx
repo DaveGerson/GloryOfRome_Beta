@@ -72,6 +72,43 @@ describe('private scene player UI', () => {
     expect(container.querySelector('[aria-label="Private-scene opening"]')).not.toBeNull();
   });
 
+  it('renders completed perceived history with closure and last word but no GM or mechanics partition', () => {
+    const completedRaw: PrivateSceneRecord = {
+      ...rawScene,
+      status: 'closed',
+      transcript: [
+        ...rawScene.transcript,
+        { sequence: 3, speaker: 'player', text: 'PLAYER_LAST_WORD_VISIBLE' },
+      ],
+      speechActs: [{ speaker: 'npc', kind: 'claim', text: 'GM_SPEECH_ACT_POISON', exchange: 1 }],
+      npcPrivate: {
+        sincerity: 'GM_SINCERITY_POISON',
+        hiddenIntent: 'GM_HIDDEN_INTENT_POISON',
+        plannedFollowThrough: ['GM_PLAN_POISON', 'MECHANICS_SENTINEL_POISON'],
+      },
+      closureReason: 'player_ended',
+      lastWord: 'PLAYER_LAST_WORD_VISIBLE',
+      consequenceStatus: 'consumed',
+      consumedByTurn: 77,
+    };
+    const container = render([projectPrivateSceneForPlayer(completedRaw)], false);
+    act(() => Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'Private scene')!.click());
+
+    const history = container.querySelector<HTMLElement>('[aria-label="Past private scenes"]')!;
+    expect(history.textContent).toContain('Speak plainly.');
+    expect(history.textContent).toContain('I have heard nothing.');
+    expect(history.textContent).toContain('Closure');
+    expect(history.textContent).toMatch(/you ended/i);
+    expect(history.textContent).toContain('Last word');
+    expect(history.textContent).toContain('PLAYER_LAST_WORD_VISIBLE');
+    for (const forbidden of [
+      'GM_SPEECH_ACT_POISON', 'GM_SINCERITY_POISON', 'GM_HIDDEN_INTENT_POISON',
+      'GM_PLAN_POISON', 'MECHANICS_SENTINEL_POISON', 'consumed', '77',
+    ]) {
+      expect(container.textContent).not.toContain(forbidden);
+    }
+  });
+
   it('does not offer another invitation after a scene has consumed the current turn entitlement', () => {
     const closed = projectPrivateSceneForPlayer({ ...rawScene, status: 'closed', macroTurn: 3 });
     const container = render([closed], false);

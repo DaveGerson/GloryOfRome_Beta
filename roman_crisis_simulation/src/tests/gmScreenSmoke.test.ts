@@ -25,6 +25,7 @@ import { loadGame, saveGame, type SaveGameState } from '../persistence/saveGame'
 import { serializeTurnSubmission } from '../playerInput/turnSubmission';
 import type { Entity, TurnHistoryEntry, TurnSubmission, WorldState } from '../types';
 import type { KnowledgeClaim } from '../knowledge/store';
+import type { PrivateSceneRecord } from '../privateScene/model';
 import { getMockInitialState } from './mockData';
 
 vi.mock('../ai/mocks', async importOriginal => {
@@ -340,6 +341,84 @@ describe('components/GameMasterScreen - legacy-save smoke render', () => {
       await act(async () => {
         root.unmount();
       });
+      container.remove();
+    }
+  });
+
+  it('renders the raw private-scene ledger only in the GM partition without serializing prompt extras', async () => {
+    const consumed: PrivateSceneRecord = {
+      sceneId: 'gm-consumed-scene',
+      macroTurn: 3,
+      playerId: 'severus_alexander',
+      npcId: 'maximinus_thrax',
+      playerName: 'Severus Alexander',
+      npcName: 'Maximinus Thrax',
+      status: 'closed',
+      transcript: [
+        { sequence: 1, speaker: 'player', text: 'GM_PLAYER_TRANSCRIPT_SENTINEL' },
+        { sequence: 2, speaker: 'npc', text: 'GM_NPC_TRANSCRIPT_SENTINEL' },
+        { sequence: 3, speaker: 'player', text: 'GM_LAST_WORD_SENTINEL' },
+      ],
+      npcResponseCount: 1,
+      speechActs: [{ speaker: 'npc', kind: 'claim', text: 'GM_SPEECH_ACT_SENTINEL', exchange: 1 }],
+      npcPrivate: {
+        sincerity: 'GM_SINCERITY_SENTINEL',
+        hiddenIntent: 'GM_HIDDEN_INTENT_SENTINEL',
+        plannedFollowThrough: ['GM_PLAN_ONE_SENTINEL', 'GM_PLAN_TWO_SENTINEL'],
+      },
+      closureReason: 'player_ended',
+      lastWord: 'GM_LAST_WORD_SENTINEL',
+      consequenceStatus: 'consumed',
+      consumedByTurn: 4,
+    };
+    const withPromptPoison = {
+      ...consumed,
+      promptText: 'PROMPT_TEXT_MUST_NOT_RENDER',
+    } as PrivateSceneRecord;
+    const pending: PrivateSceneRecord = {
+      ...consumed,
+      sceneId: 'gm-pending-scene',
+      npcId: 'gaius_pontius_magnus',
+      npcName: 'Gaius Pontius Magnus',
+      transcript: [{ sequence: 1, speaker: 'npc', text: 'GM_PENDING_TRANSCRIPT_SENTINEL' }],
+      lastWord: undefined,
+      consequenceStatus: 'pending',
+      consumedByTurn: undefined,
+    };
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    try {
+      await act(async () => {
+        root.render(React.createElement(GameMasterScreen, {
+          history: [],
+          onClose: () => {},
+          interventionText: '',
+          onSetIntervention: () => {},
+          playerCharacterId: 'severus_alexander',
+          worldState,
+          turnNumber: 5,
+          privateScenes: [withPromptPoison, pending],
+        }));
+      });
+      const privateTab = Array.from(container.querySelectorAll<HTMLButtonElement>('button[role="tab"]'))
+        .find(tab => tab.textContent === 'private');
+      expect(privateTab).toBeDefined();
+      await click(privateTab!);
+
+      expect(container.textContent).toContain('NPC private intent — GM only');
+      for (const visible of [
+        'GM_PLAYER_TRANSCRIPT_SENTINEL', 'GM_NPC_TRANSCRIPT_SENTINEL', 'GM_PENDING_TRANSCRIPT_SENTINEL',
+        'GM_SPEECH_ACT_SENTINEL', 'GM_SINCERITY_SENTINEL', 'GM_HIDDEN_INTENT_SENTINEL',
+        'GM_PLAN_ONE_SENTINEL', 'GM_PLAN_TWO_SENTINEL', 'GM_LAST_WORD_SENTINEL',
+        'pending', 'consumed', 'Consumed by turn 4',
+      ]) {
+        expect(container.textContent).toContain(visible);
+      }
+      expect(container.textContent).not.toContain('PROMPT_TEXT_MUST_NOT_RENDER');
+    } finally {
+      await act(async () => root.unmount());
       container.remove();
     }
   });
