@@ -1,6 +1,50 @@
 
 import { Type } from "@google/genai";
 import { EntityActionIntentEnum, EventDeltaTypeEnum, NpcIntentContinuityEnum } from '../../types';
+import {
+    PRIVATE_SCENE_MAX_NPC_RESPONSES,
+    PRIVATE_SCENE_MAX_UTTERANCE_CHARS,
+} from '../../privateScene/model';
+
+/** Provider-side shape for one bounded private-scene response. */
+export const PrivateSceneModelResponseSchema = {
+    type: Type.OBJECT,
+    properties: {
+        disposition: { type: Type.STRING, enum: ['refused', 'continues', 'ends'] },
+        npcUtterance: { type: Type.STRING, minLength: 1, maxLength: PRIVATE_SCENE_MAX_UTTERANCE_CHARS },
+        speechActs: {
+            type: Type.ARRAY,
+            maxItems: 16,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    speaker: { type: Type.STRING, enum: ['player', 'npc'] },
+                    kind: { type: Type.STRING, enum: ['claim', 'disclosure', 'request', 'promise', 'agreement', 'refusal', 'threat'] },
+                    text: { type: Type.STRING, minLength: 1, maxLength: PRIVATE_SCENE_MAX_UTTERANCE_CHARS },
+                    exchange: { type: Type.INTEGER, minimum: 1, maximum: PRIVATE_SCENE_MAX_NPC_RESPONSES },
+                },
+                required: ['speaker', 'kind', 'text', 'exchange'],
+                additionalProperties: false,
+            },
+        },
+        npcPrivate: {
+            type: Type.OBJECT,
+            properties: {
+                sincerity: { type: Type.STRING, minLength: 1, maxLength: PRIVATE_SCENE_MAX_UTTERANCE_CHARS },
+                hiddenIntent: { type: Type.STRING, minLength: 1, maxLength: PRIVATE_SCENE_MAX_UTTERANCE_CHARS },
+                plannedFollowThrough: {
+                    type: Type.ARRAY,
+                    maxItems: 8,
+                    items: { type: Type.STRING, minLength: 1, maxLength: PRIVATE_SCENE_MAX_UTTERANCE_CHARS },
+                },
+            },
+            required: ['sincerity', 'hiddenIntent', 'plannedFollowThrough'],
+            additionalProperties: false,
+        },
+    },
+    required: ['disposition', 'npcUtterance', 'speechActs', 'npcPrivate'],
+    additionalProperties: false,
+};
 
 /** Strict selector output for perception-safe relationship observations. */
 export const RelationshipObservationsSchema = {

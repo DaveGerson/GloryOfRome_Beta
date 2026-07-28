@@ -5,6 +5,41 @@ import { Adjudication, Entity, NpcIntent, NpcMindDecision, Report, SimulationSta
 import { applyAdjudication } from './core/engine';
 import { MAX_MINDS_PER_TURN } from './prompts/npcMind';
 import { normalizeTurnSubmissionInput, projectForNoAttemptResponse, projectForPlayerOwnedAi, projectForResolution, serializeTurnSubmission } from '../playerInput/turnSubmission';
+import type { PrivateSceneModelResponse } from '../privateScene/model';
+import type { PrivateScenePromptInput } from './prompts/privateScene';
+
+/** Deterministic, provider-free private-scene fixture for local play and tests. */
+export function mockContinuePrivateScene(input: PrivateScenePromptInput): PrivateSceneModelResponse {
+    const latestText = input.transcript.at(-1)?.text ?? '';
+    const refused = input.phase === 'invitation' && /\brefus(?:e|es|ed|al)\b/i.test(latestText);
+    const ended = !refused && /\b(?:farewell|goodbye)\b/i.test(latestText);
+    const disposition: PrivateSceneModelResponse['disposition'] = refused
+        ? 'refused'
+        : ended
+            ? 'ends'
+            : 'continues';
+    const npcUtterance = refused
+        ? 'No. I will not receive you in private.'
+        : ended
+            ? 'Then we have said all that needs saying.'
+            : 'I hear your request. Speak plainly, and I will answer in kind.';
+
+    return {
+        disposition,
+        npcUtterance,
+        speechActs: [{
+            speaker: 'npc',
+            kind: refused ? 'refusal' : ended ? 'claim' : 'request',
+            text: npcUtterance,
+            exchange: input.exchange,
+        }],
+        npcPrivate: {
+            sincerity: refused ? 'Firm and sincere.' : ended ? 'Resolved to leave.' : 'Cautious but willing to listen.',
+            hiddenIntent: refused ? 'Avoid entanglement.' : ended ? 'End the conversation without further commitment.' : 'Learn what the player truly wants.',
+            plannedFollowThrough: disposition === 'continues' ? ['Listen before deciding what to do next.'] : [],
+        },
+    };
+}
 
 // --- MOCK DATA ---
 const MOCK_NEW_MOBSTER: Entity = {

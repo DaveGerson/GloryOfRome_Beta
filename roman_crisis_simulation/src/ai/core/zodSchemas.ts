@@ -29,6 +29,39 @@ import {
   NpcIntentContinuityEnum,
   RumorStanceEnum,
 } from '../../types';
+import {
+  PRIVATE_SCENE_MAX_NPC_RESPONSES,
+  PRIVATE_SCENE_MAX_UTTERANCE_CHARS,
+} from '../../privateScene/model';
+import { assertPlayerVisibleValueSafe } from './playerBoundary';
+
+const zPrivateSceneText = z.string().trim().min(1).max(PRIVATE_SCENE_MAX_UTTERANCE_CHARS);
+
+/** Strict runtime boundary: this micro-loop cannot return world-state authority. */
+export const zPrivateSceneModelResponse = z.object({
+  disposition: z.enum(['refused', 'continues', 'ends']),
+  npcUtterance: zPrivateSceneText,
+  speechActs: z.array(z.object({
+    speaker: z.enum(['player', 'npc']),
+    kind: z.enum(['claim', 'disclosure', 'request', 'promise', 'agreement', 'refusal', 'threat']),
+    text: zPrivateSceneText,
+    exchange: z.number().int().min(1).max(PRIVATE_SCENE_MAX_NPC_RESPONSES),
+  }).strict()).max(16),
+  npcPrivate: z.object({
+    sincerity: zPrivateSceneText,
+    hiddenIntent: zPrivateSceneText,
+    plannedFollowThrough: z.array(zPrivateSceneText).max(8),
+  }).strict(),
+}).strict().superRefine((response, context) => {
+  try {
+    assertPlayerVisibleValueSafe(response);
+  } catch {
+    context.addIssue({
+      code: 'custom',
+      message: 'private-scene response contains hidden mechanics',
+    });
+  }
+});
 
 // --- Entity sub-schemas (types.ts mirror) --------------------------------
 
