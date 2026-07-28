@@ -36,16 +36,34 @@ import {
 import { assertPlayerVisibleValueSafe } from './playerBoundary';
 
 const zPrivateSceneText = z.string().trim().min(1).max(PRIVATE_SCENE_MAX_UTTERANCE_CHARS);
-const PRIVATE_SCENE_NUMERIC_RELATIONSHIP_PATTERNS = [
-  /\b(?:relationship|trust|respect|threat|alignment|dependency|loyalty)\s+(?:(?:level|score|rating)(?:\s*(?:is|at|equals?|to|=|:))?|(?:is|at|equals?|to|=|:))\s*[+-]?\d+(?:\.\d+)?(?:\s*(?:\/|out\s+of|of)\s*\d+(?:\.\d+)?)?\b/i,
-  /\b[+-]?\d+(?:\.\d+)?\s*(?:\/|out\s+of|of)\s*\d+(?:\.\d+)?\s+(?:relationship|trust|respect|threat|alignment|dependency|loyalty)(?:\s+(?:level|score|rating))?\b/i,
+const PRIVATE_SCENE_RELATIONSHIP_TERM = '(?:relationship|trust|respect|threat|alignment|dependency|loyalty)';
+const PRIVATE_SCENE_NUMBER = '\\d+(?:\\.\\d+)?';
+const PRIVATE_SCENE_EXPLICIT_RELATIONSHIP_MECHANICS = [
+  new RegExp(`\\b${PRIVATE_SCENE_RELATIONSHIP_TERM}[\\s_-]+(?:level|score|rating)\\s*(?:(?:is|at|equals?|to)\\s*|[:=]\\s*)?[+-]?${PRIVATE_SCENE_NUMBER}(?:\\s*(?:/|out\\s+of|of)\\s*${PRIVATE_SCENE_NUMBER})?\\b`, 'i'),
+  new RegExp(`\\b${PRIVATE_SCENE_RELATIONSHIP_TERM}\\s*[:=]\\s*[+-]?${PRIVATE_SCENE_NUMBER}(?:\\s*(?:/|out\\s+of|of)\\s*${PRIVATE_SCENE_NUMBER})?\\b`, 'i'),
+  new RegExp(`\\b${PRIVATE_SCENE_RELATIONSHIP_TERM}\\s+(?:(?:is|at|equals?|to)\\s+)?(?:[+-]\\s*${PRIVATE_SCENE_NUMBER}|${PRIVATE_SCENE_NUMBER}\\s*(?:/|out\\s+of|of)\\s*${PRIVATE_SCENE_NUMBER})\\b`, 'i'),
+  new RegExp(`\\b[+-]?${PRIVATE_SCENE_NUMBER}\\s*(?:/|out\\s+of|of)\\s*${PRIVATE_SCENE_NUMBER}\\s+${PRIVATE_SCENE_RELATIONSHIP_TERM}(?:[\\s_-]+(?:level|score|rating))?\\b`, 'i'),
 ] as const;
+const PRIVATE_SCENE_PLAIN_RELATIONSHIP_NUMBER = new RegExp(
+  `\\b${PRIVATE_SCENE_RELATIONSHIP_TERM}\\s+(?:(?:is|at|equals?|to)\\s+)?${PRIVATE_SCENE_NUMBER}\\b`,
+  'ig',
+);
+const PRIVATE_SCENE_ORDINARY_COUNT_OR_UNIT = /^\s+(?:cohorts?|legions?|soldiers?|guards?|senators?|allies|enemies|men|women|people|ships?|cities|provinces?|families|witnesses|votes?|letters?|messengers?|agents?|conspirators?|factions?|armies|years?|months?|weeks?|days?|hours?|decades?|miles?|feet|paces?|denarii|sesterces|talents?|pounds?|times?)\b/i;
 
 function privateSceneResponseStrings(value: unknown): string[] {
   if (typeof value === 'string') return [value];
   if (Array.isArray(value)) return value.flatMap(privateSceneResponseStrings);
   if (value && typeof value === 'object') return Object.values(value).flatMap(privateSceneResponseStrings);
   return [];
+}
+
+function containsPrivateSceneNumericRelationshipMechanics(text: string): boolean {
+  if (PRIVATE_SCENE_EXPLICIT_RELATIONSHIP_MECHANICS.some(pattern => pattern.test(text))) return true;
+  for (const match of text.matchAll(PRIVATE_SCENE_PLAIN_RELATIONSHIP_NUMBER)) {
+    const tail = text.slice((match.index ?? 0) + match[0].length);
+    if (!PRIVATE_SCENE_ORDINARY_COUNT_OR_UNIT.test(tail)) return true;
+  }
+  return false;
 }
 
 /** Strict runtime boundary: this micro-loop cannot return world-state authority. */
@@ -72,7 +90,7 @@ export const zPrivateSceneModelResponse = z.object({
       message: 'private-scene response contains hidden mechanics',
     });
   }
-  if (privateSceneResponseStrings(response).some(text => PRIVATE_SCENE_NUMERIC_RELATIONSHIP_PATTERNS.some(pattern => pattern.test(text)))) {
+  if (privateSceneResponseStrings(response).some(containsPrivateSceneNumericRelationshipMechanics)) {
     context.addIssue({
       code: 'custom',
       message: 'private-scene response contains numeric relationship mechanics',

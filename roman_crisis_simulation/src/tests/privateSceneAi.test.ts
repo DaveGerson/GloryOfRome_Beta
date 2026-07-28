@@ -175,6 +175,22 @@ describe('private-scene structured response schema', () => {
       npcUtterance: 'In the year 238, three legions crossed the frontier.',
     }).success).toBe(true);
   });
+
+  it.each([
+    ['compact colon in NPC utterance', { ...VALID_RESPONSE, npcUtterance: 'Trust: 8' }],
+    ['compact equals in speech act', { ...VALID_RESPONSE, speechActs: [{ speaker: 'npc', kind: 'claim', text: 'trust=8', exchange: 1 }] }],
+    ['bare ratio in private sincerity', { ...VALID_RESPONSE, npcPrivate: { ...VALID_RESPONSE.npcPrivate, sincerity: 'trust 8/10' } }],
+    ['signed value in private intent', { ...VALID_RESPONSE, npcPrivate: { ...VALID_RESPONSE.npcPrivate, hiddenIntent: 'loyalty +3' } }],
+  ])('rejects %s as numeric relationship mechanics', (_field, response) => {
+    expect(zPrivateSceneModelResponse.safeParse(response).success).toBe(false);
+  });
+
+  it.each([
+    ['count noun', { ...VALID_RESPONSE, npcUtterance: 'The threat is 3 cohorts approaching Rome.' }],
+    ['time unit', { ...VALID_RESPONSE, npcPrivate: { ...VALID_RESPONSE.npcPrivate, plannedFollowThrough: ['Their loyalty is 3 years old.'] } }],
+  ])('allows ordinary relationship-term prose followed by a %s', (_field, response) => {
+    expect(zPrivateSceneModelResponse.safeParse(response).success).toBe(true);
+  });
 });
 
 describe('buildPrivateScenePrompt', () => {
