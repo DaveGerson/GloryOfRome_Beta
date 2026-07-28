@@ -36,6 +36,7 @@ import type {
 } from '../types';
 import type { AmbitionInference } from '../ai/tools/ambition';
 import type { KnowledgeClaim } from '../knowledge/store';
+import type { PrivateSceneRecord } from '../privateScene/model';
 
 /** Bump this whenever `SaveGameState`'s shape changes in a backwards-incompatible way. */
 export const SAVE_VERSION = 1 as const;
@@ -139,6 +140,13 @@ export interface SaveGameState {
    * stamped with the loaded turn, so cooldowns restart from load).
    */
   eventFirings?: EventFiringRecord[];
+  /**
+   * Phase 6 private-scene records. Optional so old v1 saves remain valid;
+   * GAME_LOADED and TURN_ROLLED_BACK normalize an absent field to an empty
+   * in-memory list. NPC-private fields stay nested in this GM-only record
+   * and are never copied into any player-facing save slice.
+   */
+  privateScenes?: PrivateSceneRecord[];
 }
 
 /** The versioned envelope actually written to storage. */

@@ -488,6 +488,7 @@ const App: React.FC = () => {
             truthLedger: state.truthLedger,
             knowledge: state.knowledge,
             npcIntents: state.npcIntents,
+            privateScenes: state.privateScenes,
             turnNumber: state.turnNumber,
             playerCharacterId: state.playerCharacterId,
             turnHistory: state.turnHistory,
@@ -832,6 +833,7 @@ const App: React.FC = () => {
                 truthLedger: result.updatedTruthLedger,
                 knowledge: newKnowledge,
                 npcIntents: result.updatedNpcIntents,
+                privateScenes: state.privateScenes,
                 turnNumber: newTurnNumber,
                 turnHistory: newTurnHistory,
                 messages: [...messages, ...committedMessages],
@@ -852,6 +854,7 @@ const App: React.FC = () => {
                 truthLedger: result.updatedTruthLedger,
                 knowledge: newKnowledge,
                 npcIntents: result.updatedNpcIntents,
+                privateScenes: state.privateScenes,
                 turnNumber: newTurnNumber,
                 turnHistory: newTurnHistory,
                 playerMessage,
@@ -968,7 +971,7 @@ const App: React.FC = () => {
         }
         });
         return mutation.acquired;
-    }, [ai, buildSaveState, dispatch, entities, eventFirings, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, pendingIntelligenceFallout, playerCharacterId, reports, resolvedApiKey, runDomainMutation, simulationState, truthLedger, turnHistory, turnNumber, worldState]);
+    }, [ai, buildSaveState, dispatch, entities, eventFirings, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, pendingIntelligenceFallout, playerCharacterId, reports, resolvedApiKey, runDomainMutation, simulationState, state.privateScenes, truthLedger, turnHistory, turnNumber, worldState]);
 
     const handleComposerSubmit = (draft: string | StructuredTurnDraft) => {
         if (gameState !== GameState.AWAITING_PLAYER_INPUT) return;

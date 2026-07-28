@@ -286,6 +286,7 @@ function expectV1BuildSaveShape(raw: string | null): void {
     'npcIntents',
     'pendingIntelligenceFallout',
     'playerCharacterId',
+    'privateScenes',
     'reports',
     'simulationState',
     'suggestedActions',

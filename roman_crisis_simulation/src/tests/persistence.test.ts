@@ -14,6 +14,7 @@ import {
 } from '../persistence/saveGame';
 import type { TurnHistoryEntry, RawCallRecord, Memory } from '../types';
 import type { KnowledgeClaim } from '../knowledge/store';
+import type { PrivateSceneRecord } from '../privateScene/model';
 import { serializeTurnSubmission } from '../playerInput/turnSubmission';
 
 function makeState(overrides: Partial<SaveGameState> = {}): SaveGameState {
@@ -79,6 +80,32 @@ function makeHistoryEntry(turnNumber: number, withRawCalls: boolean): TurnHistor
   };
 }
 
+function makePrivateScene(overrides: Partial<PrivateSceneRecord> = {}): PrivateSceneRecord {
+  return {
+    sceneId: 'scene_4_1',
+    macroTurn: 4,
+    playerId: 'severus_alexander',
+    npcId: 'maximinus_thrax',
+    playerName: 'Severus Alexander',
+    npcName: 'Maximinus Thrax',
+    status: 'closed',
+    transcript: [
+      { sequence: 1, speaker: 'player', text: 'Speak plainly.' },
+      { sequence: 2, speaker: 'npc', text: 'I have heard you.' },
+    ],
+    npcResponseCount: 1,
+    speechActs: [{ speaker: 'npc', kind: 'claim', text: 'I have heard you.', exchange: 1 }],
+    npcPrivate: {
+      sincerity: 'Guarded.',
+      hiddenIntent: 'Measure the emperor before choosing a side.',
+      plannedFollowThrough: ['Question the camp prefect.'],
+    },
+    closureReason: 'player_ended',
+    consequenceStatus: 'pending',
+    ...overrides,
+  };
+}
+
 describe('persistence/saveGame', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -87,6 +114,32 @@ describe('persistence/saveGame', () => {
   afterEach(() => {
     localStorage.clear();
     vi.restoreAllMocks();
+  });
+
+  it('round-trips the optional private-scene records without promoting their private fields', () => {
+    const scenes = [
+      makePrivateScene({ status: 'active', closureReason: undefined }),
+      makePrivateScene({ sceneId: 'scene_4_2', status: 'awaiting_last_word', closureReason: 'refused' }),
+      makePrivateScene({ sceneId: 'scene_4_3', consequenceStatus: 'consumed', consumedByTurn: 5 }),
+    ];
+    saveGame(makeState({ privateScenes: scenes }));
+
+    const loaded = loadGame();
+    expect(loaded?.state.privateScenes).toEqual(scenes);
+    expect(JSON.stringify(loaded?.state.privateScenes)).toContain('hiddenIntent');
+    expect(loaded?.state).not.toHaveProperty('hiddenIntent');
+    expect(loaded?.state).not.toHaveProperty('sincerity');
+  });
+
+  it('accepts a v1 save which predates private scenes', () => {
+    const legacy = makeState();
+    localStorage.setItem('gloryOfRome:autosave', JSON.stringify({
+      version: SAVE_VERSION,
+      savedAt: new Date().toISOString(),
+      state: legacy,
+    }));
+
+    expect(loadGame()?.state.privateScenes).toBeUndefined();
   });
 
   it('round-trips a save through save/load', () => {
