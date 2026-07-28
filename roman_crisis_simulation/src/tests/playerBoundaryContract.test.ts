@@ -314,6 +314,9 @@ describe('tripwireFlagsPlayerConduct - flags sentence-initial player conduct [EX
     // position must not distract from the sentence-initial subject.
     'You burned your granary.',
     'Gaius Testus burned his granary.',
+    // MODAL ruling (Task 2 IMPLEMENTER NOTES): will/would are NOT widened -
+    // a bare future verb still authors player conduct.
+    'You will dispatch spies tonight.',
   ])('fires on: %s', prose => {
     const tripwire = boundaryExport<TripwireFlagsPlayerConduct>('tripwireFlagsPlayerConduct');
     expect(tripwire(prose, player)).toBe(true);
@@ -342,6 +345,10 @@ describe('tripwireFlagsPlayerConduct - the legal no-attempt register stays silen
     // register ("you could...") - see the MODAL entry under IMPLEMENTER
     // NOTES in the header; the modal allowlist widens to clear it.
     'You could seize the granary.',
+    // MODAL ruling (Task 2 IMPLEMENTER NOTES): can/could/may/might/must/
+    // should widen to clear ANY verb - a hypothetical/suggestion, not an
+    // accomplished act.
+    'You should tread carefully.',
     // Auxiliary stripping + inchoative state.
     'You have grown poorer.',
     // Copular + adjectival state.
