@@ -56,6 +56,7 @@ import {
 import { createInitialGameState, gameReducer } from '../../state/gameReducer';
 import { deserializeTurnSubmission } from '../../playerInput/turnSubmission';
 import { loadGame } from '../../persistence/saveGame';
+import type { PrivateSceneRecord } from '../../privateScene/model';
 
 const PLAYER = 'severus_alexander';
 const SENATE = 'roman_senate';
@@ -140,6 +141,44 @@ function defForTurn(n: number): JourneyTurnDef {
 }
 
 describe('journey: a save-reload-continue campaign (mid-journey persistence round-trips)', () => {
+  it('round-trips the complete optional private-scene ledger through the journey save helpers', () => {
+    clearSave();
+    const scene: PrivateSceneRecord = {
+      sceneId: 'save-reload-private-scene',
+      macroTurn: 2,
+      playerId: PLAYER,
+      npcId: THRAX,
+      playerName: 'Severus Alexander',
+      npcName: 'Maximinus Thrax',
+      status: 'closed',
+      transcript: [
+        { sequence: 1, speaker: 'player', text: 'Speak plainly.' },
+        { sequence: 2, speaker: 'npc', text: 'The legions are content.' },
+        { sequence: 3, speaker: 'player', text: 'I will remember that claim.' },
+      ],
+      npcResponseCount: 1,
+      speechActs: [{ speaker: 'npc', kind: 'claim', text: 'The legions are content.', exchange: 1 }],
+      npcPrivate: {
+        sincerity: 'Deceptive.',
+        hiddenIntent: 'Conceal the unrest in the Rhine camp.',
+        plannedFollowThrough: ['Silence the loudest centurion.'],
+      },
+      closureReason: 'player_ended',
+      lastWord: 'I will remember that claim.',
+      consequenceStatus: 'consumed',
+      consumedByTurn: 3,
+    };
+    const runner = new JourneyRunner({ name: 'saveReload/private-scenes' });
+    runner.thread.privateScenes = [scene];
+
+    saveThread(runner.thread);
+    const loaded = loadThreadState();
+
+    expect(loaded.privateScenes).toEqual([scene]);
+    expect(threadFromSave(loaded).privateScenes).toEqual([scene]);
+    clearSave();
+  });
+
   it('resumes from a real localStorage autosave into a mechanically identical world', async () => {
     clearSave();
 

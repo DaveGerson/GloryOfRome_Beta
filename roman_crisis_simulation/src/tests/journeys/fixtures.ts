@@ -34,6 +34,7 @@ import type {
   Message,
 } from '../../types';
 import type { KnowledgeClaim } from '../../knowledge/store';
+import type { PrivateSceneModelResponse, PrivateSceneRecord, PrivateSceneSpeechActKind } from '../../privateScene/model';
 import {
   ALL_INITIAL_ENTITIES,
   INITIAL_WORLD_STATE,
@@ -55,6 +56,7 @@ export interface ScenarioSeed {
   truthLedger: TruthLedgerEntry[];
   knowledge: KnowledgeClaim[];
   npcIntents: NpcIntent[];
+  privateScenes: PrivateSceneRecord[];
   turnHistory: TurnHistoryEntry[];
   messages: Message[];
   turnNumber: number;
@@ -72,6 +74,7 @@ export function baseScenario(): ScenarioSeed {
     truthLedger: [],
     knowledge: [],
     npcIntents: [],
+    privateScenes: [],
     turnHistory: [],
     messages: [],
     turnNumber: 1,
@@ -271,6 +274,34 @@ export function scriptInvestigation(opts: {
   consequences: string | null;
 }) {
   return { reportData: opts.reportData, report: opts.report, consequences: opts.consequences };
+}
+
+/** One schema-valid private-scene response at the requested exchange. */
+export function scriptPrivateSceneResponse(opts: {
+  exchange: number;
+  disposition?: PrivateSceneModelResponse['disposition'];
+  npcUtterance: string;
+  speechActKind: Exclude<PrivateSceneSpeechActKind, 'unclassified'>;
+  speechActText?: string;
+  sincerity: string;
+  hiddenIntent: string;
+  plannedFollowThrough?: string[];
+}): PrivateSceneModelResponse {
+  return {
+    disposition: opts.disposition ?? 'continues',
+    npcUtterance: opts.npcUtterance,
+    speechActs: [{
+      speaker: 'npc',
+      kind: opts.speechActKind,
+      text: opts.speechActText ?? opts.npcUtterance,
+      exchange: opts.exchange,
+    }],
+    npcPrivate: {
+      sincerity: opts.sincerity,
+      hiddenIntent: opts.hiddenIntent,
+      plannedFollowThrough: opts.plannedFollowThrough ?? [],
+    },
+  };
 }
 
 // --- Shared default flavor text ------------------------------------------

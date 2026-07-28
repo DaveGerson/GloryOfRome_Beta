@@ -51,6 +51,7 @@ import { buildPerceivedDigest, PerceivedChange } from '../../perception/visibili
 import { computeTurnKnowledge, computeInvestigationKnowledge } from '../../knowledge/commit';
 import type { KnowledgeClaim, InvestigationKind } from '../../knowledge/store';
 import { saveGame, loadGame, clearSave as clearPersistedSave, SaveGameState } from '../../persistence/saveGame';
+import type { PrivateSceneRecord } from '../../privateScene/model';
 import type {
   Entity,
   Message,
@@ -102,6 +103,7 @@ vi.mock('@google/genai', async importOriginal => {
 // inside production code.
 
 export type CallKind =
+  | 'privateScene'
   | 'storyRelevance'
   | 'assessment'
   | 'npcMind'
@@ -116,6 +118,7 @@ export type CallKind =
   | 'investigation';
 
 const CALL_MARKERS: Array<[string, CallKind]> = [
+  ['You portray exactly one NPC', 'privateScene'],
   ['master storyteller and game master', 'storyRelevance'],
   ['Action Assessor', 'assessment'],
   ["character's own private mind", 'npcMind'],
@@ -330,6 +333,7 @@ export interface GameThread {
   truthLedger: TruthLedgerEntry[];
   knowledge: KnowledgeClaim[];
   npcIntents: NpcIntent[];
+  privateScenes: PrivateSceneRecord[];
   turnHistory: TurnHistoryEntry[];
   messages: Message[];
   suggestedActions: string[];
@@ -348,6 +352,7 @@ function threadFromSeed(seed: ScenarioSeed): GameThread {
     truthLedger: seed.truthLedger,
     knowledge: seed.knowledge,
     npcIntents: seed.npcIntents,
+    privateScenes: seed.privateScenes,
     turnHistory: seed.turnHistory,
     messages: seed.messages,
     suggestedActions: [],
@@ -371,6 +376,7 @@ export function threadFromSave(state: SaveGameState): GameThread {
     truthLedger: structuredClone(state.truthLedger ?? []),
     knowledge: structuredClone(state.knowledge ?? []),
     npcIntents: structuredClone(state.npcIntents ?? []),
+    privateScenes: structuredClone(state.privateScenes ?? []),
     turnHistory: structuredClone(state.turnHistory),
     messages: structuredClone(state.messages),
     suggestedActions: [...state.suggestedActions],
@@ -391,6 +397,7 @@ export function buildSaveStateFromThread(thread: GameThread): SaveGameState {
     truthLedger: thread.truthLedger,
     knowledge: thread.knowledge,
     npcIntents: thread.npcIntents,
+    privateScenes: thread.privateScenes,
     turnNumber: thread.turnNumber,
     playerCharacterId: thread.playerId,
     turnHistory: thread.turnHistory,
@@ -426,6 +433,7 @@ export function equivalenceSnapshot(thread: GameThread) {
       truthLedger: thread.truthLedger.map((t, i) => ({ ...t, id: `norm_${t.turn}_${i}`, reportId: `normr_${t.turn}_${i}` })),
       knowledge: thread.knowledge.map(normalizeClaimIds),
       npcIntents: thread.npcIntents,
+      privateScenes: thread.privateScenes,
       turnNumber: thread.turnNumber,
       reports: thread.reports.map((r, i) => ({ ...r, id: `normalized_${r.turn}_${i}` })),
       narrations: thread.turnHistory.map(h => h.narration ?? ''),
