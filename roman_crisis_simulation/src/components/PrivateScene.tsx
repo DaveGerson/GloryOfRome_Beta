@@ -49,7 +49,10 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
   const openerRef = useRef<HTMLButtonElement | null>(null);
   const active = scenes.find(scene => scene.status === 'active' || scene.status === 'awaiting_last_word');
   const completed = scenes.filter(scene => scene.status === 'closed');
-  const [targetId, setTargetId] = useState(eligibleTargets[0]?.entityId ?? '');
+  const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
+  const targetId = selectedTargetId !== null && eligibleTargets.some(target => target.entityId === selectedTargetId)
+    ? selectedTargetId
+    : (eligibleTargets[0]?.entityId ?? '');
   const disabled = loading;
   const openingOverLimit = openingDraft.length > PRIVATE_SCENE_MAX_UTTERANCE_CHARS;
   const replyOverLimit = replyDraft.length > PRIVATE_SCENE_MAX_UTTERANCE_CHARS;
@@ -96,7 +99,7 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
       {error && <p role="alert">{error}</p>}
       {!active && <>
         {!canStartScene ? <p>You have already held a private scene this turn.</p> : eligibleTargets.length === 0 ? <p>No known contact is currently within reach.</p> : <>
-          <label>Contact <select aria-label="Private-scene target" value={targetId} disabled={disabled} onChange={event => setTargetId(event.target.value)}>
+          <label>Contact <select aria-label="Private-scene target" value={targetId} disabled={disabled} onChange={event => setSelectedTargetId(event.target.value)}>
             {eligibleTargets.map(target => <option key={target.entityId} value={target.entityId}>{target.displayName}</option>)}
           </select></label>
           <textarea aria-label="Private-scene opening" maxLength={PRIVATE_SCENE_MAX_UTTERANCE_CHARS} value={openingDraft} disabled={disabled}

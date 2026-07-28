@@ -19,9 +19,10 @@ import * as visibilityModule from '../perception/visibility';
 import * as aiMocks from '../ai/mocks';
 import * as intelModule from '../components/tabs/dramatisPersonaeIntel';
 import type { PerceivedChange } from '../perception/visibility';
-import type { PlayerSafeEvidence } from '../knowledge/store';
+import type { PlayerSafeEvidence, RelationshipObservationDraft } from '../knowledge/store';
 import type { GeminiClient } from '../ai/core/geminiService';
 import type { Entity, Report, TurnSubmission } from '../types';
+import { ingestRelationshipObservations } from '../knowledge/relationships';
 import { getMockInitialState } from './mockData';
 
 vi.mock('../ai/core/turn', async importOriginal => {
@@ -58,22 +59,18 @@ const mockBuildPlayerPerceivedDigest = vi.mocked(visibilityModule.buildPlayerPer
 const mockResolveIntelRequest = vi.mocked(intelModule.resolveIntelRequest);
 const mounted: Array<{ root: Root; container: HTMLDivElement }> = [];
 
-async function runSchemaValidSemanticRejection(
+async function runRealToolWithDrafts(
   evidence: PlayerSafeEvidence[],
   directory: Array<{ entity_id: string; name: string }>,
   knownEntityIds: readonly string[],
-): Promise<never> {
+  drafts: unknown[],
+): Promise<RelationshipObservationDraft[]> {
   const realTool = await vi.importActual<typeof import('../ai/tools/relationshipObservations')>(
     '../ai/tools/relationshipObservations'
   );
-  const invalidDraft = {
-    evidenceId: 'missing_semantic_evidence',
-    participantIds: directory.slice(0, 2).map(entity => entity.entity_id),
-    excerpt: evidence[0].text,
-  };
   const ai: GeminiClient = {
     models: {
-      generateContent: vi.fn().mockResolvedValue({ text: JSON.stringify([invalidDraft]) }),
+      generateContent: vi.fn().mockResolvedValue({ text: JSON.stringify(drafts) }),
     },
   };
   return realTool.getRelationshipObservations(
@@ -82,7 +79,16 @@ async function runSchemaValidSemanticRejection(
     directory,
     knownEntityIds,
     false,
-  ) as Promise<never>;
+  );
+}
+
+function validDraftCiting(evidence: PlayerSafeEvidence[], evidenceId: string): RelationshipObservationDraft {
+  const cited = evidence.find(item => item.id === evidenceId)!;
+  return {
+    evidenceId: cited.id,
+    participantIds: ['severus_alexander', 'maximinus_thrax'],
+    excerpt: cited.text,
+  };
 }
 
 type TurnEvidenceInput = {
@@ -449,11 +455,10 @@ describe('App relationship-observation transaction', () => {
     expect(personaeTab.classList.contains('gor-tab-pulse')).toBe(true);
   });
 
-  it('rolls back extraction failure, restores the exact draft, and retry commits one evidence id once', async () => {
+  it('rolls back a failed extraction call, restores the exact draft, and retry commits one evidence id once', async () => {
     mockRunNewTurn.mockImplementation(async (...args) => withPoisonedPlayerResult(await defaultTurnResult(...args)));
     mockGetRelationshipObservations
-      .mockImplementationOnce((_ai, evidence, directory, knownEntityIds) =>
-        runSchemaValidSemanticRejection(evidence, directory, knownEntityIds))
+      .mockRejectedValueOnce(new Error('observation provider offline'))
       .mockImplementationOnce(async (_ai, evidence) => {
         const cited = evidence.find(item => item.id === 'report_task7_lucius')!;
         return [{
@@ -492,8 +497,7 @@ describe('App relationship-observation transaction', () => {
 
   it('awaits investigation extraction inside the atomic lease and retries without partial display, spend, fallout, knowledge, or save', async () => {
     mockGetRelationshipObservations
-      .mockImplementationOnce((_ai, evidence, directory, knownEntityIds) =>
-        runSchemaValidSemanticRejection(evidence, directory, knownEntityIds))
+      .mockRejectedValueOnce(new Error('observation provider offline'))
       .mockImplementationOnce(async (_ai, evidence) => [{
         evidenceId: evidence[0].id,
         participantIds: ['severus_alexander', 'maximinus_thrax'],
@@ -532,5 +536,104 @@ describe('App relationship-observation transaction', () => {
     expect((committed.knowledge ?? []).every(claim => claim.firstLearnedTurn === 2)).toBe(true);
     expect(container.textContent).toContain('REPORT_DATA_PRIVATE_POISON');
     errorSpy.mockRestore();
+  });
+
+  it('commits the turn once with only the validated subset when the provider mixes valid and invalid drafts', async () => {
+    mockRunNewTurn.mockImplementation(async (...args) => withPoisonedPlayerResult(await defaultTurnResult(...args)));
+    mockGetRelationshipObservations.mockImplementationOnce((_ai, evidence, directory, knownEntityIds) =>
+      runRealToolWithDrafts(evidence, directory, knownEntityIds, [
+        validDraftCiting(evidence, 'report_task7_lucius'),
+        {
+          evidenceId: 'missing_semantic_evidence',
+          participantIds: directory.slice(0, 2).map(entity => entity.entity_id),
+          excerpt: evidence[0].text,
+        },
+      ]));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const container = await mountApp();
+    const before = localStorage.getItem('gloryOfRome:autosave');
+    const saveWrites: string[] = [];
+    const originalSetItem = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
+      if (key === 'gloryOfRome:autosave') saveWrites.push('save');
+      return originalSetItem.call(this, key, value);
+    });
+
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Observe the public meeting');
+    await click(buttonNamed(container, 'Send message'));
+    await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
+
+    expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);
+    expect(container.querySelector('[aria-label="Retry the last action"]')).toBeNull();
+    expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').value).toBe('');
+    expect(saveWrites).toHaveLength(1);
+    expect(localStorage.getItem('gloryOfRome:autosave')).not.toBe(before);
+    const observations = (loadGame()!.state.knowledge ?? []).filter(claim => claim.relationshipObservation);
+    expect(observations).toHaveLength(1);
+    expect(observations[0].relationshipObservation?.evidenceId).toBe('report_task7_lucius');
+    expect(warnSpy.mock.calls.some(call => JSON.stringify(call).includes('dropped 1 of 2'))).toBe(true);
+    warnSpy.mockRestore();
+  });
+
+  it('commits the turn once with zero observations when every draft fails semantic validation', async () => {
+    mockRunNewTurn.mockImplementation(async (...args) => withPoisonedPlayerResult(await defaultTurnResult(...args)));
+    mockGetRelationshipObservations.mockImplementationOnce((_ai, evidence, directory, knownEntityIds) =>
+      runRealToolWithDrafts(evidence, directory, knownEntityIds, [
+        {
+          evidenceId: 'missing_semantic_evidence',
+          participantIds: directory.slice(0, 2).map(entity => entity.entity_id),
+          excerpt: evidence[0].text,
+        },
+      ]));
+    const container = await mountApp();
+    const before = localStorage.getItem('gloryOfRome:autosave');
+
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Observe the public meeting');
+    await click(buttonNamed(container, 'Send message'));
+    await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
+
+    expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);
+    expect(container.querySelector('[aria-label="Retry the last action"]')).toBeNull();
+    expect((loadGame()!.state.knowledge ?? []).filter(claim => claim.relationshipObservation)).toHaveLength(0);
+    expect(localStorage.getItem('gloryOfRome:autosave')).not.toBe(before);
+  });
+});
+
+describe('ingestRelationshipObservations dedup boundary', () => {
+  it('documents one-observation-per-evidence-id dedup at ingestion', () => {
+    const dedupEvidence: PlayerSafeEvidence[] = [{
+      id: 'report_dedup_1',
+      source: 'rumor',
+      text: 'Senator Lucius defended Severus Alexander before the Curia.',
+    }];
+    const dedupDirectory = [
+      { entity_id: 'severus_alexander', name: 'Severus Alexander' },
+      { entity_id: 'lucius', name: 'Senator Lucius' },
+    ];
+    const dedupDraft: RelationshipObservationDraft = {
+      evidenceId: 'report_dedup_1',
+      participantIds: ['severus_alexander', 'lucius'],
+      excerpt: dedupEvidence[0].text,
+    };
+    const knownEntityIds = dedupDirectory.map(entity => entity.entity_id);
+
+    const afterFirstBatch = ingestRelationshipObservations([], {
+      drafts: [dedupDraft, { ...dedupDraft }],
+      evidence: dedupEvidence,
+      entities: dedupDirectory,
+      knownEntityIds,
+      turn: 5,
+    });
+    expect(afterFirstBatch.filter(claim => claim.relationshipObservation)).toHaveLength(1);
+
+    const afterSecondCall = ingestRelationshipObservations(afterFirstBatch, {
+      drafts: [dedupDraft],
+      evidence: dedupEvidence,
+      entities: dedupDirectory,
+      knownEntityIds,
+      turn: 6,
+    });
+    expect(afterSecondCall).toBe(afterFirstBatch);
+    expect(afterSecondCall.filter(claim => claim.relationshipObservation)).toHaveLength(1);
   });
 });
