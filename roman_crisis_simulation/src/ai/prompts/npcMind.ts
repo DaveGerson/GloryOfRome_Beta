@@ -89,7 +89,7 @@ export interface NpcMindPromptInput {
   /** PUBLIC knowledge: the one-line macro world summary (year/week/political climate/economic stability - the D5 crude-v1 public macro fields only, never region detail). */
   worldSummary: string;
   turnNumber: number;
-  /** This NPC's own completed private audiences only, newest first; raw records/transcripts never cross this seam. */
+  /** This NPC's own completed private audiences only, newest first; raw records and other NPCs never cross this seam. */
   privateSceneMemories?: readonly PrivateSceneNpcMemoryProjection[];
 }
 
@@ -103,11 +103,16 @@ export function buildPrivateSceneNpcMemoryBlock(
 ): string {
   if (!memories || memories.length === 0) return '';
   const rendered = memories.slice(0, MAX_PRIVATE_SCENE_MEMORIES_PER_NPC_MIND).map((memory, index) => {
+    const transcript = memory.transcript.length > 0
+      ? memory.transcript.map(line => `  - ${line.speaker}: ${JSON.stringify(line.text)}`).join('\n')
+      : '  - (none recorded)';
     const speechActs = memory.speechActs.length > 0
       ? memory.speechActs.map(act => `  - ${act.speaker} ${act.kind}: ${JSON.stringify(act.text)}`).join('\n')
       : '  - (none recorded)';
     return `Audience ${index + 1}:
 - Closure: ${memory.closureReason}
+- Full transcript (this audience only):
+${transcript}
 - Attributed speech acts (claims, not established truth):
 ${speechActs}
 ${memory.lastWord === undefined ? '' : `- Last word: ${JSON.stringify(memory.lastWord)}\n`}- Your private state afterward:

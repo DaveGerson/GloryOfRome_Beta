@@ -194,11 +194,13 @@ describe('journey: player private scenes across audience, reload, and macro-turn
 
       const firstMacroPrompt = client.promptsFor('adjudication')[0];
       expect(firstMacroPrompt.match(/PRIVATE SCENE OUTCOME \(GM-private context/g)).toHaveLength(1);
-      expect(firstMacroPrompt).toContain(FIRST_CLAIM);
-      expect(firstMacroPrompt).toContain(FIRST_HIDDEN);
-      expect(firstMacroPrompt).toContain(FIRST_LAST_WORD);
-      expect(firstMacroPrompt).not.toContain(FIRST_OPENING);
-      expect(firstMacroPrompt).not.toContain('Player reply 2');
+      const firstOutcome = firstMacroPrompt.match(/PRIVATE SCENE OUTCOME[\s\S]*?END PRIVATE SCENE OUTCOME/)?.[0] ?? '';
+      expect(firstOutcome).toContain(FIRST_CLAIM);
+      expect(firstOutcome).toContain(FIRST_HIDDEN);
+      expect(firstOutcome).toContain(FIRST_LAST_WORD);
+      expect(firstOutcome).toContain(`player unclassified: ${JSON.stringify(FIRST_OPENING)}`);
+      expect(firstOutcome).toContain(`player unclassified: ${JSON.stringify('Player reply 2')}`);
+      expect(firstOutcome).not.toContain('PRIVATE SCENE CONTEXT');
       expect(loadGame()!.state.privateScenes![0]).toMatchObject({
         consequenceStatus: 'consumed',
         consumedByTurn: 2,

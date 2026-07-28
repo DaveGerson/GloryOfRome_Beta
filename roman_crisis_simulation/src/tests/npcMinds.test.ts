@@ -410,8 +410,12 @@ describe('buildNpcMindPrompt: in-character address with bounded knowledge', () =
 describe('runNewTurn npc_minds: the information-asymmetry pin', () => {
   it('routes at most three completed private-scene memories only to their participating NPC mind', async () => {
     const harness = createMindHarness(baseResponses());
-    const memory = (index: number): PrivateSceneNpcMemoryProjection & { transcript: string; unrelatedTruth: string } => ({
+    const memory = (index: number): PrivateSceneNpcMemoryProjection & { unrelatedTruth: string } => ({
       closureReason: 'player_ended',
+      transcript: [
+        { sequence: 1, speaker: 'player', text: `PARTICIPANT_TRANSCRIPT_${index}` },
+        { sequence: 2, speaker: 'npc', text: `NPC_TRANSCRIPT_${index}` },
+      ],
       speechActs: [{ speaker: 'npc', kind: 'claim', text: `${PRIVATE_SCENE_NPC_SPEECH} [memory ${index}]` }],
       lastWord: `Last word ${index}`,
       npcPrivate: {
@@ -419,7 +423,6 @@ describe('runNewTurn npc_minds: the information-asymmetry pin', () => {
         hiddenIntent: `${PRIVATE_SCENE_NPC_INTENT} [memory ${index}]`,
         plannedFollowThrough: [`Plan ${index}`],
       },
-      transcript: `RAW_TRANSCRIPT_${index}`,
       unrelatedTruth: PRIVATE_SCENE_UNRELATED_TRUTH,
     });
 
@@ -437,7 +440,9 @@ describe('runNewTurn npc_minds: the information-asymmetry pin', () => {
     expect(thraxBlock).toContain(`${PRIVATE_SCENE_NPC_SPEECH} [memory 3]`);
     expect(thraxBlock).not.toContain(`${PRIVATE_SCENE_NPC_SPEECH} [memory 4]`);
     expect(thraxBlock).toContain(PRIVATE_SCENE_NPC_INTENT);
-    expect(thraxBlock).not.toContain('RAW_TRANSCRIPT');
+    expect(thraxBlock).toContain('PARTICIPANT_TRANSCRIPT_1');
+    expect(thraxBlock).toContain('NPC_TRANSCRIPT_3');
+    expect(thraxBlock).not.toContain('PARTICIPANT_TRANSCRIPT_4');
     expect(thraxBlock).not.toContain(PRIVATE_SCENE_UNRELATED_TRUTH);
     expect(thraxBlock).not.toContain(PRIVATE_SCENE_PLAYER_INTENT);
     expect(venenaPrompt).not.toContain('PRIVATE AUDIENCE MEMORIES');

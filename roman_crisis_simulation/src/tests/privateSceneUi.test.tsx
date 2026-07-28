@@ -12,7 +12,7 @@ const rawScene: PrivateSceneRecord = {
   sceneId: 'scene-2-maximinus', macroTurn: 2, playerId: 'player', npcId: 'maximinus',
   playerName: 'Severus', npcName: 'Maximinus', status: 'awaiting_last_word',
   transcript: [{ sequence: 1, speaker: 'player', text: 'Speak plainly.' }, { sequence: 2, speaker: 'npc', text: 'I have heard nothing.' }],
-  npcResponseCount: 1, speechActs: [],
+  npcResponseCount: 1, speechActs: [{ speaker: 'npc', kind: 'claim', text: 'I have heard nothing.', exchange: 1 }],
   npcPrivate: { sincerity: 'HIDDEN_INTENT_POISON', hiddenIntent: 'HIDDEN_INTENT_POISON', plannedFollowThrough: ['HIDDEN_INTENT_POISON'] },
   closureReason: 'refused', consequenceStatus: 'pending',
 };
@@ -47,8 +47,11 @@ describe('private scene player UI', () => {
     expect(playerView).toEqual({
       sceneId: rawScene.sceneId, npcId: rawScene.npcId, npcName: rawScene.npcName,
       status: rawScene.status, transcript: rawScene.transcript, npcResponseCount: rawScene.npcResponseCount,
+      speechActs: rawScene.speechActs,
       closureReason: rawScene.closureReason, lastWord: rawScene.lastWord,
     });
+    expect(playerView.speechActs).not.toBe(rawScene.speechActs);
+    expect(playerView.speechActs[0]).not.toBe(rawScene.speechActs[0]);
     expect(JSON.stringify(playerView)).not.toContain('HIDDEN_INTENT_POISON');
     expect(Object.keys(playerView)).not.toContain('npcPrivate');
   });
@@ -80,7 +83,10 @@ describe('private scene player UI', () => {
         ...rawScene.transcript,
         { sequence: 3, speaker: 'player', text: 'PLAYER_LAST_WORD_VISIBLE' },
       ],
-      speechActs: [{ speaker: 'npc', kind: 'claim', text: 'GM_SPEECH_ACT_POISON', exchange: 1 }],
+      speechActs: [
+        { speaker: 'player', kind: 'unclassified', text: 'PLAYER_EXACT_TERMS_VISIBLE', exchange: 1 },
+        { speaker: 'npc', kind: 'agreement', text: 'NPC_AGREEMENT_VISIBLE', exchange: 1 },
+      ],
       npcPrivate: {
         sincerity: 'GM_SINCERITY_POISON',
         hiddenIntent: 'GM_HIDDEN_INTENT_POISON',
@@ -101,8 +107,13 @@ describe('private scene player UI', () => {
     expect(history.textContent).toMatch(/you ended/i);
     expect(history.textContent).toContain('Last word');
     expect(history.textContent).toContain('PLAYER_LAST_WORD_VISIBLE');
+    const speechActs = history.querySelector('[aria-label="Attributed speech acts with Maximinus"]');
+    expect(speechActs?.textContent).toContain('PLAYER_EXACT_TERMS_VISIBLE');
+    expect(speechActs?.textContent).toContain('NPC_AGREEMENT_VISIBLE');
+    expect(speechActs?.textContent).toMatch(/you/i);
+    expect(speechActs?.textContent).toMatch(/agreement/i);
     for (const forbidden of [
-      'GM_SPEECH_ACT_POISON', 'GM_SINCERITY_POISON', 'GM_HIDDEN_INTENT_POISON',
+      'GM_SINCERITY_POISON', 'GM_HIDDEN_INTENT_POISON',
       'GM_PLAN_POISON', 'MECHANICS_SENTINEL_POISON', 'consumed', '77',
     ]) {
       expect(container.textContent).not.toContain(forbidden);

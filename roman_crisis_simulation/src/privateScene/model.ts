@@ -57,6 +57,7 @@ export interface PrivateSceneAdjudicatorProjection {
 
 export interface PrivateSceneNpcMemoryProjection {
   closureReason: PrivateSceneClosureReason;
+  transcript: Array<{ sequence: number; speaker: PrivateSceneSpeaker; text: string }>;
   speechActs: Array<Pick<PrivateSceneSpeechAct, 'speaker' | 'kind' | 'text'>>;
   lastWord?: string;
   npcPrivate: PrivateSceneNpcPrivateState;
@@ -118,8 +119,8 @@ function canonicalResponse(response: PrivateSceneModelResponse, exchange: number
   }
   const speechActs: PrivateSceneSpeechAct[] = [];
   for (const act of response.speechActs) {
-    if (!act || (act.speaker !== 'player' && act.speaker !== 'npc')) {
-      return { ok: false, error: 'response speech-act speaker is invalid' };
+    if (!act || act.speaker !== 'npc') {
+      return { ok: false, error: 'provider response speech acts must belong to the NPC' };
     }
     if (!PROVIDER_SPEECH_ACT_KINDS.includes(act.kind)) {
       return { ok: false, error: 'response speech-act kind is invalid' };
@@ -262,7 +263,10 @@ export function beginPrivateScene(input: {
         { sequence: 2, speaker: 'npc', text: response.value.npcUtterance },
       ],
       npcResponseCount: 1,
-      speechActs: response.value.speechActs,
+      speechActs: [
+        { speaker: 'player', kind: 'unclassified', text: opening.value, exchange: 1 },
+        ...response.value.speechActs,
+      ],
       npcPrivate: response.value.npcPrivate,
       ...(lifecycle.closureReason ? { closureReason: lifecycle.closureReason } : {}),
       consequenceStatus: 'pending',
@@ -313,6 +317,7 @@ export function appendPrivateSceneExchange(input: {
       npcResponseCount: nextCount,
       speechActs: [
         ...input.scene.speechActs.map(act => ({ ...act })),
+        { speaker: 'player', kind: 'unclassified', text: playerUtterance.value, exchange: nextCount },
         ...response.value.speechActs,
       ],
       npcPrivate: response.value.npcPrivate,
@@ -408,6 +413,7 @@ export function buildPrivateSceneNpcMemoryProjection(
     .slice(0, 3)
     .map(scene => ({
       closureReason: scene.closureReason!,
+      transcript: scene.transcript.map(line => ({ ...line })),
       speechActs: scene.speechActs.map(({ speaker, kind, text }) => ({ speaker, kind, text })),
       ...(scene.lastWord === undefined ? {} : { lastWord: scene.lastWord }),
       npcPrivate: { ...scene.npcPrivate, plannedFollowThrough: [...scene.npcPrivate.plannedFollowThrough] },

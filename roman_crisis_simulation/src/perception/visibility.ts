@@ -33,7 +33,7 @@
  */
 
 import { Entity, EventDelta, EventDeltaType, WorldState } from '../types';
-import type { PrivateSceneRecord, PrivateSceneStatus, PrivateSceneClosureReason, PrivateSceneSpeaker } from '../privateScene/model';
+import type { PrivateSceneRecord, PrivateSceneStatus, PrivateSceneClosureReason, PrivateSceneSpeaker, PrivateSceneSpeechAct } from '../privateScene/model';
 
 export interface PrivateScenePlayerView {
   sceneId: string;
@@ -41,6 +41,7 @@ export interface PrivateScenePlayerView {
   npcName: string;
   status: PrivateSceneStatus;
   transcript: Array<{ sequence: number; speaker: PrivateSceneSpeaker; text: string }>;
+  speechActs: PrivateSceneSpeechAct[];
   npcResponseCount: number;
   closureReason?: PrivateSceneClosureReason;
   lastWord?: string;
@@ -54,6 +55,7 @@ export function projectPrivateSceneForPlayer(scene: PrivateSceneRecord): Private
     npcName: scene.npcName,
     status: scene.status,
     transcript: scene.transcript.map(line => ({ ...line })),
+    speechActs: scene.speechActs.map(act => ({ ...act })),
     npcResponseCount: scene.npcResponseCount,
     ...(scene.closureReason ? { closureReason: scene.closureReason } : {}),
     ...(scene.lastWord ? { lastWord: scene.lastWord } : {}),

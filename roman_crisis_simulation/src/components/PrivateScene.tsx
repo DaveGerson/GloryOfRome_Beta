@@ -126,6 +126,9 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
       </>}
       {completed.length > 0 && <section aria-label="Past private scenes"><h3>Past private scenes</h3>{completed.map(scene => <details key={scene.sceneId}><summary>{scene.npcName}</summary>
         <div aria-label={`Transcript with ${scene.npcName}`}>{scene.transcript.map(line => <p key={line.sequence}><strong>{line.speaker === 'player' ? 'You' : scene.npcName}:</strong> {line.text}</p>)}</div>
+        {scene.speechActs.length > 0 && <section aria-label={`Attributed speech acts with ${scene.npcName}`}><h4>Attributed speech acts</h4><ul>
+          {scene.speechActs.map((act, index) => <li key={`${act.exchange}-${index}`}><strong>{act.speaker === 'player' ? 'You' : scene.npcName} — {act.kind === 'unclassified' ? 'statement' : act.kind}:</strong> {act.text}</li>)}
+        </ul></section>}
         <p><strong>Closure:</strong> {describeClosure(scene)}</p>
         {scene.lastWord && <p><strong>Last word:</strong> {scene.lastWord}</p>}
       </details>)}</section>}

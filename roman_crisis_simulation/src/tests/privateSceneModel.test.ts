@@ -43,7 +43,6 @@ function response(
     disposition,
     npcUtterance: '  I hear you.  ',
     speechActs: [
-      { speaker: 'player', kind: 'request', text: '  Stand with me.  ', exchange },
       { speaker: 'npc', kind: 'promise', text: '  I will consider it.  ', exchange },
     ],
     npcPrivate: {
@@ -68,7 +67,7 @@ const ACTIVE_SCENE: PrivateSceneRecord = {
   ],
   npcResponseCount: 1,
   speechActs: [
-    { speaker: 'player', kind: 'request', text: 'Stand with me.', exchange: 1 },
+    { speaker: 'player', kind: 'unclassified', text: 'Stand with me.', exchange: 1 },
     { speaker: 'npc', kind: 'promise', text: 'I will consider it.', exchange: 1 },
   ],
   npcPrivate: {
@@ -129,6 +128,57 @@ describe('beginPrivateScene', () => {
   const player = makeEntity({ visibility_network: ['npc_network'] });
   const npc = makeEntity({ entity_id: 'npc_network', name: 'Livia', location: 'Ostia' });
 
+  it('records the authoritative trimmed opening as a code-owned player act before NPC acts', () => {
+    const scene = expectSuccess(beginPrivateScene({
+      sceneId: 'scene_exact_terms',
+      macroTurn: 7,
+      player,
+      npc,
+      knownEntityIds: ['npc_network'],
+      opening: '  Place the Third Legion under my command.  ',
+      response: {
+        ...response(),
+        speechActs: [{ speaker: 'npc', kind: 'agreement', text: 'Agreed.', exchange: 1 }],
+      },
+      existing: [],
+    }));
+
+    expect(scene.speechActs).toEqual([
+      {
+        speaker: 'player',
+        kind: 'unclassified',
+        text: 'Place the Third Legion under my command.',
+        exchange: 1,
+      },
+      { speaker: 'npc', kind: 'agreement', text: 'Agreed.', exchange: 1 },
+    ]);
+    expect(buildPrivateSceneAdjudicatorProjection({
+      ...scene,
+      status: 'closed',
+      closureReason: 'player_ended',
+    }).speechActs[0]).toEqual({
+      speaker: 'player',
+      kind: 'unclassified',
+      text: 'Place the Third Legion under my command.',
+    });
+  });
+
+  it('rejects provider-authored player acts at the transition boundary', () => {
+    expect(beginPrivateScene({
+      sceneId: 'scene_fabricated_player_act',
+      macroTurn: 7,
+      player,
+      npc,
+      knownEntityIds: ['npc_network'],
+      opening: 'State my terms exactly.',
+      response: {
+        ...response(),
+        speechActs: [{ speaker: 'player', kind: 'request', text: 'Fabricated terms.', exchange: 1 }],
+      },
+      existing: [],
+    })).toMatchObject({ ok: false });
+  });
+
   it('commits a trimmed accepted opening as NPC response 1 without retaining mutable response aliases', () => {
     const modelResponse = response();
     const result = beginPrivateScene({
@@ -152,6 +202,7 @@ describe('beginPrivateScene', () => {
     modelResponse.speechActs[0].text = 'MUTATED';
     modelResponse.npcPrivate.plannedFollowThrough[0] = 'MUTATED';
     expect(scene.speechActs[0].text).toBe('Stand with me.');
+    expect(scene.speechActs[1].text).toBe('I will consider it.');
     expect(scene.npcPrivate.plannedFollowThrough).toEqual(['Consult the household.']);
   });
 
@@ -256,6 +307,23 @@ describe('beginPrivateScene', () => {
 });
 
 describe('appendPrivateSceneExchange', () => {
+  it('records the authoritative trimmed reply as a code-owned player act before NPC acts', () => {
+    const scene = expectSuccess(appendPrivateSceneExchange({
+      scene: cloneScene(ACTIVE_SCENE),
+      expectedNpcResponseCount: 1,
+      playerUtterance: '  March at dawn, not before.  ',
+      response: {
+        ...response('continues', 2),
+        speechActs: [{ speaker: 'npc', kind: 'agreement', text: 'At dawn.', exchange: 2 }],
+      },
+    }));
+
+    expect(scene.speechActs.slice(-2)).toEqual([
+      { speaker: 'player', kind: 'unclassified', text: 'March at dawn, not before.', exchange: 2 },
+      { speaker: 'npc', kind: 'agreement', text: 'At dawn.', exchange: 2 },
+    ]);
+  });
+
   it('appends one immutable exchange and advances the predecessor count', () => {
     const source = cloneScene(ACTIVE_SCENE);
     const before = cloneScene(source);
@@ -276,7 +344,7 @@ describe('appendPrivateSceneExchange', () => {
       { sequence: 4, speaker: 'npc', text: 'I hear you.' },
     ]);
     expect(scene.speechActs.slice(-2)).toEqual([
-      { speaker: 'player', kind: 'request', text: 'Stand with me.', exchange: 2 },
+      { speaker: 'player', kind: 'unclassified', text: 'Then decide quickly.', exchange: 2 },
       { speaker: 'npc', kind: 'promise', text: 'I will consider it.', exchange: 2 },
     ]);
     expect(source).toEqual(before);
@@ -455,13 +523,14 @@ describe('main-turn audience projections', () => {
     expect(() => buildPrivateSceneAdjudicatorProjection(consumed)).toThrow(/pending private scene/i);
   });
 
-  it('projects one pending outcome without its transcript and gives only its NPC bounded completed memory', () => {
+  it('keeps adjudication compact while giving only the participating NPC three full copied transcripts', () => {
     const pending: PrivateSceneRecord = { ...ACTIVE_SCENE, status: 'closed', closureReason: 'player_ended', transcript: [{ sequence: 1, speaker: 'player', text: 'TRANSCRIPT_SECRET' }] };
-    const unrelated: PrivateSceneRecord = { ...pending, sceneId: 'other', npcId: 'other_npc', npcName: 'Other', macroTurn: 6 };
+    const unrelated: PrivateSceneRecord = { ...pending, sceneId: 'other', npcId: 'other_npc', npcName: 'Other', macroTurn: 6, transcript: [{ sequence: 1, speaker: 'player', text: 'UNRELATED_TRANSCRIPT' }] };
     const participantHistory = [1, 2, 3, 4].map(macroTurn => ({
       ...pending,
       sceneId: `participant-${macroTurn}`,
       macroTurn,
+      transcript: [{ sequence: 1, speaker: 'player' as const, text: `Exact participant transcript ${macroTurn}` }],
       speechActs: [{ speaker: 'npc' as const, kind: 'claim' as const, text: `Participant memory ${macroTurn}`, exchange: 1 }],
     }));
     const adjudication = buildPrivateSceneAdjudicatorProjection(pending);
@@ -474,7 +543,14 @@ describe('main-turn audience projections', () => {
       'Participant memory 3',
       'Participant memory 2',
     ]);
-    expect(JSON.stringify(memory)).not.toContain('other_npc');
+    expect(memory.map(item => item.transcript[0]?.text)).toEqual([
+      'Exact participant transcript 4',
+      'Exact participant transcript 3',
+      'Exact participant transcript 2',
+    ]);
+    expect(memory[0].transcript).not.toBe(participantHistory[3].transcript);
+    expect(memory[0].transcript[0]).not.toBe(participantHistory[3].transcript[0]);
+    expect(JSON.stringify(memory)).not.toContain('UNRELATED_TRANSCRIPT');
     expect(JSON.stringify(memory)).not.toContain('Participant memory 1');
   });
 });
