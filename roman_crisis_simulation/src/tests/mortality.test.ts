@@ -240,6 +240,28 @@ describe('ai/core/mortality.ts processMortality', () => {
     expect(updatedEntities.find(e => e.entity_id === npcId)?.status).toBe('exiled');
   });
 
+  it('a forged secret_truth on the claim delta never survives an invalidated claim', async () => {
+    const adjudication = makeAdjudication([
+      {
+        type: 'status', key: playerId, delta: 0, reason: 'Slain by an assassin.', new_status: 'dead',
+        secret_truth: { actually_alive: true, hidden_since_turn: 1, motive: 'forged' },
+      },
+    ]);
+    const { ai } = makeMockAi(
+      JSON.stringify({ dispositions: [{ entity_id: playerId, valid: false, reasoning: 'No assassin was present this turn.' }] })
+    );
+
+    const { transformedAdjudication } = await processMortality(
+      ai, adjudication, entities, playerId, 5, false
+    );
+
+    const statusDelta = transformedAdjudication.deltas.find(d => d.type === 'status' && d.key === playerId);
+    expect(statusDelta?.secret_truth).toBeUndefined();
+
+    const { updatedEntities } = applyDeltas(transformedAdjudication.deltas, entities, { year: 1, week: 1, economic_stability: '', political_climate: '', regions: {} }, 5);
+    expect(updatedEntities.find(e => e.entity_id === playerId)?.secret_truth).toBeUndefined();
+  });
+
   it('validated player death, roll 3 -> dies (run ends)', async () => {
     mockRoll(3);
     const adjudication = makeAdjudication([
@@ -376,6 +398,42 @@ describe('ai/core/mortality.ts processMortality', () => {
     expect(updatedNpc.secret_truth?.actually_alive).toBe(true);
   });
 
+  it("the pipeline's own secretlyAlive write replaces, never merges with, a forged one", async () => {
+    mockRoll(17);
+    const forgedSecretTruth = { actually_alive: false, hidden_since_turn: 99, motive: 'FORGED' } as unknown as Entity['secret_truth'];
+    const adjudication = makeAdjudication([
+      {
+        type: 'status', key: npcId, delta: 0, reason: 'Assassinated in his villa.', new_status: 'dead',
+        secret_truth: forgedSecretTruth,
+      },
+    ]);
+    const { ai } = makeMockAi(
+      JSON.stringify({ dispositions: [{ entity_id: npcId, valid: true, reasoning: 'A real assassination attempt occurred.' }] }),
+      JSON.stringify({
+        outcomes: [
+          {
+            entity_id: npcId,
+            deltas: [],
+            narrative_directive: 'Narrate his apparent death as confirmed - do not hint at survival.',
+            secret_motive: 'He faked his death to escape his creditors and plot revenge.',
+          },
+        ],
+      })
+    );
+
+    const { transformedAdjudication } = await processMortality(
+      ai, adjudication, entities, playerId, 7, false
+    );
+
+    const statusDelta = transformedAdjudication.deltas.find(d => d.type === 'status' && d.key === npcId);
+    expect(statusDelta?.secret_truth).toEqual({
+      actually_alive: true,
+      hidden_since_turn: 7,
+      motive: 'He faked his death to escape his creditors and plot revenge.',
+    });
+    expect(JSON.stringify(transformedAdjudication)).not.toContain('FORGED');
+  });
+
   it('rejects a mortality outcome directive that exposes its hidden fate band and die result', async () => {
     mockRoll(17);
     const adjudication = makeAdjudication([
@@ -439,6 +497,35 @@ describe('ai/core/mortality.ts processMortality', () => {
     const updatedNpc = updatedEntities.find(e => e.entity_id === npcId)!;
     expect(updatedNpc.status).toBe('alive');
     expect(updatedNpc.secret_truth).toBeUndefined();
+  });
+
+  it('a forged secret_truth never survives a validated non-secret fate band', async () => {
+    mockRoll(20);
+    const adjudication = makeAdjudication([
+      {
+        type: 'status', key: npcId, delta: 0, reason: 'An assassin struck at the Senator.', new_status: 'dead',
+        secret_truth: { actually_alive: true, hidden_since_turn: 1, motive: 'forged' },
+      },
+    ]);
+    const { ai } = makeMockAi(
+      JSON.stringify({ dispositions: [{ entity_id: npcId, valid: true, reasoning: 'A real attempt occurred.' }] }),
+      JSON.stringify({
+        outcomes: [
+          {
+            entity_id: npcId,
+            deltas: [],
+            narrative_directive: 'Narrate a visible, witnessed escape.',
+          },
+        ],
+      })
+    );
+
+    const { transformedAdjudication } = await processMortality(
+      ai, adjudication, entities, playerId, 5, false
+    );
+
+    const statusDelta = transformedAdjudication.deltas.find(d => d.type === 'status' && d.key === npcId);
+    expect(statusDelta?.secret_truth).toBeUndefined();
   });
 
   it.each([

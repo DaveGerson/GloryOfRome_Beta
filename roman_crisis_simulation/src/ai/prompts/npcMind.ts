@@ -52,6 +52,7 @@
 import { Entity, NpcIntent } from '../../types';
 import type { PerceivedChange } from '../../perception/visibility';
 import type { PrivateSceneNpcMemoryProjection } from '../../privateScene/model';
+import { asPromptData } from './fragments';
 
 /**
  * Cost/latency cap on mind calls per turn (D16/D22): at most this many
@@ -97,6 +98,13 @@ export interface NpcMindPromptInput {
  * Renders only the typed audience-memory projection, field by field. Extra
  * runtime properties are ignored, and the prompt boundary re-applies the
  * three-record cap even when a caller supplies more.
+ *
+ * `line.text`/`act.text`/`lastWord` are the PLAYER's own typed private-scene
+ * utterances (speaker:'player' entries) - delimited via `asPromptData` (D2)
+ * so a forged line-separator payload can never masquerade as this block's
+ * own "Hidden intent" / "Your private state afterward:" labels and corrupt
+ * this character's OWN mind decision (which feeds buildMindSchemeDeltas in
+ * ai/core/turn.ts as a real 'scheme' delta).
  */
 export function buildPrivateSceneNpcMemoryBlock(
   memories: readonly PrivateSceneNpcMemoryProjection[] | undefined,
@@ -104,10 +112,10 @@ export function buildPrivateSceneNpcMemoryBlock(
   if (!memories || memories.length === 0) return '';
   const rendered = memories.slice(0, MAX_PRIVATE_SCENE_MEMORIES_PER_NPC_MIND).map((memory, index) => {
     const transcript = memory.transcript.length > 0
-      ? memory.transcript.map(line => `  - ${line.speaker}: ${JSON.stringify(line.text)}`).join('\n')
+      ? memory.transcript.map(line => `  - ${line.speaker}: ${asPromptData(line.text)}`).join('\n')
       : '  - (none recorded)';
     const speechActs = memory.speechActs.length > 0
-      ? memory.speechActs.map(act => `  - ${act.speaker} ${act.kind}: ${JSON.stringify(act.text)}`).join('\n')
+      ? memory.speechActs.map(act => `  - ${act.speaker} ${act.kind}: ${asPromptData(act.text)}`).join('\n')
       : '  - (none recorded)';
     return `Audience ${index + 1}:
 - Closure: ${memory.closureReason}
@@ -115,7 +123,7 @@ export function buildPrivateSceneNpcMemoryBlock(
 ${transcript}
 - Attributed speech acts (claims, not established truth):
 ${speechActs}
-${memory.lastWord === undefined ? '' : `- Last word: ${JSON.stringify(memory.lastWord)}\n`}- Your private state afterward:
+${memory.lastWord === undefined ? '' : `- Last word: ${asPromptData(memory.lastWord)}\n`}- Your private state afterward:
   - Sincerity: ${JSON.stringify(memory.npcPrivate.sincerity)}
   - Hidden intent (a plan, not proof it happened): ${JSON.stringify(memory.npcPrivate.hiddenIntent)}
   - Planned follow-through: ${memory.npcPrivate.plannedFollowThrough.length > 0

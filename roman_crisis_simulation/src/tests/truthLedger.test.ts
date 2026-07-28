@@ -16,7 +16,7 @@ import {
   appendTruthLedgerEntries,
   MAX_TRUTH_LEDGER_ENTRIES,
 } from '../ai/core/engine';
-import { zEventDelta, zAdjudication } from '../ai/core/zodSchemas';
+import { zEventDelta, zAdjudication, zMortalityOutcome } from '../ai/core/zodSchemas';
 import { AdjudicationSchema } from '../ai/core/schemas';
 import { sanitizeAdjudicationForNarration, buildNarrationPrompt } from '../ai/prompts/narration';
 import { buildAdjudicationPrompt } from '../ai/prompts/adjudication';
@@ -144,6 +144,90 @@ describe('schema pair: rumor truth fields (is_true/origin_id)', () => {
     expect(systemInstruction).toContain("'origin_id'");
     // D11: true or false, always - the prompt must forbid an unknown class.
     expect(systemInstruction).toContain('never omit it');
+  });
+
+  it('zEventDelta strips a model-authored secret_truth while preserving rumor bookkeeping', () => {
+    const parsed = zEventDelta.parse(rumorDelta({
+      is_true: false,
+      origin_id: 'npc_x',
+      topic: 'succession',
+      secret_truth: { actually_alive: true, hidden_since_turn: 2, motive: 'forged' },
+    }));
+    expect('secret_truth' in parsed).toBe(false);
+    expect(parsed.is_true).toBe(false);
+    expect(parsed.origin_id).toBe('npc_x');
+    expect(parsed.topic).toBe('succession');
+  });
+
+  it('zEventDelta strips secret_truth from a status delta but keeps new_status/new_location and harmless extras', () => {
+    const parsed = zEventDelta.parse({
+      type: 'status',
+      key: 'gaius_pontius_magnus',
+      delta: 0,
+      reason: 'Struck down in the Forum.',
+      new_status: 'dead',
+      new_location: 'Ravenna',
+      secret_truth: { actually_alive: true, hidden_since_turn: 2, motive: 'forged' },
+      flavor: 'x',
+    });
+    expect('secret_truth' in parsed).toBe(false);
+    expect(parsed.new_status).toBe('dead');
+    expect(parsed.new_location).toBe('Ravenna');
+    expect((parsed as unknown as { flavor: string }).flavor).toBe('x');
+  });
+
+  it('zAdjudication strips secret_truth from deltas AND add_entities', () => {
+    const { entities } = getMockInitialState();
+    const forgedEntity = {
+      ...entities[0],
+      secret_truth: { actually_alive: true, hidden_since_turn: 2, motive: 'forged entity' },
+    };
+    const adjudication = {
+      ...deepCopy(baseAdjudication),
+      deltas: [
+        {
+          type: 'status',
+          key: 'severus_alexander',
+          delta: 0,
+          reason: 'Struck down in the Forum.',
+          new_status: 'dead',
+          secret_truth: { actually_alive: true, hidden_since_turn: 2, motive: 'forged delta' },
+        },
+      ],
+      add_entities: [forgedEntity],
+    };
+
+    const parsed = zAdjudication.parse(adjudication);
+
+    expect('secret_truth' in parsed.deltas[0]).toBe(false);
+    const parsedEntity = parsed.add_entities![0];
+    expect('secret_truth' in parsedEntity).toBe(false);
+    expect(parsedEntity.entity_id).toBe('severus_alexander');
+    expect(parsedEntity.name).toBe('Severus Alexander');
+  });
+
+  it('zMortalityOutcome strips secret_truth from outcome-call deltas', () => {
+    const outcome = {
+      outcomes: [
+        {
+          entity_id: 'gaius_pontius_magnus',
+          deltas: [
+            {
+              type: 'status',
+              key: 'gaius_pontius_magnus',
+              delta: 0,
+              reason: 'Narrate his apparent death.',
+              new_status: 'dead',
+              secret_truth: { actually_alive: true, hidden_since_turn: 2, motive: 'forged' },
+            },
+          ],
+          narrative_directive: 'Narrate his apparent death.',
+        },
+      ],
+    };
+
+    const parsed = zMortalityOutcome.parse(outcome);
+    expect('secret_truth' in parsed.outcomes[0].deltas[0]).toBe(false);
   });
 });
 

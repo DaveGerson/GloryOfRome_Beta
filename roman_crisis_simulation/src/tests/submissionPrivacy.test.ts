@@ -5,7 +5,7 @@ import { endTurnCapture } from '../ai/core/geminiService';
 import { buildAdjudicationPrompt } from '../ai/prompts/adjudication';
 import { buildPerceivedDigest } from '../perception/visibility';
 import { computeTurnKnowledge } from '../knowledge/commit';
-import { serializeTurnSubmission } from '../playerInput/turnSubmission';
+import { projectForAdjudication, serializeTurnSubmission } from '../playerInput/turnSubmission';
 import type { PrivateSceneAdjudicatorProjection } from '../privateScene/model';
 import type { Entity, EventDelta, SimulationState, TurnSubmission, WorldState } from '../types';
 
@@ -443,10 +443,10 @@ describe('runNewTurn submission visibility routing', () => {
     const { calls } = await runRealTurn(FULL_SUBMISSION);
     const prompt = calls.find(call => call.kind === 'adjudication')?.prompt ?? '';
 
-    expect(prompt).toContain(`observableAttempt:\n${OBSERVABLE_SENTINEL}`);
+    expect(prompt).toContain(`observableAttempt:\n${JSON.stringify(projectForAdjudication(FULL_SUBMISSION).observableAttempt)}`);
     expect(prompt).not.toContain('privateIntent:');
     expect(prompt).not.toContain(PRIVATE_SENTINEL);
-    expect(prompt).toContain(`questionOrContext:\n${QUESTION_SENTINEL}`);
+    expect(prompt).toContain(`questionOrContext:\n${JSON.stringify(QUESTION_SENTINEL)}`);
   });
 
   it('keeps Question/Context non-canonical in adjudication and Private Intent player-owned in monologue', async () => {
