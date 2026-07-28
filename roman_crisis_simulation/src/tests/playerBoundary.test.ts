@@ -372,4 +372,37 @@ describe('no-attempt title-collision prose boundary', () => {
     expect(() => assertNoInventedPlayerVisibleAction(prose, emperorPlayer, false))
       .toThrow('player action boundary');
   });
+
+  // Subordinate-clause laundering: a possessed phrase is classified by its
+  // FIRST clause only. A trailing "as/while/when/because/though/although"
+  // clause must not launder the head's real action into an inert
+  // circumstance just because the trailing clause happens to end in a
+  // recognized intransitive condition verb.
+  it.each([
+    'Your agents burn the granary as the resistance weakens.',
+    'The Emperor\'s guards seize the envoy as his influence grows.',
+    'Your guards arrest the envoy as the resistance weakens.',
+  ])('rejects a subordinate-clause-laundered possessive action: %s', prose => {
+    expect(() => assertNoInventedPlayerVisibleAction(prose, emperorPlayer, false))
+      .toThrow('player action boundary');
+  });
+
+  it.each([
+    'Your grip weakens as the Senate turns against you.',
+    'Your influence wanes while the legions grumble.',
+    'The Emperor\'s grip weakens as the winter drags on.',
+  ])('allows a genuine possessive condition even with a trailing subordinate clause: %s', prose => {
+    expect(() => assertNoInventedPlayerVisibleAction(prose, emperorPlayer, false)).not.toThrow();
+  });
+
+  it.each([
+    'Your health fails.',
+    'Your scheme collapses.',
+    'Your standing declines.',
+    'Your reputation suffers.',
+    'Your alliance shatters.',
+    'The Emperor\'s bid for the consulship failed.',
+  ])('allows an additional intransitive condition verb: %s', prose => {
+    expect(() => assertNoInventedPlayerVisibleAction(prose, emperorPlayer, false)).not.toThrow();
+  });
 });
