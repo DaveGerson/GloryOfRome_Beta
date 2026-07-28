@@ -698,6 +698,7 @@ describe('runNewTurn submission visibility routing', () => {
       expect.objectContaining({ type: 'rumor', key: 'PLAYER-1', origin_id: 'NPC_A' }),
     );
     expect(result.updatedReports).toContainEqual(expect.objectContaining({ about: 'PLAYER-1' }));
+    expect(calls.some(call => call.kind === 'monologue' || call.kind === 'narration')).toBe(false);
   });
 
   it.each([

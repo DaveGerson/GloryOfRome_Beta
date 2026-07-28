@@ -723,7 +723,7 @@ export async function runNewTurn(
             turnNumber,
         }
     );
-    let { updatedEntities } = appliedAdjudication;
+    const { updatedEntities } = appliedAdjudication;
     const { updatedWorldState, updatedReports, updatedTruthLedger, perceivingNpcIds } = appliedAdjudication;
     const updatedPlayerEntity = updatedEntities.find(e => e.entity_id === playerEntity.entity_id) || playerEntity;
     const recentPlayerIntents = [...turnHistory.map(h => h.playerIntent).slice(-6), playerOwnedContext];
