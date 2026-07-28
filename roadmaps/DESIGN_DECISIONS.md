@@ -70,8 +70,9 @@ mortality rolls/traces.
 
 ## D8 — Player ambition is inferred, never declared
 No quest log, no chosen goals. A cheap periodic model call infers what the
-player *appears* to be pursuing from their actions. Used for: epilogue
-framing, and NPC reactions to the player's apparent (not actual) agenda.
+player *appears* to be pursuing from their actions. The persisted snapshot is
+used only by `GameMasterScreen` for GM inspection and tuning. It never feeds
+the player epilogue, NPC reactions, or any other player-facing surface.
 
 ---
 

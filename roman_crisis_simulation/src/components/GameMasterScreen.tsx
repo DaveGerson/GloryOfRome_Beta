@@ -721,7 +721,7 @@ const GameMasterScreen: React.FC<{
                     </div>
                 </div>
 
-                {/* DESIGN_DECISIONS.md D8 - the ONE other sanctioned surface for the inferred ambition besides EpilogueScreen. Never rendered on any player-facing view. */}
+                {/* DESIGN_DECISIONS.md D8 - the sole rendered owner of inferred ambition, for GM inspection and tuning only. It never feeds the player epilogue, NPC reactions, or any player-facing view. */}
                 {inferredAmbition && (
                     <div style={{ flex: 'none', ...well, fontSize: 14 }}>
                         <span style={lbl}>Apparent Ambition</span>{' '}

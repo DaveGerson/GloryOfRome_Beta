@@ -116,9 +116,9 @@ export interface GameDomainState {
   metaNarrative: string;
   /**
    * DESIGN_DECISIONS.md D8 - the latest "apparent ambition" reading, if any
-   * has been computed yet this campaign. GM-console/epilogue only (see
-   * GameMasterScreen's "Apparent Ambition" line and EpilogueScreen) -
-   * never rendered as a player-facing goal UI.
+   * has been computed yet this campaign. It is retained only for
+   * GameMasterScreen's GM inspection/tuning view and never feeds the player
+   * epilogue, NPC reactions, or any other player-facing surface.
    */
   inferredAmbition: InferredAmbitionState | null;
 }

@@ -45,9 +45,9 @@ const SAVE_KEY = 'gloryOfRome:autosave';
 
 /**
  * The periodic D8 ambition-inference snapshot (App.tsx / ai/tools/ambition.ts),
- * plus the turn number it was computed as of - so a consumer (GameMasterScreen,
- * EpilogueScreen) can tell a fresh read from a stale one on a long-since-moved-on
- * campaign. GM-console/epilogue only - never rendered as a player-facing goal UI.
+ * plus the turn number it was computed as of, persisted solely so
+ * GameMasterScreen can inspect and tune a fresh or stale read. It never feeds
+ * the player epilogue, NPC reactions, or any other player-facing surface.
  */
 export interface InferredAmbitionState extends AmbitionInference {
   asOfTurn: number;
