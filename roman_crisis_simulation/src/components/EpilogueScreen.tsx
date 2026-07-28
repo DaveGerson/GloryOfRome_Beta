@@ -23,13 +23,6 @@ const MAX_TURNS_IN_EPILOGUE_PROMPT = 25;
 // prompt-sizing cap above.
 const NOTABLE_HEADLINES_SHOWN = 5;
 
-/** The GM-console-only ambition snapshot (App.tsx / ai/tools/ambition.ts), as displayed here and passed into the epilogue prompt. Never a player-facing goal UI (D8) - this is its ONE sanctioned appearance in front of the player, framed as retrospective flavor rather than a quest readout. */
-export interface EpilogueInferredAmbition {
-  apparent_ambition: string;
-  confidence: 'low' | 'medium' | 'high';
-  asOfTurn: number;
-}
-
 /**
  * A dignified, purely static epitaph used both in Mock Mode (no real model
  * to write prose with) and as the `AiServiceError` fallback (a dead run
@@ -53,34 +46,16 @@ const EpilogueScreen: React.FC<{
   player: Entity;
   /** Persisted GM narration for the final events, independent of *why* the run ended (a committed turn's death vs. a fatal event-choice) - see App.tsx's derivation from `messages`. */
   causeNarration: string;
-  /** ai/core/mortality.ts's pre-decided narrative directive for this death, when the mortality pipeline (rather than an authored event choice) ended the run. */
-  mortalityOutcomeSummary?: string;
   turnHistory: TurnHistoryEntry[];
   eventHistory: EventHistoryEntry[];
   metaNarrative: string;
-  inferredAmbition: EpilogueInferredAmbition | null;
   ai: GeminiClient;
   isMockMode: boolean;
-}> = ({ player, causeNarration, mortalityOutcomeSummary, turnHistory, eventHistory, metaNarrative, inferredAmbition, ai, isMockMode }) => {
+}> = ({ player, causeNarration, turnHistory, eventHistory, metaNarrative, ai, isMockMode }) => {
   const [epitaph, setEpitaph] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [usedFallback, setUsedFallback] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
-
-  // The ambition is inferred by a separate model call and is both rendered
-  // here and interpolated into the epilogue prompt. Classify it before either
-  // use; a rejected value becomes content-free rather than being reflected in
-  // UI or sent through another model.
-  let safeInferredAmbition = inferredAmbition;
-  let ambitionBoundaryError: unknown;
-  if (safeInferredAmbition) {
-    try {
-      assertPlayerVisibleTextSafe(safeInferredAmbition.apparent_ambition);
-    } catch (error) {
-      ambitionBoundaryError = error;
-      safeInferredAmbition = null;
-    }
-  }
 
   useEffect(() => {
     let cancelled = false;
@@ -93,16 +68,6 @@ const EpilogueScreen: React.FC<{
       // orchestrated directly in the component).
       if (isMockMode) {
         if (!cancelled) {
-          setEpitaph(buildStaticFallbackEpitaph(player, causeNarration));
-          setIsLoading(false);
-        }
-        return;
-      }
-
-      if (ambitionBoundaryError) {
-        console.error('EpilogueScreen: inferred ambition failed the player-visible boundary, using a static epitaph', ambitionBoundaryError);
-        if (!cancelled) {
-          setUsedFallback(true);
           setEpitaph(buildStaticFallbackEpitaph(player, causeNarration));
           setIsLoading(false);
         }
@@ -127,13 +92,9 @@ const EpilogueScreen: React.FC<{
         metaNarrative,
         turnCount: turnHistory.length,
         causeNarration,
-        mortalityOutcomeSummary,
         turnHeadlines,
         omittedTurnCount,
         eventChoices,
-        inferredAmbition: safeInferredAmbition
-          ? { apparent_ambition: safeInferredAmbition.apparent_ambition, confidence: safeInferredAmbition.confidence }
-          : null,
       });
 
       try {
@@ -234,12 +195,6 @@ const EpilogueScreen: React.FC<{
               <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 5, color: STELE_DIM }}>
                 <li>
                   Turns survived: <span style={{ color: STELE_BRIGHT, fontVariantNumeric: 'tabular-nums' }}>{toRoman(Math.max(1, turnHistory.length))} ({turnHistory.length})</span>
-                </li>
-                <li>
-                  Apparent ambition:{' '}
-                  <span style={{ color: STELE_BRIGHT, fontStyle: 'italic' }}>
-                    {safeInferredAmbition ? safeInferredAmbition.apparent_ambition : 'Never became clear, even in hindsight.'}
-                  </span>
                 </li>
               </ul>
             </div>

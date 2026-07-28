@@ -466,18 +466,6 @@ const App: React.FC = () => {
         return '';
     }, [messages]);
 
-    // The mortality pipeline's pre-decided narrative directive for the
-    // player's death, if the final committed turn's mortalityTrace covers
-    // them (ai/core/mortality.ts) - absent when the run instead ended via an
-    // authored event choice, which never runs that pipeline. Per D4, this is
-    // the SAME text already handed to the (player-facing) narration call -
-    // nothing new leaks into the epilogue by reading it here.
-    const finalMortalityOutcomeSummary = useMemo(() => {
-        if (!playerCharacterId) return undefined;
-        const lastEntry = turnHistory.length > 0 ? turnHistory[turnHistory.length - 1] : null;
-        return lastEntry?.mortalityTrace?.find(ev => ev.entity_id === playerCharacterId && ev.valid)?.outcomeSummary;
-    }, [turnHistory, playerCharacterId]);
-
     // Perception layer (D5, Phase 2 item 2): the most recently committed
     // turn's ground-truth deltas, filtered down to what the player would
     // actually perceive. Recomputed from turnHistory itself (which already
@@ -1562,11 +1550,9 @@ const App: React.FC = () => {
                     <EpilogueScreen
                         player={playerEntity}
                         causeNarration={lastGmNarration}
-                        mortalityOutcomeSummary={finalMortalityOutcomeSummary}
                         turnHistory={turnHistory}
                         eventHistory={eventHistory}
                         metaNarrative={metaNarrative}
-                        inferredAmbition={inferredAmbition}
                         ai={ai}
                         isMockMode={isMockMode}
                     />

@@ -60,8 +60,7 @@ const MOCK_AMBITION_INFERENCE: AmbitionInference = {
  * Infers the player's APPARENT ambition (D8) from their recent chosen
  * actions and the public headlines those actions produced. Never asks the
  * player to declare a goal, and its output is never rendered on any
- * player-facing surface - only the GM console (GameMasterScreen) and the
- * epilogue (EpilogueScreen) may read it.
+ * player-facing surface. Only the GM console (GameMasterScreen) may read it.
  *
  * `ai` is typed as the narrow `GeminiClient` structural interface (rather
  * than `GoogleGenAI`, the convention elsewhere in ai/tools/*.ts) so a test

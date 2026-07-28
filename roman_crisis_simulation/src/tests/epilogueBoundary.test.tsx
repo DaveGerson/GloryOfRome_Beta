@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import EpilogueScreen from '../components/EpilogueScreen';
 import type { GeminiClient } from '../ai/core/geminiService';
-import type { Entity } from '../types';
+import type { Entity, TurnHistoryEntry } from '../types';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -74,19 +74,34 @@ function makeAi(response: string): {
 
 async function renderEpilogue(
   ai: GeminiClient,
-  apparentAmbition = 'To restore discipline and secure the frontier.',
+  legacyPrivateInputs: {
+    inferredAmbition: {
+      apparent_ambition: string;
+      confidence: 'low' | 'medium' | 'high';
+      asOfTurn: number;
+    } | null;
+    mortalityOutcomeSummary?: string;
+  } = { inferredAmbition: null },
+  publicHeadline?: string,
 ): Promise<void> {
+  const turnHistory = publicHeadline
+    ? [{
+        turnNumber: 4,
+        playerIntent: 'Defend the frontier.',
+        adjudication: { headlines: [publicHeadline] },
+      } as unknown as TurnHistoryEntry]
+    : [];
   await act(async () => {
     root!.render(
       <EpilogueScreen
         player={makePlayer()}
         causeNarration="He died defending Rome."
-        turnHistory={[]}
+        turnHistory={turnHistory}
         eventHistory={[]}
         metaNarrative="Rome watches the frontier."
-        inferredAmbition={{ apparent_ambition: apparentAmbition, confidence: 'medium', asOfTurn: 4 }}
         ai={ai}
         isMockMode={false}
+        {...legacyPrivateInputs}
       />,
     );
   });
@@ -113,30 +128,46 @@ describe('EpilogueScreen player-visible mechanics boundary', () => {
     expect(generateContent.mock.calls[0][0]).toMatchObject({ model: 'gemini-3-pro-preview' });
   });
 
-  it('never sends or renders a mechanics-bearing inferred ambition and uses the static fallback', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    const poison = 'Resolution tier: critical failure.';
-    const { ai, generateContent } = makeAi('A safe model epitaph.');
-
-    await renderEpilogue(ai, poison);
-
-    await waitFor(() => {
-      expect(container!.textContent).toContain("Severus Alexander's story ends here.");
-      expect(container!.textContent).toContain('Never became clear, even in hindsight.');
-    });
-    expect(container!.textContent).not.toContain(poison);
-    expect(generateContent).not.toHaveBeenCalled();
-  });
-
-  it('preserves the pro-model epilogue route and ambition display for safe text', async () => {
+  it('never sends or renders the GM-only inferred ambition while preserving public epilogue context', async () => {
+    const ambitionPoison = 'GM_AMBITION_POISON: seize the purple in secret.';
+    const publicHeadline = 'PUBLIC_HEADLINE: The Rhine frontier held.';
     const safeEpitaph = 'He held the frontier until Rome could hold it without him.';
-    const safeAmbition = 'To restore discipline and secure the frontier.';
     const { ai, generateContent } = makeAi(safeEpitaph);
 
-    await renderEpilogue(ai, safeAmbition);
+    await renderEpilogue(ai, {
+      inferredAmbition: {
+        apparent_ambition: ambitionPoison,
+        confidence: 'high',
+        asOfTurn: 4,
+      },
+    }, publicHeadline);
 
     await waitFor(() => expect(container!.textContent).toContain(safeEpitaph));
-    expect(container!.textContent).toContain(safeAmbition);
+    const request = JSON.stringify(generateContent.mock.calls[0][0]);
+    expect(request).toContain('He died defending Rome.');
+    expect(request).toContain(publicHeadline);
+    expect(request).not.toContain(ambitionPoison);
+    expect(container!.textContent).not.toContain(ambitionPoison);
+    expect(container!.textContent).not.toContain('Apparent ambition:');
+    expect(container!.textContent).toContain(publicHeadline);
+    expect(generateContent).toHaveBeenCalledTimes(1);
+  });
+
+  it('never sends or renders the GM-only mortality outcome summary while preserving cause narration', async () => {
+    const mortalityPoison = 'GM_MORTALITY_SUMMARY_POISON: internal death directive.';
+    const safeEpitaph = 'He held the frontier until Rome could hold it without him.';
+    const { ai, generateContent } = makeAi(safeEpitaph);
+
+    await renderEpilogue(ai, {
+      inferredAmbition: null,
+      mortalityOutcomeSummary: mortalityPoison,
+    });
+
+    await waitFor(() => expect(container!.textContent).toContain(safeEpitaph));
+    const request = JSON.stringify(generateContent.mock.calls[0][0]);
+    expect(request).toContain('He died defending Rome.');
+    expect(request).not.toContain(mortalityPoison);
+    expect(container!.textContent).not.toContain(mortalityPoison);
     expect(generateContent).toHaveBeenCalledTimes(1);
     expect(generateContent.mock.calls[0][0]).toMatchObject({ model: 'gemini-3-pro-preview' });
   });
