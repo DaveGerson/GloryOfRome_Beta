@@ -91,7 +91,16 @@ const MOCK_ADJUDICATION: Adjudication = {
       id: "severus_alexander",
       intent: "appease_troops",
       target: "praetorian_guard",
-      notes: "The Emperor attempts to shore up support with the Praetorians by promising a donative.",
+      // Names the actor by proper name, not by title (E2): "the Emperor" as
+      // acting subject collides with ANY test player who happens to hold
+      // that title (e.g. a fixture whose default position is 'Emperor'),
+      // making this canned prose read as inventing THEIR conduct on a
+      // no-attempt turn. Severus Alexander is precisely who this
+      // entityAction is about; naming him removes the accidental title
+      // collision without weakening the boundary - a REAL adjudicator still
+      // fails closed if it emits "the Emperor attempts..." while the actual
+      // player holds that title (see ai/core/playerBoundary.ts).
+      notes: "Severus Alexander attempts to shore up support with the Praetorians by promising a donative.",
     },
   ],
   deltas: [
@@ -276,19 +285,42 @@ export const mockInitiateWorld = async (metaNarrative: string, playerCharacterDe
 
 /**
  * What a boundary-compliant provider returns on a no-attempt turn: the same
- * world-driven canned content minus everything that authors the standard
- * scenario's player (severus_alexander / 'Emperor'). The exported real-path
- * gates below then VERIFY it, exactly as ai/core/turn.ts verifies model
- * output - so a player identity the canned world content does author
- * (e.g. gaius_pontius_magnus's status delta) still throws, in parity with
- * the real pipeline.
+ * world-driven canned content minus everything the canned content authors
+ * for the ACTUAL `playerEntity` of this call. The exported real-path gates
+ * below then VERIFY it, exactly as ai/core/turn.ts verifies model output -
+ * so a player identity the canned world content does still author outside
+ * these three surfaces (e.g. gaius_pontius_magnus's STATUS delta, which is
+ * neither an entityAction nor a relation delta) still throws downstream, in
+ * parity with the real pipeline.
+ *
+ * PLAYER-RELATIVE, not hardcoded: an earlier version of this filter matched
+ * the literal string 'severus_alexander' (the standard scenario's player),
+ * which incorrectly stripped legitimate third-party NPC activity whenever a
+ * DIFFERENT entity was playing - severus_alexander's canned entityAction is
+ * ordinary world activity from some other player's perspective, and the
+ * real boundary never invents-or-erases conduct for anyone but the actual
+ * player, so neither should this projection. entityActions/relation deltas
+ * are filtered by direct entity_id comparison (playerBoundary.ts does not
+ * export its richer identity-alias comparator); headlines are filtered by
+ * running the same exported `assertNoInventedPlayerVisibleAction` gate
+ * per-headline in a try/catch, since no narrower prose-attribution
+ * predicate is exported either - this keeps exactly one definition of
+ * "player-attributed prose" in the codebase (playerBoundary.ts's), rather
+ * than a second, driftable copy here.
  */
-function projectMockAdjudicationForNoAttempt(adjudication: Adjudication): Adjudication {
+function projectMockAdjudicationForNoAttempt(adjudication: Adjudication, playerEntity: Entity): Adjudication {
   return {
     ...adjudication,
-    entityActions: adjudication.entityActions.filter(action => action.id !== 'severus_alexander'),
-    deltas: adjudication.deltas.filter(delta => !(delta.type === 'relation' && delta.key.startsWith('severus_alexander:'))),
-    headlines: adjudication.headlines.filter(headline => headline !== 'Emperor promises bonus to Praetorian Guard.'),
+    entityActions: adjudication.entityActions.filter(action => action.id !== playerEntity.entity_id),
+    deltas: adjudication.deltas.filter(delta => !(delta.type === 'relation' && delta.key.split(':')[0] === playerEntity.entity_id)),
+    headlines: adjudication.headlines.filter(headline => {
+      try {
+        assertNoInventedPlayerVisibleAction(headline, playerEntity, false);
+        return true;
+      } catch {
+        return false;
+      }
+    }),
   };
 }
 
@@ -395,7 +427,7 @@ export const mockRunNewTurn = async (
     // gaius_pontius_magnus's status delta) still throws in parity with the
     // real pipeline.
     const hasObservableAttempt = observableAttempt !== null;
-    const gatedAdjudication = hasObservableAttempt ? adjudication : projectMockAdjudicationForNoAttempt(adjudication);
+    const gatedAdjudication = hasObservableAttempt ? adjudication : projectMockAdjudicationForNoAttempt(adjudication, playerEntity);
     assertNoInventedPlayerAction(gatedAdjudication, playerEntity, hasObservableAttempt);
     assertPlayerVisibleAdjudicationSafe(gatedAdjudication);
 
