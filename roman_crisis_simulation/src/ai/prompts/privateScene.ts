@@ -4,6 +4,7 @@ import {
   PRIVATE_SCENE_MAX_UTTERANCE_CHARS,
   type PrivateSceneSpeaker,
 } from '../../privateScene/model';
+import { asPromptData } from './fragments';
 
 export const PRIVATE_SCENE_MAX_CONTEXT_ITEMS = 8;
 export const PRIVATE_SCENE_MAX_TRANSCRIPT_LINES = PRIVATE_SCENE_MAX_NPC_RESPONSES * 2;
@@ -96,7 +97,7 @@ ownSecrets is the NPC's private knowledge: revealing any of it is legal only as 
   const prompt = `Continue the current private scene from this bounded context.
 
 PRIVATE SCENE CONTEXT
-${JSON.stringify({
+${asPromptData({
     phase,
     exchange,
     npc: {
@@ -118,7 +119,7 @@ ${JSON.stringify({
       position: playerPosition,
     },
     transcript,
-  }, null, 2)}
+  }, 2)}
 
 If phase is invitation, choose refused only when the NPC declines to converse; otherwise continue or end. During an exchange, never choose refused; choose ends only when the NPC ends the conversation, otherwise continue. Emit the NPC's next utterance, only the material NPC speech acts for exchange ${exchange}, and the NPC's private interpretation and intended follow-through.`;
 

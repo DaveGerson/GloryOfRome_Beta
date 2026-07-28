@@ -287,7 +287,13 @@ const POSSESSED_PHRASE_SUBORDINATORS = new Set(['as', 'while', 'when', 'because'
 function possessedPhrasePredicate(phrase: string): string {
   const allWords = phrase.split(/\s+/u).filter(Boolean);
   const cut = allWords.findIndex(word => POSSESSED_PHRASE_SUBORDINATORS.has(word));
-  const words = cut === -1 ? allWords : allWords.slice(0, cut);
+  // A subordinator as the HEAD word (cut === 0) marks no classifiable first
+  // clause - truncating there would erase the whole phrase and read an
+  // unknown predicate as inert, inverting the fail-closed contract. Natural
+  // prose reaches this because wordNormalized turns hyphens into spaces
+  // ("your as-yet-unnamed heir seizes ..."), so the full phrase is
+  // classified instead, exactly as before the truncation existed.
+  const words = cut <= 0 ? allWords : allWords.slice(0, cut);
   if (words.length === 0) return '';
   if (words.length === 1) return POSSESSED_VERBAL_REMNANT.test(words[0]) ? words[0] : '';
   for (let index = 1; index < words.length; index += 1) {
