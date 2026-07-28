@@ -11,10 +11,20 @@ import { describe, it, expect } from 'vitest';
 import { mockRunNewTurn } from '../ai/mocks';
 import { getMockInitialState } from './mockData';
 import { INITIAL_SIMULATION_STATE, ALL_INITIAL_ENTITIES } from '../constants/baseScenario';
+import { playerOwnsDelta, samePlayerIdentity } from '../ai/core/playerBoundary';
 import { Entity, TurnSubmission } from '../types';
 
 const freeform = (text: string): TurnSubmission => ({ version: 1, kind: 'freeform', text });
 const questionOnly = (q: string): TurnSubmission => ({ version: 1, kind: 'structured', questionOrContext: q });
+const privateIntentOnly = (intent: string): TurnSubmission => ({ version: 1, kind: 'structured', privateIntent: intent });
+
+/** Every character components/CharacterSelection.tsx offers. */
+const PLAYABLE_PRESET_IDS = [
+  'severus_alexander',
+  'maximinus_thrax',
+  'gaius_pontius_magnus',
+  'lycinia_stolo',
+] as const;
 
 const run = (submission: TurnSubmission | string, player: Entity, entities: Entity[], sim = INITIAL_SIMULATION_STATE) =>
   mockRunNewTurn(submission, player, 1, entities, getMockInitialState().worldState, [], '', 'A crisis.', structuredClone(sim), [], []);
@@ -40,13 +50,61 @@ describe('mockRunNewTurn / real-pipeline boundary parity (E2)', () => {
     expect(result.playerMonologue).toBe('');
   });
 
-  it("a no-attempt mock turn whose canned adjudication authors the player's conduct throws the real boundary error", async () => {
-    const entities = getMockInitialState().entities;
-    const player = findEntity(entities, 'gaius_pontius_magnus');
+  // C1 (shipping blocker): projectMockAdjudicationForNoAttempt filtered an
+  // ENUMERATION of surfaces (entityActions by id, 'relation' deltas by key
+  // root, headlines) and missed three more the canned MOCK_ADJUDICATION
+  // authors - a 'resource' delta keyed maximinus_thrax, a 'status' delta keyed
+  // gaius_pontius_magnus, and remove_entities: ['lycinia_stolo']. Since
+  // playerOwnsDelta matches on the key root for EVERY delta type and
+  // valueRemovesPlayer matches remove_entities, every no-attempt turn threw
+  // for three of the four shipped presets. Mock Mode is a production-visible
+  // toggle (components/Header.tsx), so this was user-reachable and
+  // deterministic - retry never succeeded. The projection now enforces the
+  // INVARIANT (remove everything the actual player owns, on every surface the
+  // structural gates examine) rather than a list of surfaces.
+  it.each(PLAYABLE_PRESET_IDS)('a no-attempt mock turn commits for preset %s', async entityId => {
+    // ALL_INITIAL_ENTITIES is the SHIPPED roster components/CharacterSelection.tsx
+    // draws from; tests/mockData.ts's fixture holds only three of the four.
+    const entities = ALL_INITIAL_ENTITIES;
+    const player = findEntity(entities, entityId);
 
-    await expect(run(questionOnly('What is whispered in the Curia?'), player, entities))
-      .rejects.toThrow('AI output violated the player action boundary.');
+    const question = await run(questionOnly('What is whispered in the Curia?'), player, entities);
+    expect(question.newHistoryEntry.turnNumber).toBe(1);
+
+    const privateIntent = await run(privateIntentOnly('Weigh my options in silence.'), player, entities);
+    expect(privateIntent.newHistoryEntry.turnNumber).toBe(1);
   });
+
+  it.each(PLAYABLE_PRESET_IDS)('a no-attempt mock turn owns nothing of preset %s', async entityId => {
+    const entities = ALL_INITIAL_ENTITIES;
+    const player = findEntity(entities, entityId);
+
+    const { newHistoryEntry } = await run(questionOnly('What is whispered in the Curia?'), player, entities);
+    const { adjudication } = newHistoryEntry;
+
+    // Asserted through playerBoundary.ts's OWN ownership predicate, not a
+    // restatement of it: the invariant is "owns nothing", and the carve-outs
+    // the predicate encodes (an NPC-authored rumor keyed under the player, a
+    // world-driven dependency_level rise) are legitimately still present.
+    expect(adjudication.entityActions.some(action => samePlayerIdentity(action.id, player))).toBe(false);
+    expect(adjudication.deltas.some(delta => playerOwnsDelta(delta, player))).toBe(false);
+    expect((adjudication.remove_entities ?? []).some(id => samePlayerIdentity(id, player))).toBe(false);
+  });
+
+  // The gate-wiring lever, rebuilt from INJECTED content so it no longer
+  // depends on which preset is playing: a structural violation the mock cannot
+  // project away (the player named in a simulation-state remove_entities).
+  it.each(PLAYABLE_PRESET_IDS)(
+    'the real structural gate still fires in mock mode for preset %s',
+    async entityId => {
+      const entities = ALL_INITIAL_ENTITIES;
+      const player = findEntity(entities, entityId);
+      const sim = { ...INITIAL_SIMULATION_STATE, remove_entities: [entityId] } as unknown as typeof INITIAL_SIMULATION_STATE;
+
+      await expect(run(questionOnly('What do the wardens report?'), player, entities, sim))
+        .rejects.toThrow('AI output violated the player action boundary.');
+    },
+  );
 
   it('the gates stay open on an observable attempt (parity with the real short-circuit)', async () => {
     const entities = getMockInitialState().entities;
@@ -57,14 +115,25 @@ describe('mockRunNewTurn / real-pipeline boundary parity (E2)', () => {
     expect(result.newHistoryEntry.adjudication.entityActions.some(action => action.id === 'severus_alexander')).toBe(true);
   });
 
-  it('a no-attempt turn rejects player-attributed prose in the simulation state (visible-action gate parity)', async () => {
-    const entities = getMockInitialState().entities;
-    const player = findEntity(entities, 'severus_alexander');
-    const sim = { ...INITIAL_SIMULATION_STATE, major_ongoing_crisis: 'The Emperor marches on the Praetorian camp.' };
+  // CHANGED (prose/structural split): player-attributed PROSE on a
+  // player-visible surface is a narrative blemish, not a mechanical violation.
+  // The mock runs the same redact-or-throw wiring as ai/core/turn.ts, so the
+  // crisis text is scrubbed and the turn commits instead of failing.
+  it.each(PLAYABLE_PRESET_IDS)(
+    'a no-attempt turn redacts player-attributed simulation-state prose for preset %s',
+    async entityId => {
+      const entities = ALL_INITIAL_ENTITIES;
+      const player = findEntity(entities, entityId);
+      const invented = `${player.name} marches on the Praetorian camp.`;
+      const sim = { ...INITIAL_SIMULATION_STATE, major_ongoing_crisis: invented };
 
-    await expect(run(questionOnly('What do the wardens report?'), player, entities, sim))
-      .rejects.toThrow('AI output violated the player action boundary.');
-  });
+      const result = await run(questionOnly('What do the wardens report?'), player, entities, sim);
+
+      expect(result.updatedSimulationState.major_ongoing_crisis).not.toContain('marches');
+      expect(result.newHistoryEntry.adjudication.gm_private.some(note =>
+        note.startsWith('[Boundary]') && note.includes(invented))).toBe(true);
+    },
+  );
 
   it('phantom spotlight intents for entities absent from the roster are dropped (selectDurableIntents parity)', async () => {
     const entities = getMockInitialState().entities;

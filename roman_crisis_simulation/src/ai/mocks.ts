@@ -7,7 +7,17 @@ import { MAX_MINDS_PER_TURN } from './prompts/npcMind';
 import { normalizeTurnSubmissionInput, projectForNoAttemptResponse, projectForPlayerReflection, projectForResolution, serializeTurnSubmission } from '../playerInput/turnSubmission';
 import type { PrivateSceneAdjudicatorProjection, PrivateSceneModelResponse, PrivateSceneNpcMemoryProjection } from '../privateScene/model';
 import type { PrivateScenePromptInput } from './prompts/privateScene';
-import { assertNoInventedPlayerAction, assertNoInventedPlayerVisibleAction, assertPlayerVisibleAdjudicationSafe } from './core/playerBoundary';
+import {
+  assertNoInventedPlayerAction,
+  assertNoPlayerRemoval,
+  assertPlayerVisibleAdjudicationSafe,
+  containsInventedPlayerProse,
+  playerOwnsDelta,
+  playerProseRedactionNotes,
+  redactInventedPlayerProse,
+  redactInventedPlayerProseFromValue,
+  samePlayerIdentity,
+} from './core/playerBoundary';
 import { selectDurableIntents } from './core/directorIntents';
 
 /** Deterministic, provider-free private-scene fixture for local play and tests. */
@@ -287,40 +297,38 @@ export const mockInitiateWorld = async (metaNarrative: string, playerCharacterDe
  * What a boundary-compliant provider returns on a no-attempt turn: the same
  * world-driven canned content minus everything the canned content authors
  * for the ACTUAL `playerEntity` of this call. The exported real-path gates
- * below then VERIFY it, exactly as ai/core/turn.ts verifies model output -
- * so a player identity the canned world content does still author outside
- * these three surfaces (e.g. gaius_pontius_magnus's STATUS delta, which is
- * neither an entityAction nor a relation delta) still throws downstream, in
- * parity with the real pipeline.
+ * below then VERIFY it, exactly as ai/core/turn.ts verifies model output.
  *
- * PLAYER-RELATIVE, not hardcoded: an earlier version of this filter matched
- * the literal string 'severus_alexander' (the standard scenario's player),
- * which incorrectly stripped legitimate third-party NPC activity whenever a
- * DIFFERENT entity was playing - severus_alexander's canned entityAction is
- * ordinary world activity from some other player's perspective, and the
- * real boundary never invents-or-erases conduct for anyone but the actual
- * player, so neither should this projection. entityActions/relation deltas
- * are filtered by direct entity_id comparison (playerBoundary.ts does not
- * export its richer identity-alias comparator); headlines are filtered by
- * running the same exported `assertNoInventedPlayerVisibleAction` gate
- * per-headline in a try/catch, since no narrower prose-attribution
- * predicate is exported either - this keeps exactly one definition of
- * "player-attributed prose" in the codebase (playerBoundary.ts's), rather
- * than a second, driftable copy here.
+ * PLAYER-RELATIVE, not hardcoded: an earlier version matched the literal
+ * string 'severus_alexander' (the standard scenario's player), which stripped
+ * legitimate third-party NPC activity whenever a DIFFERENT entity was
+ * playing - severus_alexander's canned entityAction is ordinary world
+ * activity from some other player's perspective.
+ *
+ * THE CONTRACT IS AN INVARIANT, NOT A LIST OF SURFACES: remove everything the
+ * actual player OWNS, on every surface the structural gates examine. An
+ * earlier version enumerated three surfaces (entityActions by id, 'relation'
+ * deltas by key root, headlines) and missed three more the canned
+ * MOCK_ADJUDICATION authors - a 'resource' delta keyed maximinus_thrax, a
+ * 'status' delta keyed gaius_pontius_magnus, and
+ * `remove_entities: ['lycinia_stolo']`. Because `playerOwnsDelta` matches the
+ * key root for EVERY delta type and `valueRemovesPlayer` matches
+ * `remove_entities`, every no-attempt turn threw for three of the four shipped
+ * presets; Mock Mode is a production-visible toggle (components/Header.tsx),
+ * so that was user-reachable and deterministic.
+ *
+ * Ownership is decided by playerBoundary.ts's OWN exported predicates
+ * (`playerOwnsDelta`, `samePlayerIdentity`, `containsInventedPlayerProse`),
+ * never a local copy - a second definition here is precisely how the
+ * projection and the gate came to disagree.
  */
 function projectMockAdjudicationForNoAttempt(adjudication: Adjudication, playerEntity: Entity): Adjudication {
   return {
     ...adjudication,
-    entityActions: adjudication.entityActions.filter(action => action.id !== playerEntity.entity_id),
-    deltas: adjudication.deltas.filter(delta => !(delta.type === 'relation' && delta.key.split(':')[0] === playerEntity.entity_id)),
-    headlines: adjudication.headlines.filter(headline => {
-      try {
-        assertNoInventedPlayerVisibleAction(headline, playerEntity, false);
-        return true;
-      } catch {
-        return false;
-      }
-    }),
+    entityActions: adjudication.entityActions.filter(action => !samePlayerIdentity(action.id, playerEntity)),
+    deltas: adjudication.deltas.filter(delta => !playerOwnsDelta(delta, playerEntity)),
+    headlines: adjudication.headlines.filter(headline => !containsInventedPlayerProse(headline, playerEntity)),
+    remove_entities: adjudication.remove_entities?.filter(id => !samePlayerIdentity(id, playerEntity)),
   };
 }
 
@@ -428,7 +436,12 @@ export const mockRunNewTurn = async (
     // real pipeline.
     const hasObservableAttempt = observableAttempt !== null;
     const gatedAdjudication = hasObservableAttempt ? adjudication : projectMockAdjudicationForNoAttempt(adjudication, playerEntity);
+    // Same consequence split as ai/core/turn.ts::enforceNoAttemptBoundary:
+    // structural violations throw, prose is redacted and recorded GM-side.
     assertNoInventedPlayerAction(gatedAdjudication, playerEntity, hasObservableAttempt);
+    gatedAdjudication.gm_private.push(...playerProseRedactionNotes(
+        redactInventedPlayerProse(gatedAdjudication, playerEntity, hasObservableAttempt),
+    ));
     assertPlayerVisibleAdjudicationSafe(gatedAdjudication);
 
     // Same perception context the real pipeline passes (ai/core/turn.ts):
@@ -469,39 +482,51 @@ export const mockRunNewTurn = async (
     // phantom intent.
     const durableIntents = selectDurableIntents(storyRelevance, currentEntities);
 
+    // Visible-surface gates (E2): the same redact-or-throw wiring the real
+    // pipeline runs on updatedSimulationState/narration/playerMonologue
+    // (ai/core/turn.ts) - a removal claim naming the player throws, prose is
+    // redacted and recorded GM-side. Deliberately excluded:
+    // assertPlayerVisibleTextSafe/assertPlayerVisibleValueSafe on narration/
+    // monologue, because mock narration embeds the player's own echoed
+    // submission text rather than provider output; the mechanics boundary is
+    // covered on the adjudication via assertPlayerVisibleAdjudicationSafe above.
+    for (const value of [currentSimulationState, narration, playerMonologue]) {
+        assertNoPlayerRemoval(value, playerEntity, hasObservableAttempt);
+    }
+    const simulationRedaction = redactInventedPlayerProseFromValue(
+        currentSimulationState, playerEntity, hasObservableAttempt, 'simulationState');
+    const narrationRedaction = redactInventedPlayerProseFromValue(
+        narration, playerEntity, hasObservableAttempt, 'narration');
+    const monologueRedaction = redactInventedPlayerProseFromValue(
+        playerMonologue, playerEntity, hasObservableAttempt, 'monologue');
+    gatedAdjudication.gm_private.push(...playerProseRedactionNotes([
+        ...simulationRedaction.redactions,
+        ...narrationRedaction.redactions,
+        ...monologueRedaction.redactions,
+    ]));
+
     const newHistoryEntry: TurnHistoryEntry = {
         turnNumber,
         playerIntent,
         adjudication: gatedAdjudication,
-        narration,
+        narration: narrationRedaction.value,
         postTurnEntities: updatedEntities,
         perceivingNpcIds,
         npcIntents: durableIntents.length > 0 ? durableIntents : undefined,
         npcMindResults: mindDecisions.length > 0 ? mindDecisions : undefined,
     };
 
-    // Visible-surface gates (E2): the same three assertNoInventedPlayerVisibleAction
-    // calls the real pipeline runs on updatedSimulationState/narration/
-    // playerMonologue (ai/core/turn.ts). Deliberately excluded:
-    // assertPlayerVisibleTextSafe/assertPlayerVisibleValueSafe on narration/
-    // monologue, because mock narration embeds the player's own echoed
-    // submission text rather than provider output; the mechanics boundary is
-    // covered on the adjudication via assertPlayerVisibleAdjudicationSafe above.
-    assertNoInventedPlayerVisibleAction(currentSimulationState, playerEntity, hasObservableAttempt);
-    assertNoInventedPlayerVisibleAction(narration, playerEntity, hasObservableAttempt);
-    assertNoInventedPlayerVisibleAction(playerMonologue, playerEntity, hasObservableAttempt);
-
     return {
         updatedEntities,
         updatedWorldState,
-        updatedSimulationState: currentSimulationState,
+        updatedSimulationState: simulationRedaction.value,
         updatedReports,
         updatedTruthLedger,
         updatedNpcIntents: durableIntents,
-        narration,
+        narration: narrationRedaction.value,
         headlines: gatedAdjudication.headlines,
         suggestedActions,
-        playerMonologue,
+        playerMonologue: monologueRedaction.value,
         newHistoryEntry,
     };
 };

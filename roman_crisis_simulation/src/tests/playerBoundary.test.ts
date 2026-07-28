@@ -234,9 +234,6 @@ describe('no-attempt player ownership boundary', () => {
     ['normalized player origin', {
       type: 'rumor', key: 'npc_a', delta: 0.6, reason: 'A claim spreads.', is_true: false, origin_id: 'PLAYER-1', topic: 'loyalty',
     }],
-    ['player-attributed prose with omitted origin', {
-      type: 'rumor', key: 'npc_a', delta: 0.6, reason: 'At dawn Gaius Testus spreads a claim.', is_true: false, topic: 'loyalty',
-    }],
   ] satisfies Array<[string, Adjudication['deltas'][number]]>)(
     'rejects a no-attempt rumor with %s',
     (_label, delta) => {
@@ -303,6 +300,25 @@ describe('no-attempt player ownership boundary', () => {
         .toThrow('player action boundary');
     },
   );
+
+  // CHANGED (prose/structural split): a rumor whose ORIGIN is not the player
+  // carries no player-owned mechanical change - only its `reason` prose reads
+  // as the player acting. That is a narrative blemish, redacted from the
+  // player-visible surface rather than failing the turn; see
+  // tests/playerProseRedaction.test.ts for the redaction contract.
+  it('no longer fails the turn on a non-player-originated rumor whose prose reads as the player acting', () => {
+    const adjudication: Adjudication = {
+      turn: 7,
+      entityActions: [],
+      deltas: [{
+        type: 'rumor', key: 'npc_a', delta: 0.6, reason: 'At dawn Gaius Testus spreads a claim.', is_true: false, topic: 'loyalty',
+      }],
+      headlines: ['A claim spreads.'],
+      gm_private: [],
+    };
+
+    expect(() => assertNoInventedPlayerAction(adjudication, player, false)).not.toThrow();
+  });
 
   it('still rejects a no-attempt entityAction bearing the player id', () => {
     const adjudication: Adjudication = {
