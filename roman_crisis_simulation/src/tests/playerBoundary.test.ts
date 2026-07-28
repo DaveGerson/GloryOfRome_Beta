@@ -395,6 +395,25 @@ describe('no-attempt title-collision prose boundary', () => {
     expect(() => assertNoInventedPlayerVisibleAction(prose, emperorPlayer, false)).not.toThrow();
   });
 
+  // Subordinator-at-index-0: when the possessed phrase's HEAD word is a
+  // subordinator (natural prose reaches this because wordNormalized turns
+  // hyphens into spaces: "as-yet-unnamed" -> "as yet unnamed"), truncating
+  // at it erases the entire phrase, and an empty phrase must not read as
+  // inert - that would turn an unknown predicate into a pass, inverting the
+  // helper's fail-closed contract. Each row was rejected before the
+  // subordinator truncation existed and must stay rejected.
+  it.each([
+    'Your as-yet-unnamed heir seizes the treasury.',
+    'Your though-battered cohorts storm the gate.',
+    'Your while-you-slept agents poison the wine.',
+    'Your although-loyal guards murder the consul.',
+    'Your because-of-Rome legions sack the city.',
+    'Gaius Testus\'s as-yet-unknown agents burn the granary.',
+  ])('rejects a subordinator-headed possessed phrase concealing a player action: %s', prose => {
+    expect(() => assertNoInventedPlayerVisibleAction(prose, emperorPlayer, false))
+      .toThrow('player action boundary');
+  });
+
   it.each([
     'Your health fails.',
     'Your scheme collapses.',
