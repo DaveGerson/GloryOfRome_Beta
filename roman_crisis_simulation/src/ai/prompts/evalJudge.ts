@@ -23,6 +23,7 @@
  */
 
 import { Adjudication, MortalityEvent, NpcIntent, NpcMindDecision } from '../../types';
+import { asPromptData } from './fragments';
 
 export interface EvalJudgePromptInput {
   turnNumber: number;
@@ -64,7 +65,18 @@ TASK: Score the turn on EXACTLY these five axes, each as an integer from 1 (wors
 OUTPUT: A single JSON object with exactly those five keys, each an object of the form {"score": <integer 1-5>, "rationale": "<short justification>"}. Do not include any explanatory text or markdown.
 `;
 
-/** Builds the { systemInstruction, prompt } pair for the offline eval judge call. */
+/**
+ * Builds the { systemInstruction, prompt } pair for the offline eval judge
+ * call. `playerIntent` reaches here as the corpus's own captured player
+ * text; every field below is delimited via `asPromptData` (D2) rather than
+ * bare `JSON.stringify` - `playerIntent` in particular was previously
+ * interpolated inside bare literal quotes with NO escaping at all, so an
+ * embedded quote could break out of the "PLAYER'S ACTION THIS TURN" quoting
+ * outright, on top of the usual U+2028/U+2029/U+0085 line-forgery risk. This
+ * call is offline eval-harness tooling only (never runs from app code or the
+ * normal test suite), so the leverage is low, but it is closed for
+ * consistency with every other prompt-text interpolation in this codebase.
+ */
 export function buildEvalJudgePrompt(input: EvalJudgePromptInput): { systemInstruction: string; prompt: string } {
   const { turnNumber, playerIntent, adjudication, narration, mortalityTrace, npcIntents, npcMindResults } = input;
 
@@ -72,7 +84,7 @@ export function buildEvalJudgePrompt(input: EvalJudgePromptInput): { systemInstr
 TURN UNDER REVIEW: ${turnNumber}
 
 PLAYER'S ACTION THIS TURN:
-"${playerIntent}"
+${asPromptData(playerIntent)}
 
 PLAYER-FACING NARRATION:
 ${narration ?? '(none captured)'}
@@ -81,16 +93,16 @@ PLAYER-FACING HEADLINES:
 ${adjudication.headlines.length > 0 ? adjudication.headlines.map(h => `- ${h}`).join('\n') : '(none)'}
 
 FULL ADJUDICATION (GM-side structured output, gm_private included - the player never sees this object):
-${JSON.stringify(adjudication, null, 2)}
+${asPromptData(adjudication, 2)}
 
 GM-PRIVATE MORTALITY TRACE:
-${mortalityTrace && mortalityTrace.length > 0 ? JSON.stringify(mortalityTrace, null, 2) : '(no death claims this turn)'}
+${mortalityTrace && mortalityTrace.length > 0 ? asPromptData(mortalityTrace, 2) : '(no death claims this turn)'}
 
 GM-PRIVATE DIRECTOR INTENTS (each is fed to that character's mind verbatim as its own thought - score axes 4 and 5 against them):
-${npcIntents && npcIntents.length > 0 ? JSON.stringify(npcIntents, null, 2) : '(no spotlight intents this turn)'}
+${npcIntents && npcIntents.length > 0 ? asPromptData(npcIntents, 2) : '(no spotlight intents this turn)'}
 
 GM-PRIVATE NPC MIND DECISIONS (each character's own bounded-knowledge decision this turn, private_reasoning included - the substance axes 4 and 5 judge):
-${npcMindResults && npcMindResults.length > 0 ? JSON.stringify(npcMindResults, null, 2) : '(no NPC minds ran this turn)'}
+${npcMindResults && npcMindResults.length > 0 ? asPromptData(npcMindResults, 2) : '(no NPC minds ran this turn)'}
 `;
 
   return { systemInstruction: EVAL_JUDGE_SYSTEM_INSTRUCTION, prompt };
