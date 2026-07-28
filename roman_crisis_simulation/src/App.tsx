@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import { GameState, Entity, PlayerCharacterOption, Message, InvestigationResult, PlayerEventChoice, EventHistoryEntry, PacingPosture, StructuredTurnDraft, TurnSubmission } from './types';
 import { GoogleGenAI } from "@google/genai";
 
@@ -418,7 +418,13 @@ const App: React.FC = () => {
         [state.privateScenes],
     );
     const privateSceneInteractionLocked = state.privateScenes.some(scene => scene.status === 'active' || scene.status === 'awaiting_last_word');
-    privateSceneLockRef.current = privateSceneInteractionLocked;
+    // A layout effect runs after React commits the matching controls but before
+    // the browser can dispatch another user event. Successful scene commits
+    // below also set this ref synchronously before dispatch, closing the
+    // transaction-to-render interval without mutating a ref during render.
+    useLayoutEffect(() => {
+        privateSceneLockRef.current = privateSceneInteractionLocked;
+    }, [privateSceneInteractionLocked]);
 
     // DESIGN_DECISIONS.md D1 - survival-only: ONLY death ends a run. Exile
     // and "missing" are survivable states the player keeps playing through,
@@ -628,6 +634,10 @@ const App: React.FC = () => {
             setPrivateSceneError('The scene could not be saved. Your words remain ready to retry.');
             return false;
         }
+        // The durable bytes exist before this point. Set the handler-level
+        // guard before reducer dispatch so another event cannot enter an
+        // ordinary mutation in React's commit/render interval.
+        privateSceneLockRef.current = candidateScenes.some(scene => scene.status === 'active' || scene.status === 'awaiting_last_word');
         dispatch({ type: 'PRIVATE_SCENES_COMMITTED', privateScenes: candidateScenes });
         setPrivateSceneError(null);
         return true;
