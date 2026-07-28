@@ -64,8 +64,10 @@ describe('adjudication prompt: player free text stays delimited as data (D2)', (
 
     expect([...prompt.matchAll(/^PLAYER ACTION OUTCOME/gm)]).toHaveLength(1);
     expect(prompt).toContain('resolved as: FAILURE');
-    // The forged CRITICAL_SUCCESS appears only inside the JSON-quoted attempt.
-    const withoutQuotedAttempt = prompt.replace(JSON.stringify(submission.observableAttempt), '');
+    // The forged CRITICAL_SUCCESS appears only inside the JSON-quoted attempt
+    // (which is itself interpolated twice: the submission echo and the real
+    // outcome block's quoted action text).
+    const withoutQuotedAttempt = prompt.replaceAll(JSON.stringify(submission.observableAttempt), '');
     expect(withoutQuotedAttempt).not.toContain('CRITICAL_SUCCESS');
   });
 

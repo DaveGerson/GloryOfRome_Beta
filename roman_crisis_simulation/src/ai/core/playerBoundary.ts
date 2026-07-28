@@ -253,6 +253,8 @@ const POSSESSED_CONDITION_PREDICATE = new RegExp(`^(?:${[
   'withers?', 'withered', 'dwindles?', 'dwindled', 'wavers?', 'wavered',
   'falls?', 'fell', 'rises?', 'rose', 'endures?', 'endured',
   'persists?', 'persisted', 'holds?', 'held',
+  'fails?', 'failed', 'collapses?', 'collapsed', 'declines?', 'declined',
+  'suffers?', 'suffered', 'shatters?', 'shattered',
 ].join('|')})(?:\\s+(?:[\\p{L}]+ly|further|still|apace|again|anew|by|with|within|under|in|on|over|amid|among|across|despite|after|before|as|while|through|toward|towards|at)\\b[\\p{L}\\p{N}\\s]*)?$`, 'u');
 
 /**
@@ -272,8 +274,20 @@ const POSSESSED_VERBAL_REMNANT = /^(?:[\p{L}]+(?:ing|ed|en|wn)|sent|made|done|he
  * offending predicate: a possessive player agent with an unknown predicate
  * fails closed.
  */
+/**
+ * Subordinate-clause markers. A possessed phrase is classified by its FIRST
+ * clause only: "Your agents burn the granary as the resistance weakens."
+ * must not let the trailing condition clause launder the head's action into
+ * an inert circumstance. Comma-separated subordinate clauses are already
+ * split off upstream (containsPlayerAttributedAction's part split); this
+ * covers the comma-less form.
+ */
+const POSSESSED_PHRASE_SUBORDINATORS = new Set(['as', 'while', 'when', 'because', 'though', 'although']);
+
 function possessedPhrasePredicate(phrase: string): string {
-  const words = phrase.split(/\s+/u).filter(Boolean);
+  const allWords = phrase.split(/\s+/u).filter(Boolean);
+  const cut = allWords.findIndex(word => POSSESSED_PHRASE_SUBORDINATORS.has(word));
+  const words = cut === -1 ? allWords : allWords.slice(0, cut);
   if (words.length === 0) return '';
   if (words.length === 1) return POSSESSED_VERBAL_REMNANT.test(words[0]) ? words[0] : '';
   for (let index = 1; index < words.length; index += 1) {
