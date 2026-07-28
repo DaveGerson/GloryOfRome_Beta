@@ -4,7 +4,7 @@ import React, { act, useLayoutEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import App from '../App';
 import { GameProvider, useGame } from '../state/GameContext';
-import { createInitialGameState, type GameAction } from '../state/gameReducer';
+import { createInitialGameState, type GameAction, type GameDomainState } from '../state/gameReducer';
 import { loadGame, saveGame, type SaveGameState } from '../persistence/saveGame';
 import type { PrivateSceneModelResponse, PrivateSceneRecord } from '../privateScene/model';
 import * as sceneTool from '../ai/tools/privateScene';
@@ -36,17 +36,20 @@ const defaultRunNewTurn = mockRunNewTurn.getMockImplementation()!;
 const mounted: Array<{ root: Root; container: HTMLDivElement }> = [];
 let dispatchGame: React.Dispatch<GameAction> | null = null;
 let livePrivateScenes: PrivateSceneRecord[] | null = null;
+let liveGameState: GameDomainState | null = null;
 
 const DispatchCaptor: React.FC = () => {
   const { state, dispatch } = useGame();
   useLayoutEffect(() => {
     dispatchGame = dispatch;
     livePrivateScenes = state.privateScenes;
+    liveGameState = state;
     return () => {
       dispatchGame = null;
       livePrivateScenes = null;
+      liveGameState = null;
     };
-  }, [dispatch, state.privateScenes]);
+  }, [dispatch, state]);
   return null;
 };
 
@@ -102,6 +105,7 @@ async function invite(container: HTMLElement, text = 'Speak with me.'): Promise<
 beforeEach(() => {
   localStorage.clear();
   livePrivateScenes = null;
+  liveGameState = null;
   mockContinue.mockReset();
   mockRunNewTurn.mockReset();
   mockRunNewTurn.mockImplementation(defaultRunNewTurn);
@@ -251,6 +255,79 @@ describe('private-scene App transaction boundary', () => {
     expect(livePrivateScenes).toEqual([replacementScene]);
     expect(loadGame()!.state.privateScenes?.[0].consequenceStatus).toBe('pending');
     expect(container.textContent).not.toContain('STALE_SCENE_CLAIM');
+  });
+
+  it('drops a stale resolved turn after a whole-campaign reload with the same empty private-scene ledger', async () => {
+    const state = appSave({ privateScenes: [] });
+    let release!: () => void;
+    mockRunNewTurn.mockImplementationOnce(async (...args) => {
+      await new Promise<void>(resolve => { release = resolve; });
+      return defaultRunNewTurn(...args);
+    });
+    const container = await mountForMacroTurn(state);
+    await submitMacroTurn(container, 'This resolved turn belongs only to campaign A');
+    await waitFor(() => expect(mockRunNewTurn).toHaveBeenCalledTimes(1));
+
+    const replacement = appSave({
+      privateScenes: [],
+      turnNumber: 9,
+      metaNarrative: 'CAMPAIGN_B_EMPTY_LEDGER',
+      messages: [{ sender: 'gm', text: 'CAMPAIGN_B_MESSAGE' }],
+    });
+    saveGame(replacement);
+    const replacementBytes = localStorage.getItem('gloryOfRome:autosave');
+    await act(async () => {
+      dispatchGame!({ type: 'GAME_LOADED', save: replacement });
+      release();
+      await Promise.resolve();
+    });
+    await flush();
+
+    expect(localStorage.getItem('gloryOfRome:autosave')).toBe(replacementBytes);
+    expect(loadGame()!.state).toEqual(replacement);
+    expect(liveGameState?.turnNumber).toBe(replacement.turnNumber);
+    expect(liveGameState?.metaNarrative).toBe('CAMPAIGN_B_EMPTY_LEDGER');
+    expect(liveGameState?.messages).toEqual(replacement.messages);
+    expect(liveGameState?.privateScenes).toEqual([]);
+  });
+
+  it('drops a stale rejected turn after a whole-campaign reload with the same pending private-scene ledger', async () => {
+    const pending = outcomeScene(2, 'same-ledger-pending', 'maximinus_thrax', 'Maximinus Thrax', 'SAME_LEDGER_CLAIM');
+    const state = appSave({ privateScenes: [pending] });
+    let reject!: () => void;
+    mockRunNewTurn.mockImplementationOnce(async () => {
+      await new Promise<void>((_resolve, rejectProvider) => {
+        reject = () => rejectProvider(new Error('campaign A provider rejection'));
+      });
+      throw new Error('unreachable');
+    });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const container = await mountForMacroTurn(state);
+    await submitMacroTurn(container, 'This rejected turn belongs only to campaign A');
+    await waitFor(() => expect(mockRunNewTurn).toHaveBeenCalledTimes(1));
+
+    const replacement = appSave({
+      privateScenes: [pending],
+      turnNumber: 9,
+      metaNarrative: 'CAMPAIGN_B_SAME_PENDING_LEDGER',
+      messages: [{ sender: 'gm', text: 'CAMPAIGN_B_PENDING_MESSAGE' }],
+    });
+    saveGame(replacement);
+    const replacementBytes = localStorage.getItem('gloryOfRome:autosave');
+    await act(async () => {
+      dispatchGame!({ type: 'GAME_LOADED', save: replacement });
+      reject();
+      await Promise.resolve();
+    });
+    await flush();
+
+    expect(localStorage.getItem('gloryOfRome:autosave')).toBe(replacementBytes);
+    expect(loadGame()!.state).toEqual(replacement);
+    expect(liveGameState?.turnNumber).toBe(replacement.turnNumber);
+    expect(liveGameState?.metaNarrative).toBe('CAMPAIGN_B_SAME_PENDING_LEDGER');
+    expect(liveGameState?.messages).toEqual(replacement.messages);
+    expect(liveGameState?.privateScenes).toEqual([pending]);
+    errorSpy.mockRestore();
   });
 
   it('provider failure consumes nothing and keeps the exact opening draft retryable', async () => {

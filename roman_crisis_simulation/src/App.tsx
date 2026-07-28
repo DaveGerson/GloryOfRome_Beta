@@ -169,7 +169,7 @@ const App: React.FC = () => {
     // props, never the context itself. Only transient, presentation-only
     // state (input box, modal flags, streaming text, theme, retry
     // affordances) may live in the local useState hooks below.
-    const { state, dispatch } = useGame();
+    const { state, dispatch, getStateGeneration } = useGame();
     const {
         gameState,
         messages,
@@ -749,6 +749,17 @@ const App: React.FC = () => {
 
     const executeTurn = useCallback(async (submission: TurnSubmission, draftToRestore: string | StructuredTurnDraft): Promise<boolean> => {
         const mutation = await runDomainMutation(async transaction => {
+        // Capture both campaign-session and whole-state generations before
+        // any turn work begins. The context token advances synchronously
+        // before GAME_LOADED/GAME_STARTED/TURN_ROLLED_BACK dispatches; the
+        // session token also covers campaign abandonment paths that do not
+        // replace reducer state. Neither relies on a render-time ref write.
+        const campaignGenerationForTurn = campaignGenerationRef.current;
+        const stateGenerationForTurn = getStateGeneration();
+        const turnGenerationIsCurrent = () => (
+            campaignGenerationRef.current === campaignGenerationForTurn
+            && getStateGeneration() === stateGenerationForTurn
+        );
         const serialized = serializeTurnSubmission(submission);
         const noAttemptResponse = projectForNoAttemptResponse(submission);
         const playerMessage: Message = { sender: 'player', text: serialized };
@@ -836,6 +847,9 @@ const App: React.FC = () => {
         const privateSceneSnapshotIsCurrent = () => (
             privateScenesFingerprint(privateScenesRef.current) === privateScenesFingerprintForTurn
         );
+        const turnSnapshotIsCurrent = () => (
+            turnGenerationIsCurrent() && privateSceneSnapshotIsCurrent()
+        );
 
         try {
             // At most one closed pending scene informs the macro adjudicator.
@@ -880,10 +894,10 @@ const App: React.FC = () => {
                 // HISTORICAL MATERIAL in the adjudication prompt.
                 {
                     onStage: stage => {
-                        if (transaction.isCurrent()) setTurnStage(stage);
+                        if (transaction.isCurrent() && turnSnapshotIsCurrent()) setTurnStage(stage);
                     },
                     onNarrationChunk: textSoFar => {
-                        if (transaction.isCurrent()) setStreamingNarration(textSoFar);
+                        if (transaction.isCurrent() && turnSnapshotIsCurrent()) setStreamingNarration(textSoFar);
                     },
                     pacingPosture: getPacingPosture(),
                     eventFirings,
@@ -891,7 +905,7 @@ const App: React.FC = () => {
                     privateSceneNpcMemoriesByNpcId,
                 }
             );
-            if (!transaction.isCurrent() || !privateSceneSnapshotIsCurrent()) return;
+            if (!transaction.isCurrent() || !turnSnapshotIsCurrent()) return;
 
             // COMMIT STATE
             const newWorldState = ((): WorldState => {
@@ -943,7 +957,7 @@ const App: React.FC = () => {
                 knownEntityIds,
                 isMockMode,
             );
-            if (!transaction.isCurrent() || !privateSceneSnapshotIsCurrent()) return;
+            if (!transaction.isCurrent() || !turnSnapshotIsCurrent()) return;
             const newKnowledge = computeTurnKnowledge({
                 prev: knowledge,
                 perceivedChanges: perceivedThisTurn,
@@ -967,7 +981,7 @@ const App: React.FC = () => {
                     evidence,
                     isMockMode,
                 );
-                if (!transaction.isCurrent() || !privateSceneSnapshotIsCurrent()) return;
+                if (!transaction.isCurrent() || !turnSnapshotIsCurrent()) return;
                 finalNarration = renderNoAttemptResponse(selection);
                 if (selection.kind === 'no_answer'
                     && (selection.reason === 'invalid_selection' || selection.reason === 'selector_failure')) {
@@ -1015,7 +1029,7 @@ const App: React.FC = () => {
             // scene snapshot supplied to this turn is still current. The
             // consumed record is prepared before persistence, but becomes
             // live only after the whole macro-turn candidate is durable.
-            if (!privateSceneSnapshotIsCurrent()) return;
+            if (!turnSnapshotIsCurrent()) return;
             let committedPrivateScenes = [...privateScenesForTurn];
             if (pendingPrivateScene) {
                 const consumed = consumePrivateSceneOutcome(
@@ -1152,7 +1166,7 @@ const App: React.FC = () => {
 
         } catch (error)
         {
-            if (!transaction.isCurrent() || !privateSceneSnapshotIsCurrent()) return;
+            if (!transaction.isCurrent() || !turnSnapshotIsCurrent()) return;
             // Keep the full error in the console for diagnosis, but never lose
             // the player's game over this — no "please refresh" (persistence
             // now exists, and nothing was committed mid-turn anyway).
@@ -1184,7 +1198,7 @@ const App: React.FC = () => {
         }
         });
         return mutation.acquired;
-    }, [ai, buildSaveState, dispatch, entities, eventFirings, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, pendingIntelligenceFallout, playerCharacterId, reports, resolvedApiKey, runDomainMutation, simulationState, truthLedger, turnHistory, turnNumber, worldState]);
+    }, [ai, buildSaveState, dispatch, entities, eventFirings, getStateGeneration, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, pendingIntelligenceFallout, playerCharacterId, reports, resolvedApiKey, runDomainMutation, simulationState, truthLedger, turnHistory, turnNumber, worldState]);
 
     const handleComposerSubmit = (draft: string | StructuredTurnDraft) => {
         if (gameState !== GameState.AWAITING_PLAYER_INPUT || privateSceneInteractionLocked) return;
