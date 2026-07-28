@@ -121,20 +121,19 @@ actor in its own right.
   leaked to the player; pinned by the `mortalityFates` journey). Kept as-is;
   if a future fix clears it on revival, update that journey's expectation.
   Related to the `secret_truth`-not-cleared-on-revival item above.
-- Two more player-text prompt-interpolation gaps (D41), found while closing
-  out the rest of the sweep but outside that task's file scope: `ai/prompts/
-  characterCreation.ts`'s `description` param (the custom-character
-  description, typed on the same CharacterSelection.tsx screen as
-  worldGen.ts's `playerCharacterDescription`, reachable via
-  `App.tsx` -> `ai/tools/characterCreator.ts::createCharacter`) and
-  `ai/prompts/intelligence.ts`'s `buildClarificationPrompt` `event`/`question`
-  params (currently fed a headline and a hardcoded literal by their one call
-  site, `components/tabs/CurrentEventsTab.tsx`, so not live today, but the
-  signature accepts arbitrary text with no guarantee against a future player-
-  text caller). Both still interpolate inside a bare `"${value}"` with no
+- One remaining player-text prompt-interpolation gap (D41), found while closing
+  out the rest of the sweep: `ai/prompts/intelligence.ts`'s
+  `buildClarificationPrompt` `event`/`question` params (currently fed a headline
+  and a hardcoded literal by their one call site,
+  `components/tabs/CurrentEventsTab.tsx`, so not live today, but the signature
+  accepts arbitrary text with no guarantee against a future player-text
+  caller). It still interpolates inside a bare `"${value}"` with no
   `asPromptData` escaping. Tracked explicitly (not silently) in
   `tests/promptDataBoundary.test.ts`'s directory-walking guard, which lists
-  both under `KNOWN_DEFERRED_GAPS`. Closing either just needs the same
+  it under `KNOWN_DEFERRED_GAPS`. (`ai/prompts/characterCreation.ts`'s
+  `description` was the other half of this item and is now CLOSED - it was
+  live player-typed text on the same CharacterSelection screen as
+  worldGen.ts's `playerCharacterDescription`.) Closing the remainder needs the same
   `asPromptData` swap already applied everywhere else.
 - `playerBoundary.test.ts` "DECLARED GAP 1": a third-person pronoun (or
   possessive determiner, or a one-level-deeper possessive) under a
