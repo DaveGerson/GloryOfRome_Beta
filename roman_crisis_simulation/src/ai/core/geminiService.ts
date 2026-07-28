@@ -298,8 +298,8 @@ function truncateForCapture(text: string, maxChars: number = MAX_RAW_RESPONSE_CH
 // lean per D18; persistence/saveGame.ts strips the text fields on
 // serialize):
 //
-//  - Turn bracket: a turn makes several sequential AI calls (adjudication,
-//    narration, relationship updates, etc). `beginTurnCapture`/
+//  - Turn bracket: a turn makes several AI calls (adjudication, simulation
+//    state, monologue, narration, etc). `beginTurnCapture`/
 //    `endTurnCapture` let turn.ts bracket the whole pipeline and collect
 //    every call made in between into one array, without threading a
 //    capture parameter through every intelligence.ts/turn.ts function

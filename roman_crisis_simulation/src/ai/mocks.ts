@@ -41,8 +41,6 @@ const MOCK_NEW_MOBSTER: Entity = {
     visibility_network: ["praetorian_guard", "lycinia_stolo"],
     memories: [],
 };
-// Private-scene mock authority retired; adjudication remains the sole consequence authority.
-
 const MOCK_ADJUDICATION: Adjudication = {
   turn: 1,
   entityActions: [

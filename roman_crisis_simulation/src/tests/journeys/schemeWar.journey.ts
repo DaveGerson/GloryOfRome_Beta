@@ -12,7 +12,8 @@
  *  - a planted rumor lives ONLY as a sub-1.0, source-attributed Report + a
  *    GM-only truth-ledger entry; no entity's real resources/status move to
  *    match it, and its is_true/origin_id never reach a player surface;
- *  - one spotlight fires the npc_minds stage but NOT the private conversation;
+ *  - one spotlight fires the npc_minds stage; the retired autonomous
+ *    off-screen NPC-NPC conversation simulation is not part of the pipeline;
  *  - the spotlight's mind evolves ITS OWN active_scheme (ground truth), which
  *    the player perceives only as "You sense X is plotting something" - never
  *    the scheme's name or steps;

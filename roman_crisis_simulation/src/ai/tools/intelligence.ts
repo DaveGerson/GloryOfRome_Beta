@@ -40,7 +40,6 @@ export const getClarificationOnEvent = async (ai: GoogleGenAI, event: string, qu
     assertPlayerVisibleTextSafe(playerVisibleText);
     return playerVisibleText;
 };
-// Private-scene tools retired; player-safe intelligence tools remain above.
 export const getDeepAnalysis = async (ai: GoogleGenAI, target: Entity, player: Entity, isMockMode: boolean): Promise<string> => {
     if (isMockMode) {
         if(!mockGetDeepAnalysis) throw new Error("Mock function 'mockGetDeepAnalysis' is not implemented.");

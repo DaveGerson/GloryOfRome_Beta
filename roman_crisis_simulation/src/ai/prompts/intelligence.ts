@@ -44,7 +44,6 @@ export function buildClarificationPrompt(
 
   return { systemInstruction, prompt };
 }
-// Private-scene prompt builders retired; player-safe intelligence prompts remain above.
 /**
  * PURPOSE: A trusted advisor's detailed intelligence report/threat
  * assessment on another character.

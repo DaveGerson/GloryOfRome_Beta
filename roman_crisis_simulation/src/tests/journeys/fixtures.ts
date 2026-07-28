@@ -142,8 +142,7 @@ export function worldDelta(key: 'economic_stability' | 'political_climate', newV
 /**
  * getStoryRelevance (the Director) response. Current schema (zStoryRelevance)
  * REQUIRES `spotlight_intents` alongside `spotlight_entities` - so both are
- * always emitted. Default: no spotlights and no intents (no minds, no
- * private-conversation step).
+ * always emitted. Default: no spotlights and no intents, so no mind calls.
  */
 export function scriptStoryRelevance(
   spotlights: Array<{ entity_id: string; reason: string }> = [],

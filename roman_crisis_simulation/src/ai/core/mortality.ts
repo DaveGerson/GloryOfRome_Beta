@@ -3,8 +3,7 @@
  *
  * The mortality pipeline (DESIGN_DECISIONS.md D2/D3/D4,
  * ROADMAP_0_MASTER_PLAN.md Phase 2 item 1). Any death declared by the
- * adjudication (or merged private-conversation deltas - see turn.ts, which
- * merges them into `adjudication.deltas` before calling this) goes through
+ * adjudication goes through
  * two gates before it sticks:
  *
  *  1. VALIDATION - a second, independent model call dispositions each

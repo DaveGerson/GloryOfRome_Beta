@@ -280,14 +280,13 @@ purity of the split.
 
 ## The directional relationship-delta rule
 
-One rule is deliberately duplicated verbatim in three places and must stay
+One rule is deliberately duplicated verbatim in two places and must stay
 in sync if it ever changes:
 
 - `adjudication.ts` (the main turn's `RELATIONSHIP DELTAS` rule)
-- `intelligence.ts` (`buildRelationshipUpdatesPrompt`'s equivalent rule)
 - `ai/core/schemas.ts`'s `EventDeltaSchema.key` description
 
-All three say the same thing: a `relation` delta keyed `A:B:attribute`
+Both say the same thing: a `relation` delta keyed `A:B:attribute`
 changes **A's perception of B only** (relationships are asymmetric); a
 mutual change requires two deltas, one per direction.
 

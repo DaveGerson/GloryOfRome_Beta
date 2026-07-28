@@ -668,8 +668,7 @@ export async function runNewTurn(
 
     // *** NEW STEP 2.6: MORTALITY PIPELINE (DESIGN_DECISIONS.md D2/D3/D4) ***
     // Runs BEFORE applyAdjudication and BEFORE narration: any death claim in
-    // `adjudication.deltas` (main adjudication + the private-conversation
-    // deltas just merged above) is validated by a second, independent model
+    // `adjudication.deltas` is validated by a second, independent model
     // call, then resolved by a hidden code-side roll. The model never
     // decides death - it only narrates the pre-decided outcome (via
     // `mortalityEvents`' directives, fed into the narration prompt below).

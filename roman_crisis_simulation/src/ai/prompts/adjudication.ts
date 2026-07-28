@@ -22,9 +22,8 @@
  * The directional relationship-delta rule ("A delta changes entity_a's
  * perception of entity_b ONLY... if a change is mutual, emit two deltas")
  * is preserved verbatim below - see also `ai/core/schemas.ts`'s
- * `EventDeltaSchema` description and `ai/prompts/intelligence.ts`'s
- * relationship-updates prompt, which state the same rule for their own
- * call sites.
+ * `EventDeltaSchema` description, which states the same rule at the schema
+ * boundary.
  */
 
 import { Entity, WorldState, SimulationState, StoryRelevance, NpcIntent, NpcMindDecision, PacingPosture } from '../../types';
