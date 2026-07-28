@@ -39,16 +39,16 @@ const zPrivateSceneText = z.string().trim().min(1).max(PRIVATE_SCENE_MAX_UTTERAN
 const PRIVATE_SCENE_RELATIONSHIP_TERM = '(?:relationship|trust|respect|threat|alignment|dependency|loyalty)';
 const PRIVATE_SCENE_NUMBER = '\\d+(?:\\.\\d+)?';
 const PRIVATE_SCENE_EXPLICIT_RELATIONSHIP_MECHANICS = [
-  new RegExp(`\\b${PRIVATE_SCENE_RELATIONSHIP_TERM}[\\s_-]+(?:level|score|rating)\\s*(?:(?:is|at|equals?|to)\\s*|[:=]\\s*)?[+-]?${PRIVATE_SCENE_NUMBER}(?:\\s*(?:/|out\\s+of|of)\\s*${PRIVATE_SCENE_NUMBER})?\\b`, 'i'),
+  new RegExp(`\\b${PRIVATE_SCENE_RELATIONSHIP_TERM}[\\s_-]+(?:level|score|rating)\\s*(?:(?:is|was|at|equals?|to|of)\\s+|[:=]\\s*){0,2}[+-]?${PRIVATE_SCENE_NUMBER}(?:\\s*(?:/|out\\s+of|of)\\s*${PRIVATE_SCENE_NUMBER})?\\b`, 'i'),
   new RegExp(`\\b${PRIVATE_SCENE_RELATIONSHIP_TERM}\\s*[:=]\\s*[+-]?${PRIVATE_SCENE_NUMBER}(?:\\s*(?:/|out\\s+of|of)\\s*${PRIVATE_SCENE_NUMBER})?\\b`, 'i'),
-  new RegExp(`\\b${PRIVATE_SCENE_RELATIONSHIP_TERM}\\s+(?:(?:is|at|equals?|to)\\s+)?(?:[+-]\\s*${PRIVATE_SCENE_NUMBER}|${PRIVATE_SCENE_NUMBER}\\s*(?:/|out\\s+of|of)\\s*${PRIVATE_SCENE_NUMBER})\\b`, 'i'),
+  new RegExp(`\\b${PRIVATE_SCENE_RELATIONSHIP_TERM}\\s+(?:(?:is|was|at|equals?|to|of)\\s+){0,2}(?:[+-]\\s*${PRIVATE_SCENE_NUMBER}|${PRIVATE_SCENE_NUMBER}\\s*(?:/|out\\s+of|of)\\s*${PRIVATE_SCENE_NUMBER})\\b`, 'i'),
   new RegExp(`\\b[+-]?${PRIVATE_SCENE_NUMBER}\\s*(?:/|out\\s+of|of)\\s*${PRIVATE_SCENE_NUMBER}\\s+${PRIVATE_SCENE_RELATIONSHIP_TERM}(?:[\\s_-]+(?:level|score|rating))?\\b`, 'i'),
 ] as const;
 const PRIVATE_SCENE_PLAIN_RELATIONSHIP_NUMBER = new RegExp(
-  `\\b${PRIVATE_SCENE_RELATIONSHIP_TERM}\\s+(?:(?:is|at|equals?|to)\\s+)?${PRIVATE_SCENE_NUMBER}\\b`,
+  `\\b${PRIVATE_SCENE_RELATIONSHIP_TERM}\\s+(?:(?:is|was|at|equals?|to|of)\\s+){0,2}${PRIVATE_SCENE_NUMBER}\\b`,
   'ig',
 );
-const PRIVATE_SCENE_ORDINARY_COUNT_OR_UNIT = /^\s+(?:cohorts?|legions?|soldiers?|guards?|senators?|allies|enemies|men|women|people|ships?|cities|provinces?|families|witnesses|votes?|letters?|messengers?|agents?|conspirators?|factions?|armies|years?|months?|weeks?|days?|hours?|decades?|miles?|feet|paces?|denarii|sesterces|talents?|pounds?|times?)\b/i;
+const PRIVATE_SCENE_ORDINARY_COUNT_OR_UNIT = /^\s+(?:cohorts?|legions?|soldiers?|guards?|senators?|allies|enemies|men|women|people|ships?|cities|provinces?|families|witnesses|votes?|letters?|messengers?|agents?|conspirators?|factions?|armies|years?|months?|weeks?|days?|hours?|decades?|miles?|feet|paces?|denarii|sesterces|talents?|pounds?|times?|assassins?|spies|informers?|informants?|couriers?|riders?|horsemen|scouts?|sentries|blades?|daggers?|swords?|veterans?|recruits?|mercenaries|gladiators?|slaves?|freedmen|priests?|augurs?|tribunes?|centurions?|praetorians?|generations?|lifetimes?|winters?|summers?|debts?|favors?|oaths?|bribes?|plots?|schemes?|households?|estates?|gates?|towers?|walls?)\b/i;
 
 function privateSceneResponseStrings(value: unknown): string[] {
   if (typeof value === 'string') return [value];
@@ -178,7 +178,16 @@ export const zEntity = z.object({
   secrets: z.array(z.string()).nullable().optional(),
   skills: z.record(z.string(), z.number()).nullable().optional(),
   active_scheme: zScheme.nullable().optional(),
-}).passthrough();
+}).passthrough().transform(entity => {
+  // D3 model-boundary redaction: a model-invented add_entities roster member
+  // (applied wholesale at engine.ts:538-540) or world-gen/character-creation
+  // entity must not forge hidden-survivor state (feeds
+  // buildSecretSurvivorsBlock, ai/prompts/fragments.ts:210-215). zEntity is
+  // used only at model boundaries (zAdjudication.add_entities, zEntityBatch,
+  // characterCreator.ts:28, eval harness) - never save-load.
+  const { secret_truth, ...modelEntity } = entity;
+  return modelEntity;
+});
 
 export const zEntityStub = z.object({
   entity_id: z.string(),
@@ -233,7 +242,19 @@ export const zEventDelta = z.object({
   // rather than failing the turn. See types.ts's EventDelta.
   topic: z.string().nullable().optional(),
   stance: z.enum(RumorStanceEnum).nullable().optional(),
-}).passthrough();
+}).passthrough().transform(delta => {
+  // Model-boundary redaction (D3): `secret_truth` is CODE-GENERATED ONLY
+  // (types.ts) - only ai/core/mortality.ts::processMortality may attach it,
+  // and it does so AFTER this parse. Any model response smuggling it through
+  // the passthrough is dropped here, so engine.ts's 'status' copy can only
+  // ever see the mortality pipeline's own writes. `is_true`/`origin_id`
+  // deliberately survive: both are model-owned on rumor deltas, origin_id is
+  // model-owned on DEBT-HAS-TEETH relation deltas, and elsewhere
+  // playerBoundary.ts reads origin_id fail-closed - stripping it would
+  // WEAKEN a boundary.
+  const { secret_truth, ...modelDelta } = delta;
+  return modelDelta;
+});
 
 export const zEntityAction = z.object({
   id: z.string(),

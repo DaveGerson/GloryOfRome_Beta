@@ -181,6 +181,9 @@ describe('private-scene structured response schema', () => {
     ['compact equals in speech act', { ...VALID_RESPONSE, speechActs: [{ speaker: 'npc', kind: 'claim', text: 'trust=8', exchange: 1 }] }],
     ['bare ratio in private sincerity', { ...VALID_RESPONSE, npcPrivate: { ...VALID_RESPONSE.npcPrivate, sincerity: 'trust 8/10' } }],
     ['signed value in private intent', { ...VALID_RESPONSE, npcPrivate: { ...VALID_RESPONSE.npcPrivate, hiddenIntent: 'loyalty +3' } }],
+    ['of-connector rating', { ...VALID_RESPONSE, npcUtterance: 'My trust level of 8 should reassure you.' }],
+    ['is-at rating', { ...VALID_RESPONSE, npcUtterance: 'My trust is at 8.' }],
+    ['past-tense rating', { ...VALID_RESPONSE, npcPrivate: { ...VALID_RESPONSE.npcPrivate, sincerity: 'Her loyalty was 9.' } }],
   ])('rejects %s as numeric relationship mechanics', (_field, response) => {
     expect(zPrivateSceneModelResponse.safeParse(response).success).toBe(false);
   });
@@ -188,6 +191,9 @@ describe('private-scene structured response schema', () => {
   it.each([
     ['count noun', { ...VALID_RESPONSE, npcUtterance: 'The threat is 3 cohorts approaching Rome.' }],
     ['time unit', { ...VALID_RESPONSE, npcPrivate: { ...VALID_RESPONSE.npcPrivate, plannedFollowThrough: ['Their loyalty is 3 years old.'] } }],
+    ['assassin count', { ...VALID_RESPONSE, npcUtterance: 'The threat is 3 assassins sent by the prefect.' }],
+    ['spy count', { ...VALID_RESPONSE, npcUtterance: 'The threat is 3 spies in your household.' }],
+    ['generations depth', { ...VALID_RESPONSE, npcPrivate: { ...VALID_RESPONSE.npcPrivate, hiddenIntent: 'Their loyalty is 3 generations deep.' } }],
   ])('allows ordinary relationship-term prose followed by a %s', (_field, response) => {
     expect(zPrivateSceneModelResponse.safeParse(response).success).toBe(true);
   });

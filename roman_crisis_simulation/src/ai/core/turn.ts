@@ -3,6 +3,7 @@ import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationS
 import { AdjudicationSchema } from './schemas';
 import { applyAdjudication } from './engine';
 import { mockRunNewTurn } from "../mocks";
+import { selectDurableIntents } from './directorIntents';
 import { getPlayerMonologue, getStoryRelevance, getUpdatedSimulationState } from '../tools/intelligence';
 import { getActionAssessment } from '../tools/assessment';
 import { getNpcMindDecision } from '../tools/npcMind';
@@ -18,7 +19,7 @@ import { buildNarrationPrompt, selectVoiceCast } from '../prompts/narration';
 import { processMortality, detectDeathClaims } from './mortality';
 import { createNarrationStreamGate } from './streamSplit';
 import { rollD20, resolveAction, derivePersonalityModifier, deriveOppositionModifier, createSeededRng, generateSeed } from './resolution';
-import { normalizeTurnSubmissionInput, projectForAdjudication, projectForNarration, projectForNoAttemptResponse, projectForPlayerOwnedAi, projectForResolution, serializeTurnSubmission } from '../../playerInput/turnSubmission';
+import { deserializeTurnSubmission, isReservedTurnSubmissionArtifact, normalizeTurnSubmissionInput, projectForAdjudication, projectForNarration, projectForNoAttemptResponse, projectForPlayerReflection, projectForResolution, serializeTurnSubmission } from '../../playerInput/turnSubmission';
 import {
     assertNoInventedPlayerAction,
     assertNoInventedPlayerVisibleAction,
@@ -52,48 +53,12 @@ function textContainsWholeDisplayName(text: string, displayName: string): boolea
     return pattern.test(normalizedText);
 }
 
-/**
- * Upper bound on the persisted per-turn intent list (4C.3): intents exist
- * for spotlight NPCs only, and the Director is instructed to pick 2-4
- * spotlights - so the durable slice stays small by construction; the cap is
- * the code-side guarantee against a runaway response bloating the save.
- */
-export const MAX_NPC_INTENTS = 4;
-
-/**
- * Derives the DURABLE intent list from the Director's raw output: an intent
- * survives only when its entity_id is BOTH an actual spotlight pick AND an
- * entity that is alive in the current roster (intents are per-spotlight by
- * contract, and a durable intent may never ride on someone who cannot act),
- * deduped to ONE intent per entity_id keeping the FIRST emitted, capped at
- * MAX_NPC_INTENTS in emission order. The alive gate is load-bearing: a
- * spotlight id can name an NPC who is dead/exiled/missing (or absent) in
- * state, and an intent committed on such an id would be persisted and fed to
- * the NEXT turn's Director and adjudicator as live direction for a corpse -
- * the adjudicator's own spotlight block already renders only alive NPCs, so
- * a dead-id intent could never earn an entityAction and would just accrete
- * as phantom direction. The dedupe is load-bearing too: the Director's
- * contract is exactly one intent per spotlight, and without it a duplicate
- * would crowd the cap, list twice in the adjudication prompt's intents
- * block, and disagree with the mind handoff (whose Map lookup keeps only one
- * entry per entity) about WHICH intent stands - first-wins makes every
- * consumer see the same one. This filtered list is the single shape
- * everything downstream consumes - the adjudication prompt's intents block,
- * the code-side consistency check, the history entry, and the reducer's
- * persisted `npcIntents` slice. Pure; exported for direct unit testing.
- */
-export function selectDurableIntents(storyRelevance: StoryRelevance, roster: readonly Pick<Entity, 'entity_id' | 'status'>[]): NpcIntent[] {
-    const spotlightIds = new Set(storyRelevance.spotlight_entities.map(s => s.entity_id));
-    const aliveIds = new Set(roster.filter(e => e.status === 'alive').map(e => e.entity_id));
-    const seen = new Set<string>();
-    const durable: NpcIntent[] = [];
-    for (const intent of storyRelevance.spotlight_intents ?? []) {
-        if (!spotlightIds.has(intent.entity_id) || !aliveIds.has(intent.entity_id) || seen.has(intent.entity_id)) continue;
-        seen.add(intent.entity_id);
-        durable.push(intent);
-    }
-    return durable.slice(0, MAX_NPC_INTENTS);
-}
+// MAX_NPC_INTENTS/selectDurableIntents now live in ./directorIntents (moved
+// out so ai/mocks.ts can import the filter without forming a module cycle
+// back through this file - see that module's doc comment; imported above).
+// Re-exported here so every existing importer of these two symbols from
+// '../ai/core/turn' (e.g. tests/director.test.ts) keeps working unmodified.
+export { MAX_NPC_INTENTS, selectDurableIntents } from './directorIntents';
 
 /**
  * GM-private trace for the silent-wipe edge (4C.3): the Director emitted a
@@ -398,7 +363,6 @@ export async function runNewTurn(
     const adjudicationSubmission = resolutionAttempt === null
         ? { observableAttempt: null, questionOrContext: null }
         : projectForAdjudication(normalizedSubmission);
-    const playerOwnedContext = projectForPlayerOwnedAi(normalizedSubmission);
     const narrationSubmission = projectForNarration(normalizedSubmission);
     if (isMockMode) {
         if(!mockRunNewTurn) throw new Error("Mock function 'mockRunNewTurn' is not implemented.");
@@ -747,7 +711,21 @@ export async function runNewTurn(
     const { updatedEntities } = appliedAdjudication;
     const { updatedWorldState, updatedReports, updatedTruthLedger, perceivingNpcIds } = appliedAdjudication;
     const updatedPlayerEntity = updatedEntities.find(e => e.entity_id === playerEntity.entity_id) || playerEntity;
-    const recentPlayerIntents = [...turnHistory.map(h => h.playerIntent).slice(-6), playerOwnedContext];
+    // Player-owned reflection context for the monologue (a player-owned
+    // surface): every history entry is re-projected through
+    // projectForPlayerReflection so the raw canonical serialization
+    // (GOR_TURN_SUBMISSION namespace, recipient entity ids) never reaches the
+    // prompt. A reserved-namespace artifact that fails to deserialize is
+    // canonical-only and is dropped, never echoed (same rule as
+    // ai/tools/ambition.ts); legacy plain freeform strings pass through.
+    const recentPlayerIntents = [
+        ...turnHistory.slice(-6).flatMap(entry => {
+            const parsed = deserializeTurnSubmission(entry.playerIntent);
+            if (parsed) return [projectForPlayerReflection(parsed)];
+            return isReservedTurnSubmissionArtifact(entry.playerIntent) ? [] : [entry.playerIntent];
+        }),
+        projectForPlayerReflection(normalizedSubmission),
+    ];
 
     // *** NEW STEPS 2.7/4/5, PARALLELIZED (ROADMAP_0_MASTER_PLAN.md Phase 3
     // item 3) ***
