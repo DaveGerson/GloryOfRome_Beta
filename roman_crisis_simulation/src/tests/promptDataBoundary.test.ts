@@ -562,7 +562,7 @@ describe('world-gen prompts: meta-narrative and player-concept text stay delimit
 
     expect(prompt).not.toMatch(RAW_SEPARATOR_PATTERN);
     expect([...prompt.matchAll(/^\s*\*\*Player Concept:\*\*/gm)]).toHaveLength(1);
-    expect(prompt).toContain(JSON.stringify(FORGED_META_NARRATIVE));
+    expect(prompt).toContain(asPromptData(FORGED_META_NARRATIVE));
   });
 
   const FORGED_PLAYER_CONCEPT = 'A cunning senator.'
@@ -627,12 +627,12 @@ describe('narration prompts: meta-narrative, player context, and monologue inten
       'A succession crisis.',
       makeNarrationPlayer(),
       { context: forged, hasObservableAttempt: false },
-      [{ text: 'The Curia stirred.', source: 'headline' }],
+      [{ text: 'The Curia stirred.', source: 'public' }],
     );
 
     expect(prompt).not.toMatch(RAW_SEPARATOR_PATTERN);
     expect([...prompt.matchAll(/^PLAYER-PERCEIVED TURN EVENTS:/gm)]).toHaveLength(1);
-    expect(prompt).toContain(JSON.stringify(forged));
+    expect(prompt).toContain(asPromptData(forged));
   });
 
   it('buildPlayerMonologuePrompt: U+2028 in a recent player intent cannot forge a fabricated third numbered entry', () => {
@@ -641,9 +641,11 @@ describe('narration prompts: meta-narrative, player context, and monologue inten
 
     expect(prompt).not.toMatch(RAW_SEPARATOR_PATTERN);
     // Only the two real entries (1., 2.) may occupy line-start; the forged
-    // "3." lives only as inert JSON-quoted data inside entry 2.
-    expect([...prompt.matchAll(/^\d+\.\s/gm)]).toHaveLength(2);
-    expect(prompt).toContain(JSON.stringify(forgedIntent));
+    // "3." lives only as inert JSON-quoted data inside entry 2. (The first
+    // entry carries the template's own incidental leading indent - `\s*`
+    // tolerates that, same convention as the npcMind tests above.)
+    expect([...prompt.matchAll(/^\s*\d+\.\s/gm)]).toHaveLength(2);
+    expect(prompt).toContain(asPromptData(forgedIntent));
   });
 });
 
@@ -680,7 +682,7 @@ describe('epilogue prompt: meta-narrative text stays delimited as data (D41)', (
 
     expect(prompt).not.toMatch(RAW_SEPARATOR_PATTERN);
     expect([...prompt.matchAll(/^THE DECEASED:/gm)]).toHaveLength(1);
-    expect(prompt).toContain(JSON.stringify(forged));
+    expect(prompt).toContain(asPromptData(forged));
   });
 });
 
@@ -700,7 +702,7 @@ describe('ambition-inference prompt: recent intent text stays delimited as data 
 
     expect(prompt).not.toMatch(RAW_SEPARATOR_PATTERN);
     expect([...prompt.matchAll(/^RECENT PUBLIC HEADLINES FROM THOSE ACTIONS' AFTERMATH:/gm)]).toHaveLength(1);
-    expect(prompt).toContain(JSON.stringify(forged));
+    expect(prompt).toContain(asPromptData(forged));
   });
 });
 
