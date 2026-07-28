@@ -1943,3 +1943,90 @@ describe('App turn-commit boundary and hidden-error surfacing (C1)', () => {
     expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
   });
 });
+
+// Task 7 Part 2 (commitDomainMutation extraction) [REGRESSION PIN]: every
+// save-then-dispatch site clears its App-level error channel on the success
+// path (App.tsx's setTransactionError(null), placed BEFORE the dispatch at
+// these four sites). The failure halves of these journeys are pinned in
+// "App non-turn save atomicity" above; these add the missing half - after a
+// failed durable write, the SAME retry that durably commits must also remove
+// the alert. A dropped or mis-wired error clear during the helper extraction
+// turns exactly one of these red. (The remaining sites' clears are already
+// pinned: turn commit by "keeps a failed non-turn alert until the next turn
+// is durably committed, then clears it"; event choice by C1's "surfaces a
+// failed event-choice save inside the modal dialog and keeps the choice
+// retryable"; private scene by C1's "reports a no-longer-eligible
+// private-scene target inside the dialog and permits retry".)
+describe('App commit-site success paths clear the transaction alert (Task 7 pins)', () => {
+  it('clears the campaign-save alert when the same character selection retry durably commits [REGRESSION PIN]', async () => {
+    const container = await mountApp(makeAppSave(), false);
+    const preset = buttonContaining(container, 'The Young Emperor');
+    const storageSpy = failBothSaveWrites();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await click(preset);
+    await waitFor(() => expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1));
+
+    storageSpy.mockRestore();
+    await click(preset);
+    await waitFor(() => expect(container.querySelector('[aria-label="Chat input"]')).not.toBeNull());
+    expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);
+    warnSpy.mockRestore();
+  });
+
+  it('clears the Deep Analysis alert when the same commission retry durably commits [REGRESSION PIN]', async () => {
+    const container = await mountApp();
+    await openFirstIntelCard(container);
+    const commission = buttonContaining(container, 'Commission');
+    const storageSpy = failBothSaveWrites();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await click(commission);
+    await waitFor(() => expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1));
+
+    storageSpy.mockRestore();
+    await click(commission);
+    await waitFor(() => expect(loadGame()!.state.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources.deep_analyses).toBe(3));
+    expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);
+    warnSpy.mockRestore();
+  });
+
+  it('clears the investigation alert when the same reveal retry durably commits [REGRESSION PIN]', async () => {
+    const container = await mountApp();
+    await openFirstIntelCard(container);
+    const revealSecrets = revealSecretsButton(container);
+    const storageSpy = failBothSaveWrites();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await click(revealSecrets);
+    await waitFor(() => expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1));
+
+    storageSpy.mockRestore();
+    await click(revealSecrets);
+    await waitFor(() => expect(loadGame()!.state.knowledge).toHaveLength(1));
+    expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);
+    warnSpy.mockRestore();
+  });
+
+  it('clears the GM directive alert when the same directive retry durably commits [REGRESSION PIN]', async () => {
+    const container = await mountApp();
+    await playOneTurn(container);
+    await click(container.querySelector<HTMLInputElement>('#gm-console-toggle')!);
+    await click(buttonNamed(container, 'GM Log'));
+    const directive = 'Clear this alert on durable success.';
+    const input = byAriaLabel<HTMLTextAreaElement>(container, 'Game Master Intervention Input');
+    const submit = buttonNamed(container, 'Set Directive for Next Turn');
+    await setValue(input, directive);
+    const storageSpy = failBothSaveWrites();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await click(submit);
+    await waitFor(() => expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1));
+
+    storageSpy.mockRestore();
+    await click(submit);
+    await waitFor(() => expect(loadGame()!.state.gmInterventionText).toBe(directive));
+    expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);
+    warnSpy.mockRestore();
+  });
+});
