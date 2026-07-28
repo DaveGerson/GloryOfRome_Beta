@@ -425,3 +425,153 @@ describe('no-attempt title-collision prose boundary', () => {
     expect(() => assertNoInventedPlayerVisibleAction(prose, emperorPlayer, false)).not.toThrow();
   });
 });
+
+/**
+ * A possessed phrase must never contain an UNEXAMINED span. Truncating at a
+ * subordinator and classifying only the head clause is inherently fail-OPEN:
+ * the discarded tail can carry the player's action outright ("... because you
+ * burned the granary"), and, symmetrically, a tail that happens to end in an
+ * intransitive condition verb can launder a head that really is an action.
+ * Every clause of the phrase must be classified, and any clause yielding a
+ * player subject with a non-allowed predicate must fail closed.
+ */
+describe('no-attempt subordinate-clause classification boundary', () => {
+  const player: Pick<Entity, 'entity_id' | 'name' | 'position'> = {
+    entity_id: 'player_1',
+    name: 'Gaius Testus',
+    position: 'Emperor',
+  };
+
+  function expectRejected(prose: string): void {
+    expect(() => assertNoInventedPlayerVisibleAction(prose, player, false))
+      .toThrow('player action boundary');
+  }
+
+  it.each([
+    // The head is a genuine condition; the DISCARDED tail carries the action.
+    'Your grip weakens because you burned the granary.',
+    'Your grip weakens because you murdered the consul.',
+    'Your health fails because you poisoned the wine.',
+    'Your influence collapses when you sack the city.',
+    'Your standing falters though you seize the treasury.',
+    'Your grip loosens although you storm the gate.',
+    'Your resolve hardens because your legions sack the city.',
+    'Your position weakens when your assassins strike the consul.',
+    // A third-person possessor makes the tail's subject pronoun anaphoric to
+    // the player: "Gaius Testus's grip ... because HE burned" is the player.
+    'Gaius Testus\'s grip weakens because he burned the granary.',
+    'Gaius Testus\'s health fails when he murders the consul.',
+  ])('rejects a player action laundered into a comma-less subordinate clause: %s', expectRejected);
+
+  // The comma form already routes each part through the normal subject and
+  // predicate check upstream. It must stay rejecting: the comma-less form is
+  // meant to converge ON this behaviour, not to drag it open.
+  it('keeps the comma form of subordinate-clause laundering rejected', () => {
+    expectRejected('Your grip weakens, because you burned the granary.');
+  });
+
+  // A third-person possessor is an antecedent for its WHOLE possessed phrase:
+  // a subordinate clause can point back at the player with a pronoun subject,
+  // a possessive determiner, or a passive agent.
+  it.each([
+    'Gaius Testus\'s grip weakens because she burned the granary.',
+    'Gaius Testus\'s grip weakens because they burned the granary.',
+    'Gaius Testus\'s grip weakens because his legions sacked the city.',
+    'Gaius Testus\'s grip weakens because the granary was burned by him.',
+  ])('rejects an anaphoric subordinate clause of a third-person possessive: %s', expectRejected);
+
+  // A SECOND-person possessive has no third-person antecedent of its own: in
+  // "your grip weakens because he burned the granary" the player is addressed
+  // as "you" throughout, so "he" is a rival. Binding third-person pronouns
+  // here would only over-reject ordinary world prose about other characters,
+  // on a surface that is validated every turn.
+  it('allows a third-person subordinate subject under a second-person possessive', () => {
+    expect(() => assertNoInventedPlayerVisibleAction(
+      'Your grip weakens because he burned the granary.', player, false,
+    )).not.toThrow();
+  });
+
+  it.each([
+    // The head clause is the action; the tail is the laundering condition.
+    'Your agents burn the granary as the resistance weakens.',
+    'Your assassins strike because you commanded it.',
+    'Your guards suffer heavy casualties.',
+  ])('rejects a head-clause action carrying a laundering tail: %s', expectRejected);
+
+  // The subordinator set omitted the commonest English subordinators, so any
+  // phrase using one kept its whole tail inside the head clause and was
+  // laundered by the tail's trailing condition verb. Classifying every clause
+  // makes widening the set safe.
+  it.each([
+    'Your agents burn the granary since the resistance weakens.',
+    'Your agents burn the granary after the resistance weakens.',
+    'Your agents burn the granary before the resistance weakens.',
+    'Your agents burn the granary if the resistance weakens.',
+    'Your agents burn the granary unless the resistance weakens.',
+    'Your agents burn the granary once the resistance weakens.',
+    'Your agents burn the granary until the resistance weakens.',
+    'Your agents burn the granary whereas the resistance weakens.',
+  ])('rejects laundering through a widened subordinator: %s', expectRejected);
+
+  // wordNormalized turns hyphens into spaces, so a compound modifier presents
+  // a subordinator as the phrase's HEAD word. That is not a clause boundary -
+  // absorbing it keeps the noun phrase classifiable instead of erasing it.
+  it.each([
+    'Your as-yet-unnamed heir seizes the treasury.',
+    'Your though-battered cohorts storm the gate.',
+    'Your while-you-slept agents poison the wine.',
+    'Your although-loyal guards murder the consul.',
+    'Your because-of-Rome legions sack the city.',
+    'Gaius Testus\'s as-yet-unknown agents burn the granary.',
+  ])('rejects a subordinator-headed possessed phrase concealing an action: %s', expectRejected);
+
+  // Head-position subordinator AND a real trailing clause: absorbing the head
+  // word must not re-admit the whole-phrase suffix scan, or the trailing
+  // clause's condition verb launders the action all over again.
+  it.each([
+    'Your as-yet-unnamed agents burn the granary as the resistance weakens.',
+    'Your though-battered cohorts storm the gate while the Senate falters.',
+  ])('rejects a subordinator-headed phrase with a real trailing clause: %s', expectRejected);
+
+  // A subordinator directly behind a possessive SEVERS that possessive from
+  // its possession, so neither fragment can be classified. The severed span
+  // fails closed rather than splitting into two individually inert halves.
+  it.each([
+    'Your grip weakens because your as-yet-unnamed agents burned the granary.',
+    'Your influence wanes although your though-battered cohorts storm the gate.',
+    'Your grip weakens because Gaius Testus\'s as-yet-unnamed agents burned the granary.',
+    'Your agents burn the granary the as the resistance weakens.',
+  ])('rejects a subordinator that severs a possessive from its possession: %s', expectRejected);
+
+  // Plain articles do not carry a player link, so a subordinator behind one
+  // must stay an ordinary clause boundary instead of over-rejecting prose.
+  it('allows an article-headed compound modifier in an inert clause', () => {
+    expect(() => assertNoInventedPlayerVisibleAction(
+      'You see the as-yet-unnamed courier.', player, false,
+    )).not.toThrow();
+  });
+
+  it.each([
+    // "you" is the OBJECT of the subordinate clause, not its actor.
+    'Your grip weakens because the Senate abandoned you.',
+    'Your grip weakens as the Senate turns against you.',
+    // Bare possessive conditions - the world pressing on the player.
+    'Your health fails.',
+    'Your influence collapses further.',
+    'Your standing declines.',
+    'Your reputation suffers.',
+    'Your alliance shatters.',
+    'Your grip on the senate weakens.',
+    // Subordinators used as ordinary nouns, idioms, or third-party clauses.
+    'The while passed quietly in the forum.',
+    'Your standing endures as such.',
+    'Your grip weakens as the winter drags on.',
+    'Your influence wanes while the legions grumble.',
+    'The Emperor\'s grip weakens as the winter drags on.',
+    // Widened subordinators must stay transparent to third-party clauses.
+    'Your grip weakens after the harvest fails.',
+    'Your influence wanes since the legions grumble.',
+  ])('allows a possessive condition whose every clause is inert: %s', prose => {
+    expect(() => assertNoInventedPlayerVisibleAction(prose, player, false)).not.toThrow();
+  });
+});
