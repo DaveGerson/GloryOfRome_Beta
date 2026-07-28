@@ -7,7 +7,9 @@
  * Story-specific guards (the six catalog invariants run every turn for free
  * - see tests/journeys/harness.ts):
  *  - treasury + directional relationship ACCUMULATE across turns (ground
- *    truth threaded turn-over-turn);
+ *    truth threaded turn-over-turn) - the relationship accumulates as GROUND
+ *    TRUTH ONLY (runner.rel(...) assertions), while the player's perceived
+ *    digest withholds relation mechanics entirely (buildPlayerPerceivedDigest);
  *  - a non-consequential turn rolls NO dice; the consequential oration rolls
  *    EXACTLY one, and its pre-decided TIER (not the model) reaches the
  *    adjudication prompt and the GM resolutionTrace - never a player surface;
@@ -18,7 +20,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { JourneyRunner } from './harness';
+import { JourneyRunner, scriptedJsonArray } from './harness';
 import {
   scriptAdjudication,
   scriptAssessmentConsequential,
@@ -53,6 +55,11 @@ describe('journey: a quiet reign (3 turns of ordinary governance)', () => {
           ],
           headlines: ['The Emperor holds court; the business of the city proceeds quietly.'],
         }),
+        relationshipObservations: scriptedJsonArray([{
+          evidenceId: 'player-submission',
+          participantIds: [PLAYER, SENATE],
+          excerpt: 'Hold court on the Palatine and hear the petitions of the city.',
+        }]),
       },
     });
 
@@ -69,13 +76,25 @@ describe('journey: a quiet reign (3 turns of ordinary governance)', () => {
     expect(runner.entity(MAGNUS).resources.denarii).toBe(245000);
     expect(runner.rel(SENATE, PLAYER)?.trust_level).toBe(8);
 
-    // The player PERCEIVES their own gain ('self') and the Senate's warming
-    // ('network' - the Senate is in the player's visibility_network)...
+    // The player PERCEIVES their own gain ('self')...
     expect(t1.digest.some(c => c.source === 'self' && /denarii grows/i.test(c.text))).toBe(true);
-    expect(t1.digest.some(c => c.source === 'network' && /Senate/i.test(c.text))).toBe(true);
-    // ...but NEVER the off-network senator's move (invisible in digest AND knowledge store).
+    // ...but production's player digest (buildPlayerPerceivedDigest) withholds relation
+    // mechanics from player intelligence - another mind's warming is never directly legible;
+    // this now asserts what production actually produces.
+    expect(t1.digest.every(c => c.deltaType !== 'relation')).toBe(true);
+    expect(t1.digestTexts.join('\n')).not.toMatch(/Senate/i);
+    // ...and NEVER the off-network senator's move (invisible in digest AND knowledge store).
     expect(t1.digestTexts.join('\n')).not.toContain('Gaius Pontius');
     expect(JSON.stringify(t1.knowledge)).not.toContain('Gaius Pontius');
+
+    // The player's own submission still yields a relationship-observation
+    // knowledge claim (D29/D30's observation wiring), independent of the
+    // withheld relation-mechanic delta above.
+    expect(t1.knowledge).toContainEqual(expect.objectContaining({
+      claim: 'Hold court on the Palatine and hear the petitions of the city.',
+      topic: 'relationship-observation',
+      relationshipObservation: expect.objectContaining({ evidenceId: 'turn:1:player-submission' }),
+    }));
 
     // --- Turn 2: a consequential oration ----------------------------------
     // total = roll(13) + oratory(7) + personality(oratory->ambition 5, +0) + opposition(0) = 20; margin = 20-14 = 6 -> 'success'.

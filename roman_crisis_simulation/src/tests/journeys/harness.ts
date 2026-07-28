@@ -6,10 +6,12 @@
  * scripted, multi-turn playthroughs with a scripted fake Gemini client and
  * scripted dice, committing state between turns exactly the way
  * App.tsx::executeTurn does (entities/world/sim/reports + the D11 truth
- * ledger, the 4C.3 Director intents, and the D21 player knowledge store),
- * and enforcing a catalog of cross-cutting invariants on EVERY turn - things
- * unit tests can't see because they only hold (or break) across a whole
- * playthrough:
+ * ledger, the 4C.3 Director intents, and the D21 player knowledge store -
+ * built from the player-only buildPlayerPerceivedDigest projection, D5, and
+ * ingested through the same getRelationshipObservations -> computeTurnKnowledge
+ * wiring App.tsx runs after every turn, D29/D30), and enforcing a catalog of
+ * cross-cutting invariants on EVERY turn - things unit tests can't see
+ * because they only hold (or break) across a whole playthrough:
  *
  *   INV-SHAPE      the pipeline's stage order (TurnStage doc contract),
  *                  incl. the conditional npc_minds / mortality stages firing
@@ -47,10 +49,18 @@ import { runNewTurn, TurnStage } from '../../ai/core/turn';
 import { endTurnCapture } from '../../ai/core/geminiService';
 import { getInvestigationResult } from '../../ai/tools/intelligence';
 import { createSeededRng, rollD20 } from '../../ai/core/resolution';
-import { buildPerceivedDigest, PerceivedChange } from '../../perception/visibility';
+import { buildPlayerPerceivedDigest, PerceivedChange } from '../../perception/visibility';
 import { computeTurnKnowledge, computeInvestigationKnowledge } from '../../knowledge/commit';
 import type { KnowledgeClaim, InvestigationKind } from '../../knowledge/store';
 import { saveGame, loadGame, clearSave as clearPersistedSave, SaveGameState } from '../../persistence/saveGame';
+import { normalizeTurnSubmissionInput, projectForExternalInference } from '../../playerInput/turnSubmission';
+import { getRelationshipObservations } from '../../ai/tools/relationshipObservations';
+import {
+  buildInvestigationRelationshipEvidence,
+  buildPlayerSafeEvidence,
+  buildTurnRelationshipEvidence,
+  knownRecipientOptionsForPlayer,
+} from '../../knowledge/relationships';
 import type { PrivateSceneRecord } from '../../privateScene/model';
 import type {
   Entity,
@@ -473,7 +483,8 @@ export interface TurnOutcome {
   result: Awaited<ReturnType<typeof runNewTurn>>;
   /** The committed history entry (post-turn entities attached, mirroring App.tsx). */
   entry: TurnHistoryEntry;
-  /** What the player would actually perceive of this turn's ground-truth deltas (D5). */
+  /** What the player would actually perceive of this turn's ground-truth deltas (D5) -
+   * the player-only projection (buildPlayerPerceivedDigest); relation deltas withheld. */
   digest: PerceivedChange[];
   digestTexts: string[];
   /** The player knowledge store as committed after this turn (D21). */
@@ -725,6 +736,10 @@ export class JourneyRunner {
         '\nSUGGESTION: Court the goodwill of the Senate' +
         '\nSUGGESTION: Sound out the Praetorian prefects' +
         '\nSUGGESTION: Review the treasury accounts',
+      // App.tsx ALWAYS makes this post-pipeline selector call after every
+      // turn (see runTurn's commit block below); default to an empty
+      // selection so a journey that doesn't care about it need not script it.
+      relationshipObservations: scriptedJsonArray([]),
     };
     return { ...defaults, ...script };
   }
@@ -797,19 +812,47 @@ export class JourneyRunner {
 
     const playerAfter = result.updatedEntities.find(e => e.entity_id === this.thread.playerId) ?? playerBefore;
 
-    // The player's perceived digest, computed exactly as App.tsx does
-    // (committed entry's deltas + post-turn entities + new world state).
-    const digest = buildPerceivedDigest(entry.adjudication.deltas, playerAfter, result.updatedEntities, newWorldState);
+    // Snapshot BEFORE the post-pipeline observation call: rawCalls captures
+    // only the runNewTurn window (beginTurnCapture/endTurnCapture).
+    const pipelineCallCount = client.calls.length;
+
+    // Player-only projection - the same buildPlayerPerceivedDigest inputs App.tsx
+    // commits and its lastTurnPerceivedChanges memo re-derives (relation deltas withheld).
+    const digest = buildPlayerPerceivedDigest(entry.adjudication.deltas, playerAfter, result.updatedEntities, newWorldState);
     const digestTexts = digest.map(d => d.text);
 
-    // D21 knowledge ingestion - the SAME digest + this turn's new Reports,
-    // stamped with the authoritative turn number (knowledge/commit.ts).
+    // D21 knowledge ingestion (knowledge/commit.ts) - the SAME player-only
+    // digest + this turn's new Reports, stamped with the authoritative turn
+    // number, PLUS the relationship-observation selector App.tsx ALWAYS runs
+    // after every turn (App.tsx: "const relationshipDrafts = await
+    // getRelationshipObservations(ai, relationshipEvidence, entityDirectory,
+    // knownEntityIds, isMockMode);"). This call happens AFTER endTurnCapture
+    // above, so - exactly as in production - it is not part of the pipeline's
+    // own rawCalls capture (see INV-SCHEMA below) nor the INV-NO-SILENT
+    // console-error spy's scope (that spy was already restored above).
+    const priorReportIds = new Set(reportsBefore.map(r => r.id));
+    const reportsThisTurn = result.updatedReports.filter(r => !priorReportIds.has(r.id));
+    const entityDirectory = result.updatedEntities.map(e => ({ entity_id: e.entity_id, name: e.name }));
+    const relationshipEvidence = buildTurnRelationshipEvidence({
+      submission: projectForExternalInference(normalizeTurnSubmissionInput(def.intent)),
+      perceivedChanges: digest,
+      reports: reportsThisTurn,
+    }).map(item => buildPlayerSafeEvidence(item, entityDirectory));
+    const knownEntityIds = [
+      playerAfter.entity_id,
+      // App uses the PRE-commit knowledge store for this lookup; mirror with
+      // this.thread.knowledge (not yet reassigned to the new store below).
+      ...knownRecipientOptionsForPlayer(playerAfter, result.updatedEntities, this.thread.knowledge).map(o => o.entityId),
+    ];
+    const relationshipDrafts = await getRelationshipObservations(client.ai, relationshipEvidence, entityDirectory, knownEntityIds, false);
+
     const newKnowledge = computeTurnKnowledge({
       prev: this.thread.knowledge,
       perceivedChanges: digest,
       reportsBefore,
       reportsAfter: result.updatedReports,
       turnNumber: ranAsTurn,
+      relationshipObservations: { evidence: relationshipEvidence, drafts: relationshipDrafts, entities: entityDirectory, knownEntityIds },
     });
 
     this.thread.entities = result.updatedEntities;
@@ -835,9 +878,14 @@ export class JourneyRunner {
     assertStageOrder(stages, label);
     // INV-SCHEMA: every call the pipeline made was captured, and every one of
     // them parsed + validated (a scripted response that failed zod would have
-    // triggered a repair-retry -> a validated:false record).
+    // triggered a repair-retry -> a validated:false record). The
+    // relationship-observation call happens AFTER endTurnCapture (mirroring
+    // App.tsx), so it is deliberately NOT in entry.rawCalls - only the calls
+    // made during the runNewTurn window are.
     const rawCalls = entry.rawCalls ?? [];
-    expect(rawCalls.length, `[${label}] rawCalls count != calls actually made`).toBe(client.calls.length);
+    expect(rawCalls.length, `[${label}] rawCalls count != pipeline calls actually made`).toBe(pipelineCallCount);
+    expect(client.calls.slice(pipelineCallCount).map(c => c.kind),
+      `[${label}] exactly one post-pipeline observation call`).toEqual(['relationshipObservations']);
     expect(
       rawCalls.filter(r => !r.validated).map(r => r.callName),
       `[${label}] INV-SCHEMA: some scripted responses failed real schema validation`
@@ -895,8 +943,12 @@ export interface InvestigationRunResult {
  * player-triggered intelligence action that lives OUTSIDE runNewTurn - with a
  * scripted client and a scripted roll, then ingests the reveal into the
  * runner's knowledge store exactly as App.tsx's handleInvestigationOutcome
- * does (computeInvestigationKnowledge). The investigation always rolls once
- * from its own seed.
+ * does: computeInvestigationKnowledge, fed by the SAME
+ * getRelationshipObservations selector call App.tsx makes after every bought
+ * reveal (App.tsx's handleInvestigationOutcome: "const relationshipDrafts =
+ * await getRelationshipObservations(ai, relationshipEvidence,
+ * entityDirectory, knownEntityIds, isMockMode);"). The investigation always
+ * rolls once from its own seed.
  */
 export async function runScriptedInvestigation(
   runner: JourneyRunner,
@@ -906,10 +958,14 @@ export async function runScriptedInvestigation(
     isRisky?: boolean;
     roll: number;
     response: ScriptValue;
+    observations?: ScriptValue | ScriptedJsonArray;
   }
 ): Promise<InvestigationRunResult> {
   const label = `${runner.name} :: investigation of ${opts.targetId} (${opts.subject})`;
-  const client = new ScriptedClient({ investigation: opts.response }, label);
+  const client = new ScriptedClient({
+    investigation: opts.response,
+    relationshipObservations: opts.observations ?? scriptedJsonArray([]),
+  }, label);
   const seeded = installSeededRolls([opts.roll]);
   try {
     const result = await getInvestigationResult(
@@ -920,8 +976,22 @@ export async function runScriptedInvestigation(
       false,
       opts.subject
     );
-    expect(client.unconsumed(), `[${label}] scripted investigation response never consumed`).toEqual([]);
     expect(result.resolutionTrace?.roll, `[${label}] investigation roll != scripted roll`).toBe(opts.roll);
+
+    // The relationship-observation selector App.tsx ALWAYS runs after a
+    // bought reveal, over the player-facing report text only.
+    const entityDirectory = runner.thread.entities.map(e => ({ entity_id: e.entity_id, name: e.name }));
+    const relationshipEvidence = [buildInvestigationRelationshipEvidence({
+      reportText: result.report, targetId: opts.targetId, kind: opts.subject,
+      turnNumber: runner.thread.turnNumber, entities: entityDirectory,
+    })];
+    const knownEntityIds = [
+      runner.player().entity_id,
+      ...knownRecipientOptionsForPlayer(runner.player(), runner.thread.entities, runner.thread.knowledge).map(o => o.entityId),
+    ];
+    const relationshipDrafts = await getRelationshipObservations(client.ai, relationshipEvidence, entityDirectory, knownEntityIds, false);
+
+    expect(client.unconsumed(), `[${label}] scripted investigation response never consumed`).toEqual([]);
 
     // Ingest the bought report text as a knowledge reveal (the ONLY
     // player-facing text - never the resolution trace). For a 'scheme'
@@ -932,6 +1002,7 @@ export async function runScriptedInvestigation(
       kind: opts.subject as InvestigationKind,
       reportText: result.report,
       turnNumber: runner.thread.turnNumber,
+      relationshipObservations: { evidence: relationshipEvidence, drafts: relationshipDrafts, entities: entityDirectory, knownEntityIds },
     });
     runner.thread.knowledge = nextKnowledge;
 
