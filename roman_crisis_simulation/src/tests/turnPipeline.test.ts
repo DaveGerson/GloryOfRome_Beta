@@ -20,6 +20,7 @@ import type { GoogleGenAI } from '@google/genai';
 import { runNewTurn } from '../ai/core/turn';
 import { endTurnCapture } from '../ai/core/geminiService';
 import { rollD20, createSeededRng } from '../ai/core/resolution';
+import type { PrivateSceneAdjudicatorProjection } from '../privateScene/model';
 import type { Entity, WorldState, SimulationState, Report, TruthLedgerEntry, TurnSubmission } from '../types';
 
 // --- fixtures ---------------------------------------------------------
@@ -268,6 +269,52 @@ afterEach(() => {
 // --- tests ---------------------------------------------------------------
 
 describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization', () => {
+  it('treats a pending private-scene projection as context while adjudication deltas remain the sole consequence authority', async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+    const projection: PrivateSceneAdjudicatorProjection = {
+      player: { entityId: player.entity_id, name: player.name },
+      npc: { entityId: 'npc_claimant', name: 'Lucius Claimant' },
+      closureReason: 'npc_ended',
+      speechActs: [{ speaker: 'npc', kind: 'claim', text: 'Three cohorts have sworn to me.' }],
+      lastWord: 'The standards will rise at dawn.',
+      latestNpcInternalIntent: 'Bluff; only one cohort is loyal.',
+    };
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    h.response.adjudication.resolve(adjudicationJson);
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologueText);
+    h.response.narration.resolve(narrationFullText);
+
+    const result = await runNewTurn(
+      h.ai,
+      freeform('Hold court'),
+      player,
+      2,
+      [player],
+      worldState,
+      simulationState,
+      [],
+      [],
+      [],
+      [],
+      '',
+      false,
+      'Grim political thriller',
+      { privateSceneAdjudicatorProjection: projection },
+    );
+
+    expect(h.promptsByKind.adjudication).toContain('Three cohorts have sworn to me.');
+    expect(h.promptsByKind.adjudication).toContain('Bluff; only one cohort is loyal.');
+    expect(result.newHistoryEntry.adjudication.deltas).toEqual([
+      { type: 'resource', key: 'player_1:denarii', delta: 50, reason: 'Tax income.' },
+    ]);
+    expect(result.updatedEntities.find(entity => entity.entity_id === player.entity_id)?.resources.denarii).toBe(1050);
+    expect(h.order).toEqual(['storyRelevance', 'assessment', 'adjudication', 'simulationState', 'monologue', 'narration']);
+  });
+
   it('keeps mixed-submission Private Intent out of adjudication but in player-owned calls', async () => {
     const h = createHarness(false);
     const player = makeEntity();

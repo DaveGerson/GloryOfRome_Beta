@@ -46,6 +46,22 @@ export interface PrivateSceneRecord {
   consumedByTurn?: number;
 }
 
+export interface PrivateSceneAdjudicatorProjection {
+  player: { entityId: string; name: string };
+  npc: { entityId: string; name: string };
+  closureReason: PrivateSceneClosureReason;
+  speechActs: Array<Pick<PrivateSceneSpeechAct, 'speaker' | 'kind' | 'text'>>;
+  lastWord?: string;
+  latestNpcInternalIntent: string;
+}
+
+export interface PrivateSceneNpcMemoryProjection {
+  closureReason: PrivateSceneClosureReason;
+  speechActs: Array<Pick<PrivateSceneSpeechAct, 'speaker' | 'kind' | 'text'>>;
+  lastWord?: string;
+  npcPrivate: PrivateSceneNpcPrivateState;
+}
+
 export type PrivateSceneTransitionResult =
   | { ok: true; scene: PrivateSceneRecord }
   | { ok: false; error: string };
@@ -366,6 +382,36 @@ export function selectPendingPrivateSceneOutcome(
   scenes: readonly PrivateSceneRecord[],
 ): PrivateSceneRecord | null {
   return scenes.find(scene => scene.status === 'closed' && scene.consequenceStatus === 'pending') ?? null;
+}
+
+export function buildPrivateSceneAdjudicatorProjection(scene: PrivateSceneRecord): PrivateSceneAdjudicatorProjection {
+  if (scene.status !== 'closed' || !scene.closureReason || scene.consequenceStatus !== 'pending') {
+    throw new Error('only a closed pending private scene can be projected for adjudication');
+  }
+  return {
+    player: { entityId: scene.playerId, name: scene.playerName },
+    npc: { entityId: scene.npcId, name: scene.npcName },
+    closureReason: scene.closureReason,
+    speechActs: scene.speechActs.map(({ speaker, kind, text }) => ({ speaker, kind, text })),
+    ...(scene.lastWord === undefined ? {} : { lastWord: scene.lastWord }),
+    latestNpcInternalIntent: scene.npcPrivate.hiddenIntent,
+  };
+}
+
+export function buildPrivateSceneNpcMemoryProjection(
+  scenes: readonly PrivateSceneRecord[],
+  npcId: string,
+): PrivateSceneNpcMemoryProjection[] {
+  return scenes
+    .filter(scene => scene.npcId === npcId && scene.status === 'closed' && scene.closureReason)
+    .sort((a, b) => b.macroTurn - a.macroTurn)
+    .slice(0, 3)
+    .map(scene => ({
+      closureReason: scene.closureReason!,
+      speechActs: scene.speechActs.map(({ speaker, kind, text }) => ({ speaker, kind, text })),
+      ...(scene.lastWord === undefined ? {} : { lastWord: scene.lastWord }),
+      npcPrivate: { ...scene.npcPrivate, plannedFollowThrough: [...scene.npcPrivate.plannedFollowThrough] },
+    }));
 }
 
 export function consumePrivateSceneOutcome(

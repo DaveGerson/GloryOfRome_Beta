@@ -51,6 +51,7 @@
 
 import { Entity, NpcIntent } from '../../types';
 import type { PerceivedChange } from '../../perception/visibility';
+import type { PrivateSceneNpcMemoryProjection } from '../../privateScene/model';
 
 /**
  * Cost/latency cap on mind calls per turn (D16/D22): at most this many
@@ -73,6 +74,9 @@ export const MAX_MINDS_PER_TURN = 3;
  */
 export const MIND_MEMORY_LINES = 8;
 
+/** Maximum completed private audiences one NPC may remember in a mind call. */
+export const MAX_PRIVATE_SCENE_MEMORIES_PER_NPC_MIND = 3;
+
 export interface NpcMindPromptInput {
   /** The character's OWN full entity record - its own secrets/scheme are its own knowledge. Nothing about any other entity may enter through this input. */
   self: Entity;
@@ -85,6 +89,40 @@ export interface NpcMindPromptInput {
   /** PUBLIC knowledge: the one-line macro world summary (year/week/political climate/economic stability - the D5 crude-v1 public macro fields only, never region detail). */
   worldSummary: string;
   turnNumber: number;
+  /** This NPC's own completed private audiences only, newest first; raw records/transcripts never cross this seam. */
+  privateSceneMemories?: readonly PrivateSceneNpcMemoryProjection[];
+}
+
+/**
+ * Renders only the typed audience-memory projection, field by field. Extra
+ * runtime properties are ignored, and the prompt boundary re-applies the
+ * three-record cap even when a caller supplies more.
+ */
+export function buildPrivateSceneNpcMemoryBlock(
+  memories: readonly PrivateSceneNpcMemoryProjection[] | undefined,
+): string {
+  if (!memories || memories.length === 0) return '';
+  const rendered = memories.slice(0, MAX_PRIVATE_SCENE_MEMORIES_PER_NPC_MIND).map((memory, index) => {
+    const speechActs = memory.speechActs.length > 0
+      ? memory.speechActs.map(act => `  - ${act.speaker} ${act.kind}: ${JSON.stringify(act.text)}`).join('\n')
+      : '  - (none recorded)';
+    return `Audience ${index + 1}:
+- Closure: ${memory.closureReason}
+- Attributed speech acts (claims, not established truth):
+${speechActs}
+${memory.lastWord === undefined ? '' : `- Last word: ${JSON.stringify(memory.lastWord)}\n`}- Your private state afterward:
+  - Sincerity: ${JSON.stringify(memory.npcPrivate.sincerity)}
+  - Hidden intent (a plan, not proof it happened): ${JSON.stringify(memory.npcPrivate.hiddenIntent)}
+  - Planned follow-through: ${memory.npcPrivate.plannedFollowThrough.length > 0
+    ? memory.npcPrivate.plannedFollowThrough.map(item => JSON.stringify(item)).join('; ')
+    : '(none)'}`;
+  }).join('\n\n');
+  return `
+PRIVATE AUDIENCE MEMORIES (your own completed audiences, newest first; max 3):
+Words spoken in these memories are attributed claims, not guaranteed truth. Your prior hidden intent was a plan, not proof it happened. Only main-turn adjudication output deltas create consequences; these memories do not.
+${rendered}
+--- END PRIVATE AUDIENCE MEMORIES ---
+`;
 }
 
 /**
@@ -138,7 +176,7 @@ export function buildMindSelfBrief(self: Entity): string {
 
 /** Builds the { systemInstruction, prompt } pair for one character's per-turn mind call. */
 export function buildNpcMindPrompt(input: NpcMindPromptInput): { systemInstruction: string; prompt: string } {
-  const { self, directorIntent, perceivedChanges, publicHeadlines, worldSummary, turnNumber } = input;
+  const { self, directorIntent, perceivedChanges, publicHeadlines, worldSummary, turnNumber, privateSceneMemories } = input;
 
   const systemInstruction = `
 ROLE: A character's own private mind.
@@ -147,6 +185,8 @@ You are ${self.name}${self.position ? `, ${self.position}` : ''} - the character
 WHAT YOU KNOW - AND NOTHING MORE: everything you know is given below - who you are, what you remember, what you perceived this past week from your own vantage, and what all of Rome has heard. You know NOTHING beyond it. Other characters' secrets, private schemes, and hidden motives are closed to you unless something below told you of them; never act on knowledge your own eyes, ears, and informants could not have brought you.
 
 TASK: Decide YOUR move for the coming week, in service of your own goals and your own scheme. Choose like the person you are - your nature, beliefs, and loyalties govern the choice, not optimal play. You may be wrong about others; act on what YOU believe.
+
+PRIVATE AUDIENCE DISCIPLINE: Words spoken in your private-audience memories are attributed claims, not guaranteed truth. Your recorded hidden intent is a plan, not proof it happened. Only main-turn adjudication output deltas create consequences; memories themselves never change relationships, resources, status, or the world.
 
 OUTPUT: a single JSON object per the schema, no explanatory text or markdown:
 - "entity_id": exactly "${self.entity_id}".
@@ -168,6 +208,8 @@ ${buildMindSelfBrief(self)}
 
 WHAT YOU REMEMBER (your own experiences, oldest first):
 ${memoryLines.length > 0 ? memoryLines.join('\n') : 'Nothing of note yet - your story here is just beginning.'}
+
+${buildPrivateSceneNpcMemoryBlock(privateSceneMemories)}
 
 WHAT ELSE YOU PERCEIVED THIS PAST WEEK (only what your own vantage admitted, beyond what you already remember above):
 ${perceivedChanges.length > 0 ? perceivedChanges.map(c => `- [${c.source}] ${c.text}`).join('\n') : 'Nothing beyond what you already remember reached you this week.'}

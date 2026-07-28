@@ -12,6 +12,7 @@ import { buildPerceivedDigest, buildPlayerPerceivedDigest, PerceivedChange } fro
 import { generateStructured, generateText, generateTextStream, GEMINI_PRO, beginTurnCapture, endTurnCapture } from './geminiService';
 import { zAdjudication } from './zodSchemas';
 import { buildAdjudicationPrompt, PlayerActionOutcomeContext, HistoricalMaterialEntry } from '../prompts/adjudication';
+import type { PrivateSceneAdjudicatorProjection, PrivateSceneNpcMemoryProjection } from '../../privateScene/model';
 import { selectRipeEventMaterial } from '../../events/engine';
 import { buildNarrationPrompt, selectVoiceCast } from '../prompts/narration';
 import { processMortality, detectDeathClaims } from './mortality';
@@ -344,6 +345,10 @@ export interface RunNewTurnOptions {
      * player-facing surfaces (D4/D5).
      */
     eventFirings?: EventFiringRecord[];
+    /** One closed pending private audience, projected without its record or transcript for the adjudicator. */
+    privateSceneAdjudicatorProjection?: PrivateSceneAdjudicatorProjection;
+    /** Completed audience memories keyed by their participating NPC; each prompt is capped again at three. */
+    privateSceneNpcMemoriesByNpcId?: Readonly<Record<string, readonly PrivateSceneNpcMemoryProjection[]>>;
 }
 
 export async function runNewTurn(
@@ -398,7 +403,21 @@ export async function runNewTurn(
     if (isMockMode) {
         if(!mockRunNewTurn) throw new Error("Mock function 'mockRunNewTurn' is not implemented.");
         // FIX: Pass currentSimulationState to the mock function to align with its updated signature.
-        return mockRunNewTurn(normalizedSubmission, playerEntity, turnNumber, currentEntities, currentWorldState, currentReports, gmInterventionText, metaNarrative, currentSimulationState, currentTruthLedger, currentNpcIntents);
+        return mockRunNewTurn(
+            normalizedSubmission,
+            playerEntity,
+            turnNumber,
+            currentEntities,
+            currentWorldState,
+            currentReports,
+            gmInterventionText,
+            metaNarrative,
+            currentSimulationState,
+            currentTruthLedger,
+            currentNpcIntents,
+            options?.privateSceneAdjudicatorProjection,
+            options?.privateSceneNpcMemoriesByNpcId,
+        );
     }
 
     // Bracket the whole turn pipeline so every AI call made below (across
@@ -535,6 +554,7 @@ export async function runNewTurn(
                     publicHeadlines,
                     worldSummary,
                     turnNumber,
+                    privateSceneMemories: options?.privateSceneNpcMemoriesByNpcId?.[npc.entity_id],
                 }, isMockMode);
             } catch (e) {
                 mindFailureNotes.push(`[Mind] ${npc.entity_id}'s mind call failed (${e instanceof Error ? e.message : String(e)}) - proceeding without it; the adjudicator falls back to this spotlight's Director intent alone.`);
@@ -573,6 +593,7 @@ export async function runNewTurn(
         npcMindDecisions: npcMindResults,
         pacingPosture: options?.pacingPosture,
         historicalMaterial,
+        privateSceneAdjudicatorProjection: options?.privateSceneAdjudicatorProjection,
     });
 
     // 2. Get adjudication from AI

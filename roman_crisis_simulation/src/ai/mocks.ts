@@ -5,7 +5,7 @@ import { Adjudication, Entity, NpcIntent, NpcMindDecision, Report, SimulationSta
 import { applyAdjudication } from './core/engine';
 import { MAX_MINDS_PER_TURN } from './prompts/npcMind';
 import { normalizeTurnSubmissionInput, projectForNoAttemptResponse, projectForPlayerOwnedAi, projectForResolution, serializeTurnSubmission } from '../playerInput/turnSubmission';
-import type { PrivateSceneModelResponse } from '../privateScene/model';
+import type { PrivateSceneAdjudicatorProjection, PrivateSceneModelResponse, PrivateSceneNpcMemoryProjection } from '../privateScene/model';
 import type { PrivateScenePromptInput } from './prompts/privateScene';
 
 /** Deterministic, provider-free private-scene fixture for local play and tests. */
@@ -283,7 +283,9 @@ export const mockRunNewTurn = async (
     metaNarrative: string,
     currentSimulationState: SimulationState,
     currentTruthLedger: TruthLedgerEntry[] = [],
-    currentNpcIntents: NpcIntent[] = []
+    currentNpcIntents: NpcIntent[] = [],
+    privateSceneAdjudicatorProjection?: PrivateSceneAdjudicatorProjection,
+    privateSceneNpcMemoriesByNpcId?: Readonly<Record<string, readonly PrivateSceneNpcMemoryProjection[]>>,
 ): Promise<{
     updatedEntities: Entity[],
     updatedWorldState: WorldState,
@@ -302,6 +304,7 @@ export const mockRunNewTurn = async (
     const playerIntent = serializeTurnSubmission(normalizedSubmission);
     const playerOwnedContext = projectForPlayerOwnedAi(normalizedSubmission);
     const observableAttempt = projectForResolution(normalizedSubmission);
+    void privateSceneAdjudicatorProjection;
     console.log("--- MOCK TURN RUN ---");
     console.log("GM Intervention Text:", gmInterventionText);
     console.log("Meta Narrative:", metaNarrative);
@@ -323,7 +326,8 @@ export const mockRunNewTurn = async (
         if (!mindEntity || mindEntity.entity_id === playerEntity.entity_id) continue;
         mindDecisions.push(await mockGetNpcMindDecision(
             mindEntity,
-            storyRelevance.spotlight_intents.find(i => i.entity_id === spotlight.entity_id)
+            storyRelevance.spotlight_intents.find(i => i.entity_id === spotlight.entity_id),
+            privateSceneNpcMemoriesByNpcId?.[mindEntity.entity_id],
         ));
     }
 
@@ -516,7 +520,12 @@ const MOCK_MIND_DECISIONS: Record<string, Omit<NpcMindDecision, 'entity_id'>> = 
  * so the mind -> adjudicator loop runs offline end-to-end regardless of
  * roster. GM-private data like the real thing (D4/D5).
  */
-export const mockGetNpcMindDecision = async (self: Entity, directorIntent?: NpcIntent): Promise<NpcMindDecision> => {
+export const mockGetNpcMindDecision = async (
+    self: Entity,
+    directorIntent?: NpcIntent,
+    privateSceneMemories: readonly PrivateSceneNpcMemoryProjection[] = [],
+): Promise<NpcMindDecision> => {
+    void privateSceneMemories;
     console.log(`--- MOCK NPC MIND for ${self.name} ---`);
     const canned = MOCK_MIND_DECISIONS[self.entity_id];
     if (canned) return { entity_id: self.entity_id, ...canned };

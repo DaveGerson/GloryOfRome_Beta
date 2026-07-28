@@ -6,11 +6,16 @@ import { buildAdjudicationPrompt } from '../ai/prompts/adjudication';
 import { buildPerceivedDigest } from '../perception/visibility';
 import { computeTurnKnowledge } from '../knowledge/commit';
 import { serializeTurnSubmission } from '../playerInput/turnSubmission';
+import type { PrivateSceneAdjudicatorProjection } from '../privateScene/model';
 import type { Entity, EventDelta, SimulationState, TurnSubmission, WorldState } from '../types';
 
 const OBSERVABLE_SENTINEL = 'OBSERVABLE_ATTEMPT_SENTINEL_6T2';
 const PRIVATE_SENTINEL = 'PRIVATE_INTENT_MUST_STAY_PLAYER_OWNED';
 const QUESTION_SENTINEL = 'QUESTION_CONTEXT_SENTINEL_6T2';
+const NPC_SPEECH = 'Three cohorts have sworn to me.';
+const NPC_HIDDEN_INTENT = 'Bluff; only one cohort is loyal.';
+const UNRELATED_TRUTH = 'WORLD_TRUTH_SENTINEL: exactly one cohort exists.';
+const RAW_TRANSCRIPT = 'RAW_PRIVATE_SCENE_TRANSCRIPT_MUST_NOT_ROUTE';
 
 const WORLD_STATE: WorldState = {
   year: 235,
@@ -232,6 +237,58 @@ afterEach(() => {
 });
 
 describe('runNewTurn submission visibility routing', () => {
+  it('routes one pending private-scene outcome to adjudication as attributed claims without raw or unrelated context', async () => {
+    const harness = makeHarness();
+    const { player, npcA, npcB } = makeCast();
+    const privateSceneProjection = {
+      player: { entityId: player.entity_id, name: player.name },
+      npc: { entityId: npcA.entity_id, name: npcA.name },
+      closureReason: 'player_ended' as const,
+      speechActs: [{ speaker: 'npc' as const, kind: 'claim' as const, text: NPC_SPEECH }],
+      lastWord: 'We will speak again when the standards are raised.',
+      latestNpcInternalIntent: NPC_HIDDEN_INTENT,
+      transcript: RAW_TRANSCRIPT,
+      unrelatedTruth: UNRELATED_TRUTH,
+      playerPrivateIntent: PRIVATE_SENTINEL,
+    } satisfies PrivateSceneAdjudicatorProjection & {
+      transcript: string;
+      unrelatedTruth: string;
+      playerPrivateIntent: string;
+    };
+
+    await runNewTurn(
+      harness.ai,
+      FULL_SUBMISSION,
+      player,
+      7,
+      [player, npcA, npcB],
+      WORLD_STATE,
+      SIMULATION_STATE,
+      [],
+      [],
+      [],
+      [],
+      '',
+      false,
+      'A political thriller',
+      { privateSceneAdjudicatorProjection: privateSceneProjection },
+    );
+
+    const call = harness.calls.find(candidate => candidate.kind === 'adjudication');
+    const prompt = call?.prompt ?? '';
+    const block = prompt.match(/PRIVATE SCENE OUTCOME[\s\S]*?END PRIVATE SCENE OUTCOME/)?.[0] ?? '';
+    expect(block).toContain(NPC_SPEECH);
+    expect(block).toContain(NPC_HIDDEN_INTENT);
+    expect(block).toContain('player_ended');
+    expect(block).toContain('We will speak again when the standards are raised.');
+    expect(block).not.toContain(RAW_TRANSCRIPT);
+    expect(block).not.toContain(UNRELATED_TRUTH);
+    expect(block).not.toContain(PRIVATE_SENTINEL);
+    expect(call?.systemInstruction).toMatch(/speech acts are attributed claims, not established truth/i);
+    expect(call?.systemInstruction).toMatch(/internal intent is private planning, not an accomplished action/i);
+    expect(call?.systemInstruction).toMatch(/only .*adjudication.*deltas.*create.*consequences/i);
+  });
+
   it('uses main adjudication as the sole consequence authority and applies its directional relation delta once', async () => {
     const harness = makeHarness({
       storyRelevance: JSON.stringify({

@@ -25,7 +25,7 @@ import { zNpcMindDecision } from '../ai/core/zodSchemas';
 import { NpcMindDecisionSchema } from '../ai/core/schemas';
 import { buildNpcMindPrompt, buildMindSelfBrief, MAX_MINDS_PER_TURN, MIND_MEMORY_LINES } from '../ai/prompts/npcMind';
 import { buildNpcMindDecisionsBlock } from '../ai/prompts/fragments';
-import { runNewTurn, selectMindEntities, selectUnrememberedChanges, evolveSchemeFromAdjustment, buildMindSchemeDeltas, MAX_SCHEME_STEPS } from '../ai/core/turn';
+import { runNewTurn, selectMindEntities, selectUnrememberedChanges, evolveSchemeFromAdjustment, buildMindSchemeDeltas, MAX_SCHEME_STEPS, type RunNewTurnOptions } from '../ai/core/turn';
 import { applyDeltas } from '../ai/core/engine';
 import { MAX_NPC_MEMORY_LINES_PER_TURN } from '../perception/npcPerception';
 import { buildPerceivedDigest, type PerceivedChange } from '../perception/visibility';
@@ -34,6 +34,7 @@ import { withOldSnapshotsDropped, KEEP_FULL_SNAPSHOTS } from '../state/gameReduc
 import { mockRunNewTurn, mockGetNpcMindDecision } from '../ai/mocks';
 import { getMockInitialState } from './mockData';
 import { ALL_INITIAL_ENTITIES, INITIAL_WORLD_STATE } from '../constants/baseScenario';
+import type { PrivateSceneNpcMemoryProjection } from '../privateScene/model';
 import type { Entity, EventDelta, NpcMindDecision, Scheme, SimulationState, StoryRelevance, TurnHistoryEntry, TurnSubmission, WorldState } from '../types';
 
 // --- fixtures --------------------------------------------------------------
@@ -90,6 +91,10 @@ const PLAYER_SCHEME_NAME = 'Hold the Throne Against All';
 // A publicly-dead hidden survivor (D3 secret_truth) in the roster: its
 // GM-private motive must never reach any mind's prompt.
 const HIDDEN_MOTIVE = 'Waits in a Capri villa to reclaim the purple';
+const PRIVATE_SCENE_NPC_SPEECH = 'Three cohorts have sworn to me.';
+const PRIVATE_SCENE_NPC_INTENT = 'Bluff; only one cohort is loyal.';
+const PRIVATE_SCENE_UNRELATED_TRUTH = 'WORLD_TRUTH_SENTINEL: exactly one cohort exists.';
+const PRIVATE_SCENE_PLAYER_INTENT = 'PLAYER_PRIVATE_INTENT_MUST_NOT_REACH_NPC_MIND';
 
 function makeHiddenSurvivor(): Entity {
   return makeEntity({
@@ -285,17 +290,17 @@ function baseResponses(): Record<string, string | Error> {
   };
 }
 
-function runAsymmetryTurn(harness: MindHarness) {
+function runAsymmetryTurn(harness: MindHarness, options?: RunNewTurnOptions, submission: TurnSubmission = freeform('Hold court')) {
   const { player, npcA, npcB } = makeAsymmetryCast();
   // The hidden survivor rides in the roster so the asymmetry pin covers
   // secret_truth: its motive reaches the (omniscient) adjudicator's
   // GM-SECRET block but must never reach any mind.
   return runNewTurn(
-    harness.ai, freeform('Hold court'), player, 5, [player, npcA, npcB, makeHiddenSurvivor()], WORLD_STATE, SIM_STATE,
+    harness.ai, submission, player, 5, [player, npcA, npcB, makeHiddenSurvivor()], WORLD_STATE, SIM_STATE,
     [makePreviousEntry()], [], [], [
       { entity_id: 'npc_thrax', intent: 'March the Rhine legions on Rome', continuity: 'continue' },
       { entity_id: 'npc_venena', intent: 'Slip the toxin into the palace kitchens', continuity: 'continue' },
-    ], '', false, 'Grim political thriller'
+    ], '', false, 'Grim political thriller', options
   );
 }
 
@@ -403,6 +408,45 @@ describe('buildNpcMindPrompt: in-character address with bounded knowledge', () =
 // --- THE ASYMMETRY PIN (D10/D22 - the point of the stage) -------------------
 
 describe('runNewTurn npc_minds: the information-asymmetry pin', () => {
+  it('routes at most three completed private-scene memories only to their participating NPC mind', async () => {
+    const harness = createMindHarness(baseResponses());
+    const memory = (index: number): PrivateSceneNpcMemoryProjection & { transcript: string; unrelatedTruth: string } => ({
+      closureReason: 'player_ended',
+      speechActs: [{ speaker: 'npc', kind: 'claim', text: `${PRIVATE_SCENE_NPC_SPEECH} [memory ${index}]` }],
+      lastWord: `Last word ${index}`,
+      npcPrivate: {
+        sincerity: 'deceptive',
+        hiddenIntent: `${PRIVATE_SCENE_NPC_INTENT} [memory ${index}]`,
+        plannedFollowThrough: [`Plan ${index}`],
+      },
+      transcript: `RAW_TRANSCRIPT_${index}`,
+      unrelatedTruth: PRIVATE_SCENE_UNRELATED_TRUTH,
+    });
+
+    await runAsymmetryTurn(
+      harness,
+      { privateSceneNpcMemoriesByNpcId: { npc_thrax: [memory(1), memory(2), memory(3), memory(4)] } },
+      { version: 1, kind: 'structured', actions: ['Hold court'], privateIntent: PRIVATE_SCENE_PLAYER_INTENT },
+    );
+
+    const thraxPrompt = harness.prompts['npcMind:npc_thrax'];
+    const venenaPrompt = harness.prompts['npcMind:npc_venena'];
+    const thraxBlock = thraxPrompt.match(/PRIVATE AUDIENCE MEMORIES[\s\S]*?END PRIVATE AUDIENCE MEMORIES/)?.[0] ?? '';
+    expect(thraxBlock).toContain(`${PRIVATE_SCENE_NPC_SPEECH} [memory 1]`);
+    expect(thraxBlock).toContain(`${PRIVATE_SCENE_NPC_SPEECH} [memory 2]`);
+    expect(thraxBlock).toContain(`${PRIVATE_SCENE_NPC_SPEECH} [memory 3]`);
+    expect(thraxBlock).not.toContain(`${PRIVATE_SCENE_NPC_SPEECH} [memory 4]`);
+    expect(thraxBlock).toContain(PRIVATE_SCENE_NPC_INTENT);
+    expect(thraxBlock).not.toContain('RAW_TRANSCRIPT');
+    expect(thraxBlock).not.toContain(PRIVATE_SCENE_UNRELATED_TRUTH);
+    expect(thraxBlock).not.toContain(PRIVATE_SCENE_PLAYER_INTENT);
+    expect(venenaPrompt).not.toContain('PRIVATE AUDIENCE MEMORIES');
+    expect(venenaPrompt).not.toContain(PRIVATE_SCENE_NPC_SPEECH);
+    expect(`${harness.systems['npcMind:npc_thrax']}\n${thraxPrompt}`).toMatch(/spoken .*claims, not .*truth/i);
+    expect(`${harness.systems['npcMind:npc_thrax']}\n${thraxPrompt}`).toMatch(/hidden intent .*plan, not .*happened/i);
+    expect(`${harness.systems['npcMind:npc_thrax']}\n${thraxPrompt}`).toMatch(/only .*adjudication.*deltas.*consequences/i);
+  });
+
   it("a mind's prompt contains its OWN scheme/secrets but NEVER the rival's, the player's privates, gm_private, or rumor truth flags", async () => {
     const harness = createMindHarness(baseResponses());
     await runAsymmetryTurn(harness);

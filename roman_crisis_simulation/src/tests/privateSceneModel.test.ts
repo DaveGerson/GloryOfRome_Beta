@@ -4,6 +4,8 @@ import {
   PRIVATE_SCENE_MAX_NPC_RESPONSES,
   PRIVATE_SCENE_MAX_UTTERANCE_CHARS,
   appendPrivateSceneExchange,
+  buildPrivateSceneAdjudicatorProjection,
+  buildPrivateSceneNpcMemoryProjection,
   beginPrivateScene,
   consumePrivateSceneOutcome,
   eligiblePrivateSceneTargets,
@@ -438,5 +440,41 @@ describe('public transition boundary', () => {
       | { ok: true; scene: PrivateSceneRecord }
       | { ok: false; error: string }
     >();
+  });
+});
+
+describe('main-turn audience projections', () => {
+  it('refuses to project an already-consumed outcome back into main adjudication', () => {
+    const consumed: PrivateSceneRecord = {
+      ...ACTIVE_SCENE,
+      status: 'closed',
+      closureReason: 'player_ended',
+      consequenceStatus: 'consumed',
+      consumedByTurn: 7,
+    };
+    expect(() => buildPrivateSceneAdjudicatorProjection(consumed)).toThrow(/pending private scene/i);
+  });
+
+  it('projects one pending outcome without its transcript and gives only its NPC bounded completed memory', () => {
+    const pending: PrivateSceneRecord = { ...ACTIVE_SCENE, status: 'closed', closureReason: 'player_ended', transcript: [{ sequence: 1, speaker: 'player', text: 'TRANSCRIPT_SECRET' }] };
+    const unrelated: PrivateSceneRecord = { ...pending, sceneId: 'other', npcId: 'other_npc', npcName: 'Other', macroTurn: 6 };
+    const participantHistory = [1, 2, 3, 4].map(macroTurn => ({
+      ...pending,
+      sceneId: `participant-${macroTurn}`,
+      macroTurn,
+      speechActs: [{ speaker: 'npc' as const, kind: 'claim' as const, text: `Participant memory ${macroTurn}`, exchange: 1 }],
+    }));
+    const adjudication = buildPrivateSceneAdjudicatorProjection(pending);
+    const memory = buildPrivateSceneNpcMemoryProjection([...participantHistory, unrelated], pending.npcId);
+    expect(JSON.stringify(adjudication)).not.toContain('TRANSCRIPT_SECRET');
+    expect(adjudication.latestNpcInternalIntent).toBe(pending.npcPrivate.hiddenIntent);
+    expect(memory).toHaveLength(3);
+    expect(memory.map(item => item.speechActs[0]?.text)).toEqual([
+      'Participant memory 4',
+      'Participant memory 3',
+      'Participant memory 2',
+    ]);
+    expect(JSON.stringify(memory)).not.toContain('other_npc');
+    expect(JSON.stringify(memory)).not.toContain('Participant memory 1');
   });
 });
