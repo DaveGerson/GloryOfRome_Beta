@@ -270,10 +270,10 @@ describe('getRelationshipObservations', () => {
     )).resolves.toEqual([citedUnknown]);
     await expect(getRelationshipObservations(
       ai, citedEvidence, completeDirectory, ['severus_alexander']
-    )).rejects.toThrow(/semantic validation rejected/i);
+    )).resolves.toEqual([]);
     await expect(getRelationshipObservations(
       ai, citedEvidence, completeDirectory, ['severus_alexander']
-    )).rejects.toThrow(/semantic validation rejected/i);
+    )).resolves.toEqual([citedUnknown]);
 
     expect(generateContent).toHaveBeenCalledTimes(3);
     for (const [request] of generateContent.mock.calls) {
@@ -303,24 +303,54 @@ describe('getRelationshipObservations', () => {
 
     await expect(getRelationshipObservations(
       ai, fragmentEvidence, fragmentDirectory, ['severus_alexander']
-    )).rejects.toThrow(/semantic validation rejected/i);
+    )).resolves.toEqual([]);
     expect(generateContent.mock.calls[0][0].contents).not.toContain('{"entity_id":"ann","name":"Ann"}');
   });
 
-  it('rejects a schema-valid non-empty selection that cites nonexistent evidence', async () => {
+  it('drops a schema-valid selection that cites nonexistent evidence', async () => {
     const nonexistent = { ...validDraft, evidenceId: 'missing_evidence' };
     const { ai } = makeMockAi([nonexistent]);
 
     await expect(getRelationshipObservations(ai, evidence, directory, knownEntityIds))
-      .rejects.toThrow(/semantic validation rejected/i);
+      .resolves.toEqual([]);
   });
 
-  it('rejects the whole provider result when valid and semantically invalid selections are mixed', async () => {
+  it('commits only the valid subset when valid and semantically invalid selections are mixed', async () => {
     const nonexistent = { ...validDraft, evidenceId: 'missing_evidence' };
     const { ai } = makeMockAi([validDraft, nonexistent]);
 
     await expect(getRelationshipObservations(ai, evidence, directory, knownEntityIds))
-      .rejects.toThrow(/semantic validation rejected/i);
+      .resolves.toEqual([validDraft]);
+  });
+
+  it('resolves cleanly with no observations when every draft fails semantic validation', async () => {
+    const localDirectory = [...directory, { entity_id: 'lycinia_stolo', name: 'Lycinia Stolo' }];
+    const nonexistent = { ...validDraft, evidenceId: 'missing_evidence' };
+    const uncitedHiddenStyle = { ...validDraft, participantIds: ['severus_alexander', 'lycinia_stolo'] };
+    const { ai } = makeMockAi([nonexistent, uncitedHiddenStyle]);
+
+    await expect(getRelationshipObservations(ai, evidence, localDirectory, knownEntityIds)).resolves.toEqual([]);
+  });
+
+  it('emits only a content-free count diagnostic when dropping drafts', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const nonexistent = { ...validDraft, evidenceId: 'missing_evidence' };
+    const { ai: mixedAi } = makeMockAi([validDraft, nonexistent]);
+    await getRelationshipObservations(mixedAi, evidence, directory, knownEntityIds);
+
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const serializedCalls = JSON.stringify(warnSpy.mock.calls);
+    expect(serializedCalls).toContain('dropped 1 of 2');
+    for (const forbidden of [SAFE_TEXT, 'report_7_1', 'lucius', 'missing_evidence']) {
+      expect(serializedCalls).not.toContain(forbidden);
+    }
+
+    warnSpy.mockClear();
+    const { ai: validAi } = makeMockAi([validDraft]);
+    await getRelationshipObservations(validAi, evidence, directory, knownEntityIds);
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
   });
 
   it('fails loudly after the repair attempt when structured output is still invalid', async () => {
