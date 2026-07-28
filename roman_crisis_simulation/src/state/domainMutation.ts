@@ -17,4 +17,5 @@ export interface DomainMutationContext {
  */
 export type RunDomainMutation = <T>(
   work: (context: DomainMutationContext) => T | Promise<T>,
+  options?: { allowDuringPrivateScene?: boolean },
 ) => Promise<DomainMutationResult<T>>;

@@ -6,6 +6,7 @@ import Header from './components/Header';
 import CharacterSelection, { SavedGameSummary } from './components/CharacterSelection';
 import { ChatMessage, TypingIndicator, StreamingNarrationBubble } from './components/Chat';
 import { TurnComposer } from './components/TurnComposer';
+import { PrivateScene, replacePrivateSceneForCommit } from './components/PrivateScene';
 import CrisisBanner from './components/CrisisBanner';
 import DispatchesDigest from './components/DispatchesDigest';
 import SidePanel from './components/SidePanel';
@@ -35,7 +36,9 @@ import {
     getGmConsoleEnabled, setGmConsoleEnabled,
     getGmInterventionEnabled, setGmInterventionEnabled,
 } from './persistence/uiPrefs';
-import { buildPlayerPerceivedDigest, TabId } from './perception/visibility';
+import { buildPlayerPerceivedDigest, projectPrivateSceneForPlayer, TabId } from './perception/visibility';
+import { eligiblePrivateSceneTargets, beginPrivateScene, appendPrivateSceneExchange, endPrivateScene, finalizePrivateScene, type PrivateSceneRecord } from './privateScene/model';
+import { continuePrivateScene } from './ai/tools/privateScene';
 import { computeTurnKnowledge, computeInvestigationKnowledge } from './knowledge/commit';
 import {
     buildInvestigationRelationshipEvidence,
@@ -228,6 +231,10 @@ const App: React.FC = () => {
     // committed state and resolves the phase to AWAITING_EVENT_CHOICE or
     // AWAITING_PLAYER_INPUT. Transient orchestration only - never saved.
     const [isCheckingEvents, setIsCheckingEvents] = useState(false);
+    const [privateSceneOpeningDraft, setPrivateSceneOpeningDraft] = useState('');
+    const [privateSceneReplyDraft, setPrivateSceneReplyDraft] = useState('');
+    const [privateSceneLastWordDraft, setPrivateSceneLastWordDraft] = useState('');
+    const [privateSceneError, setPrivateSceneError] = useState<string | null>(null);
 
     // Transient UI state for the persistence/retry flow (P0.2/P0.3 - see
     // ROADMAP_3_UX_INTERACTIONS.md and ROADMAP_5_TECH_PERFORMANCE.md). Never
@@ -328,6 +335,7 @@ const App: React.FC = () => {
     // future refactor of the commit logic shouldn't silently break this).
     const preTurnSnapshotRef = useRef<SaveGameState | null>(null);
     const domainMutationLeaseRef = useRef<symbol | null>(null);
+    const privateSceneLockRef = useRef(false);
     const appMountedRef = useRef(true);
     const campaignGenerationRef = useRef(0);
     const latestInferredAmbitionRef = useRef<InferredAmbitionState | null>(inferredAmbition);
@@ -348,8 +356,8 @@ const App: React.FC = () => {
         );
     }, [inferredAmbition]);
 
-    const runDomainMutation = useCallback<RunDomainMutation>(async <T,>(work: (context: DomainMutationContext) => T | Promise<T>) => {
-        if (domainMutationLeaseRef.current) {
+    const runDomainMutation = useCallback<RunDomainMutation>(async <T,>(work: (context: DomainMutationContext) => T | Promise<T>, options: { allowDuringPrivateScene?: boolean } = {}) => {
+        if (domainMutationLeaseRef.current || (privateSceneLockRef.current && !options.allowDuringPrivateScene)) {
             return { acquired: false };
         }
         const lease = Symbol('domain-mutation');
@@ -400,6 +408,17 @@ const App: React.FC = () => {
         () => playerEntity ? knownRecipientOptionsForPlayer(playerEntity, entities, knowledge) : [],
         [playerEntity, entities, knowledge],
     );
+    const privateSceneKnownIds = useMemo(() => recipientOptions.map(option => option.entityId), [recipientOptions]);
+    const privateSceneTargets = useMemo(
+        () => playerEntity ? eligiblePrivateSceneTargets({ player: playerEntity, entities, knownEntityIds: privateSceneKnownIds }) : [],
+        [playerEntity, entities, privateSceneKnownIds],
+    );
+    const privateSceneViews = useMemo(
+        () => state.privateScenes.map(projectPrivateSceneForPlayer),
+        [state.privateScenes],
+    );
+    const privateSceneInteractionLocked = state.privateScenes.some(scene => scene.status === 'active' || scene.status === 'awaiting_last_word');
+    privateSceneLockRef.current = privateSceneInteractionLocked;
 
     // DESIGN_DECISIONS.md D1 - survival-only: ONLY death ends a run. Exile
     // and "missing" are survivable states the player keeps playing through,
@@ -582,6 +601,100 @@ const App: React.FC = () => {
             queueMicrotask(() => setIsCheckingEvents(false));
         }
     }, [isCheckingEvents, worldState, entities, eventFirings, playerEntity, simulationState, turnNumber, dispatch]);
+
+    const privateScenePromptFor = useCallback((npc: Entity, transcript: PrivateSceneRecord['transcript'], exchange: number) => {
+        if (!playerEntity) throw new Error('The player is unavailable for this private scene.');
+        return {
+        phase: exchange === 1 ? 'invitation' as const : 'exchange' as const,
+        exchange,
+        npc: {
+            entityId: npc.entity_id, displayName: npc.name, position: npc.position, location: npc.location,
+            voice: npc.voice, selfDescription: npc.current_state_narrative,
+            goals: npc.short_term_goals.slice(0, 8), beliefs: (npc.beliefs ?? []).slice(0, 8),
+            ownSecrets: (npc.secrets ?? []).slice(0, 8), memories: npc.memories.slice(-8).map(memory => memory.event_description),
+            relationshipToPlayer: undefined,
+        },
+        player: { entityId: playerEntity.entity_id, displayName: playerEntity.name, position: playerEntity.position },
+        transcript: transcript.map(line => ({ speaker: line.speaker, text: line.text })),
+    };
+    }, [playerEntity]);
+
+    const commitPrivateScene = useCallback((candidate: PrivateSceneRecord): boolean => {
+        const current = state.privateScenes.find(scene => scene.sceneId === candidate.sceneId);
+        // New invitations are absent; continuations must still be the exact durable record we began from.
+        if (current && (current.macroTurn !== candidate.macroTurn || current.npcResponseCount > candidate.npcResponseCount)) return false;
+        const candidateScenes = replacePrivateSceneForCommit(state.privateScenes, candidate);
+        if (!saveGame(buildSaveState({ privateScenes: candidateScenes })).ok) {
+            setPrivateSceneError('The scene could not be saved. Your words remain ready to retry.');
+            return false;
+        }
+        dispatch({ type: 'PRIVATE_SCENES_COMMITTED', privateScenes: candidateScenes });
+        setPrivateSceneError(null);
+        return true;
+    }, [buildSaveState, dispatch, state.privateScenes]);
+
+    const handlePrivateSceneInvite = useCallback((targetId: string) => {
+        void runDomainMutation(async transaction => {
+            if (!transaction.isCurrent() || !playerEntity || !privateSceneOpeningDraft.trim()) return false;
+            const npc = entities.find(entity => entity.entity_id === targetId);
+            const stillEligible = eligiblePrivateSceneTargets({ player: playerEntity, entities, knownEntityIds: privateSceneKnownIds })
+                .some(target => target.entityId === targetId);
+            if (!npc || !stillEligible || state.privateScenes.some(scene => scene.status === 'active' || scene.status === 'awaiting_last_word')) return false;
+            try {
+                const response = await continuePrivateScene(ai, privateScenePromptFor(npc, [{ sequence: 1, speaker: 'player', text: privateSceneOpeningDraft.trim() }], 1), isMockMode);
+                if (!transaction.isCurrent()) return false;
+                const transition = beginPrivateScene({ sceneId: `private-scene-${turnNumber}-${npc.entity_id}`, macroTurn: turnNumber, player: playerEntity, npc, knownEntityIds: privateSceneKnownIds, opening: privateSceneOpeningDraft, response, existing: state.privateScenes });
+                if (!transition.ok || !commitPrivateScene(transition.scene)) return false;
+                setPrivateSceneOpeningDraft('');
+                return true;
+            } catch {
+                if (transaction.isCurrent()) setPrivateSceneError('The scene could not continue. Your words remain ready to retry.');
+                return false;
+            }
+        }, { allowDuringPrivateScene: true });
+    }, [ai, commitPrivateScene, entities, isMockMode, playerEntity, privateSceneKnownIds, privateSceneOpeningDraft, privateScenePromptFor, runDomainMutation, state.privateScenes, turnNumber]);
+
+    const handlePrivateSceneReply = useCallback((sceneId: string) => {
+        void runDomainMutation(async transaction => {
+            const scene = state.privateScenes.find(candidate => candidate.sceneId === sceneId);
+            if (!transaction.isCurrent() || !scene || scene.status !== 'active' || !privateSceneReplyDraft.trim()) return false;
+            const npc = entities.find(entity => entity.entity_id === scene.npcId);
+            if (!npc) return false;
+            try {
+                const response = await continuePrivateScene(ai, privateScenePromptFor(npc, [...scene.transcript, { sequence: scene.transcript.length + 1, speaker: 'player', text: privateSceneReplyDraft.trim() }], scene.npcResponseCount + 1), isMockMode);
+                if (!transaction.isCurrent()) return false;
+                const current = state.privateScenes.find(candidate => candidate.sceneId === sceneId);
+                if (!current || current.status !== 'active' || current.macroTurn !== scene.macroTurn || current.npcResponseCount !== scene.npcResponseCount) return false;
+                const transition = appendPrivateSceneExchange({ scene: current, expectedNpcResponseCount: scene.npcResponseCount, playerUtterance: privateSceneReplyDraft, response });
+                if (!transition.ok || !commitPrivateScene(transition.scene)) return false;
+                setPrivateSceneReplyDraft('');
+                return true;
+            } catch {
+                if (transaction.isCurrent()) setPrivateSceneError('The scene could not continue. Your words remain ready to retry.');
+                return false;
+            }
+        }, { allowDuringPrivateScene: true });
+    }, [ai, commitPrivateScene, entities, isMockMode, privateScenePromptFor, privateSceneReplyDraft, runDomainMutation, state.privateScenes]);
+
+    const handlePrivateSceneEnd = useCallback((sceneId: string) => {
+        void runDomainMutation(() => {
+            const scene = state.privateScenes.find(candidate => candidate.sceneId === sceneId);
+            if (!scene) return false;
+            const transition = endPrivateScene(scene);
+            return transition.ok && commitPrivateScene(transition.scene);
+        }, { allowDuringPrivateScene: true });
+    }, [commitPrivateScene, runDomainMutation, state.privateScenes]);
+
+    const handlePrivateSceneFinalize = useCallback((sceneId: string, lastWord: string | null) => {
+        void runDomainMutation(() => {
+            const scene = state.privateScenes.find(candidate => candidate.sceneId === sceneId);
+            if (!scene) return false;
+            const transition = finalizePrivateScene(scene, lastWord);
+            if (!transition.ok || !commitPrivateScene(transition.scene)) return false;
+            setPrivateSceneLastWordDraft('');
+            return true;
+        }, { allowDuringPrivateScene: true });
+    }, [commitPrivateScene, runDomainMutation, state.privateScenes]);
 
     const executeTurn = useCallback(async (submission: TurnSubmission, draftToRestore: string | StructuredTurnDraft): Promise<boolean> => {
         const mutation = await runDomainMutation(async transaction => {
@@ -974,7 +1087,7 @@ const App: React.FC = () => {
     }, [ai, buildSaveState, dispatch, entities, eventFirings, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, pendingIntelligenceFallout, playerCharacterId, reports, resolvedApiKey, runDomainMutation, simulationState, state.privateScenes, truthLedger, turnHistory, turnNumber, worldState]);
 
     const handleComposerSubmit = (draft: string | StructuredTurnDraft) => {
-        if (gameState !== GameState.AWAITING_PLAYER_INPUT) return;
+        if (gameState !== GameState.AWAITING_PLAYER_INPUT || privateSceneInteractionLocked) return;
         const candidate: TurnSubmission | StructuredTurnDraft = typeof draft === 'string'
             ? { version: 1, kind: 'freeform', text: draft }
             : draft;
@@ -1402,10 +1515,29 @@ const App: React.FC = () => {
                                                 onChatDraftChange={setChatDraft}
                                                 onStructuredDraftChange={setStructuredDraft}
                                                 onSubmit={handleComposerSubmit}
-                                                disabled={domainMutationInFlight || gameState !== GameState.AWAITING_PLAYER_INPUT}
+                                                disabled={domainMutationInFlight || privateSceneInteractionLocked || gameState !== GameState.AWAITING_PLAYER_INPUT}
                                                 isProcessing={gameState === GameState.PROCESSING}
                                                 turnStage={turnStage}
                                             />
+                                            {gameState === GameState.AWAITING_PLAYER_INPUT && (
+                                                <PrivateScene
+                                                    scenes={privateSceneViews}
+                                                    eligibleTargets={privateSceneTargets}
+                                                    openingDraft={privateSceneOpeningDraft}
+                                                    replyDraft={privateSceneReplyDraft}
+                                                    lastWordDraft={privateSceneLastWordDraft}
+                                                    loading={domainMutationInFlight}
+                                                    error={privateSceneError}
+                                                    onOpeningDraftChange={setPrivateSceneOpeningDraft}
+                                                    onReplyDraftChange={setPrivateSceneReplyDraft}
+                                                    onLastWordDraftChange={setPrivateSceneLastWordDraft}
+                                                    onInvite={handlePrivateSceneInvite}
+                                                    onReply={handlePrivateSceneReply}
+                                                    onEnd={handlePrivateSceneEnd}
+                                                    onLastWord={sceneId => handlePrivateSceneFinalize(sceneId, privateSceneLastWordDraft)}
+                                                    onSkipLastWord={sceneId => handlePrivateSceneFinalize(sceneId, null)}
+                                                />
+                                            )}
                                             {isGmConsoleEnabled && (
                                                 <Tooltip wide label={turnHistory.length > 0 ? "The Fates' ledger — every thread and die of the simulation, recorded." : 'The ledger opens once a turn has been played.'}>
                                                     <Button
@@ -1437,7 +1569,7 @@ const App: React.FC = () => {
                             onSpendDeepAnalysis={(cost, request) => handleSpendResource('deep_analyses', cost, request)}
                             onInvestigationOutcome={handleInvestigationOutcome}
                             runDomainMutation={runDomainMutation}
-                            interactionLocked={domainMutationInFlight || gameState === GameState.PROCESSING}
+                            interactionLocked={domainMutationInFlight || privateSceneInteractionLocked || gameState === GameState.PROCESSING}
                             ai={ai}
                             isMockMode={isMockMode}
                             eventHistory={eventHistory}
@@ -1469,7 +1601,7 @@ const App: React.FC = () => {
                     const result = await runDomainMutation(() => handleSetIntervention(text));
                     return result.acquired && result.value !== false;
                 }}
-                interactionLocked={domainMutationInFlight || gameState === GameState.PROCESSING}
+                interactionLocked={domainMutationInFlight || privateSceneInteractionLocked || gameState === GameState.PROCESSING}
                 playerCharacterId={playerCharacterId}
                 worldState={worldState}
                 turnNumber={turnNumber}
@@ -1486,7 +1618,7 @@ const App: React.FC = () => {
                 onChoose={(choice) => {
                     void runDomainMutation(() => handleEventChoice(choice));
                 }}
-                interactionLocked={domainMutationInFlight}
+                interactionLocked={domainMutationInFlight || privateSceneInteractionLocked}
             />}
             {showOnboarding && gameState === GameState.AWAITING_PLAYER_INPUT && (
                 <OnboardingOverlay isOpen={showOnboarding} onClose={handleCloseOnboarding} />
