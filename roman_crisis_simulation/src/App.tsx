@@ -251,6 +251,11 @@ const App: React.FC = () => {
     const [privateSceneReplyDraft, setPrivateSceneReplyDraft] = useState('');
     const [privateSceneLastWordDraft, setPrivateSceneLastWordDraft] = useState('');
     const [privateSceneError, setPrivateSceneError] = useState<string | null>(null);
+    // A failed event-choice save renders in-modal (EventModal is a
+    // role="dialog" with no close affordance, so the composer-strip alert
+    // behind it via `transactionError` would be invisible) - mirrors
+    // privateSceneError above.
+    const [eventChoiceError, setEventChoiceError] = useState<string | null>(null);
 
     // Transient UI state for the persistence/retry flow (P0.2/P0.3 - see
     // ROADMAP_3_UX_INTERACTIONS.md and ROADMAP_5_TECH_PERFORMANCE.md). Never
@@ -665,7 +670,18 @@ const App: React.FC = () => {
             const npc = entities.find(entity => entity.entity_id === targetId);
             const stillEligible = eligiblePrivateSceneTargets({ player: playerEntity, entities, knownEntityIds: privateSceneKnownIds })
                 .some(target => target.entityId === targetId);
-            if (!npc || !stillEligible || privateScenesRef.current.some(scene => scene.status === 'active' || scene.status === 'awaiting_last_word' || scene.macroTurn === turnNumber)) return false;
+            if (!npc) {
+                setPrivateSceneError('That contact can no longer be found. Choose another and try again.');
+                return false;
+            }
+            if (!stillEligible) {
+                setPrivateSceneError('That contact is no longer within reach. Choose another and try again.');
+                return false;
+            }
+            if (privateScenesRef.current.some(scene => scene.status === 'active' || scene.status === 'awaiting_last_word' || scene.macroTurn === turnNumber)) {
+                setPrivateSceneError('A private scene has already been held this turn.');
+                return false;
+            }
             try {
                 const response = await continuePrivateScene(ai, privateScenePromptFor(npc, [{ sequence: 1, speaker: 'player', text: privateSceneOpeningDraft.trim() }], 1), isMockMode);
                 if (!transaction.isCurrent() || privateScenesFingerprint(privateScenesRef.current) !== expectedScenes) return false;
@@ -838,6 +854,12 @@ const App: React.FC = () => {
         const turnSnapshotIsCurrent = () => (
             turnGenerationIsCurrent() && privateSceneSnapshotIsCurrent()
         );
+
+        // Set once the turn is durably saved (right after the AUTOSAVE_FAILED
+        // check below). Gates the catch below: a throw AFTER this point must
+        // never roll back an already-committed turn or offer Retry on top of
+        // the N+1 autosave - see the catch's marker-first branch.
+        let committedTail: { diedThisTurn: boolean } | null = null;
 
         try {
             // At most one closed pending scene informs the macro adjudicator.
@@ -1031,6 +1053,13 @@ const App: React.FC = () => {
                 committedPrivateScenes = replacePrivateSceneForCommit(privateScenesForTurn, consumed.scene);
             }
 
+            // DESIGN_DECISIONS.md D1 - survival-only: ONLY the player's own
+            // death ends the run. Hoisted above the commit so the post-commit
+            // tail (below) and the committedTail marker can both use it
+            // without a duplicate declaration.
+            const updatedPlayerEntity = result.updatedEntities.find(e => e.entity_id === playerCharacterId);
+            const diedThisTurn = updatedPlayerEntity?.status === 'dead';
+
             // The single atomic commit for this turn (state/gameReducer.ts's
             // TURN_COMMITTED): entities, world, history, chat log, pills and
             // headlines - plus consuming the fallout queue and the GM
@@ -1059,6 +1088,7 @@ const App: React.FC = () => {
             if (!saveGame(nextSaveState).ok) {
                 throw new Error('AUTOSAVE_FAILED');
             }
+            committedTail = { diedThisTurn };
             privateScenesRef.current = committedPrivateScenes;
             dispatch({
                 type: 'TURN_COMMITTED',
@@ -1093,10 +1123,8 @@ const App: React.FC = () => {
             // phase to GameState.GAME_OVER, and App.tsx's render then swaps
             // the whole chat pane for EpilogueScreen. Exile/missing are NOT
             // terminal (see isPlayerExiledOrMissing above) - only 'dead'
-            // triggers this.
-            const updatedPlayerEntity = result.updatedEntities.find(e => e.entity_id === playerCharacterId);
-            const diedThisTurn = updatedPlayerEntity?.status === 'dead';
-
+            // triggers this. (updatedPlayerEntity/diedThisTurn are hoisted
+            // above the commit; see the comment there.)
             if (!diedThisTurn) {
                 // Flag that the turn is over and events should be checked
                 setIsCheckingEvents(true);
@@ -1154,6 +1182,22 @@ const App: React.FC = () => {
 
         } catch (error)
         {
+            if (committedTail) {
+                // The turn is durably saved and dispatched; never roll back or
+                // offer Retry here — that would double-resolve the submission
+                // on top of the N+1 autosave.
+                if (transaction.isCurrent()) {
+                    console.error('Turn committed; post-commit work failed:', error);
+                    setTurnStage(null);
+                    setStreamingNarration('');
+                    setPendingPlayerMessage(null);
+                    if (submission.kind === 'freeform') setChatDraft('');
+                    else setStructuredDraft(emptyStructuredDraft());
+                    if (!committedTail.diedThisTurn) setIsCheckingEvents(true);
+                    setTransactionError('The turn was saved, but a follow-up step failed. Play continues from the saved turn.');
+                }
+                return;
+            }
             if (!transaction.isCurrent() || !turnSnapshotIsCurrent()) return;
             // Keep the full error in the console for diagnosis, but never lose
             // the player's game over this — no "please refresh" (persistence
@@ -1453,10 +1497,11 @@ const App: React.FC = () => {
         // the adjudicated turn pipeline - the reducer applies the exact same
         // GAME_OVER check as TURN_COMMITTED.
         if (!saveGame(buildSaveState({ entities: updatedEntities, worldState: updatedWorldState, eventHistory: newEventHistory, triggeredEventIds: newTriggeredEventIds, eventFirings: newEventFirings, messages: [...messages, eventMessage] })).ok) {
-            setTransactionError('Your choice could not be saved. Please try again.');
+            setEventChoiceError('Your choice could not be saved. Please try again.');
             return;
         }
         setTransactionError(null);
+        setEventChoiceError(null);
         dispatch({
             type: 'EVENT_CHOICE_APPLIED',
             entities: updatedEntities,
@@ -1722,6 +1767,7 @@ const App: React.FC = () => {
                     void runDomainMutation(() => handleEventChoice(choice));
                 }}
                 interactionLocked={domainMutationInFlight || privateSceneInteractionLocked}
+                error={eventChoiceError}
             />}
             {showOnboarding && gameState === GameState.AWAITING_PLAYER_INPUT && (
                 <OnboardingOverlay isOpen={showOnboarding} onClose={handleCloseOnboarding} />

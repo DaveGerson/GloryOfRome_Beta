@@ -24,6 +24,12 @@ export interface TurnComposerProps {
 
 const formatCharacterCount = (count: number): string => count.toLocaleString('en-US');
 
+const isBlankStructuredDraft = (draft: StructuredTurnDraft): boolean =>
+  draft.actions.every(action => !action.trim())
+  && draft.messagesOrOrders.every(row => row.recipient === null && !row.command.trim())
+  && !draft.privateIntent.trim()
+  && !draft.questionOrContext.trim();
+
 export const TurnComposer: React.FC<TurnComposerProps> = ({
   chatDraft, structuredDraft, recipientOptions, suggestedActions, disabled, isProcessing,
   onChatDraftChange, onStructuredDraftChange, onSubmit, turnStage,
@@ -32,12 +38,14 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
   const locked = disabled || isProcessing;
   const artifactStatus = canonicalArtifactStatus(mode === 'chat' ? chatDraft : structuredDraft, recipientOptions);
   const blankChat = mode === 'chat' && !chatDraft.trim();
+  const blankStructured = mode === 'structured' && isBlankStructuredDraft(structuredDraft);
+  const pristine = blankChat || blankStructured;
   const remaining = artifactStatus.ok
     ? artifactStatus.remainingCharacters
-    : blankChat ? MAX_TURN_SUBMISSION_CHARACTERS : null;
+    : pristine ? MAX_TURN_SUBMISSION_CHARACTERS : null;
   const overLimit = artifactStatus.ok && artifactStatus.overLimit;
   const statusId = 'composer-submission-status';
-  const validationMessage = artifactStatus.ok || blankChat
+  const validationMessage = artifactStatus.ok || pristine
     ? null
     : artifactStatus.issues.map(issue => issue.message).join(' ');
 
@@ -77,7 +85,8 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
             aria-invalid={overLimit || undefined} aria-describedby={statusId}
             onChange={event => onChatDraftChange(event.target.value)}
             onKeyDown={event => {
-              if (event.key === 'Enter' && !event.shiftKey) {
+              if (event.key === 'Enter' && !event.shiftKey
+                  && !event.nativeEvent.isComposing && event.keyCode !== 229) {
                 event.preventDefault();
                 submitChat();
               }

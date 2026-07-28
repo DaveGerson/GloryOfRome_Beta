@@ -121,6 +121,45 @@ actor in its own right.
   leaked to the player; pinned by the `mortalityFates` journey). Kept as-is;
   if a future fix clears it on revival, update that journey's expectation.
   Related to the `secret_truth`-not-cleared-on-revival item above.
+- One remaining player-text prompt-interpolation gap (D41), found while closing
+  out the rest of the sweep: `ai/prompts/intelligence.ts`'s
+  `buildClarificationPrompt` `event`/`question` params (currently fed a headline
+  and a hardcoded literal by their one call site,
+  `components/tabs/CurrentEventsTab.tsx`, so not live today, but the signature
+  accepts arbitrary text with no guarantee against a future player-text
+  caller). It still interpolates inside a bare `"${value}"` with no
+  `asPromptData` escaping. Tracked explicitly (not silently) in
+  `tests/promptDataBoundary.test.ts`'s directory-walking guard, which lists
+  it under `KNOWN_DEFERRED_GAPS`. (`ai/prompts/characterCreation.ts`'s
+  `description` was the other half of this item and is now CLOSED - it was
+  live player-typed text on the same CharacterSelection screen as
+  worldGen.ts's `playerCharacterDescription`.) Closing the remainder needs the same
+  `asPromptData` swap already applied everywhere else.
+- `playerBoundary.test.ts` "DECLARED GAP 1": a third-person pronoun (or
+  possessive determiner, or a one-level-deeper possessive) under a
+  second-person possessive - e.g. `Your grip weakens because he burned the
+  granary.` - is not bound to the player as an invented action. Closing it
+  needs real antecedent resolution (tracking what a pronoun/possessive
+  actually refers to), not a wider alias set; a naive fix would over-reject
+  the overwhelming majority of legitimate third-person prose about rivals on
+  a surface (`assertNoInventedPlayerVisibleAction`) validated every turn.
+- `playerBoundary.test.ts` possessive passive-agent gap: `burned by my
+  agents` / `burned by your agents` (and third-person forms like `sealed by
+  my predecessor`) are not caught by the passive scan, which rejects only on
+  a bare alias match with no predicate classification. Admitting `my` as an
+  agent alias would reject any third party merely related to the player
+  (e.g. "sealed by my predecessor") on the first-person monologue surface,
+  whose own prompt mandates first-person prose about rivals; the second-
+  person form isn't caught either, so a first-person-only rule buys nothing.
+  Closing this needs the possessive passive handled for ALL persons at once.
+- Cross-tab play is last-writer-wins: `persistence/saveGame.ts` uses a
+  single `localStorage` slot (`SAVE_KEY = 'gloryOfRome:autosave'`) with no
+  `storage`-event or `BroadcastChannel` coordination between tabs. A second
+  browser tab starting or loading a campaign can silently clobber the first
+  tab's autosave on its next write. Recorded as an accepted risk / single-
+  tab-at-a-time assumption, not a bug to fix reactively - no user-visible
+  symptom exists until a player actually runs two tabs against the same
+  save slot.
 
 ### B8 — Raw relationship numbers on the Personae tab  *(ruling needed)*
 `DramatisPersonaeTab` renders the player's own Trust/Respect/Threat/

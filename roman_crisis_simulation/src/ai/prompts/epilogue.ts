@@ -21,9 +21,18 @@
  * player-facing narration text already produced for the fatal turn; the
  * remaining history is limited to public headlines and player-made event
  * choices.
+ *
+ * `metaNarrative` is player-typed free text (CharacterSelection.tsx) -
+ * delimited via `asPromptData` (D41) so it can never forge a neighboring
+ * labeled block (e.g. a fake "THE DECEASED:" section). `eventChoices[].
+ * eventTitle`/`.choiceText` are NOT swept: both come from the fixed,
+ * code-authored event library (constants/events.ts's `GameEvent.title`/
+ * `PlayerEventChoice.text`) that the player only ever SELECTS from among
+ * pre-written options - never free text they typed.
  */
 
 import { Entity } from '../../types';
+import { asPromptData } from './fragments';
 
 /** One turn's public headlines, already capped/selected by the caller - see EpilogueScreen.tsx. */
 export interface EpilogueTurnHeadlines {
@@ -99,7 +108,7 @@ export function buildEpiloguePrompt(input: EpiloguePromptInput): { systemInstruc
     : 'No special events marked this reign.';
 
   const prompt = `
-META-NARRATIVE THEME: "${metaNarrative}"
+META-NARRATIVE THEME: ${asPromptData(metaNarrative)}
 
 THE DECEASED:
 Name: ${player.name}

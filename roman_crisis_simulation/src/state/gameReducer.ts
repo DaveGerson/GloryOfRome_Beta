@@ -33,7 +33,7 @@ import {
   TruthLedgerEntry,
   NpcIntent,
 } from '../types';
-import type { SaveGameState, InferredAmbitionState } from '../persistence/saveGame';
+import { normalizeLoadedPrivateScenes, type SaveGameState, type InferredAmbitionState } from '../persistence/saveGame';
 import type { KnowledgeClaim } from '../knowledge/store';
 import type { PrivateSceneRecord } from '../privateScene/model';
 import { INITIAL_WORLD_STATE, INITIAL_SIMULATION_STATE } from '../constants/baseScenario';
@@ -377,7 +377,11 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         // Optional field (4C.3) - same normalization; a failed turn never
         // committed its Director output, so the pre-turn intents stand.
         npcIntents: snapshot.npcIntents ?? [],
-        privateScenes: Array.isArray(snapshot.privateScenes) ? snapshot.privateScenes : [],
+        // Per-record normalization, same seam as GAME_LOADED below - a
+        // malformed persisted record is dropped rather than crash-looping
+        // the campaign on render; see
+        // persistence/saveGame.ts::normalizeLoadedPrivateScenes.
+        privateScenes: normalizeLoadedPrivateScenes(snapshot.privateScenes),
         turnNumber: snapshot.turnNumber,
         turnHistory: snapshot.turnHistory,
         eventHistory: snapshot.eventHistory,
@@ -474,7 +478,11 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         // persistent intents existed, so this normalizes it to an empty
         // list; the next turn's Director then rules everything 'new'.
         npcIntents: s.npcIntents ?? [],
-        privateScenes: Array.isArray(s.privateScenes) ? s.privateScenes : [],
+        // Per-record normalization, same seam as TURN_ROLLED_BACK above - a
+        // malformed persisted record is dropped rather than crash-looping
+        // the campaign on render; see
+        // persistence/saveGame.ts::normalizeLoadedPrivateScenes.
+        privateScenes: normalizeLoadedPrivateScenes(s.privateScenes),
         // Optional field (D8) - absent on saves from before this field
         // existed, so this normalizes it to `null` rather than `undefined`
         // for InferredAmbitionState | null's sake.

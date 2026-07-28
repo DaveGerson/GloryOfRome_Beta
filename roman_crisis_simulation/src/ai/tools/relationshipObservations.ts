@@ -49,8 +49,8 @@ export async function getRelationshipObservations(
     entities,
     knownEntityIds,
   });
-  if (drafts.length > 0 && accepted.length !== drafts.length) {
-    throw new Error('relationship observation semantic validation rejected provider selection');
+  if (accepted.length !== drafts.length) {
+    console.warn(`relationshipObservations: dropped ${drafts.length - accepted.length} of ${drafts.length} drafts failing semantic validation`);
   }
   return accepted;
 }

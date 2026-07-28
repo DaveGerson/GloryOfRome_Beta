@@ -9,7 +9,7 @@
 import { Adjudication, Entity } from '../../types';
 import type { NarrationSubmissionProjection } from '../../playerInput/turnSubmission';
 import type { PerceivedChange } from '../../perception/visibility';
-import { REDACTED_SCHEME_REASON } from './fragments';
+import { REDACTED_SCHEME_REASON, asPromptData } from './fragments';
 
 /**
  * Strips GM-only / secret-survival state from an Entity before it's
@@ -139,6 +139,11 @@ ${lines.join('\n')}
  * player-output request. `updatedPlayerEntity` is independently sanitized.
  * Mortality reaches this prompt through the same perceived-event input;
  * raw mortality trace directives are GM-side state and are never accepted.
+ *
+ * `metaNarrative` and `playerSubmission.context` are player-typed free
+ * text - both delimited via `asPromptData` (D41) so neither can forge a
+ * neighboring structural line (a fake "Task:" heading, a fake
+ * "PLAYER-PERCEIVED TURN EVENTS:" block).
  */
 export function buildNarrationPrompt(
   metaNarrative: string,
@@ -163,9 +168,12 @@ export function buildNarrationPrompt(
   const playerContextLabel = playerSubmission.hasObservableAttempt
     ? "PLAYER'S OBSERVABLE ATTEMPT THIS TURN:"
     : 'PLAYER-OWNED CONTEXT THIS TURN (NO OBSERVABLE ACTION SUBMITTED):';
+  // metaNarrative is player-typed free text (CharacterSelection.tsx) -
+  // delimited via `asPromptData` (D41) so it can never forge a neighboring
+  // structural line (e.g. a fake "Task:" heading) below.
   const systemInstruction = `
 ROLE: Chronicler of the Empire & Intelligence Briefer
-META-NARRATIVE: The story's theme is "${metaNarrative}". Your tone and focus should align with this.
+META-NARRATIVE: The story's theme is ${asPromptData(metaNarrative)}. Your tone and focus should align with this.
 
 Task:
 1.  **Narrate the Turn (2-3 paragraphs):** Write a narrative summary for the player. This MUST follow a specific structure:
@@ -184,7 +192,7 @@ PLAYER CHARACTER PROFILE (for context):
 ${JSON.stringify(sanitizeEntityForNarration(updatedPlayerEntity), null, 2)}
 
 ${playerContextLabel}
-"${playerSubmission.context}"
+${asPromptData(playerSubmission.context)}
 ${buildVoiceCastBlock(voiceCast)}
 PLAYER-PERCEIVED TURN EVENTS:
 ${JSON.stringify(perceivedEvents.map(({ text, source }) => ({ text, source })), null, 2)}
@@ -200,12 +208,23 @@ ${JSON.stringify(perceivedEvents.map(({ text, source }) => ({ text, source })), 
  * CONSUMER: ai/core/turn.ts `runNewTurn`, step 4 (`getPlayerMonologue` in
  * ai/tools/intelligence.ts).
  * OUTPUT: plain prose (no schema).
+ *
+ * `recentPlayerIntents` are player-typed free text (reflection-projected
+ * submissions, ai/core/turn.ts) - each entry is delimited via `asPromptData`
+ * (D41) so it can never forge a fabricated extra numbered entry in the
+ * rendered list.
  */
 export function buildPlayerMonologuePrompt(
   player: Entity,
   turnHeadlines: string[],
   recentPlayerIntents: string[]
 ): { systemInstruction: string; prompt: string } {
+  // `current_state_narrative` is left bare-quoted deliberately (D41 scope
+  // note): it is a model-authored, schema-required string produced during
+  // entity generation/creation (ai/prompts/characterCreation.ts,
+  // ai/prompts/worldGen.ts's Step 2) - never a direct echo of raw
+  // player-typed text - so it is not swept here, matching every other
+  // model-authored entity field in this file (e.g. `epithet`).
   const systemInstruction = `
     You are the inner voice of ${player.name}, a ${player.position} in ancient Rome.
     Your personality is defined by: Ambition(${player.personality?.ambition}), Paranoia(${player.personality?.paranoia}), Loyalty(${player.personality?.loyalty}), Cunning(${player.personality?.cunning}), Honor(${player.personality?.honor}).
@@ -219,7 +238,7 @@ export function buildPlayerMonologuePrompt(
     `;
 
   const recentActionsString = recentPlayerIntents.length > 0
-    ? recentPlayerIntents.map((intent, i) => `${i + 1}. "${intent}"`).join('\n')
+    ? recentPlayerIntents.map((intent, i) => `${i + 1}. ${asPromptData(intent)}`).join('\n')
     : "No significant actions have been taken yet.";
 
   const prompt = `

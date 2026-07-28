@@ -15,6 +15,7 @@ import {
   projectForExternalInference,
   projectForPlayerHistory,
   projectForPlayerOwnedAi,
+  projectForPlayerReflection,
   projectForResolution,
   serializeTurnSubmission,
   validateAndNormalizeTurnSubmission,
@@ -775,6 +776,22 @@ describe('consumer-specific audience projections', () => {
     expect(history).toContain('the night watch');
     expect(history).not.toContain('[lucius]');
     expect(history).not.toContain('"entityId":"lucius"');
+  });
+
+  it('gives the player reflection surface display-name recipients with no artifact namespace or entity ids', () => {
+    const projected = projectForPlayerReflection(submission);
+
+    expect(projected).toContain('Attend the Senate');
+    expect(projected).toContain('To: Lucius\nMeet me at dusk');
+    expect(projected).toContain('To: the night watch\nHold the eastern gate');
+    expect(projected).toContain('PRIVATE_INTENT_MUST_STAY_PLAYER_OWNED');
+    expect(projected).toContain('Question or context:\nWhat can I infer from the empty benches?');
+    expect(projected).not.toContain('[lucius]');
+    expect(projected).not.toContain('GOR_TURN_SUBMISSION');
+  });
+
+  it('passes freeform text through the reflection projection unchanged', () => {
+    expect(projectForPlayerReflection({ version: 1, kind: 'freeform', text: 'March on Rome' })).toBe('March on Rome');
   });
 
   it.each([

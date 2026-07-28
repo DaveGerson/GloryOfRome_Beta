@@ -3,6 +3,7 @@ import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationS
 import { AdjudicationSchema } from './schemas';
 import { applyAdjudication } from './engine';
 import { mockRunNewTurn } from "../mocks";
+import { selectDurableIntents } from './directorIntents';
 import { getPlayerMonologue, getStoryRelevance, getUpdatedSimulationState } from '../tools/intelligence';
 import { getActionAssessment } from '../tools/assessment';
 import { getNpcMindDecision } from '../tools/npcMind';
@@ -18,15 +19,51 @@ import { buildNarrationPrompt, selectVoiceCast } from '../prompts/narration';
 import { processMortality, detectDeathClaims } from './mortality';
 import { createNarrationStreamGate } from './streamSplit';
 import { rollD20, resolveAction, derivePersonalityModifier, deriveOppositionModifier, createSeededRng, generateSeed } from './resolution';
-import { normalizeTurnSubmissionInput, projectForAdjudication, projectForNarration, projectForNoAttemptResponse, projectForPlayerOwnedAi, projectForResolution, serializeTurnSubmission } from '../../playerInput/turnSubmission';
+import { deserializeTurnSubmission, isReservedTurnSubmissionArtifact, normalizeTurnSubmissionInput, projectForAdjudication, projectForNarration, projectForNoAttemptResponse, projectForPlayerReflection, projectForResolution, serializeTurnSubmission } from '../../playerInput/turnSubmission';
 import {
     assertNoInventedPlayerAction,
-    assertNoInventedPlayerVisibleAction,
+    assertNoPlayerRemoval,
     assertPlayerVisibleAdjudicationSafe,
     assertPlayerVisibleTextSafe,
     assertPlayerVisibleValueSafe,
     createPlayerVisibleStreamGate,
+    playerProseRedactionNotes,
+    redactInventedPlayerProse,
+    redactInventedPlayerProseFromValue,
 } from './playerBoundary';
+
+/**
+ * The no-attempt boundary, applied to an adjudication. SPLIT BY CONSEQUENCE:
+ *
+ *  - STRUCTURAL (`assertNoInventedPlayerAction`) - an entityAction claiming
+ *    the player's id, a delta the player owns, a remove_entities entry naming
+ *    them. Each carries a MECHANICAL consequence that cannot be sanitized
+ *    into something harmless, so the whole response is rejected and the turn
+ *    fails closed. Unchanged.
+ *  - PROSE (`redactInventedPlayerProse`) - a headline, delta `reason`, or
+ *    entityAction `notes` that READS as the player acting. That is a
+ *    narrative blemish with no state behind it. Failing the turn on it cost
+ *    the player every provider call already spent and produced "The turn
+ *    could not be resolved.", which a retry could not clear (the same prompt,
+ *    the same nondeterministic model). The offending prose is removed from
+ *    the player-visible surface and recorded in `gm_private`, which
+ *    components/GameMasterScreen.tsx alone renders and every player-bound
+ *    prompt strips - so the redaction is auditable without ever leaking.
+ *
+ * Runs at each of the three points the structural gate runs, because each
+ * step (mind-scheme folding, mortality) can introduce new prose.
+ */
+function enforceNoAttemptBoundary(
+    adjudication: Adjudication,
+    playerEntity: Entity,
+    hasObservableAttempt: boolean,
+): void {
+    assertNoInventedPlayerAction(adjudication, playerEntity, hasObservableAttempt);
+    adjudication.gm_private.push(
+        ...playerProseRedactionNotes(redactInventedPlayerProse(adjudication, playerEntity, hasObservableAttempt)),
+    );
+    assertPlayerVisibleAdjudicationSafe(adjudication);
+}
 
 // Adjudication is the highest-stakes, most consequence-dense call of the
 // turn - a moderate temperature keeps outcomes varied without letting the
@@ -52,48 +89,12 @@ function textContainsWholeDisplayName(text: string, displayName: string): boolea
     return pattern.test(normalizedText);
 }
 
-/**
- * Upper bound on the persisted per-turn intent list (4C.3): intents exist
- * for spotlight NPCs only, and the Director is instructed to pick 2-4
- * spotlights - so the durable slice stays small by construction; the cap is
- * the code-side guarantee against a runaway response bloating the save.
- */
-export const MAX_NPC_INTENTS = 4;
-
-/**
- * Derives the DURABLE intent list from the Director's raw output: an intent
- * survives only when its entity_id is BOTH an actual spotlight pick AND an
- * entity that is alive in the current roster (intents are per-spotlight by
- * contract, and a durable intent may never ride on someone who cannot act),
- * deduped to ONE intent per entity_id keeping the FIRST emitted, capped at
- * MAX_NPC_INTENTS in emission order. The alive gate is load-bearing: a
- * spotlight id can name an NPC who is dead/exiled/missing (or absent) in
- * state, and an intent committed on such an id would be persisted and fed to
- * the NEXT turn's Director and adjudicator as live direction for a corpse -
- * the adjudicator's own spotlight block already renders only alive NPCs, so
- * a dead-id intent could never earn an entityAction and would just accrete
- * as phantom direction. The dedupe is load-bearing too: the Director's
- * contract is exactly one intent per spotlight, and without it a duplicate
- * would crowd the cap, list twice in the adjudication prompt's intents
- * block, and disagree with the mind handoff (whose Map lookup keeps only one
- * entry per entity) about WHICH intent stands - first-wins makes every
- * consumer see the same one. This filtered list is the single shape
- * everything downstream consumes - the adjudication prompt's intents block,
- * the code-side consistency check, the history entry, and the reducer's
- * persisted `npcIntents` slice. Pure; exported for direct unit testing.
- */
-export function selectDurableIntents(storyRelevance: StoryRelevance, roster: readonly Pick<Entity, 'entity_id' | 'status'>[]): NpcIntent[] {
-    const spotlightIds = new Set(storyRelevance.spotlight_entities.map(s => s.entity_id));
-    const aliveIds = new Set(roster.filter(e => e.status === 'alive').map(e => e.entity_id));
-    const seen = new Set<string>();
-    const durable: NpcIntent[] = [];
-    for (const intent of storyRelevance.spotlight_intents ?? []) {
-        if (!spotlightIds.has(intent.entity_id) || !aliveIds.has(intent.entity_id) || seen.has(intent.entity_id)) continue;
-        seen.add(intent.entity_id);
-        durable.push(intent);
-    }
-    return durable.slice(0, MAX_NPC_INTENTS);
-}
+// MAX_NPC_INTENTS/selectDurableIntents now live in ./directorIntents (moved
+// out so ai/mocks.ts can import the filter without forming a module cycle
+// back through this file - see that module's doc comment; imported above).
+// Re-exported here so every existing importer of these two symbols from
+// '../ai/core/turn' (e.g. tests/director.test.ts) keeps working unmodified.
+export { MAX_NPC_INTENTS, selectDurableIntents } from './directorIntents';
 
 /**
  * GM-private trace for the silent-wipe edge (4C.3): the Director emitted a
@@ -398,7 +399,6 @@ export async function runNewTurn(
     const adjudicationSubmission = resolutionAttempt === null
         ? { observableAttempt: null, questionOrContext: null }
         : projectForAdjudication(normalizedSubmission);
-    const playerOwnedContext = projectForPlayerOwnedAi(normalizedSubmission);
     const narrationSubmission = projectForNarration(normalizedSubmission);
     if (isMockMode) {
         if(!mockRunNewTurn) throw new Error("Mock function 'mockRunNewTurn' is not implemented.");
@@ -608,12 +608,7 @@ export async function runNewTurn(
         thinkingConfig: { thinkingBudget: 1024 },
         temperature: ADJUDICATION_TEMPERATURE,
     });
-    assertNoInventedPlayerAction(
-        adjudication,
-        playerEntity,
-        narrationSubmission.hasObservableAttempt,
-    );
-    assertPlayerVisibleAdjudicationSafe(adjudication);
+    enforceNoAttemptBoundary(adjudication, playerEntity, narrationSubmission.hasObservableAttempt);
 
     // Record the resolution layer's trace as a GM-private note (mirrors the
     // mortality pipeline's own gm_private notes) BEFORE processMortality
@@ -680,12 +675,7 @@ export async function runNewTurn(
             adjudication.gm_private.push(`[Mind] Superseded ${supersededIds.length} competing 'scheme' delta(s) for mind-evolved entities (${supersededIds.join(', ')}) - the entity's own mind owns its scheme evolution this turn; no double-application or overwrite.`);
         }
     }
-    assertNoInventedPlayerAction(
-        adjudication,
-        playerEntity,
-        narrationSubmission.hasObservableAttempt,
-    );
-    assertPlayerVisibleAdjudicationSafe(adjudication);
+    enforceNoAttemptBoundary(adjudication, playerEntity, narrationSubmission.hasObservableAttempt);
 
     // *** NEW STEP 2.6: MORTALITY PIPELINE (DESIGN_DECISIONS.md D2/D3/D4) ***
     // Runs BEFORE applyAdjudication and BEFORE narration: any death claim in
@@ -714,12 +704,7 @@ export async function runNewTurn(
         turnRng,
         { trustedResolutionContext }
     );
-    assertNoInventedPlayerAction(
-        transformedAdjudication,
-        playerEntity,
-        narrationSubmission.hasObservableAttempt,
-    );
-    assertPlayerVisibleAdjudicationSafe(transformedAdjudication);
+    enforceNoAttemptBoundary(transformedAdjudication, playerEntity, narrationSubmission.hasObservableAttempt);
 
     // 3. Apply the (mortality-transformed) adjudication to get new state.
     // Pure/synchronous (ai/core/engine.ts) - runs to completion before any
@@ -747,7 +732,21 @@ export async function runNewTurn(
     const { updatedEntities } = appliedAdjudication;
     const { updatedWorldState, updatedReports, updatedTruthLedger, perceivingNpcIds } = appliedAdjudication;
     const updatedPlayerEntity = updatedEntities.find(e => e.entity_id === playerEntity.entity_id) || playerEntity;
-    const recentPlayerIntents = [...turnHistory.map(h => h.playerIntent).slice(-6), playerOwnedContext];
+    // Player-owned reflection context for the monologue (a player-owned
+    // surface): every history entry is re-projected through
+    // projectForPlayerReflection so the raw canonical serialization
+    // (GOR_TURN_SUBMISSION namespace, recipient entity ids) never reaches the
+    // prompt. A reserved-namespace artifact that fails to deserialize is
+    // canonical-only and is dropped, never echoed (same rule as
+    // ai/tools/ambition.ts); legacy plain freeform strings pass through.
+    const recentPlayerIntents = [
+        ...turnHistory.slice(-6).flatMap(entry => {
+            const parsed = deserializeTurnSubmission(entry.playerIntent);
+            if (parsed) return [projectForPlayerReflection(parsed)];
+            return isReservedTurnSubmissionArtifact(entry.playerIntent) ? [] : [entry.playerIntent];
+        }),
+        projectForPlayerReflection(normalizedSubmission),
+    ];
 
     // *** NEW STEPS 2.7/4/5, PARALLELIZED (ROADMAP_0_MASTER_PLAN.md Phase 3
     // item 3) ***
@@ -854,29 +853,53 @@ export async function runNewTurn(
     // resolve/reject from a "losing" leg is never reported as an unhandled
     // rejection. The outer try/catch below (`endTurnCapture(); throw e;`)
     // is what actually surfaces the failure to the caller.
-    const [updatedSimulationState, playerMonologue, fullText] = await Promise.all([
+    const [rawSimulationState, rawPlayerMonologue, rawFullText] = await Promise.all([
         simulationStatePromise,
         monologuePromise,
         narrationPromise,
     ]);
-    assertPlayerVisibleValueSafe(updatedSimulationState);
-    assertPlayerVisibleTextSafe(playerMonologue);
-    assertPlayerVisibleTextSafe(fullText);
-    assertNoInventedPlayerVisibleAction(
-        updatedSimulationState,
-        playerEntity,
-        narrationSubmission.hasObservableAttempt,
-    );
-    assertNoInventedPlayerVisibleAction(
-        fullText,
-        playerEntity,
-        narrationSubmission.hasObservableAttempt,
-    );
-    assertNoInventedPlayerVisibleAction(
-        playerMonologue,
-        playerEntity,
-        narrationSubmission.hasObservableAttempt,
-    );
+    assertPlayerVisibleValueSafe(rawSimulationState);
+    assertPlayerVisibleTextSafe(rawPlayerMonologue);
+    assertPlayerVisibleTextSafe(rawFullText);
+    // The three separately generated player-visible surfaces, under the same
+    // consequence split the adjudication gate uses.
+    //
+    // STRUCTURAL, still fail-closed: a `remove_entities` list riding on any of
+    // these that names the player would blank their dossier with no game-over
+    // or epilogue (D1/D2) - not sanitizable, so the turn dies.
+    //
+    // PROSE, redacted per site:
+    //  - `updatedSimulationState` is the one of the three that carries content
+    //    on a no-attempt turn (narration/monologue are short-circuited to ''
+    //    above whenever `noAttemptResponse` is set), so this is where the
+    //    over-rejection actually killed turns. Its crisis text is scrubbed.
+    //  - `fullText` covers the empty-structured edge (no attempt, no question,
+    //    no private intent) where narration IS requested. Redacting is still
+    //    strictly better than failing, though note the STREAM has already
+    //    released its prefix to `onNarrationChunk`; the redacted text is
+    //    re-released through `playerVisibleStreamGate.finish` below, which is
+    //    the only correction available once bytes have left. The stream gate
+    //    itself keeps THROWING (mechanics only) - mid-stream text cannot be
+    //    un-shown, so there is nothing to redact into.
+    //  - `playerMonologue` is player-owned interior voice; same edge, same
+    //    treatment.
+    for (const value of [rawSimulationState, rawFullText, rawPlayerMonologue]) {
+        assertNoPlayerRemoval(value, playerEntity, narrationSubmission.hasObservableAttempt);
+    }
+    const simulationRedaction = redactInventedPlayerProseFromValue(
+        rawSimulationState, playerEntity, narrationSubmission.hasObservableAttempt, 'simulationState');
+    const narrationRedaction = redactInventedPlayerProseFromValue(
+        rawFullText, playerEntity, narrationSubmission.hasObservableAttempt, 'narration');
+    const monologueRedaction = redactInventedPlayerProseFromValue(
+        rawPlayerMonologue, playerEntity, narrationSubmission.hasObservableAttempt, 'monologue');
+    const updatedSimulationState = simulationRedaction.value;
+    const fullText = narrationRedaction.value;
+    const playerMonologue = monologueRedaction.value;
+    transformedAdjudication.gm_private.push(...playerProseRedactionNotes([
+        ...simulationRedaction.redactions,
+        ...narrationRedaction.redactions,
+        ...monologueRedaction.redactions,
+    ]));
     const narrationParts = fullText.split('SUGGESTION:');
     const narration = narrationParts[0].trim();
     const suggestedActions = narrationParts.slice(1).map(s => s.trim()).filter(s => s.length > 0);

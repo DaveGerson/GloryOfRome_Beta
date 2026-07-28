@@ -144,7 +144,10 @@ export interface SaveGameState {
    * Phase 6 private-scene records. Optional so old v1 saves remain valid;
    * GAME_LOADED and TURN_ROLLED_BACK normalize an absent field to an empty
    * in-memory list. NPC-private fields stay nested in this GM-only record
-   * and are never copied into any player-facing save slice.
+   * and are never copied into any player-facing save slice. Both actions
+   * additionally normalize PER RECORD via `normalizeLoadedPrivateScenes`
+   * below - a structurally malformed persisted entry is dropped rather than
+   * loaded verbatim, so a hand-edited or corrupted save can't crash render.
    */
   privateScenes?: PrivateSceneRecord[];
 }
@@ -263,33 +266,166 @@ function looksLikeSaveGame(value: unknown): value is SaveGame {
   );
 }
 
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+}
+
+function isOneOf<T extends string>(value: unknown, options: readonly T[]): value is T {
+  return typeof value === 'string' && (options as readonly string[]).includes(value);
+}
+
+const PRIVATE_SCENE_STATUSES: readonly PrivateSceneRecord['status'][] =
+  ['active', 'awaiting_last_word', 'closed'];
+const PRIVATE_SCENE_CLOSURE_REASONS: readonly NonNullable<PrivateSceneRecord['closureReason']>[] =
+  ['refused', 'player_ended', 'npc_ended', 'response_limit'];
+const PRIVATE_SCENE_SPEAKERS: readonly PrivateSceneRecord['transcript'][number]['speaker'][] =
+  ['player', 'npc'];
+const PRIVATE_SCENE_SPEECH_ACT_KINDS: readonly PrivateSceneRecord['speechActs'][number]['kind'][] =
+  // model.ts's PROVIDER_SPEECH_ACT_KINDS is not exported and deliberately
+  // excludes 'unclassified' (provider responses can't carry it) - persisted
+  // player speech acts DO carry it (see beginPrivateScene/appendPrivateSceneExchange
+  // in privateScene/model.ts), so the full 8-member set is defined here.
+  ['claim', 'disclosure', 'request', 'promise', 'agreement', 'refusal', 'threat', 'unclassified'];
+const PRIVATE_SCENE_CONSEQUENCE_STATUSES = ['pending', 'consumed'] as const;
+
+function isPersistedTranscriptLine(value: unknown): value is PrivateSceneRecord['transcript'][number] {
+  return (
+    isRecord(value) &&
+    isNonNegativeInteger(value['sequence']) &&
+    isOneOf(value['speaker'], PRIVATE_SCENE_SPEAKERS) &&
+    typeof value['text'] === 'string'
+  );
+}
+
+function isPersistedSpeechAct(value: unknown): value is PrivateSceneRecord['speechActs'][number] {
+  return (
+    isRecord(value) &&
+    isOneOf(value['speaker'], PRIVATE_SCENE_SPEAKERS) &&
+    isOneOf(value['kind'], PRIVATE_SCENE_SPEECH_ACT_KINDS) &&
+    typeof value['text'] === 'string' &&
+    isNonNegativeInteger(value['exchange'])
+  );
+}
+
+function isPersistedNpcPrivate(value: unknown): value is PrivateSceneRecord['npcPrivate'] {
+  return (
+    isRecord(value) &&
+    typeof value['sincerity'] === 'string' &&
+    typeof value['hiddenIntent'] === 'string' &&
+    Array.isArray(value['plannedFollowThrough']) &&
+    value['plannedFollowThrough'].every(step => typeof step === 'string')
+  );
+}
+
+function isPersistedPrivateScene(value: unknown): value is PrivateSceneRecord {
+  return (
+    isRecord(value) &&
+    typeof value['sceneId'] === 'string' &&
+    typeof value['playerId'] === 'string' &&
+    typeof value['npcId'] === 'string' &&
+    typeof value['playerName'] === 'string' &&
+    typeof value['npcName'] === 'string' &&
+    isNonNegativeInteger(value['macroTurn']) &&
+    isNonNegativeInteger(value['npcResponseCount']) &&
+    isOneOf(value['status'], PRIVATE_SCENE_STATUSES) &&
+    Array.isArray(value['transcript']) &&
+    value['transcript'].every(isPersistedTranscriptLine) &&
+    Array.isArray(value['speechActs']) &&
+    value['speechActs'].every(isPersistedSpeechAct) &&
+    isPersistedNpcPrivate(value['npcPrivate']) &&
+    (value['closureReason'] === undefined || isOneOf(value['closureReason'], PRIVATE_SCENE_CLOSURE_REASONS)) &&
+    // A closed scene MUST carry its closure reason. This is the one semantic
+    // rule the structural validator enforces, because it is the only shape
+    // whose omission reaches a `throw` rather than a graceful `{ok:false}`:
+    // buildPrivateSceneAdjudicatorProjection requires the reason, and it runs
+    // pre-commit inside executeTurn, so a closed+pending record without one
+    // would roll the turn back and stay pending - locking the campaign on
+    // every subsequent turn. No app write path produces it (closure always
+    // sets a reason first); a corrupted or hand-edited save can.
+    (value['status'] !== 'closed' || value['closureReason'] !== undefined) &&
+    (value['lastWord'] === undefined || typeof value['lastWord'] === 'string') &&
+    isOneOf(value['consequenceStatus'], PRIVATE_SCENE_CONSEQUENCE_STATUSES) &&
+    (value['consumedByTurn'] === undefined || isNonNegativeInteger(value['consumedByTurn']))
+  );
+}
+
+/**
+ * The load-side counterpart to `canonicalPrivateScene` - the single
+ * normalization seam that `state/gameReducer.ts`'s GAME_LOADED and
+ * TURN_ROLLED_BACK both route a persisted `privateScenes` value through. A
+ * non-array `value` (including `undefined`, on a pre-Phase-6 save) normalizes
+ * to an empty list, exactly as before. Per record, validation is now
+ * structural: a malformed entry is silently DROPPED (no `console.warn`, no
+ * reducer logging - matching this codebase's existing normalize-and-move-on
+ * philosophy for corrupted optional slices) while its valid siblings survive.
+ *
+ * Validation checks exactly what makes a record safe for every consumer to
+ * read without throwing: field presence, primitive types, closed-set enum
+ * membership, and array-element shapes. It deliberately does NOT enforce
+ * `privateScene/model.ts`'s semantic rules (non-empty trimmed strings,
+ * `npcResponseCount` within its valid range, "closed implies closureReason",
+ * at most one open scene at a time) - that hygiene is model.ts's job for
+ * records this app itself creates, not this loader's.
+ *
+ * Every surviving record is rebuilt through `canonicalPrivateScene`, so a
+ * hand-edited save cannot smuggle unknown keys past load, and re-saving the
+ * loaded state is clean.
+ *
+ * Dropping an open ('active' / 'awaiting_last_word') scene needs no ledger
+ * reconciliation: scene records are self-contained, `App.tsx`'s private-scene
+ * handlers look a scene up by `sceneId` and no-op when it is absent, and both
+ * the interaction lock and `canStartScene` are derived from this (now
+ * corrected) list's contents rather than any separate pointer.
+ */
+export function normalizeLoadedPrivateScenes(value: unknown): PrivateSceneRecord[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isPersistedPrivateScene).map(canonicalPrivateScene);
+}
+
 /**
  * Persists the given game state as the single autosave slot. Never throws:
- * localStorage access itself (quota, disabled storage, private-mode
- * `SecurityError`) is guarded, and if the first write fails, one retry is
- * made with older turnHistory entries' `rawCalls` stripped (the most likely
- * cause of an oversize save on a long campaign). If both attempts fail, the
- * autosave is skipped and `{ ok: false }` tells the caller whether that
- * operation may safely commit its accompanying in-memory state.
+ * building the persistable lean-state/envelope is itself guarded (a
+ * malformed in-memory `privateScenes` entry can throw while being rebuilt
+ * through `canonicalPrivateScene` - see `buildSaveEnvelope`), and once a
+ * valid envelope exists, localStorage access (quota, disabled storage,
+ * private-mode `SecurityError`) is guarded too: if the first write fails,
+ * one retry is made with older turnHistory entries' `rawCalls` stripped (the
+ * most likely cause of an oversize save on a long campaign). If envelope
+ * construction or both write attempts fail, the autosave is skipped and
+ * `{ ok: false }` tells the caller whether that operation may safely commit
+ * its accompanying in-memory state.
  */
 export type SaveGameResult = { ok: true } | { ok: false };
 
-export function saveGame(state: SaveGameState): SaveGameResult {
-  // Persisted saves never carry captured prompt text, regardless of size -
-  // see stripCapturedCallText.
-  const leanState: SaveGameState = {
-    ...state,
-    turnHistory: stripCapturedCallText(state.turnHistory),
-    ...(state.privateScenes === undefined
-      ? {}
-      : { privateScenes: state.privateScenes.map(canonicalPrivateScene) }),
-  };
+/**
+ * Builds the persistable envelope from live game state, or `null` if that
+ * construction itself throws (e.g. a malformed in-memory private-scene
+ * record that `canonicalPrivateScene`'s nested dereferences can't survive).
+ * Kept separate from the localStorage write path so a construction failure
+ * and a write failure can be told apart only by their distinct `console.warn`
+ * messages, per this module's never-throws contract.
+ */
+function buildSaveEnvelope(state: SaveGameState): SaveGame | null {
+  try {
+    // Persisted saves never carry captured prompt text, regardless of size -
+    // see stripCapturedCallText.
+    const leanState: SaveGameState = {
+      ...state,
+      turnHistory: stripCapturedCallText(state.turnHistory),
+      ...(state.privateScenes === undefined
+        ? {}
+        : { privateScenes: state.privateScenes.map(canonicalPrivateScene) }),
+    };
+    return { version: SAVE_VERSION, savedAt: new Date().toISOString(), state: leanState };
+  } catch (e) {
+    console.warn('saveGame: failed to build the persistable save state; autosave skipped', e);
+    return null;
+  }
+}
 
-  const envelope: SaveGame = {
-    version: SAVE_VERSION,
-    savedAt: new Date().toISOString(),
-    state: leanState,
-  };
+export function saveGame(state: SaveGameState): SaveGameResult {
+  const envelope = buildSaveEnvelope(state);
+  if (!envelope) return { ok: false };
 
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(envelope));
@@ -301,10 +437,7 @@ export function saveGame(state: SaveGameState): SaveGameResult {
   try {
     const strippedEnvelope: SaveGame = {
       ...envelope,
-      state: {
-        ...leanState,
-        turnHistory: stripOldRawCalls(leanState.turnHistory),
-      },
+      state: { ...envelope.state, turnHistory: stripOldRawCalls(envelope.state.turnHistory) },
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(strippedEnvelope));
     return { ok: true };

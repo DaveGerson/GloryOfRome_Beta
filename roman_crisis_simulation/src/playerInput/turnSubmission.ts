@@ -455,6 +455,28 @@ export function projectForPlayerOwnedAi(submission: TurnSubmission): string {
 }
 
 /**
+ * Player-owned REFLECTION surface (the first-person monologue): the
+ * submission's own words with recipients rendered by display name only -
+ * no serialization namespace, no implementation entity ids. Mirrors
+ * projectForPlayerOwnedAi's sections exactly, differing only in recipient
+ * formatting (formatRecipientForPlayerHistory, not formatRecipientForAi).
+ */
+export function projectForPlayerReflection(submission: TurnSubmission): string {
+  if (submission.kind === 'freeform') return submission.text;
+  const observable = [
+    ...(submission.actions ?? []),
+    ...(submission.messagesOrOrders ?? []).map(
+      ({ recipient, command }) => `To: ${formatRecipientForPlayerHistory(recipient)}\n${command}`,
+    ),
+  ];
+  return [
+    observable.length ? observable.join('\n\n') : null,
+    submission.privateIntent ? `Private intent:\n${submission.privateIntent}` : null,
+    submission.questionOrContext ? `Question or context:\n${submission.questionOrContext}` : null,
+  ].filter((value): value is string => value !== null).join('\n\n');
+}
+
+/**
  * Keeps the player-owned prose available to narration while making the
  * observable-action boundary explicit. Consumers must not infer an action
  * from private intent or question text.
