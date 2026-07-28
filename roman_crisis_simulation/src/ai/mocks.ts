@@ -4,7 +4,7 @@
 import { Adjudication, Entity, NpcIntent, NpcMindDecision, Report, SimulationState, StoryRelevance, TruthLedgerEntry, TurnHistoryEntry, WorldState, EventDelta, EntityStub, TurnSubmission } from '../types';
 import { applyAdjudication } from './core/engine';
 import { MAX_MINDS_PER_TURN } from './prompts/npcMind';
-import { normalizeTurnSubmissionInput, projectForNoAttemptResponse, projectForPlayerOwnedAi, projectForResolution, serializeTurnSubmission } from '../playerInput/turnSubmission';
+import { normalizeTurnSubmissionInput, projectForNoAttemptResponse, projectForPlayerReflection, projectForResolution, serializeTurnSubmission } from '../playerInput/turnSubmission';
 import type { PrivateSceneAdjudicatorProjection, PrivateSceneModelResponse, PrivateSceneNpcMemoryProjection } from '../privateScene/model';
 import type { PrivateScenePromptInput } from './prompts/privateScene';
 
@@ -302,7 +302,7 @@ export const mockRunNewTurn = async (
     const normalizedSubmission = normalizeTurnSubmissionInput(submission);
     const noAttemptResponse = projectForNoAttemptResponse(normalizedSubmission);
     const playerIntent = serializeTurnSubmission(normalizedSubmission);
-    const playerOwnedContext = projectForPlayerOwnedAi(normalizedSubmission);
+    const playerReflectionContext = projectForPlayerReflection(normalizedSubmission);
     const observableAttempt = projectForResolution(normalizedSubmission);
     void privateSceneAdjudicatorProjection;
     console.log("--- MOCK TURN RUN ---");
@@ -397,7 +397,7 @@ export const mockRunNewTurn = async (
 
     const playerMonologue = noAttemptResponse
         ? ''
-        : await mockGetPlayerMonologue(playerEntity, MOCK_ADJUDICATION.headlines, [playerOwnedContext]);
+        : await mockGetPlayerMonologue(playerEntity, MOCK_ADJUDICATION.headlines, [playerReflectionContext]);
 
     const newHistoryEntry: TurnHistoryEntry = {
         turnNumber,
