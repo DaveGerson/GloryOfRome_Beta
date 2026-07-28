@@ -21,7 +21,7 @@ import { AdjudicationSchema } from '../ai/core/schemas';
 import { sanitizeAdjudicationForNarration, buildNarrationPrompt } from '../ai/prompts/narration';
 import { buildAdjudicationPrompt } from '../ai/prompts/adjudication';
 import { buildMortalityOutcomePrompt } from '../ai/prompts/mortality';
-import { buildPrivateConversationPrompt, buildSimulationStateUpdatePrompt } from '../ai/prompts/intelligence';
+import { buildSimulationStateUpdatePrompt } from '../ai/prompts/intelligence';
 import { REDACTED_SCHEME_REASON } from '../ai/prompts/fragments';
 import { getMockInitialState } from './mockData';
 import { Adjudication, Entity, EventDelta, Report, SimulationState, TruthLedgerEntry, WorldState } from '../types';
@@ -176,39 +176,6 @@ describe('D11 lockstep: every other delta-producing prompt demands truth disposi
     expect(systemInstruction).toContain('the world-truth is that they live');
   });
 
-  it('the private-conversation prompt demands is_true/origin_id on any rumor delta it returns', () => {
-    const { entities } = getMockInitialState();
-    const adjudication = deepCopy(baseAdjudication);
-    const { systemInstruction } = buildPrivateConversationPrompt(entities[1], entities[2], adjudication);
-
-    expect(systemInstruction).toContain("'is_true'");
-    expect(systemInstruction).toContain('ALWAYS set');
-    expect(systemInstruction).toContain('never omit it');
-    expect(systemInstruction).toContain("'origin_id'");
-    expect(systemInstruction).toContain('GM-private ledger data');
-    // World-truth ruling, consistent with the schema description's wording.
-    expect(systemInstruction).toContain('Authorship never changes the ruling');
-  });
-
-  it('the private-conversation prompt demands topic (+ stance for follow-ups) on any rumor delta (D29 lockstep)', () => {
-    const { entities } = getMockInitialState();
-    const adjudication = deepCopy(baseAdjudication);
-    const { systemInstruction } = buildPrivateConversationPrompt(entities[1], entities[2], adjudication);
-
-    // Without a topic a conversation rumor defaults to 'general' and
-    // re-merges with unrelated claims - the flat-list over-merge D29 fixed.
-    // The prompt must demand a topic on every rumor, mirroring the
-    // adjudication prompt's rumor rule.
-    expect(systemInstruction).toContain("'topic'");
-    expect(systemInstruction).toContain('ALWAYS set');
-    expect(systemInstruction).toContain('reuses the SAME topic');
-    // topic is a neutral, player-safe label - never a truth hint.
-    expect(systemInstruction).toContain('never hint at whether the claim is true');
-    // Counterplay follow-ups carry a stance toward the claim they continue.
-    expect(systemInstruction).toContain("'stance'");
-    expect(systemInstruction).toContain('corroborates');
-    expect(systemInstruction).toContain('contradicts');
-  });
 });
 
 describe('engine: the truth ledger write site (ai/core/engine.ts rumor case)', () => {

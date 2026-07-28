@@ -5,8 +5,7 @@
  * scripted fake `GoogleGenAI` client, proving the Phase 3 item 3
  * parallelization (ROADMAP_0_MASTER_PLAN.md) actually runs `simulation_state`
  * / `monologue` / `narration` CONCURRENTLY rather than sequentially, while
- * `story_relevance` -> `adjudication` stay sequential and
- * `relationship_updates` still waits on the narration text.
+ * `story_relevance` -> `adjudication` stay sequential.
  *
  * The fake client classifies each `ai.models.generateContent`/
  * `generateContentStream` call by inspecting `config.systemInstruction`
@@ -61,9 +60,8 @@ const simulationState: SimulationState = {
   major_ongoing_crisis: null,
 };
 
-// storyRelevance names ZERO spotlight entities so the conditional
-// private_conversation step (>= 2 spotlight entities) never fires, and the
-// adjudication below carries no death-claim delta so the mortality
+// storyRelevance names ZERO spotlight entities, and the adjudication below
+// carries no death-claim delta so the mortality
 // pipeline's fast path (zero extra AI calls) applies - see
 // ai/core/mortality.ts / tests/mortality.test.ts. Both are deliberately
 // kept OUT of scope here: this file audits the NEW parallel section only,
@@ -111,8 +109,6 @@ const NARRATION_PROSE = 'The Senate convenes.';
 const narrationFullText =
   `${NARRATION_PROSE}\nSUGGESTION: Bribe a senator\nSUGGESTION: Fortify the walls\nSUGGESTION: Consult the augurs`;
 
-const relationshipJson = JSON.stringify({ deltas: [] });
-
 // --- deferred / harness plumbing ---------------------------------------
 
 interface Deferred<T> {
@@ -143,26 +139,23 @@ type CallKind =
   | 'assessment'
   | 'npcMind'
   | 'adjudication'
-  | 'privateConversation'
   | 'mortalityValidation'
   | 'mortalityOutcome'
   | 'simulationState'
   | 'monologue'
   | 'narration'
-  | 'relationshipUpdates';
+  ;
 
 const ALL_KINDS: CallKind[] = [
   'storyRelevance',
   'assessment',
   'npcMind',
   'adjudication',
-  'privateConversation',
   'mortalityValidation',
   'mortalityOutcome',
   'simulationState',
   'monologue',
   'narration',
-  'relationshipUpdates',
 ];
 
 /**
@@ -177,13 +170,11 @@ function classify(systemInstruction: unknown): CallKind {
   if (s.includes('Action Assessor')) return 'assessment';
   if (s.includes("character's own private mind")) return 'npcMind';
   if (s.includes('Roman Crisis Adjudicator & Simulation Engine')) return 'adjudication';
-  if (s.includes('secret observer')) return 'privateConversation';
   if (s.includes('Mortality Validator')) return 'mortalityValidation';
   if (s.includes('Mortality Outcome Author')) return 'mortalityOutcome';
   if (s.includes('Roman historian analyzing the state of the Empire')) return 'simulationState';
   if (s.includes('the inner voice of')) return 'monologue';
   if (s.includes('Chronicler of the Empire & Intelligence Briefer')) return 'narration';
-  if (s.includes('narrative analyst AI')) return 'relationshipUpdates';
   throw new Error(`turnPipeline test fake: unrecognized call. systemInstruction: ${s.slice(0, 200)}`);
 }
 
@@ -288,7 +279,6 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     h.response.simulationState.resolve(simStateJson);
     h.response.monologue.resolve(monologueText);
     h.response.narration.resolve(narrationFullText);
-    h.response.relationshipUpdates.resolve(relationshipJson);
 
     await runNewTurn(
       h.ai,
@@ -317,7 +307,7 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     expect(h.promptsByKind.monologue).toContain(privateIntent);
   });
 
-  it('runs simulation-state/monologue/narration concurrently, keeps story-relevance -> adjudication sequential, and defers relationship-updates until narration resolves', async () => {
+  it('runs simulation-state/monologue/narration concurrently while keeping story-relevance -> adjudication sequential', async () => {
     const h = createHarness(false);
     const player = makeEntity();
     const onStage = vi.fn();
@@ -377,29 +367,18 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     await Promise.all([h.issued.simulationState.promise, h.issued.monologue.promise, h.issued.narration.promise]);
     expect(h.order).toEqual(['storyRelevance', 'assessment', 'adjudication', 'simulationState', 'monologue', 'narration']);
 
-    // --- (ii) relationship_updates must NOT be issued until narration resolves ---
-    let relUpdatesIssuedEarly = false;
-    h.issued.relationshipUpdates.promise.then(() => { relUpdatesIssuedEarly = true; });
-    await tick();
-    expect(relUpdatesIssuedEarly).toBe(false);
-
-    // Resolve two of the three legs but withhold narration - relationship
-    // updates must still not fire.
+    // Resolve two of the three legs but withhold narration: the turn remains
+    // pending until the final concurrent leg resolves.
     h.response.simulationState.resolve(simStateJson);
     h.response.monologue.resolve(monologueText);
     await tick();
-    expect(relUpdatesIssuedEarly).toBe(false);
-    expect(h.order).not.toContain('relationshipUpdates');
 
     h.response.narration.resolve(narrationFullText);
-    await h.issued.relationshipUpdates.promise;
     expect(h.order).toEqual([
-      'storyRelevance', 'assessment', 'adjudication', 'simulationState', 'monologue', 'narration', 'relationshipUpdates',
+      'storyRelevance', 'assessment', 'adjudication', 'simulationState', 'monologue', 'narration',
     ]);
 
-    h.response.relationshipUpdates.resolve(relationshipJson);
-
-    // --- (iii) final result matches sequential semantics -----------------
+    // --- (ii) final result matches sequential semantics ------------------
     const result = await turnPromise;
 
     expect(result.narration).toBe(NARRATION_PROSE);
@@ -414,22 +393,21 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     expect(result.newHistoryEntry.resolutionTrace).toBeUndefined();
 
     // onStage fired once per real stage, in the exact documented order -
-    // private_conversation/mortality correctly skipped this turn (no
-    // spotlight entities, no death claim). The assessment call does NOT get
+    // Mortality correctly skipped this turn (no death claim). The assessment call does NOT get
     // its own stage - it shares 'story_relevance' (see TurnStage's doc
     // comment in ai/core/turn.ts).
     expect(onStage.mock.calls.map(c => c[0])).toEqual([
-      'story_relevance', 'adjudication', 'simulation_state', 'monologue', 'narration', 'relationship_updates',
+      'story_relevance', 'adjudication', 'simulation_state', 'monologue', 'narration',
     ]);
 
     // Capture ordering: every call recorded exactly once, none corrupted by
     // the concurrent interleaving of recordCall pushes (ai/core/geminiService.ts).
     const rawCalls = result.newHistoryEntry.rawCalls ?? [];
     expect(rawCalls.map(r => r.callName).sort()).toEqual(
-      ['storyRelevance', 'assessment', 'adjudication', 'updatedSimulationState', 'playerMonologue', 'narration', 'relationshipUpdates'].sort()
+      ['storyRelevance', 'assessment', 'adjudication', 'updatedSimulationState', 'playerMonologue', 'narration'].sort()
     );
     expect(rawCalls.every(r => r.validated)).toBe(true);
-    expect(rawCalls).toHaveLength(7);
+    expect(rawCalls).toHaveLength(6);
   });
 
   it('streams narration via generateContentStream inside the same parallel block, still concurrent with simulation-state/monologue', async () => {
@@ -469,7 +447,6 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     h.response.simulationState.resolve(simStateJson);
     h.response.monologue.resolve(monologueText);
     h.response.narration.resolve(narrationFullText);
-    h.response.relationshipUpdates.resolve(relationshipJson);
 
     const result = await turnPromise;
 
@@ -518,11 +495,9 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     h.response.simulationState.resolve(simStateJson);
     h.response.monologue.resolve(monologueText);
     h.response.narration.resolve(poisonedNarration);
-    h.response.relationshipUpdates.resolve(relationshipJson);
 
     await expect(turnPromise).rejects.toThrow('player-visible mechanics boundary');
     expect(onNarrationChunk).not.toHaveBeenCalled();
-    expect(h.order).not.toContain('relationshipUpdates');
   });
 
   it.each([
@@ -562,7 +537,6 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     h.response.simulationState.resolve(simStateJson);
     h.response.monologue.resolve(monologueText);
     h.response.narration.resolve(poisonedNarration);
-    h.response.relationshipUpdates.resolve(relationshipJson);
 
     let thrown: unknown;
     try {
@@ -574,7 +548,6 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     expect((thrown as Error).message).toContain('player-visible mechanics boundary');
     expect((thrown as Error).message).not.toContain(forbidden);
     expect(onNarrationChunk).not.toHaveBeenCalled();
-    expect(h.order).not.toContain('relationshipUpdates');
   });
 
   it('propagates a rejection in one parallel leg as the turn failure (Promise.all fail-fast) without an unhandled-rejection warning from the surviving legs', async () => {
@@ -657,7 +630,6 @@ describe('ai/core/turn.ts runNewTurn - campaign truth-ledger threading (D11)', (
     h.response.simulationState.resolve(simStateJson);
     h.response.monologue.resolve(monologueText);
     h.response.narration.resolve(narrationFullText);
-    h.response.relationshipUpdates.resolve(relationshipJson);
 
     const result = await runNewTurn(
       h.ai, freeform('Hold court'), player, 2, [player], worldState, simulationState, [], priorReports, priorLedger, [], '', false, 'Grim political thriller'
@@ -678,68 +650,6 @@ describe('ai/core/turn.ts runNewTurn - campaign truth-ledger threading (D11)', (
     // Inputs were never mutated.
     expect(priorLedger).toHaveLength(1);
     expect(priorReports).toHaveLength(1);
-  });
-});
-
-// --- Relationship-update contract enforcement (D2/D11/D26) ----------------
-
-describe("ai/core/turn.ts runNewTurn - step 5.5 keeps only 'relation' deltas", () => {
-  it("applies the 'relation' delta but DROPS non-relation deltas from the relationship-update call - no ledger/report leak, no mortality bypass, discard traced in gm_private", async () => {
-    const h = createHarness(false);
-    const player = makeEntity();
-    const rival = makeEntity({ entity_id: 'npc_rival', name: 'Senator Rival' });
-
-    // The relationship-update call's schema (zRelationshipDeltas) structurally
-    // accepts every EventDelta type, so it CAN return a mixed bag: one
-    // legitimate 'relation' delta plus a 'rumor' and a 'status:dead' its
-    // contract forbids. Only the relation delta may survive - the rumor must
-    // never mint a truth-ledger/report entry (D11/D26) and the status must
-    // never kill the rival (that pipeline is mortality's alone, D2).
-    const mixedRelationshipJson = JSON.stringify({
-      deltas: [
-        { type: 'relation', key: 'npc_rival:player_1:trust_level', delta: -3, reason: 'The rival reads the move as a threat.' },
-        { type: 'rumor', key: 'player_1', delta: 0.7, reason: 'It is whispered the Emperor poisoned his brother.', is_true: false, origin_id: 'npc_rival' },
-        { type: 'status', key: 'npc_rival', delta: 0, reason: 'Struck down off-page.', new_status: 'dead' },
-      ],
-    });
-
-    h.response.storyRelevance.resolve(storyRelevanceJson);
-    h.response.assessment.resolve(nonConsequentialAssessmentJson);
-    h.response.adjudication.resolve(adjudicationJson); // base deltas: one resource, no rumor/status
-    h.response.simulationState.resolve(simStateJson);
-    h.response.monologue.resolve(monologueText);
-    h.response.narration.resolve(narrationFullText);
-    h.response.relationshipUpdates.resolve(mixedRelationshipJson);
-
-    const result = await runNewTurn(
-      h.ai, freeform('Snub the Senate'), player, 2, [player, rival], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
-    );
-
-    // The 'relation' delta was applied to state AND merged into the committed
-    // ground-truth record.
-    const committedDeltas = result.newHistoryEntry.adjudication.deltas;
-    expect(committedDeltas.some(d => d.type === 'relation' && d.key === 'npc_rival:player_1:trust_level')).toBe(true);
-    expect(result.updatedEntities.find(e => e.entity_id === 'npc_rival')?.relationships['player_1']?.trust_level).toBe(-3);
-
-    // The non-relation deltas were dropped from the committed record entirely.
-    expect(committedDeltas.some(d => d.type === 'rumor')).toBe(false);
-    expect(committedDeltas.some(d => d.type === 'status')).toBe(false);
-
-    // No un-ledgered rumor reached the player surface: the dropped rumor minted
-    // no ledger entry and no Report (the base adjudication carried neither).
-    expect(result.updatedTruthLedger).toEqual([]);
-    expect(result.updatedReports).toEqual([]);
-    expect(result.headlines).not.toContain('It is whispered the Emperor poisoned his brother.');
-
-    // No mortality bypass: the 'status:dead' never touched the roster - the
-    // rival is still alive.
-    expect(result.updatedEntities.find(e => e.entity_id === 'npc_rival')?.status).toBe('alive');
-
-    // The discard is traced for the GM console only (D4/D5), naming the types.
-    const discardNote = result.newHistoryEntry.adjudication.gm_private.find(n => n.includes('Dropped 2 non-relation delta(s)'));
-    expect(discardNote).toBeDefined();
-    expect(discardNote).toContain('rumor:player_1');
-    expect(discardNote).toContain('status:npc_rival');
   });
 });
 
@@ -777,7 +687,6 @@ describe('ai/core/turn.ts runNewTurn - mortality directives feed narration from 
     h.response.simulationState.resolve(simStateJson);
     h.response.monologue.resolve(monologueText);
     h.response.narration.resolve(narrationFullText);
-    h.response.relationshipUpdates.resolve(relationshipJson);
 
     const result = await runNewTurn(
       h.ai, freeform('Hold court'), player, 2, [player, npc], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
@@ -858,13 +767,9 @@ describe('ai/core/turn.ts runNewTurn - Director continuity loop (4C.3)', () => {
       private_reasoning: 'The purple is within reach.',
     }));
     h.response.adjudication.resolve(adjudicationWithOneActionJson);
-    // Both spotlights resolve to real entities, so the private-conversation
-    // step runs this turn - scripted to a no-op meeting.
-    h.response.privateConversation.resolve(JSON.stringify({ dialogueSnippet: 'They met briefly.', deltas: [] }));
     h.response.simulationState.resolve(simStateJson);
     h.response.monologue.resolve(monologueText);
     h.response.narration.resolve(narrationFullText);
-    h.response.relationshipUpdates.resolve(relationshipJson);
 
     const result = await runNewTurn(
       h.ai, freeform('Hold court'), player, 2, [player, thrax, guard], worldState, simulationState, [], [], [], priorIntents, '', false, 'Grim political thriller'
@@ -913,7 +818,6 @@ describe('ai/core/turn.ts runNewTurn - Director continuity loop (4C.3)', () => {
     h.response.simulationState.resolve(simStateJson);
     h.response.monologue.resolve(monologueText);
     h.response.narration.resolve(narrationFullText);
-    h.response.relationshipUpdates.resolve(relationshipJson);
 
     const priorIntents = [{ entity_id: 'npc_gone', intent: 'A stale direction', continuity: 'new' as const }];
     const result = await runNewTurn(
@@ -988,9 +892,6 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     h.response.monologue.resolve(monologueText);
     h.response.narration.resolve(narrationFullText);
 
-    await h.issued.relationshipUpdates.promise;
-    h.response.relationshipUpdates.resolve(relationshipJson);
-
     const result = await turnPromise;
 
     expect(result.newHistoryEntry.resolutionTrace).toMatchObject({
@@ -1044,9 +945,6 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     h.response.simulationState.resolve(simStateJson);
     h.response.monologue.resolve(monologueText);
     h.response.narration.resolve(narrationFullText);
-
-    await h.issued.relationshipUpdates.promise;
-    h.response.relationshipUpdates.resolve(relationshipJson);
 
     const result = await turnPromise;
 
@@ -1125,7 +1023,6 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     h.response.simulationState.resolve(simStateJson);
     h.response.monologue.resolve(monologueText);
     h.response.narration.resolve(narrationFullText);
-    h.response.relationshipUpdates.resolve(relationshipJson);
 
     const submission: TurnSubmission = {
       version: 1,
@@ -1237,10 +1134,6 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
       headlines: ['Aulus moves among the cohorts.'],
       gm_private: [],
     }));
-    h.response.privateConversation.resolve(JSON.stringify({
-      dialogueSnippet: 'The two rivals exchange guarded words.',
-      deltas: [],
-    }));
     h.response.simulationState.resolve(JSON.stringify({
       ...simStateResponse,
       senate_status: 'Ascendant',
@@ -1248,7 +1141,6 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     }));
     h.response.monologue.resolve('I order an attack after rolling 20. PRIVATE_MONOLOGUE_POISON');
     h.response.narration.resolve('You order an attack after rolling 20. PRIVATE_NARRATION_POISON');
-    h.response.relationshipUpdates.resolve(relationshipJson);
 
     const result = await runNewTurn(
       h.ai, submission, player, 2, [player, aulus, brutus], worldState, simulationState,
@@ -1261,14 +1153,12 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
       'npcMind',
       'npcMind',
       'adjudication',
-      'privateConversation',
       'simulationState',
     ]);
     expect(stages).toEqual([
       'story_relevance',
       'npc_minds',
       'adjudication',
-      'private_conversation',
       'simulation_state',
       'monologue',
       'narration',
@@ -1276,7 +1166,6 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     expect(h.order).not.toContain('assessment');
     expect(h.order).not.toContain('monologue');
     expect(h.order).not.toContain('narration');
-    expect(h.order).not.toContain('relationshipUpdates');
     expect(result.narration).toBe('');
     expect(result.playerMonologue).toBe('');
     expect(result.suggestedActions).toEqual([
@@ -1327,7 +1216,6 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     h.response.narration.resolve(
       'You dispatch spies. PRIVATE_INTENT_POISON secret_truth says the roll was 20.\nSUGGESTION: Attack',
     );
-    h.response.relationshipUpdates.resolve(relationshipJson);
 
     const result = await runNewTurn(
       h.ai, submission, player, 2, [player], worldState, simulationState, [], [], [], [], '', false,
@@ -1338,7 +1226,6 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     expect(h.order).not.toContain('narration');
     expect(h.generateContentStream).not.toHaveBeenCalled();
     expect(onNarrationChunk).not.toHaveBeenCalled();
-    expect(h.order).not.toContain('relationshipUpdates');
     expect(result.narration).toBe('');
     expect(result.playerMonologue).toBe('');
     expect(result.suggestedActions).toEqual([
@@ -1384,7 +1271,6 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     h.response.simulationState.resolve(simStateJson);
     h.response.monologue.resolve('I sign the death warrant. PRIVATE_MONOLOGUE_POISON');
     h.response.narration.resolve('You sign the death warrant. PRIVATE_NARRATION_POISON');
-    h.response.relationshipUpdates.resolve(relationshipJson);
 
     const result = await runNewTurn(
       h.ai, submission, player, 2, [player, npc], worldState, simulationState, [], [], [], [], '', false,
@@ -1399,7 +1285,6 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     expect(h.order).not.toContain('assessment');
     expect(h.order).not.toContain('monologue');
     expect(h.order).not.toContain('narration');
-    expect(h.order).not.toContain('relationshipUpdates');
     expect(result.narration).toBe('');
     expect(result.playerMonologue).toBe('');
     expect(result.suggestedActions).toEqual([
@@ -1435,7 +1320,6 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     h.response.simulationState.resolve(simStateJson);
     h.response.monologue.resolve('I sign the decree and summon the legions.');
     h.response.narration.resolve('You see petitioners gathering outside the palace.');
-    h.response.relationshipUpdates.resolve(relationshipJson);
 
     const result = await runNewTurn(
       h.ai, submission, player, 2, [player], worldState, simulationState, [], [], [], [], '', false,
@@ -1444,7 +1328,6 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
 
     expect(h.order).not.toContain('monologue');
     expect(h.order).not.toContain('narration');
-    expect(h.order).not.toContain('relationshipUpdates');
     expect(result.playerMonologue).toBe('');
     expect(JSON.stringify(result)).not.toContain('I sign the decree and summon the legions.');
   });
@@ -1489,7 +1372,6 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
       h.response.simulationState.resolve(simStateJson);
       h.response.monologue.resolve(monologueText);
       h.response.narration.resolve(narrationFullText);
-      h.response.relationshipUpdates.resolve(relationshipJson);
 
       const result = await runNewTurn(
         h.ai, freeform('Hold court'), player, 2, [player, npc],
@@ -1583,8 +1465,6 @@ describe('ai/core/turn.ts runNewTurn - player-perceived narration input', () => 
     h.response.simulationState.resolve(simStateJson);
     h.response.monologue.resolve(monologueText);
     h.response.narration.resolve(narrationFullText);
-    await h.issued.relationshipUpdates.promise;
-    h.response.relationshipUpdates.resolve(relationshipJson);
     const result = await turnPromise;
     expect(result.updatedEntities.find(e => e.entity_id === 'player_1')?.resources.denarii).toBe(1025);
     expect(result.updatedEntities.find(e => e.entity_id === 'npc_hidden')?.resources.denarii).toBe(1050);
@@ -1631,7 +1511,6 @@ describe('ai/core/turn.ts runNewTurn - player-perceived narration input', () => 
     h.response.simulationState.resolve(simStateJson);
     h.response.monologue.resolve(monologueText);
     h.response.narration.resolve(narrationFullText);
-    h.response.relationshipUpdates.resolve(relationshipJson);
 
     await runNewTurn(
       h.ai, freeform('Address the Senate'), player, 2,
@@ -1684,7 +1563,6 @@ describe('ai/core/turn.ts runNewTurn - player-perceived narration input', () => 
     h.response.simulationState.resolve(simStateJson);
     h.response.monologue.resolve(monologueText);
     h.response.narration.resolve(narrationFullText);
-    h.response.relationshipUpdates.resolve(relationshipJson);
 
     await runNewTurn(
       h.ai, freeform('Address the Senate'), player, 2,
@@ -1721,7 +1599,6 @@ describe('ai/core/turn.ts runNewTurn - pacing posture threading (4D.1, D23)', ()
     h.response.simulationState.resolve(simStateJson);
     h.response.monologue.resolve(monologueText);
     h.response.narration.resolve(narrationFullText);
-    h.response.relationshipUpdates.resolve(relationshipJson);
   }
 
   it('threads options.pacingPosture into the adjudication system instruction\'s PACING JUDGMENT principle', async () => {

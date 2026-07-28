@@ -8,7 +8,6 @@ import {
     mockGetPlayerMonologue,
     mockGetStoryRelevance,
     mockInitiateWorld,
-    mockSimulatePrivateConversation,
     mockGenerateScenarioStructure,
     mockGenerateEntitiesDetails
 } from '../ai/mocks';
@@ -124,15 +123,6 @@ export const runSmokeTest = async () => {
                 }
                 console.log(`[SMOKE TEST] mockInitiateWorld validated: Generated ${result.entities.length} entities.`);
                 return result;
-            }
-        },
-        {
-            name: 'mockSimulatePrivateConversation',
-            fn: () => {
-                const npc1 = ALL_INITIAL_ENTITIES.find(e => e.entity_id === 'maximinus_thrax');
-                const npc2 = ALL_INITIAL_ENTITIES.find(e => e.entity_id === 'gaius_pontius_magnus');
-                if (!npc1 || !npc2) throw new Error("Setup failed: NPCs for conversation not found.");
-                return mockSimulatePrivateConversation(npc1, npc2);
             }
         },
     ];

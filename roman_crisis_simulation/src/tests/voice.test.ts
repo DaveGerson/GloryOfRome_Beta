@@ -256,11 +256,9 @@ function classifyCall(systemInstruction: string, contents: string): string {
     return `npcMind:${match?.[1] ?? 'unknown'}`;
   }
   if (systemInstruction.includes('Roman Crisis Adjudicator & Simulation Engine')) return 'adjudication';
-  if (systemInstruction.includes('secret observer')) return 'privateConversation';
   if (systemInstruction.includes('Roman historian analyzing the state of the Empire')) return 'simulationState';
   if (systemInstruction.includes('the inner voice of')) return 'monologue';
   if (systemInstruction.includes('Chronicler of the Empire & Intelligence Briefer')) return 'narration';
-  if (systemInstruction.includes('narrative analyst AI')) return 'relationshipUpdates';
   throw new Error(`voice test fake: unrecognized call. systemInstruction: ${systemInstruction.slice(0, 120)}`);
 }
 
@@ -315,7 +313,6 @@ describe('runNewTurn: the narration prompt carries the BOUNDED visible-event voi
       simulationState: JSON.stringify(SIM_STATE),
       monologue: 'I watch the roads.',
       narration: 'The city stirs.\nSUGGESTION: Wait',
-      relationshipUpdates: JSON.stringify({ deltas: [] }),
     };
     const harness = createHarness(responses);
 

@@ -16,12 +16,10 @@ export const TURN_STAGE_STATUS_COPY: Record<TurnStage, string> = {
     story_relevance: 'The chronicler surveys the week…',
     npc_minds: 'Behind shuttered doors, minds settle on their designs…',
     adjudication: 'Your rivals move in the dark…',
-    private_conversation: 'Two figures withdraw behind a curtain…',
     mortality: 'The Fates weigh a life…',
     simulation_state: 'Couriers ride from the frontier…',
     monologue: 'Your own thoughts gather…',
     narration: 'The chronicler sets down the day…',
-    relationship_updates: 'Loyalties quietly shift…',
 };
 
 // Shown whenever PROCESSING is true but no stage has been reported yet -

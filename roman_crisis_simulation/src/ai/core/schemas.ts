@@ -273,34 +273,6 @@ export const AdjudicationSchema = {
     required: ['turn', 'entityActions', 'deltas', 'headlines', 'gm_private'],
 };
 
-export const RelationshipDeltasSchema = {
-    type: Type.OBJECT,
-    properties: {
-        deltas: {
-            type: Type.ARRAY,
-            items: EventDeltaSchema,
-            description: "A list of 'relation' type deltas to apply."
-        }
-    },
-    required: ['deltas']
-};
-
-export const ConversationSimulationSchema = {
-    type: Type.OBJECT,
-    properties: {
-        dialogueSnippet: {
-            type: Type.STRING,
-            description: "A short, third-person summary of the conversation for the GM Log (e.g., 'Maximinus and Pontius met in secret. Maximinus offered support in exchange for future concessions. Pontius agreed.')."
-        },
-        deltas: {
-            type: Type.ARRAY,
-            items: EventDeltaSchema,
-            description: "A small set of EventDeltas resulting from the conversation (e.g., relationship changes, new secrets)."
-        }
-    },
-    required: ['dialogueSnippet', 'deltas']
-};
-
 export const StoryRelevanceSchema = {
     type: Type.OBJECT,
     properties: {

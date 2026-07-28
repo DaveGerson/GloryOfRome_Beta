@@ -218,16 +218,6 @@ export function scriptNarration(prose: string, suggestions: [string, string, str
   return `${prose}\nSUGGESTION: ${suggestions[0]}\nSUGGESTION: ${suggestions[1]}\nSUGGESTION: ${suggestions[2]}`;
 }
 
-/** getRelationshipUpdates response (the post-narration narrative-analyst call). Contract: 'relation' deltas only. */
-export function scriptRelationshipDeltas(deltas: EventDelta[]) {
-  return { deltas };
-}
-
-/** simulatePrivateConversation response (the off-screen spotlight-NPC meeting). */
-export function scriptPrivateConversation(dialogueSnippet: string, deltas: EventDelta[]) {
-  return { dialogueSnippet, deltas };
-}
-
 /**
  * One per-spotlight NPC MIND decision (ai/tools/npcMind.ts). The pipeline
  * normalizes `entity_id` to the character it actually asked, so for two

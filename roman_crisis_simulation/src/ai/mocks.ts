@@ -2,7 +2,7 @@
 // ai/mocks.ts
 
 import { Adjudication, Entity, NpcIntent, NpcMindDecision, Report, SimulationState, StoryRelevance, TruthLedgerEntry, TurnHistoryEntry, WorldState, EventDelta, EntityStub, TurnSubmission } from '../types';
-import { applyAdjudication, applyDeltas } from './core/engine';
+import { applyAdjudication } from './core/engine';
 import { MAX_MINDS_PER_TURN } from './prompts/npcMind';
 import { normalizeTurnSubmissionInput, projectForNoAttemptResponse, projectForPlayerOwnedAi, projectForResolution, serializeTurnSubmission } from '../playerInput/turnSubmission';
 
@@ -41,7 +41,7 @@ const MOCK_NEW_MOBSTER: Entity = {
     visibility_network: ["praetorian_guard", "lycinia_stolo"],
     memories: [],
 };
-
+// Private-scene mock authority retired; adjudication remains the sole consequence authority.
 
 const MOCK_ADJUDICATION: Adjudication = {
   turn: 1,
@@ -339,26 +339,8 @@ export const mockRunNewTurn = async (
         spotlightIds: storyRelevance.spotlight_entities.map(s => s.entity_id),
         turnNumber,
     });
-    let { updatedEntities, updatedWorldState } = appliedAdjudication;
+    const { updatedEntities, updatedWorldState } = appliedAdjudication;
     const { updatedReports, updatedTruthLedger, perceivingNpcIds } = appliedAdjudication;
-
-    // MOCK CONVERSATION SIMULATION
-    const npc1 = updatedEntities.find(e => e.entity_id === 'maximinus_thrax');
-    const npc2 = updatedEntities.find(e => e.entity_id === 'praetorian_guard');
-    if (npc1 && npc2) {
-        const conversationResult = await mockSimulatePrivateConversation(npc1, npc2);
-        if (conversationResult.deltas.length > 0) {
-            const { updatedEntities: entitiesAfter, updatedWorldState: worldStateAfter } = applyDeltas(
-                conversationResult.deltas,
-                updatedEntities,
-                updatedWorldState,
-                turnNumber
-            );
-            updatedEntities = entitiesAfter;
-            updatedWorldState = worldStateAfter;
-            adjudication.gm_private.push(`[Secret Meeting] ${conversationResult.dialogueSnippet}`);
-        }
-    }
 
     const narration = noAttemptResponse
         ? ''
@@ -536,15 +518,4 @@ export const mockGetStoryRelevance = async (turnNumber: number, previousIntents:
         add_location_suggestion: { name: 'Temple of Jupiter', description: 'The main religious site on the Capitoline Hill.', reason: 'Introduces a religious dimension to the conflict.'},
     };
     return relevance;
-};
-
-export const mockSimulatePrivateConversation = async (npc1: Entity, npc2: Entity): Promise<{ dialogueSnippet: string, deltas: EventDelta[] }> => {
-    console.log(`--- MOCK SIMULATE CONVERSATION between ${npc1.name} and ${npc2.name} ---`);
-    return {
-        dialogueSnippet: `(Mock) ${npc1.name} and ${npc2.name} met secretly. ${npc1.name} offered support in exchange for future concessions, and ${npc2.name} tentatively agreed.`,
-        deltas: [
-            { type: 'relation', key: `${npc1.entity_id}:${npc2.entity_id}:trust_level`, delta: 2, reason: 'Formed a secret pact.' },
-            { type: 'resource', key: `${npc1.entity_id}:favor_from_${npc2.entity_id}`, delta: 1, reason: 'Gained a favor during a secret meeting.'}
-        ]
-    };
 };

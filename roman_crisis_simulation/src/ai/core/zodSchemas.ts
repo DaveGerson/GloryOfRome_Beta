@@ -234,17 +234,6 @@ export const zSimulationState = z.object({
   major_ongoing_crisis: z.string().nullable(),
 }).passthrough();
 
-/** Validates getRelationshipUpdates's output (intelligence.ts). */
-export const zRelationshipDeltas = z.object({
-  deltas: z.array(zEventDelta),
-}).passthrough();
-
-/** Validates simulatePrivateConversation's output (intelligence.ts). */
-export const zConversationSimulation = z.object({
-  dialogueSnippet: z.string(),
-  deltas: z.array(zEventDelta),
-}).passthrough();
-
 /** Validates getInvestigationResult's output (intelligence.ts). `reportData`
  * is a string list for every subject: findings for secrets/beliefs, and for
  * 'scheme' a list of partial clues (D28 - a scheme investigation returns

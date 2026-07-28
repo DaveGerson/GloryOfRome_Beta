@@ -225,8 +225,6 @@ describe('eval/harness call-name inventory (drift guard)', () => {
     'assessment', // ai/tools/assessment.ts
     'storyRelevance', // ai/tools/intelligence.ts
     'updatedSimulationState', // ai/tools/intelligence.ts
-    'relationshipUpdates', // ai/tools/intelligence.ts
-    'privateConversation', // ai/tools/intelligence.ts
     'investigation', // ai/tools/intelligence.ts
     'mortalityValidation', // ai/core/mortality.ts
     'mortalityOutcome', // ai/core/mortality.ts

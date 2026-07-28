@@ -24,7 +24,6 @@ import {
   scriptAssessmentIdle,
   scriptNarration,
   scriptNpcMind,
-  scriptRelationshipDeltas,
   scriptSimulationState,
   scriptStoryRelevance,
   PLAYER_ID,
@@ -44,7 +43,6 @@ function clientForTurn(
     narration?: string;
     includeAssessment?: boolean;
     includePlayerPresentation?: boolean;
-    includeRelationshipUpdates?: boolean;
     includeAmbition?: boolean;
     adjudication?: Parameters<typeof scriptAdjudication>[1];
   } = {},
@@ -77,9 +75,6 @@ function clientForTurn(
         'Inspect the Guard',
       ]),
     }),
-    ...(options.includeRelationshipUpdates === false
-      ? {}
-      : { relationshipUpdates: scriptRelationshipDeltas([]) }),
     relationshipObservations: options.relationshipFailure
       ? scriptedFailure(options.relationshipFailure)
       : scriptedJsonArray([]),
@@ -151,7 +146,7 @@ describe('journey: structured player input through the real App transaction', ()
       await waitForApp(() => expect(loadThreadState().turnNumber).toBe(3));
       chatClient.expectCallSequence([
         'storyRelevance', 'assessment', 'adjudication', 'simulationState',
-        'monologue', 'narration', 'relationshipUpdates', 'relationshipObservations',
+        'monologue', 'narration', 'relationshipObservations',
       ]);
 
       // Drafts are mode-local: author chat text, switch mode, and retain it.
@@ -211,7 +206,7 @@ describe('journey: structured player input through the real App transaction', ()
       expect(appControl<HTMLTextAreaElement>(app.container, 'Private Intent').value).toBe(privateIntent);
       failed.expectCallSequence([
         'storyRelevance', 'assessment', 'npcMind', 'adjudication', 'simulationState',
-        'monologue', 'narration', 'relationshipUpdates', 'relationshipObservations',
+        'monologue', 'narration', 'relationshipObservations',
       ]);
 
       const retried = clientForTurn(seed, 3, 'structuredInput/retry');
@@ -221,7 +216,7 @@ describe('journey: structured player input through the real App transaction', ()
       await waitForApp(() => expect(loadThreadState().inferredAmbition).toMatchObject({ asOfTurn: 3 }));
       retried.expectCallSequence([
         'storyRelevance', 'assessment', 'npcMind', 'adjudication', 'simulationState',
-        'monologue', 'narration', 'relationshipUpdates', 'relationshipObservations', 'ambition',
+        'monologue', 'narration', 'relationshipObservations', 'ambition',
       ]);
 
       const loaded = loadThreadState();
@@ -244,7 +239,7 @@ describe('journey: structured player input through the real App transaction', ()
       expect(retried.calls.slice(0, failed.calls.length)).toEqual(failed.calls);
       for (const kind of [
         'storyRelevance', 'assessment', 'npcMind', 'simulationState',
-        'relationshipUpdates', 'relationshipObservations', 'ambition',
+        'relationshipObservations', 'ambition',
       ] as const) {
         const externalPrompt = retried.promptsFor(kind).join('\n');
         expect(externalPrompt).not.toContain(privateIntent);
@@ -391,7 +386,6 @@ describe('journey: structured player input through the real App transaction', ()
       const client = clientForTurn(seed, 2, 'structuredInput/question-only/conforming', {
         includeAssessment: false,
         includePlayerPresentation: false,
-        includeRelationshipUpdates: false,
         adjudication: {
           entityActions: [{
             id: 'maximinus_thrax',
@@ -433,7 +427,6 @@ describe('journey: structured player input through the real App transaction', ()
       expect(loaded.turnHistory[0].adjudication.gm_private).toContain(`[Secret Meeting] ${hiddenConversation}`);
       expect(client.calls.some(call => call.kind === 'assessment')).toBe(false);
       expect(client.calls.some(call => call.kind === 'npcMind')).toBe(false);
-      expect(client.calls.some(call => call.kind === 'privateConversation')).toBe(false);
       expect(entry.resolutionTrace).toBeUndefined();
       expect(entry.mortalityTrace).toBeUndefined();
       expect(entry.adjudication.entityActions).toEqual([
@@ -483,7 +476,6 @@ describe('journey: structured player input through the real App transaction', ()
       const privateClient = clientForTurn(privateRunner, 3, 'structuredInput/private-only', {
         includeAssessment: false,
         includePlayerPresentation: false,
-        includeRelationshipUpdates: false,
         includeAmbition: true,
       });
       installAppGeminiScript(privateClient);
@@ -526,7 +518,7 @@ describe('journey: structured player input through the real App transaction', ()
       const afterMixed = loadThreadState();
       mixedClient.expectCallSequence([
         'storyRelevance', 'assessment', 'adjudication', 'simulationState',
-        'monologue', 'narration', 'relationshipUpdates', 'relationshipObservations',
+        'monologue', 'narration', 'relationshipObservations',
       ]);
       expect(selectorCalls).toHaveLength(1);
       expect(afterMixed.turnHistory.at(-1)?.narration).toBe(mixedNarration);
@@ -538,7 +530,7 @@ describe('journey: structured player input through the real App transaction', ()
       expect(mixedClient.promptsFor('adjudication').join('\n')).toContain(mixedQuestion);
       for (const kind of [
         'storyRelevance', 'assessment', 'simulationState',
-        'relationshipUpdates', 'relationshipObservations',
+        'relationshipObservations',
       ] as const) {
         expect(mixedClient.promptsFor(kind).join('\n')).not.toContain(mixedPrivateIntent);
       }

@@ -448,11 +448,11 @@ describe('components/TurnComposer', () => {
 
   it('renders the public stage-specific processing label with an accessible live status', async () => {
     const { container } = await mount(
-      <TurnComposer {...defaultProps({ isProcessing: true, turnStage: 'relationship_updates' })} />,
+      <TurnComposer {...defaultProps({ isProcessing: true, turnStage: 'narration' })} />,
     );
     const status = container.querySelector<HTMLElement>('[role="status"]');
     expect(status?.getAttribute('aria-live')).toBe('polite');
-    expect(status?.textContent).toMatch(/loyalties quietly shift/i);
+    expect(status?.textContent).toMatch(/chronicling the events/i);
   });
 
   it('keeps Chat Enter/Shift+Enter behavior while Structured uses newline Enter and Ctrl/Cmd+Enter submission', async () => {

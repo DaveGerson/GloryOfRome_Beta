@@ -22,7 +22,6 @@ import {
   scriptAdjudication,
   scriptAssessmentIdle,
   scriptNarration,
-  scriptRelationshipDeltas,
   scriptSimulationState,
   scriptStoryRelevance,
 } from './fixtures';
@@ -110,7 +109,6 @@ describe('journey: relationship observations discover a previously hidden charac
         'Summon the witnesses',
         'Wait for corroboration',
       ]),
-      relationshipUpdates: scriptRelationshipDeltas([]),
       relationshipObservations: scriptedJsonArray([{
         evidenceId: REPORT_ID,
         participantIds: [MAGNUS, SENATE],
@@ -142,7 +140,7 @@ describe('journey: relationship observations discover a previously hidden charac
       expect(loadGame()?.version).toBe(1);
       client.expectCallSequence([
         'storyRelevance', 'assessment', 'adjudication', 'simulationState',
-        'monologue', 'narration', 'relationshipUpdates', 'relationshipObservations',
+        'monologue', 'narration', 'relationshipObservations',
       ]);
       const knowledge = loaded.knowledge;
       expect(knowledge).toBeDefined();

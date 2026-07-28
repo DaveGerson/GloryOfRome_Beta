@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { GoogleGenAI } from '@google/genai';
-import { runNewTurn } from '../ai/core/turn';
+import { runNewTurn, type TurnStage } from '../ai/core/turn';
 import { endTurnCapture } from '../ai/core/geminiService';
 import { buildAdjudicationPrompt } from '../ai/prompts/adjudication';
 import { buildPerceivedDigest } from '../perception/visibility';
@@ -11,10 +11,6 @@ import type { Entity, EventDelta, SimulationState, TurnSubmission, WorldState } 
 const OBSERVABLE_SENTINEL = 'OBSERVABLE_ATTEMPT_SENTINEL_6T2';
 const PRIVATE_SENTINEL = 'PRIVATE_INTENT_MUST_STAY_PLAYER_OWNED';
 const QUESTION_SENTINEL = 'QUESTION_CONTEXT_SENTINEL_6T2';
-const SAFE_HEADLINE_SENTINEL = 'SAFE_PUBLIC_HEADLINE_SENTINEL_6T2';
-const SAFE_FACT_SENTINEL = 'SAFE_ADJUDICATED_FACT_SENTINEL_6T2';
-const PRIVATE_PARAPHRASE = 'The emperor quietly tests which senators can be trusted.';
-const QUESTION_PARAPHRASE = 'The sparse benches betray weakness in tomorrow\'s vote.';
 
 const WORLD_STATE: WorldState = {
   year: 235,
@@ -89,14 +85,12 @@ type CallKind =
   | 'assessment'
   | 'npcMind'
   | 'adjudication'
-  | 'privateConversation'
   | 'simulationState'
   | 'monologue'
-  | 'narration'
-  | 'relationshipUpdates';
+  | 'narration';
 
 interface CapturedCall {
-  kind: CallKind;
+  kind: string;
   prompt: string;
   systemInstruction: string;
 }
@@ -109,11 +103,9 @@ function classify(systemInstruction: string): CallKind {
   if (systemInstruction.includes('Action Assessor')) return 'assessment';
   if (systemInstruction.includes("character's own private mind")) return 'npcMind';
   if (systemInstruction.includes('Roman Crisis Adjudicator & Simulation Engine')) return 'adjudication';
-  if (systemInstruction.includes('secret observer')) return 'privateConversation';
   if (systemInstruction.includes('Roman historian analyzing the state of the Empire')) return 'simulationState';
   if (systemInstruction.includes('the inner voice of')) return 'monologue';
   if (systemInstruction.includes('Chronicler of the Empire & Intelligence Briefer')) return 'narration';
-  if (systemInstruction.includes('narrative analyst AI')) return 'relationshipUpdates';
   throw new Error(`submissionPrivacy fake could not classify: ${systemInstruction.slice(0, 160)}`);
 }
 
@@ -150,16 +142,12 @@ function responseFor(kind: CallKind, prompt: string): string {
     }
     case 'adjudication':
       return JSON.stringify({ turn: 7, entityActions: [], deltas: [], headlines: ['Rome waits.'], gm_private: [] });
-    case 'privateConversation':
-      return JSON.stringify({ dialogueSnippet: 'They exchange guarded words.', deltas: [] });
     case 'simulationState':
       return JSON.stringify(SIMULATION_STATE);
     case 'monologue':
       return 'I weigh what must remain unspoken.';
     case 'narration':
       return 'The week closes under a tense silence.\nSUGGESTION: Wait';
-    case 'relationshipUpdates':
-      return JSON.stringify({ deltas: [] });
   }
 }
 
@@ -244,6 +232,89 @@ afterEach(() => {
 });
 
 describe('runNewTurn submission visibility routing', () => {
+  it('uses main adjudication as the sole consequence authority and applies its directional relation delta once', async () => {
+    const harness = makeHarness({
+      storyRelevance: JSON.stringify({
+        spotlight_entities: [
+          { entity_id: 'lucius', reason: 'He must answer the player.' },
+          { entity_id: 'npc_b', reason: 'He is present at court.' },
+        ],
+        spotlight_intents: [
+          { entity_id: 'lucius', intent: 'Judge the player by their public conduct', continuity: 'new' },
+          { entity_id: 'npc_b', intent: 'Watch Lucius closely', continuity: 'new' },
+        ],
+      }),
+      npcMind: prompt => JSON.stringify({
+        entity_id: prompt.includes('entity_id: lucius') ? 'lucius' : 'npc_b',
+        chosen_action: 'Observe the public audience.',
+        method: 'Carefully.',
+        private_reasoning: 'The player has revealed something useful.',
+      }),
+      adjudication: JSON.stringify({
+        turn: 7,
+        entityActions: [],
+        deltas: [{
+          type: 'relation',
+          key: 'lucius:player_1:trust_level',
+          delta: 1,
+          reason: 'Lucius approves of the player\'s public conduct.',
+        }],
+        headlines: ['The court observes the exchange.'],
+        gm_private: [],
+      }),
+    });
+    const player = makeEntity();
+    const lucius = makeEntity({
+      entity_id: 'lucius',
+      name: 'Lucius',
+      position: 'Senator',
+      relationships: {
+        player_1: {
+          entity_id: 'player_1',
+          relationship_type: 'cautious ally',
+          trust_level: 5,
+          recent_interactions: [],
+        },
+      },
+    });
+    const npcB = makeEntity({ entity_id: 'npc_b', name: 'Brutus', position: 'Senator' });
+    const stages: TurnStage[] = [];
+
+    const result = await runNewTurn(
+      harness.ai,
+      FULL_SUBMISSION,
+      player,
+      7,
+      [player, lucius, npcB],
+      WORLD_STATE,
+      SIMULATION_STATE,
+      [],
+      [],
+      [],
+      [],
+      '',
+      false,
+      'A political thriller',
+      { onStage: stage => stages.push(stage) },
+    );
+
+    expect.soft(harness.calls.filter(call => call.kind === 'relationshipUpdates')).toHaveLength(0);
+    expect.soft(harness.calls.filter(call => call.kind === 'privateConversation')).toHaveLength(0);
+    expect(result.newHistoryEntry.adjudication.deltas.filter(delta =>
+      delta.type === 'relation' && delta.key === 'lucius:player_1:trust_level'
+    )).toHaveLength(1);
+    expect(result.updatedEntities.find(entity => entity.entity_id === 'lucius')
+      ?.relationships.player_1.trust_level).toBe(6);
+    expect.soft(stages).toEqual([
+      'story_relevance',
+      'npc_minds',
+      'adjudication',
+      'simulation_state',
+      'monologue',
+      'narration',
+    ] satisfies TurnStage[]);
+  });
+
   it('rejects a legacy canonical playerIntent before it can become an observable adjudication attempt', () => {
     const legacyInput = {
       worldState: WORLD_STATE,
@@ -263,7 +334,7 @@ describe('runNewTurn submission visibility routing', () => {
 
   it('keeps Private Intent out of adjudication while retaining it in player-owned narration and monologue', async () => {
     const { calls, result, player } = await runRealTurn(FULL_SUBMISSION);
-    const callsByKind = (kind: CallKind) => calls.filter(call => call.kind === kind);
+    const callsByKind = (kind: string) => calls.filter(call => call.kind === kind);
 
     expect(callsByKind('adjudication')).toHaveLength(1);
     expect(callsByKind('narration')).toHaveLength(1);
@@ -282,9 +353,7 @@ describe('runNewTurn submission visibility routing', () => {
       'assessment',
       'storyRelevance',
       'npcMind',
-      'privateConversation',
       'simulationState',
-      'relationshipUpdates',
     ] as const) {
       expect(callsByKind(kind).length, `${kind} must be exercised`).toBeGreaterThan(0);
       for (const call of callsByKind(kind)) {
@@ -312,79 +381,6 @@ describe('runNewTurn submission visibility routing', () => {
     expect(result.playerMonologue).toBe('I weigh what must remain unspoken.');
   });
 
-  it('uses observable submission as the only turn-event prose for legitimate relationship updates', async () => {
-    const adjudication = {
-      turn: 7,
-      entityActions: [],
-      deltas: [{
-        type: 'resource',
-        key: 'npc_a:cohort_support',
-        delta: 1,
-        reason: SAFE_FACT_SENTINEL,
-      }],
-      headlines: [SAFE_HEADLINE_SENTINEL],
-      gm_private: [],
-    };
-    const relationshipDelta = {
-      type: 'relation',
-      key: 'npc_a:player_1:trust_level',
-      delta: 2,
-      reason: 'Aulus responds to the observable public conduct.',
-    };
-    const { calls, result } = await runRealTurn(FULL_SUBMISSION, {
-      adjudication: JSON.stringify(adjudication),
-      narration: 'The public audience ends without incident.\nSUGGESTION: Wait',
-      relationshipUpdates: JSON.stringify({ deltas: [relationshipDelta] }),
-    });
-
-    const relationshipPrompt = calls.find(call => call.kind === 'relationshipUpdates')?.prompt ?? '';
-    expect(relationshipPrompt).toContain(OBSERVABLE_SENTINEL);
-    expect(relationshipPrompt).not.toContain(SAFE_HEADLINE_SENTINEL);
-    expect(relationshipPrompt).not.toContain(SAFE_FACT_SENTINEL);
-    expect(relationshipPrompt).not.toContain(PRIVATE_SENTINEL);
-    expect(relationshipPrompt).not.toContain(QUESTION_SENTINEL);
-    expect(
-      result.updatedEntities
-        .find(entity => entity.entity_id === 'npc_a')
-        ?.relationships.player_1?.trust_level,
-    ).toBe(2);
-  });
-
-  it.each([
-    ['Private Intent paraphrase in a headline', {
-      turn: 7,
-      entityActions: [],
-      deltas: [],
-      headlines: [PRIVATE_PARAPHRASE],
-      gm_private: [],
-    }, PRIVATE_PARAPHRASE],
-    ['Question/Context paraphrase in an action note and delta reason', {
-      turn: 7,
-      entityActions: [{ id: 'npc_a', intent: 'intrigue', target: 'npc_b', notes: QUESTION_PARAPHRASE }],
-      deltas: [{ type: 'resource', key: 'npc_a:vote_count', delta: 1, reason: QUESTION_PARAPHRASE }],
-      headlines: ['The Senate gathers.'],
-      gm_private: [],
-    }, QUESTION_PARAPHRASE],
-  ])('never launders provider-authored %s into relationship evidence', async (_label, adjudication, poison) => {
-    const relationshipDelta = {
-      type: 'relation',
-      key: 'npc_a:player_1:trust_level',
-      delta: 1,
-      reason: 'Aulus responds to the observable public order.',
-    };
-    const { calls, result } = await runRealTurn(FULL_SUBMISSION, {
-      adjudication: JSON.stringify(adjudication),
-      narration: 'The public audience ends without incident.\nSUGGESTION: Wait',
-      relationshipUpdates: JSON.stringify({ deltas: [relationshipDelta] }),
-    });
-
-    const relationshipPrompt = calls.find(call => call.kind === 'relationshipUpdates')?.prompt ?? '';
-    expect(relationshipPrompt).toContain(OBSERVABLE_SENTINEL);
-    expect(relationshipPrompt).not.toContain(poison);
-    expect(
-      result.updatedEntities.find(entity => entity.entity_id === 'npc_a')?.relationships.player_1?.trust_level,
-    ).toBe(1);
-  });
 
   it('gives adjudication observable attempt and non-canonical question context but no Private Intent', async () => {
     const { calls } = await runRealTurn(FULL_SUBMISSION);
@@ -452,12 +448,10 @@ describe('runNewTurn submission visibility routing', () => {
     expect(calls.filter(call => call.kind === 'assessment')).toHaveLength(0);
     expect(calls.filter(call => call.kind === 'storyRelevance')).toHaveLength(1);
     expect(calls.filter(call => call.kind === 'npcMind')).toHaveLength(2);
-    expect(calls.filter(call => call.kind === 'privateConversation')).toHaveLength(1);
     expect(calls.filter(call => call.kind === 'adjudication')).toHaveLength(1);
     expect(calls.filter(call => call.kind === 'simulationState')).toHaveLength(1);
     expect(calls.filter(call => call.kind === 'monologue')).toHaveLength(0);
     expect(calls.filter(call => call.kind === 'narration')).toHaveLength(0);
-    expect(calls.filter(call => call.kind === 'relationshipUpdates')).toHaveLength(0);
     expect(result.newHistoryEntry.resolutionTrace).toBeUndefined();
     expect(result.narration).toBe('');
     expect(result.playerMonologue).toBe('');
@@ -638,7 +632,7 @@ describe('runNewTurn submission visibility routing', () => {
     expect(JSON.stringify(result)).not.toContain(inventedNarration);
   });
 
-  it('rejects hidden mechanics in the updated simulation crisis before relationship updates or commit', async () => {
+  it('rejects hidden mechanics in the updated simulation crisis before commit', async () => {
     const poison = 'Civil war decided by 1d20';
     const started = startRealTurn(FULL_SUBMISSION, {
       simulationState: JSON.stringify({ ...SIMULATION_STATE, major_ongoing_crisis: poison }),
@@ -653,7 +647,6 @@ describe('runNewTurn submission visibility routing', () => {
     expect(thrown).toBeInstanceOf(Error);
     expect((thrown as Error).message).toBe('AI output violated the player-visible mechanics boundary.');
     expect((thrown as Error).message).not.toContain(poison);
-    expect(started.calls.some(call => call.kind === 'relationshipUpdates')).toBe(false);
   });
 
   it.each(['player_1', 'GAIUS TESTUS', 'the emperor'])(
@@ -674,7 +667,6 @@ describe('runNewTurn submission visibility routing', () => {
       expect(thrown).toBeInstanceOf(Error);
       expect((thrown as Error).message).toBe('AI output violated the player action boundary.');
       expect((thrown as Error).message).not.toContain(removedAlias);
-      expect(started.calls.some(call => call.kind === 'relationshipUpdates')).toBe(false);
 
       const retry = await runRealTurn(submission);
       expect(retry.result.updatedEntities).toContainEqual(expect.objectContaining({ entity_id: 'player_1' }));
@@ -706,7 +698,6 @@ describe('runNewTurn submission visibility routing', () => {
       expect.objectContaining({ type: 'rumor', key: 'PLAYER-1', origin_id: 'NPC_A' }),
     );
     expect(result.updatedReports).toContainEqual(expect.objectContaining({ about: 'PLAYER-1' }));
-    expect(calls.some(call => call.kind === 'relationshipUpdates')).toBe(false);
   });
 
   it.each([

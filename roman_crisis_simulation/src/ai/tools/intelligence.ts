@@ -1,9 +1,9 @@
 import { GoogleGenAI } from "@google/genai";
-import { Entity, WorldState, StoryRelevance, Adjudication, SimulationState, EventDelta, ActionResolutionEvent, NpcIntent } from '../../types';
-import { mockGetClarificationOnEvent, mockGetDeepAnalysis, mockGetInvestigationResult, mockGetPlayerMonologue, mockGetStoryRelevance, mockSimulatePrivateConversation } from '../mocks';
-import { RelationshipDeltasSchema, ConversationSimulationSchema, StoryRelevanceSchema, SimulationStateSchema, buildInvestigationResultSchema } from '../core/schemas';
+import { Entity, WorldState, StoryRelevance, Adjudication, SimulationState, ActionResolutionEvent, NpcIntent } from '../../types';
+import { mockGetClarificationOnEvent, mockGetDeepAnalysis, mockGetInvestigationResult, mockGetPlayerMonologue, mockGetStoryRelevance } from '../mocks';
+import { StoryRelevanceSchema, SimulationStateSchema, buildInvestigationResultSchema } from '../core/schemas';
 import { generateStructured, generateText, GEMINI_PRO, GEMINI_FLASH } from '../core/geminiService';
-import { zRelationshipDeltas, zConversationSimulation, zStoryRelevance, zSimulationState, zInvestigationResult } from '../core/zodSchemas';
+import { zStoryRelevance, zSimulationState, zInvestigationResult } from '../core/zodSchemas';
 import {
     rollD20,
     resolveAction,
@@ -20,9 +20,6 @@ import {
     buildInvestigationPrompt,
     buildStoryRelevancePrompt,
     buildSimulationStateUpdatePrompt,
-    buildRelationshipUpdatesPrompt,
-    RelationshipUpdateEvidence,
-    buildPrivateConversationPrompt,
 } from '../prompts/intelligence';
 import { buildPlayerMonologuePrompt } from '../prompts/narration';
 import { assertPlayerVisibleTextSafe, assertPlayerVisibleValueSafe } from '../core/playerBoundary';
@@ -43,7 +40,7 @@ export const getClarificationOnEvent = async (ai: GoogleGenAI, event: string, qu
     assertPlayerVisibleTextSafe(playerVisibleText);
     return playerVisibleText;
 };
-
+// Private-scene tools retired; player-safe intelligence tools remain above.
 export const getDeepAnalysis = async (ai: GoogleGenAI, target: Entity, player: Entity, isMockMode: boolean): Promise<string> => {
     if (isMockMode) {
         if(!mockGetDeepAnalysis) throw new Error("Mock function 'mockGetDeepAnalysis' is not implemented.");
@@ -214,50 +211,4 @@ export const getUpdatedSimulationState = async (ai: GoogleGenAI, adjudication: A
     });
     assertPlayerVisibleValueSafe(updatedState);
     return updatedState;
-};
-
-export const getRelationshipUpdates = async (
-    ai: GoogleGenAI,
-    evidence: RelationshipUpdateEvidence,
-    entities: Entity[],
-    isMockMode: boolean,
-): Promise<EventDelta[]> => {
-    if (isMockMode || evidence.observableAttempt === null) {
-        return Promise.resolve([]);
-    }
-
-    const { systemInstruction, prompt } = buildRelationshipUpdatesPrompt(evidence, entities);
-    const result = await generateStructured<{ deltas: EventDelta[] }>(ai, {
-        callName: 'relationshipUpdates',
-        model: GEMINI_PRO,
-        systemInstruction,
-        prompt,
-        responseSchema: RelationshipDeltasSchema,
-        zodSchema: zRelationshipDeltas,
-        thinkingConfig: { thinkingBudget: 512 },
-    });
-    return result.deltas;
-};
-
-export const simulatePrivateConversation = async (
-    ai: GoogleGenAI,
-    npc1: Entity,
-    npc2: Entity,
-    adjudication: Adjudication,
-    isMockMode: boolean
-): Promise<{ dialogueSnippet: string, deltas: EventDelta[] }> => {
-    if (isMockMode) {
-        return mockSimulatePrivateConversation(npc1, npc2);
-    }
-
-    const { systemInstruction, prompt } = buildPrivateConversationPrompt(npc1, npc2, adjudication);
-    return generateStructured<{ dialogueSnippet: string, deltas: EventDelta[] }>(ai, {
-        callName: 'privateConversation',
-        model: GEMINI_PRO,
-        systemInstruction,
-        prompt,
-        responseSchema: ConversationSimulationSchema,
-        zodSchema: zConversationSimulation,
-        thinkingConfig: { thinkingBudget: 512 },
-    });
 };

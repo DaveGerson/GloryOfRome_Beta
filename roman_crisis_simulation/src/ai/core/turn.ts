@@ -1,9 +1,9 @@
 import { GoogleGenAI } from "@google/genai";
 import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent, TruthLedgerEntry, NpcIntent, NpcMindDecision, StoryRelevance, EntityAction, Memory, PacingPosture, EventFiringRecord, EventDelta, Scheme, SchemeStep, TurnSubmission } from '../../types';
 import { AdjudicationSchema } from './schemas';
-import { applyAdjudication, applyDeltas } from './engine';
+import { applyAdjudication } from './engine';
 import { mockRunNewTurn } from "../mocks";
-import { getPlayerMonologue, getStoryRelevance, getUpdatedSimulationState, getRelationshipUpdates, simulatePrivateConversation } from '../tools/intelligence';
+import { getPlayerMonologue, getStoryRelevance, getUpdatedSimulationState } from '../tools/intelligence';
 import { getActionAssessment } from '../tools/assessment';
 import { getNpcMindDecision } from '../tools/npcMind';
 import { MAX_MINDS_PER_TURN } from '../prompts/npcMind';
@@ -269,11 +269,9 @@ export function buildIntentConsistencyNotes(entityActions: EntityAction[], npcIn
  *    living, non-player roster entity (see `selectMindEntities`) - up to
  *    MAX_MINDS_PER_TURN flash-tier mind calls in one Promise.all, the one
  *    added latency leg between the Director and adjudication (4C.4, D16).
- *  - `private_conversation`: only when story relevance names >=2 spotlight
- *    entities that both resolve to real, currently-known entities.
  *  - `mortality`: only when at least one delta in the adjudication (as
- *    merged with any private-conversation deltas) actually claims a death -
- *    see `detectDeathClaims`, called just below to decide this WITHOUT
+ *    finalized below) actually claims a death - see `detectDeathClaims`,
+ *    called just below to decide this WITHOUT
  *    duplicating `processMortality`'s own internal fast-path detection.
  *
  * RESOLUTION LAYER NOTE (ROADMAP_0_MASTER_PLAN.md Phase 3 item 4): the
@@ -304,12 +302,10 @@ export type TurnStage =
     | 'story_relevance'
     | 'npc_minds'
     | 'adjudication'
-    | 'private_conversation'
     | 'mortality'
     | 'simulation_state'
     | 'monologue'
-    | 'narration'
-    | 'relationship_updates';
+    | 'narration';
 
 export interface RunNewTurnOptions {
     /** Invoked right before each real pipeline step starts (see `TurnStage`'s doc comment for which stages can be skipped). */
@@ -613,9 +609,8 @@ export async function runNewTurn(
 
     // *** ENTITY-ACTIONS-VS-INTENT CONSISTENCY (4C.3, soft contract) ***
     // Validated post-hoc in code, against the adjudicator's OWN
-    // entityActions (before any private-conversation deltas are merged -
-    // that step never adds entityActions): a spotlight NPC holding a
-    // Director intent with no entityAction gets a gm_private note for the
+    // entityActions: a spotlight NPC holding a Director intent with no
+    // entityAction gets a gm_private note for the
     // GM console. Never a hard failure - see buildIntentConsistencyNotes.
     // gm_private is stripped before narration (ai/prompts/narration.ts), so
     // these notes can never reach the player. The discard note records the
@@ -630,45 +625,6 @@ export async function runNewTurn(
     // failure is visible for tuning without ever reaching the player.
     adjudication.gm_private.push(...mindFailureNotes);
 
-    // *** NEW STEP 2.5: SIMULATE OFF-SCREEN NPC CONVERSATION ***
-    // Moved ahead of applyAdjudication (previously ran on post-applyAdjudication
-    // `updatedEntities`) so its deltas can be merged into `adjudication.deltas`
-    // and pass through the SAME mortality validation gate as everything else
-    // (DESIGN_DECISIONS.md D2/D3: "Any death declared by the adjudication (or
-    // private-conversation deltas) must be VALIDATED"). This means npc1/npc2
-    // are looked up from the pre-turn `currentEntities` snapshot rather than
-    // the post-adjudication one - a minor behavioral shift, traded for a
-    // single unified death-claim scan below instead of two.
-    //
-    // ORDER (D30): this merge runs BEFORE the mind-driven scheme dedup below,
-    // so a 'scheme' delta this conversation emits for a MINDED entity lands in
-    // adjudication.deltas in time to be superseded by that entity's own mind
-    // evolution - the same dedup that catches the adjudicator's scheme delta.
-    // A minded entity's interior plan is owned by its mind, never by an
-    // off-screen conversation.
-    if (storyRelevance.spotlight_entities.length >= 2) {
-        const npc1Id = storyRelevance.spotlight_entities[0].entity_id;
-        const npc2Id = storyRelevance.spotlight_entities[1].entity_id;
-        const npc1 = currentEntities.find(e => e.entity_id === npc1Id);
-        const npc2 = currentEntities.find(e => e.entity_id === npc2Id);
-
-        if (npc1 && npc2) {
-            // Only notify for this stage once we KNOW the step is actually
-            // about to run (both spotlight entities resolved) - see
-            // `TurnStage`'s doc comment.
-            options?.onStage?.('private_conversation');
-            const conversationResult = await simulatePrivateConversation(ai, npc1, npc2, adjudication, isMockMode);
-
-            if (conversationResult && conversationResult.deltas.length > 0) {
-                // Merge into the adjudication's own deltas (rather than applying
-                // them separately) so a single applyAdjudication call - and a
-                // single mortality pass - covers both sources of deltas.
-                adjudication.deltas.push(...conversationResult.deltas);
-                adjudication.gm_private.push(`[Secret Meeting] ${conversationResult.dialogueSnippet}`);
-            }
-        }
-    }
-
     // *** D30: MINDS CONTINUOUSLY EVOLVE THEIR OWN SCHEMES ***
     // A spotlight NPC's mind DRIVES its own active_scheme's evolution
     // (DESIGN_DECISIONS.md D30): where its decision returned a
@@ -676,11 +632,8 @@ export async function runNewTurn(
     // as its own 'scheme' delta, not left as a hint the adjudicator may
     // discard (the pre-D30 wiring). DIRECTION PRECEDENCE, extended to scheme
     // OWNERSHIP: for a MINDED entity its own mind-driven scheme evolution WINS
-    // over ANY competing 'scheme' delta for that SAME entity this turn,
-    // whatever its source - the adjudicator (told not to emit one) OR the
-    // off-screen private conversation merged just above. This dedup is the
-    // single enforcement point and runs AFTER that merge precisely so it
-    // catches BOTH sources: it strips every 'scheme' delta whose key is a
+    // over ANY competing 'scheme' delta from the adjudicator for that SAME
+    // entity this turn. This dedup strips every 'scheme' delta whose key is a
     // mind-evolved entity, then appends the mind's own, so the entity's scheme
     // is never double-applied or overwritten. The adjudicator still OWNS
     // 'scheme' deltas for every NON-minded entity (the DYNAMIC SCHEMES rule)
@@ -700,7 +653,7 @@ export async function runNewTurn(
         adjudication.deltas = adjudication.deltas.filter(d => !(d.type === 'scheme' && mindEvolvedIds.has(d.key)));
         adjudication.deltas.push(...mindSchemeDeltas);
         for (const id of mindEvolvedIds) {
-            adjudication.gm_private.push(`[Mind] ${id} evolved its own active_scheme this turn - applied as the character's own scheme (DIRECTION PRECEDENCE: a minded entity's interior plan is owned by its mind, not the adjudicator or a private conversation).`);
+            adjudication.gm_private.push(`[Mind] ${id} evolved its own active_scheme this turn - applied as the character's own scheme (DIRECTION PRECEDENCE: a minded entity's interior plan is owned by its mind, not the adjudicator).`);
         }
         if (supersededIds.length > 0) {
             adjudication.gm_private.push(`[Mind] Superseded ${supersededIds.length} competing 'scheme' delta(s) for mind-evolved entities (${supersededIds.join(', ')}) - the entity's own mind owns its scheme evolution this turn; no double-application or overwrite.`);
@@ -799,12 +752,6 @@ export async function runNewTurn(
     // For a structured no-attempt submission, (b) and (c) remain present as
     // already-resolved empty promises so the join and TurnStage sequence stay
     // unchanged, but neither player-prose provider call is issued.
-    // `getRelationshipUpdates` is deliberately NOT in this group. It no
-    // longer consumes narration (that was a privacy defect); keeping it
-    // after the join means provider-authored player output passes the
-    // mechanics boundary before the pipeline spends another model call or
-    // applies any derived relationship changes.
-    //
     // RACE AUDIT (read every function's body - ai/tools/intelligence.ts,
     // ai/prompts/narration.ts, ai/prompts/intelligence.ts - before landing
     // this): none of (a)/(b)/(c) mutates any argument it's given.
@@ -817,17 +764,6 @@ export async function runNewTurn(
     //    `sanitizeAdjudicationForNarration`/`sanitizeEntityForNarration`
     //    first, which build BRAND NEW objects via spread/`.map()` (they
     //    never assign onto `adjudication`/`updatedPlayerEntity`).
-    //  - `getRelationshipUpdates` (the one call the roadmap's warning
-    //    specifically flagged for historically mutating `adjudication.gm_private`)
-    //    already returns a plain `EventDelta[]` today - it is turn.ts itself,
-    //    sequentially AFTER the join below, that pushes a note onto
-    //    `transformedAdjudication.gm_private`. So there is no "return the
-    //    delta and apply it in a defined order" step needed for the three
-    //    parallel legs - none of them touch shared state at all, mutated or
-    //    otherwise. `getRelationshipUpdates` stays sequential to preserve
-    //    that validation/call ordering. Its only turn-event evidence is the
-    //    trusted observable player submission; no provider-authored prose
-    //    is forwarded into it.
     options?.onStage?.('simulation_state');
     const simulationStatePromise = getUpdatedSimulationState(ai, transformedAdjudication, currentSimulationState, isMockMode);
 
@@ -927,69 +863,6 @@ export async function runNewTurn(
     if (onNarrationChunk) {
         const finalNarration = playerVisibleStreamGate.finish(narration);
         if (finalNarration !== null) onNarrationChunk(finalNarration);
-    }
-
-    // 5.5 Get and apply relationship updates from trusted player-authored
-    // observable prose only. Provider-authored adjudication prose is never
-    // evidence for another provider call, and a no-attempt turn skips this
-    // inference altogether.
-    let relationshipUpdateResult: EventDelta[] = [];
-    if (resolutionAttempt !== null) {
-        options?.onStage?.('relationship_updates');
-        relationshipUpdateResult = await getRelationshipUpdates(
-            ai,
-            { observableAttempt: resolutionAttempt },
-            updatedEntities,
-            isMockMode,
-        );
-    }
-    // CONTRACT ENFORCEMENT: this call's contract is 'relation' deltas ONLY
-    // (buildRelationshipUpdatesPrompt asks for nothing else), but the schema
-    // pair it validates against (zRelationshipDeltas / RelationshipDeltasSchema)
-    // structurally accepts every EventDelta type. A non-'relation' delta that
-    // slipped through would be applied here OUTSIDE the pipelines that make
-    // other delta types safe: a 'rumor' would reach the player un-ledgered
-    // (no truth-ledger entry, D11/D26), and a 'status' change would bypass
-    // the mortality pipeline entirely (D2/D3). Filter to 'relation' BEFORE
-    // apply/merge; every other delta is dropped and its discard traced in
-    // gm_private (GM-only surface, D4/D5).
-    const relationshipDeltas = (relationshipUpdateResult ?? []).filter(d => d.type === 'relation');
-    const discardedRelationshipDeltas = (relationshipUpdateResult ?? []).filter(d => d.type !== 'relation');
-    for (const delta of relationshipDeltas) assertPlayerVisibleTextSafe(delta.reason);
-    if (discardedRelationshipDeltas.length > 0) {
-        transformedAdjudication.gm_private.push(
-            `[Narrative Analyst] Dropped ${discardedRelationshipDeltas.length} non-relation delta(s) from the relationship-update call (contract is 'relation' only; these would bypass the ledger/mortality pipelines): ${discardedRelationshipDeltas.map(d => `${d.type}:${d.key}`).join(', ')}.`
-        );
-    }
-    if (relationshipDeltas.length > 0) {
-        // DISCARD CONSTRAINT: only `updatedEntities` is taken from this
-        // applyDeltas call - any newReports/newTruthLedgerEntries it returns
-        // are dropped, AFTER updatedReports/updatedTruthLedger were already
-        // settled above. The filter above guarantees these are 'relation'
-        // deltas only, and 'relation' deltas mint no Reports or ledger
-        // entries, so nothing is lost by the discard. If this step ever
-        // legitimately applied rumor-bearing or systemic-resource deltas,
-        // their Report/ledger output would have to be threaded into
-        // updatedReports/updatedTruthLedger rather than discarded here.
-        const { updatedEntities: entitiesAfterRelationshipUpdates } = applyDeltas(relationshipDeltas, updatedEntities, updatedWorldState, turnNumber);
-        updatedEntities = entitiesAfterRelationshipUpdates;
-        // Merge the just-applied deltas into the COMMITTED adjudication so
-        // they are part of the turn's ground-truth record. They are applied
-        // to state exactly ONCE (the applyDeltas call above): nothing after
-        // this point applies transformedAdjudication.deltas again -
-        // applyAdjudication already ran at step 3, and the committed entry's
-        // deltas feed only derivations (the player digest + knowledge
-        // ingestion in App.tsx, the GM console's views, and next turn's NPC
-        // mind digests), which classify them under the normal D5 rules
-        // (self/witnessed/network/invisible) like any other delta. The NPC
-        // memory stamp inside applyAdjudication ran BEFORE this step, so
-        // these deltas are never stamped as memories this turn - an accepted
-        // one-turn lag: next turn's minds still receive them through the
-        // re-derived digest of this entry (selectUnrememberedChanges keeps
-        // un-stamped lines).
-        transformedAdjudication.deltas.push(...relationshipDeltas);
-        // Log this change for debugging.
-        transformedAdjudication.gm_private.push(`[Narrative Analyst] Applied ${relationshipDeltas.length} relationship delta(s) based on turn events.`);
     }
 
     // 6. Create history entry

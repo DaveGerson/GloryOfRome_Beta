@@ -48,7 +48,6 @@ import {
   scriptAssessmentConsequential,
   scriptAssessmentIdle,
   scriptNarration,
-  scriptRelationshipDeltas,
   scriptSimulationState,
   resourceDelta,
   relationDelta,
@@ -201,7 +200,6 @@ describe('journey: a save-reload-continue campaign (mid-journey persistence roun
         'Consult the Senate',
         'Review the palace watch',
       ]),
-      relationshipUpdates: scriptRelationshipDeltas([]),
       relationshipObservations: scriptedJsonArray([{
         evidenceId: 'player-submission',
         participantIds: [PLAYER, 'julia_mamaea'],
@@ -240,7 +238,7 @@ describe('journey: a save-reload-continue campaign (mid-journey persistence roun
       expect(reduced.turnNumber).toBe(2);
       client.expectCallSequence([
         'storyRelevance', 'assessment', 'adjudication', 'simulationState',
-        'monologue', 'narration', 'relationshipUpdates', 'relationshipObservations',
+        'monologue', 'narration', 'relationshipObservations',
       ]);
 
       const exactAutosave = structuredClone(loadGame());
