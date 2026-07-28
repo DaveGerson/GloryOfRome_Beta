@@ -32,6 +32,7 @@ vi.mock('../components/GameMasterScreen', () => ({
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const mockContinue = vi.mocked(sceneTool.continuePrivateScene);
 const mockRunNewTurn = vi.mocked(turnCore.runNewTurn);
+const defaultRunNewTurn = mockRunNewTurn.getMockImplementation()!;
 const mounted: Array<{ root: Root; container: HTMLDivElement }> = [];
 let dispatchGame: React.Dispatch<GameAction> | null = null;
 let livePrivateScenes: PrivateSceneRecord[] | null = null;
@@ -71,15 +72,26 @@ function button(container: HTMLElement, text: string): HTMLButtonElement { const
 async function click(element: HTMLElement): Promise<void> { await act(async () => element.click()); }
 async function setValue(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string): Promise<void> { const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), 'value')!.set!; await act(async () => { setter.call(element, value); element.dispatchEvent(new Event(element instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true })); }); }
 
-async function mount(state = appSave()): Promise<HTMLDivElement> {
+async function mount(state = appSave(), openPrivateScene = true): Promise<HTMLDivElement> {
   saveGame(state); localStorage.setItem('gloryOfRome:onboardingSeen', '1'); localStorage.setItem('gloryOfRome:apiKey', 'test-key');
   const container = document.createElement('div'); document.body.appendChild(container); const root = createRoot(container); mounted.push({ root, container });
   await act(async () => root.render(<GameProvider><DispatchCaptor /><App /></GameProvider>));
   await waitFor(() => expect(container.textContent).toContain('Choose Your Destiny'));
   await click(button(container, 'Continue Your Reign'));
   await waitFor(() => expect(container.querySelector('[aria-label="Chat input"]')).not.toBeNull());
-  await click(button(container, 'Private scene'));
+  if (openPrivateScene) await click(button(container, 'Private scene'));
   return container;
+}
+
+async function mountForMacroTurn(state: SaveGameState): Promise<HTMLDivElement> {
+  const container = await mount(state, false);
+  await click(container.querySelector<HTMLInputElement>('#mock-toggle')!);
+  return container;
+}
+
+async function submitMacroTurn(container: HTMLElement, text: string): Promise<void> {
+  await setValue(container.querySelector<HTMLTextAreaElement>('[aria-label="Chat input"]')!, text);
+  await click(container.querySelector<HTMLButtonElement>('[aria-label="Send message"]')!);
 }
 
 async function invite(container: HTMLElement, text = 'Speak with me.'): Promise<void> {
@@ -87,10 +99,160 @@ async function invite(container: HTMLElement, text = 'Speak with me.'): Promise<
   await click(button(container, 'Send invitation'));
 }
 
-beforeEach(() => { localStorage.clear(); livePrivateScenes = null; mockContinue.mockReset(); mockRunNewTurn.mockClear(); Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() }); });
+beforeEach(() => {
+  localStorage.clear();
+  livePrivateScenes = null;
+  mockContinue.mockReset();
+  mockRunNewTurn.mockReset();
+  mockRunNewTurn.mockImplementation(defaultRunNewTurn);
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
+});
 afterEach(async () => { while (mounted.length) { const item = mounted.pop()!; await act(async () => item.root.unmount()); item.container.remove(); } localStorage.clear(); vi.restoreAllMocks(); });
 
 describe('private-scene App transaction boundary', () => {
+  it('projects one pending outcome, saves its consumption before reducer visibility, and never replays it to a later turn', async () => {
+    const pending = outcomeScene(2, 'pending-main', 'maximinus_thrax', 'Maximinus Thrax', 'Three cohorts have sworn to me.');
+    const unrelated = {
+      ...outcomeScene(1, 'older-unrelated', 'gaius_pontius_magnus', 'Gaius Pontius Magnus', 'UNRELATED_SCENE_CLAIM'),
+      consequenceStatus: 'consumed' as const,
+      consumedByTurn: 2,
+    };
+    const state = appSave({ privateScenes: [pending, unrelated] });
+    let returnedResult: Awaited<ReturnType<typeof turnCore.runNewTurn>> | null = null;
+    mockRunNewTurn.mockImplementation(async (...args) => {
+      returnedResult = await defaultRunNewTurn(...args);
+      return returnedResult;
+    });
+    const container = await mountForMacroTurn(state);
+    const originalSetItem = Storage.prototype.setItem;
+    let candidateAtWrite: PrivateSceneRecord[] | null = null;
+    const storage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
+      const envelope = JSON.parse(value) as { state?: { turnNumber?: number; privateScenes?: PrivateSceneRecord[] } };
+      if (key === 'gloryOfRome:autosave'
+        && envelope.state?.turnNumber === state.turnNumber + 1
+        && candidateAtWrite === null) {
+        candidateAtWrite = envelope.state.privateScenes ?? null;
+        expect(candidateAtWrite?.[0].consequenceStatus).toBe('consumed');
+        expect(livePrivateScenes?.[0].consequenceStatus).toBe('pending');
+      }
+      return originalSetItem.call(this, key, value);
+    });
+
+    await submitMacroTurn(container, 'Resolve the audience claims');
+    await waitFor(() => expect(loadGame()!.state.turnNumber).toBe(state.turnNumber + 1));
+
+    const firstOptions = mockRunNewTurn.mock.calls[0][14]!;
+    expect(firstOptions.privateSceneAdjudicatorProjection).toEqual(expect.objectContaining({
+      npc: { entityId: pending.npcId, name: pending.npcName },
+      latestNpcInternalIntent: pending.npcPrivate.hiddenIntent,
+    }));
+    expect(JSON.stringify(firstOptions.privateSceneAdjudicatorProjection)).toContain('Three cohorts have sworn to me.');
+    expect(JSON.stringify(firstOptions.privateSceneAdjudicatorProjection)).not.toContain('RAW_TRANSCRIPT_PENDING_MAIN');
+    expect(JSON.stringify(firstOptions.privateSceneNpcMemoriesByNpcId?.maximinus_thrax)).toContain('Three cohorts have sworn to me.');
+    expect(JSON.stringify(firstOptions.privateSceneNpcMemoriesByNpcId?.maximinus_thrax)).not.toContain('UNRELATED_SCENE_CLAIM');
+    expect(JSON.stringify(firstOptions.privateSceneNpcMemoriesByNpcId?.gaius_pontius_magnus)).toContain('UNRELATED_SCENE_CLAIM');
+
+    const saved = loadGame()!.state;
+    expect(candidateAtWrite).toEqual(saved.privateScenes);
+    expect(livePrivateScenes).toEqual(saved.privateScenes);
+    expect(saved.privateScenes?.[0]).toEqual(expect.objectContaining({
+      sceneId: pending.sceneId,
+      consequenceStatus: 'consumed',
+      consumedByTurn: state.turnNumber + 1,
+    }));
+    expect(saved.entities).toEqual(returnedResult!.updatedEntities);
+    expect(saved.worldState).toEqual(expect.objectContaining({
+      political_climate: returnedResult!.updatedWorldState.political_climate,
+      economic_stability: returnedResult!.updatedWorldState.economic_stability,
+      regions: returnedResult!.updatedWorldState.regions,
+    }));
+
+    await submitMacroTurn(container, 'Advance another week');
+    await waitFor(() => expect(loadGame()!.state.turnNumber).toBe(state.turnNumber + 2));
+    expect(mockRunNewTurn.mock.calls[1][14]?.privateSceneAdjudicatorProjection).toBeUndefined();
+    storage.mockRestore();
+  });
+
+  it('keeps a pending outcome unchanged after provider failure and consumes the same projection only on retry success', async () => {
+    const pending = outcomeScene(2, 'retry-pending', 'maximinus_thrax', 'Maximinus Thrax', 'RETRY_SCENE_CLAIM');
+    const state = appSave({ privateScenes: [pending] });
+    mockRunNewTurn.mockRejectedValueOnce(new Error('turn provider offline'));
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const container = await mountForMacroTurn(state);
+
+    await submitMacroTurn(container, 'Retry this exact macro turn');
+    await waitFor(() => expect(container.querySelector('[role="alert"]')?.textContent).toMatch(/retry/i));
+    expect(loadGame()!.state.privateScenes).toEqual([pending]);
+    expect(livePrivateScenes).toEqual([pending]);
+    expect(JSON.stringify(mockRunNewTurn.mock.calls[0][14]?.privateSceneAdjudicatorProjection)).toContain('RETRY_SCENE_CLAIM');
+
+    await click(container.querySelector<HTMLButtonElement>('[aria-label="Retry the last action"]')!);
+    await waitFor(() => expect(loadGame()!.state.turnNumber).toBe(state.turnNumber + 1));
+    expect(JSON.stringify(mockRunNewTurn.mock.calls[1][14]?.privateSceneAdjudicatorProjection)).toContain('RETRY_SCENE_CLAIM');
+    expect(loadGame()!.state.privateScenes?.[0]).toEqual(expect.objectContaining({
+      consequenceStatus: 'consumed',
+      consumedByTurn: state.turnNumber + 1,
+    }));
+    errorSpy.mockRestore();
+  });
+
+  it('leaves a pending outcome and reducer state untouched when the macro-turn autosave fails', async () => {
+    const pending = outcomeScene(2, 'save-failure-pending', 'maximinus_thrax', 'Maximinus Thrax', 'SAVE_FAILURE_SCENE_CLAIM');
+    const state = appSave({ privateScenes: [pending] });
+    let release!: () => void;
+    mockRunNewTurn.mockImplementationOnce(async (...args) => {
+      await new Promise<void>(resolve => { release = resolve; });
+      return defaultRunNewTurn(...args);
+    });
+    const container = await mountForMacroTurn(state);
+    const beforeBytes = localStorage.getItem('gloryOfRome:autosave');
+    await submitMacroTurn(container, 'Reach the failing save boundary');
+    await waitFor(() => expect(mockRunNewTurn).toHaveBeenCalledTimes(1));
+    expect(JSON.stringify(mockRunNewTurn.mock.calls[0][14]?.privateSceneAdjudicatorProjection))
+      .toContain('SAVE_FAILURE_SCENE_CLAIM');
+    const failingStorage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('quota', 'QuotaExceededError');
+    });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await act(async () => release());
+    await waitFor(() => expect(container.querySelector('[role="alert"]')?.textContent).toMatch(/restored|retry/i));
+
+    expect(localStorage.getItem('gloryOfRome:autosave')).toBe(beforeBytes);
+    expect(loadGame()!.state.privateScenes).toEqual([pending]);
+    expect(livePrivateScenes).toEqual([pending]);
+    failingStorage.mockRestore();
+    errorSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it('drops a stale resolved turn when a reload replaces the exact pending-scene list in flight', async () => {
+    const pending = outcomeScene(2, 'stale-pending', 'maximinus_thrax', 'Maximinus Thrax', 'STALE_SCENE_CLAIM');
+    const state = appSave({ privateScenes: [pending] });
+    let release!: () => void;
+    mockRunNewTurn.mockImplementationOnce(async (...args) => {
+      await new Promise<void>(resolve => { release = resolve; });
+      return defaultRunNewTurn(...args);
+    });
+    const container = await mountForMacroTurn(state);
+    await submitMacroTurn(container, 'Resolve after replacement');
+    await waitFor(() => expect(mockRunNewTurn).toHaveBeenCalledTimes(1));
+
+    const replacementScene = outcomeScene(8, 'replacement-scene', 'gaius_pontius_magnus', 'Gaius Pontius Magnus', 'REPLACEMENT_SCENE_CLAIM');
+    const replacement = appSave({ turnNumber: 9, privateScenes: [replacementScene] });
+    saveGame(replacement);
+    const replacementBytes = localStorage.getItem('gloryOfRome:autosave');
+    await act(async () => dispatchGame!({ type: 'GAME_LOADED', save: replacement }));
+    await act(async () => release());
+    await flush();
+
+    expect(localStorage.getItem('gloryOfRome:autosave')).toBe(replacementBytes);
+    expect(loadGame()!.state).toEqual(replacement);
+    expect(livePrivateScenes).toEqual([replacementScene]);
+    expect(loadGame()!.state.privateScenes?.[0].consequenceStatus).toBe('pending');
+    expect(container.textContent).not.toContain('STALE_SCENE_CLAIM');
+  });
+
   it('provider failure consumes nothing and keeps the exact opening draft retryable', async () => {
     mockContinue.mockRejectedValueOnce(new Error('provider down'));
     const container = await mount(); await invite(container, 'Exact retryable opening');
@@ -254,4 +416,29 @@ function closedScene(turn: number): PrivateSceneRecord {
   return { sceneId: `scene-${turn}`, macroTurn: turn, playerId: 'severus_alexander', npcId: 'maximinus_thrax', playerName: 'Severus Alexander', npcName: 'Maximinus Thrax', status: 'closed',
     transcript: [{ sequence: 1, speaker: 'player', text: 'Opening' }, { sequence: 2, speaker: 'npc', text: 'NPC reply 1' }], npcResponseCount: 1, speechActs: [],
     npcPrivate: { sincerity: 'hidden', hiddenIntent: 'HIDDEN_INTENT_POISON', plannedFollowThrough: [] }, closureReason: 'player_ended', consequenceStatus: 'pending' };
+}
+
+function outcomeScene(
+  turn: number,
+  sceneId: string,
+  npcId: string,
+  npcName: string,
+  claim: string,
+): PrivateSceneRecord {
+  return {
+    ...closedScene(turn),
+    sceneId,
+    npcId,
+    npcName,
+    transcript: [
+      { sequence: 1, speaker: 'player', text: `RAW_TRANSCRIPT_${sceneId.toUpperCase().replace(/-/g, '_')}` },
+      { sequence: 2, speaker: 'npc', text: claim },
+    ],
+    speechActs: [{ speaker: 'npc', kind: 'claim', text: claim, exchange: 1 }],
+    npcPrivate: {
+      sincerity: 'guarded',
+      hiddenIntent: `HIDDEN_INTENT_${sceneId}`,
+      plannedFollowThrough: [`FOLLOW_THROUGH_${sceneId}`],
+    },
+  };
 }

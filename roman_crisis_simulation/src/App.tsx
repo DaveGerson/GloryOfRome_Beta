@@ -37,7 +37,19 @@ import {
     getGmInterventionEnabled, setGmInterventionEnabled,
 } from './persistence/uiPrefs';
 import { buildPlayerPerceivedDigest, projectPrivateSceneForPlayer, TabId } from './perception/visibility';
-import { PRIVATE_SCENE_MAX_UTTERANCE_CHARS, eligiblePrivateSceneTargets, beginPrivateScene, appendPrivateSceneExchange, endPrivateScene, finalizePrivateScene, type PrivateSceneRecord } from './privateScene/model';
+import {
+    PRIVATE_SCENE_MAX_UTTERANCE_CHARS,
+    eligiblePrivateSceneTargets,
+    beginPrivateScene,
+    appendPrivateSceneExchange,
+    endPrivateScene,
+    finalizePrivateScene,
+    selectPendingPrivateSceneOutcome,
+    buildPrivateSceneAdjudicatorProjection,
+    buildPrivateSceneNpcMemoryProjection,
+    consumePrivateSceneOutcome,
+    type PrivateSceneRecord,
+} from './privateScene/model';
 import { continuePrivateScene } from './ai/tools/privateScene';
 import { computeTurnKnowledge, computeInvestigationKnowledge } from './knowledge/commit';
 import {
@@ -814,8 +826,36 @@ const App: React.FC = () => {
         // computed fresh from CURRENT state every attempt (including a
         // retry), so a retried turn still carries the same fallout.
         const interventionTextForTurn = buildInterventionTextWithFallout(pendingIntelligenceFallout, gmInterventionText);
+        // A macro turn gets one immutable view of the private-scene ledger.
+        // This is both the source for its bounded AI projections and the
+        // compare-before-commit token that prevents a late response from
+        // overwriting a campaign reload or another replacement of the scene
+        // list. The raw ledger/transcript never crosses the runNewTurn seam.
+        const privateScenesForTurn = privateScenesRef.current;
+        const privateScenesFingerprintForTurn = privateScenesFingerprint(privateScenesForTurn);
+        const privateSceneSnapshotIsCurrent = () => (
+            privateScenesFingerprint(privateScenesRef.current) === privateScenesFingerprintForTurn
+        );
 
         try {
+            // At most one closed pending scene informs the macro adjudicator.
+            // NPC memories remain partitioned by the NPC who participated;
+            // builders expose only the purpose-built projections, never the
+            // raw transcript or full private-scene record.
+            const pendingPrivateScene = selectPendingPrivateSceneOutcome(privateScenesForTurn);
+            const privateSceneAdjudicatorProjection = pendingPrivateScene
+                ? buildPrivateSceneAdjudicatorProjection(pendingPrivateScene)
+                : undefined;
+            const privateSceneNpcMemoriesByNpcId = Object.fromEntries(
+                [...new Set(
+                    privateScenesForTurn
+                        .filter(scene => scene.status === 'closed')
+                        .map(scene => scene.npcId),
+                )].map(npcId => [
+                    npcId,
+                    buildPrivateSceneNpcMemoryProjection(privateScenesForTurn, npcId),
+                ]),
+            );
             const result = await runNewTurn(
                 ai,
                 submission,
@@ -847,9 +887,11 @@ const App: React.FC = () => {
                     },
                     pacingPosture: getPacingPosture(),
                     eventFirings,
+                    privateSceneAdjudicatorProjection,
+                    privateSceneNpcMemoriesByNpcId,
                 }
             );
-            if (!transaction.isCurrent()) return;
+            if (!transaction.isCurrent() || !privateSceneSnapshotIsCurrent()) return;
 
             // COMMIT STATE
             const newWorldState = ((): WorldState => {
@@ -901,7 +943,7 @@ const App: React.FC = () => {
                 knownEntityIds,
                 isMockMode,
             );
-            if (!transaction.isCurrent()) return;
+            if (!transaction.isCurrent() || !privateSceneSnapshotIsCurrent()) return;
             const newKnowledge = computeTurnKnowledge({
                 prev: knowledge,
                 perceivedChanges: perceivedThisTurn,
@@ -925,7 +967,7 @@ const App: React.FC = () => {
                     evidence,
                     isMockMode,
                 );
-                if (!transaction.isCurrent()) return;
+                if (!transaction.isCurrent() || !privateSceneSnapshotIsCurrent()) return;
                 finalNarration = renderNoAttemptResponse(selection);
                 if (selection.kind === 'no_answer'
                     && (selection.reason === 'invalid_selection' || selection.reason === 'selector_failure')) {
@@ -969,6 +1011,24 @@ const App: React.FC = () => {
                 ribbonMessage,
             ];
 
+            // Nothing may consume a private-scene outcome unless the exact
+            // scene snapshot supplied to this turn is still current. The
+            // consumed record is prepared before persistence, but becomes
+            // live only after the whole macro-turn candidate is durable.
+            if (!privateSceneSnapshotIsCurrent()) return;
+            let committedPrivateScenes = [...privateScenesForTurn];
+            if (pendingPrivateScene) {
+                const consumed = consumePrivateSceneOutcome(
+                    privateScenesForTurn,
+                    pendingPrivateScene.sceneId,
+                    newTurnNumber,
+                );
+                if (!consumed.ok) {
+                    throw new Error(`PRIVATE_SCENE_CONSUMPTION_FAILED: ${consumed.error}`);
+                }
+                committedPrivateScenes = replacePrivateSceneForCommit(privateScenesForTurn, consumed.scene);
+            }
+
             // The single atomic commit for this turn (state/gameReducer.ts's
             // TURN_COMMITTED): entities, world, history, chat log, pills and
             // headlines - plus consuming the fallout queue and the GM
@@ -985,7 +1045,7 @@ const App: React.FC = () => {
                 truthLedger: result.updatedTruthLedger,
                 knowledge: newKnowledge,
                 npcIntents: result.updatedNpcIntents,
-                privateScenes: state.privateScenes,
+                privateScenes: committedPrivateScenes,
                 turnNumber: newTurnNumber,
                 turnHistory: newTurnHistory,
                 messages: [...messages, ...committedMessages],
@@ -997,6 +1057,7 @@ const App: React.FC = () => {
             if (!saveGame(nextSaveState).ok) {
                 throw new Error('AUTOSAVE_FAILED');
             }
+            privateScenesRef.current = committedPrivateScenes;
             dispatch({
                 type: 'TURN_COMMITTED',
                 entities: result.updatedEntities,
@@ -1006,7 +1067,7 @@ const App: React.FC = () => {
                 truthLedger: result.updatedTruthLedger,
                 knowledge: newKnowledge,
                 npcIntents: result.updatedNpcIntents,
-                privateScenes: state.privateScenes,
+                privateScenes: committedPrivateScenes,
                 turnNumber: newTurnNumber,
                 turnHistory: newTurnHistory,
                 playerMessage,
@@ -1091,7 +1152,7 @@ const App: React.FC = () => {
 
         } catch (error)
         {
-            if (!transaction.isCurrent()) return;
+            if (!transaction.isCurrent() || !privateSceneSnapshotIsCurrent()) return;
             // Keep the full error in the console for diagnosis, but never lose
             // the player's game over this — no "please refresh" (persistence
             // now exists, and nothing was committed mid-turn anyway).
@@ -1123,7 +1184,7 @@ const App: React.FC = () => {
         }
         });
         return mutation.acquired;
-    }, [ai, buildSaveState, dispatch, entities, eventFirings, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, pendingIntelligenceFallout, playerCharacterId, reports, resolvedApiKey, runDomainMutation, simulationState, state.privateScenes, truthLedger, turnHistory, turnNumber, worldState]);
+    }, [ai, buildSaveState, dispatch, entities, eventFirings, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, pendingIntelligenceFallout, playerCharacterId, reports, resolvedApiKey, runDomainMutation, simulationState, truthLedger, turnHistory, turnNumber, worldState]);
 
     const handleComposerSubmit = (draft: string | StructuredTurnDraft) => {
         if (gameState !== GameState.AWAITING_PLAYER_INPUT || privateSceneInteractionLocked) return;
