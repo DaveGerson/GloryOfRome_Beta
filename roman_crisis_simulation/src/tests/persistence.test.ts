@@ -11,7 +11,9 @@ import {
   SAVE_VERSION,
   type SaveGameState,
   type InferredAmbitionState,
+  type SaveGameResult,
 } from '../persistence/saveGame';
+import { gameReducer, createInitialGameState } from '../state/gameReducer';
 import type { TurnHistoryEntry, RawCallRecord, Memory } from '../types';
 import type { KnowledgeClaim } from '../knowledge/store';
 import type { PrivateSceneRecord } from '../privateScene/model';
@@ -826,5 +828,63 @@ describe('persistence/saveGame', () => {
     expect(() => saveGame(state)).not.toThrow();
     expect(warnSpy).toHaveBeenCalledTimes(2);
     expect(hasSave()).toBe(false);
+  });
+
+  it('returns ok:false without throwing when an in-memory private scene cannot be canonicalized, leaving the previous autosave untouched', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    saveGame(makeState({ turnNumber: 3 }));
+    const before = localStorage.getItem('gloryOfRome:autosave');
+
+    const poisonedVariants: PrivateSceneRecord[] = [
+      { sceneId: 'poisoned' } as unknown as PrivateSceneRecord,
+      (() => {
+        const { npcPrivate, ...rest } = makePrivateScene();
+        return rest as unknown as PrivateSceneRecord;
+      })(),
+      makePrivateScene({
+        npcPrivate: { sincerity: 'x', hiddenIntent: 'y', plannedFollowThrough: 42 as unknown as string[] },
+      }),
+    ];
+
+    for (const scene of poisonedVariants) {
+      warnSpy.mockClear();
+      let result: SaveGameResult | undefined;
+      expect(() => {
+        result = saveGame(makeState({ turnNumber: 4, privateScenes: [scene] }));
+      }).not.toThrow();
+
+      expect(result).toEqual({ ok: false });
+      expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
+      expect(warnSpy).toHaveBeenCalledOnce();
+    }
+
+    expect(loadGame()!.state.turnNumber).toBe(3);
+  });
+
+  it('round-trips a stored save containing one corrupt and one valid scene: loads to just the valid scene and re-saves cleanly', () => {
+    const valid = makePrivateScene({ sceneId: 'valid-survivor' });
+    const corrupt = { sceneId: 'corrupt', transcript: 'not-lines' };
+    localStorage.setItem(
+      'gloryOfRome:autosave',
+      JSON.stringify({
+        version: SAVE_VERSION,
+        savedAt: new Date().toISOString(),
+        state: makeState({
+          turnNumber: 6,
+          privateScenes: [corrupt, valid] as unknown as PrivateSceneRecord[],
+        }),
+      }),
+    );
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+
+    const restored = gameReducer(createInitialGameState(), { type: 'GAME_LOADED', save: loaded!.state });
+    expect(restored.privateScenes).toEqual([valid]);
+    expect(restored.turnNumber).toBe(6);
+
+    expect(saveGame(makeState({ turnNumber: 6, privateScenes: restored.privateScenes }))).toEqual({ ok: true });
+    expect(loadGame()!.state.privateScenes).toEqual([valid]);
   });
 });

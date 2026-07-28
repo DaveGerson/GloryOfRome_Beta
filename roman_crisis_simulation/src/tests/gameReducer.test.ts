@@ -94,6 +94,75 @@ function makePrivateScene(overrides: Partial<PrivateSceneRecord> = {}): PrivateS
   };
 }
 
+/**
+ * Structurally malformed private-scene records used to exercise
+ * `normalizeLoadedPrivateScenes` (persistence/saveGame.ts): each one must be
+ * dropped on load/rollback while a valid sibling record survives. Built from
+ * `makePrivateScene()` copies; cast via `as unknown as PrivateSceneRecord[]`
+ * at use sites - existing convention at lines 435/625.
+ */
+const CORRUPT_SCENE_VARIANTS: Array<{ label: string; scene: unknown }> = (() => {
+  const { transcript, ...missingTranscript } = makePrivateScene();
+  const { npcPrivate, ...missingNpcPrivate } = makePrivateScene();
+  const { hiddenIntent, ...npcPrivateWithoutHiddenIntent } = makePrivateScene().npcPrivate;
+  const npcPrivateMissingHiddenIntent = {
+    ...makePrivateScene(),
+    npcPrivate: npcPrivateWithoutHiddenIntent,
+  };
+  const speechActMissingExchange = {
+    ...makePrivateScene(),
+    speechActs: makePrivateScene().speechActs.map(({ exchange, ...rest }) => rest),
+  };
+
+  return [
+    { label: 'null entry', scene: null },
+    { label: "primitive entry ('not-a-scene')", scene: 'not-a-scene' },
+    { label: "near-empty record ({ sceneId: 'x' })", scene: { sceneId: 'x' } },
+    { label: 'missing transcript', scene: missingTranscript },
+    { label: "non-array transcript ('not-lines')", scene: { ...makePrivateScene(), transcript: 'not-lines' } },
+    {
+      label: 'transcript line missing text',
+      scene: { ...makePrivateScene(), transcript: [{ sequence: 1, speaker: 'player' }] },
+    },
+    { label: 'non-object transcript line ([null])', scene: { ...makePrivateScene(), transcript: [null] } },
+    {
+      label: "invalid transcript speaker ('gm')",
+      scene: { ...makePrivateScene(), transcript: [{ sequence: 1, speaker: 'gm', text: 'x' }] },
+    },
+    { label: 'missing npcPrivate', scene: missingNpcPrivate },
+    { label: 'npcPrivate missing hiddenIntent', scene: npcPrivateMissingHiddenIntent },
+    {
+      label: "npcPrivate non-array plannedFollowThrough ('not-an-array')",
+      scene: {
+        ...makePrivateScene(),
+        npcPrivate: { ...makePrivateScene().npcPrivate, plannedFollowThrough: 'not-an-array' },
+      },
+    },
+    {
+      label: 'npcPrivate non-string follow-through entry ([42])',
+      scene: {
+        ...makePrivateScene(),
+        npcPrivate: { ...makePrivateScene().npcPrivate, plannedFollowThrough: [42] },
+      },
+    },
+    { label: 'non-string sceneId (42)', scene: { ...makePrivateScene(), sceneId: 42 } },
+    { label: "non-integer macroTurn ('four')", scene: { ...makePrivateScene(), macroTurn: 'four' } },
+    { label: "invalid status ('paused')", scene: { ...makePrivateScene(), status: 'paused' } },
+    { label: "non-integer npcResponseCount ('one')", scene: { ...makePrivateScene(), npcResponseCount: 'one' } },
+    { label: "non-array speechActs ('not-acts')", scene: { ...makePrivateScene(), speechActs: 'not-acts' } },
+    {
+      label: "invalid speech-act kind ('prophecy')",
+      scene: { ...makePrivateScene(), speechActs: [{ speaker: 'npc', kind: 'prophecy', text: 'x', exchange: 1 }] },
+    },
+    { label: 'speech act missing exchange', scene: speechActMissingExchange },
+    { label: "invalid closureReason ('ghosted')", scene: { ...makePrivateScene(), closureReason: 'ghosted' } },
+    { label: 'null closureReason', scene: { ...makePrivateScene(), closureReason: null } },
+    { label: 'non-string lastWord (7)', scene: { ...makePrivateScene(), lastWord: 7 } },
+    { label: "invalid consequenceStatus ('done')", scene: { ...makePrivateScene(), consequenceStatus: 'done' } },
+    { label: "non-integer consumedByTurn ('five')", scene: { ...makePrivateScene(), consumedByTurn: 'five' } },
+  ];
+})();
+
 function makeTurnCommit(state: GameDomainState, entities = state.entities): TurnCommitWithPlayerMessage {
   return {
     type: 'TURN_COMMITTED',
@@ -441,6 +510,22 @@ describe('state/gameReducer', () => {
       }
     });
 
+    it('drops each structurally malformed private-scene record from a rollback snapshot, keeping valid siblings and other restored fields', () => {
+      const state = makePlayingState({ privateScenes: [makePrivateScene({ sceneId: 'mid-turn' })] });
+      const valid = makePrivateScene({ sceneId: 'pre-turn-survivor' });
+      for (const { label, scene } of CORRUPT_SCENE_VARIANTS) {
+        const snapshot = makeSaveState({
+          turnNumber: 9,
+          messages: [{ sender: 'gm', text: 'Rollback sentinel.' }],
+          privateScenes: [scene, valid] as unknown as PrivateSceneRecord[],
+        });
+        const result = gameReducer(state, { type: 'TURN_ROLLED_BACK', snapshot });
+        expect(result.privateScenes, label).toEqual([valid]);
+        expect(result.turnNumber, label).toBe(9);
+        expect(result.messages, label).toBe(snapshot.messages);
+      }
+    });
+
     it('normalizes a snapshot without the optional fallout field to an empty queue', () => {
       const state = makePlayingState();
       const snapshot = makeSaveState();
@@ -629,6 +714,30 @@ describe('state/gameReducer', () => {
         expect(result.turnNumber).toBe(11);
         expect(result.metaNarrative).toBe('Corruption sentinel.');
       }
+    });
+
+    it('drops each structurally malformed private-scene record on load, keeping valid siblings and the rest of the campaign', () => {
+      const valid = makePrivateScene({ sceneId: 'valid-survivor' });
+      for (const { label, scene } of CORRUPT_SCENE_VARIANTS) {
+        const save = makeSaveState({
+          turnNumber: 11,
+          metaNarrative: 'Corruption sentinel.',
+          privateScenes: [scene, valid] as unknown as PrivateSceneRecord[],
+        });
+        const result = gameReducer(createInitialGameState(), { type: 'GAME_LOADED', save });
+        expect(result.privateScenes, label).toEqual([valid]);
+        expect(result.turnNumber, label).toBe(11);
+        expect(result.metaNarrative, label).toBe('Corruption sentinel.');
+      }
+    });
+
+    it('canonicalizes valid loaded records, stripping unknown keys a hand-edited save may carry', () => {
+      const valid = makePrivateScene();
+      const withExtras = { ...valid, promptText: 'MUST_NOT_SURVIVE_LOAD' };
+      const save = makeSaveState({ privateScenes: [withExtras] as unknown as PrivateSceneRecord[] });
+      const result = gameReducer(createInitialGameState(), { type: 'GAME_LOADED', save });
+      expect(result.privateScenes).toEqual([valid]);
+      expect(result.privateScenes[0]).not.toHaveProperty('promptText');
     });
 
     it('re-derives GAME_OVER from a save whose player is dead (D1 - GAME_OVER itself is never persisted)', () => {
