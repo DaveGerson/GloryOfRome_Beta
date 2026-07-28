@@ -36,13 +36,24 @@ import {
 import { assertPlayerVisibleValueSafe } from './playerBoundary';
 
 const zPrivateSceneText = z.string().trim().min(1).max(PRIVATE_SCENE_MAX_UTTERANCE_CHARS);
+const PRIVATE_SCENE_NUMERIC_RELATIONSHIP_PATTERNS = [
+  /\b(?:relationship|trust|respect|threat|alignment|dependency|loyalty)\s+(?:(?:level|score|rating)(?:\s*(?:is|at|equals?|to|=|:))?|(?:is|at|equals?|to|=|:))\s*[+-]?\d+(?:\.\d+)?(?:\s*(?:\/|out\s+of|of)\s*\d+(?:\.\d+)?)?\b/i,
+  /\b[+-]?\d+(?:\.\d+)?\s*(?:\/|out\s+of|of)\s*\d+(?:\.\d+)?\s+(?:relationship|trust|respect|threat|alignment|dependency|loyalty)(?:\s+(?:level|score|rating))?\b/i,
+] as const;
+
+function privateSceneResponseStrings(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.flatMap(privateSceneResponseStrings);
+  if (value && typeof value === 'object') return Object.values(value).flatMap(privateSceneResponseStrings);
+  return [];
+}
 
 /** Strict runtime boundary: this micro-loop cannot return world-state authority. */
 export const zPrivateSceneModelResponse = z.object({
   disposition: z.enum(['refused', 'continues', 'ends']),
   npcUtterance: zPrivateSceneText,
   speechActs: z.array(z.object({
-    speaker: z.enum(['player', 'npc']),
+    speaker: z.literal('npc'),
     kind: z.enum(['claim', 'disclosure', 'request', 'promise', 'agreement', 'refusal', 'threat']),
     text: zPrivateSceneText,
     exchange: z.number().int().min(1).max(PRIVATE_SCENE_MAX_NPC_RESPONSES),
@@ -59,6 +70,12 @@ export const zPrivateSceneModelResponse = z.object({
     context.addIssue({
       code: 'custom',
       message: 'private-scene response contains hidden mechanics',
+    });
+  }
+  if (privateSceneResponseStrings(response).some(text => PRIVATE_SCENE_NUMERIC_RELATIONSHIP_PATTERNS.some(pattern => pattern.test(text)))) {
+    context.addIssue({
+      code: 'custom',
+      message: 'private-scene response contains numeric relationship mechanics',
     });
   }
 });

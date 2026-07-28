@@ -18,7 +18,7 @@ export const PrivateSceneModelResponseSchema = {
             items: {
                 type: Type.OBJECT,
                 properties: {
-                    speaker: { type: Type.STRING, enum: ['player', 'npc'] },
+                    speaker: { type: Type.STRING, enum: ['npc'] },
                     kind: { type: Type.STRING, enum: ['claim', 'disclosure', 'request', 'promise', 'agreement', 'refusal', 'threat'] },
                     text: { type: Type.STRING, minLength: 1, maxLength: PRIVATE_SCENE_MAX_UTTERANCE_CHARS },
                     exchange: { type: Type.INTEGER, minimum: 1, maximum: PRIVATE_SCENE_MAX_NPC_RESPONSES },
