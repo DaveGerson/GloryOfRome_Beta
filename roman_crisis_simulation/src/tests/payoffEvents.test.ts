@@ -320,7 +320,7 @@ describe('buildAdjudicationPrompt: the GM-private HISTORICAL MATERIAL block (4D.
       playerEntity: entities[0],
       npcEntities: entities.slice(1),
       history: [],
-      playerIntent: 'Hold court',
+      submission: { observableAttempt: 'Hold court', questionOrContext: null },
       gmInterventionText: '',
       storyRelevance: { spotlight_entities: [], spotlight_intents: [] },
       metaNarrative: 'A succession crisis.',

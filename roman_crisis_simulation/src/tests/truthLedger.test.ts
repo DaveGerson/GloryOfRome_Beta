@@ -135,7 +135,7 @@ describe('schema pair: rumor truth fields (is_true/origin_id)', () => {
       playerEntity: player,
       npcEntities: entities.slice(1),
       history: [],
-      playerIntent: 'Hold court',
+      submission: { observableAttempt: 'Hold court', questionOrContext: null },
       gmInterventionText: '',
       storyRelevance: { spotlight_entities: [], spotlight_intents: [] },
       metaNarrative: 'A succession crisis.',

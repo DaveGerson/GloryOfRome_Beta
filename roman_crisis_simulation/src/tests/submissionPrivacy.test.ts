@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { GoogleGenAI } from '@google/genai';
 import { runNewTurn } from '../ai/core/turn';
 import { endTurnCapture } from '../ai/core/geminiService';
+import { buildAdjudicationPrompt } from '../ai/prompts/adjudication';
 import { buildPerceivedDigest } from '../perception/visibility';
 import { computeTurnKnowledge } from '../knowledge/commit';
 import { serializeTurnSubmission } from '../playerInput/turnSubmission';
@@ -243,6 +244,23 @@ afterEach(() => {
 });
 
 describe('runNewTurn submission visibility routing', () => {
+  it('rejects a legacy canonical playerIntent before it can become an observable adjudication attempt', () => {
+    const legacyInput = {
+      worldState: WORLD_STATE,
+      simulationState: SIMULATION_STATE,
+      playerEntity: makeEntity(),
+      npcEntities: [],
+      history: [],
+      playerIntent: serializeTurnSubmission(FULL_SUBMISSION),
+      gmInterventionText: '',
+      storyRelevance: { spotlight_entities: [], spotlight_intents: [] },
+      metaNarrative: 'A political thriller',
+    } as unknown as Parameters<typeof buildAdjudicationPrompt>[0];
+
+    expect(() => buildAdjudicationPrompt(legacyInput))
+      .toThrow('explicit safe submission projection');
+  });
+
   it('keeps Private Intent out of adjudication while retaining it in player-owned narration and monologue', async () => {
     const { calls, result, player } = await runRealTurn(FULL_SUBMISSION);
     const callsByKind = (kind: CallKind) => calls.filter(call => call.kind === kind);

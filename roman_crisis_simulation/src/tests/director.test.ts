@@ -201,7 +201,7 @@ describe('buildAdjudicationPrompt: the Director intents block (prompt lockstep)'
       playerEntity: entities[0],
       npcEntities: entities.slice(1),
       history: [],
-      playerIntent: 'Hold court',
+      submission: { observableAttempt: 'Hold court', questionOrContext: null },
       gmInterventionText: '',
       storyRelevance: makeRelevance(),
       metaNarrative: 'A succession crisis.',
@@ -227,7 +227,7 @@ describe('buildAdjudicationPrompt: the Director intents block (prompt lockstep)'
     const { entities, worldState } = getMockInitialState();
     const { systemInstruction } = buildAdjudicationPrompt({
       worldState, simulationState: SIM_STATE, playerEntity: entities[0], npcEntities: entities.slice(1),
-      history: [], playerIntent: 'Hold court', gmInterventionText: '', storyRelevance: makeRelevance(),
+      history: [], submission: { observableAttempt: 'Hold court', questionOrContext: null }, gmInterventionText: '', storyRelevance: makeRelevance(),
       metaNarrative: 'A succession crisis.',
     });
     // The precedence rule is stated once as a principle...

@@ -740,7 +740,7 @@ describe('consumer-specific audience projections', () => {
     expect(projected).toContain('Attend the Senate');
     expect(projected).toContain('To: Lucius [lucius]');
     expect(projected).toContain('To: the night watch');
-    expect(projected).not.toContain('PRIVATE_SENTINEL');
+    expect(projected).not.toContain('PRIVATE_INTENT_MUST_STAY_PLAYER_OWNED');
     expect(projected).not.toContain('What can I infer');
   });
 

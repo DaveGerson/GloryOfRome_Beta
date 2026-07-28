@@ -206,9 +206,7 @@ export interface AdjudicationPromptInput {
   playerEntity: Entity;
   npcEntities: Entity[];
   history: string[];
-  submission?: AdjudicationSubmissionProjection;
-  /** Legacy prompt-builder input retained for non-pipeline callers. */
-  playerIntent?: string;
+  submission: AdjudicationSubmissionProjection;
   gmInterventionText: string;
   storyRelevance: StoryRelevance;
   metaNarrative: string;
@@ -253,15 +251,15 @@ export interface AdjudicationPromptInput {
 export function buildAdjudicationPrompt(input: AdjudicationPromptInput): { systemInstruction: string; prompt: string } {
   const {
     worldState, simulationState, playerEntity, npcEntities, history,
-    submission, playerIntent, gmInterventionText, storyRelevance, metaNarrative,
+    submission, gmInterventionText, storyRelevance, metaNarrative,
     playerActionOutcome, npcIntents, npcMindDecisions, pacingPosture,
     historicalMaterial,
   } = input;
 
-  const routedSubmission = submission ?? {
-    observableAttempt: playerIntent ?? null,
-    questionOrContext: null,
-  };
+  if (!submission) {
+    throw new Error('Adjudication prompt requires an explicit safe submission projection.');
+  }
+  const routedSubmission = submission;
   const spotlightIds = new Set(storyRelevance.spotlight_entities.map(s => s.entity_id));
   const spotlightNpcs = npcEntities.filter(e => spotlightIds.has(e.entity_id) && e.status === 'alive');
   const otherNpcs = npcEntities.filter(e => !spotlightIds.has(e.entity_id) && e.status === 'alive');
