@@ -598,6 +598,67 @@ describe('components/TurnComposer', () => {
       .toBe('The guard rotation changed yesterday.');
   });
 
+  it('renders no validation alert for a pristine Structured draft until content is entered', async () => {
+    function Harness() {
+      const [draft, setDraft] = useState(emptyStructuredDraft());
+      return (
+        <TurnComposer
+          {...defaultProps({ structuredDraft: draft, onStructuredDraftChange: setDraft })}
+        />
+      );
+    }
+    const { container } = await mount(<Harness />);
+    await click(buttonNamed(container, 'Structured'));
+
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.querySelector('[role="status"]')?.textContent).toMatch(/20,000 characters remaining/i);
+    expect(buttonNamed(container, 'Submit turn').disabled).toBe(true);
+
+    const command = byAriaLabel<HTMLTextAreaElement>(container, 'Message or order 1');
+    await setValue(command, 'Wait.');
+    expect(container.querySelector('[role="alert"]')?.textContent).toMatch(/recipient and command are both required/i);
+
+    await setValue(command, '');
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('keeps validation visible once the player has interacted with a recipient', async () => {
+    const draft: StructuredTurnDraft = {
+      ...emptyStructuredDraft(),
+      messagesOrOrders: [{ recipient: { kind: 'free_text', text: '' }, command: '' }],
+    };
+    const { container } = await mount(<TurnComposer {...defaultProps({ structuredDraft: draft })} />);
+    await click(buttonNamed(container, 'Structured'));
+
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+  });
+
+  it('does not submit the chat draft when Enter confirms an IME composition', async () => {
+    const submissions: string[] = [];
+    const { container } = await mount(
+      <TurnComposer {...defaultProps({
+        chatDraft: '天下',
+        onSubmit: (input: string | StructuredTurnDraft) => submissions.push(input as string),
+      })} />,
+    );
+    const chat = byAriaLabel<HTMLTextAreaElement>(container, 'Chat input');
+
+    const composing = await keyDown(chat, { key: 'Enter', isComposing: true });
+    expect(composing.defaultPrevented).toBe(false);
+    expect(submissions).toEqual([]);
+
+    await act(async () => {
+      const legacyEvent = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Enter' });
+      Object.defineProperty(legacyEvent, 'keyCode', { get: () => 229 });
+      chat.dispatchEvent(legacyEvent);
+    });
+    expect(submissions).toEqual([]);
+
+    const plain = await keyDown(chat, { key: 'Enter' });
+    expect(plain.defaultPrevented).toBe(true);
+    expect(submissions).toEqual(['天下']);
+  });
+
   it('appends two suggested pills as action rows without submitting, switching modes, or removing either pill', async () => {
     const onSubmit = vi.fn();
 
