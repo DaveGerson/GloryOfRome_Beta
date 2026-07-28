@@ -244,7 +244,7 @@ function redactAttributedAdjudication(
 
 // --- 1. actorsIncludePlayer: the declared check is pure data ----------------
 
-describe('actorsIncludePlayer - declared check, pure data [EXPORT DOES NOT EXIST YET]', () => {
+describe('actorsIncludePlayer - declared check, pure data', () => {
   it('matches the player entity id, including slot-normalized forms', () => {
     const actorsIncludePlayer = boundaryExport<ActorsIncludePlayer>('actorsIncludePlayer');
     expect(actorsIncludePlayer(['player_1'], player)).toBe(true);
@@ -296,7 +296,7 @@ describe('actorsIncludePlayer - declared check, pure data [EXPORT DOES NOT EXIST
 
 // --- 2. tripwireFlagsPlayerConduct: TRUE on the dominant lie register -------
 
-describe('tripwireFlagsPlayerConduct - flags sentence-initial player conduct [EXPORT DOES NOT EXIST YET]', () => {
+describe('tripwireFlagsPlayerConduct - flags sentence-initial player conduct', () => {
   it.each([
     'You seize the treasury.',
     'You burn the granary tonight.',
@@ -317,6 +317,22 @@ describe('tripwireFlagsPlayerConduct - flags sentence-initial player conduct [EX
     // MODAL ruling (Task 2 IMPLEMENTER NOTES): will/would are NOT widened -
     // a bare future verb still authors player conduct.
     'You will dispatch spies tonight.',
+    // PRESENTATION WRAPPERS are transparent to the anchor match, exactly as
+    // the hidden-mechanics half already treats them transparent (review
+    // finding, fd51774): a provider that wraps invented conduct in a
+    // blockquote, a list bullet, Markdown emphasis, or a quote must not
+    // bypass the gate by formatting alone.
+    '"You seize the treasury."',
+    '“You seize the treasury.”',
+    '**You seize the treasury.**',
+    '- You seize the treasury.',
+    '> You seize the treasury.',
+    '(You seize the treasury.)',
+    // Regression pin: this fired even before the wrapper strip, but only by
+    // accident of the '.' split (the leading "1." itself splits the
+    // sentence, leaving a clean "You seize the treasury" span) - it must
+    // keep firing by DESIGN now that the wrapper strip runs unconditionally.
+    '1. You seize the treasury.',
   ])('fires on: %s', prose => {
     const tripwire = boundaryExport<TripwireFlagsPlayerConduct>('tripwireFlagsPlayerConduct');
     expect(tripwire(prose, player)).toBe(true);
@@ -325,10 +341,14 @@ describe('tripwireFlagsPlayerConduct - flags sentence-initial player conduct [EX
 
 // --- 3. tripwireFlagsPlayerConduct: FALSE on the legal no-attempt register --
 
-describe('tripwireFlagsPlayerConduct - the legal no-attempt register stays silent [EXPORT DOES NOT EXIST YET]', () => {
+describe('tripwireFlagsPlayerConduct - the legal no-attempt register stays silent', () => {
   it.each([
     // Receptive / waiting - the register a no-attempt turn is written in.
     'You wait.',
+    // The presentation-wrapper strip must not OVER-trigger: a legal
+    // no-attempt sentence wrapped in a list bullet stays exactly as silent
+    // as its unwrapped form.
+    '- You wait.',
     'You receive a letter.',
     // Perception and cognition.
     'You learn of the mutiny.',

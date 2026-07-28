@@ -297,8 +297,8 @@ const NON_ACTION_PLAYER_PREDICATE = new RegExp(`^(?:${NON_ACTION_VERB_GROUPS.joi
 /**
  * Verbs whose subject UNDERGOES rather than acts: waiting, forbearing,
  * receiving, owing, lacking. These are the register a no-attempt turn is
- * actually written in - "you wait", "you receive a letter", "your household
- * lacks the coin" - and none of them heads an act the player performed.
+ * actually written in - "you wait", "you receive a letter", "you lack the
+ * coin" - and none of them heads an act the player performed.
  *
  * Deliberately ABSENT: every verb that also reads as conduct in the same
  * surface form. 'suffer' stays out (a possessive-instrument condition
@@ -421,9 +421,9 @@ const OBJECT_DETERMINERS = [
 /**
  * Copular and inchoative verbs: they link their subject to a CONDITION rather
  * than take an object. With a complement that is not determiner-headed, the
- * clause says what the player (or a possessed noun) HAS BECOME - the world's
- * doing, legal on a no-attempt turn. A determiner-headed complement is a
- * direct object and still fails closed.
+ * clause says what the player HAS BECOME - the world's doing, legal on a
+ * no-attempt turn. A determiner-headed complement is a direct object and
+ * still fails closed.
  */
 const INCHOATIVE_STATE_VERBS = [
   'grow', 'grows', 'grew', 'grown',
@@ -530,7 +530,14 @@ function normalizePlayerContractions(text: string): string {
     .replace(/\b(you|i)'ve\b/gu, '$1 have');
 }
 
-const SENTENCE_SPLIT_PATTERN = /[.!?;\n]+/u;
+/**
+ * The sentence terminators shared by `tripwireFlagsPlayerConduct`'s sentence
+ * split and `splitProseSpans`' span split (below) - ONE source rather than a
+ * keep-in-sync comment, so the two can never silently drift apart into
+ * classifying and redacting different sentence boundaries.
+ */
+const SENTENCE_TERMINATOR_CHARACTER_CLASS = '.!?;\\n';
+const SENTENCE_SPLIT_PATTERN = new RegExp(`[${SENTENCE_TERMINATOR_CHARACTER_CLASS}]+`, 'u');
 
 /**
  * Finds a sentence-initial player subject (an optional leading "the" plus a
@@ -539,22 +546,44 @@ const SENTENCE_SPLIT_PATTERN = /[.!?;\n]+/u;
  * words are examined - no clause splitting, no possessive-phrase descent, no
  * anaphora, no passive scan.
  *
+ * Presentation wrappers (blockquote markers, list bullets, Markdown
+ * emphasis, straight/curly quotes) are stripped before the anchor match via
+ * `stripBoundedPresentationWrappers` - the SAME helper the hidden-mechanics
+ * half above already relies on to treat them as transparent (pinned there by
+ * '> Critical success.' and its siblings). Without this, a provider could
+ * bypass the gate on invented conduct by formatting alone ('- You seize the
+ * treasury.', '"You seize the treasury."'): the wrapper is presentation, not
+ * part of the sentence being classified.
+ *
+ * `aliases` arrives PRE-SORTED by descending length (tripwireFlagsPlayerConduct
+ * sorts once per call, not once per sentence): a longer alias must be tried
+ * before a shorter one that happens to be its prefix (e.g. a multi-word name
+ * before a single-word title).
+ *
  * An alias immediately followed by "'s" is a POSSESSIVE determiner, not this
  * sentence's subject ("The Emperor's guards arrest the envoy." names the
  * guards, not the Emperor, as the clause's subject) - the negative lookahead
  * excludes it rather than misreading "Emperor" as the acting subject with an
  * unparseable predicate.
+ *
+ * The alias match itself is a LITERAL lowercase comparison, not
+ * `wordNormalized`: a hyphen/underscore prose variant of a name or id alias
+ * ("Gaius-Testus", "gaius_testus") will not match here - the generic
+ * 'player'/'you'/'avatar' aliases are the safety net for that register,
+ * exactly as before the rewrite.
  */
-function sentenceInitialPlayerPredicate(sentence: string, aliases: readonly string[]): string | null {
-  const trimmed = sentence.trim();
-  if (!trimmed) return null;
-  const byDescendingLength = [...aliases].sort((a, b) => b.length - a.length);
-  for (const alias of byDescendingLength) {
+function sentenceInitialPlayerPredicate(
+  sentence: string,
+  aliasesByDescendingLength: readonly string[],
+): string | null {
+  const stripped = stripBoundedPresentationWrappers(sentence);
+  if (!stripped) return null;
+  for (const alias of aliasesByDescendingLength) {
     const normalizedAlias = alias.trim().toLocaleLowerCase();
     if (!normalizedAlias) continue;
     const aliasPattern = escapeRegExp(normalizedAlias).replace(/\s+/g, '\\s+');
-    const match = new RegExp(`^(?:the\\s+)?${aliasPattern}\\b(?!'s)`, 'u').exec(trimmed);
-    if (match) return trimmed.slice(match[0].length).trim();
+    const match = new RegExp(`^(?:the\\s+)?${aliasPattern}\\b(?!'s)`, 'u').exec(stripped);
+    if (match) return stripped.slice(match[0].length).trim();
   }
   return null;
 }
@@ -568,7 +597,7 @@ function sentenceInitialPlayerPredicate(sentence: string, aliases: readonly stri
  */
 export function tripwireFlagsPlayerConduct(text: string, player: PlayerIdentity): boolean {
   const normalized = normalizePlayerContractions(normalizeBoundaryText(text).toLocaleLowerCase());
-  const aliases = [...proseSubjectAliases(player), 'i'];
+  const aliases = [...proseSubjectAliases(player), 'i'].sort((a, b) => b.length - a.length);
   return normalized.split(SENTENCE_SPLIT_PATTERN).some(sentence => {
     const predicate = sentenceInitialPlayerPredicate(sentence, aliases);
     return predicate !== null && !isAllowedNoAttemptPredicate(predicate);
@@ -744,12 +773,15 @@ export function containsInventedPlayerProse(value: unknown, player: PlayerIdenti
  * splits sentences on, keeping each terminator with its span, so a span that
  * survives reclassification is byte-identical to what the classifier cleared.
  */
+const PROSE_SPAN_SPLIT_PATTERN = new RegExp(`([${SENTENCE_TERMINATOR_CHARACTER_CLASS}]+\\s*)`, 'u');
+const PROSE_SPAN_TERMINATOR_PATTERN = new RegExp(`^[${SENTENCE_TERMINATOR_CHARACTER_CLASS}]`, 'u');
+
 function splitProseSpans(text: string): string[] {
   const spans: string[] = [];
   let current = '';
-  for (const token of text.split(/([.!?;\n]+\s*)/u)) {
+  for (const token of text.split(PROSE_SPAN_SPLIT_PATTERN)) {
     if (!token) continue;
-    if (/^[.!?;\n]/u.test(token)) {
+    if (PROSE_SPAN_TERMINATOR_PATTERN.test(token)) {
       spans.push(current + token);
       current = '';
       continue;
