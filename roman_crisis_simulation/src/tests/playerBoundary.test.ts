@@ -730,6 +730,26 @@ describe('no-attempt possessive/subject clause precedence boundary', () => {
     expectRejected(payload);
   });
 
+  // Oblique first-person forms can only ever be a passive AGENT, and 'i'
+  // covered the subject position alone - so "was burned by me" named the
+  // player as agent and passed at every earlier version.
+  it.each([
+    'The granary was burned by me.',
+    'The decree was signed by me.',
+    'The granary was burned by my agents.',
+    'Your grip weakens because the granary was burned by me.',
+  ])('rejects an oblique first-person passive agent: %s', expectRejected);
+
+  it.each([
+    'The granary was not burned by me.',
+    'The decree was never signed by me.',
+    // Oblique forms in ordinary OBJECT position are not agents.
+    'The Senate warned me of the vote.',
+    'The courier brought me the tablets.',
+  ])('still allows a negated or object-position oblique first person: %s', prose => {
+    expect(() => assertNoInventedPlayerVisibleAction(prose, player, false)).not.toThrow();
+  });
+
   // The fix must not turn an inert possessive into a rejection just because a
   // player alias also appears in a non-subject role somewhere in the clause.
   it.each([
