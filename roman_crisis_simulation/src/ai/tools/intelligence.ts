@@ -4,6 +4,7 @@ import { mockGetClarificationOnEvent, mockGetDeepAnalysis, mockGetInvestigationR
 import { StoryRelevanceSchema, SimulationStateSchema, buildInvestigationResultSchema } from '../core/schemas';
 import { generateStructured, generateText, GEMINI_PRO, GEMINI_FLASH } from '../core/geminiService';
 import { zStoryRelevance, zSimulationState, zInvestigationResult } from '../core/zodSchemas';
+import { stripActorsFromSimulationState, type SimulationStateInterchange } from '../core/actorsBoundary';
 import {
     rollD20,
     resolveAction,
@@ -199,7 +200,7 @@ export const getUpdatedSimulationState = async (ai: GoogleGenAI, adjudication: A
     }
 
     const { systemInstruction, prompt } = buildSimulationStateUpdatePrompt(adjudication, oldState);
-    const updatedState = await generateStructured<SimulationState>(ai, {
+    const rawUpdatedState = await generateStructured<SimulationStateInterchange>(ai, {
         callName: 'updatedSimulationState',
         model: GEMINI_PRO,
         systemInstruction,
@@ -208,6 +209,9 @@ export const getUpdatedSimulationState = async (ai: GoogleGenAI, adjudication: A
         zodSchema: zSimulationState,
         thinkingConfig: { thinkingBudget: 512 },
     });
+    // Actors-attribution parse boundary (Task 1): strip the interchange-only
+    // top-level `actors` before this reaches the committed SimulationState.
+    const updatedState = stripActorsFromSimulationState(rawUpdatedState);
     assertPlayerVisibleValueSafe(updatedState);
     return updatedState;
 };

@@ -218,6 +218,13 @@ export const zEventDelta = z.object({
   key: z.string(),
   delta: z.number(),
   reason: z.string(),
+  // Actors-attribution contract (interchange-only, stripped at the parse
+  // boundary by ai/core/actorsBoundary.ts before `reason` reaches any
+  // committed EventDelta): the entity ids whose ACTIONS `reason` narrates.
+  // Mentioning an entity (as object, victim, or bystander) does not put it
+  // here; empty array is a pure world/state description. DISTINCT from
+  // `origin_id` below, which stays the mechanical rumor owner.
+  actors: z.array(z.string()),
   // 'status' deltas only: structured status/location fields. Nullable and
   // optional so non-status deltas (resource, relation, scheme, ...) don't
   // need to carry them. See ai/core/engine.ts's 'status' case and
@@ -261,6 +268,17 @@ export const zEntityAction = z.object({
   intent: z.enum(EntityActionIntentEnum),
   target: z.string().nullable().optional(),
   notes: z.string(),
+  // Actors-attribution contract (interchange-only, see zEventDelta above):
+  // the entity ids whose ACTIONS `notes` narrates - mention != actor.
+  actors: z.array(z.string()),
+}).passthrough();
+
+// Actors-attribution contract (interchange-only): one adjudication headline,
+// `text` plus the sibling `actors` list attributing whose actions it
+// narrates (empty = pure world/state description).
+const zHeadline = z.object({
+  text: z.string(),
+  actors: z.array(z.string()),
 }).passthrough();
 
 /** Validates the main per-turn adjudication call's output (turn.ts). */
@@ -268,7 +286,7 @@ export const zAdjudication = z.object({
   turn: z.number(),
   entityActions: z.array(zEntityAction),
   deltas: z.array(zEventDelta),
-  headlines: z.array(z.string()),
+  headlines: z.array(zHeadline),
   gm_private: z.array(z.string()),
   add_entities: z.array(zEntity).nullable().optional(),
   remove_entities: z.array(z.string()).nullable().optional(),
@@ -321,6 +339,11 @@ export const zSimulationState = z.object({
   military_status: z.enum(['Loyal', 'Divided', 'Rebellious']),
   plebeian_mood: z.enum(['Content', 'Uneasy', 'Rioting']),
   major_ongoing_crisis: z.string().nullable(),
+  // Actors-attribution contract (interchange-only): ONE top-level
+  // declaration covering `major_ongoing_crisis`, the only free-prose field
+  // here (every other field is a closed enum) - mention != actor, empty for
+  // no crisis/pure state description.
+  actors: z.array(z.string()),
 }).passthrough();
 
 /** Validates getInvestigationResult's output (intelligence.ts). `reportData`
@@ -435,10 +458,29 @@ export const zRelationshipObservations = z.array(z.object({
   excerpt: z.string().refine(value => value.trim().length > 0, 'excerpt must contain non-whitespace text'),
 }).strict());
 
+/**
+ * A narration or player-monologue payload: free prose plus the
+ * actors-attribution sibling (interchange-only - see zEventDelta above).
+ * NOT YET WIRED: narration/getPlayerMonologue are still plain generateText
+ * calls (ai/core/turn.ts, ai/tools/intelligence.ts); these schemas exist so
+ * a later task can switch them to structured output without a schema gap.
+ */
+const zProsePayload = z.object({
+  text: z.string(),
+  actors: z.array(z.string()),
+}).passthrough();
+
+export const zNarrationPayload = zProsePayload;
+export const zPlayerMonologuePayload = zProsePayload;
+
 /** Strict model boundary: a semantic decision plus offered evidence IDs only. */
 export const zNoAttemptEvidenceSelection = z.object({
   decision: z.enum(['answer', 'no_answer']),
   evidenceIds: z.array(z.string()).max(5),
+  // Actors-attribution contract (interchange-only, same treatment as
+  // narration/monologue): whose actions the rendered answer's prose
+  // narrates - mention != actor, empty for pure description.
+  actors: z.array(z.string()),
 }).strict().superRefine((selection, context) => {
   if (selection.decision === 'answer' && selection.evidenceIds.length === 0) {
     context.addIssue({

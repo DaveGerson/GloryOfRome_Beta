@@ -68,26 +68,29 @@ function schemeDelta(overrides: Partial<EventDelta> = {}): EventDelta {
 
 describe('schema pair: rumor truth fields (is_true/origin_id)', () => {
   it('zEventDelta accepts and preserves a fully dispositioned rumor delta', () => {
-    const parsed = zEventDelta.parse(rumorDelta({ is_true: false, origin_id: 'maximinus_thrax' }));
+    const parsed = zEventDelta.parse({ ...rumorDelta({ is_true: false, origin_id: 'maximinus_thrax' }), actors: [] });
     expect(parsed.is_true).toBe(false);
     expect(parsed.origin_id).toBe('maximinus_thrax');
   });
 
   it('zEventDelta accepts null and absent dispositions (defensive path for the engine fallback)', () => {
-    expect(zEventDelta.parse(rumorDelta()).is_true).toBeUndefined();
-    const withNulls = zEventDelta.parse(rumorDelta({ is_true: null as unknown as boolean, origin_id: null as unknown as string }));
+    expect(zEventDelta.parse({ ...rumorDelta(), actors: [] }).is_true).toBeUndefined();
+    const withNulls = zEventDelta.parse({
+      ...rumorDelta({ is_true: null as unknown as boolean, origin_id: null as unknown as string }),
+      actors: [],
+    });
     expect(withNulls.is_true).toBeNull();
     expect(withNulls.origin_id).toBeNull();
   });
 
   it('zEventDelta rejects a non-boolean truth disposition', () => {
-    expect(() => zEventDelta.parse(rumorDelta({ is_true: 'yes' as unknown as boolean }))).toThrow();
+    expect(() => zEventDelta.parse({ ...rumorDelta({ is_true: 'yes' as unknown as boolean }), actors: [] })).toThrow();
   });
 
   it('zAdjudication carries rumor deltas with the new fields end to end', () => {
     const adjudication = {
       ...deepCopy(baseAdjudication),
-      deltas: [rumorDelta({ is_true: true, origin_id: 'gaius_pontius_magnus' })],
+      deltas: [{ ...rumorDelta({ is_true: true, origin_id: 'gaius_pontius_magnus' }), actors: [] }],
     };
     const parsed = zAdjudication.parse(adjudication);
     expect(parsed.deltas[0].is_true).toBe(true);
@@ -147,12 +150,15 @@ describe('schema pair: rumor truth fields (is_true/origin_id)', () => {
   });
 
   it('zEventDelta strips a model-authored secret_truth while preserving rumor bookkeeping', () => {
-    const parsed = zEventDelta.parse(rumorDelta({
-      is_true: false,
-      origin_id: 'npc_x',
-      topic: 'succession',
-      secret_truth: { actually_alive: true, hidden_since_turn: 2, motive: 'forged' },
-    }));
+    const parsed = zEventDelta.parse({
+      ...rumorDelta({
+        is_true: false,
+        origin_id: 'npc_x',
+        topic: 'succession',
+        secret_truth: { actually_alive: true, hidden_since_turn: 2, motive: 'forged' },
+      }),
+      actors: [],
+    });
     expect('secret_truth' in parsed).toBe(false);
     expect(parsed.is_true).toBe(false);
     expect(parsed.origin_id).toBe('npc_x');
@@ -169,6 +175,7 @@ describe('schema pair: rumor truth fields (is_true/origin_id)', () => {
       new_location: 'Ravenna',
       secret_truth: { actually_alive: true, hidden_since_turn: 2, motive: 'forged' },
       flavor: 'x',
+      actors: [],
     });
     expect('secret_truth' in parsed).toBe(false);
     expect(parsed.new_status).toBe('dead');
@@ -192,6 +199,7 @@ describe('schema pair: rumor truth fields (is_true/origin_id)', () => {
           reason: 'Struck down in the Forum.',
           new_status: 'dead',
           secret_truth: { actually_alive: true, hidden_since_turn: 2, motive: 'forged delta' },
+          actors: [],
         },
       ],
       add_entities: [forgedEntity],
@@ -219,6 +227,7 @@ describe('schema pair: rumor truth fields (is_true/origin_id)', () => {
               reason: 'Narrate his apparent death.',
               new_status: 'dead',
               secret_truth: { actually_alive: true, hidden_since_turn: 2, motive: 'forged' },
+              actors: [],
             },
           ],
           narrative_directive: 'Narrate his apparent death.',

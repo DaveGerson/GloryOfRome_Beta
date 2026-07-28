@@ -721,14 +721,18 @@ export class JourneyRunner {
         opposing_entity_id: null,
         rationale: 'Administrative business with no real opposition or risk of failure.',
       },
+      // Actors-attribution contract: RAW PROVIDER INTERCHANGE shape - the
+      // headline carries its `actors` sibling (ai/core/zodSchemas.ts's
+      // zAdjudication); stripped before commit, so empty is always safe.
       adjudication: {
         turn: this.thread.turnNumber,
         entityActions: [],
         deltas: [],
-        headlines: ['The week passes without great incident in the city of Rome.'],
+        headlines: [{ text: 'The week passes without great incident in the city of Rome.', actors: [] }],
         gm_private: [],
       },
-      simulationState: structuredClone(this.thread.simulationState),
+      // RAW PROVIDER INTERCHANGE shape (zSimulationState): top-level actors.
+      simulationState: { ...structuredClone(this.thread.simulationState), actors: [] },
       monologue:
         'The city holds its breath, and so must I. Every ally I buy today is a debt some rival will try to collect tomorrow.',
       narration:

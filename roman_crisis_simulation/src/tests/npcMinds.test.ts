@@ -186,15 +186,18 @@ const nonConsequentialAssessmentJson = JSON.stringify({
 const adjudicationJson = JSON.stringify({
   turn: 5,
   entityActions: [
-    { id: 'npc_thrax', intent: 'march', target: null, notes: 'The legions break camp.' },
-    { id: 'npc_venena', intent: 'intrigue', target: 'player_1', notes: 'A vial changes hands.' },
+    { id: 'npc_thrax', intent: 'march', target: null, notes: 'The legions break camp.', actors: ['npc_thrax'] },
+    { id: 'npc_venena', intent: 'intrigue', target: 'player_1', notes: 'A vial changes hands.', actors: ['npc_venena'] },
   ],
   deltas: [],
-  headlines: ['The Rhine stirs.'],
+  headlines: [{ text: 'The Rhine stirs.', actors: ['npc_thrax'] }],
   gm_private: [],
 });
 
-const simStateJson = JSON.stringify(SIM_STATE);
+// Raw provider interchange (zSimulationState): SIM_STATE (the committed
+// fixture, also used directly as runNewTurn's currentSimulationState arg)
+// plus the actors-attribution sibling a real captured response carries.
+const simStateJson = JSON.stringify({ ...SIM_STATE, actors: [] });
 const narrationText = 'The city holds its breath.\nSUGGESTION: Wait';
 
 const THRAX_REASONING = 'PRIVATE: I fear my own men more than the Emperor.';
@@ -755,9 +758,9 @@ describe('runNewTurn main adjudication: relationship deltas are committed, appli
       turn: 5,
       entityActions: [],
       deltas: [
-        { type: 'relation', key: 'player_1:npc_thrax:trust_level', delta: -2, reason: 'The vial changing hands gnaws at him.' },
+        { type: 'relation', key: 'player_1:npc_thrax:trust_level', delta: -2, reason: 'The vial changing hands gnaws at him.', actors: ['npc_thrax'] },
       ],
-      headlines: ['The Rhine stirs.'],
+      headlines: [{ text: 'The Rhine stirs.', actors: [] }],
       gm_private: [],
     });
     const harness = createMindHarness(responses);
@@ -966,13 +969,13 @@ describe('D30: a mind evolves its OWN active_scheme (load-bearing scheme_adjustm
         entityActions: [],
         deltas: [
           // Same entity whose mind evolved its scheme -> superseded (no double-apply).
-          { type: 'scheme', key: 'npc_thrax', delta: 0, reason: JSON.stringify({ name: 'Adjudicator Override', overall_goal: "Not the mind's plan.", steps: [] }) },
+          { type: 'scheme', key: 'npc_thrax', delta: 0, reason: JSON.stringify({ name: 'Adjudicator Override', overall_goal: "Not the mind's plan.", steps: [] }), actors: [] },
           // A minded entity whose mind did NOT evolve -> adjudicator keeps ownership.
-          { type: 'scheme', key: 'npc_venena', delta: 0, reason: JSON.stringify({ name: 'Venena Adjudicator Scheme', overall_goal: 'Poison on.', steps: [] }) },
+          { type: 'scheme', key: 'npc_venena', delta: 0, reason: JSON.stringify({ name: 'Venena Adjudicator Scheme', overall_goal: 'Poison on.', steps: [] }), actors: [] },
           // A non-minded bystander -> adjudicator owns it (DYNAMIC SCHEMES).
-          { type: 'scheme', key: 'npc_bystander', delta: 0, reason: JSON.stringify({ name: 'Bystander Scheme', overall_goal: 'Watch.', steps: [] }) },
+          { type: 'scheme', key: 'npc_bystander', delta: 0, reason: JSON.stringify({ name: 'Bystander Scheme', overall_goal: 'Watch.', steps: [] }), actors: [] },
         ],
-        headlines: ['The Rhine stirs.'],
+        headlines: [{ text: 'The Rhine stirs.', actors: [] }],
         gm_private: [],
       });
       const harness = createMindHarness(responses);

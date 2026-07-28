@@ -12,6 +12,7 @@ import { buildWorldSummary } from '../prompts/fragments';
 import { buildPerceivedDigest, buildPlayerPerceivedDigest, PerceivedChange } from '../../perception/visibility';
 import { generateStructured, generateText, generateTextStream, GEMINI_PRO, beginTurnCapture, endTurnCapture } from './geminiService';
 import { zAdjudication } from './zodSchemas';
+import { stripActorsFromAdjudication, type AdjudicationInterchange } from './actorsBoundary';
 import { buildAdjudicationPrompt, PlayerActionOutcomeContext, HistoricalMaterialEntry } from '../prompts/adjudication';
 import type { PrivateSceneAdjudicatorProjection, PrivateSceneNpcMemoryProjection } from '../../privateScene/model';
 import { selectRipeEventMaterial } from '../../events/engine';
@@ -598,7 +599,7 @@ export async function runNewTurn(
 
     // 2. Get adjudication from AI
     options?.onStage?.('adjudication');
-    const adjudication = await generateStructured<Adjudication>(ai, {
+    const rawAdjudication = await generateStructured<AdjudicationInterchange>(ai, {
         callName: 'adjudication',
         model: GEMINI_PRO,
         systemInstruction,
@@ -608,6 +609,10 @@ export async function runNewTurn(
         thinkingConfig: { thinkingBudget: 1024 },
         temperature: ADJUDICATION_TEMPERATURE,
     });
+    // Actors-attribution parse boundary (Task 1): strip the interchange-only
+    // `actors` siblings/headline shape immediately, before anything below
+    // (which expects types.ts's committed Adjudication shape) touches it.
+    const adjudication = stripActorsFromAdjudication(rawAdjudication);
     enforceNoAttemptBoundary(adjudication, playerEntity, narrationSubmission.hasObservableAttempt);
 
     // Record the resolution layer's trace as a GM-private note (mirrors the

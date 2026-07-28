@@ -120,7 +120,7 @@ function installClientWithEvidenceSelection(
     selectorCalls.push({ question, evidence, prompt: params.contents, systemInstruction });
     const selected = evidence.find(item => item.text === selectedEvidenceText);
     if (!selected) throw new Error(`journey selector did not receive evidence text: ${selectedEvidenceText}`);
-    return { text: JSON.stringify({ decision: 'answer', evidenceIds: [selected.id] }) };
+    return { text: JSON.stringify({ decision: 'answer', evidenceIds: [selected.id], actors: [] }) };
   };
   installAppGeminiScript(client);
 }
@@ -322,7 +322,16 @@ describe('journey: structured player input through the real App transaction', ()
     seed.thread.turnHistory.push({
       turnNumber: 1,
       playerIntent: 'Receive the ordinary public petitions.',
-      adjudication: scriptAdjudication(1, { gm_private: [`[Secret Meeting] ${hiddenConversation}`] }),
+      // Committed history, not a scripted provider response: build the
+      // internal Adjudication shape directly (bare-string headlines) rather
+      // than scriptAdjudication (which returns the raw interchange shape).
+      adjudication: {
+        turn: 1,
+        entityActions: [],
+        deltas: [],
+        headlines: ['The week passes without great incident in the city of Rome.'],
+        gm_private: [`[Secret Meeting] ${hiddenConversation}`],
+      },
       narration: 'The public audience concluded without incident.',
     });
     seed.thread.turnNumber = 2;

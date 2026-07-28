@@ -1,12 +1,12 @@
 import type {
   NoAttemptEvidence,
-  NoAttemptEvidenceSelection,
   NoAttemptSelectionResult,
 } from '../../playerView/noAttemptResponse';
 import { validateNoAttemptSelection } from '../../playerView/noAttemptResponse';
 import { GEMINI_FLASH, generateStructured, type GeminiClient } from '../core/geminiService';
 import { NoAttemptEvidenceSelectionSchema } from '../core/schemas';
 import { zNoAttemptEvidenceSelection } from '../core/zodSchemas';
+import { stripActorsFromNoAttemptEvidenceSelection, type NoAttemptEvidenceSelectionInterchange } from '../core/actorsBoundary';
 import { buildNoAttemptEvidenceSelectionPrompt } from '../prompts/noAttemptResponse';
 
 function projectSelectionResult(result: NoAttemptSelectionResult): NoAttemptSelectionResult {
@@ -33,7 +33,7 @@ export async function selectNoAttemptEvidence(
 
   try {
     const { systemInstruction, prompt } = buildNoAttemptEvidenceSelectionPrompt(question, evidence);
-    const selection = await generateStructured<NoAttemptEvidenceSelection>(ai, {
+    const rawSelection = await generateStructured<NoAttemptEvidenceSelectionInterchange>(ai, {
       callName: 'noAttemptEvidenceSelection',
       model: GEMINI_FLASH,
       systemInstruction,
@@ -41,6 +41,9 @@ export async function selectNoAttemptEvidence(
       responseSchema: NoAttemptEvidenceSelectionSchema,
       zodSchema: zNoAttemptEvidenceSelection,
     });
+    // Actors-attribution parse boundary (Task 1): strip the interchange-only
+    // `actors` sibling before this reaches selection validation/downstream use.
+    const selection = stripActorsFromNoAttemptEvidenceSelection(rawSelection);
     return projectSelectionResult(validateNoAttemptSelection(selection, evidence));
   } catch {
     return { kind: 'no_answer', reason: 'selector_failure' };

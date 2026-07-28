@@ -18,7 +18,6 @@
  */
 
 import type {
-  Adjudication,
   Entity,
   EventDelta,
   EntityAction,
@@ -184,7 +183,20 @@ export function scriptAssessmentConsequential(opts: {
   };
 }
 
-/** The main adjudication response. `turn` MUST match the turn number runNewTurn was called with. */
+/**
+ * The main adjudication response. `turn` MUST match the turn number
+ * runNewTurn was called with.
+ *
+ * Actors-attribution contract: this builds the RAW PROVIDER INTERCHANGE
+ * shape (ai/core/zodSchemas.ts's zAdjudication) - every entityAction/delta
+ * gets a default `actors: []` sibling and every headline becomes
+ * `{ text, actors: [] }`, UNLESS the caller's `opts.deltas`/`opts.entityActions`
+ * already carry their own `actors` (the default is only a fallback, never an
+ * override) - so every existing call site here and in the journey files
+ * keeps working unmodified. `actors` never survives past the real pipeline's
+ * parse boundary (ai/core/actorsBoundary.ts strips it before commit), so an
+ * empty default is always safe.
+ */
 export function scriptAdjudication(
   turn: number,
   opts: {
@@ -195,24 +207,30 @@ export function scriptAdjudication(
     add_entities?: Entity[];
     remove_entities?: string[];
   } = {}
-): Adjudication {
+) {
   return {
     turn,
-    entityActions: opts.entityActions ?? [],
-    deltas: opts.deltas ?? [],
-    headlines: opts.headlines ?? ['The week passes without great incident in the city of Rome.'],
+    entityActions: (opts.entityActions ?? []).map(action => ({ actors: [], ...action })),
+    deltas: (opts.deltas ?? []).map(delta => ({ actors: [], ...delta })),
+    headlines: (opts.headlines ?? ['The week passes without great incident in the city of Rome.'])
+      .map(text => ({ text, actors: [] })),
     gm_private: opts.gm_private ?? [],
     ...(opts.add_entities ? { add_entities: opts.add_entities } : {}),
     ...(opts.remove_entities ? { remove_entities: opts.remove_entities } : {}),
   };
 }
 
-/** getUpdatedSimulationState response. Default: echo the current state unchanged. */
+/**
+ * getUpdatedSimulationState response. Default: echo the current state
+ * unchanged. RAW PROVIDER INTERCHANGE shape (zSimulationState): adds the
+ * top-level `actors: []` a real captured response carries - stripped before
+ * commit, so an empty default is always safe.
+ */
 export function scriptSimulationState(
   base: SimulationState,
   overrides: Partial<SimulationState> = {}
-): SimulationState {
-  return { ...structuredClone(base), ...overrides };
+) {
+  return { ...structuredClone(base), ...overrides, actors: [] };
 }
 
 /** Narration response: prose + exactly three SUGGESTION lines (the turn.ts split contract). */
@@ -250,7 +268,11 @@ export function scriptMortalityValidation(
   return { dispositions };
 }
 
-/** Mortality OUTCOME response - concrete content for bands that need it (D2/D3 gate 3). */
+/**
+ * Mortality OUTCOME response - concrete content for bands that need it
+ * (D2/D3 gate 3). RAW PROVIDER INTERCHANGE shape: each outcome delta gets a
+ * default `actors: []` sibling (never an override - stripped before commit).
+ */
 export function scriptMortalityOutcome(
   outcomes: Array<{
     entity_id: string;
@@ -259,7 +281,12 @@ export function scriptMortalityOutcome(
     secret_motive?: string | null;
   }>
 ) {
-  return { outcomes };
+  return {
+    outcomes: outcomes.map(outcome => ({
+      ...outcome,
+      deltas: outcome.deltas.map(delta => ({ actors: [], ...delta })),
+    })),
+  };
 }
 
 /**

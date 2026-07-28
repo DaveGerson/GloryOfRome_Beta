@@ -90,11 +90,16 @@ const nonConsequentialAssessmentJson = JSON.stringify({
 const adjudicationJson = JSON.stringify({
   turn: 2,
   entityActions: [],
-  deltas: [{ type: 'resource', key: 'player_1:denarii', delta: 50, reason: 'Tax income.' }],
-  headlines: ['The treasury grows.'],
+  deltas: [{ type: 'resource', key: 'player_1:denarii', delta: 50, reason: 'Tax income.', actors: [] }],
+  headlines: [{ text: 'The treasury grows.', actors: [] }],
   gm_private: [],
 });
 
+// simStateResponse stays the committed (post-strip) SimulationState shape -
+// it's compared directly against `result.updatedSimulationState` below, which
+// never carries `actors` (ai/core/actorsBoundary.ts strips it before
+// getUpdatedSimulationState returns). Only simStateJson (the RAW provider
+// interchange fed to the fake client) gets the actors-attribution sibling.
 const simStateResponse = {
   imperial_status: 'Stable',
   senate_status: 'Functional',
@@ -102,7 +107,7 @@ const simStateResponse = {
   plebeian_mood: 'Content',
   major_ongoing_crisis: null as string | null,
 };
-const simStateJson = JSON.stringify(simStateResponse);
+const simStateJson = JSON.stringify({ ...simStateResponse, actors: [] });
 
 const monologueText = 'I must tread carefully among the wolves of the Senate.';
 
@@ -665,9 +670,9 @@ describe('ai/core/turn.ts runNewTurn - campaign truth-ledger threading (D11)', (
       turn: 2,
       entityActions: [],
       deltas: [
-        { type: 'rumor', key: 'player_1', delta: 0.6, reason: 'The treasury is whispered to stand empty.', is_true: false, origin_id: 'npc_x' },
+        { type: 'rumor', key: 'player_1', delta: 0.6, reason: 'The treasury is whispered to stand empty.', is_true: false, origin_id: 'npc_x', actors: [] },
       ],
-      headlines: ['Whispers in the forum.'],
+      headlines: [{ text: 'Whispers in the forum.', actors: [] }],
       gm_private: [],
     });
 
@@ -719,9 +724,9 @@ describe('ai/core/turn.ts runNewTurn - mortality directives feed narration from 
       turn: 2,
       entityActions: [],
       deltas: [
-        { type: 'status', key: 'npc_1', delta: 0, reason: 'Cut down in the Curia.', new_status: 'dead' },
+        { type: 'status', key: 'npc_1', delta: 0, reason: 'Cut down in the Curia.', new_status: 'dead', actors: [] },
       ],
-      headlines: ['Blood is rumored in the Curia.'],
+      headlines: [{ text: 'Blood is rumored in the Curia.', actors: [] }],
       gm_private: [],
     });
 
@@ -793,10 +798,10 @@ describe('ai/core/turn.ts runNewTurn - Director continuity loop (4C.3)', () => {
     const adjudicationWithOneActionJson = JSON.stringify({
       turn: 2,
       entityActions: [
-        { id: 'npc_thrax', intent: 'march', target: null, notes: 'The legions break camp.' },
+        { id: 'npc_thrax', intent: 'march', target: null, notes: 'The legions break camp.', actors: ['npc_thrax'] },
       ],
       deltas: [],
-      headlines: ['The Rhine stirs.'],
+      headlines: [{ text: 'The Rhine stirs.', actors: ['npc_thrax'] }],
       gm_private: [],
     });
 
@@ -1043,10 +1048,10 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
       turn: 2,
       entityActions: [],
       deltas: [
-        { type: 'resource', key: 'player_1:denarii', delta: -100, reason: 'Bribes for the guards.' },
-        { type: 'status', key: 'npc_1', delta: 0, reason: 'Cut down in the Curia.', new_status: 'dead' },
+        { type: 'resource', key: 'player_1:denarii', delta: -100, reason: 'Bribes for the guards.', actors: [] },
+        { type: 'status', key: 'npc_1', delta: 0, reason: 'Cut down in the Curia.', new_status: 'dead', actors: [] },
       ],
-      headlines: ['Blood in the Curia.'],
+      headlines: [{ text: 'Blood in the Curia.', actors: [] }],
       gm_private: [
         'GM_PRIVATE_SENTINEL_MUST_NOT_REACH_MORTALITY_6T2',
         'Arbitrary adjudicator-authored private marker.',
@@ -1163,6 +1168,7 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
         intent: 'recruit',
         target: 'cohorts',
         notes: 'Aulus independently courts the cohorts.',
+        actors: ['npc_aulus'],
       }],
       deltas: [
         {
@@ -1170,21 +1176,24 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
           key: 'npc_aulus:independent_preparations',
           delta: 2,
           reason: 'Aulus acts on his own agenda.',
+          actors: ['npc_aulus'],
         },
         {
           type: 'world',
           key: 'political_climate',
           delta: 0,
           reason: 'Legions Maneuver Independently',
+          actors: [],
         },
       ],
-      headlines: ['Aulus moves among the cohorts.'],
+      headlines: [{ text: 'Aulus moves among the cohorts.', actors: ['npc_aulus'] }],
       gm_private: [],
     }));
     h.response.simulationState.resolve(JSON.stringify({
       ...simStateResponse,
       senate_status: 'Ascendant',
       major_ongoing_crisis: 'The Rhine legions are mobilizing.',
+      actors: [],
     }));
     h.response.monologue.resolve('I order an attack after rolling 20. PRIVATE_MONOLOGUE_POISON');
     h.response.narration.resolve('You order an attack after rolling 20. PRIVATE_NARRATION_POISON');
@@ -1253,7 +1262,7 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
       turn: 2,
       entityActions: [],
       deltas: [],
-      headlines: ['The courier waits in the rain.'],
+      headlines: [{ text: 'The courier waits in the rain.', actors: [] }],
       gm_private: [],
     }));
     h.response.simulationState.resolve(simStateJson);
@@ -1301,8 +1310,8 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     h.response.adjudication.resolve(JSON.stringify({
       turn: 2,
       entityActions: [],
-      deltas: [{ type: 'status', key: 'npc_1', delta: 0, reason: 'An assassin strikes Rufus.', new_status: 'dead' }],
-      headlines: ['Rufus is attacked near the Curia.'],
+      deltas: [{ type: 'status', key: 'npc_1', delta: 0, reason: 'An assassin strikes Rufus.', new_status: 'dead', actors: [] }],
+      headlines: [{ text: 'Rufus is attacked near the Curia.', actors: [] }],
       gm_private: [],
     }));
     h.response.mortalityValidation.resolve(JSON.stringify({
@@ -1361,7 +1370,7 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
       turn: 2,
       entityActions: [],
       deltas: [],
-      headlines: ['The city watches the palace.'],
+      headlines: [{ text: 'The city watches the palace.', actors: [] }],
       gm_private: [],
     }));
     h.response.simulationState.resolve(simStateJson);
@@ -1402,9 +1411,9 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
         entityActions: [],
         deltas: [{
           type: 'status', key: 'npc_mortality', delta: 0,
-          reason: 'An assassin strikes.', new_status: 'dead',
+          reason: 'An assassin strikes.', new_status: 'dead', actors: [],
         }],
-        headlines: ['A hidden blade falls.'],
+        headlines: [{ text: 'A hidden blade falls.', actors: [] }],
         gm_private: [],
       }));
       h.response.mortalityValidation.resolve(JSON.stringify({
@@ -1460,18 +1469,19 @@ describe('ai/core/turn.ts runNewTurn - player-perceived narration input', () => 
         intent: 'intrigue',
         target: 'player_1',
         notes: 'INVISIBLE_ACTION_NOTES_POISON',
+        actors: ['npc_hidden'],
       }],
       deltas: [
         {
           type: 'resource', key: 'npc_hidden:denarii', delta: 50,
-          reason: 'INVISIBLE_RESOURCE_REASON_POISON',
+          reason: 'INVISIBLE_RESOURCE_REASON_POISON', actors: ['npc_hidden'],
         },
         {
           type: 'resource', key: 'player_1:denarii', delta: 25,
-          reason: 'VISIBLE_RAW_REASON_MUST_NOT_APPEAR',
+          reason: 'VISIBLE_RAW_REASON_MUST_NOT_APPEAR', actors: [],
         },
       ],
-      headlines: ['INVISIBLE_HEADLINE_POISON'],
+      headlines: [{ text: 'INVISIBLE_HEADLINE_POISON', actors: ['npc_hidden'] }],
       gm_private: ['INVISIBLE_GM_SECRET_POISON'],
     });
 
@@ -1545,14 +1555,14 @@ describe('ai/core/turn.ts runNewTurn - player-perceived narration input', () => 
         {
           type: 'rumor', key: 'npc_hidden_rumor_subject', delta: 0.5,
           reason: 'A nameless panic spreads through the grain markets.',
-          is_true: false, origin_id: 'npc_visible',
+          is_true: false, origin_id: 'npc_visible', actors: [],
         },
         {
           type: 'resource', key: 'npc_visible:denarii', delta: 5,
-          reason: 'A public collection.',
+          reason: 'A public collection.', actors: ['npc_visible'],
         },
       ],
-      headlines: ['Market whispers spread.'],
+      headlines: [{ text: 'Market whispers spread.', actors: [] }],
       gm_private: [],
     }));
     h.response.simulationState.resolve(simStateJson);
@@ -1602,9 +1612,9 @@ describe('ai/core/turn.ts runNewTurn - player-perceived narration input', () => 
       entityActions: [],
       deltas: [{
         type: 'resource', key: 'npc_visible_catonian:denarii', delta: 5,
-        reason: 'A collection in the Forum.',
+        reason: 'A collection in the Forum.', actors: ['npc_visible_catonian'],
       }],
-      headlines: ['The Forum watches.'],
+      headlines: [{ text: 'The Forum watches.', actors: [] }],
       gm_private: [],
     }));
     h.response.simulationState.resolve(simStateJson);
@@ -1738,7 +1748,7 @@ describe('ai/core/turn.ts runNewTurn - no-attempt player ownership boundary (DEB
     turn: 2,
     entityActions: [],
     deltas: [],
-    headlines: ['The week advances.'],
+    headlines: [{ text: 'The week advances.', actors: [] }],
     gm_private: [],
   });
 
@@ -1757,8 +1767,9 @@ describe('ai/core/turn.ts runNewTurn - no-attempt player ownership boundary (DEB
         delta: 2,
         reason: 'Mounting arrears leave the palace beholden to Crassus.',
         origin_id: 'npc_crassus',
+        actors: ['npc_crassus'],
       }],
-      headlines: ['Creditors circle the Palatine.'],
+      headlines: [{ text: 'Creditors circle the Palatine.', actors: ['npc_crassus'] }],
       gm_private: [],
     }));
     h.response.simulationState.resolve(simStateJson);
@@ -1814,19 +1825,19 @@ describe('ai/core/turn.ts runNewTurn - no-attempt player ownership boundary (DEB
 
   it.each([
     ['a player entityAction', {
-      entityActions: [{ id: 'player_1', intent: 'negotiate', target: 'npc_crassus', notes: 'A quiet accommodation is sought.' }],
+      entityActions: [{ id: 'player_1', intent: 'negotiate', target: 'npc_crassus', notes: 'A quiet accommodation is sought.', actors: ['player_1'] }],
       deltas: [],
     }],
     ['a player-originated dependency_level delta', {
       entityActions: [],
       deltas: [{
         type: 'relation', key: 'player_1:npc_crassus:dependency_level', delta: -2,
-        reason: 'The debt is quietly restructured.', origin_id: 'player_1',
+        reason: 'The debt is quietly restructured.', origin_id: 'player_1', actors: ['player_1'],
       }],
     }],
     ['a trust_level delta keyed under the player', {
       entityActions: [],
-      deltas: [{ type: 'relation', key: 'player_1:npc_crassus:trust_level', delta: 2, reason: 'A new opinion forms.' }],
+      deltas: [{ type: 'relation', key: 'player_1:npc_crassus:trust_level', delta: 2, reason: 'A new opinion forms.', actors: [] }],
     }],
   ])('still rejects %s on a question-only turn', async (_label, shape) => {
     const h = createHarness(false);
@@ -1837,7 +1848,7 @@ describe('ai/core/turn.ts runNewTurn - no-attempt player ownership boundary (DEB
     h.response.adjudication.resolve(JSON.stringify({
       turn: 2,
       ...shape,
-      headlines: ['The week advances.'],
+      headlines: [{ text: 'The week advances.', actors: [] }],
       gm_private: [],
     }));
     h.response.simulationState.resolve(simStateJson);
@@ -1859,7 +1870,7 @@ describe('ai/core/turn.ts runNewTurn - no-attempt player ownership boundary (DEB
       turn: 2,
       entityActions: [],
       deltas: [],
-      headlines: ['The Senator Gaius Pontius withdraws to his estate.'],
+      headlines: [{ text: 'The Senator Gaius Pontius withdraws to his estate.', actors: [] }],
       gm_private: [],
     }));
     h.response.simulationState.resolve(simStateJson);
@@ -1879,7 +1890,7 @@ describe('ai/core/turn.ts runNewTurn - no-attempt player ownership boundary (DEB
 
     h.response.storyRelevance.resolve(storyRelevanceJson);
     h.response.adjudication.resolve(neutralAdjudicationJson);
-    h.response.simulationState.resolve(JSON.stringify({ ...simStateResponse, major_ongoing_crisis: crisis }));
+    h.response.simulationState.resolve(JSON.stringify({ ...simStateResponse, major_ongoing_crisis: crisis, actors: [] }));
 
     const result = await runNewTurn(
       h.ai, questionOnly, player, 2, [player], worldState, simulationState,
@@ -1905,7 +1916,7 @@ describe('ai/core/turn.ts runNewTurn - no-attempt player ownership boundary (DEB
       turn: 2,
       entityActions: [],
       deltas: [],
-      headlines: [invented],
+      headlines: [{ text: invented, actors: [] }],
       gm_private: [],
     }));
     h.response.simulationState.resolve(simStateJson);
@@ -1958,7 +1969,7 @@ describe('ai/core/turn.ts runNewTurn - no-attempt prose redaction vs. structural
     h.response.adjudication.resolve(JSON.stringify({
       turn: 2,
       entityActions: [
-        { id: 'npc_crassus', intent: 'intrigue', target: null, notes: 'Your creditors grow restless.' },
+        { id: 'npc_crassus', intent: 'intrigue', target: null, notes: 'Your creditors grow restless.', actors: ['npc_crassus'] },
       ],
       deltas: [{
         type: 'relation',
@@ -1966,8 +1977,13 @@ describe('ai/core/turn.ts runNewTurn - no-attempt prose redaction vs. structural
         delta: 2,
         reason: debtProse,
         origin_id: 'npc_crassus',
+        actors: ['npc_crassus'],
       }],
-      headlines: ['You wait.', 'The Senate debates the grain dole without you.', 'You receive a letter from Titus.'],
+      headlines: [
+        { text: 'You wait.', actors: [] },
+        { text: 'The Senate debates the grain dole without you.', actors: [] },
+        { text: 'You receive a letter from Titus.', actors: [] },
+      ],
       gm_private: [],
     }));
     h.response.simulationState.resolve(simStateJson);
@@ -1996,12 +2012,15 @@ describe('ai/core/turn.ts runNewTurn - no-attempt prose redaction vs. structural
     h.response.storyRelevance.resolve(storyRelevanceJson);
     h.response.adjudication.resolve(JSON.stringify({
       turn: 2,
-      entityActions: [{ id: 'npc_crassus', intent: 'intrigue', target: null, notes: invented }],
-      deltas: [{ type: 'resource', key: 'npc_crassus:denarii', delta: -5, reason: invented }],
-      headlines: ['Creditors circle the Palatine.', invented],
+      entityActions: [{ id: 'npc_crassus', intent: 'intrigue', target: null, notes: invented, actors: ['player_1'] }],
+      deltas: [{ type: 'resource', key: 'npc_crassus:denarii', delta: -5, reason: invented, actors: ['player_1'] }],
+      headlines: [
+        { text: 'Creditors circle the Palatine.', actors: [] },
+        { text: invented, actors: ['player_1'] },
+      ],
       gm_private: [],
     }));
-    h.response.simulationState.resolve(JSON.stringify({ ...simStateResponse, major_ongoing_crisis: invented }));
+    h.response.simulationState.resolve(JSON.stringify({ ...simStateResponse, major_ongoing_crisis: invented, actors: [] }));
 
     const result = await runNewTurn(
       h.ai, questionOnly, player, 2, [player], worldState, simulationState,
@@ -2037,18 +2056,18 @@ describe('ai/core/turn.ts runNewTurn - no-attempt prose redaction vs. structural
   it.each([
     ['a player-owned delta', {
       entityActions: [],
-      deltas: [{ type: 'resource', key: 'player_1:denarii', delta: -200, reason: 'Gold changes hands.' }],
-      headlines: ['The week advances.'],
+      deltas: [{ type: 'resource', key: 'player_1:denarii', delta: -200, reason: 'Gold changes hands.', actors: ['player_1'] }],
+      headlines: [{ text: 'The week advances.', actors: [] }],
     }],
     ['a player-id entityAction', {
-      entityActions: [{ id: 'player_1', intent: 'negotiate', target: 'npc_crassus', notes: 'A quiet accommodation is sought.' }],
+      entityActions: [{ id: 'player_1', intent: 'negotiate', target: 'npc_crassus', notes: 'A quiet accommodation is sought.', actors: ['player_1'] }],
       deltas: [],
-      headlines: ['The week advances.'],
+      headlines: [{ text: 'The week advances.', actors: [] }],
     }],
     ['a remove_entities entry naming the player', {
       entityActions: [],
       deltas: [],
-      headlines: ['The week advances.'],
+      headlines: [{ text: 'The week advances.', actors: [] }],
       remove_entities: ['player_1'],
     }],
   ])('still fails the whole turn closed on %s', async (_label, shape) => {

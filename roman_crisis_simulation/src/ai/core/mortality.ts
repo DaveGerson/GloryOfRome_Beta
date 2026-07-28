@@ -37,7 +37,13 @@ import { getEntityBrief } from '../prompts/fragments';
 import { buildMortalityValidationPrompt, buildMortalityOutcomePrompt } from '../prompts/mortality';
 import { MortalityValidationSchema, MortalityOutcomeSchema } from './schemas';
 import { zMortalityValidation, zMortalityOutcome } from './zodSchemas';
+import { stripActorsFromEventDelta } from './actorsBoundary';
 import { assertPlayerVisibleTextSafe } from './playerBoundary';
+import type { z } from 'zod';
+
+// Exported generic pin for generateStructured below - TS cannot always infer
+// T from an optional `zodSchema` property alone (see ai/core/actorsBoundary.ts).
+type MortalityOutcomeInterchange = z.infer<typeof zMortalityOutcome>;
 
 const MORTALITY_OUTCOME_BOUNDARY_ERROR = 'AI output violated the mortality outcome boundary.';
 
@@ -85,11 +91,6 @@ type ResolvedOutcome = PlayerDeathSaveOutcome | NpcFateOutcome;
 /** Shape of the mortality VALIDATION call's parsed/validated response. Mirrors `zMortalityValidation`. */
 interface MortalityValidationResult {
   dispositions: { entity_id: string; valid: boolean; reasoning: string }[];
-}
-
-/** Shape of the mortality OUTCOME call's parsed/validated response. Mirrors `zMortalityOutcome`. */
-interface MortalityOutcomeResult {
-  outcomes: { entity_id: string; deltas: EventDelta[]; narrative_directive: string; secret_motive?: string | null }[];
 }
 
 interface ResolvedClaim {
@@ -265,7 +266,7 @@ export async function processMortality(
       })),
     });
 
-    const outcomeResult = await generateStructured<MortalityOutcomeResult>(ai, {
+    const outcomeResult = await generateStructured<MortalityOutcomeInterchange>(ai, {
       callName: 'mortalityOutcome',
       model: GEMINI_PRO,
       systemInstruction: outSys,
@@ -277,10 +278,14 @@ export async function processMortality(
 
     for (const o of outcomeResult.outcomes) {
       assertPlayerVisibleTextSafe(o.narrative_directive);
-      for (const delta of o.deltas) {
+      // Actors-attribution parse boundary (Task 1): strip the
+      // interchange-only `actors` sibling off every outcome delta before it
+      // joins the committed EventDelta[] merged into the adjudication below.
+      const deltas = o.deltas.map(stripActorsFromEventDelta);
+      for (const delta of deltas) {
         if (delta.type !== 'scheme') assertPlayerVisibleTextSafe(delta.reason);
       }
-      outcomeByEntity.set(o.entity_id, { deltas: o.deltas, narrative_directive: o.narrative_directive, secret_motive: o.secret_motive });
+      outcomeByEntity.set(o.entity_id, { deltas, narrative_directive: o.narrative_directive, secret_motive: o.secret_motive });
     }
   }
 

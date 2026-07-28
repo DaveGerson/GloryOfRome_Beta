@@ -104,9 +104,18 @@ function responseFor(kind: CallKind): string {
         private_reasoning: 'I must act before my rival does.',
       });
     case 'adjudication':
-      return JSON.stringify({ turn: 7, entityActions: [], deltas: [], headlines: ['Rome waits.'], gm_private: [] });
+      return JSON.stringify({
+        turn: 7,
+        entityActions: [],
+        deltas: [],
+        headlines: [{ text: 'Rome waits.', actors: [] }],
+        gm_private: [],
+      });
     case 'simulationState':
-      return JSON.stringify(SIMULATION_STATE);
+      // Raw provider interchange (zSimulationState): the committed
+      // SIMULATION_STATE fixture plus the actors-attribution sibling a real
+      // captured response carries.
+      return JSON.stringify({ ...SIMULATION_STATE, actors: [] });
     case 'monologue':
       return 'I weigh what must remain unspoken.';
     case 'narration':
