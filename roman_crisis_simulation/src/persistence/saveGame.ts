@@ -193,6 +193,62 @@ function stripCapturedCallText(turnHistory: TurnHistoryEntry[]): TurnHistoryEntr
   });
 }
 
+function canonicalPrivateSceneTranscriptLine(
+  line: PrivateSceneRecord['transcript'][number],
+): PrivateSceneRecord['transcript'][number] {
+  return {
+    sequence: line.sequence,
+    speaker: line.speaker,
+    text: line.text,
+  };
+}
+
+function canonicalPrivateSceneSpeechAct(
+  act: PrivateSceneRecord['speechActs'][number],
+): PrivateSceneRecord['speechActs'][number] {
+  return {
+    speaker: act.speaker,
+    kind: act.kind,
+    text: act.text,
+    exchange: act.exchange,
+  };
+}
+
+function canonicalPrivateSceneNpcPrivate(
+  npcPrivate: PrivateSceneRecord['npcPrivate'],
+): PrivateSceneRecord['npcPrivate'] {
+  return {
+    sincerity: npcPrivate.sincerity,
+    hiddenIntent: npcPrivate.hiddenIntent,
+    plannedFollowThrough: [...npcPrivate.plannedFollowThrough],
+  };
+}
+
+/**
+ * Rebuilds the persisted private-scene shape from its allowlisted contract.
+ * Runtime-only additions must not silently cross the storage boundary, and
+ * the source record remains available unchanged to the in-session GM tools.
+ */
+function canonicalPrivateScene(scene: PrivateSceneRecord): PrivateSceneRecord {
+  return {
+    sceneId: scene.sceneId,
+    macroTurn: scene.macroTurn,
+    playerId: scene.playerId,
+    npcId: scene.npcId,
+    playerName: scene.playerName,
+    npcName: scene.npcName,
+    status: scene.status,
+    transcript: scene.transcript.map(canonicalPrivateSceneTranscriptLine),
+    npcResponseCount: scene.npcResponseCount,
+    speechActs: scene.speechActs.map(canonicalPrivateSceneSpeechAct),
+    npcPrivate: canonicalPrivateSceneNpcPrivate(scene.npcPrivate),
+    ...(scene.closureReason === undefined ? {} : { closureReason: scene.closureReason }),
+    ...(scene.lastWord === undefined ? {} : { lastWord: scene.lastWord }),
+    consequenceStatus: scene.consequenceStatus,
+    ...(scene.consumedByTurn === undefined ? {} : { consumedByTurn: scene.consumedByTurn }),
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -224,6 +280,9 @@ export function saveGame(state: SaveGameState): SaveGameResult {
   const leanState: SaveGameState = {
     ...state,
     turnHistory: stripCapturedCallText(state.turnHistory),
+    ...(state.privateScenes === undefined
+      ? {}
+      : { privateScenes: state.privateScenes.map(canonicalPrivateScene) }),
   };
 
   const envelope: SaveGame = {
