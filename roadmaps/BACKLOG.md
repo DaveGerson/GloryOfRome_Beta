@@ -156,6 +156,22 @@ actor in its own right.
   tab-at-a-time assumption, not a bug to fix reactively - no user-visible
   symptom exists until a player actually runs two tabs against the same
   save slot.
+- Two optional hardening items from the D42 actors-contract adversarial
+  review, neither blocking: (a) `ai/core/streamSplit.ts`'s
+  `extractPayloadTextPrefix` re-scans the full cumulative raw JSON from the
+  start on every chunk - quadratic in the response length. Measured cost is
+  negligible at realistic narration sizes (~3-5ms at a ≤8KB payload) but
+  grows to ~267ms at 128KB, so if narration payloads ever grow past typical
+  provider caps, an incremental-state extractor (resuming from where the
+  last chunk left off instead of re-scanning) would be worth building. (b) A
+  provider response with a DUPLICATE top-level `"text"` key could in theory
+  let the streamed (incremental) value diverge from the committed (final
+  parse) value if the two occurrences disagree - implausible under
+  constrained/schema-guided decoding (the whole point of structured-output
+  mode), and even if it happened the committed value is still fully gated by
+  the declaration/tripwire/mechanics boundary regardless of what streamed
+  earlier. Not tracked with a test; noted here so a future maintainer
+  doesn't have to rediscover it.
 
 ### B8 — Raw relationship numbers on the Personae tab  *(ruling needed)*
 `DramatisPersonaeTab` renders the player's own Trust/Respect/Threat/

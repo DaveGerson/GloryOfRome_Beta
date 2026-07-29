@@ -1475,9 +1475,9 @@ const App: React.FC = () => {
         const falloutMessage: Message | undefined = hasFallout(result.consequences)
             ? { sender: 'gm', text: 'Your agent returns — but something in their manner suggests the visit did not go unnoticed.' }
             : undefined;
-        // This is intentionally adjacent to the durable write. Task 7 may add
-        // async extraction above; an EntityDetails unmount during that work
-        // must cancel before charging or committing any result.
+        // This is intentionally adjacent to the durable write. A future
+        // async-extraction phase may add work above; an EntityDetails unmount
+        // during that work must cancel before charging or committing any result.
         if (!request.isCurrent()) return false;
         if (!commitDomainMutation({
             candidate: buildSaveState({ entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge, messages: falloutMessage ? [...messages, falloutMessage] : messages }),

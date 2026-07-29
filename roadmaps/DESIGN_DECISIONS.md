@@ -483,6 +483,21 @@ scopes, passive-agent scanning) that could not close BACKLOG B7's two
 prose-attribution gaps ("DECLARED GAP 1" and the possessive passive-agent
 gap) without over-rejecting legitimate third-person prose about rivals.
 
+Two enumerated surfaces carry a narrower carve-out. The no-attempt
+evidence-selection payload (`ai/core/zodSchemas.ts`'s
+`zNoAttemptEvidenceSelection`) carries `actors` per the same schema
+convention, but the payload itself is ID-ONLY - `decision` is an enum and
+`evidenceIds` merely selects among already-vetted evidence strings, with no
+free-prose field of its own - so `ai/core/actorsBoundary.ts`'s
+`stripActorsFromNoAttemptEvidenceSelection` strips `actors` unused.
+Mortality-authored delta `reason` text is TRIPWIRE-ONLY, not
+declaration-gated: `ai/core/mortality.ts` strips `actors` at PARSE time,
+before the deltas ever reach the post-mortality `enforceNoAttemptBoundary`
+call, so that call is declaration-blind for them and they rely on the flat
+tripwire plus the mechanical layer alone - an accepted residual (mortality
+outcomes are code-directed, not freely authored) documented in
+`docs/superpowers/plans/task-4-design.md`'s "accepted residuals" note.
+
 The no-attempt gate is DECLARATION-PRIMARY, with a FLAT TRIPWIRE as a
 lie-catcher: a field whose `actors` names the player is redacted outright
 (pure data, the prose itself is never parsed); a field that does NOT declare
