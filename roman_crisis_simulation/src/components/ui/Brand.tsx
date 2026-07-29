@@ -55,8 +55,10 @@ export const SPQR: React.FC<{ style?: React.CSSProperties }> = ({ style }) => (
 /* Pure-CSS wax seal with a pressed initial. tone: crimson (official) | tyrian (rumor/intrigue). */
 export const WaxSeal: React.FC<{ letter?: string; size?: number; tone?: 'crimson' | 'tyrian'; style?: React.CSSProperties }> =
     ({ letter = 'R', size = 46, tone = 'crimson', style }) => {
-        const bg = tone === 'tyrian' ? 'radial-gradient(circle at 35% 30%, #8E4368, #5E2246 62%, #38122A)' : 'radial-gradient(circle at 35% 30%, #C04434, #8C1C13 62%, #6E140D)';
-        return <span aria-hidden="true" style={{ width: size, height: size, display: 'inline-grid', placeItems: 'center', flex: 'none', borderRadius: '46% 54% 52% 48% / 52% 46% 54% 48%', background: bg, boxShadow: 'inset 0 2px 3px rgba(255,255,255,.28), inset 0 -3px 5px rgba(0,0,0,.35), 0 2px 5px rgba(58,44,16,.35)', color: '#F2D9C8', fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: size * .42, textShadow: '0 -1px 1px rgba(0,0,0,.4)', ...style }}>{letter}</span>;
+        // The wax itself is tokenised (WP-10) so nocturne.css can warm it by
+        // torchlight; the day values are byte-identical to the old literals.
+        const bg = tone === 'tyrian' ? 'var(--seal-tyrian)' : 'var(--seal-crimson)';
+        return <span aria-hidden="true" style={{ width: size, height: size, display: 'inline-grid', placeItems: 'center', flex: 'none', borderRadius: '46% 54% 52% 48% / 52% 46% 54% 48%', background: bg, boxShadow: 'inset 0 2px 3px rgba(255,255,255,.28), inset 0 -3px 5px rgba(0,0,0,.35), 0 2px 5px rgba(58,44,16,.35)', color: 'var(--seal-letter)', fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: size * .42, textShadow: '0 -1px 1px rgba(0,0,0,.4)', ...style }}>{letter}</span>;
     };
 
 /**

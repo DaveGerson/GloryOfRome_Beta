@@ -33,22 +33,22 @@ const DispatchesDigest: React.FC<{ changes: PerceivedChange[] }> = ({ changes })
 
     return (
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 14, width: '100%', animation: 'gorFadeIn .5s ease-out both' }}>
-            <div style={{ width: '100%', maxWidth: 640, background: 'var(--dentil) left top/100% 3px no-repeat, linear-gradient(180deg,#2A231A,#1B1509)', border: '1px solid rgba(201,162,39,.4)', borderRadius: 'var(--radius-md)', padding: '12px 16px 13px', boxShadow: 'var(--bevel), 0 2px 6px rgba(58,44,16,.3)', color: '#E6E1D0' }}>
-                <h4 style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 12, letterSpacing: '.24em', textTransform: 'uppercase', color: '#E8C959', borderBottom: '1px solid rgba(201,162,39,.25)', paddingBottom: 6, marginBottom: 8, textShadow: '0 1px 1px rgba(0,0,0,.5)' }}>
+            <div style={{ width: '100%', maxWidth: 640, background: 'var(--tablet-dentil) left top/100% 3px no-repeat, var(--tablet-grad)', border: '1px solid var(--tablet-edge)', borderRadius: 'var(--radius-md)', padding: '12px 16px 13px', boxShadow: 'var(--bevel), 0 2px 6px rgba(58,44,16,.3)', color: 'var(--tablet-text)' }}>
+                <h4 style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 12, letterSpacing: '.24em', textTransform: 'uppercase', color: 'var(--tablet-head)', borderBottom: '1px solid var(--tablet-rule)', paddingBottom: 6, marginBottom: 8, textShadow: '0 1px 1px rgba(0,0,0,.5)' }}>
                     Dispatches &amp; Observations
                 </h4>
                 {beyondSelf.length === 0 ? (
-                    <p style={{ margin: 0, fontStyle: 'italic', fontSize: 14, color: '#A99A76' }}>{QUIET_DIGEST_MESSAGE}</p>
+                    <p style={{ margin: 0, fontStyle: 'italic', fontSize: 14, color: 'var(--tablet-quiet)' }}>{QUIET_DIGEST_MESSAGE}</p>
                 ) : (
                     <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6, fontSize: 14 }}>
                         {changes.map((change, index) => (
                             <li key={index} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
                                 <span style={{ display: 'inline-flex', gap: 8 }}>
-                                    <span aria-hidden="true" style={{ color: 'var(--gold-400)', flex: 'none' }}>❧</span>
+                                    <span aria-hidden="true" style={{ color: 'var(--tablet-mark)', flex: 'none' }}>❧</span>
                                     <span>{change.text}</span>
                                 </span>
                                 {change.source !== 'self' && (
-                                    <span style={{ fontSize: 12, fontStyle: 'italic', color: '#A99A76', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                    <span style={{ fontSize: 12, fontStyle: 'italic', color: 'var(--tablet-quiet)', whiteSpace: 'nowrap', flexShrink: 0 }}>
                                         {SOURCE_LABELS[change.source]}
                                     </span>
                                 )}

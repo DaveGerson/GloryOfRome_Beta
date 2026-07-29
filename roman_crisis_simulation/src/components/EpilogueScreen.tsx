@@ -40,7 +40,10 @@ function buildStaticFallbackEpitaph(player: Entity, causeNarration: string): str
   ].join('\n\n');
 }
 
-const STELE_TEXT = '#D9C89E', STELE_DIM = '#A18A5C', STELE_BRIGHT = '#F2E3BE';
+// The stele's palette lives in design/tokens/effects.css (WP-10) so
+// nocturne.css can re-cut it; these stay as named constants because every
+// use below is an inline style.
+const STELE_TEXT = 'var(--stele-text)', STELE_DIM = 'var(--stele-dim)', STELE_BRIGHT = 'var(--stele-bright)';
 const steleLabel: React.CSSProperties = { fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', color: STELE_DIM };
 
 const EpilogueScreen: React.FC<{
@@ -158,7 +161,7 @@ const EpilogueScreen: React.FC<{
   };
 
   return (
-    <div style={{ width: '100%', flex: 1, minHeight: 0, overflowY: 'auto', background: 'radial-gradient(90% 60% at 50% 0%, #221A0E, #131009 70%)', color: STELE_TEXT, animation: 'gorFadeIn .5s ease-out both' }}>
+    <div style={{ width: '100%', flex: 1, minHeight: 0, overflowY: 'auto', background: 'var(--stele-grad)', color: STELE_TEXT, animation: 'gorFadeIn .5s ease-out both' }}>
       <div style={{ maxWidth: 720, margin: '0 auto', padding: '56px 24px 64px' }}>
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
           <GildedAquila size={64} />

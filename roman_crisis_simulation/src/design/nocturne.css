@@ -20,7 +20,24 @@
 --shadow-raised:0 6px 18px rgba(0,0,0,.6),0 0 0 1px var(--border-subtle);
 --shadow-modal:0 24px 60px rgba(0,0,0,.75),0 0 0 1px var(--border-strong);
 --shadow-inset:inset 0 1px 3px rgba(0,0,0,.6);
---focus-ring:0 0 0 2px var(--surface-page),0 0 0 4px var(--gold-300)}
+--focus-ring:0 0 0 2px var(--surface-page),0 0 0 4px var(--gold-300);
+/* ── The four loud surfaces, re-cut for the night (audit item 29) ──
+   The masthead no longer sits in full daylight Tyrian over a basalt page, and
+   the Dispatches tablet INVERTS rather than fading: by torchlight it becomes
+   lit vellum against basalt, so it still reads as a different register from
+   the page instead of matching it. */
+--banner-grad:linear-gradient(180deg,#4E1F3B,#33122A 55%,#1F0A17);
+--banner-edge:#170710;--banner-label:#C79E7E;--banner-title:#E8C070;--banner-value:#EFE2C6;
+--banner-cornice:linear-gradient(180deg,#D4AF37,#8A6D1E);--banner-stat-bronze:#D28A3C;--banner-stat-crimson:#D9897E;
+--tablet-grad:linear-gradient(180deg,#F4EBD3,#E2D4B0);
+--tablet-edge:rgba(94,74,20,.55);--tablet-rule:rgba(94,74,20,.3);
+--tablet-text:#2A231A;--tablet-head:#6E5710;--tablet-quiet:#7A6A48;
+--tablet-mark:#8A6D14;--tablet-dentil:repeating-linear-gradient(90deg,#8A6D14 0 3px,transparent 3px 9px);
+--stele-grad:radial-gradient(90% 60% at 50% 0%, #1B1409, #0B0805 70%);
+--stele-text:#E4D5AC;--stele-dim:#B09A6C;--stele-bright:#FBF0D2;
+--seal-crimson:radial-gradient(circle at 35% 30%, #D2604E, #A63325 62%, #7E1910);
+--seal-tyrian:radial-gradient(circle at 35% 30%, #A76487, #75325A 62%, #4A1A38);
+--seal-letter:#FCE4D4}
 
 /* ── Layer 2 · Atmosphere: charred basalt, torch sheen from the cornice, ember pools, deep vignette ── */
 body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;background-color:var(--surface-page);background-attachment:fixed;background-image:radial-gradient(120% 80% at 50% 0%,rgba(232,201,89,.10),rgba(232,201,89,0) 55%),url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><filter id="n" x="0" y="0"><feTurbulence type="fractalNoise" baseFrequency="0.7" numOctaves="5" stitchTiles="stitch"/></filter><rect width="100" height="100" filter="url%28%23n%29" opacity="0.08"/></svg>'),radial-gradient(60% 42% at 12% 100%,rgba(140,28,19,.16),transparent 70%),radial-gradient(55% 40% at 88% 96%,rgba(94,34,70,.14),transparent 70%),repeating-linear-gradient(105deg,rgba(0,0,0,.22) 0 1px,transparent 1px 26px),repeating-linear-gradient(118deg,rgba(255,244,214,.02) 0 1px,transparent 1px 43px),radial-gradient(150% 120% at 50% 115%,rgba(0,0,0,.5),transparent 55%)}

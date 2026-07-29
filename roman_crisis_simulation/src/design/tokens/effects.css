@@ -12,6 +12,25 @@
 --bevel:inset 0 1px 0 rgba(255,255,255,.4),inset 0 -2px 0 rgba(0,0,0,.16);
 --chamfer-sm:polygon(6px 0,calc(100% - 6px) 0,100% 6px,100% calc(100% - 6px),calc(100% - 6px) 100%,6px 100%,0 calc(100% - 6px),0 6px);
 --chamfer-lg:polygon(12px 0,calc(100% - 12px) 0,100% 12px,100% calc(100% - 12px),calc(100% - 12px) 100%,12px 100%,0 calc(100% - 12px),0 12px);
+/* ── The four loud surfaces (WP-10, audit item 29) ──
+   These were literal hex inline in JSX, so nocturne.css could not reach them:
+   under NOX the masthead stayed full daylight Tyrian and the Dispatches
+   tablet — designed as the one DARK surface in the stream — ended up lighter
+   than the page around it, inverting its whole reason for existing.
+   Every value below is byte-identical to the literal it replaced, so the day
+   skin is pixel-unchanged; nocturne.css re-cuts them for the night. */
+--banner-grad:linear-gradient(180deg,#7E3A5E,#5E2246 55%,#43172F);
+--banner-edge:#38122A;--banner-label:#D8B98A;--banner-title:#F0D089;--banner-value:#F8F1DE;
+--banner-cornice:linear-gradient(180deg,#E8C959,#A5831D);--banner-stat-bronze:#E9B36A;--banner-stat-crimson:#F0A196;
+--tablet-grad:linear-gradient(180deg,#2A231A,#1B1509);
+--tablet-edge:rgba(201,162,39,.4);--tablet-rule:rgba(201,162,39,.25);
+--tablet-text:#E6E1D0;--tablet-head:#E8C959;--tablet-quiet:#A99A76;
+--tablet-mark:var(--gold-400);--tablet-dentil:var(--dentil);
+--stele-grad:radial-gradient(90% 60% at 50% 0%, #221A0E, #131009 70%);
+--stele-text:#D9C89E;--stele-dim:#A18A5C;--stele-bright:#F2E3BE;
+--seal-crimson:radial-gradient(circle at 35% 30%, #C04434, #8C1C13 62%, #6E140D);
+--seal-tyrian:radial-gradient(circle at 35% 30%, #8E4368, #5E2246 62%, #38122A);
+--seal-letter:#F2D9C8;
 --ease-standard:cubic-bezier(.4,0,.2,1);
 --duration-fast:120ms;
 --duration-slow:240ms;
