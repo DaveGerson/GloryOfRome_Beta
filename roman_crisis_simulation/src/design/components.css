@@ -117,6 +117,19 @@
 .gor-typing-dots span{width:7px;height:7px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#C04434,#8C1C13 70%);animation:gorBounce 1.2s infinite}
 .gor-typing-dots span:nth-child(2){animation-delay:.15s}.gor-typing-dots span:nth-child(3){animation-delay:.3s}
 .gor-typing-text{font-style:italic;color:var(--text-muted);font-size:15px}
+/* The Fates' loom — the seven live pipeline stages drawn as threads
+   (components/Chat.tsx's TypingIndicator). Woven threads dim; the mortality
+   thread runs crimson. */
+.gor-loom{width:100%;max-width:560px;padding:16px 18px 14px;background:linear-gradient(180deg,#2A231A,#15100A);border:1px solid rgba(201,162,39,.4);border-radius:var(--radius-md);box-shadow:var(--bevel),0 4px 12px rgba(58,44,16,.35);animation:gorFadeIn .5s ease-out both}
+.gor-loom-threads{display:flex;align-items:stretch;gap:7px;height:76px}
+.gor-loom-thread{flex:1;position:relative;background:rgba(201,162,39,.14)}
+.gor-loom-thread-fated{background:rgba(179,58,43,.18)}
+.gor-loom-fill{position:absolute;inset:0;background:var(--metal-gold);box-shadow:0 0 7px rgba(232,201,89,.6);transform-origin:bottom;animation:gorLoomWeave var(--duration-slow) var(--ease-standard) both}
+.gor-loom-thread-fated .gor-loom-fill{background:var(--metal-crimson);box-shadow:0 0 9px rgba(192,68,52,.75)}
+.gor-loom-fill-woven{opacity:.62}
+.gor-loom-status{display:flex;align-items:baseline;justify-content:space-between;gap:14px;margin-top:11px}
+.gor-loom-text{font-family:var(--font-body);font-style:italic;font-size:15px;color:#D9C89E}
+.gor-loom-count{flex:none;font-family:var(--font-display);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:#A18A5C}
 .gor-trust{position:relative;height:12px;background:var(--surface-inset);border:1px solid rgba(58,49,37,.3);border-radius:var(--radius-sm);box-shadow:var(--shadow-inset);overflow:hidden}
 .gor-trust-fill{position:absolute;top:0;bottom:0;left:0;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),inset 0 -1px 0 rgba(0,0,0,.2);transition:width var(--duration-slow) var(--ease-standard)}
 .gor-trust-zero{position:absolute;left:50%;top:0;bottom:0;width:2px;background:var(--gold-600);transform:translateX(-50%)}
@@ -131,6 +144,7 @@
 @keyframes gorBounce{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-5px)}}
 @keyframes gorEmber{0%,100%{opacity:.55;text-shadow:0 0 2px rgba(232,201,89,.2)}50%{opacity:1;text-shadow:0 0 10px rgba(232,201,89,.75)}}
 @keyframes gorShimmer{from{left:-60%}to{left:120%}}
+@keyframes gorLoomWeave{from{transform:scaleY(0)}to{transform:scaleY(1)}}
 
 .gor-event-choice{all:unset;box-sizing:border-box;display:flex;flex-direction:column;gap:3px;width:100%;padding:13px 16px;background:linear-gradient(180deg,#FFFEF9,#F1EDE0);border:1px solid var(--border-subtle);clip-path:var(--chamfer-sm);cursor:pointer;transition:border-color var(--duration-fast) var(--ease-standard),filter var(--duration-fast) var(--ease-standard)}
 .gor-event-choice:hover{border-color:var(--crimson-500);filter:brightness(1.02)}
@@ -147,6 +161,8 @@
 @media (prefers-reduced-motion:reduce){
 .gor-msg,.gor-pill,.gor-typing,.gor-crisis-glyph{animation:none}
 .gor-destiny,.gor-destiny:hover{transition:none;transform:none}
+/* The loom keeps its final state — every lit thread at full height, no weave. */
+.gor-loom,.gor-loom-fill{animation:none}
 }
 
 /* ── Narrow-viewport stacking — CSS-only, no markup change ──

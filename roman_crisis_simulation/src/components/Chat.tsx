@@ -31,20 +31,64 @@ function getStageStatusText(stage: TurnStage | null | undefined): string {
 }
 
 /**
- * A visible, animated "typing" bubble shown in the message stream while the
- * Game Master is processing a turn — makes the 30-60s wait feel alive
- * instead of frozen. The status line now reflects the REAL pipeline stage
- * (`stage`, from `runNewTurn`'s `onStage` callback via App.tsx) rather than
- * a timer-driven rotation through generic copy.
+ * The pipeline order `runNewTurn` reports its stages in — the loom's thread
+ * order, left to right. Kept as an explicit list rather than derived from
+ * TURN_STAGE_STATUS_COPY's key order so the visual order is a stated fact
+ * and adding a stage to the copy map cannot silently reshuffle the threads.
+ * `npc_minds` and `mortality` can be skipped on a given turn (see
+ * `TurnStage`'s doc comment); a skipped stage's thread simply lights as the
+ * pipeline passes it.
+ */
+const TURN_STAGE_ORDER: readonly TurnStage[] = [
+    'story_relevance',
+    'npc_minds',
+    'adjudication',
+    'mortality',
+    'simulation_state',
+    'monologue',
+    'narration',
+];
+
+/** The one thread the Fates cut — drawn in crimson, not gold. */
+const MORTALITY_STAGE: TurnStage = 'mortality';
+
+/**
+ * The Fates' loom: the seven live pipeline stages `runNewTurn` already
+ * reports, drawn as seven threads on a dark ground while the Game Master
+ * works. Threads to the left of the current stage are woven (dimmed), the
+ * current one is weaving, and the mortality thread is crimson so a life
+ * being weighed is visible without reading a word.
+ *
+ * Bound to the same `stage` prop the old three-dot indicator took — no new
+ * API and no new state. Reduced motion renders every woven thread at its
+ * final height with no movement (see components.css).
  */
 export const TypingIndicator: React.FC<{ stage?: TurnStage | null }> = ({ stage = null }) => {
     const statusText = getStageStatusText(stage);
+    // An unreported stage (Mock Mode, or the instant before the first
+    // onStage lands) reads as the first thread, matching DEFAULT_PROCESSING_STATUS.
+    const reportedIndex = stage ? TURN_STAGE_ORDER.indexOf(stage) : -1;
+    const activeIndex = reportedIndex < 0 ? 0 : reportedIndex;
 
     return (
         <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 14 }}>
-            <div className="gor-typing" role="status" aria-live="polite">
-                <span className="gor-typing-dots" aria-hidden="true"><span></span><span></span><span></span></span>
-                <span className="gor-typing-text">{statusText}</span>
+            <div className="gor-loom" role="status" aria-live="polite">
+                <div className="gor-loom-threads" aria-hidden="true">
+                    {TURN_STAGE_ORDER.map((name, index) => (
+                        <div
+                            key={name}
+                            className={`gor-loom-thread${name === MORTALITY_STAGE ? ' gor-loom-thread-fated' : ''}`}
+                        >
+                            {index <= activeIndex && (
+                                <span className={`gor-loom-fill${index < activeIndex ? ' gor-loom-fill-woven' : ''}`} />
+                            )}
+                        </div>
+                    ))}
+                </div>
+                <div className="gor-loom-status">
+                    <span className="gor-loom-text">{statusText}</span>
+                    <span className="gor-loom-count" aria-hidden="true">{activeIndex + 1} of {TURN_STAGE_ORDER.length}</span>
+                </div>
             </div>
         </div>
     );
