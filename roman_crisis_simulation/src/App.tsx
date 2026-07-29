@@ -166,7 +166,9 @@ function privateScenesFingerprint(scenes: readonly PrivateSceneRecord[]): string
 // site below. The durable bytes must exist before the reducer dispatch;
 // `beforeDispatch` runs after save success and before dispatch, `onCommitted`
 // after. Per-site clear-ordering and failure channels differ (see the site
-// map) - the helper adapts to each site, never the reverse.
+// map) - the helper adapts to each site, never the reverse. Error CLEARS keep
+// each site's original position (some before dispatch, some after) -
+// preserved verbatim; do not normalize into onCommitted.
 interface DomainCommit {
     candidate: SaveGameState;
     action: GameAction;
@@ -878,8 +880,9 @@ const App: React.FC = () => {
             turnGenerationIsCurrent() && privateSceneSnapshotIsCurrent()
         );
 
-        // Set once the turn is durably saved (right after the AUTOSAVE_FAILED
-        // check below). Gates the catch below: a throw AFTER this point must
+        // Set once the turn is durably saved (inside commitDomainMutation's
+        // beforeDispatch; onSaveFailure throws AUTOSAVE_FAILED first
+        // otherwise). Gates the catch below: a throw AFTER this point must
         // never roll back an already-committed turn or offer Retry on top of
         // the N+1 autosave - see the catch's marker-first branch.
         // A boxed `.current` (rather than a plain reassigned `let`) because
@@ -1113,6 +1116,7 @@ const App: React.FC = () => {
                 gmInterventionText: '',
                 pendingIntelligenceFallout: [],
             });
+            // onSaveFailure throws, so the false return is unreachable here.
             commitDomainMutation({
                 candidate: nextSaveState,
                 action: {
