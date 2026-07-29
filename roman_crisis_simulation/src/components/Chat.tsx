@@ -133,7 +133,35 @@ const FormattedText: React.FC<{ text: string }> = ({ text }) => (
     </>
 );
 
-export const ChatMessage: React.FC<{ message: Message }> = ({ message }) => {
+/**
+ * Which GM narrations open a week (audit item 13). `.gor-dropcap` is the most
+ * beautiful rule in the stylesheet and only ever reached the epilogue; put an
+ * illuminated initial on the FIRST narration of each week — not every bubble —
+ * and the stream reads as a chronicle rather than a transcript.
+ *
+ * Week boundaries are the 'ribbon' messages the turn commit already writes
+ * into the stream, so this needs no new state: a `gm` message is illuminated
+ * when no other `gm` message has appeared since the last ribbon. Player and
+ * monologue messages are never illuminated.
+ */
+export function illuminatedNarrationIndices(messages: readonly Message[]): ReadonlySet<number> {
+    const illuminated = new Set<number>();
+    let weekOpen = true;
+    messages.forEach((message, index) => {
+        if (message.sender === 'ribbon') {
+            weekOpen = true;
+            return;
+        }
+        if (message.sender !== 'gm') return;
+        if (weekOpen) {
+            illuminated.add(index);
+            weekOpen = false;
+        }
+    });
+    return illuminated;
+}
+
+export const ChatMessage: React.FC<{ message: Message; illuminated?: boolean }> = ({ message, illuminated = false }) => {
     if (message.sender === 'ribbon') {
         return <TurnRibbon>{message.text}</TurnRibbon>;
     }
@@ -151,9 +179,10 @@ export const ChatMessage: React.FC<{ message: Message }> = ({ message }) => {
     const historySubmission = isPlayer ? structuredSubmissionForHistory(message.text) : null;
     const parsedPlayerSubmission = isPlayer ? deserializeTurnSubmission(message.text) : null;
     const playerText = parsedPlayerSubmission?.kind === 'freeform' ? parsedPlayerSubmission.text : message.text;
+    const illuminate = illuminated && !isPlayer;
     return (
         <div style={{ display: 'flex', justifyContent: isPlayer ? 'flex-end' : 'flex-start', marginBottom: 14 }}>
-            <div className={`gor-msg ${isPlayer ? 'gor-msg-player' : 'gor-msg-gm'}`}>
+            <div className={`gor-msg ${isPlayer ? 'gor-msg-player' : 'gor-msg-gm'}${illuminate ? ' gor-dropcap' : ''}`}>
                 {historySubmission && historySubmission.kind !== 'freeform'
                     ? <TurnSubmissionHistory submission={historySubmission} audience="player" />
                     : <FormattedText text={playerText} />}

@@ -4,7 +4,7 @@ import { GoogleGenAI } from "@google/genai";
 
 import Header from './components/Header';
 import CharacterSelection, { SavedGameSummary } from './components/CharacterSelection';
-import { ChatMessage, TypingIndicator, StreamingNarrationBubble } from './components/Chat';
+import { ChatMessage, TypingIndicator, StreamingNarrationBubble, illuminatedNarrationIndices } from './components/Chat';
 import { TurnComposer } from './components/TurnComposer';
 import { PrivateScene, replacePrivateSceneForCommit } from './components/PrivateScene';
 import CrisisBanner from './components/CrisisBanner';
@@ -492,6 +492,9 @@ const App: React.FC = () => {
         () => lastTurn?.postTurnEntities?.find(e => e.entity_id === playerCharacterId) ?? null,
         [lastTurn, playerCharacterId]
     );
+    // One illuminated initial per week (audit item 13) — derived from the
+    // ribbon dividers already in the stream, so no message gains a field.
+    const illuminatedNarrations = useMemo(() => illuminatedNarrationIndices(messages), [messages]);
     const lastTurnPerceivedChanges = useMemo(
         () => (lastTurn?.postTurnEntities && lastTurnPlayer)
             ? buildPlayerPerceivedDigest(lastTurn.adjudication.deltas, lastTurnPlayer, lastTurn.postTurnEntities, worldState)
@@ -1652,7 +1655,7 @@ const App: React.FC = () => {
                             ) : (
                                 <>
                                     <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }} role="log" aria-live="polite" aria-label="Chat log">
-                                        {messages.map((msg, index) => <ChatMessage key={index} message={msg} />)}
+                                        {messages.map((msg, index) => <ChatMessage key={index} message={msg} illuminated={illuminatedNarrations.has(index)} />)}
                                         {pendingPlayerMessage && <ChatMessage message={pendingPlayerMessage} />}
                                         {gameState === GameState.PROCESSING && (
                                             streamingNarration
