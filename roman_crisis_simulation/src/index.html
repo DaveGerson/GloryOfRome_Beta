@@ -3,6 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      LVX is a light skin and NOX declares `color-scheme:dark` for itself. With
+      nothing declared here, a device in OS dark mode can auto-invert the whole
+      marble skin - computed styles stay light while paint goes dark. Declaring
+      both, with `html{color-scheme:light}` in the base stylesheet, leaves the
+      day skin alone and lets nocturne.css keep its own override.
+    -->
+    <meta name="color-scheme" content="light dark" />
     <title>Roman Crisis Simulation — The Glory of Rome</title>
     <!--
       Styling comes from the Glory of Rome design system (design/styles.css,
