@@ -194,7 +194,10 @@ const CharacterSelection: React.FC<{
                     </Card>
                 )}
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(188px, 1fr))', gap: 14 }}>
+                {/* Item 20: a FIXED four-column row. `repeat(auto-fit,minmax(188px,1fr))`
+                    landed 4-up at common widths and widowed the fifth card on its
+                    own line anyway — so the fifth gets its own line by design. */}
+                <div className="gor-destiny-grid">
                     {PLAYER_CHARACTER_OPTIONS.map(opt => {
                         const heraldry: Partial<{ numeral: string; seal: string; motto: string }> = DESTINY_HERALDRY[opt.entity_id] || {};
                         return (

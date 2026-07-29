@@ -219,6 +219,37 @@
 .gor-gauge{display:flex;flex-direction:column;gap:4px}
 .gor-gauge-track{display:block;height:3px;background:var(--surface-inset);box-shadow:var(--shadow-inset);overflow:hidden}
 .gor-gauge-fill{display:block;height:100%;background:var(--gold-600);transition:width var(--duration-slow) var(--ease-standard)}
+/* ── Item 16 · the streaming nib ──
+   A pen laid against the vellum, blinking on steps(1,end): a nib is either
+   touching the page or it is not. */
+.gor-nib{display:inline-block;width:2px;height:16px;margin-left:3px;vertical-align:middle;background:var(--crimson-500);transform:rotate(9deg);animation:gorNib 1.05s steps(1,end) infinite}
+@keyframes gorNib{0%,49%{opacity:1}50%,100%{opacity:0}}
+
+/* ── Item 17 · the Dispatches tablet unrolls from its dentil rule ── */
+.gor-tablet{transform-origin:top;animation:gorUnroll 220ms var(--ease-standard) both}
+.gor-tablet-line{animation:gorFadeIn 220ms ease-out both}
+@keyframes gorUnroll{from{transform:scaleY(.04)}to{transform:scaleY(1)}}
+
+/* ── Item 19 · the epilogue stele is struck, in sequence ──
+   600ms held silence → the aquila strikes in with a gold bloom → the stone
+   rises → the name cuts in → the chroniclers' verdicts arrive. ~4s total. */
+.gor-stele-aquila{animation:gorAquilaStrike 520ms cubic-bezier(.34,1.56,.64,1) 600ms both}
+.gor-stele-rise{animation:gorSteleRise 620ms var(--ease-standard) 1120ms both}
+.gor-stele-cut{animation:gorCutIn 520ms var(--ease-standard) 1740ms both}
+.gor-stele-cut+.gor-stele-cut{animation-delay:2000ms}
+.gor-stele-verdict{animation:gorFadeIn 600ms ease-out 2600ms both}
+@keyframes gorAquilaStrike{
+0%{opacity:0;transform:scale(1.34);filter:drop-shadow(0 0 26px rgba(232,201,89,.85))}
+70%{opacity:1;filter:drop-shadow(0 0 18px rgba(232,201,89,.6))}
+100%{opacity:1;transform:scale(1);filter:none}
+}
+@keyframes gorSteleRise{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:translateY(0)}}
+@keyframes gorCutIn{from{opacity:0;letter-spacing:.34em}to{opacity:1;letter-spacing:normal}}
+
+/* ── Item 20 · a fixed four-up destiny row, the fifth on its own line ── */
+.gor-destiny-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.gor-destiny-grid>:last-child{grid-column:1 / -1}
+
 /* ── The week's briefing (audit items 38–39) ──
    World owns the briefing and nothing else: macro state, the crisis, and
    where to look. Regions belong to Empire, occurrences to Events. */
@@ -351,6 +382,11 @@
 /* The vexillum still hangs, and the week still turns — neither moves. */
 .gor-vexillum{animation:none}
 .gor-week-beat{display:none}
+/* Every WP-13 flourish keeps its FINAL state and drops the movement: the
+   nib stops blinking but stays visible, the tablet is already unrolled, and
+   the stele is already struck rather than blank. */
+.gor-nib,.gor-tablet,.gor-tablet-line,.gor-stele-aquila,.gor-stele-rise,.gor-stele-cut,.gor-stele-cut+.gor-stele-cut,.gor-stele-verdict,.gor-slip-progress{animation:none}
+body{transition:none}
 }
 
 /* ── Narrow-viewport stacking — CSS-only, no markup change ──

@@ -37,11 +37,16 @@
 --stele-text:#E4D5AC;--stele-dim:#B09A6C;--stele-bright:#FBF0D2;
 --seal-crimson:radial-gradient(circle at 35% 30%, #D2604E, #A63325 62%, #7E1910);
 --seal-tyrian:radial-gradient(circle at 35% 30%, #A76487, #75325A 62%, #4A1A38);
---seal-letter:#FCE4D4}
+--seal-letter:#FCE4D4;
+/* Item 30: gold that GLOWS by torchlight — used by focus rings and the
+   active pennant so the eye finds them in the dark. */
+--glow-gold:0 0 12px rgba(232,201,89,.55);
+--focus-ring:0 0 0 2px var(--surface-page),0 0 0 4px var(--gold-300),var(--glow-gold)}
 
 /* ── Layer 2 · Atmosphere: charred basalt, torch sheen from the cornice, ember pools, deep vignette ── */
 body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;background-color:var(--surface-page);background-attachment:fixed;background-image:radial-gradient(120% 80% at 50% 0%,rgba(232,201,89,.10),rgba(232,201,89,0) 55%),url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><filter id="n" x="0" y="0"><feTurbulence type="fractalNoise" baseFrequency="0.7" numOctaves="5" stitchTiles="stitch"/></filter><rect width="100" height="100" filter="url%28%23n%29" opacity="0.08"/></svg>'),radial-gradient(60% 42% at 12% 100%,rgba(140,28,19,.16),transparent 70%),radial-gradient(55% 40% at 88% 96%,rgba(94,34,70,.14),transparent 70%),repeating-linear-gradient(105deg,rgba(0,0,0,.22) 0 1px,transparent 1px 26px),repeating-linear-gradient(118deg,rgba(255,244,214,.02) 0 1px,transparent 1px 43px),radial-gradient(150% 120% at 50% 115%,rgba(0,0,0,.5),transparent 55%)}
-body::before{box-shadow:inset 0 0 130px rgba(0,0,0,.62)}
+/* Item 30: one warm radial torch anchored top-centre, over the vignette. */
+body::before{box-shadow:inset 0 0 130px rgba(0,0,0,.62);background:radial-gradient(58% 34% at 50% 0%,rgba(232,180,89,.13),rgba(232,180,89,.05) 45%,transparent 72%)}
 h1,h2,h3,h4{text-shadow:0 1px 2px rgba(0,0,0,.7)}
 a{color:var(--gold-300)}
 a:hover{color:#F2D98C}
@@ -80,7 +85,10 @@ a:hover{color:#F2D98C}
 .gor-meter-track,.gor-trust{border-color:rgba(227,199,102,.2)}
 .gor-dialog{filter:drop-shadow(0 18px 30px rgba(0,0,0,.7))}
 .gor-dialog-backdrop{background:radial-gradient(80% 80% at 50% 40%,rgba(30,10,6,.55),rgba(5,2,1,.85))}
-.gor-tab[aria-selected="true"]{box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 8px 16px rgba(0,0,0,.55)}
+.gor-tab[aria-selected="true"]{box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 8px 16px rgba(0,0,0,.55),var(--glow-gold)}
+.gor-subrail-btn-on{color:#F2D98C;text-shadow:0 0 9px rgba(232,201,89,.45)}
+.gor-vellum{background:repeating-linear-gradient(102deg,rgba(227,199,102,.07) 0 1px,transparent 1px 6px),var(--surface-card)}
+.gor-report-group,.gor-macro-cell{background:var(--surface-card)}
 .gor-mosaic{background:repeating-linear-gradient(90deg,var(--gold-500) 0 10px,transparent 10px 20px) top/20px 5px repeat-x,repeating-linear-gradient(90deg,transparent 0 10px,var(--tyrian-300) 10px 20px) bottom/20px 5px repeat-x}
 
 /* ── Layer 4 · Inline-wash surgery: the two light washes the JSX paints inline (values only — markup untouched) ── */

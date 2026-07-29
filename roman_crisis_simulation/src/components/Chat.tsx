@@ -112,10 +112,10 @@ export const StreamingNarrationBubble: React.FC<{ text: string }> = ({ text }) =
         <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 14 }} aria-live="polite">
             <div className="gor-msg gor-msg-gm">
                 {text}
-                <span
-                    aria-hidden="true"
-                    style={{ display: 'inline-block', width: 8, height: 17, background: 'var(--crimson-500)', marginLeft: 2, verticalAlign: 'middle', animation: 'gorEmber 1.2s ease-in-out infinite' }}
-                />
+                {/* Item 16: a nib laid against the vellum, not an 8x17px
+                    terminal block. Blinks on steps(1,end) — a pen is either
+                    touching the page or it is not. */}
+                <span aria-hidden="true" className="gor-nib" />
             </div>
         </div>
     );

@@ -161,20 +161,25 @@ const EpilogueScreen: React.FC<{
   };
 
   return (
-    <div style={{ width: '100%', flex: 1, minHeight: 0, overflowY: 'auto', background: 'var(--stele-grad)', color: STELE_TEXT, animation: 'gorFadeIn .5s ease-out both' }}>
+    // Item 19: the stele is STRUCK. Six hundred milliseconds of held silence,
+    // then the gilt aquila strikes in with a gold bloom, the stone rises from
+    // below, the name cuts in, and the chroniclers' verdicts arrive last —
+    // about four seconds in all, every step reduced-motion guarded (the
+    // reduced path shows the finished stone with no movement).
+    <div className="gor-stele" style={{ width: '100%', flex: 1, minHeight: 0, overflowY: 'auto', background: 'var(--stele-grad)', color: STELE_TEXT }}>
       <div style={{ maxWidth: 720, margin: '0 auto', padding: '56px 24px 64px' }}>
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+        <div className="gor-stele-aquila" style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
           <GildedAquila size={64} />
         </div>
-        <p style={{ ...steleLabel, textAlign: 'center', letterSpacing: '.3em', marginBottom: 8 }}>
+        <p className="gor-stele-rise" style={{ ...steleLabel, textAlign: 'center', letterSpacing: '.3em', marginBottom: 8 }}>
           The Story Has Ended
         </p>
-        <h1 style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 38, textAlign: 'center', color: STELE_BRIGHT, textShadow: '0 2px 4px rgba(0,0,0,.7)', margin: '0 0 4px' }}>{player.name}</h1>
-        <p style={{ textAlign: 'center', color: STELE_DIM, fontStyle: 'italic', margin: '0 0 40px' }}>
+        <h1 className="gor-stele-cut" style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 38, textAlign: 'center', color: STELE_BRIGHT, textShadow: '0 2px 4px rgba(0,0,0,.7)', margin: '0 0 4px' }}>{player.name}</h1>
+        <p className="gor-stele-cut" style={{ textAlign: 'center', color: STELE_DIM, fontStyle: 'italic', margin: '0 0 40px' }}>
           {player.position || player.entity_type} — {player.location}
         </p>
 
-        <div role="region" aria-label="Epilogue" style={{ position: 'relative', borderTop: '1px solid rgba(227,199,102,.4)', borderBottom: '1px solid rgba(227,199,102,.4)', padding: '32px 12px', minHeight: 160, boxShadow: 'inset 0 3px 0 -2px rgba(227,199,102,.15), inset 0 -3px 0 -2px rgba(227,199,102,.15)' }}>
+        <div role="region" aria-label="Epilogue" className="gor-stele-verdict" style={{ position: 'relative', borderTop: '1px solid rgba(227,199,102,.4)', borderBottom: '1px solid rgba(227,199,102,.4)', padding: '32px 12px', minHeight: 160, boxShadow: 'inset 0 3px 0 -2px rgba(227,199,102,.15), inset 0 -3px 0 -2px rgba(227,199,102,.15)' }}>
           <span aria-hidden="true" style={{ position: 'absolute', top: -8, left: '50%', transform: 'translateX(-50%)', color: 'var(--gold-400)', fontSize: 11, background: '#161109', padding: '0 12px' }}>◆</span>
           {isLoading ? (
             <p style={{ textAlign: 'center', fontStyle: 'italic', color: STELE_DIM, animation: 'gorEmber 2.4s ease-in-out infinite' }} aria-live="polite">
