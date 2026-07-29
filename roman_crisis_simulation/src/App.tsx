@@ -78,6 +78,7 @@ import {
 } from './playerView/noAttemptResponse';
 import { appendFallout, buildInterventionTextWithFallout, hasFallout } from './components/investigationLoop';
 import { Button } from './components/ui/Core';
+import { Alert, RECORD_REFUSES } from './components/ui/Alert';
 import { Tooltip } from './components/ui/Feedback';
 import { toRoman } from './components/ui/Brand';
 import { shouldToggleGmConsole } from './components/ui/gmConsoleHotkey';
@@ -1665,7 +1666,9 @@ const App: React.FC = () => {
                 ) : (
                     <>
                         <section data-screen-label="Chat" style={{ flex: 2, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                            {gameState === GameState.SETUP && transactionError && <p role="alert">{transactionError}</p>}
+                            {gameState === GameState.SETUP && transactionError && (
+                                <Alert title={RECORD_REFUSES} style={{ margin: '0 24px 12px' }}>{transactionError}</Alert>
+                            )}
                             {gameState === GameState.SETUP ? (
                                 <CharacterSelection
                                     onSelectCharacter={(option) => {
@@ -1699,7 +1702,16 @@ const App: React.FC = () => {
                                         <div ref={messagesEndRef} />
                                     </div>
                                     <div style={{ flex: 'none', borderTop: '1px solid var(--border-subtle)', padding: '12px 24px 16px', background: 'rgba(255,254,249,.55)' }}>
-                                        {(turnError || transactionError) && <p role="alert">{turnError ?? transactionError}</p>}
+                                        {/* A week that would not run and a week that would not
+                                            save are different failures, and read as such. */}
+                                        {(turnError || transactionError) && (
+                                            <Alert
+                                                title={turnError ? 'The week will not turn' : RECORD_REFUSES}
+                                                style={{ marginBottom: 10 }}
+                                            >
+                                                {turnError ?? transactionError}
+                                            </Alert>
+                                        )}
                                         {gameState === GameState.AWAITING_PLAYER_INPUT && retrySubmission && retryDraft && (
                                             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10, animation: 'gorRise .4s ease-out both' }}>
                                                 <Button

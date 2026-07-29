@@ -92,6 +92,17 @@
 .gor-toast-bar{width:5px;align-self:stretch;border-radius:2px;flex:none}
 .gor-toast-title{font-family:var(--font-display);font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-heading)}
 .gor-toast-msg{font-size:15px;color:var(--text-body);margin-top:2px}
+/* The one alert (audit item 04) — components/ui/Alert.tsx. role="alert" lives
+   on the outer element, so alert counts are exactly what they were. */
+.gor-alert{display:flex;align-items:stretch;border:1px solid rgba(179,58,43,.5);background:rgba(140,28,19,.08);border-radius:var(--radius-sm);text-align:left}
+.gor-alert-bar{flex:none;width:5px;background:var(--metal-crimson)}
+.gor-alert-body{display:flex;flex-direction:column;gap:2px;padding:9px 12px;min-width:0}
+.gor-alert-title{font-family:var(--font-display);font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#7A1810}
+.gor-alert-msg{font-family:var(--font-body);font-size:15px;color:var(--text-body)}
+/* The epilogue's stele is the one dark ground an alert has to land on. */
+.gor-alert-dark{border-color:rgba(192,68,52,.55);background:rgba(140,28,19,.22)}
+.gor-alert-dark .gor-alert-title{color:#E89A8C}
+.gor-alert-dark .gor-alert-msg{color:#F2E3BE}
 .gor-tooltip-wrap{position:relative;display:inline-flex}
 .gor-tooltip{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);background:var(--ink-800);border:1px solid var(--border-subtle);color:#F4ECD8;font-size:14px;font-family:var(--font-body);padding:6px 11px;border-radius:var(--radius-sm);white-space:nowrap;box-shadow:var(--shadow-raised);pointer-events:none;z-index:50}
 .gor-divider{position:relative;border:none;height:1px;overflow:visible;background:linear-gradient(90deg,transparent 0,var(--border-subtle) 12%,var(--border-subtle) 44%,transparent 46%),linear-gradient(90deg,transparent 54%,var(--border-subtle) 56%,var(--border-subtle) 88%,transparent 100%);margin:0}

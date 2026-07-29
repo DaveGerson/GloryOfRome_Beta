@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { GameEvent, PlayerEventChoice } from '../types';
 import { createFocusTrap, FocusTrap } from './ui/focusTrap';
+import { Alert, RECORD_REFUSES } from './ui/Alert';
 
 /**
  * A fate interrupts. Chamfered marble tablet with a gold dentil cornice
@@ -49,7 +50,7 @@ const EventModal: React.FC<{
                     <div className="gor-dialog-rule"></div>
                 </div>
                 <div className="gor-dialog-body" style={{ textAlign: 'center', whiteSpace: 'pre-wrap' }}>{event.description}</div>
-                {error && <p role="alert">{error}</p>}
+                {error && <Alert title={RECORD_REFUSES} style={{ margin: '0 22px 4px' }}>{error}</Alert>}
                 <div style={{ padding: '0 22px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {event.options.map((option, index) => (
                         <button key={index} type="button" className="gor-event-choice" onClick={() => onChoose(option)} disabled={interactionLocked}>

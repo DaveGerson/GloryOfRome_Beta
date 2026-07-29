@@ -3,6 +3,7 @@ import { Entity, InvestigationResult } from '../../types';
 import { GoogleGenAI } from '@google/genai';
 import InfoTooltip from '../InfoTooltip';
 import { Card, Button } from '../ui/Core';
+import { Alert } from '../ui/Alert';
 import { toRoman } from '../ui/Brand';
 import { InvestigationKind, KnowledgeClaim, SCHEME_CLUES_TO_REVEAL } from '../../knowledge/store';
 import { isEntityKnownToPlayer, relationshipTimelineFor } from '../../knowledge/relationships';
@@ -95,7 +96,7 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <span style={quiet}>{entity.position || entity.entity_type}</span>
         <RelationshipObservations observations={observations} currentTurn={turnNumber} />
-        {requestError && <span role="alert" style={{ color: 'var(--crimson-500)' }}>{requestError}</span>}
+        {requestError && <Alert title="Your agents return empty-handed">{requestError}</Alert>}
         {isExpanded && <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 8, borderTop: '1px solid var(--border-faint)' }}>
           <span className="gor-label" style={{ color: 'var(--tyrian-500)' }}>Intelligence Briefing</span>
           <IntelSection title="Beliefs" {...price('beliefs')} resourceName="Inv." resourceCount={investigations} uncoveredData={uncoveredIntel.beliefs} onUncover={() => handleRequest('beliefs')} isLoading={loadingState === 'beliefs'} interactionLocked={interactionLocked} tooltip="Uncover the core ideologies and principles that drive this character's decisions." />

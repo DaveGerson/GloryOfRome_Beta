@@ -4,6 +4,7 @@ import { generateText, GEMINI_PRO, GeminiClient } from '../ai/core/geminiService
 import { buildEpiloguePrompt, EpilogueTurnHeadlines, EpilogueEventChoice } from '../ai/prompts/epilogue';
 import { clearSave } from '../persistence/saveGame';
 import { GildedAquila, toRoman } from './ui/Brand';
+import { Alert, RECORD_REFUSES } from './ui/Alert';
 import { assertPlayerVisibleTextSafe } from '../ai/core/playerBoundary';
 
 // Epilogue prose is the single most "reward the player" text in the app -
@@ -214,7 +215,7 @@ const EpilogueScreen: React.FC<{
         )}
 
         <div style={{ marginTop: 48, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-          {resetError && <p role="alert" style={{ margin: 0, color: STELE_BRIGHT }}>{resetError}</p>}
+          {resetError && <Alert title={RECORD_REFUSES} onDarkGround>{resetError}</Alert>}
           <button onClick={handleNewChronicle} className="gor-btn gor-btn-lg gor-btn-primary">
             Begin a New Chronicle
           </button>

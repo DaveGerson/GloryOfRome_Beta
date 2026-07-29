@@ -50,6 +50,9 @@ a:hover{color:#F2D98C}
 .gor-card{border-color:rgba(227,199,102,.17)}
 .gor-card-head{background:linear-gradient(180deg,rgba(232,201,89,.12),rgba(232,201,89,0))}
 .gor-msg-monologue{background:rgba(0,0,0,.3)}
+.gor-alert{border-color:rgba(192,68,52,.55);background:rgba(140,28,19,.18)}
+.gor-alert-title{color:#E89A8C}
+.gor-seal-blank{border-color:rgba(227,199,102,.4)}
 .gor-pill{background:linear-gradient(180deg,#2B2110,#1B1408);color:#E3C766}
 .gor-pill:hover{color:#D3A3BE}
 .gor-event-choice{background:linear-gradient(180deg,#261D0F,#191207)}
