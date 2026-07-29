@@ -6,12 +6,43 @@ import {
   updatePrivateIntent, updateQuestionOrContext,
 } from '../playerInput/composerState';
 import { Button } from './ui/Core';
+import { WaxSeal } from './ui/Brand';
 
 const CUSTOM_RECIPIENT_VALUE = customRecipientSelectValue();
 
 const sectionHeadingStyle: React.CSSProperties = { margin: 0 };
 const fieldStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 8 };
 const addRowStyle: React.CSSProperties = { alignSelf: 'flex-start' };
+
+/**
+ * A numbered register heading — the numeral, the worded title, then a hairline
+ * running out to the edge (audit item 02, reframed). Four identical wells in a
+ * flat stack said nothing about an *action* versus a *question*; the numerals
+ * and the wording say what each one is for.
+ *
+ * The numeral and the rule are decorative, so only the `<h3>` carries the id
+ * each `<section aria-labelledby>` points at — the accessible name stays the
+ * heading's own words.
+ */
+const RegisterHeading: React.FC<{ numeral: string; id: string; children: React.ReactNode }> =
+  ({ numeral, id, children }) => (
+    <div className="gor-register-head">
+      <span className="gor-register-numeral" aria-hidden="true">{numeral}</span>
+      <h3 id={id} className="gor-label gor-register-title" style={sectionHeadingStyle}>{children}</h3>
+      <span className="gor-register-rule" aria-hidden="true" />
+    </div>
+  );
+
+/**
+ * The wax on a letter: a Tyrian seal carrying the recipient's initial once one
+ * is chosen, and an unsealed dashed disc while the letter is still unaddressed.
+ * Purely decorative — the recipient itself is chosen by the `<select>` beside it.
+ */
+const RecipientSeal: React.FC<{ initial: string | null }> = ({ initial }) => (
+  initial
+    ? <WaxSeal letter={initial} size={38} tone="tyrian" />
+    : <span className="gor-seal-blank" aria-hidden="true">·</span>
+);
 
 interface StructuredTurnComposerProps {
   draft: StructuredTurnDraft;
@@ -39,11 +70,19 @@ export const StructuredTurnComposer: React.FC<StructuredTurnComposerProps> = ({
       if (!disabled) onSubmit();
     }
   };
+  const initialFor = (recipient: StructuredTurnDraft['messagesOrOrders'][number]['recipient']): string | null => {
+    if (recipient?.kind === 'known_entity') {
+      const known = recipientOptions.find(option => option.entityId === recipient.entityId);
+      return known?.displayName.trim().charAt(0).toUpperCase() || null;
+    }
+    if (recipient?.kind === 'free_text') return recipient.text.trim().charAt(0).toUpperCase() || null;
+    return null;
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <section aria-labelledby="structured-actions" style={fieldStyle}>
-        <h3 id="structured-actions" className="gor-label" style={sectionHeadingStyle}>Actions</h3>
+        <RegisterHeading numeral="I" id="structured-actions">What you do</RegisterHeading>
         {draft.actions.map((action, index) => (
           <textarea
             key={index}
@@ -60,80 +99,90 @@ export const StructuredTurnComposer: React.FC<StructuredTurnComposerProps> = ({
         <span style={addRowStyle}>
           <Button type="button" variant="ghost" size="sm" aria-label="Add action row" disabled={disabled}
             onClick={() => onChange(addActionRow(draft))}>
-            + Add action
+            ❧ A further order
           </Button>
         </span>
       </section>
       <section aria-labelledby="structured-messages" style={fieldStyle}>
-        <h3 id="structured-messages" className="gor-label" style={sectionHeadingStyle}>Messages / Orders</h3>
+        <RegisterHeading numeral="II" id="structured-messages">Whom you address</RegisterHeading>
         {draft.messagesOrOrders.map((row, index) => {
           const recipientValue = row.recipient?.kind === 'known_entity'
             ? encodeKnownRecipientSelectValue(row.recipient.entityId)
             : row.recipient?.kind === 'free_text' ? customRecipientSelectValue() : '';
           return (
-            <div key={index} style={fieldStyle}>
-              <select
-                className="gor-select"
-                aria-label={`Recipient ${index + 1}`}
-                value={recipientValue}
-                disabled={disabled}
-                {...describeIssue(`messagesOrOrders.${index}.recipient`)}
-                onChange={event => {
-                  const value = event.target.value;
-                  onChange(selectMessageRecipient(draft, index, value));
-                }}
-              >
-                <option value="">Select a recipient</option>
-                {recipientOptions.map(option => <option key={option.entityId} value={encodeKnownRecipientSelectValue(option.entityId)}>{option.displayName}</option>)}
-                <option value={CUSTOM_RECIPIENT_VALUE}>Someone else…</option>
-              </select>
-              {row.recipient?.kind === 'free_text' && (
-                <input
-                  className="gor-input"
-                  aria-label={`Custom recipient ${index + 1}`}
-                  value={row.recipient.text}
-                  autoComplete="off"
+            <div key={index} className="gor-register-letter">
+              <RecipientSeal initial={initialFor(row.recipient)} />
+              <div className="gor-register-letter-body">
+                <select
+                  className="gor-select"
+                  aria-label={`Recipient ${index + 1}`}
+                  value={recipientValue}
                   disabled={disabled}
                   {...describeIssue(`messagesOrOrders.${index}.recipient`)}
-                  onChange={event => onChange(updateCustomRecipient(draft, index, event.target.value))}
+                  onChange={event => {
+                    const value = event.target.value;
+                    onChange(selectMessageRecipient(draft, index, value));
+                  }}
+                >
+                  <option value="">Select a recipient</option>
+                  {recipientOptions.map(option => <option key={option.entityId} value={encodeKnownRecipientSelectValue(option.entityId)}>{option.displayName}</option>)}
+                  <option value={CUSTOM_RECIPIENT_VALUE}>Someone else…</option>
+                </select>
+                {row.recipient?.kind === 'free_text' && (
+                  <input
+                    className="gor-input"
+                    aria-label={`Custom recipient ${index + 1}`}
+                    value={row.recipient.text}
+                    autoComplete="off"
+                    disabled={disabled}
+                    {...describeIssue(`messagesOrOrders.${index}.recipient`)}
+                    onChange={event => onChange(updateCustomRecipient(draft, index, event.target.value))}
+                    onKeyDown={submitOnShortcut}
+                  />
+                )}
+                <textarea
+                  className="gor-textarea"
+                  rows={2}
+                  aria-label={`Message or order ${index + 1}`}
+                  value={row.command}
+                  disabled={disabled}
+                  {...describeIssue(`messagesOrOrders.${index}.command`)}
+                  onChange={event => onChange(updateMessageCommand(draft, index, event.target.value))}
                   onKeyDown={submitOnShortcut}
                 />
-              )}
-              <textarea
-                className="gor-textarea"
-                rows={2}
-                aria-label={`Message or order ${index + 1}`}
-                value={row.command}
-                disabled={disabled}
-                {...describeIssue(`messagesOrOrders.${index}.command`)}
-                onChange={event => onChange(updateMessageCommand(draft, index, event.target.value))}
-                onKeyDown={submitOnShortcut}
-              />
+              </div>
             </div>
           );
         })}
         <span style={addRowStyle}>
           <Button type="button" variant="ghost" size="sm" aria-label="Add message or order row" disabled={disabled}
             onClick={() => onChange(addMessageOrOrderRow(draft))}>
-            + Add message or order
+            ❧ Another letter
           </Button>
         </span>
       </section>
-      <section aria-labelledby="structured-intent" style={fieldStyle}>
-        <h3 id="structured-intent" className="gor-label" style={sectionHeadingStyle}>Private Intent</h3>
-        <p className="gor-hint" style={{ margin: 0 }}>Private to your avatar; this expresses what you intend, not an action by itself.</p>
-        <textarea className="gor-textarea" rows={2} aria-label="Private Intent" value={draft.privateIntent} disabled={disabled} {...describeIssue('privateIntent')}
-          onChange={event => onChange(updatePrivateIntent(draft, event.target.value))} onKeyDown={submitOnShortcut} />
-      </section>
-      <section aria-labelledby="structured-context" style={fieldStyle}>
-        <h3 id="structured-context" className="gor-label" style={sectionHeadingStyle}>Question / Context</h3>
-        <p className="gor-hint" style={{ margin: 0 }}>Your question or context does not cause autonomous action.</p>
-        <textarea className="gor-textarea" rows={2} aria-label="Question / Context" value={draft.questionOrContext} disabled={disabled} {...describeIssue('questionOrContext')}
-          onChange={event => onChange(updateQuestionOrContext(draft, event.target.value))} onKeyDown={submitOnShortcut} />
-      </section>
-      <span style={addRowStyle}>
-        <Button type="button" aria-label="Submit turn" disabled={disabled || submissionBlocked} onClick={onSubmit}>Submit turn</Button>
-      </span>
+      {/* Neither of these is an order, so they sit beside each other under
+          their own left rules rather than continuing the stack of commands. */}
+      <div className="gor-register-pair">
+        <section aria-labelledby="structured-intent" className="gor-register-aside gor-register-aside-intent" style={fieldStyle}>
+          <RegisterHeading numeral="III" id="structured-intent">What you intend</RegisterHeading>
+          <p className="gor-hint" style={{ margin: 0 }}>Private to your avatar; this expresses what you intend, not an action by itself.</p>
+          <textarea className="gor-textarea" rows={2} aria-label="Private Intent" value={draft.privateIntent} disabled={disabled} {...describeIssue('privateIntent')}
+            onChange={event => onChange(updatePrivateIntent(draft, event.target.value))} onKeyDown={submitOnShortcut} />
+        </section>
+        <section aria-labelledby="structured-context" className="gor-register-aside" style={fieldStyle}>
+          <RegisterHeading numeral="IV" id="structured-context">What you ask</RegisterHeading>
+          <p className="gor-hint" style={{ margin: 0 }}>Your question or context does not cause autonomous action.</p>
+          <textarea className="gor-textarea" rows={2} aria-label="Question / Context" value={draft.questionOrContext} disabled={disabled} {...describeIssue('questionOrContext')}
+            onChange={event => onChange(updateQuestionOrContext(draft, event.target.value))} onKeyDown={submitOnShortcut} />
+        </section>
+      </div>
+      <div className="gor-register-foot">
+        {/* The visible label is the player's imperative; the aria-label stays
+            "Submit turn" — the name every caller and test already knows. */}
+        <Button type="button" aria-label="Submit turn" disabled={disabled || submissionBlocked} onClick={onSubmit}>Seal &amp; send</Button>
+        <span className="gor-register-shortcut" aria-hidden="true">⌃⏎</span>
+      </div>
     </div>
   );
 };

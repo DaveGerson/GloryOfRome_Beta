@@ -188,6 +188,28 @@
 .gor-private-scene{position:fixed;z-index:90;inset:12vh 50% auto 50%;transform:translateX(-50%);width:min(620px,calc(100vw - 32px));max-height:76vh;overflow:auto;padding:20px;background:var(--surface-card);border:1px solid var(--border-strong);box-shadow:var(--shadow-raised);color:var(--text-body)}
 .gor-private-scene::backdrop{background:rgba(24,16,10,.62)}
 .gor-private-scene header{display:flex;justify-content:space-between;align-items:center;gap:12px}.gor-private-scene textarea,.gor-private-scene select{display:block;width:100%;margin:10px 0;padding:8px}.gor-private-scene button{margin:4px}
+/* ── The structured composer as a dispatch scroll (audit item 02) ──
+   Four numbered registers rather than four identical wells: what you do,
+   whom you address, what you intend, what you ask. */
+.gor-register-head{display:flex;align-items:center;gap:10px}
+.gor-register-numeral{flex:none;font-family:var(--font-display);font-size:13px;letter-spacing:.16em;color:var(--parchment-400)}
+.gor-register-title{color:var(--crimson-500);flex:none}
+.gor-register-rule{flex:1;height:1px;background:linear-gradient(90deg,var(--border-subtle),transparent)}
+.gor-register-letter{display:grid;grid-template-columns:38px 1fr;gap:10px;align-items:start}
+.gor-register-letter-body{display:flex;flex-direction:column;gap:8px;min-width:0}
+/* An unaddressed letter carries no wax — a dashed, unsealed disc instead. */
+.gor-seal-blank{width:38px;height:38px;display:inline-grid;place-items:center;flex:none;border:1px dashed var(--border-strong);border-radius:46% 54% 52% 48%/52% 46% 54% 48%;color:var(--parchment-400);font-family:var(--font-display);font-size:17px;line-height:1}
+.gor-register-pair{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+.gor-register-aside{padding-left:12px;border-left:2px solid var(--border-subtle)}
+.gor-register-aside-intent{border-left-color:var(--tyrian-400)}
+.gor-register-foot{display:flex;align-items:center;gap:12px}
+.gor-register-shortcut{font-family:var(--font-display);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted)}
+/* The characters-remaining readout as a hairline gauge rather than a sentence. */
+.gor-gauge{display:flex;flex-direction:column;gap:4px}
+.gor-gauge-track{display:block;height:3px;background:var(--surface-inset);box-shadow:var(--shadow-inset);overflow:hidden}
+.gor-gauge-fill{display:block;height:100%;background:var(--gold-600);transition:width var(--duration-slow) var(--ease-standard)}
+.gor-gauge-count{margin:0;text-align:right;font-family:var(--font-display);font-size:10px;font-style:normal;letter-spacing:.14em;text-transform:uppercase;font-variant-numeric:tabular-nums;color:var(--text-muted)}
+
 .gor-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 
 @media (prefers-reduced-motion:reduce){
@@ -235,4 +257,6 @@ header h1{font-size:20px!important}
    the viewport together. Selected structurally via the chat textarea's
    stable id, since the row itself has no class of its own. */
 div:has(>div>form>#chat-input){flex-wrap:wrap}
+/* Registers III and IV sit side by side only where there is room for two. */
+.gor-register-pair{grid-template-columns:1fr}
 }

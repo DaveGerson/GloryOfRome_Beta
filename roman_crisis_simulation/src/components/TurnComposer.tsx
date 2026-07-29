@@ -72,6 +72,7 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
     ? artifactStatus.remainingCharacters
     : pristine ? MAX_TURN_SUBMISSION_CHARACTERS : null;
   const overLimit = artifactStatus.ok && artifactStatus.overLimit;
+  const remainingShare = Math.min(100, Math.max(0, ((remaining ?? 0) / MAX_TURN_SUBMISSION_CHARACTERS) * 100));
   const statusId = 'composer-submission-status';
   const validationMessage = artifactStatus.ok || pristine
     ? null
@@ -200,7 +201,14 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
           ) : validationMessage ? (
             <p id={statusId} role="alert" className="gor-hint gor-hint-error" style={{ margin: 0 }}>{validationMessage}</p>
           ) : (
-            <p id={statusId} role="status" className="gor-hint" style={{ margin: 0 }}>{formatCharacterCount(remaining ?? 0)} characters remaining</p>
+            // The remaining budget as a hairline gauge (WP-6): the sentence is
+            // still the accessible status - the track only draws it.
+            <div className="gor-gauge">
+              <span className="gor-gauge-track" aria-hidden="true">
+                <span className="gor-gauge-fill" style={{ width: `${remainingShare}%` }} />
+              </span>
+              <p id={statusId} role="status" className="gor-gauge-count">{formatCharacterCount(remaining ?? 0)} characters remaining</p>
+            </div>
           )}
           <div style={{ position: 'relative' }}>
             <StructuredTurnComposer draft={structuredDraft} recipientOptions={recipientOptions} disabled={locked} submissionBlocked={overLimit || !artifactStatus.ok}

@@ -120,7 +120,10 @@ describe('components/TurnComposer', () => {
 
     expect(structuredMode.getAttribute('aria-pressed')).toBe('true');
     expect(localStorage.getItem('gloryOfRome:composerMode')).toBe('structured');
-    for (const label of ['Actions', 'Messages / Orders', 'Private Intent', 'Question / Context']) {
+    // WP-6 renamed the four visible register headings; the aria-labels each
+    // control carries ('Private Intent', 'Question / Context', 'Action 1' …)
+    // are unchanged and are still asserted below.
+    for (const label of ['What you do', 'Whom you address', 'What you intend', 'What you ask']) {
       expect(container.textContent).toContain(label);
     }
     expect(container.textContent).toMatch(/private[^.]*avatar/i);
