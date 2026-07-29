@@ -149,6 +149,19 @@
 .gor-destiny:focus-visible{box-shadow:var(--focus-ring)}
 .gor-destiny-name{font-family:var(--font-epic);font-weight:700;font-size:19px;line-height:1.25;color:var(--tyrian-600)}
 .gor-destiny-desc{font-size:15px;font-style:italic;color:var(--text-body)}
+/* The week ribbon as a hanging vexillum (audit item 14) — Tyrian metal, gold
+   cornice, swallowtail hem, dropping in on the beat between weeks. */
+.gor-vexillum-row{display:flex;justify-content:center;margin:4px 0 10px}
+.gor-vexillum{position:relative;min-width:280px;padding:8px 30px 17px;text-align:center;background:var(--metal-tyrian);box-shadow:var(--bevel),0 4px 10px rgba(58,44,16,.32);clip-path:polygon(0 0,100% 0,100% 100%,50% calc(100% - 10px),0 100%);animation:gorRibbonDrop 320ms var(--ease-standard) both}
+.gor-vexillum-cornice{position:absolute;left:0;right:0;top:0;height:2px;background:linear-gradient(180deg,#E8C959,#A5831D)}
+.gor-vexillum-week{display:block;font-family:var(--font-epic);font-weight:700;font-size:13px;letter-spacing:.28em;text-transform:uppercase;color:#E8C959;text-shadow:0 1px 1px rgba(0,0,0,.45)}
+.gor-vexillum-date{display:block;margin-top:3px;font-family:var(--font-body);font-style:italic;font-size:13px;color:rgba(240,208,137,.82)}
+@keyframes gorRibbonDrop{from{opacity:0;transform:translateY(-26px)}to{opacity:1;transform:translateY(0)}}
+/* The beat between weeks — the marble dims 6% and comes back, 320ms, as a
+   pointer-transparent wash so no ancestor gains a filter (which would break
+   the fixed-position private scene). */
+.gor-week-beat{position:fixed;inset:0;z-index:95;pointer-events:none;background:rgba(19,16,9,.06);animation:gorWeekBeat 320ms var(--ease-standard) both}
+@keyframes gorWeekBeat{0%{opacity:0}45%{opacity:1}100%{opacity:0}}
 .gor-mosaic{height:10px;background:repeating-linear-gradient(90deg,var(--gold-600) 0 10px,transparent 10px 20px) top/20px 5px repeat-x,repeating-linear-gradient(90deg,transparent 0 10px,var(--tyrian-500) 10px 20px) bottom/20px 5px repeat-x}
 @keyframes gorFadeIn{from{opacity:0}to{opacity:1}}
 @keyframes gorRise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
@@ -184,6 +197,9 @@
 .gor-loom,.gor-loom-fill{animation:none}
 /* The seal still lands; it simply does not swing in. */
 .gor-seal-press{animation:gorSealSettle var(--duration-fast) linear both}
+/* The vexillum still hangs, and the week still turns — neither moves. */
+.gor-vexillum{animation:none}
+.gor-week-beat{display:none}
 }
 
 /* ── Narrow-viewport stacking — CSS-only, no markup change ──

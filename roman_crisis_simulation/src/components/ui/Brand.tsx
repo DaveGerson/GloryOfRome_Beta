@@ -59,11 +59,22 @@ export const WaxSeal: React.FC<{ letter?: string; size?: number; tone?: 'crimson
         return <span aria-hidden="true" style={{ width: size, height: size, display: 'inline-grid', placeItems: 'center', flex: 'none', borderRadius: '46% 54% 52% 48% / 52% 46% 54% 48%', background: bg, boxShadow: 'inset 0 2px 3px rgba(255,255,255,.28), inset 0 -3px 5px rgba(0,0,0,.35), 0 2px 5px rgba(58,44,16,.35)', color: '#F2D9C8', fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: size * .42, textShadow: '0 -1px 1px rgba(0,0,0,.4)', ...style }}>{letter}</span>;
     };
 
-/* Week-advance ribbon between chat turns. */
-export const TurnRibbon: React.FC<{ children?: React.ReactNode }> = ({ children }) => (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '4px 0', animation: 'gorFadeIn .5s ease-out both' }}>
-        <span aria-hidden="true" style={{ flex: 1, height: 1, background: 'linear-gradient(90deg,transparent,var(--border-subtle))' }}></span>
-        <span className="gor-label" style={{ color: 'var(--gold-700)', display: 'inline-flex', gap: 8, alignItems: 'center' }}><span aria-hidden="true" style={{ fontSize: 8 }}>◆</span>{children}<span aria-hidden="true" style={{ fontSize: 8 }}>◆</span></span>
-        <span aria-hidden="true" style={{ flex: 1, height: 1, background: 'linear-gradient(90deg,var(--border-subtle),transparent)' }}></span>
-    </div>
-);
+/**
+ * The week-advance ribbon between chat turns — a hanging vexillum, not two
+ * hairlines (audit item 14). Tyrian metal under a gold cornice, cut with a
+ * swallowtail hem, carrying the week in ceremonial numerals over the Roman
+ * date the guide asks for.
+ *
+ * `date` is optional: ribbons written before this pass carry only their text,
+ * and render as the single week line they always did.
+ */
+export const TurnRibbon: React.FC<{ children?: React.ReactNode; date?: { roman: string; plain: string } }> =
+    ({ children, date }) => (
+        <div className="gor-vexillum-row">
+            <div className="gor-vexillum">
+                <span aria-hidden="true" className="gor-vexillum-cornice"></span>
+                <span className="gor-vexillum-week">{children}</span>
+                {date && <span className="gor-vexillum-date" title={date.plain}>{date.roman}</span>}
+            </div>
+        </div>
+    );

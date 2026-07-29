@@ -67,6 +67,14 @@ export interface Message {
      */
     sender: 'player' | 'gm' | 'player_monologue' | 'ribbon';
     text: string;
+    /**
+     * Ribbon-only: the week and year this divider marks, so the vexillum can
+     * render the Roman date beneath the week numeral (audit item 14) without
+     * parsing it back out of `text`. Optional and additive - a ribbon saved
+     * before this field existed renders as the single week line it always
+     * did (save-compat per PR #3 invariant 6).
+     */
+    ribbonDate?: { week: number; year: number };
 }
 
 /**

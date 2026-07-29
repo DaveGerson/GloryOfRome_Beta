@@ -4,6 +4,7 @@ import { TurnStage } from '../ai/core/turn';
 import { structuredSubmissionForHistory, TurnSubmissionHistory } from './TurnSubmissionHistory';
 import { deserializeTurnSubmission } from '../playerInput/turnSubmission';
 import { TurnRibbon } from './ui/Brand';
+import { romanDate } from './ui/romanDate';
 import { toSegments } from './textFormat';
 
 // Themed status copy for the "thinking" theater (ROADMAP_0_MASTER_PLAN.md
@@ -163,7 +164,10 @@ export function illuminatedNarrationIndices(messages: readonly Message[]): Reado
 
 export const ChatMessage: React.FC<{ message: Message; illuminated?: boolean }> = ({ message, illuminated = false }) => {
     if (message.sender === 'ribbon') {
-        return <TurnRibbon>{message.text}</TurnRibbon>;
+        const date = message.ribbonDate
+            ? romanDate(message.ribbonDate.week, message.ribbonDate.year)
+            : undefined;
+        return <TurnRibbon date={date}>{message.text}</TurnRibbon>;
     }
 
     if (message.sender === 'player_monologue') {

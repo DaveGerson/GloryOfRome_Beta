@@ -165,6 +165,13 @@ interface DomainCommit {
     onCommitted?: () => void;       // post-dispatch work
 }
 
+/**
+ * The beat between weeks (audit item 18) — how long the marble dims as the
+ * new week's vexillum drops in. Matches `gorWeekBeat`/`gorRibbonDrop` in
+ * design/components.css; decorative only, never awaited by the turn.
+ */
+const WEEK_BEAT_MS = 320;
+
 const App: React.FC = () => {
     // Every game-domain slice lives in the reducer behind GameContext
     // (state/gameReducer.ts, DESIGN_DECISIONS.md D17) - in particular, every
@@ -207,6 +214,22 @@ const App: React.FC = () => {
     const [turnError, setTurnError] = useState<string | null>(null);
     const [transactionError, setTransactionError] = useState<string | null>(null);
     const [domainMutationInFlight, setDomainMutationInFlight] = useState(false);
+    // The beat between weeks (audit item 18): a 320ms wash over the marble as
+    // the vexillum drops in. Purely decorative and never awaited - it is set
+    // from the TURN_COMMITTED onCommitted callback, after the turn is durable.
+    const [weekBeat, setWeekBeat] = useState(false);
+    const weekBeatTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const strikeWeekBeat = useCallback(() => {
+        if (weekBeatTimer.current !== null) clearTimeout(weekBeatTimer.current);
+        setWeekBeat(true);
+        weekBeatTimer.current = setTimeout(() => {
+            weekBeatTimer.current = null;
+            setWeekBeat(false);
+        }, WEEK_BEAT_MS);
+    }, []);
+    useEffect(() => () => {
+        if (weekBeatTimer.current !== null) clearTimeout(weekBeatTimer.current);
+    }, []);
     const [isGmScreenVisible, setIsGmScreenVisible] = useState(false);
     // D7 - the GM console (log/debugger) stays in the codebase permanently
     // but is hidden by default for a clean player view. This is the runtime
@@ -1050,7 +1073,14 @@ const App: React.FC = () => {
                 : null;
             // Week-advance ribbon written into the stream once the turn commits
             // (rendered as a TurnRibbon divider, not a speech bubble).
-            const ribbonMessage: Message = { sender: 'ribbon', text: `Week ${toRoman(newWorldState.week)} · The chronicler sets down the day` };
+            // The week numeral is the vexillum's first line; the Roman date is
+            // rendered from `ribbonDate` rather than baked into the text, so a
+            // ribbon written today still reads correctly a reign later.
+            const ribbonMessage: Message = {
+                sender: 'ribbon',
+                text: `Week ${toRoman(newWorldState.week)}`,
+                ribbonDate: { week: newWorldState.week, year: newWorldState.year },
+            };
             const committedMessages = [
                 playerMessage,
                 gmMessage,
@@ -1135,7 +1165,7 @@ const App: React.FC = () => {
                     committedTail.current = { diedThisTurn };
                     privateScenesRef.current = committedPrivateScenes;
                 },
-                onCommitted: () => setTransactionError(null),
+                onCommitted: () => { setTransactionError(null); strikeWeekBeat(); },
             });
             // The final, parsed narration message above now replaces the
             // transient streaming bubble - clear the thinking-theater state
@@ -1257,7 +1287,7 @@ const App: React.FC = () => {
         }
         });
         return mutation.acquired;
-    }, [ai, buildSaveState, commitDomainMutation, dispatch, entities, eventFirings, getStateGeneration, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, pendingIntelligenceFallout, playerCharacterId, reports, resolvedApiKey, runDomainMutation, simulationState, truthLedger, turnHistory, turnNumber, worldState]);
+    }, [ai, buildSaveState, commitDomainMutation, dispatch, entities, eventFirings, getStateGeneration, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, pendingIntelligenceFallout, playerCharacterId, reports, resolvedApiKey, runDomainMutation, simulationState, strikeWeekBeat, truthLedger, turnHistory, turnNumber, worldState]);
 
     const handleComposerSubmit = (draft: string | StructuredTurnDraft) => {
         if (gameState !== GameState.AWAITING_PLAYER_INPUT || privateSceneInteractionLocked) return;
@@ -1590,6 +1620,7 @@ const App: React.FC = () => {
 
     return (
         <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+            {weekBeat && <div className="gor-week-beat" aria-hidden="true" />}
             <Header
                 worldState={worldState}
                 onOpenSettings={() => setIsSettingsMenuOpen(true)}
