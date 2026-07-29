@@ -569,3 +569,46 @@ Storage contracts are untouched - every option remains a device/browser
 preference, never campaign state.
 *Supersedes:* D31's "exactly the initial contents" reading. *Refines:* D7
 (the discoverable dev backup switch now lives in the Developer card).
+
+## D44 - The visual enhancement pass: one owner per fact, and no number the player must not see
+The July 2026 visual enhancement pass (handoff:
+`design_handoff_glory_of_rome/README.md`, shipped as fifteen `design(WP-n):`
+commits) settles four rules the audit exposed.
+
+**One owner per fact.** No fact is rendered in two tabs. World owns the
+week's briefing - macro state, the crisis, and where to look - and nothing
+else; Empire owns regions, Events owns occurrences, Reports owns what
+sources claim, Chronicle owns what you did, Personae owns who they are,
+Assets owns what you hold. `isRegionKnownToPlayer` moves out of
+`components/tabs/WorldStateTab.tsx` into `perception/visibility.ts`: a
+sight rule belongs to the module that owns perception, not to a view.
+
+**Ceremony is Roman, arithmetic is Arabic.** `toRoman` is reserved for the
+week ribbon, the turn count, the Roman date and the epilogue. Prices,
+balances and anything the player does arithmetic on are Arabic and tabular;
+`toRoman(cost)` is gone from the dossier and must not return.
+
+**A unit belongs to the resource, never to the value.** `ResourcesTab` used
+to infer a percent suffix from `!Number.isInteger(value)`, printing 62.5 as
+"62.5%" and 80 as "80". Label, unit and register are now declared per
+resource in `components/tabs/resourceDescriptors.ts`, and an undeclared
+resource is written exactly as stored rather than guessed at.
+
+**No credibility number reaches the player (extends D25/D26).** The
+corroboration verdict Reports now shows - "N sources agree" / "Accounts
+conflict" - is derived inside `knowledge/credibilityFraming.ts` from D29's
+player-safe `stance` and `topic` plus certainty RANK. `credibility` is read
+only in that module and never re-emitted, so no player surface can leak the
+figure. Crisis volume is graded the same way: from the four closed macro
+enums (and an optional model-supplied `crisis_severity` that may only make
+the banner LOUDER), never by reading the crisis prose.
+
+*Deferred, deliberately:* the dossier's centre-zero relationship axes
+(Trust/Threat/Respect/Dependency are ground truth on
+`Entity.relationships`, GM-console-only - the player's relationship
+knowledge is sourced prose with no scores), and Empire's province roster
+(`WorldState.regions` holds only Rome's locations and `RegionState` has no
+scope field, so a province list would mean changing the world model and its
+AI contract).
+*Refines:* D25/D26 (adds corroboration as a player-safe signal), D5 (the
+sight rule's home), D14 (dossier prices in coin, not numerals).
