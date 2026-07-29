@@ -23,7 +23,36 @@ const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
 const lbl: React.CSSProperties = { fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', color: DIM };
 const well: React.CSSProperties = { background: 'rgba(0,0,0,.32)', border: '1px solid rgba(201,162,39,.22)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' };
 
-const TABS = ['summary', 'entity states', 'actions', 'deltas', 'private', 'ground truth', 'npc perception', 'truth ledger', 'player knowledge', 'raw json'];
+/**
+ * WP-12 — the console became a turn inspector. Every per-turn tab used to
+ * re-render EVERY turn in history, so "deltas" was a wall of two turns' deltas
+ * at once and the console could not answer the only question a GM asks: what
+ * happened in *this* turn. A turn rail now scopes every per-turn tab to one
+ * turn, and "entity states" + "deltas" — two answers to one question — became
+ * `what changed`.
+ *
+ * `actions` stays its own register: it holds the Director's and each mind's
+ * private REASONING, which is a different instrument from the state diff.
+ * The two campaign-wide collections (D11 ledger, D21 knowledge) ignore the
+ * rail by construction.
+ */
+const TABS = ['summary', 'what changed', 'actions', 'private', 'ground truth', 'npc perception', 'truth ledger', 'player knowledge', 'raw json'];
+
+/** Tabs that render one bounded campaign-wide collection, not per-turn data. */
+const CAMPAIGN_WIDE_TABS = new Set(['truth ledger', 'player knowledge']);
+
+/**
+ * A GM-private note must never be mistakable for narration you would read
+ * aloud: a crimson wax edge and a redaction weave across the ground.
+ */
+const redacted: React.CSSProperties = {
+    borderLeft: '4px solid var(--metal-crimson)',
+    background: 'repeating-linear-gradient(102deg,rgba(179,58,43,.07) 0 1px,transparent 1px 7px), rgba(0,0,0,.32)',
+    border: '1px solid rgba(179,58,43,.45)',
+    borderLeftWidth: 4,
+    borderRadius: 'var(--radius-sm)',
+    padding: '10px 12px',
+};
 
 const PlayerIntentView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => {
     const structuredSubmission = structuredSubmissionForHistory(entry.playerIntent);
@@ -99,7 +128,7 @@ const ActionsView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => {
             </div>
         )}
         {directorNotes.length > 0 && (
-            <div style={{ ...well, border: '1px solid rgba(179,58,43,.45)' }}>
+            <div style={redacted}>
                 <span style={{ ...lbl, color: RED }}>Director & Mind Notes</span>
                 {directorNotes.map((note, index) => (
                     <div key={index} style={{ fontSize: 13, fontStyle: 'italic', color: DIM, marginTop: 4 }}>“{note}”</div>
@@ -124,35 +153,170 @@ const ActionsView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => {
     );
 };
 
-const DeltasView: React.FC<{ adjudication: Adjudication }> = ({ adjudication }) => (
-    <>
-        {adjudication.deltas.length > 0 ? (
-            adjudication.deltas.map((delta, index) => (
-                <div key={index} style={{ ...well, display: 'flex', gap: 14, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                    <span style={{ ...lbl, color: RED }}>{delta.type}</span>
-                    <span style={{ fontFamily: MONO, fontSize: 13 }}>{delta.key}</span>
-                    <span style={{ fontFamily: MONO, fontSize: 13, color: GOLD }}>{delta.delta}</span>
-                    {delta.new_status && <span style={{ fontFamily: MONO, fontSize: 13, color: RED }}>→ {delta.new_status}{delta.new_location ? ` · ${delta.new_location}` : ''}</span>}
-                    <span style={{ fontSize: 13, fontStyle: 'italic', color: DIM }}>“{delta.reason}”</span>
-                </div>
-            ))
-        ) : (
-            <p style={{ color: DIM, margin: 0 }}>No state deltas were recorded.</p>
-        )}
-    </>
-);
+/**
+ * One relationship axis as a centre-zero bar. GM-side only: these four values
+ * are ground truth on `Entity.relationships` and never reach a player surface
+ * (the player's relationship knowledge is sourced prose observations with no
+ * scores at all — see components/tabs/RelationshipObservations.tsx).
+ *
+ * Signed axes (trust, respect) run -10…10 across the whole track. Unsigned
+ * ones (threat, dependency) have no negative half, so 0…10 fills rightward
+ * from the same centre tick — how far past neutral, not a false symmetry.
+ */
+const RelationshipAxis: React.FC<{ label: string; value: number; signed: boolean }> = ({ label, value, signed }) => {
+    const span = signed ? Math.max(-10, Math.min(10, value)) / 10 : Math.max(0, Math.min(10, value)) / 10;
+    const width = Math.abs(span) * 50;
+    return (
+        <div style={{ display: 'grid', gridTemplateColumns: '58px 1fr 30px', gap: 8, alignItems: 'center' }}>
+            <span style={{ ...lbl, fontSize: 9.5, letterSpacing: '.12em' }}>{label}</span>
+            <span style={{ position: 'relative', display: 'block', height: 7, background: 'rgba(0,0,0,.45)', border: '1px solid rgba(201,162,39,.2)' }}>
+                <span aria-hidden="true" style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'rgba(201,162,39,.55)' }} />
+                <span
+                    aria-hidden="true"
+                    style={{
+                        position: 'absolute', top: 0, bottom: 0, width: `${width}%`,
+                        ...(span < 0 ? { right: '50%' } : { left: '50%' }),
+                        background: span < 0 ? 'var(--metal-crimson)' : 'var(--metal-gold)',
+                    }}
+                />
+            </span>
+            <span style={{ fontFamily: MONO, fontSize: 11, color: PARCH, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{value}</span>
+        </div>
+    );
+};
+
+/** The entity ids a turn's deltas actually touch — delta keys are colon-joined
+ *  segments (`entityId:attr`, `aId:bId:attr`, `region:…`), so this resolves
+ *  each segment against the turn's own roster rather than matching substrings. */
+function movedEntityIds(adjudication: Adjudication, roster: Entity[]): string[] {
+    const known = new Set(roster.map(entity => entity.entity_id));
+    const moved = new Set<string>();
+    for (const delta of adjudication.deltas) {
+        for (const segment of delta.key.split(':')) {
+            if (known.has(segment)) moved.add(segment);
+        }
+    }
+    for (const action of adjudication.entityActions) {
+        if (known.has(action.id)) moved.add(action.id);
+    }
+    return [...moved];
+}
+
+/**
+ * What changed, in one turn — the ledger on the left, who moved on the right.
+ * Entity States and Deltas were two answers to the same question (audit item
+ * 31), so they read as one pane.
+ */
+const WhatChangedView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => {
+    const adjudication = entry.adjudication;
+    const roster = entry.postTurnEntities;
+    const moved = roster ? movedEntityIds(adjudication, roster) : [];
+
+    return (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, alignItems: 'start' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <span style={{ ...lbl, color: GOLD }}>The ledger</span>
+                {adjudication.deltas.length === 0 ? (
+                    <p style={{ color: DIM, margin: 0 }}>No state deltas were recorded.</p>
+                ) : adjudication.deltas.map((delta, index) => (
+                    <div key={index} style={{ ...well, display: 'grid', gridTemplateColumns: '1fr auto', gap: '2px 10px' }}>
+                        <span style={{ ...lbl, color: RED }}>{delta.type}</span>
+                        <span style={{ fontFamily: MONO, fontSize: 13, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: delta.delta > 0 ? GREEN : delta.delta < 0 ? RED : DIM }}>
+                            {delta.delta > 0 ? `+${delta.delta}` : delta.delta}
+                        </span>
+                        <span style={{ fontFamily: MONO, fontSize: 12, color: PARCH, gridColumn: '1 / -1', wordBreak: 'break-word' }}>{delta.key}</span>
+                        {delta.new_status && (
+                            <span style={{ fontFamily: MONO, fontSize: 12, color: RED, gridColumn: '1 / -1' }}>→ {delta.new_status}{delta.new_location ? ` · ${delta.new_location}` : ''}</span>
+                        )}
+                        <span style={{ fontSize: 13, fontStyle: 'italic', color: DIM, gridColumn: '1 / -1' }}>“{delta.reason}”</span>
+                    </div>
+                ))}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <span style={{ ...lbl, color: GOLD }}>Who moved</span>
+                {!roster ? (
+                    <p style={{ color: DIM, margin: 0 }}>Entity snapshot trimmed for this older turn - only the most recent turns retain one.</p>
+                ) : moved.length === 0 ? (
+                    <p style={{ color: DIM, margin: 0 }}>No entity was touched by this turn's deltas.</p>
+                ) : moved.map(entityId => {
+                    const entity = roster.find(e => e.entity_id === entityId);
+                    if (!entity) return null;
+                    const relationships = Object.entries(entity.relationships).filter(([, rel]) => rel) as [string, Relationship][];
+                    return (
+                        <div key={entityId} style={well}>
+                            <span style={{ color: RED, fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14 }}>{entity.name}</span>
+
+                            <span style={{ color: DIM, fontSize: 13 }}> — {entity.status} · {entity.location}</span>
+                            {entity.active_scheme && <div style={{ fontSize: 13, marginTop: 6 }}><SchemeLine scheme={entity.active_scheme} /></div>}
+                            {relationships.map(([targetId, rel]) => (
+                                <div key={targetId} style={{ marginTop: 8, borderTop: '1px solid rgba(201,162,39,.15)', paddingTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                    <span style={{ fontFamily: MONO, fontSize: 11, color: DIM }}>{roster.find(e => e.entity_id === targetId)?.name || targetId}</span>
+                                    <RelationshipAxis label="Trust" value={rel.trust_level} signed />
+                                    <RelationshipAxis label="Threat" value={rel.perceived_threat ?? 0} signed={false} />
+                                    <RelationshipAxis label="Respect" value={rel.respect_level ?? 0} signed />
+                                    <RelationshipAxis label="Depend." value={rel.dependency_level ?? 0} signed={false} />
+                                </div>
+                            ))}
+                        </div>
+                    );
+                })}
+                {/* The whole roster is still one click away — merging the two
+                    tabs must not cost a GM the full post-turn state. */}
+                {roster && (
+                    <details style={{ ...well, marginTop: 4 }}>
+                        <summary style={{ cursor: 'pointer', color: GOLD, fontFamily: 'var(--font-display)', fontSize: 12, letterSpacing: '.1em', textTransform: 'uppercase' }}>Full roster after this turn</summary>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
+                            <EntityStatesView entities={roster} />
+                        </div>
+                    </details>
+                )}
+            </div>
+        </div>
+    );
+};
 
 const PrivateView: React.FC<{ adjudication: Adjudication }> = ({ adjudication }) => (
     <>
         {adjudication.gm_private.length > 0 ? (
             adjudication.gm_private.map((note, index) => (
-                <div key={index} style={{ ...well, fontStyle: 'italic', fontSize: 14, color: DIM }}>“{note}”</div>
+                <div key={index} style={{ ...redacted, fontStyle: 'italic', fontSize: 14, color: DIM }}>“{note}”</div>
             ))
         ) : (
             <p style={{ color: DIM, margin: 0 }}>No private GM notes for this turn.</p>
         )}
     </>
 );
+
+/**
+ * The Fates' loom returns as a latency strip (WP-1, WP-12): the kit already
+ * records model, milliseconds and attempts per call, so a turn's cost is
+ * legible without opening the raw tab. A call that needed a retry runs
+ * crimson.
+ */
+const LatencyStrip: React.FC<{ rawCalls?: RawCallRecord[] }> = ({ rawCalls }) => {
+    if (!rawCalls || rawCalls.length === 0) return null;
+    const slowest = Math.max(1, ...rawCalls.map(call => call.latencyMs));
+    return (
+        <div style={{ ...well, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={lbl}>Latency — {rawCalls.length} call{rawCalls.length === 1 ? '' : 's'}, {rawCalls.reduce((sum, call) => sum + call.latencyMs, 0)}ms total</span>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 44 }}>
+                {rawCalls.map((call, index) => (
+                    <div key={index} title={`${call.callName} · ${call.model} · ${call.latencyMs}ms · ${call.attempts} attempt${call.attempts > 1 ? 's' : ''}`} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', height: '100%' }}>
+                        <span
+                            aria-hidden="true"
+                            style={{
+                                display: 'block',
+                                height: `${Math.max(6, (call.latencyMs / slowest) * 100)}%`,
+                                background: call.attempts > 1 ? 'var(--metal-crimson)' : 'var(--metal-gold)',
+                                boxShadow: call.attempts > 1 ? '0 0 9px rgba(192,68,52,.75)' : '0 0 7px rgba(232,201,89,.6)',
+                            }}
+                        />
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
 
 /** Raw private-scene inspection. This component is reachable only inside the GM console. */
 const PrivateSceneGmView: React.FC<{ scenes: readonly PrivateSceneRecord[] }> = ({ scenes }) => (
@@ -624,6 +788,11 @@ const GameMasterScreen: React.FC<{
     gmInterventionEnabled?: boolean;
 }> = ({ history, onClose, interventionText, onSetIntervention, interactionLocked = false, playerCharacterId, worldState, turnNumber, inferredAmbition, pendingIntelligenceFallout, truthLedger, reports, knowledge, npcIntents, privateScenes, gmInterventionEnabled = true }) => {
     const [activeTab, setActiveTab] = useState('summary');
+    // The rail's selection. `null` means "the newest turn", so a console
+    // opened mid-campaign lands on the turn the GM just watched happen, and a
+    // new turn arriving while the console is open does not strand the view on
+    // an older one the GM never chose.
+    const [selectedTurnNumber, setSelectedTurnNumber] = useState<number | null>(null);
     const [interventionInput, setInterventionInput] = useState(interventionText);
     const [showConfirmation, setShowConfirmation] = useState(false);
     const dialogRef = useRef<HTMLDivElement>(null);
@@ -690,6 +859,20 @@ const GameMasterScreen: React.FC<{
         // revoking synchronously can abort the download (Firefox/Safari),
         // so revocation must be deferred past the fetch.
         setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    };
+
+    // Newest first, matching the order the console has always listed turns in.
+    const railTurns = history.slice().reverse();
+    const selectedEntry = (selectedTurnNumber === null
+        ? railTurns[0]
+        : railTurns.find(entry => entry.turnNumber === selectedTurnNumber) ?? railTurns[0]) ?? null;
+
+    /** Anomalies worth flagging on the rail without opening anything: how many
+     *  retries a turn cost, and whether the Fates weighed a life in it. */
+    const railFlags = (entry: TurnHistoryEntry): string => {
+        const retries = (entry.rawCalls ?? []).reduce((sum, call) => sum + Math.max(0, call.attempts - 1), 0);
+        const weighed = (entry as unknown as Record<string, unknown>).mortalityTrace ? '✝' : '';
+        return [retries > 0 ? `↻${retries}` : '', weighed].filter(Boolean).join(' ');
     };
 
     return (
@@ -774,8 +957,79 @@ const GameMasterScreen: React.FC<{
                     </div>
                 )}
 
-                <div style={{ flex: 'none', ...well, border: '1px solid rgba(179,58,43,.45)' }}>
-                    <span style={{ ...lbl, color: RED }}>GM Intervention</span>
+                <div style={{ flex: 'none', display: 'flex', gap: 2, borderBottom: '1px solid rgba(201,162,39,.25)', flexWrap: 'wrap' }} role="tablist" aria-label="Ledger views">
+                    {TABS.map(tab => (
+                        <button
+                            key={tab}
+                            role="tab"
+                            aria-selected={tab === activeTab}
+                            onClick={() => setActiveTab(tab)}
+                            style={{ all: 'unset', cursor: 'pointer', fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase', padding: '8px 12px', color: tab === activeTab ? GOLD : DIM, borderBottom: tab === activeTab ? '2px solid var(--gold-500)' : '2px solid transparent', background: tab === activeTab ? 'rgba(201,162,39,.08)' : 'transparent' }}
+                        >
+                            {tab}
+                        </button>
+                    ))}
+                </div>
+
+                {/* The turn rail (WP-12). Every per-turn tab is scoped to the
+                    one turn selected here; the two campaign-wide collections
+                    ignore it. Retry counts and mortality checks flag on the
+                    rail so anomalies surface without opening anything. */}
+                <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: 14 }}>
+                    {!CAMPAIGN_WIDE_TABS.has(activeTab) && history.length > 0 && (
+                        <nav
+                            aria-label="Turns"
+                            style={{ flex: 'none', width: 172, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2, borderRight: '1px solid rgba(201,162,39,.2)', paddingRight: 8 }}
+                        >
+                            {railTurns.map(entry => {
+                                const selected = selectedEntry?.turnNumber === entry.turnNumber;
+                                const flags = railFlags(entry);
+                                return (
+                                    <button
+                                        key={entry.turnNumber}
+                                        type="button"
+                                        aria-current={selected ? 'true' : undefined}
+                                        onClick={() => setSelectedTurnNumber(entry.turnNumber)}
+                                        style={{ all: 'unset', boxSizing: 'border-box', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, padding: '7px 10px', borderLeft: `3px solid ${selected ? 'var(--gold-500)' : 'transparent'}`, background: selected ? 'rgba(201,162,39,.10)' : 'transparent', color: selected ? GOLD : DIM, fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase' }}
+                                    >
+                                        <span>Turn {toRoman(entry.turnNumber)}</span>
+                                        {flags && <span style={{ fontFamily: MONO, fontSize: 9, letterSpacing: 0, color: RED }}>{flags}</span>}
+                                    </button>
+                                );
+                            })}
+                        </nav>
+                    )}
+
+                    <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', paddingRight: 6, display: 'flex', flexDirection: 'column', gap: 20, color: PARCH }}>
+                        {activeTab === 'private' && <PrivateSceneGmView scenes={privateScenes ?? []} />}
+                        {/* The truth ledger and the player knowledge store are each one campaign-wide bounded collection (D11/D21), not per-turn data - rendered whole, ignoring the rail. */}
+                        {activeTab === 'truth ledger' ? (
+                            <TruthLedgerView ledger={truthLedger ?? []} reports={reports ?? []} />
+                        ) : activeTab === 'player knowledge' ? (
+                            <PlayerKnowledgeView knowledge={knowledge ?? []} />
+                        ) : !selectedEntry ? (
+                            <p style={{ color: DIM }}>No turns have been processed yet.</p>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 17, letterSpacing: '.1em', color: GOLD }}>TURN {toRoman(selectedEntry.turnNumber)}</span>
+                                <LatencyStrip rawCalls={selectedEntry.rawCalls} />
+                                {activeTab === 'summary' && <SummaryView entry={selectedEntry} />}
+                                {activeTab === 'what changed' && <WhatChangedView entry={selectedEntry} />}
+                                {activeTab === 'actions' && <ActionsView entry={selectedEntry} />}
+                                {activeTab === 'private' && <PrivateView adjudication={selectedEntry.adjudication} />}
+                                {activeTab === 'ground truth' && <GroundTruthView entry={selectedEntry} playerCharacterId={playerCharacterId} worldState={worldState} />}
+                                {activeTab === 'npc perception' && <NpcPerceptionView entry={selectedEntry} worldState={worldState} />}
+                                {activeTab === 'raw json' && <RawJsonView adjudication={selectedEntry.adjudication} rawCalls={selectedEntry.rawCalls} />}
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* GM Intervention docks to the foot (WP-12) and names the turn
+                    it lands in. Its button is GOLD, not crimson metal — crimson
+                    reads as delete, and this creates rather than destroys. */}
+                <div style={{ flex: 'none', ...well, border: '1px solid rgba(201,162,39,.35)' }}>
+                    <span style={{ ...lbl, color: GOLD }}>GM Intervention — lands in turn {toRoman(turnNumber + 1)}</span>
                     {gmInterventionEnabled ? (
                         <>
                             <p style={{ margin: '4px 0 8px', fontSize: 14, color: DIM }}>A directive the Fates will weave into the next turn's adjudication — an outside event, or a thumb on an entity's scale.</p>
@@ -792,7 +1046,7 @@ const GameMasterScreen: React.FC<{
                                     type="button"
                                     onClick={handleSetIntervention}
                                     disabled={interactionLocked}
-                                    style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, letterSpacing: '.08em', textTransform: 'uppercase', color: '#F8F1DE', background: 'var(--metal-crimson)', border: '1px solid #5E1008', clipPath: 'var(--chamfer-sm)', padding: '9px 16px', cursor: 'pointer', boxShadow: 'var(--bevel)' }}
+                                    style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, letterSpacing: '.08em', textTransform: 'uppercase', color: '#241C11', background: 'var(--metal-gold)', border: '1px solid #8A6D14', clipPath: 'var(--chamfer-sm)', padding: '9px 16px', cursor: 'pointer', boxShadow: 'var(--bevel)' }}
                                 >
                                     Set Directive for Next Turn
                                 </button>
@@ -805,48 +1059,6 @@ const GameMasterScreen: React.FC<{
                         // already set from before disabling is left alone
                         // (this is not a mechanism for clearing it).
                         <p style={{ margin: '4px 0 0', fontSize: 14, color: DIM, fontStyle: 'italic' }}>Disabled in the configuration menu.</p>
-                    )}
-                </div>
-
-                <div style={{ flex: 'none', display: 'flex', gap: 2, borderBottom: '1px solid rgba(201,162,39,.25)', flexWrap: 'wrap' }} role="tablist" aria-label="Ledger views">
-                    {TABS.map(tab => (
-                        <button
-                            key={tab}
-                            role="tab"
-                            aria-selected={tab === activeTab}
-                            onClick={() => setActiveTab(tab)}
-                            style={{ all: 'unset', cursor: 'pointer', fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase', padding: '8px 12px', color: tab === activeTab ? GOLD : DIM, borderBottom: tab === activeTab ? '2px solid var(--gold-500)' : '2px solid transparent', background: tab === activeTab ? 'rgba(201,162,39,.08)' : 'transparent' }}
-                        >
-                            {tab}
-                        </button>
-                    ))}
-                </div>
-
-                <div style={{ flex: 1, overflowY: 'auto', paddingRight: 6, display: 'flex', flexDirection: 'column', gap: 20, color: PARCH }}>
-                    {activeTab === 'private' && <PrivateSceneGmView scenes={privateScenes ?? []} />}
-                    {/* The truth ledger and the player knowledge store are each one campaign-wide bounded collection (D11/D21), not per-turn data - rendered once, outside the per-turn loop below. */}
-                    {activeTab === 'truth ledger' ? (
-                        <TruthLedgerView ledger={truthLedger ?? []} reports={reports ?? []} />
-                    ) : activeTab === 'player knowledge' ? (
-                        <PlayerKnowledgeView knowledge={knowledge ?? []} />
-                    ) : history.length === 0 ? (
-                        <p style={{ color: DIM }}>No turns have been processed yet.</p>
-                    ) : (
-                        history.slice().reverse().map(entry => (
-                            <div key={entry.turnNumber} style={{ display: 'flex', flexDirection: 'column', gap: 10, borderBottom: '1px solid rgba(201,162,39,.15)', paddingBottom: 18 }}>
-                                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 17, letterSpacing: '.1em', color: GOLD }}>TURN {toRoman(entry.turnNumber)}</span>
-                                {activeTab === 'summary' && <SummaryView entry={entry} />}
-                                {activeTab === 'entity states' && (entry.postTurnEntities
-                                    ? <EntityStatesView entities={entry.postTurnEntities} />
-                                    : <p style={{ color: DIM, margin: 0 }}>Entity snapshot trimmed for this older turn - only the most recent turns retain one.</p>)}
-                                {activeTab === 'actions' && <ActionsView entry={entry} />}
-                                {activeTab === 'deltas' && <DeltasView adjudication={entry.adjudication} />}
-                                {activeTab === 'private' && <PrivateView adjudication={entry.adjudication} />}
-                                {activeTab === 'ground truth' && <GroundTruthView entry={entry} playerCharacterId={playerCharacterId} worldState={worldState} />}
-                                {activeTab === 'npc perception' && <NpcPerceptionView entry={entry} worldState={worldState} />}
-                                {activeTab === 'raw json' && <RawJsonView adjudication={entry.adjudication} rawCalls={entry.rawCalls} />}
-                            </div>
-                        ))
                     )}
                 </div>
             </div>
