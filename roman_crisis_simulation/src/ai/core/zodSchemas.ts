@@ -339,6 +339,10 @@ export const zSimulationState = z.object({
   military_status: z.enum(['Loyal', 'Divided', 'Rebellious']),
   plebeian_mood: z.enum(['Content', 'Uneasy', 'Rioting']),
   major_ongoing_crisis: z.string().nullable(),
+  // How loudly the crisis banner speaks (audit item 15). OPTIONAL: the model
+  // may omit it and no save written before this pass carries it -
+  // components/crisisGrade.ts derives a floor from the four enums above.
+  crisis_severity: z.enum(['murmur', 'crisis', 'at_the_door']).nullable().optional(),
   // Actors-attribution contract (interchange-only): ONE top-level
   // declaration covering `major_ongoing_crisis`, the only free-prose field
   // here (every other field is a closed enum) - mention != actor, empty for

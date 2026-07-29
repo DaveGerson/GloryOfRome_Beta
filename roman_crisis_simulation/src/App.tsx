@@ -8,6 +8,7 @@ import { ChatMessage, TypingIndicator, StreamingNarrationBubble } from './compon
 import { TurnComposer } from './components/TurnComposer';
 import { PrivateScene, replacePrivateSceneForCommit } from './components/PrivateScene';
 import CrisisBanner from './components/CrisisBanner';
+import { crisisGrade } from './components/crisisGrade';
 import DispatchesDigest from './components/DispatchesDigest';
 import SidePanel from './components/SidePanel';
 import GameMasterScreen from './components/GameMasterScreen';
@@ -1590,7 +1591,12 @@ const App: React.FC = () => {
                 worldState={worldState}
                 onOpenSettings={() => setIsSettingsMenuOpen(true)}
             />
-            {gameState !== GameState.GAME_OVER && <CrisisBanner crisis={simulationState.major_ongoing_crisis} />}
+            {gameState !== GameState.GAME_OVER && (
+                <CrisisBanner
+                    crisis={simulationState.major_ongoing_crisis}
+                    grade={crisisGrade(simulationState) ?? 'crisis'}
+                />
+            )}
             {/*
               DESIGN_DECISIONS.md D1: exile/missing are survivable - the run
               keeps going, input stays enabled - so this is a persistent

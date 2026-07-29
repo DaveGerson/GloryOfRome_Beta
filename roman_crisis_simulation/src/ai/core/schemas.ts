@@ -414,6 +414,10 @@ export const SimulationStateSchema = {
         military_status: { type: Type.STRING, enum: ['Loyal', 'Divided', 'Rebellious'] },
         plebeian_mood: { type: Type.STRING, enum: ['Content', 'Uneasy', 'Rioting'] },
         major_ongoing_crisis: { type: Type.STRING, nullable: true },
+        // How loudly the crisis reads (audit item 15). Deliberately NOT in
+        // `required`: an older model or a truncated response simply omits it
+        // and components/crisisGrade.ts falls back to the four enums above.
+        crisis_severity: { type: Type.STRING, enum: ['murmur', 'crisis', 'at_the_door'], nullable: true },
         // ONE top-level actors declaration covering major_ongoing_crisis, the
         // only free-prose field here (every other field is a closed enum).
         actors: { type: Type.ARRAY, items: { type: Type.STRING }, description: ACTORS_DESCRIPTION },

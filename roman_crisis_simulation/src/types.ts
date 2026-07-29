@@ -759,4 +759,14 @@ export interface SimulationState {
   military_status: 'Loyal' | 'Divided' | 'Rebellious';
   plebeian_mood: 'Content' | 'Uneasy' | 'Rioting';
   major_ongoing_crisis: string | null; // e.g., "Civil War" or "Succession Crisis"
+  /**
+   * How loudly the crisis banner should speak (audit item 15) - the model's
+   * own reading of whether the crisis is a murmur, a crisis, or already at
+   * the door. OPTIONAL by construction: it is absent from every save written
+   * before this field existed and the model may omit it, so
+   * `components/crisisGrade.ts` derives a floor from the four closed enums
+   * above and takes whichever reading is louder. Never grade the banner by
+   * reading `major_ongoing_crisis` - that field is free prose.
+   */
+  crisis_severity?: 'murmur' | 'crisis' | 'at_the_door' | null;
 }

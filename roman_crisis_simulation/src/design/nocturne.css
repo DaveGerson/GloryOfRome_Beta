@@ -69,5 +69,11 @@ section[data-screen-label="Chat"]>div:nth-child(2){background:rgba(0,0,0,.4)!imp
 
 /* ── Layer 5 · Motion: one sanctioned theatrical addition — the Crisis Banner smolders ── */
 .gor-crisis{animation:noxSmolder 3.4s ease-in-out infinite}
+/* A murmur has no metal to smolder in, and the crisis at the door burns
+   harder than an ordinary one (audit item 15). */
+.gor-crisis-murmur{animation:none;background:linear-gradient(180deg,rgba(210,138,60,.16),rgba(210,138,60,.05));border-bottom-color:rgba(210,138,60,.42)}
+.gor-crisis-murmur .gor-crisis-label{color:#E9B36A}
+.gor-crisis-atdoor{animation:noxSmolderAtDoor 3.4s ease-in-out infinite}
 @keyframes noxSmolder{0%,100%{box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 0 18px rgba(140,28,19,.38),0 3px 10px rgba(0,0,0,.5)}50%{box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 0 34px rgba(192,68,52,.6),0 3px 10px rgba(0,0,0,.5)}}
-@media (prefers-reduced-motion:reduce){.gor-crisis{animation:none}}
+@keyframes noxSmolderAtDoor{0%,100%{box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 0 30px rgba(192,68,52,.42),0 10px 26px -8px rgba(140,28,19,.6)}50%{box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 0 52px rgba(210,86,68,.7),0 10px 26px -8px rgba(140,28,19,.75)}}
+@media (prefers-reduced-motion:reduce){.gor-crisis,.gor-crisis-atdoor{animation:none}}

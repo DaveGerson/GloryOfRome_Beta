@@ -296,6 +296,7 @@ Return a new, updated JSON object reflecting the current reality.
 - If legions are openly fighting, military_status MUST become 'Rebellious' and a 'Civil War' crisis should begin.
 - If the senate was purged or its power broken, senate_status could become 'Deposed' or 'Irrelevant'.
 - If events caused mass unrest (e.g., grain shortage), plebeian_mood could become 'Rioting'.
+- crisis_severity grades how near the crisis stands: 'murmur' when it troubles Rome but does not yet govern it, 'crisis' for an emergency in progress, 'at_the_door' when the crisis IS the state of Rome (armed men in the streets, an empty throne). Use null when major_ongoing_crisis is null.
 - ACTORS ATTRIBUTION: The top-level 'actors' field (covering major_ongoing_crisis, the only free-prose field here) follows this contract: ${ACTORS_DESCRIPTION}
 ${hasObservableAttempt ? '' : "- NO OBSERVABLE PLAYER ATTEMPT THIS TURN: the player's id must NEVER appear in the top-level 'actors' list.\n"}
 Return only the valid JSON object.
