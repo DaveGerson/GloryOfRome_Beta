@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { PacingPosture } from '../types';
-import { Card, Button } from './ui/Core';
+import { Card, Button, Badge, RegisterHeading } from './ui/Core';
 import { Switch, SegmentedControl } from './ui/Forms';
 import { createFocusTrap, FocusTrap } from './ui/focusTrap';
 
@@ -19,12 +19,24 @@ const FATES_OPTIONS: { posture: PacingPosture; label: string; title: string; des
 ];
 
 const LIGHTING_OPTIONS = [
-    { value: 'lux', label: 'LVX', title: 'Marble — day' },
-    { value: 'nox', label: 'NOX', title: 'Nox Romae — torchlit' },
+    { value: 'lux', label: '☼ LVX', title: 'Marble — day' },
+    { value: 'nox', label: '☾ NOX', title: 'Nox Romae — torchlit' },
 ] as const;
 
 const cardBodyStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 8 };
 const descriptionStyle: React.CSSProperties = { margin: 0, fontSize: 14, color: 'var(--text-muted)' };
+const registerStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 10 };
+
+/**
+ * How a stored key is shown back to the player: enough to recognise which key
+ * is on this device, never enough to read it. The value itself is only ever
+ * in the (password-typed) input beside it (D34).
+ */
+export function maskApiKey(key: string): string {
+    const trimmed = key.trim();
+    if (!trimmed) return '';
+    return `${'•'.repeat(16)}${trimmed.slice(-4)}`;
+}
 
 /**
  * The configuration menu (D31) - a marble gor-dialog (player-facing, unlike
@@ -118,6 +130,8 @@ const SettingsMenu: React.FC<{
         setSavedFlash(true);
     };
 
+    const selectedPacing = FATES_OPTIONS.find(option => option.posture === pacingPosture) ?? FATES_OPTIONS[1];
+
     const handleClearKey = () => {
         setKeyInput('');
         setSavedFlash(false);
@@ -146,12 +160,20 @@ const SettingsMenu: React.FC<{
                     >×</button>
                 </div>
                 <div className="gor-dialog-rule"></div>
-                <div className="gor-dialog-body" style={{ display: 'flex', flexDirection: 'column', gap: 18, maxHeight: '70vh', overflowY: 'auto' }}>
-                    <Card gilt title="Gemini API Key">
+                {/* ONE gilt card in this view, deliberately (audit item 32).
+                    Gold corner brackets are the design system's most emphatic
+                    device; five of them in one scroll made them mean nothing,
+                    and a one-time API key weighed the same as a lighting whim.
+                    Everything below the key is a hairline-ruled register. */}
+                <div className="gor-dialog-body" style={{ display: 'flex', flexDirection: 'column', gap: 18, maxHeight: '78vh', overflowY: 'auto' }}>
+                    <Card gilt title="Gemini API Key" action={<Badge tone="laurel">On this device</Badge>}>
                         <div style={cardBodyStyle}>
                             <p style={descriptionStyle}>
                                 Play with your own Gemini API key — it is stored on this device only, never saved into your game, and never bundled into this build.
                             </p>
+                            {apiKey && !showKey && (
+                                <span className="gor-key-mask">{maskApiKey(apiKey)}</span>
+                            )}
                             <div style={{ display: 'flex', gap: 8 }}>
                                 <input
                                     type={showKey ? 'text' : 'password'}
@@ -175,57 +197,61 @@ const SettingsMenu: React.FC<{
                         </div>
                     </Card>
 
-                    <Card gilt title="The Fates' Pacing">
-                        <div style={cardBodyStyle}>
-                            <p style={descriptionStyle}>How patiently fortune paces the story.</p>
-                            <SegmentedControl
-                                ariaLabel="Pacing posture"
-                                options={FATES_OPTIONS.map(({ posture, label, title }) => ({ value: posture, label, title }))}
-                                value={pacingPosture}
-                                onChange={onSetPacingPosture}
-                            />
-                            <ul style={{ ...descriptionStyle, paddingLeft: 18 }}>
-                                {FATES_OPTIONS.map(({ posture, label, description }) => (
-                                    <li key={posture}><strong>{label.charAt(0) + label.slice(1).toLowerCase()}</strong> — {description}</li>
-                                ))}
-                            </ul>
+                    <section aria-labelledby="settings-play" style={registerStyle}>
+                        <RegisterHeading headingId="settings-play" title="Play" />
+                        <div className="gor-config-grid">
+                            <span className="gor-label gor-config-label">Pacing</span>
+                            <div>
+                                <SegmentedControl
+                                    ariaLabel="Pacing posture"
+                                    options={FATES_OPTIONS.map(({ posture, label, title }) => ({ value: posture, label, title }))}
+                                    value={pacingPosture}
+                                    onChange={onSetPacingPosture}
+                                />
+                                {/* One line about the posture in force, rather than a
+                                    three-item list restating all of them each time. */}
+                                <p className="gor-config-note">{selectedPacing.label.charAt(0) + selectedPacing.label.slice(1).toLowerCase()} Fates — {selectedPacing.description}</p>
+                            </div>
+                            <span className="gor-label gor-config-label">Lighting</span>
+                            <div>
+                                <SegmentedControl
+                                    ariaLabel="Lighting: marble day or torchlit night"
+                                    options={LIGHTING_OPTIONS}
+                                    value={isNox ? 'nox' : 'lux'}
+                                    onChange={(value) => onSetIsNox(value === 'nox')}
+                                    style={{ width: 172 }}
+                                />
+                                <p className="gor-config-note">A device preference, never part of your save.</p>
+                            </div>
                         </div>
-                    </Card>
+                    </section>
 
-                    <Card gilt title="Lighting">
-                        <div style={cardBodyStyle}>
-                            <p style={descriptionStyle}>Marble day or torchlit night — a device preference, never part of your save.</p>
-                            <SegmentedControl
-                                ariaLabel="Lighting: marble day or torchlit night"
-                                options={LIGHTING_OPTIONS}
-                                value={isNox ? 'nox' : 'lux'}
-                                onChange={(value) => onSetIsNox(value === 'nox')}
-                            />
-                        </div>
-                    </Card>
-
-                    <Card gilt title="Game Master Console">
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                            <p style={descriptionStyle}>The behind-the-curtain ledger — every thread and die of the simulation, plus free-text GM guidance.</p>
-                            <Switch
-                                id="settings-gm-console-enabled"
-                                checked={gmConsoleEnabled}
-                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => onSetGmConsoleEnabled(e.target.checked)}
-                                label={<span>GM console available <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>(Ctrl+Shift+G)</span></span>}
-                            />
-                            <Switch
-                                id="settings-gm-intervention-enabled"
-                                checked={gmInterventionEnabled}
-                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => onSetGmInterventionEnabled(e.target.checked)}
-                                label="GM Intervention available"
-                            />
-                        </div>
-                    </Card>
+                    <section aria-labelledby="settings-curtain" style={registerStyle}>
+                        <RegisterHeading headingId="settings-curtain" title="Behind the curtain" />
+                        <Switch
+                            id="settings-gm-console-enabled"
+                            checked={gmConsoleEnabled}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => onSetGmConsoleEnabled(e.target.checked)}
+                            label={<span>GM console available <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>(Ctrl+Shift+G)</span></span>}
+                        />
+                        <Switch
+                            id="settings-gm-intervention-enabled"
+                            checked={gmInterventionEnabled}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => onSetGmInterventionEnabled(e.target.checked)}
+                            label="GM Intervention available"
+                        />
+                    </section>
 
                     {import.meta.env.DEV && (
-                        <Card gilt title="Developer">
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                <p style={descriptionStyle}>Dev-build tools — this card never appears in a production build.</p>
+                        <section aria-labelledby="settings-workshop" style={registerStyle}>
+                            <RegisterHeading
+                                headingId="settings-workshop"
+                                title="Workshop"
+                                trailing={<Badge tone="neutral">Dev build only</Badge>}
+                            />
+                            {/* Sunk into an inset well so it reads as scaffolding
+                                rather than regalia — it never ships to a player. */}
+                            <div className="gor-config-well">
                                 <Switch
                                     id="mock-toggle"
                                     checked={isMockMode}
@@ -239,7 +265,7 @@ const SettingsMenu: React.FC<{
                                     label={<span>GM console on now <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>— no-op while unavailable above</span></span>}
                                 />
                             </div>
-                        </Card>
+                        </section>
                     )}
                 </div>
             </div>

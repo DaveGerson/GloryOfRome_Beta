@@ -5,33 +5,13 @@ import {
   selectMessageRecipient, updateActionRow, updateCustomRecipient, updateMessageCommand,
   updatePrivateIntent, updateQuestionOrContext,
 } from '../playerInput/composerState';
-import { Button } from './ui/Core';
+import { Button, RegisterHeading } from './ui/Core';
 import { WaxSeal } from './ui/Brand';
 
 const CUSTOM_RECIPIENT_VALUE = customRecipientSelectValue();
 
-const sectionHeadingStyle: React.CSSProperties = { margin: 0 };
 const fieldStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 8 };
 const addRowStyle: React.CSSProperties = { alignSelf: 'flex-start' };
-
-/**
- * A numbered register heading — the numeral, the worded title, then a hairline
- * running out to the edge (audit item 02, reframed). Four identical wells in a
- * flat stack said nothing about an *action* versus a *question*; the numerals
- * and the wording say what each one is for.
- *
- * The numeral and the rule are decorative, so only the `<h3>` carries the id
- * each `<section aria-labelledby>` points at — the accessible name stays the
- * heading's own words.
- */
-const RegisterHeading: React.FC<{ numeral: string; id: string; children: React.ReactNode }> =
-  ({ numeral, id, children }) => (
-    <div className="gor-register-head">
-      <span className="gor-register-numeral" aria-hidden="true">{numeral}</span>
-      <h3 id={id} className="gor-label gor-register-title" style={sectionHeadingStyle}>{children}</h3>
-      <span className="gor-register-rule" aria-hidden="true" />
-    </div>
-  );
 
 /**
  * The wax on a letter: a Tyrian seal carrying the recipient's initial once one
@@ -82,7 +62,7 @@ export const StructuredTurnComposer: React.FC<StructuredTurnComposerProps> = ({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <section aria-labelledby="structured-actions" style={fieldStyle}>
-        <RegisterHeading numeral="I" id="structured-actions">What you do</RegisterHeading>
+        <RegisterHeading numeral="I" headingId="structured-actions" title="What you do" />
         {draft.actions.map((action, index) => (
           <textarea
             key={index}
@@ -104,7 +84,7 @@ export const StructuredTurnComposer: React.FC<StructuredTurnComposerProps> = ({
         </span>
       </section>
       <section aria-labelledby="structured-messages" style={fieldStyle}>
-        <RegisterHeading numeral="II" id="structured-messages">Whom you address</RegisterHeading>
+        <RegisterHeading numeral="II" headingId="structured-messages" title="Whom you address" />
         {draft.messagesOrOrders.map((row, index) => {
           const recipientValue = row.recipient?.kind === 'known_entity'
             ? encodeKnownRecipientSelectValue(row.recipient.entityId)
@@ -165,13 +145,13 @@ export const StructuredTurnComposer: React.FC<StructuredTurnComposerProps> = ({
           their own left rules rather than continuing the stack of commands. */}
       <div className="gor-register-pair">
         <section aria-labelledby="structured-intent" className="gor-register-aside gor-register-aside-intent" style={fieldStyle}>
-          <RegisterHeading numeral="III" id="structured-intent">What you intend</RegisterHeading>
+          <RegisterHeading numeral="III" headingId="structured-intent" title="What you intend" />
           <p className="gor-hint" style={{ margin: 0 }}>Private to your avatar; this expresses what you intend, not an action by itself.</p>
           <textarea className="gor-textarea" rows={2} aria-label="Private Intent" value={draft.privateIntent} disabled={disabled} {...describeIssue('privateIntent')}
             onChange={event => onChange(updatePrivateIntent(draft, event.target.value))} onKeyDown={submitOnShortcut} />
         </section>
         <section aria-labelledby="structured-context" className="gor-register-aside" style={fieldStyle}>
-          <RegisterHeading numeral="IV" id="structured-context">What you ask</RegisterHeading>
+          <RegisterHeading numeral="IV" headingId="structured-context" title="What you ask" />
           <p className="gor-hint" style={{ margin: 0 }}>Your question or context does not cause autonomous action.</p>
           <textarea className="gor-textarea" rows={2} aria-label="Question / Context" value={draft.questionOrContext} disabled={disabled} {...describeIssue('questionOrContext')}
             onChange={event => onChange(updateQuestionOrContext(draft, event.target.value))} onKeyDown={submitOnShortcut} />
