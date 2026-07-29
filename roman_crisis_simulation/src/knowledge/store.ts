@@ -567,6 +567,72 @@ export function ingestInvestigationReveal(
 }
 
 /**
+ * The three questions the player may put to an occurrence (audit item 40).
+ * The old surface hardcoded one — "What were the motives?" — and each is
+ * asked at most once per occurrence, so the slug is part of the claim key.
+ */
+export const OCCURRENCE_QUESTIONS = ['who_gains', 'who_is_behind_it', 'what_follows'] as const;
+export type OccurrenceQuestion = typeof OCCURRENCE_QUESTIONS[number];
+
+/** A stable, bounded key for an occurrence's free-prose headline. */
+function occurrenceSlug(occurrence: string): string {
+  return occurrence.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 60);
+}
+
+/**
+ * Ingests what your agents came back with about a public occurrence (audit
+ * item 40).
+ *
+ * The clarification used to live in CurrentEventsTab's component-local
+ * `useState`, so an AI call the player WAITED ON was discarded the moment
+ * they switched tabs. It is intelligence the player paid attention for; it
+ * belongs in the store, where it persists for the reign and survives reload.
+ *
+ * Subject is 'world' — an occurrence is a public event, not a person — and
+ * the channel is `investigation`, because that is what it is: something
+ * learned by asking rather than by being told.
+ */
+export function ingestOccurrenceFinding(
+  store: KnowledgeClaim[],
+  finding: { occurrence: string; question: OccurrenceQuestion; text: string; turn: number }
+): KnowledgeClaim[] {
+  return upsertClaim(store, {
+    claimKey: `investigation:occurrence:${occurrenceSlug(finding.occurrence)}:${finding.question}`,
+    subject: 'world',
+    topic: normalizeTopic('occurrence'),
+    channel: 'investigation',
+    text: finding.text,
+    turn: finding.turn,
+    source: 'spy',
+  });
+}
+
+/** One answered question about one occurrence, as held by the player. */
+export interface OccurrenceFinding {
+  question: OccurrenceQuestion;
+  text: string;
+  turn: number;
+}
+
+/**
+ * Every finding the player holds about `occurrence`, oldest question first.
+ * A read model over the store — nothing separate is persisted.
+ */
+export function occurrenceFindings(store: KnowledgeClaim[], occurrence: string): OccurrenceFinding[] {
+  const prefix = `investigation:occurrence:${occurrenceSlug(occurrence)}:`;
+  const findings: OccurrenceFinding[] = [];
+  for (const claim of store) {
+    if (!claim.claimKey.startsWith(prefix)) continue;
+    const question = claim.claimKey.slice(prefix.length) as OccurrenceQuestion;
+    if (!OCCURRENCE_QUESTIONS.includes(question)) continue;
+    const latest = claim.updates[claim.updates.length - 1];
+    if (!latest) continue;
+    findings.push({ question, text: latest.text, turn: claim.firstLearnedTurn });
+  }
+  return findings.sort((a, b) => OCCURRENCE_QUESTIONS.indexOf(a.question) - OCCURRENCE_QUESTIONS.indexOf(b.question));
+}
+
+/**
  * Resolves the scheme-discovery bookkeeping for a claim now holding `clues`
  * PAID nature-clues (D28). Below SCHEME_CLUES_TO_REVEAL the nature stays
  * hidden; at or beyond it the nature is earned and drawn from the freshest

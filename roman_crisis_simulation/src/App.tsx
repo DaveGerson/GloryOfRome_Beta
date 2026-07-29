@@ -54,6 +54,7 @@ import {
 } from './privateScene/model';
 import { continuePrivateScene } from './ai/tools/privateScene';
 import { computeTurnKnowledge, computeInvestigationKnowledge } from './knowledge/commit';
+import { ingestOccurrenceFinding, type OccurrenceQuestion } from './knowledge/store';
 import {
     buildInvestigationRelationshipEvidence,
     buildPlayerSafeEvidence,
@@ -1410,6 +1411,41 @@ const App: React.FC = () => {
         });
     };
 
+    /**
+     * WP-15 / audit item 40 — what your agents came back with about a public
+     * occurrence. It used to live in CurrentEventsTab's component-local
+     * `useState` and was discarded the moment the player switched tabs, even
+     * though they had waited on the AI call for it. It now lands in the
+     * knowledge store in a durable commit, exactly like a bought investigation
+     * reveal, so it survives a tab switch and a reload.
+     *
+     * Free: asking costs no investigation. What it costs is the wait.
+     */
+    const handleOccurrenceFinding = (
+        occurrence: string,
+        question: OccurrenceQuestion,
+        text: string,
+        request: DomainMutationContext,
+    ): boolean => {
+        if (!request.isCurrent()) return false;
+        const newKnowledge = ingestOccurrenceFinding(knowledge, { occurrence, question, text, turn: turnNumber });
+        return commitDomainMutation({
+            candidate: buildSaveState({ knowledge: newKnowledge }),
+            // The same commit shape a bought reveal uses — entities and the
+            // fallout queue are handed back unchanged, because asking a
+            // question about a public occurrence spends nothing and queues
+            // nothing. Only the knowledge slice moves.
+            action: {
+                type: 'INVESTIGATION_COMMITTED',
+                entities,
+                pendingIntelligenceFallout,
+                knowledge: newKnowledge,
+            },
+            onSaveFailure: () => setTransactionError('What your agents found could not be recorded. Please try again.'),
+            beforeDispatch: () => setTransactionError(null),
+        });
+    };
+
     // One reveal = one atomic commit. The investigation spend, any blackmail
     // filing (secrets), and the fallout-queue append MUST all land in a
     // single state+save pass: the previous per-concern handlers (spend /
@@ -1796,6 +1832,7 @@ const App: React.FC = () => {
                             eventHistory={eventHistory}
                             turnHistory={turnHistory}
                             pulsingTabs={pulsingTabs}
+                            onOccurrenceFinding={handleOccurrenceFinding}
                         />
                     </>
                 )}

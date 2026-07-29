@@ -8,9 +8,14 @@ import ReportsTab from './tabs/ReportsTab';
 import PlayerStatus from './PlayerStatus';
 import ResourcesTab from './tabs/ResourcesTab';
 import ChronicleTab from './tabs/ChronicleTab';
+import { CoinPips } from './tabs/dramatisPersonaeUi';
 import WorldStateTab from './tabs/WorldStateTab';
 import { TabId } from '../perception/visibility';
-import type { KnowledgeClaim } from '../knowledge/store';
+import { corroboration } from '../knowledge/credibilityFraming';
+import { isRegionKnownToPlayer } from '../perception/visibility';
+import type { BriefingPointer } from './tabs/WorldStateTab';
+import type { KnowledgeClaim, OccurrenceQuestion } from '../knowledge/store';
+import { occurrenceFindings } from '../knowledge/store';
 import type { DomainMutationContext, RunDomainMutation } from '../state/domainMutation';
 
 /**
@@ -59,7 +64,9 @@ const SidePanel: React.FC<{
      * filter didn't already let through - this set is built strictly from
      * buildPlayerPerceivedDigest's output, never raw deltas. */
     pulsingTabs: Set<TabId>;
-}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, turnHistory, pulsingTabs }) => {
+    /** Commits one occurrence finding to the knowledge store (audit item 40). */
+    onOccurrenceFinding: (occurrence: string, question: OccurrenceQuestion, text: string, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
+}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, turnHistory, pulsingTabs, onOccurrenceFinding }) => {
     const [activeTab, setActiveTab] = useState<TabId>('world_state');
     // Tabs the player has already looked at since the current pulsingTabs
     // set arrived - clicking a pulsing tab dismisses its own pulse
@@ -83,6 +90,61 @@ const SidePanel: React.FC<{
             tabs: new Set(previous.pulseKey === pulseKey ? previous.tabs : []).add(id),
         }));
     };
+
+    /**
+     * "Where to look" (WP-15): one row per tab that has something waiting,
+     * built here because this is where the panel already knows every tab's
+     * state. Indicators reuse the panel's existing vocabulary rather than
+     * inventing a second one - the same gold pulse dot the tab bar uses, the
+     * corroboration verdict Reports derives, a known/total count for Empire,
+     * coin pips for unspent investigations.
+     */
+    const unexamined = currentEvents.filter(occurrence => occurrenceFindings(knowledge, occurrence).length === 0).length;
+    const conflictedSubjects = [...new Map(reports.map(report => [report.about, reports.filter(r => r.about === report.about)])).values()]
+        .filter(group => corroboration(group).verdict === 'conflict').length;
+    const knownRegions = playerEntity
+        ? Object.keys(worldState.regions).filter(name => isRegionKnownToPlayer(name, playerEntity, entities)).length
+        : 0;
+    const totalRegions = Object.keys(worldState.regions).length;
+    const investigations = playerEntity ? Number(playerEntity.resources?.investigations ?? 0) : 0;
+
+    const briefingPointers: BriefingPointer[] = [];
+    if (currentEvents.length > 0) {
+        briefingPointers.push({
+            tab: 'events',
+            name: 'Events',
+            line: unexamined > 0
+                ? `${currentEvents.length} occurrence${currentEvents.length === 1 ? '' : 's'} this week, ${unexamined} not yet examined.`
+                : `${currentEvents.length} occurrence${currentEvents.length === 1 ? '' : 's'} this week, all examined.`,
+            indicator: unexamined > 0
+                ? <span aria-hidden="true" className="gor-pointer-pulse" />
+                : undefined,
+        });
+    }
+    if (conflictedSubjects > 0) {
+        briefingPointers.push({
+            tab: 'reports',
+            name: 'Reports',
+            line: `Accounts of ${conflictedSubjects} subject${conflictedSubjects === 1 ? '' : 's'} do not agree.`,
+            indicator: <span className="gor-verdict gor-verdict-conflict">⚠ Conflict</span>,
+        });
+    }
+    if (totalRegions > 0 && knownRegions < totalRegions) {
+        briefingPointers.push({
+            tab: 'locations',
+            name: 'Empire',
+            line: 'Places you have no eyes on.',
+            indicator: <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--parchment-400)' }}>{knownRegions} / {totalRegions}</span>,
+        });
+    }
+    if (investigations > 0) {
+        briefingPointers.push({
+            tab: 'dramatis_personae',
+            name: 'Personae',
+            line: `${investigations} investigation${investigations === 1 ? '' : 's'} unspent.`,
+            indicator: <CoinPips spend={Math.min(investigations, 4)} balance={investigations} />,
+        });
+    }
 
     return (
         <aside data-screen-label="Side Panel" style={{ flex: 1, minWidth: 0, borderLeft: '1px solid var(--border-strong)', display: 'flex', flexDirection: 'column', background: 'rgba(255,254,249,.45)' }}>
@@ -115,8 +177,24 @@ const SidePanel: React.FC<{
                 })}
             </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
-                {activeTab === 'world_state' && <WorldStateTab simulationState={simulationState} worldState={worldState} entities={entities} playerEntity={playerEntity} currentEvents={currentEvents} />}
-                {activeTab === 'events' && <CurrentEventsTab events={currentEvents} playerEntity={playerEntity} allEntities={entities} ai={ai} isMockMode={isMockMode} />}
+                {activeTab === 'world_state' && <WorldStateTab
+                    simulationState={simulationState}
+                    week={worldState.week}
+                    pointers={briefingPointers}
+                    onNavigate={handleTabClick}
+                />}
+                {activeTab === 'events' && <CurrentEventsTab
+                    events={currentEvents}
+                    week={worldState.week}
+                    playerEntity={playerEntity}
+                    allEntities={entities}
+                    knowledge={knowledge}
+                    ai={ai}
+                    isMockMode={isMockMode}
+                    onFinding={onOccurrenceFinding}
+                    runDomainMutation={runDomainMutation}
+                    interactionLocked={interactionLocked}
+                />}
                 {activeTab === 'reports' && <ReportsTab reports={reports} />}
                 {activeTab === 'chronicle' && <ChronicleTab eventHistory={eventHistory} turnHistory={turnHistory} reignEnded={gameState === GameState.GAME_OVER} />}
                 {activeTab === 'dramatis_personae' && <DramatisPersonaeTab

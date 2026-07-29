@@ -219,6 +219,37 @@
 .gor-gauge{display:flex;flex-direction:column;gap:4px}
 .gor-gauge-track{display:block;height:3px;background:var(--surface-inset);box-shadow:var(--shadow-inset);overflow:hidden}
 .gor-gauge-fill{display:block;height:100%;background:var(--gold-600);transition:width var(--duration-slow) var(--ease-standard)}
+/* ── The week's briefing (audit items 38–39) ──
+   World owns the briefing and nothing else: macro state, the crisis, and
+   where to look. Regions belong to Empire, occurrences to Events. */
+.gor-briefing-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:8px 10px;background:linear-gradient(180deg,rgba(201,162,39,.11),transparent)}
+.gor-briefing-title{font-family:var(--font-epic);font-weight:700;font-size:15px;color:var(--tyrian-600)}
+/* Macro state engraved: 1px gaps on a border-faint ground read as cut lines. */
+.gor-macro-grid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border-faint);border:1px solid var(--border-faint)}
+.gor-macro-cell{display:flex;flex-direction:column;gap:2px;padding:9px 11px;background:var(--surface-card)}
+.gor-macro-value{font-family:var(--font-display);font-size:15.5px;font-weight:700}
+.gor-macro-fell{margin-left:6px;font-size:12px;color:var(--crimson-500)}
+/* "Where to look" — one pressable row per tab with something waiting. */
+.gor-pointer{all:unset;box-sizing:border-box;cursor:pointer;display:grid;grid-template-columns:1fr auto 14px;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid var(--border-faint);width:100%}
+.gor-pointer:hover{background:var(--surface-hover)}
+.gor-pointer:focus-visible{box-shadow:var(--focus-ring)}
+.gor-pointer-body{display:flex;flex-direction:column;gap:2px;min-width:0}
+.gor-pointer-name{font-family:var(--font-display);font-size:12.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text-heading)}
+.gor-pointer-line{font-size:14px;color:var(--text-body)}
+.gor-pointer-indicator{display:inline-flex;align-items:center;gap:6px;font-size:12px}
+.gor-pointer-chevron{font-size:15px;color:var(--gold-700);text-align:right}
+.gor-pointer-pulse{width:7px;height:7px;border-radius:50%;display:inline-block;background:radial-gradient(circle at 35% 30%,#E8C959,#9E7E1B 70%);box-shadow:0 0 4px rgba(232,201,89,.8)}
+
+/* ── Events: what you paid to learn must not look like what the criers
+   shouted (audit item 40) ── */
+.gor-slip-date{display:block;margin-top:4px;font-family:var(--font-display);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--parchment-400)}
+.gor-slip-progress{display:block;height:2px;margin-top:6px;background:var(--tyrian-400);animation:gorSeeking 1.4s ease-in-out infinite}
+@keyframes gorSeeking{0%,100%{opacity:.35}50%{opacity:1}}
+.gor-slip-open{display:flex;flex-direction:column;gap:8px;margin-top:8px;padding-top:8px;border-top:3px solid transparent;border-image:var(--dentil) 3;animation:gorFadeIn .4s ease-out both}
+.gor-finding{display:flex;align-items:flex-start;gap:9px;padding:8px 10px;background:linear-gradient(180deg,rgba(94,34,70,.05),transparent)}
+.gor-finding-kicker{display:block;font-family:var(--font-display);font-size:9.5px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--tyrian-500)}
+.gor-finding-body{margin:4px 0 0;padding-left:9px;border-left:2px solid var(--tyrian-400);font-style:italic;font-size:14px}
+
 /* ── The panel sub-rail (audit items 34–37) ──
    Four tabs mix two kinds of thing and want one small register switch. It must
    read QUIETER than the Tyrian pennant tab bar above it, or the hierarchy

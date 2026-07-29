@@ -110,6 +110,21 @@ export interface PerceivedChange {
  * directly-narrated consequences was perceptible this turn. */
 export const QUIET_DIGEST_MESSAGE = 'Little reaches your ears this week.';
 
+/**
+ * Does the player have direct or networked sight into `regionName`? (D5's
+ * locality/network rule — the same one `classifyDelta` applies to
+ * region-type deltas.)
+ *
+ * Lives here rather than in a tab (WP-15): it used to be exported FROM
+ * `components/tabs/WorldStateTab.tsx` so `EmpireTab.tsx` could import it,
+ * which meant a sight rule was owned by a view that no longer renders
+ * regions at all. One rule, in the module that owns perception.
+ */
+export function isRegionKnownToPlayer(regionName: string, player: Entity, entities: Entity[]): boolean {
+  if (player.location === regionName) return true;
+  return player.visibility_network.some(id => entities.find(e => e.entity_id === id)?.location === regionName);
+}
+
 const RELATION_ATTR_LABELS: Record<string, string> = {
   trust_level: 'trust',
   respect_level: 'respect',

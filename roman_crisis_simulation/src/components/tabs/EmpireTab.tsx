@@ -3,7 +3,7 @@ import { WorldState, RegionState, Entity } from '../../types';
 import GlossaryTooltip from '../GlossaryTooltip';
 import { Card } from '../ui/Core';
 import { SubRail } from '../ui/SubRail';
-import { isRegionKnownToPlayer } from './WorldStateTab';
+import { isRegionKnownToPlayer } from '../../perception/visibility';
 import { isEntityKnownToPlayer } from '../../knowledge/relationships';
 import type { KnowledgeClaim } from '../../knowledge/store';
 import { getTabRegister, setTabRegister } from '../../persistence/uiPrefs';

@@ -1,31 +1,41 @@
 import React from 'react';
-import { Entity, SimulationState, WorldState, RegionState } from '../../types';
-import { Card, Badge } from '../ui/Core';
+import { SimulationState } from '../../types';
+import { Alert } from '../ui/Alert';
+import { toRoman } from '../ui/Brand';
+import type { TabId } from '../../perception/visibility';
 
 /**
- * "The State of the Empire - as known to you" (Phase 2 item 2, D5).
+ * "The week's briefing" (WP-15, audit items 38–39).
  *
- * Two different visibility rules apply on this one screen:
- *  - The macro SimulationState fields (imperial_status, senate_status,
- *    military_status, plebeian_mood, major_ongoing_crisis) are treated as
- *    PUBLIC per D5's "crude v1 convention" - "the throne is vacant" is the
- *    kind of thing everyone in the Empire knows, so these are always shown
- *    in full, color-coded by severity.
- *  - Region detail is NOT public. It's shown in full only for the player's
- *    current location and any region containing one of their
- *    visibility_network contacts (the same locality/network rule
- *    perception/visibility.ts applies to region-type EventDeltas). Every
- *    other region is listed by name only, marked "beyond your sight" - the
- *    player is never shown raw global truth about places they have no eyes
- *    on.
+ * ONE OWNER PER FACT. Two thirds of this tab used to be rendered in two other
+ * tabs and, because the duplicates were styled differently, the player could
+ * not tell they were the same facts:
+ *
+ *  - "Your Intelligence Picture" printed the same regions, under the same
+ *    sight rule, as Empire's "Locations in Rome" — the duplication was
+ *    explicit in the code (`isRegionKnownToPlayer` was exported FROM here so
+ *    EmpireTab could import it) and invisible in the UI. Empire owns regions
+ *    now; the sight rule moved to perception/visibility.ts, which is where a
+ *    perception rule belongs.
+ *  - "Recent Headlines" rendered `currentEvents` as an inert <ul> with browser
+ *    disc bullets — the last genuinely unstyled element in the panel — while
+ *    the Events tab rendered the same sentences as pressable cards that summon
+ *    your agents. Events owns occurrences now.
+ *
+ * Only the five macro SimulationState rows were ever unique to this tab, and
+ * they are treated as PUBLIC per D5's crude-v1 convention: "the throne is
+ * vacant" is the kind of thing everyone in the Empire knows.
+ *
+ * What is left is the briefing: the state of Rome, the crisis, and where to
+ * look.
  */
 
 type Severity = 'good' | 'warn' | 'bad';
 
-const SEVERITY_TONES: Record<Severity, 'laurel' | 'bronze' | 'crimson'> = {
-    good: 'laurel',
-    warn: 'bronze',
-    bad: 'crimson',
+const SEVERITY_COLOR: Record<Severity, string> = {
+    good: 'var(--laurel-500)',
+    warn: 'var(--bronze-500)',
+    bad: 'var(--crimson-500)',
 };
 
 const IMPERIAL_STATUS_SEVERITY: Record<SimulationState['imperial_status'], Severity> = {
@@ -55,94 +65,89 @@ const PLEBEIAN_MOOD_SEVERITY: Record<SimulationState['plebeian_mood'], Severity>
 
 const quiet: React.CSSProperties = { fontSize: 14, fontStyle: 'italic', color: 'var(--text-muted)' };
 
-const MacroStatusRow: React.FC<{ label: string; value: string; severity: Severity }> = ({ label, value, severity }) => (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '7px 2px', borderBottom: '1px solid var(--border-faint)' }}>
-        <span className="gor-label">{label}</span>
-        <Badge tone={SEVERITY_TONES[severity]}>{value}</Badge>
+/** One cell of the 2×2 engraved grid. `fell` marks a standing that slipped this week. */
+const MacroCell: React.FC<{ label: string; value: string; severity: Severity; fell: boolean }> = ({ label, value, severity, fell }) => (
+    <div className="gor-macro-cell">
+        <span className="gor-label" style={{ fontSize: 9.5 }}>{label}</span>
+        <span className="gor-macro-value" style={{ color: SEVERITY_COLOR[severity] }}>
+            {value}
+            {fell && <span aria-label="fell this week" className="gor-macro-fell">▾</span>}
+        </span>
     </div>
 );
 
-/** Is `regionName` something the player has direct or networked sight into?
- * Exported so EmpireTab applies the identical D5 locality/network rule -
- * one sight rule, two views. */
-export function isRegionKnownToPlayer(regionName: string, player: Entity, entities: Entity[]): boolean {
-    if (player.location === regionName) return true;
-    return player.visibility_network.some(id => entities.find(e => e.entity_id === id)?.location === regionName);
+/** One "where to look" row: what is waiting, and a press that takes you there. */
+export interface BriefingPointer {
+    tab: TabId;
+    name: string;
+    /** Plain English — "Four occurrences this week, none yet examined." */
+    line: string;
+    /** Reuses existing panel vocabulary: a pulse dot, "⚠ Conflict", "2 / 4", coin pips. */
+    indicator?: React.ReactNode;
 }
-
-const KnownRegionCard: React.FC<{ name: string; region: RegionState; isHome: boolean }> = ({ name, region, isHome }) => (
-    <Card title={name} action={isHome ? <Badge tone="gold">Your location</Badge> : undefined}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 14 }}>
-            <span><strong>Status:</strong> {region.stability}</span>
-            <span><strong>Control:</strong> {region.controlling_faction ? region.controlling_faction.replace(/_/g, ' ') : 'Disputed'}</span>
-            {region.current_events.length > 0 && (
-                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: 'var(--text-muted)' }}>
-                    {region.current_events.map((event, i) => <li key={i}>{event}</li>)}
-                </ul>
-            )}
-        </div>
-    </Card>
-);
-
-const HiddenRegionRow: React.FC<{ name: string }> = ({ name }) => (
-    <div className="gor-card" style={{ padding: '10px 14px', opacity: 0.6 }}>
-        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 14, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>{name}</span>
-        <p style={{ ...quiet, fontSize: 13, margin: '3px 0 0' }}>Beyond your sight - no word has reached you from here.</p>
-    </div>
-);
 
 const WorldStateTab: React.FC<{
     simulationState: SimulationState;
-    worldState: WorldState;
-    entities: Entity[];
-    playerEntity: Entity | null;
-    currentEvents: string[];
-}> = ({ simulationState, worldState, entities, playerEntity, currentEvents }) => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div>
-            <h3 className="gor-label" style={{ color: 'var(--crimson-500)' }}>The State of the Empire</h3>
-            <p style={{ ...quiet, fontSize: 13, margin: '3px 0 8px' }}>As known to you - common knowledge across the Empire.</p>
-            <div className="gor-card" style={{ padding: '6px 14px 8px' }}>
-                <MacroStatusRow label="The Throne" value={simulationState.imperial_status} severity={IMPERIAL_STATUS_SEVERITY[simulationState.imperial_status]} />
-                <MacroStatusRow label="The Senate" value={simulationState.senate_status} severity={SENATE_STATUS_SEVERITY[simulationState.senate_status]} />
-                <MacroStatusRow label="The Legions" value={simulationState.military_status} severity={MILITARY_STATUS_SEVERITY[simulationState.military_status]} />
-                <MacroStatusRow label="The Plebs" value={simulationState.plebeian_mood} severity={PLEBEIAN_MOOD_SEVERITY[simulationState.plebeian_mood]} />
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '7px 2px' }}>
-                    <span className="gor-label">Ongoing Crisis</span>
-                    {simulationState.major_ongoing_crisis
-                        ? <Badge tone="crimson">{simulationState.major_ongoing_crisis}</Badge>
-                        : <span style={quiet}>None reported</span>}
-                </div>
-            </div>
-        </div>
+    /** The week this briefing covers. */
+    week: number;
+    /**
+     * Which macro standings fell this turn, derived from the deltas the turn
+     * pipeline ALREADY computes — never a new AI call.
+     */
+    fellThisWeek?: ReadonlySet<keyof SimulationState>;
+    pointers: readonly BriefingPointer[];
+    /** Switches the panel's active tab, and clears that tab's pulse exactly as a direct press does. */
+    onNavigate: (tab: TabId) => void;
+}> = ({ simulationState, week, fellThisWeek, pointers, onNavigate }) => {
+    const fell = (field: keyof SimulationState) => fellThisWeek?.has(field) ?? false;
+    const anyFell = fellThisWeek ? fellThisWeek.size > 0 : false;
 
-        <div>
-            <h3 className="gor-label" style={{ color: 'var(--crimson-500)' }}>Recent Headlines</h3>
-            {currentEvents.length === 0 ? (
-                <p style={{ ...quiet, marginTop: 8 }}>The city criers have nothing new to shout.</p>
-            ) : (
-                <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 14, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    {currentEvents.map((event, i) => <li key={i}>{event}</li>)}
-                </ul>
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <header className="gor-briefing-head">
+                <span className="gor-briefing-title">The week's briefing</span>
+                <span className="gor-label" style={{ color: 'var(--gold-700)' }}>Week {toRoman(week)}</span>
+            </header>
+
+            {/* The single most urgent fact stops being the fifth row of a table. */}
+            {simulationState.major_ongoing_crisis && (
+                <Alert title="The crisis at hand">{simulationState.major_ongoing_crisis}</Alert>
             )}
-        </div>
 
-        <div>
-            <h3 className="gor-label" style={{ color: 'var(--crimson-500)' }}>Your Intelligence Picture</h3>
-            <p style={{ ...quiet, fontSize: 13, margin: '3px 0 8px' }}>Regions you can see - your own ground, and anywhere your network has eyes.</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {Object.entries(worldState.regions).map(([name, region]) => {
-                    if (!playerEntity) return <HiddenRegionRow key={name} name={name} />;
-                    const known = isRegionKnownToPlayer(name, playerEntity, entities);
-                    return known ? (
-                        <KnownRegionCard key={name} name={name} region={region} isHome={playerEntity.location === name} />
-                    ) : (
-                        <HiddenRegionRow key={name} name={name} />
-                    );
-                })}
+            <div className="gor-macro-grid">
+                <MacroCell label="The Throne" value={simulationState.imperial_status} severity={IMPERIAL_STATUS_SEVERITY[simulationState.imperial_status]} fell={fell('imperial_status')} />
+                <MacroCell label="The Senate" value={simulationState.senate_status} severity={SENATE_STATUS_SEVERITY[simulationState.senate_status]} fell={fell('senate_status')} />
+                <MacroCell label="The Legions" value={simulationState.military_status} severity={MILITARY_STATUS_SEVERITY[simulationState.military_status]} fell={fell('military_status')} />
+                <MacroCell label="The Plebs" value={simulationState.plebeian_mood} severity={PLEBEIAN_MOOD_SEVERITY[simulationState.plebeian_mood]} fell={fell('plebeian_mood')} />
+            </div>
+            {anyFell && <p style={{ ...quiet, fontSize: 13, margin: 0 }}>▾ marks a standing that fell this week.</p>}
+
+            <div>
+                <h3 className="gor-label" style={{ color: 'var(--crimson-500)' }}>Where to look</h3>
+                {pointers.length === 0 ? (
+                    <p style={{ ...quiet, marginTop: 8 }}>Nothing waits on you. The week is yours to shape.</p>
+                ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', marginTop: 6 }}>
+                        {pointers.map(pointer => (
+                            <button
+                                key={pointer.tab}
+                                type="button"
+                                className="gor-pointer"
+                                onClick={() => onNavigate(pointer.tab)}
+                            >
+                                <span className="gor-pointer-body">
+                                    <span className="gor-pointer-name">{pointer.name}</span>
+                                    <span className="gor-pointer-line">{pointer.line}</span>
+                                </span>
+                                <span className="gor-pointer-indicator">{pointer.indicator}</span>
+                                <span aria-hidden="true" className="gor-pointer-chevron">›</span>
+                            </button>
+                        ))}
+                    </div>
+                )}
             </div>
         </div>
-    </div>
-);
+    );
+};
 
 export default WorldStateTab;
