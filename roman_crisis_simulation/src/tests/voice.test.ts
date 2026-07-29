@@ -314,8 +314,12 @@ describe('runNewTurn: the narration prompt carries the BOUNDED visible-event voi
       // fixture plus the actors-attribution sibling a real captured
       // response carries.
       simulationState: JSON.stringify({ ...SIM_STATE, actors: [] }),
-      monologue: 'I watch the roads.',
-      narration: 'The city stirs.\nSUGGESTION: Wait',
+      // Task 4: getPlayerMonologue/narration are structured-output calls -
+      // RAW PROVIDER INTERCHANGE shape ({text, actors}); actors: [] (an
+      // observable-attempt-only fixture, where the declared-actors gate is
+      // inert regardless).
+      monologue: JSON.stringify({ text: 'I watch the roads.', actors: [] }),
+      narration: JSON.stringify({ text: 'The city stirs.\nSUGGESTION: Wait', actors: [] }),
     };
     const harness = createHarness(responses);
 

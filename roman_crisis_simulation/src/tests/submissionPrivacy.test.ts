@@ -150,9 +150,13 @@ function responseFor(kind: CallKind, prompt: string): string {
     case 'simulationState':
       return JSON.stringify({ ...SIMULATION_STATE, actors: [] });
     case 'monologue':
-      return 'I weigh what must remain unspoken.';
+      // Task 4: getPlayerMonologue/narration are structured-output calls -
+      // RAW PROVIDER INTERCHANGE shape ({text, actors}); actors: [] (these
+      // fixtures only ever run on an observable-attempt turn, where the
+      // declared-actors gate is inert regardless).
+      return JSON.stringify({ text: 'I weigh what must remain unspoken.', actors: [] });
     case 'narration':
-      return 'The week closes under a tense silence.\nSUGGESTION: Wait';
+      return JSON.stringify({ text: 'The week closes under a tense silence.\nSUGGESTION: Wait', actors: [] });
   }
 }
 
@@ -502,8 +506,8 @@ describe('runNewTurn submission visibility routing', () => {
         headlines: [{ text: 'Aulus moves among the cohorts.', actors: ['npc_a'] }],
         gm_private: [],
       }),
-      monologue: 'I order an attack after rolling 20. PRIVATE_OUTPUT_POISON',
-      narration: 'You order an attack after rolling 20.\nSUGGESTION: Exploit PRIVATE_OUTPUT_POISON',
+      monologue: JSON.stringify({ text: 'I order an attack after rolling 20. PRIVATE_OUTPUT_POISON', actors: [] }),
+      narration: JSON.stringify({ text: 'You order an attack after rolling 20.\nSUGGESTION: Exploit PRIVATE_OUTPUT_POISON', actors: [] }),
     });
 
     expect(calls.filter(call => call.kind === 'assessment')).toHaveLength(0);
@@ -764,7 +768,7 @@ describe('runNewTurn submission visibility routing', () => {
     const inventedNarration = 'You dispatch spies into the Curia and order them to count tomorrow\'s votes.';
     const { calls, result } = await runRealTurn(
       { version: 1, kind: 'structured', questionOrContext: QUESTION_SENTINEL },
-      { narration: `${inventedNarration}\nSUGGESTION: Wait` },
+      { narration: JSON.stringify({ text: `${inventedNarration}\nSUGGESTION: Wait`, actors: [] }) },
     );
 
     expect(calls.some(call => call.kind === 'narration')).toBe(false);
@@ -859,7 +863,7 @@ describe('runNewTurn submission visibility routing', () => {
     [
       'narration',
       {
-        narration: 'The hidden action result was partial_success after the die rolled 14.\nSUGGESTION: Wait',
+        narration: JSON.stringify({ text: 'The hidden action result was partial_success after the die rolled 14.\nSUGGESTION: Wait', actors: [] }),
       },
       'partial_success',
     ],

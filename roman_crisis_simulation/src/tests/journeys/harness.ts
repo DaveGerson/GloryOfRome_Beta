@@ -733,13 +733,23 @@ export class JourneyRunner {
       },
       // RAW PROVIDER INTERCHANGE shape (zSimulationState): top-level actors.
       simulationState: { ...structuredClone(this.thread.simulationState), actors: [] },
-      monologue:
-        'The city holds its breath, and so must I. Every ally I buy today is a debt some rival will try to collect tomorrow.',
-      narration:
-        'The week unfolds in the ordinary rhythm of the capital; nothing reaches your ears that demands the sword.' +
-        '\nSUGGESTION: Court the goodwill of the Senate' +
-        '\nSUGGESTION: Sound out the Praetorian prefects' +
-        '\nSUGGESTION: Review the treasury accounts',
+      // Task 4: narration/monologue are structured-output calls - RAW
+      // PROVIDER INTERCHANGE shape ({text, actors}), `actors: []` (an
+      // observable-attempt-only surface where the declared-actors gate is
+      // inert regardless - see tests/turnActorsGate.test.ts's REACHABILITY
+      // FINDING).
+      monologue: {
+        text: 'The city holds its breath, and so must I. Every ally I buy today is a debt some rival will try to collect tomorrow.',
+        actors: [],
+      },
+      narration: {
+        text:
+          'The week unfolds in the ordinary rhythm of the capital; nothing reaches your ears that demands the sword.' +
+          '\nSUGGESTION: Court the goodwill of the Senate' +
+          '\nSUGGESTION: Sound out the Praetorian prefects' +
+          '\nSUGGESTION: Review the treasury accounts',
+        actors: [],
+      },
       // App.tsx ALWAYS makes this post-pipeline selector call after every
       // turn (see runTurn's commit block below); default to an empty
       // selection so a journey that doesn't care about it need not script it.

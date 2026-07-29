@@ -232,7 +232,8 @@ function runTurn(
   submission: TurnSubmission,
   player: Entity,
   entities: Entity[],
-  options?: Parameters<typeof runNewTurn>[15],
+  // runNewTurn's 15th (last, index 14) parameter is `options?: RunNewTurnOptions`.
+  options?: Parameters<typeof runNewTurn>[14],
 ) {
   return runNewTurn(
     client.ai, submission, player, 2, entities, worldState, simulationState,

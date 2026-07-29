@@ -198,7 +198,10 @@ const adjudicationJson = JSON.stringify({
 // fixture, also used directly as runNewTurn's currentSimulationState arg)
 // plus the actors-attribution sibling a real captured response carries.
 const simStateJson = JSON.stringify({ ...SIM_STATE, actors: [] });
-const narrationText = 'The city holds its breath.\nSUGGESTION: Wait';
+// Task 4: narration is a structured-output call - RAW PROVIDER INTERCHANGE
+// shape ({text, actors}); actors: [] (this fixture only ever runs on an
+// observable-attempt turn, where the declared-actors gate is inert anyway).
+const narrationText = JSON.stringify({ text: 'The city holds its breath.\nSUGGESTION: Wait', actors: [] });
 
 const THRAX_REASONING = 'PRIVATE: I fear my own men more than the Emperor.';
 const VENENA_REASONING = 'PRIVATE: The kitchens are watched; the wine cellar is not.';
@@ -288,7 +291,9 @@ function baseResponses(): Record<string, string | Error> {
     'npcMind:npc_venena': venenaDecisionJson,
     adjudication: adjudicationJson,
     simulationState: simStateJson,
-    monologue: 'I watch the roads.',
+    // Task 4: getPlayerMonologue is a structured-output call - same RAW
+    // PROVIDER INTERCHANGE shape as narration above.
+    monologue: JSON.stringify({ text: 'I watch the roads.', actors: [] }),
     narration: narrationText,
   };
 }

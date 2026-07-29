@@ -117,9 +117,13 @@ function responseFor(kind: CallKind): string {
       // captured response carries.
       return JSON.stringify({ ...SIMULATION_STATE, actors: [] });
     case 'monologue':
-      return 'I weigh what must remain unspoken.';
+      // Task 4: getPlayerMonologue is a structured-output call - RAW
+      // PROVIDER INTERCHANGE shape ({text, actors}), actors: [] (this fixture
+      // only ever runs on an observable-attempt turn, where the
+      // declared-actors gate is inert regardless).
+      return JSON.stringify({ text: 'I weigh what must remain unspoken.', actors: [] });
     case 'narration':
-      return 'The week closes under a tense silence.\nSUGGESTION: Wait';
+      return JSON.stringify({ text: 'The week closes under a tense silence.\nSUGGESTION: Wait', actors: [] });
   }
 }
 

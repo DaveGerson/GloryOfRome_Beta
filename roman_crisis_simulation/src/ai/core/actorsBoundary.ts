@@ -24,7 +24,9 @@ import type {
   zAdjudication,
   zEntityAction,
   zEventDelta,
+  zNarrationPayload,
   zNoAttemptEvidenceSelection,
+  zPlayerMonologuePayload,
   zSimulationState,
 } from './zodSchemas';
 
@@ -37,6 +39,15 @@ export type EntityActionInterchange = z.infer<typeof zEntityAction>;
 export type AdjudicationInterchange = z.infer<typeof zAdjudication>;
 export type SimulationStateInterchange = z.infer<typeof zSimulationState>;
 export type NoAttemptEvidenceSelectionInterchange = z.infer<typeof zNoAttemptEvidenceSelection>;
+
+// Task 4: narration/monologue switch to structured output (see
+// task-4-design.md section 2). Unlike every other interchange shape above,
+// the "strip" for these payloads IS `.text` - a committed narration/
+// monologue value is a plain string, never an object - so there is no
+// `stripActorsFromX` companion here; ai/core/turn.ts and
+// ai/tools/intelligence.ts commit `payload.text` directly.
+export type NarrationPayloadInterchange = z.infer<typeof zNarrationPayload>;
+export type PlayerMonologuePayloadInterchange = z.infer<typeof zPlayerMonologuePayload>;
 
 /**
  * Drops the interchange-only `actors` sibling off one parsed EventDelta.

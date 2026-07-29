@@ -11,13 +11,13 @@ import {
   assertNoInventedPlayerAction,
   assertNoPlayerRemoval,
   assertPlayerVisibleAdjudicationSafe,
-  containsInventedPlayerProse,
   playerOwnsDelta,
   playerProseRedactionNotes,
   redactInventedPlayerProse,
   redactInventedPlayerProseFromValue,
   samePlayerIdentity,
 } from './core/playerBoundary';
+import { stripActorsFromAdjudication, type AdjudicationInterchange, type EventDeltaInterchange } from './core/actorsBoundary';
 import { selectDurableIntents } from './core/directorIntents';
 
 /** Deterministic, provider-free private-scene fixture for local play and tests. */
@@ -88,7 +88,13 @@ const MOCK_NEW_MOBSTER: Entity = {
     visibility_network: ["praetorian_guard", "lycinia_stolo"],
     memories: [],
 };
-const MOCK_ADJUDICATION: Adjudication = {
+// Task 4 of the actors-attribution refactor: interchange-shaped ({text,
+// actors} headlines, `actors` siblings on entityActions/deltas), hand-
+// attributed VERBATIM per task-4-design.md's hand-attribution table -
+// fixture defaults are NOT semantically reliable, so each entry below is
+// attributed by reading what the prose actually narrates, not copied from
+// whichever identity slot happens to sit nearest it.
+const MOCK_ADJUDICATION: AdjudicationInterchange = {
   turn: 1,
   entityActions: [
     {
@@ -96,6 +102,7 @@ const MOCK_ADJUDICATION: Adjudication = {
       intent: "propaganda",
       target: null,
       notes: "Maximinus Thrax spreads rumors about the Emperor's weakness, boosting his own standing with the troops.",
+      actors: ['maximinus_thrax'],
     },
      {
       id: "severus_alexander",
@@ -111,27 +118,46 @@ const MOCK_ADJUDICATION: Adjudication = {
       // fails closed if it emits "the Emperor attempts..." while the actual
       // player holds that title (see ai/core/playerBoundary.ts).
       notes: "Severus Alexander attempts to shore up support with the Praetorians by promising a donative.",
+      actors: ['severus_alexander'],
     },
   ],
   deltas: [
-    { type: 'resource', key: 'maximinus_thrax:legion_support', delta: 2, reason: 'Successful propaganda campaign.' },
-    { type: 'relation', key: 'severus_alexander:maximinus_thrax', delta: -1, reason: 'Slandered by military propaganda.' },
+    { type: 'resource', key: 'maximinus_thrax:legion_support', delta: 2, reason: 'Successful propaganda campaign.', actors: ['maximinus_thrax'] },
+    // The slanderer acts; Severus merely suffers the slander.
+    { type: 'relation', key: 'severus_alexander:maximinus_thrax', delta: -1, reason: 'Slandered by military propaganda.', actors: ['maximinus_thrax'] },
     // Rumor deltas carry the GM-private truth-ledger fields (D11): the
     // adjudicator rules on every rumor's actual truth and names its origin
     // when attributable - here, a lie planted by Thrax's propaganda. The
     // NON-private 'topic' (D29) keeps this claim distinct from any other
-    // rumor about the Emperor.
-    { type: 'rumor', key: 'severus_alexander', delta: 0.6, reason: 'The Emperor is said to be considering a peaceful tribute to the Germans, angering the legions.', is_true: false, origin_id: 'maximinus_thrax', topic: 'german-tribute' },
-    { type: 'relation', key: 'severus_alexander:praetorian_guard', delta: 1, reason: 'Promised a donative.' },
-    { type: 'add_region', key: 'Temple of Jupiter', delta: 0, reason: '{"stability":"Stable","controlling_faction":null,"current_events":["Priests conduct rituals to placate the gods amidst the political turmoil."]}' },
+    // rumor about the Emperor. The claim itself reports a rumored
+    // deliberation - cognition, no accomplished act - so `actors` stays
+    // empty; `origin_id` remains the mechanical owner (Thrax).
+    { type: 'rumor', key: 'severus_alexander', delta: 0.6, reason: 'The Emperor is said to be considering a peaceful tribute to the Germans, angering the legions.', is_true: false, origin_id: 'maximinus_thrax', topic: 'german-tribute', actors: [] },
+    { type: 'relation', key: 'severus_alexander:praetorian_guard', delta: 1, reason: 'Promised a donative.', actors: ['severus_alexander'] },
+    // Pure description of a priestly ritual - no named agent's act.
+    { type: 'add_region', key: 'Temple of Jupiter', delta: 0, reason: '{"stability":"Stable","controlling_faction":null,"current_events":["Priests conduct rituals to placate the gods amidst the political turmoil."]}', actors: [] },
     // Demonstrates the structured status-delta contract (MAINT-P0.2): 'reason'
     // is narrative-only, 'new_location' is the authoritative field the engine
     // acts on. See ai/core/engine.ts's 'status' case.
-    { type: 'status', key: 'gaius_pontius_magnus', delta: 0, reason: "Fearing the Praetorians' wavering loyalty, the Senator quietly withdraws to his estate to avoid becoming a target.", new_location: 'The Suburra' },
+    { type: 'status', key: 'gaius_pontius_magnus', delta: 0, reason: "Fearing the Praetorians' wavering loyalty, the Senator quietly withdraws to his estate to avoid becoming a target.", new_location: 'The Suburra', actors: ['gaius_pontius_magnus'] },
   ],
-  headlines: ["Discontent grows in the Praetorian Camp as rumors of imperial weakness spread.", "Emperor promises bonus to Praetorian Guard."],
+  headlines: [
+    // World description; no named agent in-text.
+    { text: "Discontent grows in the Praetorian Camp as rumors of imperial weakness spread.", actors: [] },
+    // LOAD-BEARING: closes the mock-mode B7 gap for any severus player whose
+    // aliases don't include 'Emperor' (the shipped preset's position IS
+    // 'Emperor', so today only the tripwire catches it - an alias
+    // coincidence, not a contract). See tests/turnActorsGate.test.ts.
+    { text: "Emperor promises bonus to Praetorian Guard.", actors: ['severus_alexander'] },
+  ],
   gm_private: ["The Praetorian Guard's loyalty is wavering more than publicly known.", "Lycinia Stolo's network has been compromised. She is no longer a major player and is being replaced by the more aggressive Flavius Fulco."],
-  add_entities: [ MOCK_NEW_MOBSTER ],
+  // Cast: zEntity's zod-inferred output type (passthrough index signature,
+  // nullable nested records) structurally differs from types.ts's plain
+  // `Entity` the same nullable-vs-optional/passthrough gap
+  // ai/core/actorsBoundary.ts's own stripActorsFromAdjudication doc comment
+  // already documents for EventDelta/EntityAction. MOCK_NEW_MOBSTER is a
+  // real, valid Entity; only the TS shape of the zod inference differs.
+  add_entities: [MOCK_NEW_MOBSTER] as unknown as AdjudicationInterchange['add_entities'],
   remove_entities: ['lycinia_stolo']
 };
 
@@ -306,7 +332,8 @@ export const mockInitiateWorld = async (metaNarrative: string, playerCharacterDe
  * activity from some other player's perspective.
  *
  * THE CONTRACT IS AN INVARIANT, NOT A LIST OF SURFACES: remove everything the
- * actual player OWNS, on every surface the structural gates examine. An
+ * actual player OWNS, on every STRUCTURAL surface the mechanics gate
+ * examines (entityActions by id, deltas by ownership, remove_entities). An
  * earlier version enumerated three surfaces (entityActions by id, 'relation'
  * deltas by key root, headlines) and missed three more the canned
  * MOCK_ADJUDICATION authors - a 'resource' delta keyed maximinus_thrax, a
@@ -317,17 +344,32 @@ export const mockInitiateWorld = async (metaNarrative: string, playerCharacterDe
  * presets; Mock Mode is a production-visible toggle (components/Header.tsx),
  * so that was user-reachable and deterministic.
  *
+ * HEADLINES ARE DELIBERATELY NOT PROJECTED HERE (Task 4): they are prose, not
+ * a structural identity slot `assertNoInventedPlayerAction` ever examines, so
+ * a declared-player headline is left for `redactInventedPlayerProse`
+ * (declaration-aware, gate-before-strip - see mockRunNewTurn below) to redact
+ * and record as an auditable `[Boundary]` gm_private note, exactly like the
+ * real pipeline. Pre-filtering them here would silently drop them with no
+ * record and, worse, would have to run a tripwire scan over the WHOLE
+ * `{text, actors}` headline object (including the `actors` array of bare
+ * entity ids) rather than the declaration-aware per-field gate.
+ *
  * Ownership is decided by playerBoundary.ts's OWN exported predicates
- * (`playerOwnsDelta`, `samePlayerIdentity`, `containsInventedPlayerProse`),
- * never a local copy - a second definition here is precisely how the
- * projection and the gate came to disagree.
+ * (`playerOwnsDelta`, `samePlayerIdentity`), never a local copy - a second
+ * definition here is precisely how the projection and the gate came to
+ * disagree.
  */
-function projectMockAdjudicationForNoAttempt(adjudication: Adjudication, playerEntity: Entity): Adjudication {
+function projectMockAdjudicationForNoAttempt(adjudication: AdjudicationInterchange, playerEntity: Entity): AdjudicationInterchange {
   return {
     ...adjudication,
     entityActions: adjudication.entityActions.filter(action => !samePlayerIdentity(action.id, playerEntity)),
-    deltas: adjudication.deltas.filter(delta => !playerOwnsDelta(delta, playerEntity)),
-    headlines: adjudication.headlines.filter(headline => !containsInventedPlayerProse(headline, playerEntity)),
+    // playerOwnsDelta's declared param is the committed EventDelta shape;
+    // the interchange delta carries every field it reads (type/key/
+    // origin_id) plus the extra `actors` sibling and zod's nullable-vs-
+    // optional gap on new_status/is_true/origin_id/topic/stance (documented
+    // on ai/core/actorsBoundary.ts's stripActorsFromEventDelta) - a runtime
+    // no-op cast, not a behavior change.
+    deltas: adjudication.deltas.filter(delta => !playerOwnsDelta(delta as unknown as EventDelta, playerEntity)),
     remove_entities: adjudication.remove_entities?.filter(id => !samePlayerIdentity(id, playerEntity)),
   };
 }
@@ -399,7 +441,7 @@ export const mockRunNewTurn = async (
     // entity_id is only known here. The 'reason' text must read like any
     // other rumor: player-visible wording never marks a rumor as planted or
     // reveals its truth (D11).
-    const playerPlantedRumor: EventDelta = {
+    const playerPlantedRumor: EventDeltaInterchange = {
         type: 'rumor',
         key: 'maximinus_thrax',
         delta: 0.5,
@@ -409,8 +451,11 @@ export const mockRunNewTurn = async (
         // NON-private D29 topic: the matter this rumor concerns, so it keys as
         // its own knowledge claim distinct from other talk about Thrax.
         topic: 'legion-pay',
+        // The claim narrates Thrax's act (hand-attribution table,
+        // task-4-design.md).
+        actors: ['maximinus_thrax'],
     };
-    const adjudication = {
+    const adjudication: AdjudicationInterchange = {
         ...MOCK_ADJUDICATION,
         turn: turnNumber,
         deltas: observableAttempt
@@ -434,20 +479,34 @@ export const mockRunNewTurn = async (
     // real model output verify it, so a canned identity collision (e.g.
     // gaius_pontius_magnus's status delta) still throws in parity with the
     // real pipeline.
+    //
+    // Task 4 (gate-before-strip): the mock mirrors the real pipeline's exact
+    // order - project -> assertNoInventedPlayerAction -> redactInventedPlayerProse
+    // (declaration-aware, on the INTERCHANGE, before actors is stripped) ->
+    // assertPlayerVisibleAdjudicationSafe -> stripActorsFromAdjudication ->
+    // applyAdjudication/history. The two casts below exist for the same
+    // reason as ai/core/turn.ts::enforceNoAttemptBoundary: these two
+    // functions accept only the narrower committed `Adjudication` shape and
+    // examine nothing that differs between the two shapes.
     const hasObservableAttempt = observableAttempt !== null;
     const gatedAdjudication = hasObservableAttempt ? adjudication : projectMockAdjudicationForNoAttempt(adjudication, playerEntity);
     // Same consequence split as ai/core/turn.ts::enforceNoAttemptBoundary:
     // structural violations throw, prose is redacted and recorded GM-side.
-    assertNoInventedPlayerAction(gatedAdjudication, playerEntity, hasObservableAttempt);
+    assertNoInventedPlayerAction(gatedAdjudication as unknown as Adjudication, playerEntity, hasObservableAttempt);
     gatedAdjudication.gm_private.push(...playerProseRedactionNotes(
         redactInventedPlayerProse(gatedAdjudication, playerEntity, hasObservableAttempt),
     ));
-    assertPlayerVisibleAdjudicationSafe(gatedAdjudication);
+    assertPlayerVisibleAdjudicationSafe(gatedAdjudication as unknown as Adjudication);
+    // Commit boundary for this surface (Task 4): strip the interchange-only
+    // `actors` now that the declaration-aware gate has seen it. `gm_private`
+    // is the SAME array reference before and after (a shallow spread), so
+    // every push above and below lands on the one committed array.
+    const strippedAdjudication = stripActorsFromAdjudication(gatedAdjudication);
 
     // Same perception context the real pipeline passes (ai/core/turn.ts):
     // the player is excluded from the NPC memory loop, and the mock
     // Director's spotlight pair stands in as the spotlight cast.
-    const appliedAdjudication = applyAdjudication(gatedAdjudication, currentEntities, currentWorldState, currentReports, currentTruthLedger, {
+    const appliedAdjudication = applyAdjudication(strippedAdjudication, currentEntities, currentWorldState, currentReports, currentTruthLedger, {
         playerEntityId: playerEntity.entity_id,
         spotlightIds: storyRelevance.spotlight_entities.map(s => s.entity_id),
         turnNumber,
@@ -455,9 +514,18 @@ export const mockRunNewTurn = async (
     const { updatedEntities, updatedWorldState } = appliedAdjudication;
     const { updatedReports, updatedTruthLedger, perceivingNpcIds } = appliedAdjudication;
 
-    const narration = noAttemptResponse
-        ? ''
-        : `(Mock Mode) Your action to "${observableAttempt}" has been noted. In the city, Maximinus Thrax continues to stir up trouble, spreading rumors about the Emperor's weakness. The mood in the Praetorian Camp grows darker.`;
+    // Task 4: narration/monologue become structured {text, actors} payloads,
+    // mirroring the real pipeline's switch to structured output. Declared
+    // ONLY on an observable-attempt turn (built only when observableAttempt
+    // is non-null), where the gate is inert regardless - attribution
+    // faithful either way (task-4-design.md's mock-mirror design): this
+    // narrates the player's own submitted action and Thrax's stirring.
+    const narrationPayload = noAttemptResponse
+        ? { text: '', actors: [] as string[] }
+        : {
+            text: `(Mock Mode) Your action to "${observableAttempt}" has been noted. In the city, Maximinus Thrax continues to stir up trouble, spreading rumors about the Emperor's weakness. The mood in the Praetorian Camp grows darker.`,
+            actors: [playerEntity.entity_id, 'maximinus_thrax'],
+        };
 
     const suggestedActions = noAttemptResponse
         ? [
@@ -471,9 +539,9 @@ export const mockRunNewTurn = async (
             'Mock: Try to bribe the Praetorians',
         ];
 
-    const playerMonologue = noAttemptResponse
-        ? ''
-        : await mockGetPlayerMonologue(playerEntity, MOCK_ADJUDICATION.headlines, [playerReflectionContext]);
+    const monologuePayload = noAttemptResponse
+        ? { text: '', actors: [] as string[] }
+        : await mockGetPlayerMonologue(playerEntity, MOCK_ADJUDICATION.headlines.map(headline => headline.text), [playerReflectionContext]);
 
     // Durable-intent filter parity (E2): commit only intents that survive
     // selectDurableIntents' spotlight+alive+dedupe gate (ai/core/turn.ts),
@@ -490,16 +558,21 @@ export const mockRunNewTurn = async (
     // monologue, because mock narration embeds the player's own echoed
     // submission text rather than provider output; the mechanics boundary is
     // covered on the adjudication via assertPlayerVisibleAdjudicationSafe above.
-    for (const value of [currentSimulationState, narration, playerMonologue]) {
+    for (const value of [currentSimulationState, narrationPayload.text, monologuePayload.text]) {
         assertNoPlayerRemoval(value, playerEntity, hasObservableAttempt);
     }
+    // The simulation-state gate stays 4-arg/tripwire-only (task-4-design.md
+    // section 4): mock sim state has no provider and therefore no
+    // declaration, so a synthesized empty declaration is deliberately NOT
+    // used here - this preserves the pinned mockParity crisis-redaction
+    // behavior over the whole object.
     const simulationRedaction = redactInventedPlayerProseFromValue(
         currentSimulationState, playerEntity, hasObservableAttempt, 'simulationState');
     const narrationRedaction = redactInventedPlayerProseFromValue(
-        narration, playerEntity, hasObservableAttempt, 'narration');
+        narrationPayload.text, playerEntity, hasObservableAttempt, 'narration', narrationPayload.actors);
     const monologueRedaction = redactInventedPlayerProseFromValue(
-        playerMonologue, playerEntity, hasObservableAttempt, 'monologue');
-    gatedAdjudication.gm_private.push(...playerProseRedactionNotes([
+        monologuePayload.text, playerEntity, hasObservableAttempt, 'monologue', monologuePayload.actors);
+    strippedAdjudication.gm_private.push(...playerProseRedactionNotes([
         ...simulationRedaction.redactions,
         ...narrationRedaction.redactions,
         ...monologueRedaction.redactions,
@@ -508,7 +581,7 @@ export const mockRunNewTurn = async (
     const newHistoryEntry: TurnHistoryEntry = {
         turnNumber,
         playerIntent,
-        adjudication: gatedAdjudication,
+        adjudication: strippedAdjudication,
         narration: narrationRedaction.value,
         postTurnEntities: updatedEntities,
         perceivingNpcIds,
@@ -524,7 +597,7 @@ export const mockRunNewTurn = async (
         updatedTruthLedger,
         updatedNpcIntents: durableIntents,
         narration: narrationRedaction.value,
-        headlines: gatedAdjudication.headlines,
+        headlines: strippedAdjudication.headlines,
         suggestedActions,
         playerMonologue: monologueRedaction.value,
         newHistoryEntry,
@@ -592,10 +665,17 @@ export const mockGetInvestigationResult = async (target: Entity, isRisky: boolea
     };
 };
 
-export const mockGetPlayerMonologue = async (player: Entity, turnHeadlines: string[], recentPlayerIntents: string[]): Promise<string> => {
+/**
+ * Task 4: returns the structured `{ text, actors }` payload the real
+ * `getPlayerMonologue` (ai/tools/intelligence.ts) now returns. `actors: []`
+ * is faithful, not a placeholder - this is the player's own pure interior
+ * cognition (task-4-design.md's mock-mirror design), never an authored act.
+ */
+export const mockGetPlayerMonologue = async (player: Entity, turnHeadlines: string[], recentPlayerIntents: string[]): Promise<{ text: string; actors: string[] }> => {
     console.log("--- MOCK PLAYER MONOLOGUE ---");
     const recentActionsSummary = recentPlayerIntents.length > 0 ? `my recent actions (${recentPlayerIntents.join('; ')})` : `my inaction`;
-    return `(Mock Monologue) These events... (${turnHeadlines.join(', ')}). Considering ${recentActionsSummary}, a pattern emerges. This plays directly into my hands. If I'm careful, I can use this chaos to my advantage. But I must watch for vipers in the grass.`;
+    const text = `(Mock Monologue) These events... (${turnHeadlines.join(', ')}). Considering ${recentActionsSummary}, a pattern emerges. This plays directly into my hands. If I'm careful, I can use this chaos to my advantage. But I must watch for vipers in the grass.`;
+    return { text, actors: [] };
 };
 
 

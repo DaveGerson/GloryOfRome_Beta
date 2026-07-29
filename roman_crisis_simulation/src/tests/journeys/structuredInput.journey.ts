@@ -22,6 +22,7 @@ import {
 import {
   scriptAdjudication,
   scriptAssessmentIdle,
+  scriptMonologue,
   scriptNarration,
   scriptNpcMind,
   scriptSimulationState,
@@ -68,7 +69,7 @@ function clientForTurn(
     adjudication: scriptAdjudication(turn, options.adjudication),
     simulationState: scriptSimulationState(seed.thread.simulationState),
     ...(options.includePlayerPresentation === false ? {} : {
-      monologue: 'I intend to judge only what is before me, and keep counsel with myself.',
+      monologue: scriptMonologue('I intend to judge only what is before me, and keep counsel with myself.'),
       narration: scriptNarration(options.narration ?? 'The Emperor hears the petitions of Rome.', [
         'Consult Julia Mamaea',
         'Address the Senate',

@@ -233,9 +233,30 @@ export function scriptSimulationState(
   return { ...structuredClone(base), ...overrides, actors: [] };
 }
 
-/** Narration response: prose + exactly three SUGGESTION lines (the turn.ts split contract). */
-export function scriptNarration(prose: string, suggestions: [string, string, string]): string {
-  return `${prose}\nSUGGESTION: ${suggestions[0]}\nSUGGESTION: ${suggestions[1]}\nSUGGESTION: ${suggestions[2]}`;
+/**
+ * Narration response: prose + exactly three SUGGESTION lines (the turn.ts
+ * split contract). Task 4: narration is now a structured-output call
+ * (NarrationPayloadSchema/zNarrationPayload) - RAW PROVIDER INTERCHANGE shape,
+ * `actors` defaulting to [] (narration only ever runs on an observable-attempt
+ * turn - see tests/turnActorsGate.test.ts's REACHABILITY FINDING - where the
+ * declared-actors gate is inert regardless, so an empty declaration is always
+ * safe/faithful here).
+ */
+export function scriptNarration(prose: string, suggestions: [string, string, string]): { text: string; actors: string[] } {
+  return {
+    text: `${prose}\nSUGGESTION: ${suggestions[0]}\nSUGGESTION: ${suggestions[1]}\nSUGGESTION: ${suggestions[2]}`,
+    actors: [],
+  };
+}
+
+/**
+ * Player-monologue response: plain first-person prose. Task 4: structured
+ * output (PlayerMonologuePayloadSchema/zPlayerMonologuePayload) - RAW
+ * PROVIDER INTERCHANGE shape, `actors` defaulting to [] for the same reason
+ * as `scriptNarration` above.
+ */
+export function scriptMonologue(text: string): { text: string; actors: string[] } {
+  return { text, actors: [] };
 }
 
 /**

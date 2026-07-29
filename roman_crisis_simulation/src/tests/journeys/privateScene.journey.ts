@@ -21,6 +21,7 @@ import {
 import {
   scriptAdjudication,
   scriptAssessmentIdle,
+  scriptMonologue,
   scriptNarration,
   scriptPrivateSceneResponse,
   scriptSimulationState,
@@ -97,8 +98,8 @@ function journeyClient(simulationState: JourneyRunner['thread']['simulationState
     ],
     simulationState: [scriptSimulationState(simulationState), scriptSimulationState(simulationState)],
     monologue: [
-      'Maximinus speaks smoothly, but his certainty is not proof.',
-      'A refusal is information, even when it settles nothing by itself.',
+      scriptMonologue('Maximinus speaks smoothly, but his certainty is not proof.'),
+      scriptMonologue('A refusal is information, even when it settles nothing by itself.'),
     ],
     narration: [
       scriptNarration('The week proceeds without establishing the general\'s private claim as fact.', [
