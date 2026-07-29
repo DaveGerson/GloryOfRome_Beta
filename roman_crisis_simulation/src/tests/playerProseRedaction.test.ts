@@ -90,7 +90,12 @@ const INVENTED_PLAYER_PROSE = [
   'You seize the treasury and execute the tribune.',
   'Gaius Valerius Maximus dispatches agents to count tomorrow\'s votes.',
   'You summon the Senate at dawn.',
-  'Your guards arrest the envoy.',
+  // RETIRED (Task 2, disposition map row 3/mechanism row "possessedPhrasePredicate"):
+  // 'Your guards arrest the envoy.' tested possessive-phrase classification,
+  // deleted by the declaration-primary rewrite - it never opens on a
+  // sentence-initial player subject, so the flat tripwire is silent on it by
+  // design; see tests/playerBoundaryContract.test.ts's "declaration-territory
+  // prose" cases and the B7 gap discussion in ai/core/playerBoundary.ts.
   'The Emperor orders the granary burned.',
   'You pay Titus Vinius in full.',
 ];

@@ -21,6 +21,7 @@ import { runNewTurn, TurnStage } from './ai/core/turn';
 import { WorldState } from './types';
 import { useGame } from './state/GameContext';
 import { withOldSnapshotsDropped } from './state/gameReducer';
+import type { GameAction } from './state/gameReducer';
 import type { DomainMutationContext, RunDomainMutation } from './state/domainMutation';
 import { createCharacter } from './ai/tools/characterCreator';
 import { inferAmbition } from './ai/tools/ambition';
@@ -159,6 +160,21 @@ function isSameCampaignPrefix(candidate: SaveGameState, stored: SaveGameState): 
 
 function privateScenesFingerprint(scenes: readonly PrivateSceneRecord[]): string {
     return JSON.stringify(scenes);
+}
+
+// Task 7 (task-7-site-map.md): the shared shape for every save-then-dispatch
+// site below. The durable bytes must exist before the reducer dispatch;
+// `beforeDispatch` runs after save success and before dispatch, `onCommitted`
+// after. Per-site clear-ordering and failure channels differ (see the site
+// map) - the helper adapts to each site, never the reverse. Error CLEARS keep
+// each site's original position (some before dispatch, some after) -
+// preserved verbatim; do not normalize into onCommitted.
+interface DomainCommit {
+    candidate: SaveGameState;
+    action: GameAction;
+    onSaveFailure: () => void;      // set*Error(...) or throw AUTOSAVE_FAILED
+    beforeDispatch?: () => void;    // AFTER durable save, BEFORE dispatch
+    onCommitted?: () => void;       // post-dispatch work
 }
 
 const App: React.FC = () => {
@@ -636,6 +652,14 @@ const App: React.FC = () => {
     };
     }, [playerEntity]);
 
+    const commitDomainMutation = useCallback(({ candidate, action, onSaveFailure, beforeDispatch, onCommitted }: DomainCommit): boolean => {
+        if (!saveGame(candidate).ok) { onSaveFailure(); return false; }
+        beforeDispatch?.();
+        dispatch(action);
+        onCommitted?.();
+        return true;
+    }, [dispatch]);
+
     const commitPrivateScene = useCallback((candidate: PrivateSceneRecord, expectedScenesFingerprint: string): boolean => {
         const latest = privateScenesRef.current;
         // Exact list/record identity prevents a retained callback from
@@ -645,19 +669,20 @@ const App: React.FC = () => {
         // Recheck immediately before persistence. JavaScript cannot interleave
         // another handler between this synchronous check and saveGame.
         if (privateScenesFingerprint(privateScenesRef.current) !== expectedScenesFingerprint) return false;
-        if (!saveGame(buildSaveState({ privateScenes: candidateScenes })).ok) {
-            setPrivateSceneError('The scene could not be saved. Your words remain ready to retry.');
-            return false;
-        }
-        // The durable bytes exist before this point. Set the handler-level
-        // guard before reducer dispatch so another event cannot enter an
-        // ordinary mutation in React's commit/render interval.
-        privateSceneLockRef.current = candidateScenes.some(scene => scene.status === 'active' || scene.status === 'awaiting_last_word');
-        privateScenesRef.current = candidateScenes;
-        dispatch({ type: 'PRIVATE_SCENES_COMMITTED', privateScenes: candidateScenes });
-        setPrivateSceneError(null);
-        return true;
-    }, [buildSaveState, dispatch]);
+        return commitDomainMutation({
+            candidate: buildSaveState({ privateScenes: candidateScenes }),
+            action: { type: 'PRIVATE_SCENES_COMMITTED', privateScenes: candidateScenes },
+            onSaveFailure: () => setPrivateSceneError('The scene could not be saved. Your words remain ready to retry.'),
+            beforeDispatch: () => {
+                // The durable bytes exist before this point. Set the handler-level
+                // guard before reducer dispatch so another event cannot enter an
+                // ordinary mutation in React's commit/render interval.
+                privateSceneLockRef.current = candidateScenes.some(scene => scene.status === 'active' || scene.status === 'awaiting_last_word');
+                privateScenesRef.current = candidateScenes;
+            },
+            onCommitted: () => setPrivateSceneError(null),
+        });
+    }, [buildSaveState, commitDomainMutation]);
 
     const handlePrivateSceneInvite = useCallback((targetId: string) => {
         void runDomainMutation(async transaction => {
@@ -855,11 +880,17 @@ const App: React.FC = () => {
             turnGenerationIsCurrent() && privateSceneSnapshotIsCurrent()
         );
 
-        // Set once the turn is durably saved (right after the AUTOSAVE_FAILED
-        // check below). Gates the catch below: a throw AFTER this point must
+        // Set once the turn is durably saved (inside commitDomainMutation's
+        // beforeDispatch; onSaveFailure throws AUTOSAVE_FAILED first
+        // otherwise). Gates the catch below: a throw AFTER this point must
         // never roll back an already-committed turn or offer Retry on top of
         // the N+1 autosave - see the catch's marker-first branch.
-        let committedTail: { diedThisTurn: boolean } | null = null;
+        // A boxed `.current` (rather than a plain reassigned `let`) because
+        // the write now happens inside commitDomainMutation's `beforeDispatch`
+        // closure - TypeScript's control-flow narrowing doesn't see into a
+        // nested function body, so a bare `let` would (wrongly, only at the
+        // type level) narrow to `null` at the read site below.
+        const committedTail: { current: { diedThisTurn: boolean } | null } = { current: null };
 
         try {
             // At most one closed pending scene informs the macro adjudicator.
@@ -1085,31 +1116,35 @@ const App: React.FC = () => {
                 gmInterventionText: '',
                 pendingIntelligenceFallout: [],
             });
-            if (!saveGame(nextSaveState).ok) {
-                throw new Error('AUTOSAVE_FAILED');
-            }
-            committedTail = { diedThisTurn };
-            privateScenesRef.current = committedPrivateScenes;
-            dispatch({
-                type: 'TURN_COMMITTED',
-                entities: result.updatedEntities,
-                worldState: newWorldState,
-                simulationState: result.updatedSimulationState,
-                reports: result.updatedReports,
-                truthLedger: result.updatedTruthLedger,
-                knowledge: newKnowledge,
-                npcIntents: result.updatedNpcIntents,
-                privateScenes: committedPrivateScenes,
-                turnNumber: newTurnNumber,
-                turnHistory: newTurnHistory,
-                playerMessage,
-                gmMessage,
-                monologueMessage,
-                ribbonMessage,
-                suggestedActions: result.suggestedActions,
-                currentEvents: result.headlines,
+            // onSaveFailure throws, so the false return is unreachable here.
+            commitDomainMutation({
+                candidate: nextSaveState,
+                action: {
+                    type: 'TURN_COMMITTED',
+                    entities: result.updatedEntities,
+                    worldState: newWorldState,
+                    simulationState: result.updatedSimulationState,
+                    reports: result.updatedReports,
+                    truthLedger: result.updatedTruthLedger,
+                    knowledge: newKnowledge,
+                    npcIntents: result.updatedNpcIntents,
+                    privateScenes: committedPrivateScenes,
+                    turnNumber: newTurnNumber,
+                    turnHistory: newTurnHistory,
+                    playerMessage,
+                    gmMessage,
+                    monologueMessage,
+                    ribbonMessage,
+                    suggestedActions: result.suggestedActions,
+                    currentEvents: result.headlines,
+                },
+                onSaveFailure: () => { throw new Error('AUTOSAVE_FAILED'); },
+                beforeDispatch: () => {
+                    committedTail.current = { diedThisTurn };
+                    privateScenesRef.current = committedPrivateScenes;
+                },
+                onCommitted: () => setTransactionError(null),
             });
-            setTransactionError(null);
             // The final, parsed narration message above now replaces the
             // transient streaming bubble - clear the thinking-theater state
             // so it can't linger into the next AWAITING_PLAYER_INPUT render.
@@ -1182,7 +1217,7 @@ const App: React.FC = () => {
 
         } catch (error)
         {
-            if (committedTail) {
+            if (committedTail.current) {
                 // The turn is durably saved and dispatched; never roll back or
                 // offer Retry here — that would double-resolve the submission
                 // on top of the N+1 autosave.
@@ -1193,7 +1228,7 @@ const App: React.FC = () => {
                     setPendingPlayerMessage(null);
                     if (submission.kind === 'freeform') setChatDraft('');
                     else setStructuredDraft(emptyStructuredDraft());
-                    if (!committedTail.diedThisTurn) setIsCheckingEvents(true);
+                    if (!committedTail.current.diedThisTurn) setIsCheckingEvents(true);
                     setTransactionError('The turn was saved, but a follow-up step failed. Play continues from the saved turn.');
                 }
                 return;
@@ -1230,7 +1265,7 @@ const App: React.FC = () => {
         }
         });
         return mutation.acquired;
-    }, [ai, buildSaveState, dispatch, entities, eventFirings, getStateGeneration, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, pendingIntelligenceFallout, playerCharacterId, reports, resolvedApiKey, runDomainMutation, simulationState, truthLedger, turnHistory, turnNumber, worldState]);
+    }, [ai, buildSaveState, commitDomainMutation, dispatch, entities, eventFirings, getStateGeneration, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, pendingIntelligenceFallout, playerCharacterId, reports, resolvedApiKey, runDomainMutation, simulationState, truthLedger, turnHistory, turnNumber, worldState]);
 
     const handleComposerSubmit = (draft: string | StructuredTurnDraft) => {
         if (gameState !== GameState.AWAITING_PLAYER_INPUT || privateSceneInteractionLocked) return;
@@ -1257,20 +1292,22 @@ const App: React.FC = () => {
         const starterActions = deriveStarterActions(characterEntity);
 
         const candidate = buildSaveState({ entities: allInitialEntities, worldState: resolvedWorldState, metaNarrative: resolvedMetaNarrative, playerCharacterId: characterEntity.entity_id, messages: [...messages, introMessage], suggestedActions: starterActions });
-        if (!saveGame(candidate).ok) {
-            setTransactionError('Your campaign could not be saved. Please try again.');
+        if (!commitDomainMutation({
+            candidate,
+            action: {
+                type: 'GAME_STARTED',
+                entities: allInitialEntities,
+                playerCharacterId: characterEntity.entity_id,
+                introMessage,
+                suggestedActions: starterActions,
+                worldState: initialWorldState,
+                metaNarrative: initialMetaNarrative,
+            },
+            onSaveFailure: () => setTransactionError('Your campaign could not be saved. Please try again.'),
+            beforeDispatch: () => setTransactionError(null),
+        })) {
             return;
         }
-        setTransactionError(null);
-        dispatch({
-            type: 'GAME_STARTED',
-            entities: allInitialEntities,
-            playerCharacterId: characterEntity.entity_id,
-            introMessage,
-            suggestedActions: starterActions,
-            worldState: initialWorldState,
-            metaNarrative: initialMetaNarrative,
-        });
 
         // Show the first-turn onboarding overlay exactly once ever, on
         // whichever device/browser hasn't dismissed it yet - covers both a
@@ -1342,13 +1379,12 @@ const App: React.FC = () => {
             return e;
         });
         if (!request.isCurrent()) return false;
-        if (!saveGame(buildSaveState({ entities: newEntities })).ok) {
-            setTransactionError('Your change could not be saved. Please try again.');
-            return false;
-        }
-        setTransactionError(null);
-        dispatch({ type: 'RESOURCE_SPENT', entities: newEntities });
-        return true;
+        return commitDomainMutation({
+            candidate: buildSaveState({ entities: newEntities }),
+            action: { type: 'RESOURCE_SPENT', entities: newEntities },
+            onSaveFailure: () => setTransactionError('Your change could not be saved. Please try again.'),
+            beforeDispatch: () => setTransactionError(null),
+        });
     };
 
     // One reveal = one atomic commit. The investigation spend, any blackmail
@@ -1439,16 +1475,18 @@ const App: React.FC = () => {
         const falloutMessage: Message | undefined = hasFallout(result.consequences)
             ? { sender: 'gm', text: 'Your agent returns — but something in their manner suggests the visit did not go unnoticed.' }
             : undefined;
-        // This is intentionally adjacent to the durable write. Task 7 may add
-        // async extraction above; an EntityDetails unmount during that work
-        // must cancel before charging or committing any result.
+        // This is intentionally adjacent to the durable write. A future
+        // async-extraction phase may add work above; an EntityDetails unmount
+        // during that work must cancel before charging or committing any result.
         if (!request.isCurrent()) return false;
-        if (!saveGame(buildSaveState({ entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge, messages: falloutMessage ? [...messages, falloutMessage] : messages })).ok) {
-            setTransactionError('Your investigation could not be saved. Please try again.');
+        if (!commitDomainMutation({
+            candidate: buildSaveState({ entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge, messages: falloutMessage ? [...messages, falloutMessage] : messages }),
+            action: { type: 'INVESTIGATION_COMMITTED', entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge, falloutMessage },
+            onSaveFailure: () => setTransactionError('Your investigation could not be saved. Please try again.'),
+            beforeDispatch: () => setTransactionError(null),
+        })) {
             return false;
         }
-        setTransactionError(null);
-        dispatch({ type: 'INVESTIGATION_COMMITTED', entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge, falloutMessage });
 
         if (hasFallout(result.consequences)) {
             // The visible hint was included in the candidate transaction above.
@@ -1461,13 +1499,12 @@ const App: React.FC = () => {
     };
 
     const handleSetIntervention = (text: string): boolean => {
-        if (!saveGame(buildSaveState({ gmInterventionText: text })).ok) {
-            setTransactionError('The directive could not be saved. Please try again.');
-            return false;
-        }
-        setTransactionError(null);
-        dispatch({ type: 'GM_INTERVENTION_SET', text });
-        return true;
+        return commitDomainMutation({
+            candidate: buildSaveState({ gmInterventionText: text }),
+            action: { type: 'GM_INTERVENTION_SET', text },
+            onSaveFailure: () => setTransactionError('The directive could not be saved. Please try again.'),
+            beforeDispatch: () => setTransactionError(null),
+        });
     };
     
     const handleEventChoice = useCallback((choice: PlayerEventChoice) => {
@@ -1496,23 +1533,27 @@ const App: React.FC = () => {
         // deltas can also kill the player (applyEventChoiceDeltas), not just
         // the adjudicated turn pipeline - the reducer applies the exact same
         // GAME_OVER check as TURN_COMMITTED.
-        if (!saveGame(buildSaveState({ entities: updatedEntities, worldState: updatedWorldState, eventHistory: newEventHistory, triggeredEventIds: newTriggeredEventIds, eventFirings: newEventFirings, messages: [...messages, eventMessage] })).ok) {
-            setEventChoiceError('Your choice could not be saved. Please try again.');
+        if (!commitDomainMutation({
+            candidate: buildSaveState({ entities: updatedEntities, worldState: updatedWorldState, eventHistory: newEventHistory, triggeredEventIds: newTriggeredEventIds, eventFirings: newEventFirings, messages: [...messages, eventMessage] }),
+            action: {
+                type: 'EVENT_CHOICE_APPLIED',
+                entities: updatedEntities,
+                worldState: updatedWorldState,
+                eventMessage,
+                eventHistory: newEventHistory,
+                triggeredEventIds: newTriggeredEventIds,
+                eventFirings: newEventFirings,
+            },
+            onSaveFailure: () => setEventChoiceError('Your choice could not be saved. Please try again.'),
+            beforeDispatch: () => {
+                setTransactionError(null);
+                setEventChoiceError(null);
+            },
+        })) {
             return;
         }
-        setTransactionError(null);
-        setEventChoiceError(null);
-        dispatch({
-            type: 'EVENT_CHOICE_APPLIED',
-            entities: updatedEntities,
-            worldState: updatedWorldState,
-            eventMessage,
-            eventHistory: newEventHistory,
-            triggeredEventIds: newTriggeredEventIds,
-            eventFirings: newEventFirings,
-        });
 
-    }, [activeEvent, buildSaveState, dispatch, entities, eventFirings, eventHistory, messages, playerEntity, triggeredEventIds, turnNumber, worldState]);
+    }, [activeEvent, buildSaveState, commitDomainMutation, entities, eventFirings, eventHistory, messages, playerEntity, triggeredEventIds, turnNumber, worldState]);
 
     const handleContinue = useCallback(() => {
         const save = loadGame();

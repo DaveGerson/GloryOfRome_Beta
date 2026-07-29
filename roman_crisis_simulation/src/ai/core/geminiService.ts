@@ -668,6 +668,128 @@ export async function generateText(ai: GeminiClient, req: GenerateTextRequest): 
 }
 
 /**
+ * Streaming counterpart of `generateStructured` (Task 4 of the
+ * actors-attribution refactor, task-4-design.md section 1/2 - the narration
+ * structured-streaming decision). Same acquisition/consumption split as
+ * `generateTextStream` below (jittered-backoff retry while ACQUIRING the
+ * stream, no retry once chunks are flowing), but in JSON mode
+ * (`responseMimeType: application/json`) and with `onChunk` receiving the
+ * CUMULATIVE RAW JSON text rather than decoded prose - callers pull the
+ * decoded prose prefix out of it themselves (ai/core/streamSplit.ts's
+ * `extractPayloadTextPrefix`).
+ *
+ * RULING (accepted residual, task-4-design.md "Failure policy"): NO
+ * repair-retry on a final parse/zod failure, unlike `generateStructured`.
+ * By the time the stream ends, bytes have already been released to the
+ * bubble - the existing streaming ruling ("no mid-stream retry; callers
+ * already have a retry-the-turn affordance") extends naturally to a
+ * malformed final payload. A final parse/zod failure is a `fatal`
+ * AiServiceError.
+ */
+export async function generateStructuredStream<T>(
+  ai: GeminiClient,
+  req: GenerateStructuredRequest<T>,
+  onChunk: (rawJsonSoFar: string) => void
+): Promise<T> {
+  const { callName, model, zodSchema } = req;
+  const callLogOwner = currentCallLogOwner();
+  const streamFn = ai.models.generateContentStream;
+  if (!streamFn) {
+    throw new AiServiceError(
+      'fatal',
+      callName,
+      `Gemini call '${callName}' requested a streaming response but this client has no generateContentStream implementation.`
+    );
+  }
+
+  const config = buildConfig({
+    systemInstruction: req.systemInstruction,
+    responseSchema: req.responseSchema,
+    thinkingConfig: req.thinkingConfig,
+    temperature: req.temperature,
+    json: true,
+  });
+
+  const totalStart = Date.now();
+
+  // Phase 1: acquire the stream - identical retry/fallback semantics to
+  // generateTextStream's own acquisition phase.
+  const { value: stream, attempts, model: usedModel } = await invokeWithProFallback(callName, model, (resolvedModel) =>
+    streamFn({ model: resolvedModel, contents: req.prompt, config })
+  );
+
+  // Phase 2: consume it. No retry here by design (see doc comment above) -
+  // any error at this point is surfaced as transient, since the stream was
+  // already successfully acquired.
+  let rawSoFar = '';
+  try {
+    for await (const chunk of stream) {
+      if (chunk.text) {
+        rawSoFar += chunk.text;
+        onChunk(rawSoFar);
+      }
+    }
+  } catch (e) {
+    throw new AiServiceError(
+      'transient',
+      callName,
+      `Gemini call '${callName}' failed mid-stream: ${e instanceof Error ? e.message : String(e)}`,
+      e
+    );
+  }
+
+  const baseRecord = {
+    callName,
+    model: usedModel,
+    latencyMs: Date.now() - totalStart,
+    attempts,
+    promptChars: req.prompt.length,
+    promptText: req.prompt,
+    systemInstruction: req.systemInstruction,
+    rawResponse: rawSoFar,
+  };
+
+  let parsed: T;
+  try {
+    parsed = parseModelJson<T>(rawSoFar);
+  } catch (e) {
+    recordCall({ ...baseRecord, validated: false }, callLogOwner);
+    const parseDetail = e instanceof Error ? e.message : String(e);
+    console.error(`Gemini call '${callName}' returned unparseable JSON (streaming - no repair retry):`, parseDetail);
+    throw new AiServiceError(
+      'fatal',
+      callName,
+      `Gemini call '${callName}' returned unparseable JSON.`,
+      e,
+      parseDetail
+    );
+  }
+
+  if (!zodSchema) {
+    recordCall({ ...baseRecord, validated: true }, callLogOwner);
+    return parsed;
+  }
+
+  const result = zodSchema.safeParse(parsed);
+  if (result.success) {
+    recordCall({ ...baseRecord, validated: true }, callLogOwner);
+    return result.data;
+  }
+
+  const issuePaths = result.error.issues.map(issue => issue.path.join('.') || '(root)');
+  recordCall({ ...baseRecord, validated: false }, callLogOwner);
+  const offendingSnippet = truncateForCapture(rawSoFar).slice(0, 300);
+  console.error(`Gemini call '${callName}' violated its schema at [${issuePaths.join(', ')}] (streaming - no repair retry). Offending output:`, offendingSnippet);
+  throw new AiServiceError(
+    'fatal',
+    callName,
+    `Gemini call '${callName}' violated its schema at [${issuePaths.join(', ')}].`,
+    result.error,
+    offendingSnippet
+  );
+}
+
+/**
  * Streaming counterpart of `generateText` (ROADMAP_0_MASTER_PLAN.md Phase 3
  * item 2 - "the narration call uses generateContentStream; the GM's
  * dispatch types onto the page"). Same call shape (`GenerateTextRequest`),

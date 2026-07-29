@@ -135,23 +135,19 @@ actor in its own right.
   live player-typed text on the same CharacterSelection screen as
   worldGen.ts's `playerCharacterDescription`.) Closing the remainder needs the same
   `asPromptData` swap already applied everywhere else.
-- `playerBoundary.test.ts` "DECLARED GAP 1": a third-person pronoun (or
-  possessive determiner, or a one-level-deeper possessive) under a
-  second-person possessive - e.g. `Your grip weakens because he burned the
-  granary.` - is not bound to the player as an invented action. Closing it
-  needs real antecedent resolution (tracking what a pronoun/possessive
-  actually refers to), not a wider alias set; a naive fix would over-reject
-  the overwhelming majority of legitimate third-person prose about rivals on
-  a surface (`assertNoInventedPlayerVisibleAction`) validated every turn.
-- `playerBoundary.test.ts` possessive passive-agent gap: `burned by my
-  agents` / `burned by your agents` (and third-person forms like `sealed by
-  my predecessor`) are not caught by the passive scan, which rejects only on
-  a bare alias match with no predicate classification. Admitting `my` as an
-  agent alias would reject any third party merely related to the player
-  (e.g. "sealed by my predecessor") on the first-person monologue surface,
-  whose own prompt mandates first-person prose about rivals; the second-
-  person form isn't caught either, so a first-person-only rule buys nothing.
-  Closing this needs the possessive passive handled for ALL persons at once.
+- `playerBoundary.test.ts` "DECLARED GAP 1" is now CLOSED - a third-person
+  pronoun under a second-person possessive (`Your grip weakens because he
+  burned the granary.`) no longer needs real antecedent resolution: the
+  schema-declared per-field `actors` contract (D42) makes attribution data,
+  not inference, so the sentence is a first-class declaration-contract case.
+  See `docs/superpowers/specs/2026-07-28-schema-declared-attribution-design.md`.
+- `playerBoundary.test.ts` possessive passive-agent gap is now CLOSED - `burned
+  by my agents` / `burned by your agents` / `sealed by my predecessor` no
+  longer depend on widening the passive-agent alias scan (which could never
+  admit `my` without over-rejecting third parties merely related to the
+  player): the same D42 declared-`actors` contract closes it for all persons
+  at once. See
+  `docs/superpowers/specs/2026-07-28-schema-declared-attribution-design.md`.
 - Cross-tab play is last-writer-wins: `persistence/saveGame.ts` uses a
   single `localStorage` slot (`SAVE_KEY = 'gloryOfRome:autosave'`) with no
   `storage`-event or `BroadcastChannel` coordination between tabs. A second
@@ -160,6 +156,22 @@ actor in its own right.
   tab-at-a-time assumption, not a bug to fix reactively - no user-visible
   symptom exists until a player actually runs two tabs against the same
   save slot.
+- Two optional hardening items from the D42 actors-contract adversarial
+  review, neither blocking: (a) `ai/core/streamSplit.ts`'s
+  `extractPayloadTextPrefix` re-scans the full cumulative raw JSON from the
+  start on every chunk - quadratic in the response length. Measured cost is
+  negligible at realistic narration sizes (~3-5ms at a ≤8KB payload) but
+  grows to ~267ms at 128KB, so if narration payloads ever grow past typical
+  provider caps, an incremental-state extractor (resuming from where the
+  last chunk left off instead of re-scanning) would be worth building. (b) A
+  provider response with a DUPLICATE top-level `"text"` key could in theory
+  let the streamed (incremental) value diverge from the committed (final
+  parse) value if the two occurrences disagree - implausible under
+  constrained/schema-guided decoding (the whole point of structured-output
+  mode), and even if it happened the committed value is still fully gated by
+  the declaration/tripwire/mechanics boundary regardless of what streamed
+  earlier. Not tracked with a test; noted here so a future maintainer
+  doesn't have to rediscover it.
 
 ### B8 — Raw relationship numbers on the Personae tab  *(ruling needed)*
 `DramatisPersonaeTab` renders the player's own Trust/Respect/Threat/

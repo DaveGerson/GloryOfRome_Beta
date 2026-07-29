@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent, TruthLedgerEntry, NpcIntent, NpcMindDecision, StoryRelevance, EntityAction, Memory, PacingPosture, EventFiringRecord, EventDelta, Scheme, SchemeStep, TurnSubmission } from '../../types';
-import { AdjudicationSchema } from './schemas';
+import { AdjudicationSchema, NarrationPayloadSchema } from './schemas';
 import { applyAdjudication } from './engine';
 import { mockRunNewTurn } from "../mocks";
 import { selectDurableIntents } from './directorIntents';
@@ -10,14 +10,21 @@ import { getNpcMindDecision } from '../tools/npcMind';
 import { MAX_MINDS_PER_TURN } from '../prompts/npcMind';
 import { buildWorldSummary } from '../prompts/fragments';
 import { buildPerceivedDigest, buildPlayerPerceivedDigest, PerceivedChange } from '../../perception/visibility';
-import { generateStructured, generateText, generateTextStream, GEMINI_PRO, beginTurnCapture, endTurnCapture } from './geminiService';
-import { zAdjudication } from './zodSchemas';
+import { generateStructured, generateStructuredStream, GEMINI_PRO, beginTurnCapture, endTurnCapture } from './geminiService';
+import { zAdjudication, zNarrationPayload } from './zodSchemas';
+import {
+    stripActorsFromAdjudication,
+    stripActorsFromSimulationState,
+    type AdjudicationInterchange,
+    type NarrationPayloadInterchange,
+    type PlayerMonologuePayloadInterchange,
+} from './actorsBoundary';
 import { buildAdjudicationPrompt, PlayerActionOutcomeContext, HistoricalMaterialEntry } from '../prompts/adjudication';
 import type { PrivateSceneAdjudicatorProjection, PrivateSceneNpcMemoryProjection } from '../../privateScene/model';
 import { selectRipeEventMaterial } from '../../events/engine';
 import { buildNarrationPrompt, selectVoiceCast } from '../prompts/narration';
 import { processMortality, detectDeathClaims } from './mortality';
-import { createNarrationStreamGate } from './streamSplit';
+import { createNarrationStreamGate, extractPayloadTextPrefix } from './streamSplit';
 import { rollD20, resolveAction, derivePersonalityModifier, deriveOppositionModifier, createSeededRng, generateSeed } from './resolution';
 import { deserializeTurnSubmission, isReservedTurnSubmissionArtifact, normalizeTurnSubmissionInput, projectForAdjudication, projectForNarration, projectForNoAttemptResponse, projectForPlayerReflection, projectForResolution, serializeTurnSubmission } from '../../playerInput/turnSubmission';
 import {
@@ -52,9 +59,22 @@ import {
  *
  * Runs at each of the three points the structural gate runs, because each
  * step (mind-scheme folding, mortality) can introduce new prose.
+ *
+ * D42 (gate-before-strip; roadmaps/DESIGN_DECISIONS.md): the parameter
+ * widens to accept EITHER shape. The FIRST call (turn.ts, immediately after
+ * the adjudication parse) passes the raw `AdjudicationInterchange` - BEFORE
+ * `stripActorsFromAdjudication` runs - so `redactInventedPlayerProse` sees
+ * each field's declared `actors` and can close the B7 registers the flat
+ * tripwire alone cannot reach; the 2nd/3rd calls (post-mind-folding,
+ * post-mortality) pass the already-stripped committed `Adjudication` and
+ * stay tripwire-only by design (see the call sites below). The body is
+ * otherwise UNCHANGED: `assertNoInventedPlayerAction`,
+ * `redactInventedPlayerProse`, and `assertPlayerVisibleAdjudicationSafe` all
+ * accept either shape directly (declared in playerBoundary.ts) and examine
+ * nothing that behaves differently between the two shapes.
  */
 function enforceNoAttemptBoundary(
-    adjudication: Adjudication,
+    adjudication: AdjudicationInterchange | Adjudication,
     playerEntity: Entity,
     hasObservableAttempt: boolean,
 ): void {
@@ -314,12 +334,16 @@ export interface RunNewTurnOptions {
     onStage?: (stage: TurnStage) => void;
     /**
      * Invoked with the CUMULATIVE, display-safe narration text as the
-     * narration call streams in - already passed through
-     * `createNarrationStreamGate` (see streamSplit.ts), so callers never see
-     * a trailing `SUGGESTION:` line leak into what's rendered. When
-     * provided, narration uses `generateTextStream`; when omitted, narration
-     * uses the plain (non-streaming) `generateText`, exactly as before this
-     * option existed.
+     * narration call streams in. Narration is now a structured-output call
+     * (Task 4, task-4-design.md): the provider streams cumulative raw JSON,
+     * `extractPayloadTextPrefix` (streamSplit.ts) pulls the decoded prefix
+     * of the payload's "text" value out of it, and that prose is passed
+     * through `createNarrationStreamGate` exactly as before, so callers
+     * never see a trailing `SUGGESTION:` line - or any JSON syntax - leak
+     * into what's rendered. When provided, narration uses
+     * `generateStructuredStream`; when omitted, narration uses the plain
+     * (non-streaming) `generateStructured`, exactly as before this option
+     * existed.
      */
     onNarrationChunk?: (textSoFar: string) => void;
     /**
@@ -598,7 +622,7 @@ export async function runNewTurn(
 
     // 2. Get adjudication from AI
     options?.onStage?.('adjudication');
-    const adjudication = await generateStructured<Adjudication>(ai, {
+    const rawAdjudication = await generateStructured<AdjudicationInterchange>(ai, {
         callName: 'adjudication',
         model: GEMINI_PRO,
         systemInstruction,
@@ -608,7 +632,16 @@ export async function runNewTurn(
         thinkingConfig: { thinkingBudget: 1024 },
         temperature: ADJUDICATION_TEMPERATURE,
     });
-    enforceNoAttemptBoundary(adjudication, playerEntity, narrationSubmission.hasObservableAttempt);
+    // D42 (gate-before-strip; roadmaps/DESIGN_DECISIONS.md): the FIRST
+    // no-attempt boundary run happens on the RAW interchange, before the
+    // actors sibling is stripped, so the declaration-aware gate
+    // (ai/core/playerBoundary.ts) can see each field's declared `actors`
+    // and close the B7 registers the flat tripwire alone cannot reach.
+    // `stripActorsFromAdjudication` below is now the commit boundary for
+    // this surface: nothing downstream (mind-scheme folding, mortality,
+    // engine application, the history entry) ever sees `actors` again.
+    enforceNoAttemptBoundary(rawAdjudication, playerEntity, narrationSubmission.hasObservableAttempt);
+    const adjudication = stripActorsFromAdjudication(rawAdjudication);
 
     // Record the resolution layer's trace as a GM-private note (mirrors the
     // mortality pipeline's own gm_private notes) BEFORE processMortality
@@ -778,18 +811,25 @@ export async function runNewTurn(
     //    Entity/Adjudication/SimulationState params into pure `buildX`
     //    prompt-string builders (template literals / JSON.stringify) and
     //    return a freshly-parsed value from `generateStructured`/
-    //    `generateText` - no assignment back onto any input.
+    //    `generateStructuredStream` - no assignment back onto any input.
     //  - The narration path's `buildNarrationPrompt` runs
     //    `sanitizeAdjudicationForNarration`/`sanitizeEntityForNarration`
     //    first, which build BRAND NEW objects via spread/`.map()` (they
     //    never assign onto `adjudication`/`updatedPlayerEntity`).
     options?.onStage?.('simulation_state');
-    const simulationStatePromise = getUpdatedSimulationState(ai, transformedAdjudication, currentSimulationState, isMockMode);
+    // Task 4: the strip no longer happens inside getUpdatedSimulationState -
+    // it returns the raw SimulationStateInterchange (still carrying
+    // `actors`) so the crisis text can be gated against its declaration
+    // below, before the commit-boundary strip.
+    const simulationStatePromise = getUpdatedSimulationState(ai, transformedAdjudication, currentSimulationState, narrationSubmission.hasObservableAttempt, isMockMode);
 
     options?.onStage?.('monologue');
+    // Task 4: getPlayerMonologue now returns the structured { text, actors }
+    // payload; the no-attempt short-circuit mirrors that shape exactly (an
+    // empty declaration on an empty string is always inert).
     const monologuePromise = noAttemptResponse
-        ? Promise.resolve('')
-        : getPlayerMonologue(ai, updatedPlayerEntity, transformedAdjudication.headlines, recentPlayerIntents, isMockMode);
+        ? Promise.resolve<PlayerMonologuePayloadInterchange>({ text: '', actors: [] })
+        : getPlayerMonologue(ai, updatedPlayerEntity, transformedAdjudication.headlines, recentPlayerIntents, narrationSubmission.hasObservableAttempt, isMockMode);
 
     // Get narration and suggested actions. The event input crosses the D5
     // visibility seam first, then is narrowed field-by-field to text/source.
@@ -824,26 +864,34 @@ export async function runNewTurn(
         model: GEMINI_PRO,
         systemInstruction: narrationPrompt.systemInstruction,
         prompt: narrationPrompt.prompt,
+        responseSchema: NarrationPayloadSchema,
+        zodSchema: zNarrationPayload,
         thinkingConfig: { thinkingBudget: 512 },
         temperature: NARRATION_TEMPERATURE,
     };
-    // Streaming is opt-in per call (`onNarrationChunk` provided) so every
-    // other call site / test that doesn't care about streaming keeps using
-    // plain `generateText`, byte-for-byte as before this option existed.
-    // The stream's raw cumulative text is passed through the narration
-    // stream gate BEFORE reaching the caller, so `onNarrationChunk` only
-    // ever sees display-safe text with any `SUGGESTION:` tail withheld -
-    // see streamSplit.ts.
+    // Task 4 narration decision (task-4-design.md section 1): ONE
+    // structured-output call either way - streaming via
+    // `generateStructuredStream` when the caller opts into
+    // `onNarrationChunk`, plain `generateStructured` otherwise. The onChunk
+    // composition is `extractPayloadTextPrefix` (pulls the decoded prefix of
+    // the JSON payload's "text" value out of the CUMULATIVE RAW JSON) ->
+    // `narrationStreamGate` -> `playerVisibleStreamGate.push` ->
+    // `onNarrationChunk` - the two gates and the callback are byte-identical
+    // to the pre-Task-4 plain-text stream; only what feeds them (a decoded
+    // JSON-prefix vs. raw prose) changed. `\n` escapes decode to a real
+    // newline before the gate's `\nSUGGESTION:` marker check, so the
+    // suggestion split below is untouched.
     const onNarrationChunk = options?.onNarrationChunk;
     const narrationPromise = noAttemptResponse
-        ? Promise.resolve('')
+        ? Promise.resolve<NarrationPayloadInterchange>({ text: '', actors: [] })
         : onNarrationChunk
-            ? generateTextStream(ai, narrationRequest, (textSoFar) => {
-                const displayText = narrationStreamGate(textSoFar);
+            ? generateStructuredStream<NarrationPayloadInterchange>(ai, narrationRequest, (rawJsonSoFar) => {
+                const prosePrefix = extractPayloadTextPrefix(rawJsonSoFar);
+                const displayText = narrationStreamGate(prosePrefix);
                 const completedText = playerVisibleStreamGate.push(displayText);
                 if (completedText !== null) onNarrationChunk(completedText);
             })
-            : generateText(ai, narrationRequest);
+            : generateStructured<NarrationPayloadInterchange>(ai, narrationRequest);
 
     // The join. If any of the three rejects, `Promise.all` rejects
     // immediately with that leg's error (fail-fast) - the other two keep
@@ -853,14 +901,14 @@ export async function runNewTurn(
     // resolve/reject from a "losing" leg is never reported as an unhandled
     // rejection. The outer try/catch below (`endTurnCapture(); throw e;`)
     // is what actually surfaces the failure to the caller.
-    const [rawSimulationState, rawPlayerMonologue, rawFullText] = await Promise.all([
+    const [rawSimulationState, rawMonologuePayload, rawNarrationPayload] = await Promise.all([
         simulationStatePromise,
         monologuePromise,
         narrationPromise,
     ]);
     assertPlayerVisibleValueSafe(rawSimulationState);
-    assertPlayerVisibleTextSafe(rawPlayerMonologue);
-    assertPlayerVisibleTextSafe(rawFullText);
+    assertPlayerVisibleTextSafe(rawMonologuePayload.text);
+    assertPlayerVisibleTextSafe(rawNarrationPayload.text);
     // The three separately generated player-visible surfaces, under the same
     // consequence split the adjudication gate uses.
     //
@@ -868,35 +916,53 @@ export async function runNewTurn(
     // these that names the player would blank their dossier with no game-over
     // or epilogue (D1/D2) - not sanitizable, so the turn dies.
     //
-    // PROSE, redacted per site:
+    // PROSE, redacted per site (Task 4: each surface's declared `actors` now
+    // rides alongside its text, so the gate is declaration-aware first,
+    // tripwire second - see redactInventedPlayerProseFromValue):
     //  - `updatedSimulationState` is the one of the three that carries content
     //    on a no-attempt turn (narration/monologue are short-circuited to ''
     //    above whenever `noAttemptResponse` is set), so this is where the
     //    over-rejection actually killed turns. Its crisis text is scrubbed.
-    //  - `fullText` covers the empty-structured edge (no attempt, no question,
-    //    no private intent) where narration IS requested. Redacting is still
-    //    strictly better than failing, though note the STREAM has already
-    //    released its prefix to `onNarrationChunk`; the redacted text is
-    //    re-released through `playerVisibleStreamGate.finish` below, which is
-    //    the only correction available once bytes have left. The stream gate
-    //    itself keeps THROWING (mechanics only) - mid-stream text cannot be
+    //  - `rawNarrationPayload.text` covers the empty-structured edge (no
+    //    attempt, no question, no private intent) where narration IS
+    //    requested. Redacting is still strictly better than failing, though
+    //    note the STREAM has already released its prefix to
+    //    `onNarrationChunk`; the redacted text is re-released through
+    //    `playerVisibleStreamGate.finish` below, which is the only
+    //    correction available once bytes have left. The stream gate itself
+    //    keeps THROWING (mechanics only) - mid-stream text cannot be
     //    un-shown, so there is nothing to redact into.
-    //  - `playerMonologue` is player-owned interior voice; same edge, same
-    //    treatment.
-    for (const value of [rawSimulationState, rawFullText, rawPlayerMonologue]) {
+    //  - `rawMonologuePayload.text` is player-owned interior voice; same
+    //    edge, same treatment.
+    for (const value of [rawSimulationState, rawNarrationPayload.text, rawMonologuePayload.text]) {
         assertNoPlayerRemoval(value, playerEntity, narrationSubmission.hasObservableAttempt);
     }
-    const simulationRedaction = redactInventedPlayerProseFromValue(
-        rawSimulationState, playerEntity, narrationSubmission.hasObservableAttempt, 'simulationState');
+    // Gate the ONE prose field on the simulation-state interchange against
+    // its declaration; a fully-redacted crisis is pinned to commit as '' (the
+    // exact value the legacy whole-object traversal already produced - see
+    // tests/mockParity.test.ts's crisis-redaction case), while an
+    // UNREDACTED field keeps its original value (including `null`, when
+    // `hasObservableAttempt` short-circuits the gate or no crisis exists) -
+    // never coerced to '' merely for having passed through the gate.
+    const simulationCrisisRedaction = redactInventedPlayerProseFromValue(
+        rawSimulationState.major_ongoing_crisis ?? '', playerEntity, narrationSubmission.hasObservableAttempt,
+        'simulationState.major_ongoing_crisis', rawSimulationState.actors);
     const narrationRedaction = redactInventedPlayerProseFromValue(
-        rawFullText, playerEntity, narrationSubmission.hasObservableAttempt, 'narration');
+        rawNarrationPayload.text, playerEntity, narrationSubmission.hasObservableAttempt, 'narration', rawNarrationPayload.actors);
     const monologueRedaction = redactInventedPlayerProseFromValue(
-        rawPlayerMonologue, playerEntity, narrationSubmission.hasObservableAttempt, 'monologue');
-    const updatedSimulationState = simulationRedaction.value;
+        rawMonologuePayload.text, playerEntity, narrationSubmission.hasObservableAttempt, 'monologue', rawMonologuePayload.actors);
+    // Commit boundary for this surface (D42): strip the interchange-only
+    // `actors` here, after the gate has seen it.
+    const updatedSimulationState = stripActorsFromSimulationState({
+        ...rawSimulationState,
+        major_ongoing_crisis: simulationCrisisRedaction.redactions.length > 0
+            ? simulationCrisisRedaction.value
+            : rawSimulationState.major_ongoing_crisis,
+    });
     const fullText = narrationRedaction.value;
     const playerMonologue = monologueRedaction.value;
     transformedAdjudication.gm_private.push(...playerProseRedactionNotes([
-        ...simulationRedaction.redactions,
+        ...simulationCrisisRedaction.redactions,
         ...narrationRedaction.redactions,
         ...monologueRedaction.redactions,
     ]));

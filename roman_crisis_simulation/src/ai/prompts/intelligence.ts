@@ -15,6 +15,7 @@
 import { Adjudication, Entity, WorldState, SimulationState, NpcIntent } from '../../types';
 import type { ActionResolutionTier } from '../core/resolution';
 import { REDACTED_SCHEME_REASON } from './fragments';
+import { ACTORS_DESCRIPTION } from '../core/schemas';
 
 /**
  * PURPOSE: Answer a player's question about a past event via their
@@ -275,7 +276,16 @@ export function buildStoryRelevancePrompt(
  */
 export function buildSimulationStateUpdatePrompt(
   adjudication: Adjudication,
-  oldState: SimulationState
+  oldState: SimulationState,
+  /**
+   * Whether this turn carried an observable player attempt - threaded from
+   * ai/core/turn.ts's `narrationSubmission.hasObservableAttempt` via
+   * `getUpdatedSimulationState` (ai/tools/intelligence.ts). Defaults to
+   * `true` (an ordinary attempt turn) so pre-existing call sites keep
+   * producing the same prompt they always have; only an explicit `false`
+   * adds the no-attempt player-exclusion line below.
+   */
+  hasObservableAttempt: boolean = true
 ): { systemInstruction: string; prompt: string } {
   const systemInstruction = `
 You are a Roman historian analyzing the state of the Empire. Based on the previous state and the summary of events that just occurred, update the meta-narrative state of the simulation.
@@ -286,7 +296,8 @@ Return a new, updated JSON object reflecting the current reality.
 - If legions are openly fighting, military_status MUST become 'Rebellious' and a 'Civil War' crisis should begin.
 - If the senate was purged or its power broken, senate_status could become 'Deposed' or 'Irrelevant'.
 - If events caused mass unrest (e.g., grain shortage), plebeian_mood could become 'Rioting'.
-
+- ACTORS ATTRIBUTION: The top-level 'actors' field (covering major_ongoing_crisis, the only free-prose field here) follows this contract: ${ACTORS_DESCRIPTION}
+${hasObservableAttempt ? '' : "- NO OBSERVABLE PLAYER ATTEMPT THIS TURN: the player's id must NEVER appear in the top-level 'actors' list.\n"}
 Return only the valid JSON object.
 `;
 

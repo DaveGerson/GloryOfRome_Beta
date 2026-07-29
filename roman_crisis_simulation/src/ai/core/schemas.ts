@@ -6,6 +6,14 @@ import {
     PRIVATE_SCENE_MAX_UTTERANCE_CHARS,
 } from '../../privateScene/model';
 
+/**
+ * Actors-attribution contract (interchange-only, ai/core/zodSchemas.ts's
+ * mirror): the canonical semantic copied onto every `actors` declaration
+ * below - entity ids whose ACTIONS the sibling prose narrates, never every
+ * entity a text merely mentions.
+ */
+export const ACTORS_DESCRIPTION = "Entity ids whose ACTIONS this text narrates - NOT every entity mentioned. Merely mentioning an entity (as object, victim, or bystander) does not make it an actor; only the entity(ies) actually DOING something here belong here. Empty array if this text is pure world/state description with no one's actions narrated.";
+
 /** Provider-side shape for one bounded private-scene response. */
 export const PrivateSceneModelResponseSchema = {
     type: Type.OBJECT,
@@ -70,8 +78,9 @@ export const NoAttemptEvidenceSelectionSchema = {
             items: { type: Type.STRING },
             maxItems: 5,
         },
+        actors: { type: Type.ARRAY, items: { type: Type.STRING }, description: ACTORS_DESCRIPTION },
     },
-    required: ['decision', 'evidenceIds'],
+    required: ['decision', 'evidenceIds', 'actors'],
 };
 
 const EntityActionSchema = {
@@ -81,8 +90,9 @@ const EntityActionSchema = {
         intent: { type: Type.STRING, enum: EntityActionIntentEnum, description: "The specific action being taken." },
         target: { type: Type.STRING, nullable: true, description: "The ID of the target entity or region, if any." },
         notes: { type: Type.STRING, description: "A brief description of the action's specifics or rationale." },
+        actors: { type: Type.ARRAY, items: { type: Type.STRING }, description: ACTORS_DESCRIPTION },
     },
-    required: ['id', 'intent', 'notes'],
+    required: ['id', 'intent', 'notes', 'actors'],
 };
 
 const EventDeltaSchema = {
@@ -98,8 +108,9 @@ const EventDeltaSchema = {
         origin_id: { type: Type.STRING, nullable: true, description: "'rumor' type deltas only, GM-PRIVATE: the entity_id of whoever started or spreads the rumor - the PLAYER's entity_id when their action planted or spread it, the planting NPC's when a scheme did. Omit/null ONLY when the rumor is organic with no single attributable source. Omit/null for all other delta types. This never reaches the player." },
         topic: { type: Type.STRING, nullable: true, description: "REQUIRED for 'rumor' type deltas, NOT private: a short lowercase hyphenated slug naming WHAT about the subject the rumor concerns (e.g. 'health', 'tribute', 'succession-plot', 'legion-loyalty'). Distinct matters about the same subject MUST get DISTINCT topics so they stay separate claims; a follow-up about the SAME matter reuses the SAME topic (and key). This is a neutral category label, never a statement of the rumor's truth. Omit/null for all other delta types." },
         stance: { type: Type.STRING, enum: ['corroborates', 'contradicts'], nullable: true, description: "'rumor' type deltas only, NOT private: only on a COUNTERPLAY follow-up that reuses an existing rumor's key AND topic - set 'corroborates' if the follow-up backs the running claim, 'contradicts' if it refutes it. Omit/null on a first emission or an ordinary restatement. Independent of truth: refuting a true rumor or backing a false one are both allowed." },
+        actors: { type: Type.ARRAY, items: { type: Type.STRING }, description: ACTORS_DESCRIPTION },
     },
-    required: ['type', 'key', 'delta', 'reason'],
+    required: ['type', 'key', 'delta', 'reason', 'actors'],
 };
 
 
@@ -293,13 +304,23 @@ export const EntityListSchema = {
 };
 
 
+// One publicly-known headline: the prose plus its actors-attribution sibling.
+const HeadlineSchema = {
+    type: Type.OBJECT,
+    properties: {
+        text: { type: Type.STRING, description: "The headline's text - a publicly known event that occurred this turn." },
+        actors: { type: Type.ARRAY, items: { type: Type.STRING }, description: ACTORS_DESCRIPTION },
+    },
+    required: ['text', 'actors'],
+};
+
 export const AdjudicationSchema = {
     type: Type.OBJECT,
     properties: {
         turn: { type: Type.NUMBER },
         entityActions: { type: Type.ARRAY, items: EntityActionSchema, description: "Actions decided upon by all major entities this turn." },
         deltas: { type: Type.ARRAY, items: EventDeltaSchema, description: "The specific, atomic state changes that result from all actions." },
-        headlines: { type: Type.ARRAY, items: { type: Type.STRING }, description: "A few major, publicly known events that occurred this turn." },
+        headlines: { type: Type.ARRAY, items: HeadlineSchema, description: "A few major, publicly known events that occurred this turn." },
         gm_private: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Private notes or secret events for the GM's eyes only." },
         add_entities: { 
             type: Type.ARRAY, 
@@ -393,8 +414,37 @@ export const SimulationStateSchema = {
         military_status: { type: Type.STRING, enum: ['Loyal', 'Divided', 'Rebellious'] },
         plebeian_mood: { type: Type.STRING, enum: ['Content', 'Uneasy', 'Rioting'] },
         major_ongoing_crisis: { type: Type.STRING, nullable: true },
+        // ONE top-level actors declaration covering major_ongoing_crisis, the
+        // only free-prose field here (every other field is a closed enum).
+        actors: { type: Type.ARRAY, items: { type: Type.STRING }, description: ACTORS_DESCRIPTION },
     },
-    required: ['imperial_status', 'senate_status', 'military_status', 'plebeian_mood', 'major_ongoing_crisis']
+    required: ['imperial_status', 'senate_status', 'military_status', 'plebeian_mood', 'major_ongoing_crisis', 'actors']
+};
+
+/**
+ * A narration or player-monologue payload: free prose plus the
+ * actors-attribution sibling. Mirrors `zNarrationPayload`/
+ * `zPlayerMonologuePayload` in ai/core/zodSchemas.ts. WIRED: narration
+ * streams through `generateStructuredStream` and getPlayerMonologue is a
+ * `generateStructured` call (ai/core/turn.ts, ai/tools/intelligence.ts),
+ * both using this schema pair directly.
+ */
+export const NarrationPayloadSchema = {
+    type: Type.OBJECT,
+    properties: {
+        text: { type: Type.STRING, description: "The narrated prose." },
+        actors: { type: Type.ARRAY, items: { type: Type.STRING }, description: ACTORS_DESCRIPTION },
+    },
+    required: ['text', 'actors'],
+};
+
+export const PlayerMonologuePayloadSchema = {
+    type: Type.OBJECT,
+    properties: {
+        text: { type: Type.STRING, description: "The player's inner-monologue prose." },
+        actors: { type: Type.ARRAY, items: { type: Type.STRING }, description: ACTORS_DESCRIPTION },
+    },
+    required: ['text', 'actors'],
 };
 
 // --- Mortality pipeline (ai/core/mortality.ts, DESIGN_DECISIONS.md D2/D3) --

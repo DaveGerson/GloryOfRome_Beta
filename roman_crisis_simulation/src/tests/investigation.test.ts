@@ -268,11 +268,15 @@ describe('ai/tools/intelligence.ts direct player-output mechanics boundaries', (
   });
 
   it('validates player-monologue text at the helper return boundary', async () => {
+    // Task 4: getPlayerMonologue is now a structured-output call, so the
+    // fake client must return valid { text, actors } JSON - the mechanics
+    // boundary check runs on the parsed payload's text, not the raw string.
     await expect(getPlayerMonologue(
-      makeMockTextAi('I fear a fate band: presumed dead.'),
+      makeMockTextAi(JSON.stringify({ text: 'I fear a fate band: presumed dead.', actors: [] })),
       makePlayer(),
       ['The Curia empties.'],
       [],
+      true,
       false,
     )).rejects.toThrow('player-visible mechanics boundary');
   });

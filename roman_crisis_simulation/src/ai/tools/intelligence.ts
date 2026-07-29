@@ -1,9 +1,10 @@
 import { GoogleGenAI } from "@google/genai";
 import { Entity, WorldState, StoryRelevance, Adjudication, SimulationState, ActionResolutionEvent, NpcIntent } from '../../types';
 import { mockGetClarificationOnEvent, mockGetDeepAnalysis, mockGetInvestigationResult, mockGetPlayerMonologue, mockGetStoryRelevance } from '../mocks';
-import { StoryRelevanceSchema, SimulationStateSchema, buildInvestigationResultSchema } from '../core/schemas';
+import { StoryRelevanceSchema, SimulationStateSchema, PlayerMonologuePayloadSchema, buildInvestigationResultSchema } from '../core/schemas';
 import { generateStructured, generateText, GEMINI_PRO, GEMINI_FLASH } from '../core/geminiService';
-import { zStoryRelevance, zSimulationState, zInvestigationResult } from '../core/zodSchemas';
+import { zStoryRelevance, zSimulationState, zPlayerMonologuePayload, zInvestigationResult } from '../core/zodSchemas';
+import type { PlayerMonologuePayloadInterchange, SimulationStateInterchange } from '../core/actorsBoundary';
 import {
     rollD20,
     resolveAction,
@@ -159,19 +160,38 @@ export const getInvestigationResult = async (ai: GoogleGenAI, target: Entity, pl
     return { ...playerVisibleResult, resolutionTrace };
 };
 
-export const getPlayerMonologue = async (ai: GoogleGenAI, player: Entity, turnHeadlines: string[], recentPlayerIntents: string[], isMockMode: boolean): Promise<string> => {
+/**
+ * Task 4 of the actors-attribution refactor (task-4-design.md section 2):
+ * switches from plain `generateText` to structured output
+ * (`PlayerMonologuePayloadSchema`/`zPlayerMonologuePayload`, still
+ * GEMINI_FLASH), returning the parsed `{ text, actors }` payload rather than
+ * a bare string. The STRIP for this surface IS `.text` - there is no
+ * `stripActorsFromX` companion (see actorsBoundary.ts) - ai/core/turn.ts
+ * commits `payload.text` (post-gate) as the player-visible monologue. The
+ * declared `actors` feed the no-attempt declaration gate at the call site
+ * (defense-in-depth per the design doc's REACHABILITY FINDING - this call is
+ * never reached on a validated no-attempt submission).
+ */
+export const getPlayerMonologue = async (ai: GoogleGenAI, player: Entity, turnHeadlines: string[], recentPlayerIntents: string[], hasObservableAttempt: boolean, isMockMode: boolean): Promise<PlayerMonologuePayloadInterchange> => {
     if (isMockMode) {
         if(!mockGetPlayerMonologue) throw new Error("Mock function 'mockGetPlayerMonologue' is not implemented.");
-        const text = await mockGetPlayerMonologue(player, turnHeadlines, recentPlayerIntents);
-        assertPlayerVisibleTextSafe(text);
-        return text;
+        const payload = await mockGetPlayerMonologue(player, turnHeadlines, recentPlayerIntents);
+        assertPlayerVisibleTextSafe(payload.text);
+        return payload;
     }
 
-    const { systemInstruction, prompt } = buildPlayerMonologuePrompt(player, turnHeadlines, recentPlayerIntents);
-    const text = await generateText(ai, { callName: 'playerMonologue', model: GEMINI_FLASH, systemInstruction, prompt });
-    const playerVisibleText = text || "I am contemplative.";
+    const { systemInstruction, prompt } = buildPlayerMonologuePrompt(player, turnHeadlines, recentPlayerIntents, hasObservableAttempt);
+    const payload = await generateStructured<PlayerMonologuePayloadInterchange>(ai, {
+        callName: 'playerMonologue',
+        model: GEMINI_FLASH,
+        systemInstruction,
+        prompt,
+        responseSchema: PlayerMonologuePayloadSchema,
+        zodSchema: zPlayerMonologuePayload,
+    });
+    const playerVisibleText = payload.text || "I am contemplative.";
     assertPlayerVisibleTextSafe(playerVisibleText);
-    return playerVisibleText;
+    return { ...payload, text: playerVisibleText };
 };
 
 export const getStoryRelevance = async (ai: GoogleGenAI, turnNumber: number, prevTurnHeadlines: string[], worldState: WorldState, npcEntities: Entity[], previousIntents: NpcIntent[], isMockMode: boolean): Promise<StoryRelevance> => {
@@ -192,14 +212,24 @@ export const getStoryRelevance = async (ai: GoogleGenAI, turnNumber: number, pre
     });
 };
 
-export const getUpdatedSimulationState = async (ai: GoogleGenAI, adjudication: Adjudication, oldState: SimulationState, isMockMode: boolean): Promise<SimulationState> => {
+/**
+ * D42 (roadmaps/DESIGN_DECISIONS.md; task-4-design.md section 2/3): the
+ * STRIP moves out of this helper to ai/core/turn.ts's commit boundary,
+ * so this now returns the raw `SimulationStateInterchange` (still carrying
+ * `actors`) rather than the committed `SimulationState` - the caller must
+ * gate `major_ongoing_crisis` against its declaration before stripping.
+ * Mock branch mirrors the same shape: `{ ...oldState, actors: [] }` (no
+ * provider, so no declaration - the mock pipeline keeps its own tripwire-only
+ * crisis gate, see ai/mocks.ts).
+ */
+export const getUpdatedSimulationState = async (ai: GoogleGenAI, adjudication: Adjudication, oldState: SimulationState, hasObservableAttempt: boolean, isMockMode: boolean): Promise<SimulationStateInterchange> => {
     if (isMockMode) {
         assertPlayerVisibleValueSafe(oldState);
-        return oldState;
+        return { ...oldState, actors: [] };
     }
 
-    const { systemInstruction, prompt } = buildSimulationStateUpdatePrompt(adjudication, oldState);
-    const updatedState = await generateStructured<SimulationState>(ai, {
+    const { systemInstruction, prompt } = buildSimulationStateUpdatePrompt(adjudication, oldState, hasObservableAttempt);
+    const rawUpdatedState = await generateStructured<SimulationStateInterchange>(ai, {
         callName: 'updatedSimulationState',
         model: GEMINI_PRO,
         systemInstruction,
@@ -208,6 +238,6 @@ export const getUpdatedSimulationState = async (ai: GoogleGenAI, adjudication: A
         zodSchema: zSimulationState,
         thinkingConfig: { thinkingBudget: 512 },
     });
-    assertPlayerVisibleValueSafe(updatedState);
-    return updatedState;
+    assertPlayerVisibleValueSafe(rawUpdatedState);
+    return rawUpdatedState;
 };

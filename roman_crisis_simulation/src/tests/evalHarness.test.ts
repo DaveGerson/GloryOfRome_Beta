@@ -62,9 +62,29 @@ function makeRawCall(callName: string, rawResponse: string, overrides: Partial<R
   };
 }
 
-const VALID_ADJUDICATION_JSON = JSON.stringify(makeAdjudication(3));
-// Deliberately schema-invalid: headlines must be an array of strings.
-const INVALID_ADJUDICATION_JSON = JSON.stringify({ ...makeAdjudication(3), headlines: 'not an array' });
+/**
+ * The RAW PROVIDER INTERCHANGE shape for one adjudication call: the same
+ * content as makeAdjudication (the committed types.ts shape used by
+ * makeEntry's TurnHistoryEntry fixtures below) but carrying the
+ * actors-attribution siblings a real captured rawResponse has
+ * (ai/core/zodSchemas.ts's zAdjudication) - entityActions/deltas gain
+ * `actors`, headlines become `{text, actors}`. Only checkRawCallSchema
+ * re-validates this string against that interchange schema; nothing here
+ * touches committed Adjudication fixtures.
+ */
+function makeAdjudicationInterchangeJson(turn: number): string {
+  const committed = makeAdjudication(turn);
+  return JSON.stringify({
+    ...committed,
+    entityActions: committed.entityActions.map(action => ({ ...action, actors: [] })),
+    deltas: committed.deltas.map(delta => ({ ...delta, actors: [] })),
+    headlines: committed.headlines.map(text => ({ text, actors: [] })),
+  });
+}
+
+const VALID_ADJUDICATION_JSON = makeAdjudicationInterchangeJson(3);
+// Deliberately schema-invalid: headlines must be an array of {text, actors} objects.
+const INVALID_ADJUDICATION_JSON = JSON.stringify({ ...JSON.parse(VALID_ADJUDICATION_JSON), headlines: 'not an array' });
 
 function makeEntry(turnNumber: number, overrides: Partial<TurnHistoryEntry> = {}): TurnHistoryEntry {
   return {
@@ -197,6 +217,7 @@ describe('eval/harness checkRawCallSchema', () => {
       makeRawCall('noAttemptEvidenceSelection', JSON.stringify({
         decision: 'answer',
         evidenceIds: ['evidence-1'],
+        actors: [],
       }))
     );
     expect(valid.status).toBe('valid');
@@ -205,6 +226,7 @@ describe('eval/harness checkRawCallSchema', () => {
       makeRawCall('noAttemptEvidenceSelection', JSON.stringify({
         decision: 'answer',
         evidenceIds: ['evidence-1'],
+        actors: [],
         prose: 'Lucius is afraid.',
       }))
     );

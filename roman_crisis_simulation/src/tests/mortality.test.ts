@@ -294,7 +294,7 @@ describe('ai/core/mortality.ts processMortality', () => {
         outcomes: [
           {
             entity_id: playerId,
-            deltas: [{ type: 'resource', key: `${playerId}:denarii`, delta: -500, reason: 'Bribed the ambushers to let him live.' }],
+            deltas: [{ type: 'resource', key: `${playerId}:denarii`, delta: -500, reason: 'Bribed the ambushers to let him live.', actors: [] }],
             narrative_directive: 'Narrate a costly, humiliating escape.',
           },
         ],
@@ -334,10 +334,10 @@ describe('ai/core/mortality.ts processMortality', () => {
           {
             entity_id: playerId,
             deltas: [
-              { type: 'resource', key: `${playerId}:denarii`, delta: -500, reason: 'Bribed the ambushers.' },
+              { type: 'resource', key: `${playerId}:denarii`, delta: -500, reason: 'Bribed the ambushers.', actors: [] },
               // A rogue status delta targeting ANOTHER entity - must be dropped,
               // never applied: it would kill the NPC outside the fate pipeline.
-              { type: 'status', key: npcId, delta: 0, reason: 'Cut down in the crossfire.', new_status: 'dead' },
+              { type: 'status', key: npcId, delta: 0, reason: 'Cut down in the crossfire.', new_status: 'dead', actors: [] },
             ],
             narrative_directive: 'Narrate a costly escape.',
           },
@@ -475,7 +475,7 @@ describe('ai/core/mortality.ts processMortality', () => {
         outcomes: [
           {
             entity_id: npcId,
-            deltas: [{ type: 'relation', key: `${npcId}:${playerId}:perceived_threat`, delta: 2, reason: 'Now knows an attempt was made publicly.' }],
+            deltas: [{ type: 'relation', key: `${npcId}:${playerId}:perceived_threat`, delta: 2, reason: 'Now knows an attempt was made publicly.', actors: [] }],
             narrative_directive: 'Narrate a visible, witnessed escape.',
           },
         ],
@@ -529,9 +529,9 @@ describe('ai/core/mortality.ts processMortality', () => {
   });
 
   it.each([
-    ['player resource', { type: 'resource', key: `${playerId}:denarii`, delta: -500, reason: 'The imperial treasury pays the price.' }],
-    ['unrelated relation', { type: 'relation', key: `${playerId}:${playerId}:perceived_threat`, delta: -2, reason: 'The emperor now mistrusts himself.' }],
-    ['world state', { type: 'world', key: 'political_climate', delta: 0, reason: 'The Empire collapses into panic.' }],
+    ['player resource', { type: 'resource', key: `${playerId}:denarii`, delta: -500, reason: 'The imperial treasury pays the price.', actors: [] }],
+    ['unrelated relation', { type: 'relation', key: `${playerId}:${playerId}:perceived_threat`, delta: -2, reason: 'The emperor now mistrusts himself.', actors: [] }],
+    ['world state', { type: 'world', key: 'political_climate', delta: 0, reason: 'The Empire collapses into panic.', actors: [] }],
   ])('fails the mortality response before apply when an NPC outcome authors an unauthorized %s effect', async (_label, injectedDelta) => {
     mockRoll(20);
     const adjudication = makeAdjudication([
@@ -574,10 +574,10 @@ describe('ai/core/mortality.ts processMortality', () => {
         outcomes: [{
           entity_id: npcId,
           deltas: [
-            { type: 'resource', key: `${npcId}:influence`, delta: -2, reason: 'His failed defense costs political standing.' },
-            { type: 'relation', key: `${npcId}:${playerId}:perceived_threat`, delta: 2, reason: 'He now fears the imperial court.' },
-            { type: 'scheme', key: npcId, delta: 0, reason: JSON.stringify({ name: 'Flight', overall_goal: 'Reach safety.', steps: [] }) },
-            { type: 'rumor', key: npcId, delta: 0.8, reason: 'Rufus survived an assassin.', is_true: true, origin_id: npcId, topic: 'survival' },
+            { type: 'resource', key: `${npcId}:influence`, delta: -2, reason: 'His failed defense costs political standing.', actors: [] },
+            { type: 'relation', key: `${npcId}:${playerId}:perceived_threat`, delta: 2, reason: 'He now fears the imperial court.', actors: [] },
+            { type: 'scheme', key: npcId, delta: 0, reason: JSON.stringify({ name: 'Flight', overall_goal: 'Reach safety.', steps: [] }), actors: [] },
+            { type: 'rumor', key: npcId, delta: 0.8, reason: 'Rufus survived an assassin.', is_true: true, origin_id: npcId, topic: 'survival', actors: [] },
           ],
           narrative_directive: 'Narrate a visible, witnessed escape.',
         }],
@@ -604,7 +604,7 @@ describe('ai/core/mortality.ts processMortality', () => {
       JSON.stringify({
         outcomes: [{
           entity_id: npcId,
-          deltas: [{ type: 'status', key: playerId, delta: 0, reason: 'The emperor falls too.', new_status: 'dead' }],
+          deltas: [{ type: 'status', key: playerId, delta: 0, reason: 'The emperor falls too.', new_status: 'dead', actors: [] }],
           narrative_directive: 'Narrate a visible, witnessed escape.',
         }],
       }),
@@ -629,8 +629,8 @@ describe('ai/core/mortality.ts processMortality', () => {
         outcomes: [{
           entity_id: npcId,
           deltas: [
-            { type: 'relation', key: `${playerId}:${npcId}:perceived_threat`, delta: 2, reason: 'The emperor sees Rufus as newly dangerous.' },
-            { type: 'rumor', key: npcId, delta: 0.8, reason: 'Rufus survived an assassin.', is_true: true, origin_id: playerId, topic: 'survival' },
+            { type: 'relation', key: `${playerId}:${npcId}:perceived_threat`, delta: 2, reason: 'The emperor sees Rufus as newly dangerous.', actors: [] },
+            { type: 'rumor', key: npcId, delta: 0.8, reason: 'Rufus survived an assassin.', is_true: true, origin_id: playerId, topic: 'survival', actors: [] },
           ],
           narrative_directive: 'Narrate a visible, witnessed escape.',
         }],

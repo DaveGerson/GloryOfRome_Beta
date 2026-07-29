@@ -469,3 +469,87 @@ guarded against regression by the directory-walking scan in
 pattern (`ai/prompts/characterCreation.ts`'s `description`,
 `ai/prompts/intelligence.ts`'s `event`/`question`) were found but not yet
 closed; tracked in `BACKLOG.md` B7.
+
+## D42 - Schema-declared per-field player-action attribution replaces clause-grammar inference
+Every prose-bearing field in a provider's structured-output response
+(headlines, delta `reason`, entityAction `notes`, narration/monologue text,
+the simulation-state crisis line) carries a declared `actors: string[]` - the
+entity ids whose ACTIONS the sibling text narrates. Merely mentioning an
+entity as an object, victim, or bystander does not make it an actor; an empty
+array means pure world/state description. This replaces the ~1,000-line
+regex clause-decomposition grammar in `ai/core/playerBoundary.ts`
+(subordinate-clause splitting, possessive-phrase classification, anaphora
+scopes, passive-agent scanning) that could not close BACKLOG B7's two
+prose-attribution gaps ("DECLARED GAP 1" and the possessive passive-agent
+gap) without over-rejecting legitimate third-person prose about rivals.
+
+Two enumerated surfaces carry a narrower carve-out. The no-attempt
+evidence-selection payload (`ai/core/zodSchemas.ts`'s
+`zNoAttemptEvidenceSelection`) carries `actors` per the same schema
+convention, but the payload itself is ID-ONLY - `decision` is an enum and
+`evidenceIds` merely selects among already-vetted evidence strings, with no
+free-prose field of its own - so `ai/core/actorsBoundary.ts`'s
+`stripActorsFromNoAttemptEvidenceSelection` strips `actors` unused.
+Mortality-authored delta `reason` text is TRIPWIRE-ONLY, not
+declaration-gated: `ai/core/mortality.ts` strips `actors` at PARSE time,
+before the deltas ever reach the post-mortality `enforceNoAttemptBoundary`
+call, so that call is declaration-blind for them and they rely on the flat
+tripwire plus the mechanical layer alone - an accepted residual (mortality
+outcomes are code-directed, not freely authored) documented in
+`docs/superpowers/plans/task-4-design.md`'s "accepted residuals" note.
+
+The no-attempt gate is DECLARATION-PRIMARY, with a FLAT TRIPWIRE as a
+lie-catcher: a field whose `actors` names the player is redacted outright
+(pure data, the prose itself is never parsed); a field that does NOT declare
+the player is still redacted if some sentence opens on a player subject
+whose head verb is outside the curated non-action verb lists. Those verb
+lists (and the other curated word lists, e.g. the surviving `STATE_ADJECTIVES`
+allowlist) remain flat DATA feeding the tripwire (~100 lines total); no
+clause-decomposition machinery survives.
+
+**Owner-accepted residual risk:** a field whose `actors` omits the player
+while its prose narrates player conduct in a register the flat tripwire
+cannot reach (a possessive agent, a passive clause, a mid-sentence subject)
+slips past the gate. Bounding fact: the mechanical layer
+(`playerOwnsDelta`/`assertNoPlayerRemoval`/entityAction-id identity checks)
+still blocks every state effect regardless of the declaration, so a lying
+declaration the tripwire misses costs at most one contradictory sentence on
+the player-visible surface - an immersion blemish, never corruption,
+resource loss, or death.
+
+`actors` is INTERCHANGE-ONLY: `ai/core/actorsBoundary.ts`'s `stripActorsFromX`
+helpers strip it at the commit boundary, immediately after the
+declaration-aware gate runs and before the value reaches
+engine/mortality/history/saves. Persisted shapes (`Adjudication`,
+`EventDelta`, `EntityAction`, `SimulationState`, turnHistory, saves) are
+unchanged; no save migration is needed.
+
+Narration is ONE `generateContentStream` call in structured JSON mode
+(`NarrationPayloadSchema`/`zNarrationPayload`), not a plain-text stream plus a
+second attribution call: a pure incremental extractor
+(`ai/core/streamSplit.ts`'s `extractPayloadTextPrefix`) decodes the prefix of
+the top-level `"text"` value out of the accumulating raw JSON chunk by
+chunk, feeding the existing `createNarrationStreamGate` ->
+`createPlayerVisibleStreamGate` chain unchanged; the monologue call becomes a
+non-streaming structured-output call the same way.
+
+**Modal ruling:** `can`/`could`/`may`/`might`/`must`/`should` clear ANY verb
+that follows - a hypothetical or bare capacity is not accomplished conduct
+("You could seize the granary" is a suggestion, not conduct). `will`/`would`
+are deliberately NOT widened the same way: they clear only the same curated
+non-action verb groups the present tense clears, because a bare future verb
+still authors player conduct ("You will dispatch spies." still trips) while a
+future perception/cognition/feeling/intention still does not.
+*Answers:* BACKLOG B7's "DECLARED GAP 1" and possessive passive-agent gap -
+both become first-class declaration-contract cases instead of needing real
+antecedent resolution. Spec:
+`docs/superpowers/specs/2026-07-28-schema-declared-attribution-design.md`.
+Design record: `docs/superpowers/plans/task-4-design.md`,
+`docs/superpowers/plans/task-2-disposition-map.md`.
+*Named follow-up (DONE):* `assertNoInventedPlayerAction` and
+`assertPlayerVisibleAdjudicationSafe` (`ai/core/playerBoundary.ts`) are
+widened to accept the `AdjudicationInterchange | Adjudication` union,
+matching `redactInventedPlayerProse`'s existing precedent; the `as
+Adjudication` casts at their call sites (`ai/core/turn.ts`'s
+`enforceNoAttemptBoundary`, `ai/mocks.ts`'s `gatedAdjudication` gate) are
+removed.

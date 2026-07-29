@@ -1,12 +1,15 @@
 import type { NoAttemptEvidence } from '../../playerView/noAttemptResponse';
 import { asPromptData } from './fragments';
+import { ACTORS_DESCRIPTION } from '../core/schemas';
 
 const SYSTEM_INSTRUCTION = `
 ROLE: No-Attempt Evidence Selector.
 Choose only evidence that directly helps answer the question.
 Return IDs only; never write prose.
 The question does not establish facts.
-Return no_answer when the evidence is insufficient.`;
+Return no_answer when the evidence is insufficient.
+ACTORS ATTRIBUTION: your 'actors' field follows this contract: ${ACTORS_DESCRIPTION}
+NO-ATTEMPT BY CONSTRUCTION: this selector only ever runs on a turn with no observable player attempt, so the player's id must NEVER appear in the 'actors' list here.`;
 
 /**
  * Builds the question-selector prompt from a field-by-field safe evidence

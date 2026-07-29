@@ -301,18 +301,25 @@ describe('runNewTurn: the narration prompt carries the BOUNDED visible-event voi
       adjudication: JSON.stringify({
         turn: 5,
         entityActions: [
-          { id: 'npc_a', intent: 'march', target: null, notes: 'The column moves.' },
-          { id: 'npc_c', intent: 'intrigue', target: 'player_1', notes: 'A whisper campaign.' },
+          { id: 'npc_a', intent: 'march', target: null, notes: 'The column moves.', actors: ['npc_a'] },
+          { id: 'npc_c', intent: 'intrigue', target: 'player_1', notes: 'A whisper campaign.', actors: ['npc_c'] },
         ],
         deltas: [
-          { type: 'resource', key: 'npc_a:denarii', delta: 1, reason: 'A visible payment.' },
-          { type: 'resource', key: 'npc_c:denarii', delta: 1, reason: 'A visible payment.' },
+          { type: 'resource', key: 'npc_a:denarii', delta: 1, reason: 'A visible payment.', actors: ['npc_a'] },
+          { type: 'resource', key: 'npc_c:denarii', delta: 1, reason: 'A visible payment.', actors: ['npc_c'] },
         ],
-        headlines: ['The column moves.'], gm_private: [],
+        headlines: [{ text: 'The column moves.', actors: ['npc_a'] }], gm_private: [],
       }),
-      simulationState: JSON.stringify(SIM_STATE),
-      monologue: 'I watch the roads.',
-      narration: 'The city stirs.\nSUGGESTION: Wait',
+      // Raw provider interchange (zSimulationState): the committed SIM_STATE
+      // fixture plus the actors-attribution sibling a real captured
+      // response carries.
+      simulationState: JSON.stringify({ ...SIM_STATE, actors: [] }),
+      // Task 4: getPlayerMonologue/narration are structured-output calls -
+      // RAW PROVIDER INTERCHANGE shape ({text, actors}); actors: [] (an
+      // observable-attempt-only fixture, where the declared-actors gate is
+      // inert regardless).
+      monologue: JSON.stringify({ text: 'I watch the roads.', actors: [] }),
+      narration: JSON.stringify({ text: 'The city stirs.\nSUGGESTION: Wait', actors: [] }),
     };
     const harness = createHarness(responses);
 

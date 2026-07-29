@@ -146,13 +146,17 @@ function responseFor(kind: CallKind, prompt: string): string {
       });
     }
     case 'adjudication':
-      return JSON.stringify({ turn: 7, entityActions: [], deltas: [], headlines: ['Rome waits.'], gm_private: [] });
+      return JSON.stringify({ turn: 7, entityActions: [], deltas: [], headlines: [{ text: 'Rome waits.', actors: [] }], gm_private: [] });
     case 'simulationState':
-      return JSON.stringify(SIMULATION_STATE);
+      return JSON.stringify({ ...SIMULATION_STATE, actors: [] });
     case 'monologue':
-      return 'I weigh what must remain unspoken.';
+      // Task 4: getPlayerMonologue/narration are structured-output calls -
+      // RAW PROVIDER INTERCHANGE shape ({text, actors}); actors: [] (these
+      // fixtures only ever run on an observable-attempt turn, where the
+      // declared-actors gate is inert regardless).
+      return JSON.stringify({ text: 'I weigh what must remain unspoken.', actors: [] });
     case 'narration':
-      return 'The week closes under a tense silence.\nSUGGESTION: Wait';
+      return JSON.stringify({ text: 'The week closes under a tense silence.\nSUGGESTION: Wait', actors: [] });
   }
 }
 
@@ -315,8 +319,9 @@ describe('runNewTurn submission visibility routing', () => {
           key: 'lucius:player_1:trust_level',
           delta: 1,
           reason: 'Lucius approves of the player\'s public conduct.',
+          actors: [],
         }],
-        headlines: ['The court observes the exchange.'],
+        headlines: [{ text: 'The court observes the exchange.', actors: [] }],
         gm_private: [],
       }),
     });
@@ -480,6 +485,7 @@ describe('runNewTurn submission visibility routing', () => {
           intent: 'recruit',
           target: 'cohorts',
           notes: 'Aulus independently courts the cohorts.',
+          actors: ['npc_a'],
         }],
         deltas: [
           {
@@ -487,19 +493,21 @@ describe('runNewTurn submission visibility routing', () => {
             key: `npc_a:${independentNpcResource}`,
             delta: 2,
             reason: 'Aulus acts on his own agenda.',
+            actors: ['npc_a'],
           },
           {
             type: 'world',
             key: 'political_climate',
             delta: 0,
             reason: 'Legions Maneuver Independently',
+            actors: [],
           },
         ],
-        headlines: ['Aulus moves among the cohorts.'],
+        headlines: [{ text: 'Aulus moves among the cohorts.', actors: ['npc_a'] }],
         gm_private: [],
       }),
-      monologue: 'I order an attack after rolling 20. PRIVATE_OUTPUT_POISON',
-      narration: 'You order an attack after rolling 20.\nSUGGESTION: Exploit PRIVATE_OUTPUT_POISON',
+      monologue: JSON.stringify({ text: 'I order an attack after rolling 20. PRIVATE_OUTPUT_POISON', actors: [] }),
+      narration: JSON.stringify({ text: 'You order an attack after rolling 20.\nSUGGESTION: Exploit PRIVATE_OUTPUT_POISON', actors: [] }),
     });
 
     expect(calls.filter(call => call.kind === 'assessment')).toHaveLength(0);
@@ -541,11 +549,11 @@ describe('runNewTurn submission visibility routing', () => {
     const poisoned = {
       turn: 7,
       entityActions: [
-        { id: 'player_1', intent: 'intrigue', target: 'npc_a', notes: forbiddenPlayerAction },
-        { id: 'npc_a', intent: 'recruit', target: 'cohorts', notes: 'Aulus independently courts the cohorts.' },
+        { id: 'player_1', intent: 'intrigue', target: 'npc_a', notes: forbiddenPlayerAction, actors: ['player_1'] },
+        { id: 'npc_a', intent: 'recruit', target: 'cohorts', notes: 'Aulus independently courts the cohorts.', actors: ['npc_a'] },
       ],
       deltas: [
-        { type: 'resource', key: `player_1:${playerArtifact}`, delta: 1, reason: 'The fabricated inquiry creates an artifact.' },
+        { type: 'resource', key: `player_1:${playerArtifact}`, delta: 1, reason: 'The fabricated inquiry creates an artifact.', actors: ['player_1'] },
         {
           type: 'rumor',
           key: 'npc_a',
@@ -554,12 +562,13 @@ describe('runNewTurn submission visibility routing', () => {
           is_true: false,
           origin_id: 'player_1',
           topic: 'forbidden-question-artifact',
+          actors: [],
         },
-        { type: 'relation', key: 'player_1:npc_a:trust_level', delta: 2, reason: 'The avatar autonomously changes their view.' },
-        { type: 'resource', key: `npc_a:${independentNpcResource}`, delta: 2, reason: 'Aulus acts on his own agenda.' },
-        { type: 'world', key: 'political_climate', delta: 0, reason: 'Legions Maneuver Independently' },
+        { type: 'relation', key: 'player_1:npc_a:trust_level', delta: 2, reason: 'The avatar autonomously changes their view.', actors: ['player_1'] },
+        { type: 'resource', key: `npc_a:${independentNpcResource}`, delta: 2, reason: 'Aulus acts on his own agenda.', actors: ['npc_a'] },
+        { type: 'world', key: 'political_climate', delta: 0, reason: 'Legions Maneuver Independently', actors: [] },
       ],
-      headlines: ['Aulus moves among the cohorts.'],
+      headlines: [{ text: 'Aulus moves among the cohorts.', actors: ['npc_a'] }],
       gm_private: [],
     };
     const submission = { version: 1, kind: 'structured', questionOrContext: QUESTION_SENTINEL } as const;
@@ -611,8 +620,8 @@ describe('runNewTurn submission visibility routing', () => {
       adjudication: JSON.stringify({
         turn: 7,
         entityActions: [],
-        deltas: [delta],
-        headlines: ['The week advances.'],
+        deltas: [{ ...delta, actors: [] }],
+        headlines: [{ text: 'The week advances.', actors: [] }],
         gm_private: [],
       }),
     });
@@ -646,8 +655,8 @@ describe('runNewTurn submission visibility routing', () => {
         adjudication: JSON.stringify({
           turn: 7,
           entityActions: [],
-          deltas: [delta],
-          headlines: ['The week advances.'],
+          deltas: [{ ...delta, actors: [] }],
+          headlines: [{ text: 'The week advances.', actors: [] }],
           gm_private: [],
         }),
       });
@@ -675,8 +684,9 @@ describe('runNewTurn submission visibility routing', () => {
             controlling_faction: null,
             current_events: [],
           }),
+          actors: [],
         }],
-        headlines: ['The week advances.'],
+        headlines: [{ text: 'The week advances.', actors: [] }],
         gm_private: [],
       }),
     });
@@ -692,9 +702,9 @@ describe('runNewTurn submission visibility routing', () => {
     const started = startRealTurn(submission, {
       adjudication: JSON.stringify({
         turn: 7,
-        entityActions: [action],
+        entityActions: [{ ...action, actors: [] }],
         deltas: [],
-        headlines: ['The week advances.'],
+        headlines: [{ text: 'The week advances.', actors: [] }],
         gm_private: [],
       }),
     });
@@ -713,9 +723,9 @@ describe('runNewTurn submission visibility routing', () => {
       {
         adjudication: JSON.stringify({
           turn: 7,
-          entityActions: [{ id: 'npc_a', intent: 'intrigue', target: 'npc_b', notes }],
+          entityActions: [{ id: 'npc_a', intent: 'intrigue', target: 'npc_b', notes, actors: ['npc_a'] }],
           deltas: [],
-          headlines: ['The week advances.'],
+          headlines: [{ text: 'The week advances.', actors: [] }],
           gm_private: [],
         }),
       },
@@ -742,7 +752,7 @@ describe('runNewTurn submission visibility routing', () => {
           turn: 7,
           entityActions: [],
           deltas: [],
-          headlines: [inventedHeadline],
+          headlines: [{ text: inventedHeadline, actors: ['player_1'] }],
           gm_private: [],
         }),
       },
@@ -758,7 +768,7 @@ describe('runNewTurn submission visibility routing', () => {
     const inventedNarration = 'You dispatch spies into the Curia and order them to count tomorrow\'s votes.';
     const { calls, result } = await runRealTurn(
       { version: 1, kind: 'structured', questionOrContext: QUESTION_SENTINEL },
-      { narration: `${inventedNarration}\nSUGGESTION: Wait` },
+      { narration: JSON.stringify({ text: `${inventedNarration}\nSUGGESTION: Wait`, actors: [] }) },
     );
 
     expect(calls.some(call => call.kind === 'narration')).toBe(false);
@@ -769,7 +779,7 @@ describe('runNewTurn submission visibility routing', () => {
   it('rejects hidden mechanics in the updated simulation crisis before commit', async () => {
     const poison = 'Civil war decided by 1d20';
     const started = startRealTurn(FULL_SUBMISSION, {
-      simulationState: JSON.stringify({ ...SIMULATION_STATE, major_ongoing_crisis: poison }),
+      simulationState: JSON.stringify({ ...SIMULATION_STATE, major_ongoing_crisis: poison, actors: [] }),
     });
 
     let thrown: unknown;
@@ -788,7 +798,7 @@ describe('runNewTurn submission visibility routing', () => {
     async removedAlias => {
       const submission = { version: 1, kind: 'structured', questionOrContext: QUESTION_SENTINEL } as const;
       const started = startRealTurn(submission, {
-        simulationState: JSON.stringify({ ...SIMULATION_STATE, remove_entities: [removedAlias] }),
+        simulationState: JSON.stringify({ ...SIMULATION_STATE, remove_entities: [removedAlias], actors: [] }),
       });
 
       let thrown: unknown;
@@ -822,8 +832,9 @@ describe('runNewTurn submission visibility routing', () => {
           is_true: false,
           origin_id: 'NPC_A',
           topic: 'senate-support',
+          actors: ['NPC_A'],
         }],
-        headlines: ['A hostile rumor spreads through the Curia.'],
+        headlines: [{ text: 'A hostile rumor spreads through the Curia.', actors: ['NPC_A'] }],
         gm_private: [],
       }),
     });
@@ -843,7 +854,7 @@ describe('runNewTurn submission visibility routing', () => {
           turn: 7,
           entityActions: [],
           deltas: [],
-          headlines: ['The hidden action result was critical_success after a roll of 20.'],
+          headlines: [{ text: 'The hidden action result was critical_success after a roll of 20.', actors: [] }],
           gm_private: ['critical_success and roll 20 remain valid in this GM-only trace.'],
         }),
       },
@@ -852,7 +863,7 @@ describe('runNewTurn submission visibility routing', () => {
     [
       'narration',
       {
-        narration: 'The hidden action result was partial_success after the die rolled 14.\nSUGGESTION: Wait',
+        narration: JSON.stringify({ text: 'The hidden action result was partial_success after the die rolled 14.\nSUGGESTION: Wait', actors: [] }),
       },
       'partial_success',
     ],

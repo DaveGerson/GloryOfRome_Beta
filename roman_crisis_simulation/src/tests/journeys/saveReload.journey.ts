@@ -47,6 +47,7 @@ import {
   scriptStoryRelevance,
   scriptAssessmentConsequential,
   scriptAssessmentIdle,
+  scriptMonologue,
   scriptNarration,
   scriptSimulationState,
   resourceDelta,
@@ -233,7 +234,7 @@ describe('journey: a save-reload-continue campaign (mid-journey persistence roun
       assessment: scriptAssessmentIdle(),
       adjudication: scriptAdjudication(1),
       simulationState: scriptSimulationState(seed.thread.simulationState),
-      monologue: 'My mother can carry this burden, but the Guard need not know it.',
+      monologue: scriptMonologue('My mother can carry this burden, but the Guard need not know it.'),
       narration: scriptNarration('Julia Mamaea accepts the sealed correspondence.', [
         'Await her reply',
         'Consult the Senate',

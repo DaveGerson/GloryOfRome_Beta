@@ -21,6 +21,7 @@ import {
   rumorDelta,
   scriptAdjudication,
   scriptAssessmentIdle,
+  scriptMonologue,
   scriptNarration,
   scriptSimulationState,
   scriptStoryRelevance,
@@ -103,7 +104,7 @@ describe('journey: relationship observations discover a previously hidden charac
         headlines: ['A senatorial rebuke becomes the talk of the Forum.'],
       }),
       simulationState: scriptSimulationState(seed.thread.simulationState),
-      monologue: 'A named senator has stepped into the light; I will remember only what was witnessed.',
+      monologue: scriptMonologue('A named senator has stepped into the light; I will remember only what was witnessed.'),
       narration: scriptNarration('A public report reaches the palace from the Curia steps.', [
         'Ask the Senate for its account',
         'Summon the witnesses',

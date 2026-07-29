@@ -47,27 +47,30 @@ beforeEach(() => {
 });
 
 describe('no-attempt evidence selection schemas', () => {
-  it('accepts only the two-field decision and evidence-ID contract', () => {
+  it('accepts the three-field decision, evidence-ID, and actors contract', () => {
     expect(zNoAttemptEvidenceSelection.parse({
       decision: 'answer',
       evidenceIds: ['evidence-1'],
-    })).toEqual({ decision: 'answer', evidenceIds: ['evidence-1'] });
+      actors: [],
+    })).toEqual({ decision: 'answer', evidenceIds: ['evidence-1'], actors: [] });
 
     expect(() => zNoAttemptEvidenceSelection.parse({
       decision: 'answer',
       evidenceIds: ['evidence-1'],
+      actors: [],
       prose: 'Lucius is afraid',
     })).toThrow();
     expect(() => zNoAttemptEvidenceSelection.parse({
       decision: 'maybe',
       evidenceIds: [],
+      actors: [],
     })).toThrow();
   });
 
   it.each([
     {
       label: 'an answer with no IDs',
-      value: { decision: 'answer', evidenceIds: [] },
+      value: { decision: 'answer', evidenceIds: [], actors: [] },
     },
     {
       label: 'an answer with more than five IDs',
@@ -81,11 +84,12 @@ describe('no-attempt evidence selection schemas', () => {
           'evidence-5',
           'evidence-6',
         ],
+        actors: [],
       },
     },
     {
       label: 'a no_answer with an ID',
-      value: { decision: 'no_answer', evidenceIds: ['evidence-1'] },
+      value: { decision: 'no_answer', evidenceIds: ['evidence-1'], actors: [] },
     },
   ])('rejects $label at the Zod boundary', ({ value }) => {
     expect(zNoAttemptEvidenceSelection.safeParse(value).success).toBe(false);
@@ -95,15 +99,17 @@ describe('no-attempt evidence selection schemas', () => {
     expect(zNoAttemptEvidenceSelection.parse({
       decision: 'no_answer',
       evidenceIds: [],
-    })).toEqual({ decision: 'no_answer', evidenceIds: [] });
+      actors: [],
+    })).toEqual({ decision: 'no_answer', evidenceIds: [], actors: [] });
   });
 
-  it('keeps the Gemini response schema in exact two-field lockstep', () => {
+  it('keeps the Gemini response schema in exact three-field lockstep', () => {
     expect(Object.keys(NoAttemptEvidenceSelectionSchema.properties)).toEqual([
       'decision',
       'evidenceIds',
+      'actors',
     ]);
-    expect(NoAttemptEvidenceSelectionSchema.required).toEqual(['decision', 'evidenceIds']);
+    expect(NoAttemptEvidenceSelectionSchema.required).toEqual(['decision', 'evidenceIds', 'actors']);
     expect(NoAttemptEvidenceSelectionSchema.properties.decision.enum).toEqual([
       'answer',
       'no_answer',
@@ -131,6 +137,7 @@ describe('no-attempt evidence selection prompt boundary', () => {
     const { ai, generateContent } = makeAi(JSON.stringify({
       decision: 'answer',
       evidenceIds: ['evidence-1'],
+      actors: [],
     }));
 
     await expect(selectNoAttemptEvidence(ai, QUESTION, pollutedEvidence)).resolves.toEqual({
@@ -198,6 +205,7 @@ describe('selectNoAttemptEvidence', () => {
     const { ai } = makeAi(JSON.stringify({
       decision: 'answer',
       evidenceIds: ['evidence-2'],
+      actors: [],
     }));
 
     await expect(selectNoAttemptEvidence(ai, QUESTION, evidence)).resolves.toEqual({
@@ -210,6 +218,7 @@ describe('selectNoAttemptEvidence', () => {
     const { ai } = makeAi(JSON.stringify({
       decision: 'answer',
       evidenceIds: ['evidence-3', 'evidence-1'],
+      actors: [],
     }));
 
     await expect(selectNoAttemptEvidence(ai, QUESTION, evidence)).resolves.toEqual({
@@ -221,11 +230,11 @@ describe('selectNoAttemptEvidence', () => {
   it.each([
     {
       label: 'an unknown ID',
-      selection: { decision: 'answer', evidenceIds: ['evidence-unknown'] },
+      selection: { decision: 'answer', evidenceIds: ['evidence-unknown'], actors: [] },
     },
     {
       label: 'a duplicate ID',
-      selection: { decision: 'answer', evidenceIds: ['evidence-1', 'evidence-1'] },
+      selection: { decision: 'answer', evidenceIds: ['evidence-1', 'evidence-1'], actors: [] },
     },
   ])('fails closed for $label after schema validation', async ({ selection }) => {
     const { ai } = makeAi(JSON.stringify(selection));
@@ -237,7 +246,7 @@ describe('selectNoAttemptEvidence', () => {
   });
 
   it('preserves an explicit valid model no-answer decision', async () => {
-    const { ai } = makeAi(JSON.stringify({ decision: 'no_answer', evidenceIds: [] }));
+    const { ai } = makeAi(JSON.stringify({ decision: 'no_answer', evidenceIds: [], actors: [] }));
 
     await expect(selectNoAttemptEvidence(ai, QUESTION, evidence)).resolves.toEqual({
       kind: 'no_answer',

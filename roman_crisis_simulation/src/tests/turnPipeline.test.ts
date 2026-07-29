@@ -90,11 +90,16 @@ const nonConsequentialAssessmentJson = JSON.stringify({
 const adjudicationJson = JSON.stringify({
   turn: 2,
   entityActions: [],
-  deltas: [{ type: 'resource', key: 'player_1:denarii', delta: 50, reason: 'Tax income.' }],
-  headlines: ['The treasury grows.'],
+  deltas: [{ type: 'resource', key: 'player_1:denarii', delta: 50, reason: 'Tax income.', actors: [] }],
+  headlines: [{ text: 'The treasury grows.', actors: [] }],
   gm_private: [],
 });
 
+// simStateResponse stays the committed (post-strip) SimulationState shape -
+// it's compared directly against `result.updatedSimulationState` below, which
+// never carries `actors` (ai/core/actorsBoundary.ts strips it before
+// getUpdatedSimulationState returns). Only simStateJson (the RAW provider
+// interchange fed to the fake client) gets the actors-attribution sibling.
 const simStateResponse = {
   imperial_status: 'Stable',
   senate_status: 'Functional',
@@ -102,13 +107,55 @@ const simStateResponse = {
   plebeian_mood: 'Content',
   major_ongoing_crisis: null as string | null,
 };
-const simStateJson = JSON.stringify(simStateResponse);
+const simStateJson = JSON.stringify({ ...simStateResponse, actors: [] });
 
 const monologueText = 'I must tread carefully among the wolves of the Senate.';
 
 const NARRATION_PROSE = 'The Senate convenes.';
 const narrationFullText =
   `${NARRATION_PROSE}\nSUGGESTION: Bribe a senator\nSUGGESTION: Fortify the walls\nSUGGESTION: Consult the augurs`;
+
+// Task 4: narration/monologue are structured-output calls now, so every
+// `h.response.monologue.resolve(...)` / `h.response.narration.resolve(...)`
+// below must hand the fake client valid JSON ({text, actors}), not bare
+// prose - `generateStructured`/`generateStructuredStream` parseModelJson the
+// raw text before anything else runs. `actors: []` is faithful: every test
+// in this file scripts these two calls only on an observable-attempt turn,
+// where the declared-actors gate is inert regardless (see
+// tests/turnActorsGate.test.ts's REACHABILITY FINDING).
+const monologuePayloadJson = JSON.stringify({ text: monologueText, actors: [] });
+const narrationPayloadJson = JSON.stringify({ text: narrationFullText, actors: [] });
+
+/**
+ * Reproduces a narration STREAM split at PROSE character offsets as the
+ * equivalent split of the JSON-encoded `{"text": ..., "actors": []}`
+ * payload, so the mechanics-poisoned streaming tests below exercise the same
+ * chunk-boundary positions (mid die-roll number, mid tier token) through the
+ * new `extractPayloadTextPrefix` seam that they used to exercise directly on
+ * raw prose. None of the three scripted cases contain a quote or backslash,
+ * so `JSON.stringify` never re-encodes them and a plain `indexOf` reliably
+ * locates the prose within the JSON string.
+ */
+function narrationJsonChunksAtProseOffsets(proseChunks: string[]): { json: string; chunker: (fullText: string) => string[] } {
+  const prose = proseChunks.join('');
+  const json = JSON.stringify({ text: prose, actors: [] });
+  const textStart = json.indexOf(prose);
+  if (textStart === -1) throw new Error('narrationJsonChunksAtProseOffsets: prose not found verbatim in its own JSON encoding');
+  const chunker = (fullText: string): string[] => {
+    const chunks: string[] = [];
+    let cutStart = 0;
+    let cumulative = 0;
+    for (let i = 0; i < proseChunks.length - 1; i++) {
+      cumulative += proseChunks[i].length;
+      const cut = textStart + cumulative;
+      chunks.push(fullText.slice(cutStart, cut));
+      cutStart = cut;
+    }
+    chunks.push(fullText.slice(cutStart));
+    return chunks;
+  };
+  return { json, chunker };
+}
 
 // --- deferred / harness plumbing ---------------------------------------
 
@@ -190,17 +237,25 @@ interface Harness {
   promptsByKind: Partial<Record<CallKind, string>>;
   /** The instruction paired with each prompt, retained for prompt-contract assertions. */
   systemInstructionsByKind: Partial<Record<CallKind, string>>;
+  /** Number of raw stream chunks yielded per call kind - lets a test assert the default narration splitter didn't collapse to a single chunk. */
+  chunkCounts: Partial<Record<CallKind, number>>;
   generateContent: ReturnType<typeof vi.fn>;
   generateContentStream: ReturnType<typeof vi.fn>;
 }
 
 /**
  * Builds a fake GoogleGenAI-shaped client. `streamNarration: true` routes
- * the narration call through `generateContentStream` (an async generator
- * split into a prose chunk + a suggestions chunk) instead of
- * `generateContent`, exercising the streaming path unchanged inside the new
- * parallel block (ROADMAP_0_MASTER_PLAN.md Phase 3 item 2 composing with
- * item 3).
+ * the narration call through `generateContentStream` (an async generator)
+ * instead of `generateContent`, exercising the streaming path unchanged
+ * inside the new parallel block (ROADMAP_0_MASTER_PLAN.md Phase 3 item 2
+ * composing with item 3). With no `narrationChunker`, the default splitter
+ * cuts the raw JSON response `{"text": "...", "actors": [...]}` on the
+ * ESCAPED `\nSUGGESTION:` marker as it appears inside the JSON string body -
+ * narration is a structured-output call now, so the real stream text never
+ * contains a literal newline before the marker, only its `\n` escape - into
+ * two chunks (everything up to and including the prose, then the rest of
+ * the JSON). `narrationChunker` overrides this to split at caller-chosen
+ * offsets instead.
  */
 function createHarness(
   streamNarration = false,
@@ -211,6 +266,7 @@ function createHarness(
   const response = Object.fromEntries(ALL_KINDS.map(k => [k, createDeferred<string>()])) as Record<CallKind, Deferred<string>>;
   const promptsByKind: Partial<Record<CallKind, string>> = {};
   const systemInstructionsByKind: Partial<Record<CallKind, string>> = {};
+  const chunkCounts: Partial<Record<CallKind, number>> = {};
 
   const generateContent = vi.fn(async (params: { model: string; contents: string; config?: Record<string, unknown> }) => {
     const kind = classify(params.config?.systemInstruction);
@@ -230,25 +286,33 @@ function createHarness(
     issued[kind].resolve();
     const fullText = await response[kind].promise;
     async function* gen() {
+      const yieldChunk = (text: string) => {
+        chunkCounts[kind] = (chunkCounts[kind] ?? 0) + 1;
+        return { text };
+      };
       if (narrationChunker) {
         const chunks = narrationChunker(fullText);
         if (chunks.join('') !== fullText) {
           throw new Error('turnPipeline test fake: narration chunks must reconstruct the full response.');
         }
-        for (const chunk of chunks) yield { text: chunk };
+        for (const chunk of chunks) yield yieldChunk(chunk);
         return;
       }
-      const marker = '\nSUGGESTION:';
+      // The ESCAPED form, as it appears inside the raw JSON string body -
+      // narration is a structured-output call, so the marker never arrives
+      // as a literal newline character in the stream text (see the doc
+      // comment above).
+      const marker = '\\nSUGGESTION:';
       const idx = fullText.indexOf(marker);
       if (idx === -1) {
-        yield { text: fullText };
+        yield yieldChunk(fullText);
         return;
       }
       // Split across two chunks to exercise createNarrationStreamGate's
       // buffering (see streamSplit.ts) - the marker must never leak even
       // when it arrives in a later chunk than the prose.
-      yield { text: fullText.slice(0, idx) };
-      yield { text: fullText.slice(idx) };
+      yield yieldChunk(fullText.slice(0, idx));
+      yield yieldChunk(fullText.slice(idx));
     }
     return gen();
   });
@@ -257,7 +321,7 @@ function createHarness(
     models: streamNarration ? { generateContent, generateContentStream } : { generateContent },
   } as unknown as GoogleGenAI;
 
-  return { ai, order, issued, response, promptsByKind, systemInstructionsByKind, generateContent, generateContentStream };
+  return { ai, order, issued, response, promptsByKind, systemInstructionsByKind, chunkCounts, generateContent, generateContentStream };
 }
 
 afterEach(() => {
@@ -285,8 +349,8 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     h.response.assessment.resolve(nonConsequentialAssessmentJson);
     h.response.adjudication.resolve(adjudicationJson);
     h.response.simulationState.resolve(simStateJson);
-    h.response.monologue.resolve(monologueText);
-    h.response.narration.resolve(narrationFullText);
+    h.response.monologue.resolve(monologuePayloadJson);
+    h.response.narration.resolve(narrationPayloadJson);
 
     const result = await runNewTurn(
       h.ai,
@@ -324,8 +388,8 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     h.response.assessment.resolve(nonConsequentialAssessmentJson);
     h.response.adjudication.resolve(adjudicationJson);
     h.response.simulationState.resolve(simStateJson);
-    h.response.monologue.resolve(monologueText);
-    h.response.narration.resolve(narrationFullText);
+    h.response.monologue.resolve(monologuePayloadJson);
+    h.response.narration.resolve(narrationPayloadJson);
 
     await runNewTurn(
       h.ai,
@@ -417,10 +481,10 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     // Resolve two of the three legs but withhold narration: the turn remains
     // pending until the final concurrent leg resolves.
     h.response.simulationState.resolve(simStateJson);
-    h.response.monologue.resolve(monologueText);
+    h.response.monologue.resolve(monologuePayloadJson);
     await tick();
 
-    h.response.narration.resolve(narrationFullText);
+    h.response.narration.resolve(narrationPayloadJson);
     expect(h.order).toEqual([
       'storyRelevance', 'assessment', 'adjudication', 'simulationState', 'monologue', 'narration',
     ]);
@@ -492,14 +556,19 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     expect(h.generateContentStream).toHaveBeenCalledTimes(1);
 
     h.response.simulationState.resolve(simStateJson);
-    h.response.monologue.resolve(monologueText);
-    h.response.narration.resolve(narrationFullText);
+    h.response.monologue.resolve(monologuePayloadJson);
+    h.response.narration.resolve(narrationPayloadJson);
 
     const result = await turnPromise;
 
     expect(result.narration).toBe(NARRATION_PROSE);
     expect(result.playerMonologue).toBe(monologueText);
     expect(result.updatedSimulationState).toEqual(simStateResponse);
+
+    // The default splitter must genuinely exercise TWO raw stream chunks
+    // (prose, then the rest of the JSON carrying the SUGGESTION lines) - not
+    // quietly collapse to one just because the response is JSON-encoded now.
+    expect(h.chunkCounts.narration).toBe(2);
 
     // The stream gate must never let a SUGGESTION line leak into a chunk.
     expect(onNarrationChunk).toHaveBeenCalled();
@@ -540,11 +609,16 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     h.response.adjudication.resolve(adjudicationJson);
     await Promise.all([h.issued.simulationState.promise, h.issued.monologue.promise, h.issued.narration.promise]);
     h.response.simulationState.resolve(simStateJson);
-    h.response.monologue.resolve(monologueText);
-    h.response.narration.resolve(poisonedNarration);
+    h.response.monologue.resolve(monologuePayloadJson);
+    h.response.narration.resolve(JSON.stringify({ text: poisonedNarration, actors: [] }));
 
     await expect(turnPromise).rejects.toThrow('player-visible mechanics boundary');
     expect(onNarrationChunk).not.toHaveBeenCalled();
+    // This poisoned response carries no SUGGESTION marker, so the default
+    // splitter legitimately has nothing to cut on and the whole response
+    // arrives as ONE raw chunk - the mechanics rejection must therefore be
+    // caught within that single chunk, before it ever reaches the callback.
+    expect(h.chunkCounts.narration).toBe(1);
   });
 
   it.each([
@@ -552,8 +626,8 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     ['split tier token', ['The outcome was critical_', 'success.'], 'critical_success'],
     ['default-ignorable tier token', ['The outcome was critical\u200d_', 'success.'], 'critical_success'],
   ])('buffers an incomplete %s so no unsafe prefix can reach the streaming callback', async (_label, chunks, forbidden) => {
-    const poisonedNarration = chunks.join('');
-    const h = createHarness(true, () => chunks);
+    const { json: poisonedNarrationJson, chunker } = narrationJsonChunksAtProseOffsets(chunks);
+    const h = createHarness(true, chunker);
     const player = makeEntity();
     const onNarrationChunk = vi.fn();
 
@@ -582,8 +656,8 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     h.response.adjudication.resolve(adjudicationJson);
     await Promise.all([h.issued.simulationState.promise, h.issued.monologue.promise, h.issued.narration.promise]);
     h.response.simulationState.resolve(simStateJson);
-    h.response.monologue.resolve(monologueText);
-    h.response.narration.resolve(poisonedNarration);
+    h.response.monologue.resolve(monologuePayloadJson);
+    h.response.narration.resolve(poisonedNarrationJson);
 
     let thrown: unknown;
     try {
@@ -665,9 +739,9 @@ describe('ai/core/turn.ts runNewTurn - campaign truth-ledger threading (D11)', (
       turn: 2,
       entityActions: [],
       deltas: [
-        { type: 'rumor', key: 'player_1', delta: 0.6, reason: 'The treasury is whispered to stand empty.', is_true: false, origin_id: 'npc_x' },
+        { type: 'rumor', key: 'player_1', delta: 0.6, reason: 'The treasury is whispered to stand empty.', is_true: false, origin_id: 'npc_x', actors: [] },
       ],
-      headlines: ['Whispers in the forum.'],
+      headlines: [{ text: 'Whispers in the forum.', actors: [] }],
       gm_private: [],
     });
 
@@ -675,8 +749,8 @@ describe('ai/core/turn.ts runNewTurn - campaign truth-ledger threading (D11)', (
     h.response.assessment.resolve(nonConsequentialAssessmentJson);
     h.response.adjudication.resolve(adjudicationWithRumorJson);
     h.response.simulationState.resolve(simStateJson);
-    h.response.monologue.resolve(monologueText);
-    h.response.narration.resolve(narrationFullText);
+    h.response.monologue.resolve(monologuePayloadJson);
+    h.response.narration.resolve(narrationPayloadJson);
 
     const result = await runNewTurn(
       h.ai, freeform('Hold court'), player, 2, [player], worldState, simulationState, [], priorReports, priorLedger, [], '', false, 'Grim political thriller'
@@ -719,9 +793,9 @@ describe('ai/core/turn.ts runNewTurn - mortality directives feed narration from 
       turn: 2,
       entityActions: [],
       deltas: [
-        { type: 'status', key: 'npc_1', delta: 0, reason: 'Cut down in the Curia.', new_status: 'dead' },
+        { type: 'status', key: 'npc_1', delta: 0, reason: 'Cut down in the Curia.', new_status: 'dead', actors: [] },
       ],
-      headlines: ['Blood is rumored in the Curia.'],
+      headlines: [{ text: 'Blood is rumored in the Curia.', actors: [] }],
       gm_private: [],
     });
 
@@ -732,8 +806,8 @@ describe('ai/core/turn.ts runNewTurn - mortality directives feed narration from 
       dispositions: [{ entity_id: 'npc_1', valid: false, reasoning: VALIDATION_REASONING }],
     }));
     h.response.simulationState.resolve(simStateJson);
-    h.response.monologue.resolve(monologueText);
-    h.response.narration.resolve(narrationFullText);
+    h.response.monologue.resolve(monologuePayloadJson);
+    h.response.narration.resolve(narrationPayloadJson);
 
     const result = await runNewTurn(
       h.ai, freeform('Hold court'), player, 2, [player, npc], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
@@ -793,10 +867,10 @@ describe('ai/core/turn.ts runNewTurn - Director continuity loop (4C.3)', () => {
     const adjudicationWithOneActionJson = JSON.stringify({
       turn: 2,
       entityActions: [
-        { id: 'npc_thrax', intent: 'march', target: null, notes: 'The legions break camp.' },
+        { id: 'npc_thrax', intent: 'march', target: null, notes: 'The legions break camp.', actors: ['npc_thrax'] },
       ],
       deltas: [],
-      headlines: ['The Rhine stirs.'],
+      headlines: [{ text: 'The Rhine stirs.', actors: ['npc_thrax'] }],
       gm_private: [],
     });
 
@@ -815,8 +889,8 @@ describe('ai/core/turn.ts runNewTurn - Director continuity loop (4C.3)', () => {
     }));
     h.response.adjudication.resolve(adjudicationWithOneActionJson);
     h.response.simulationState.resolve(simStateJson);
-    h.response.monologue.resolve(monologueText);
-    h.response.narration.resolve(narrationFullText);
+    h.response.monologue.resolve(monologuePayloadJson);
+    h.response.narration.resolve(narrationPayloadJson);
 
     const result = await runNewTurn(
       h.ai, freeform('Hold court'), player, 2, [player, thrax, guard], worldState, simulationState, [], [], [], priorIntents, '', false, 'Grim political thriller'
@@ -863,8 +937,8 @@ describe('ai/core/turn.ts runNewTurn - Director continuity loop (4C.3)', () => {
     h.response.assessment.resolve(nonConsequentialAssessmentJson);
     h.response.adjudication.resolve(adjudicationJson);
     h.response.simulationState.resolve(simStateJson);
-    h.response.monologue.resolve(monologueText);
-    h.response.narration.resolve(narrationFullText);
+    h.response.monologue.resolve(monologuePayloadJson);
+    h.response.narration.resolve(narrationPayloadJson);
 
     const priorIntents = [{ entity_id: 'npc_gone', intent: 'A stale direction', continuity: 'new' as const }];
     const result = await runNewTurn(
@@ -936,8 +1010,8 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
 
     await Promise.all([h.issued.simulationState.promise, h.issued.monologue.promise, h.issued.narration.promise]);
     h.response.simulationState.resolve(simStateJson);
-    h.response.monologue.resolve(monologueText);
-    h.response.narration.resolve(narrationFullText);
+    h.response.monologue.resolve(monologuePayloadJson);
+    h.response.narration.resolve(narrationPayloadJson);
 
     const result = await turnPromise;
 
@@ -990,8 +1064,8 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
 
     await Promise.all([h.issued.simulationState.promise, h.issued.monologue.promise, h.issued.narration.promise]);
     h.response.simulationState.resolve(simStateJson);
-    h.response.monologue.resolve(monologueText);
-    h.response.narration.resolve(narrationFullText);
+    h.response.monologue.resolve(monologuePayloadJson);
+    h.response.narration.resolve(narrationPayloadJson);
 
     const result = await turnPromise;
 
@@ -1043,10 +1117,10 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
       turn: 2,
       entityActions: [],
       deltas: [
-        { type: 'resource', key: 'player_1:denarii', delta: -100, reason: 'Bribes for the guards.' },
-        { type: 'status', key: 'npc_1', delta: 0, reason: 'Cut down in the Curia.', new_status: 'dead' },
+        { type: 'resource', key: 'player_1:denarii', delta: -100, reason: 'Bribes for the guards.', actors: [] },
+        { type: 'status', key: 'npc_1', delta: 0, reason: 'Cut down in the Curia.', new_status: 'dead', actors: [] },
       ],
-      headlines: ['Blood in the Curia.'],
+      headlines: [{ text: 'Blood in the Curia.', actors: [] }],
       gm_private: [
         'GM_PRIVATE_SENTINEL_MUST_NOT_REACH_MORTALITY_6T2',
         'Arbitrary adjudicator-authored private marker.',
@@ -1068,8 +1142,8 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
       outcomes: [{ entity_id: 'npc_1', deltas: [], narrative_directive: 'Narrate the aftermath.', secret_motive: null }],
     }));
     h.response.simulationState.resolve(simStateJson);
-    h.response.monologue.resolve(monologueText);
-    h.response.narration.resolve(narrationFullText);
+    h.response.monologue.resolve(monologuePayloadJson);
+    h.response.narration.resolve(narrationPayloadJson);
 
     const submission: TurnSubmission = {
       version: 1,
@@ -1163,6 +1237,7 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
         intent: 'recruit',
         target: 'cohorts',
         notes: 'Aulus independently courts the cohorts.',
+        actors: ['npc_aulus'],
       }],
       deltas: [
         {
@@ -1170,24 +1245,27 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
           key: 'npc_aulus:independent_preparations',
           delta: 2,
           reason: 'Aulus acts on his own agenda.',
+          actors: ['npc_aulus'],
         },
         {
           type: 'world',
           key: 'political_climate',
           delta: 0,
           reason: 'Legions Maneuver Independently',
+          actors: [],
         },
       ],
-      headlines: ['Aulus moves among the cohorts.'],
+      headlines: [{ text: 'Aulus moves among the cohorts.', actors: ['npc_aulus'] }],
       gm_private: [],
     }));
     h.response.simulationState.resolve(JSON.stringify({
       ...simStateResponse,
       senate_status: 'Ascendant',
       major_ongoing_crisis: 'The Rhine legions are mobilizing.',
+      actors: [],
     }));
-    h.response.monologue.resolve('I order an attack after rolling 20. PRIVATE_MONOLOGUE_POISON');
-    h.response.narration.resolve('You order an attack after rolling 20. PRIVATE_NARRATION_POISON');
+    h.response.monologue.resolve(JSON.stringify({ text: 'I order an attack after rolling 20. PRIVATE_MONOLOGUE_POISON', actors: [] }));
+    h.response.narration.resolve(JSON.stringify({ text: 'You order an attack after rolling 20. PRIVATE_NARRATION_POISON', actors: [] }));
 
     const result = await runNewTurn(
       h.ai, submission, player, 2, [player, aulus, brutus], worldState, simulationState,
@@ -1253,15 +1331,15 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
       turn: 2,
       entityActions: [],
       deltas: [],
-      headlines: ['The courier waits in the rain.'],
+      headlines: [{ text: 'The courier waits in the rain.', actors: [] }],
       gm_private: [],
     }));
     h.response.simulationState.resolve(simStateJson);
     h.response.monologue.resolve(
-      'I dispatch spies. PRIVATE_INTENT_POISON secret_truth says the roll was 20.',
+      JSON.stringify({ text: 'I dispatch spies. PRIVATE_INTENT_POISON secret_truth says the roll was 20.', actors: [] }),
     );
     h.response.narration.resolve(
-      'You dispatch spies. PRIVATE_INTENT_POISON secret_truth says the roll was 20.\nSUGGESTION: Attack',
+      JSON.stringify({ text: 'You dispatch spies. PRIVATE_INTENT_POISON secret_truth says the roll was 20.\nSUGGESTION: Attack', actors: [] }),
     );
 
     const result = await runNewTurn(
@@ -1301,8 +1379,8 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     h.response.adjudication.resolve(JSON.stringify({
       turn: 2,
       entityActions: [],
-      deltas: [{ type: 'status', key: 'npc_1', delta: 0, reason: 'An assassin strikes Rufus.', new_status: 'dead' }],
-      headlines: ['Rufus is attacked near the Curia.'],
+      deltas: [{ type: 'status', key: 'npc_1', delta: 0, reason: 'An assassin strikes Rufus.', new_status: 'dead', actors: [] }],
+      headlines: [{ text: 'Rufus is attacked near the Curia.', actors: [] }],
       gm_private: [],
     }));
     h.response.mortalityValidation.resolve(JSON.stringify({
@@ -1316,8 +1394,8 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
       }],
     }));
     h.response.simulationState.resolve(simStateJson);
-    h.response.monologue.resolve('I sign the death warrant. PRIVATE_MONOLOGUE_POISON');
-    h.response.narration.resolve('You sign the death warrant. PRIVATE_NARRATION_POISON');
+    h.response.monologue.resolve(JSON.stringify({ text: 'I sign the death warrant. PRIVATE_MONOLOGUE_POISON', actors: [] }));
+    h.response.narration.resolve(JSON.stringify({ text: 'You sign the death warrant. PRIVATE_NARRATION_POISON', actors: [] }));
 
     const result = await runNewTurn(
       h.ai, submission, player, 2, [player, npc], worldState, simulationState, [], [], [], [], '', false,
@@ -1361,12 +1439,12 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
       turn: 2,
       entityActions: [],
       deltas: [],
-      headlines: ['The city watches the palace.'],
+      headlines: [{ text: 'The city watches the palace.', actors: [] }],
       gm_private: [],
     }));
     h.response.simulationState.resolve(simStateJson);
-    h.response.monologue.resolve('I sign the decree and summon the legions.');
-    h.response.narration.resolve('You see petitioners gathering outside the palace.');
+    h.response.monologue.resolve(JSON.stringify({ text: 'I sign the decree and summon the legions.', actors: [] }));
+    h.response.narration.resolve(JSON.stringify({ text: 'You see petitioners gathering outside the palace.', actors: [] }));
 
     const result = await runNewTurn(
       h.ai, submission, player, 2, [player], worldState, simulationState, [], [], [], [], '', false,
@@ -1402,9 +1480,9 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
         entityActions: [],
         deltas: [{
           type: 'status', key: 'npc_mortality', delta: 0,
-          reason: 'An assassin strikes.', new_status: 'dead',
+          reason: 'An assassin strikes.', new_status: 'dead', actors: [],
         }],
-        headlines: ['A hidden blade falls.'],
+        headlines: [{ text: 'A hidden blade falls.', actors: [] }],
         gm_private: [],
       }));
       h.response.mortalityValidation.resolve(JSON.stringify({
@@ -1417,8 +1495,8 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
         }],
       }));
       h.response.simulationState.resolve(simStateJson);
-      h.response.monologue.resolve(monologueText);
-      h.response.narration.resolve(narrationFullText);
+      h.response.monologue.resolve(monologuePayloadJson);
+      h.response.narration.resolve(narrationPayloadJson);
 
       const result = await runNewTurn(
         h.ai, freeform('Hold court'), player, 2, [player, npc],
@@ -1460,18 +1538,19 @@ describe('ai/core/turn.ts runNewTurn - player-perceived narration input', () => 
         intent: 'intrigue',
         target: 'player_1',
         notes: 'INVISIBLE_ACTION_NOTES_POISON',
+        actors: ['npc_hidden'],
       }],
       deltas: [
         {
           type: 'resource', key: 'npc_hidden:denarii', delta: 50,
-          reason: 'INVISIBLE_RESOURCE_REASON_POISON',
+          reason: 'INVISIBLE_RESOURCE_REASON_POISON', actors: ['npc_hidden'],
         },
         {
           type: 'resource', key: 'player_1:denarii', delta: 25,
-          reason: 'VISIBLE_RAW_REASON_MUST_NOT_APPEAR',
+          reason: 'VISIBLE_RAW_REASON_MUST_NOT_APPEAR', actors: [],
         },
       ],
-      headlines: ['INVISIBLE_HEADLINE_POISON'],
+      headlines: [{ text: 'INVISIBLE_HEADLINE_POISON', actors: ['npc_hidden'] }],
       gm_private: ['INVISIBLE_GM_SECRET_POISON'],
     });
 
@@ -1510,8 +1589,8 @@ describe('ai/core/turn.ts runNewTurn - player-perceived narration input', () => 
     expect(narrationPrompt).not.toContain('"headlines"');
 
     h.response.simulationState.resolve(simStateJson);
-    h.response.monologue.resolve(monologueText);
-    h.response.narration.resolve(narrationFullText);
+    h.response.monologue.resolve(monologuePayloadJson);
+    h.response.narration.resolve(narrationPayloadJson);
     const result = await turnPromise;
     expect(result.updatedEntities.find(e => e.entity_id === 'player_1')?.resources.denarii).toBe(1025);
     expect(result.updatedEntities.find(e => e.entity_id === 'npc_hidden')?.resources.denarii).toBe(1050);
@@ -1545,19 +1624,19 @@ describe('ai/core/turn.ts runNewTurn - player-perceived narration input', () => 
         {
           type: 'rumor', key: 'npc_hidden_rumor_subject', delta: 0.5,
           reason: 'A nameless panic spreads through the grain markets.',
-          is_true: false, origin_id: 'npc_visible',
+          is_true: false, origin_id: 'npc_visible', actors: [],
         },
         {
           type: 'resource', key: 'npc_visible:denarii', delta: 5,
-          reason: 'A public collection.',
+          reason: 'A public collection.', actors: ['npc_visible'],
         },
       ],
-      headlines: ['Market whispers spread.'],
+      headlines: [{ text: 'Market whispers spread.', actors: [] }],
       gm_private: [],
     }));
     h.response.simulationState.resolve(simStateJson);
-    h.response.monologue.resolve(monologueText);
-    h.response.narration.resolve(narrationFullText);
+    h.response.monologue.resolve(monologuePayloadJson);
+    h.response.narration.resolve(narrationPayloadJson);
 
     await runNewTurn(
       h.ai, freeform('Address the Senate'), player, 2,
@@ -1602,14 +1681,14 @@ describe('ai/core/turn.ts runNewTurn - player-perceived narration input', () => 
       entityActions: [],
       deltas: [{
         type: 'resource', key: 'npc_visible_catonian:denarii', delta: 5,
-        reason: 'A collection in the Forum.',
+        reason: 'A collection in the Forum.', actors: ['npc_visible_catonian'],
       }],
-      headlines: ['The Forum watches.'],
+      headlines: [{ text: 'The Forum watches.', actors: [] }],
       gm_private: [],
     }));
     h.response.simulationState.resolve(simStateJson);
-    h.response.monologue.resolve(monologueText);
-    h.response.narration.resolve(narrationFullText);
+    h.response.monologue.resolve(monologuePayloadJson);
+    h.response.narration.resolve(narrationPayloadJson);
 
     await runNewTurn(
       h.ai, freeform('Address the Senate'), player, 2,
@@ -1644,8 +1723,8 @@ describe('ai/core/turn.ts runNewTurn - pacing posture threading (4D.1, D23)', ()
     h.response.assessment.resolve(nonConsequentialAssessmentJson);
     h.response.adjudication.resolve(adjudicationJson);
     h.response.simulationState.resolve(simStateJson);
-    h.response.monologue.resolve(monologueText);
-    h.response.narration.resolve(narrationFullText);
+    h.response.monologue.resolve(monologuePayloadJson);
+    h.response.narration.resolve(narrationPayloadJson);
   }
 
   it('threads options.pacingPosture into the adjudication system instruction\'s PACING JUDGMENT principle', async () => {
@@ -1738,7 +1817,7 @@ describe('ai/core/turn.ts runNewTurn - no-attempt player ownership boundary (DEB
     turn: 2,
     entityActions: [],
     deltas: [],
-    headlines: ['The week advances.'],
+    headlines: [{ text: 'The week advances.', actors: [] }],
     gm_private: [],
   });
 
@@ -1757,8 +1836,9 @@ describe('ai/core/turn.ts runNewTurn - no-attempt player ownership boundary (DEB
         delta: 2,
         reason: 'Mounting arrears leave the palace beholden to Crassus.',
         origin_id: 'npc_crassus',
+        actors: ['npc_crassus'],
       }],
-      headlines: ['Creditors circle the Palatine.'],
+      headlines: [{ text: 'Creditors circle the Palatine.', actors: ['npc_crassus'] }],
       gm_private: [],
     }));
     h.response.simulationState.resolve(simStateJson);
@@ -1801,8 +1881,8 @@ describe('ai/core/turn.ts runNewTurn - no-attempt player ownership boundary (DEB
     h.response.assessment.resolve(nonConsequentialAssessmentJson);
     h.response.adjudication.resolve(adjudicationJson);
     h.response.simulationState.resolve(simStateJson);
-    h.response.monologue.resolve(monologueText);
-    h.response.narration.resolve(narrationFullText);
+    h.response.monologue.resolve(monologuePayloadJson);
+    h.response.narration.resolve(narrationPayloadJson);
 
     await runNewTurn(
       h.ai, freeform('Hold court'), player, 2, [player], worldState, simulationState,
@@ -1814,19 +1894,19 @@ describe('ai/core/turn.ts runNewTurn - no-attempt player ownership boundary (DEB
 
   it.each([
     ['a player entityAction', {
-      entityActions: [{ id: 'player_1', intent: 'negotiate', target: 'npc_crassus', notes: 'A quiet accommodation is sought.' }],
+      entityActions: [{ id: 'player_1', intent: 'negotiate', target: 'npc_crassus', notes: 'A quiet accommodation is sought.', actors: ['player_1'] }],
       deltas: [],
     }],
     ['a player-originated dependency_level delta', {
       entityActions: [],
       deltas: [{
         type: 'relation', key: 'player_1:npc_crassus:dependency_level', delta: -2,
-        reason: 'The debt is quietly restructured.', origin_id: 'player_1',
+        reason: 'The debt is quietly restructured.', origin_id: 'player_1', actors: ['player_1'],
       }],
     }],
     ['a trust_level delta keyed under the player', {
       entityActions: [],
-      deltas: [{ type: 'relation', key: 'player_1:npc_crassus:trust_level', delta: 2, reason: 'A new opinion forms.' }],
+      deltas: [{ type: 'relation', key: 'player_1:npc_crassus:trust_level', delta: 2, reason: 'A new opinion forms.', actors: [] }],
     }],
   ])('still rejects %s on a question-only turn', async (_label, shape) => {
     const h = createHarness(false);
@@ -1837,7 +1917,7 @@ describe('ai/core/turn.ts runNewTurn - no-attempt player ownership boundary (DEB
     h.response.adjudication.resolve(JSON.stringify({
       turn: 2,
       ...shape,
-      headlines: ['The week advances.'],
+      headlines: [{ text: 'The week advances.', actors: [] }],
       gm_private: [],
     }));
     h.response.simulationState.resolve(simStateJson);
@@ -1859,7 +1939,7 @@ describe('ai/core/turn.ts runNewTurn - no-attempt player ownership boundary (DEB
       turn: 2,
       entityActions: [],
       deltas: [],
-      headlines: ['The Senator Gaius Pontius withdraws to his estate.'],
+      headlines: [{ text: 'The Senator Gaius Pontius withdraws to his estate.', actors: [] }],
       gm_private: [],
     }));
     h.response.simulationState.resolve(simStateJson);
@@ -1879,7 +1959,7 @@ describe('ai/core/turn.ts runNewTurn - no-attempt player ownership boundary (DEB
 
     h.response.storyRelevance.resolve(storyRelevanceJson);
     h.response.adjudication.resolve(neutralAdjudicationJson);
-    h.response.simulationState.resolve(JSON.stringify({ ...simStateResponse, major_ongoing_crisis: crisis }));
+    h.response.simulationState.resolve(JSON.stringify({ ...simStateResponse, major_ongoing_crisis: crisis, actors: [] }));
 
     const result = await runNewTurn(
       h.ai, questionOnly, player, 2, [player], worldState, simulationState,
@@ -1905,7 +1985,7 @@ describe('ai/core/turn.ts runNewTurn - no-attempt player ownership boundary (DEB
       turn: 2,
       entityActions: [],
       deltas: [],
-      headlines: [invented],
+      headlines: [{ text: invented, actors: [] }],
       gm_private: [],
     }));
     h.response.simulationState.resolve(simStateJson);
@@ -1958,7 +2038,7 @@ describe('ai/core/turn.ts runNewTurn - no-attempt prose redaction vs. structural
     h.response.adjudication.resolve(JSON.stringify({
       turn: 2,
       entityActions: [
-        { id: 'npc_crassus', intent: 'intrigue', target: null, notes: 'Your creditors grow restless.' },
+        { id: 'npc_crassus', intent: 'intrigue', target: null, notes: 'Your creditors grow restless.', actors: ['npc_crassus'] },
       ],
       deltas: [{
         type: 'relation',
@@ -1966,8 +2046,13 @@ describe('ai/core/turn.ts runNewTurn - no-attempt prose redaction vs. structural
         delta: 2,
         reason: debtProse,
         origin_id: 'npc_crassus',
+        actors: ['npc_crassus'],
       }],
-      headlines: ['You wait.', 'The Senate debates the grain dole without you.', 'You receive a letter from Titus.'],
+      headlines: [
+        { text: 'You wait.', actors: [] },
+        { text: 'The Senate debates the grain dole without you.', actors: [] },
+        { text: 'You receive a letter from Titus.', actors: [] },
+      ],
       gm_private: [],
     }));
     h.response.simulationState.resolve(simStateJson);
@@ -1996,12 +2081,15 @@ describe('ai/core/turn.ts runNewTurn - no-attempt prose redaction vs. structural
     h.response.storyRelevance.resolve(storyRelevanceJson);
     h.response.adjudication.resolve(JSON.stringify({
       turn: 2,
-      entityActions: [{ id: 'npc_crassus', intent: 'intrigue', target: null, notes: invented }],
-      deltas: [{ type: 'resource', key: 'npc_crassus:denarii', delta: -5, reason: invented }],
-      headlines: ['Creditors circle the Palatine.', invented],
+      entityActions: [{ id: 'npc_crassus', intent: 'intrigue', target: null, notes: invented, actors: ['player_1'] }],
+      deltas: [{ type: 'resource', key: 'npc_crassus:denarii', delta: -5, reason: invented, actors: ['player_1'] }],
+      headlines: [
+        { text: 'Creditors circle the Palatine.', actors: [] },
+        { text: invented, actors: ['player_1'] },
+      ],
       gm_private: [],
     }));
-    h.response.simulationState.resolve(JSON.stringify({ ...simStateResponse, major_ongoing_crisis: invented }));
+    h.response.simulationState.resolve(JSON.stringify({ ...simStateResponse, major_ongoing_crisis: invented, actors: [] }));
 
     const result = await runNewTurn(
       h.ai, questionOnly, player, 2, [player], worldState, simulationState,
@@ -2037,18 +2125,18 @@ describe('ai/core/turn.ts runNewTurn - no-attempt prose redaction vs. structural
   it.each([
     ['a player-owned delta', {
       entityActions: [],
-      deltas: [{ type: 'resource', key: 'player_1:denarii', delta: -200, reason: 'Gold changes hands.' }],
-      headlines: ['The week advances.'],
+      deltas: [{ type: 'resource', key: 'player_1:denarii', delta: -200, reason: 'Gold changes hands.', actors: ['player_1'] }],
+      headlines: [{ text: 'The week advances.', actors: [] }],
     }],
     ['a player-id entityAction', {
-      entityActions: [{ id: 'player_1', intent: 'negotiate', target: 'npc_crassus', notes: 'A quiet accommodation is sought.' }],
+      entityActions: [{ id: 'player_1', intent: 'negotiate', target: 'npc_crassus', notes: 'A quiet accommodation is sought.', actors: ['player_1'] }],
       deltas: [],
-      headlines: ['The week advances.'],
+      headlines: [{ text: 'The week advances.', actors: [] }],
     }],
     ['a remove_entities entry naming the player', {
       entityActions: [],
       deltas: [],
-      headlines: ['The week advances.'],
+      headlines: [{ text: 'The week advances.', actors: [] }],
       remove_entities: ['player_1'],
     }],
   ])('still fails the whole turn closed on %s', async (_label, shape) => {
