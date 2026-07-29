@@ -92,19 +92,6 @@ const AMBITION_INFERENCE_TURN_INTERVAL = 3;
 const NO_ATTEMPT_SELECTION_FAILURE_DIAGNOSTIC =
     '[No-attempt response] Evidence selection failed; the player received the safe no-answer fallback.';
 
-// ROADMAP_PHASE_4.md 4D item 1 (D23) - the Fates pacing selector's three
-// options, in-fiction labels for the PacingPosture enum. ONE unobtrusive
-// control beside the LVX/NOX toggle, deliberately NOT a settings surface
-// (a full settings surface is explicitly out of Phase 4 scope). Titles are
-// player-safe flavor only: they describe the felt pacing, never the
-// adjudicator/prompt mechanics behind it (D4/D5 - the player only ever
-// FEELS pacing).
-const FATES_OPTIONS: { posture: PacingPosture; label: string; title: string }[] = [
-    { posture: 'restrained', label: 'PATIENT', title: 'Patient Fates — long quiet weeks may stand' },
-    { posture: 'balanced', label: 'MEASURED', title: 'Measured Fates — fortune turns when the story calls for it' },
-    { posture: 'dramatic', label: 'EAGER', title: 'Eager Fates — the threads pull taut sooner' },
-];
-
 /**
  * DESIGN_DECISIONS.md D34 - the owner's local-dev convenience: read
  * `GEMINI_API_KEY` from `.env` exactly the way vite.config.ts's now
@@ -223,8 +210,9 @@ const App: React.FC = () => {
     // D7 - the GM console (log/debugger) stays in the codebase permanently
     // but is hidden by default for a clean player view. This is the runtime
     // toggle that governs whether the GM LOG button even appears; Ctrl+Shift+G
-    // (see the effect below) and, in dev builds, a small Header checkbox both
-    // flip it. Deliberately not persisted - every fresh session starts hidden.
+    // (see the effect below) and, in dev builds, the configuration menu's
+    // Developer-card switch both flip it. Deliberately not persisted - every
+    // fresh session starts hidden.
     const [isGmConsoleEnabled, setIsGmConsoleEnabled] = useState(false);
     const updateGmConsoleEnabled = useCallback((enabled: boolean) => {
         if (!enabled) setIsGmScreenVisible(false);
@@ -234,7 +222,7 @@ const App: React.FC = () => {
     // a device preference (persistence/uiPrefs.ts) distinct from
     // `isGmConsoleEnabled` above (whether it's currently toggled ON for
     // this session). Defaults true ("available"), so out of the box
-    // nothing about the Ctrl+Shift+G/dev-checkbox behavior above changes.
+    // nothing about the Ctrl+Shift+G/dev-switch behavior above changes.
     // When false, the effect below turns the hotkey into a no-op and this
     // also forces `isGmConsoleEnabled` off (see handleSetGmConsoleAvailable).
     const [gmConsoleAvailable, setGmConsoleAvailableState] = useState<boolean>(() => getGmConsoleEnabled());
@@ -1600,14 +1588,6 @@ const App: React.FC = () => {
         <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
             <Header
                 worldState={worldState}
-                isMockMode={isMockMode}
-                setIsMockMode={setIsMockMode}
-                isGmConsoleEnabled={isGmConsoleEnabled}
-                setIsGmConsoleEnabled={(enabled) => {
-                    if (gmConsoleAvailable) {
-                        updateGmConsoleEnabled(enabled);
-                    }
-                }}
                 onOpenSettings={() => setIsSettingsMenuOpen(true)}
             />
             {gameState !== GameState.GAME_OVER && <CrisisBanner crisis={simulationState.major_ongoing_crisis} />}
@@ -1766,21 +1746,6 @@ const App: React.FC = () => {
                     </>
                 )}
             </main>
-            {/* Fixed bottom-right chrome: the Fates pacing selector (4D.1,
-                D23) beside the LVX/NOX lighting toggle. Both are device
-                preferences persisted in localStorage, never save state. */}
-            <div style={{ position: 'fixed', bottom: 14, right: 14, zIndex: 80, display: 'flex', gap: 10 }}>
-                <div role="group" aria-label="The Fates: how patiently fortune paces the story" style={{ display: 'flex', border: '1px solid var(--border-strong)', borderRadius: 'var(--radius-sm)', overflow: 'hidden', boxShadow: 'var(--shadow-raised)', fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600, letterSpacing: '.14em' }}>
-                    <span aria-hidden="true" style={{ padding: '6px 10px', background: 'var(--surface-card)', color: 'var(--gold-700)' }}>FATES</span>
-                    {FATES_OPTIONS.map(({ posture, label, title }) => (
-                        <button key={posture} type="button" aria-pressed={pacingPosture === posture} title={title} onClick={() => handleSetPacingPosture(posture)} style={{ padding: '6px 10px', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit', fontWeight: 'inherit', letterSpacing: 'inherit', borderLeft: '1px solid var(--border-subtle)', background: pacingPosture === posture ? 'var(--gold-600)' : 'var(--surface-card)', color: pacingPosture === posture ? '#241C11' : 'var(--text-muted)' }}>{label}</button>
-                    ))}
-                </div>
-                <div role="group" aria-label="Lighting: marble day or torchlit night" style={{ display: 'flex', border: '1px solid var(--border-strong)', borderRadius: 'var(--radius-sm)', overflow: 'hidden', boxShadow: 'var(--shadow-raised)', fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600, letterSpacing: '.14em' }}>
-                    <button type="button" aria-pressed={!isNox} title="Marble — day" onClick={() => setIsNox(false)} style={{ padding: '6px 12px', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit', fontWeight: 'inherit', letterSpacing: 'inherit', background: !isNox ? 'var(--gold-600)' : 'var(--surface-card)', color: !isNox ? '#241C11' : 'var(--text-muted)' }}>LVX</button>
-                    <button type="button" aria-pressed={isNox} title="Nox Romae — torchlit" onClick={() => setIsNox(true)} style={{ padding: '6px 12px', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit', fontWeight: 'inherit', letterSpacing: 'inherit', borderLeft: '1px solid var(--border-subtle)', background: isNox ? 'var(--gold-600)' : 'var(--surface-card)', color: isNox ? '#241C11' : 'var(--text-muted)' }}>NOX</button>
-                </div>
-            </div>
             {isGmConsoleEnabled && isGmScreenVisible && <GameMasterScreen
                 history={turnHistory}
                 onClose={() => setIsGmScreenVisible(false)}
@@ -1821,10 +1786,20 @@ const App: React.FC = () => {
                     onClearApiKey={handleClearApiKey}
                     pacingPosture={pacingPosture}
                     onSetPacingPosture={handleSetPacingPosture}
+                    isNox={isNox}
+                    onSetIsNox={setIsNox}
                     gmConsoleEnabled={gmConsoleAvailable}
                     onSetGmConsoleEnabled={handleSetGmConsoleAvailable}
                     gmInterventionEnabled={gmInterventionAvailable}
                     onSetGmInterventionEnabled={handleSetGmInterventionAvailable}
+                    isMockMode={isMockMode}
+                    onSetIsMockMode={setIsMockMode}
+                    gmConsoleOpen={isGmConsoleEnabled}
+                    onSetGmConsoleOpen={(enabled) => {
+                        if (gmConsoleAvailable) {
+                            updateGmConsoleEnabled(enabled);
+                        }
+                    }}
                 />
             )}
         </div>

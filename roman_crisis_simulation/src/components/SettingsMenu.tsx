@@ -1,28 +1,39 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { PacingPosture } from '../types';
 import { Card, Button } from './ui/Core';
-import { Switch } from './ui/Forms';
+import { Switch, SegmentedControl } from './ui/Forms';
 import { createFocusTrap, FocusTrap } from './ui/focusTrap';
 
 /**
  * ROADMAP_0_MASTER_PLAN.md Phase 5 (DESIGN_DECISIONS.md D31) - the FATES
- * pacing options, identical labels/titles to App.tsx's existing bottom-right
- * selector (both read/write the SAME persistence/settings.ts posture, via
- * the SAME `onSetPacingPosture` callback App.tsx passes down - this is a
- * second surface for the one setting, not a competing source of truth).
+ * pacing options (persistence/settings.ts posture, via App.tsx's
+ * `onSetPacingPosture`). Since the options-consolidation pass this menu is
+ * the ONLY pacing surface - the old fixed bottom-right selector is gone -
+ * so each posture's meaning is spelled out visibly below the control, not
+ * hidden in hover titles.
  */
-const FATES_OPTIONS: { posture: PacingPosture; label: string; title: string }[] = [
-    { posture: 'restrained', label: 'PATIENT', title: 'Patient Fates — long quiet weeks may stand' },
-    { posture: 'balanced', label: 'MEASURED', title: 'Measured Fates — fortune turns when the story calls for it' },
-    { posture: 'dramatic', label: 'EAGER', title: 'Eager Fates — the threads pull taut sooner' },
+const FATES_OPTIONS: { posture: PacingPosture; label: string; title: string; description: string }[] = [
+    { posture: 'restrained', label: 'PATIENT', title: 'Patient Fates — long quiet weeks may stand', description: 'long quiet weeks may stand.' },
+    { posture: 'balanced', label: 'MEASURED', title: 'Measured Fates — fortune turns when the story calls for it', description: 'fortune turns when the story calls for it.' },
+    { posture: 'dramatic', label: 'EAGER', title: 'Eager Fates — the threads pull taut sooner', description: 'the threads pull taut sooner.' },
 ];
+
+const LIGHTING_OPTIONS = [
+    { value: 'lux', label: 'LVX', title: 'Marble — day' },
+    { value: 'nox', label: 'NOX', title: 'Nox Romae — torchlit' },
+] as const;
+
+const cardBodyStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 8 };
+const descriptionStyle: React.CSSProperties = { margin: 0, fontSize: 14, color: 'var(--text-muted)' };
 
 /**
  * The configuration menu (D31) - a marble gor-dialog (player-facing, unlike
  * GameMasterScreen's dark tablinum), opened from a Header affordance.
- * Exactly four settings, no more (per the ruling's own "Initial contents"
- * list): the player's own Gemini API key (D34), the D23 pacing posture,
- * and the D32/D33 GM-intervention/GM-console availability toggles.
+ * Since the options-consolidation pass this is the single home for EVERY
+ * option: the player's own Gemini API key (D34), the D23 pacing posture,
+ * the LVX/NOX lighting (formerly floating bottom-right chrome), the
+ * D32/D33 GM availability toggles, and - dev builds only - the Mock Mode
+ * and GM-console runtime switches that used to sit in the Header.
  */
 const SettingsMenu: React.FC<{
     onClose: () => void;
@@ -36,10 +47,18 @@ const SettingsMenu: React.FC<{
     onClearApiKey: () => void;
     pacingPosture: PacingPosture;
     onSetPacingPosture: (posture: PacingPosture) => void;
+    /** LVX/NOX - a device preference (localStorage 'gor-theme'), never save state. */
+    isNox: boolean;
+    onSetIsNox: (isNox: boolean) => void;
     gmConsoleEnabled: boolean;
     onSetGmConsoleEnabled: (enabled: boolean) => void;
     gmInterventionEnabled: boolean;
     onSetGmInterventionEnabled: (enabled: boolean) => void;
+    /** Dev-only (rendered under import.meta.env.DEV): Mock Mode + the GM console's runtime switch. */
+    isMockMode: boolean;
+    onSetIsMockMode: (isMock: boolean) => void;
+    gmConsoleOpen: boolean;
+    onSetGmConsoleOpen: (enabled: boolean) => void;
 }> = ({
     onClose,
     apiKey,
@@ -47,10 +66,16 @@ const SettingsMenu: React.FC<{
     onClearApiKey,
     pacingPosture,
     onSetPacingPosture,
+    isNox,
+    onSetIsNox,
     gmConsoleEnabled,
     onSetGmConsoleEnabled,
     gmInterventionEnabled,
     onSetGmInterventionEnabled,
+    isMockMode,
+    onSetIsMockMode,
+    gmConsoleOpen,
+    onSetGmConsoleOpen,
 }) => {
     const [keyInput, setKeyInput] = useState(apiKey ?? '');
     const [showKey, setShowKey] = useState(false);
@@ -121,10 +146,10 @@ const SettingsMenu: React.FC<{
                     >×</button>
                 </div>
                 <div className="gor-dialog-rule"></div>
-                <div className="gor-dialog-body" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                <div className="gor-dialog-body" style={{ display: 'flex', flexDirection: 'column', gap: 18, maxHeight: '70vh', overflowY: 'auto' }}>
                     <Card gilt title="Gemini API Key">
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            <p style={{ margin: 0, fontSize: 14, color: 'var(--text-muted)' }}>
+                        <div style={cardBodyStyle}>
+                            <p style={descriptionStyle}>
                                 Play with your own Gemini API key — it is stored on this device only, never saved into your game, and never bundled into this build.
                             </p>
                             <div style={{ display: 'flex', gap: 8 }}>
@@ -151,36 +176,37 @@ const SettingsMenu: React.FC<{
                     </Card>
 
                     <Card gilt title="The Fates' Pacing">
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            <p style={{ margin: 0, fontSize: 14, color: 'var(--text-muted)' }}>How patiently fortune paces the story.</p>
-                            <div role="group" aria-label="Pacing posture" style={{ display: 'flex', border: '1px solid var(--border-strong)', borderRadius: 'var(--radius-sm)', overflow: 'hidden', width: 'fit-content' }}>
-                                {FATES_OPTIONS.map(({ posture, label, title }, index) => (
-                                    <button
-                                        key={posture}
-                                        type="button"
-                                        aria-pressed={pacingPosture === posture}
-                                        title={title}
-                                        onClick={() => onSetPacingPosture(posture)}
-                                        style={{
-                                            padding: '8px 14px',
-                                            border: 'none',
-                                            borderLeft: index === 0 ? 'none' : '1px solid var(--border-subtle)',
-                                            cursor: 'pointer',
-                                            fontFamily: 'var(--font-display)',
-                                            fontSize: 12,
-                                            fontWeight: 600,
-                                            letterSpacing: '.1em',
-                                            background: pacingPosture === posture ? 'var(--gold-600)' : 'var(--surface-card)',
-                                            color: pacingPosture === posture ? '#241C11' : 'var(--text-muted)',
-                                        }}
-                                    >{label}</button>
+                        <div style={cardBodyStyle}>
+                            <p style={descriptionStyle}>How patiently fortune paces the story.</p>
+                            <SegmentedControl
+                                ariaLabel="Pacing posture"
+                                options={FATES_OPTIONS.map(({ posture, label, title }) => ({ value: posture, label, title }))}
+                                value={pacingPosture}
+                                onChange={onSetPacingPosture}
+                            />
+                            <ul style={{ ...descriptionStyle, paddingLeft: 18 }}>
+                                {FATES_OPTIONS.map(({ posture, label, description }) => (
+                                    <li key={posture}><strong>{label.charAt(0) + label.slice(1).toLowerCase()}</strong> — {description}</li>
                                 ))}
-                            </div>
+                            </ul>
+                        </div>
+                    </Card>
+
+                    <Card gilt title="Lighting">
+                        <div style={cardBodyStyle}>
+                            <p style={descriptionStyle}>Marble day or torchlit night — a device preference, never part of your save.</p>
+                            <SegmentedControl
+                                ariaLabel="Lighting: marble day or torchlit night"
+                                options={LIGHTING_OPTIONS}
+                                value={isNox ? 'nox' : 'lux'}
+                                onChange={(value) => onSetIsNox(value === 'nox')}
+                            />
                         </div>
                     </Card>
 
                     <Card gilt title="Game Master Console">
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            <p style={descriptionStyle}>The behind-the-curtain ledger — every thread and die of the simulation, plus free-text GM guidance.</p>
                             <Switch
                                 id="settings-gm-console-enabled"
                                 checked={gmConsoleEnabled}
@@ -195,6 +221,26 @@ const SettingsMenu: React.FC<{
                             />
                         </div>
                     </Card>
+
+                    {import.meta.env.DEV && (
+                        <Card gilt title="Developer">
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                <p style={descriptionStyle}>Dev-build tools — this card never appears in a production build.</p>
+                                <Switch
+                                    id="mock-toggle"
+                                    checked={isMockMode}
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => onSetIsMockMode(e.target.checked)}
+                                    label={<span>Mock Mode <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>— play keyless against canned responses</span></span>}
+                                />
+                                <Switch
+                                    id="gm-console-toggle"
+                                    checked={gmConsoleOpen}
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => onSetGmConsoleOpen(e.target.checked)}
+                                    label={<span>GM console on now <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>— no-op while unavailable above</span></span>}
+                                />
+                            </div>
+                        </Card>
+                    )}
                 </div>
             </div>
         </div>

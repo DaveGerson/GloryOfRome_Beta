@@ -86,9 +86,17 @@ async function mount(state = appSave(), openPrivateScene = true): Promise<HTMLDi
   return container;
 }
 
+// The dev-only Mock Mode / GM-console runtime switches live in the
+// configuration menu's Developer card since the options-consolidation pass.
+async function clickDevSwitch(container: HTMLElement, id: string): Promise<void> {
+  await click(container.querySelector<HTMLButtonElement>('[aria-label="Open configuration menu"]')!);
+  await click(container.querySelector<HTMLInputElement>(id)!);
+  await click(container.querySelector<HTMLButtonElement>('[aria-label="Close configuration menu"]')!);
+}
+
 async function mountForMacroTurn(state: SaveGameState): Promise<HTMLDivElement> {
   const container = await mount(state, false);
-  await click(container.querySelector<HTMLInputElement>('#mock-toggle')!);
+  await clickDevSwitch(container, '#mock-toggle');
   return container;
 }
 
@@ -456,7 +464,7 @@ describe('private-scene App transaction boundary', () => {
     const macro = container.querySelector<HTMLTextAreaElement>('[aria-label="Chat input"]')!;
     macro.disabled = false;
     await setValue(macro, 'Force a macro action');
-    const submit = button(container, 'Send message'); submit.disabled = false;
+    const submit = container.querySelector<HTMLButtonElement>('[aria-label="Send message"]')!; submit.disabled = false;
     await click(submit); await flush();
     expect(mockRunNewTurn).not.toHaveBeenCalled();
     expect(loadGame()!.state.turnNumber).toBe(3);
@@ -475,7 +483,7 @@ describe('private-scene App transaction boundary', () => {
     // Close only the presentation. The active scene remains committed and
     // must continue to own the central mutation barrier.
     await click(container.querySelector<HTMLButtonElement>('[aria-label="Close private scene"]')!);
-    await click(container.querySelector<HTMLInputElement>('#gm-console-toggle')!);
+    await clickDevSwitch(container, '#gm-console-toggle');
     await click(button(container, 'GM Log'));
     const storage = vi.spyOn(Storage.prototype, 'setItem');
 

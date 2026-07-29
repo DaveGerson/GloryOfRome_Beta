@@ -66,6 +66,14 @@
 .gor-card-gilt .gor-card-title{color:var(--gold-700)}
 .gor-dialog-head h2{color:var(--tyrian-600)}
 .gor-tab:focus-visible{box-shadow:var(--focus-ring)}
+.gor-seg{display:inline-flex;align-items:stretch;width:fit-content;border:1px solid var(--border-strong);border-radius:var(--radius-sm);overflow:hidden;font-family:var(--font-display);font-size:12px;font-weight:600;letter-spacing:.12em}
+.gor-seg-lead{display:inline-flex;align-items:center;padding:7px 12px;background:var(--surface-card);color:var(--gold-700);text-transform:uppercase}
+.gor-seg-btn{border:none;cursor:pointer;font-family:inherit;font-size:inherit;font-weight:inherit;letter-spacing:inherit;text-transform:uppercase;padding:7px 12px;background:var(--surface-card);color:var(--text-muted);transition:background var(--duration-fast) var(--ease-standard),color var(--duration-fast) var(--ease-standard)}
+.gor-seg-btn+.gor-seg-btn,.gor-seg-lead+.gor-seg-btn{border-left:1px solid var(--border-subtle)}
+.gor-seg-btn:hover:not(:disabled){color:var(--text-heading)}
+.gor-seg-btn[aria-pressed="true"]{background:var(--gold-600);color:#241C11}
+.gor-seg-btn:focus-visible{outline:none;box-shadow:var(--focus-ring)}
+.gor-seg-btn:disabled{cursor:not-allowed;opacity:.55}
 .gor-meter{display:flex;flex-direction:column;gap:5px}
 .gor-meter-track{position:relative;height:12px;background:var(--surface-inset);border:1px solid rgba(58,49,37,.3);border-radius:var(--radius-sm);overflow:hidden;box-shadow:var(--shadow-inset)}
 .gor-meter-track::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 calc(10% - 1px),rgba(19,16,9,.15) calc(10% - 1px) 10%);pointer-events:none}
@@ -101,8 +109,9 @@
 .gor-msg-monologue{background:rgba(255,254,249,.5);border:1px dashed var(--border-strong);color:var(--text-muted);font-style:italic;border-radius:var(--radius-md);text-align:center}
 .gor-msg-kicker{font-family:var(--font-epic);font-weight:700;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--text-muted);text-align:center;margin-bottom:5px}
 .gor-pill{display:inline-flex;align-items:center;gap:8px;font-family:var(--font-display);font-weight:600;font-size:13px;letter-spacing:.05em;padding:9px 16px;background:linear-gradient(180deg,#FFFEF9,#EFEBDC);border:1px solid var(--border-strong);clip-path:var(--chamfer-sm);cursor:pointer;color:var(--gold-700);transition:color var(--duration-fast) var(--ease-standard),border-color var(--duration-fast) var(--ease-standard),filter var(--duration-fast) var(--ease-standard);animation:gorRise .4s ease-out both}
-.gor-pill:hover{color:var(--tyrian-500);border-color:var(--tyrian-400);filter:brightness(1.03)}
-.gor-pill:active{transform:translateY(1px)}
+.gor-pill:hover:not(:disabled){color:var(--tyrian-500);border-color:var(--tyrian-400);filter:brightness(1.03)}
+.gor-pill:active:not(:disabled){transform:translateY(1px)}
+.gor-pill:disabled{cursor:not-allowed;opacity:.55}
 .gor-typing{display:inline-flex;align-items:center;gap:12px;padding:12px 16px;background:var(--surface-card);border:1px solid var(--border-faint);border-left:4px solid var(--crimson-500);border-radius:var(--radius-md);box-shadow:var(--shadow-card);animation:gorFadeIn .5s ease-out both}
 .gor-typing-dots{display:flex;gap:5px}
 .gor-typing-dots span{width:7px;height:7px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#C04434,#8C1C13 70%);animation:gorBounce 1.2s infinite}
@@ -166,17 +175,11 @@ header>div:first-of-type>span{display:none!important} /* the two flanking Medall
 header>div:first-of-type>div{min-width:0}
 header>div:first-of-type>div>div:first-child{display:none} /* the "SENATVS · POPVLVSQUE · ROMANVS" kicker */
 header h1{font-size:20px!important}
-/* The dev-only Mock Mode/GM Console toolbar (import.meta.env.DEV) is
-   pinned top-right and would otherwise overlap the Settings button at
-   this width - drop it into the normal flow below the stats row instead
-   (header's own `text-align:center` centers it, being inline-flex). */
-header>span:last-child{position:static!important;margin:8px auto 0!important}
 .gor-dialog{width:calc(100% - 24px)}
 [aria-labelledby="gm-screen-title"]{width:calc(100% - 16px)!important;height:calc(100% - 16px)!important;padding:14px 14px 12px!important}
-/* App.tsx's chat-input row sits the ChatInput form beside the GM Log
-   button with no wrap - at this width the two together are wider than
-   the viewport (D7's GM console is off by default, so this only bites a
-   dev/tester who has it on). Selected structurally via the chat
-   textarea's stable id, since the row itself has no class of its own. */
-div:has(>form>#chat-input){flex-wrap:wrap}
+/* App.tsx's chat-input row sits the TurnComposer beside the Private
+   scene / GM Log buttons with no wrap - at this width they can exceed
+   the viewport together. Selected structurally via the chat textarea's
+   stable id, since the row itself has no class of its own. */
+div:has(>div>form>#chat-input){flex-wrap:wrap}
 }

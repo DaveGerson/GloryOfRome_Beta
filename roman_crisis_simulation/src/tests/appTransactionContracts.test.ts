@@ -158,6 +158,18 @@ function buttonContaining(container: HTMLElement, text: string): HTMLButtonEleme
   return button as HTMLButtonElement;
 }
 
+// The dev-only Mock Mode / GM-console runtime switches live in the
+// configuration menu's Developer card since the options-consolidation pass
+// (they were Header pills before) - reach them through the menu the way a
+// developer does.
+async function clickDevSwitch(container: HTMLElement, id: string): Promise<void> {
+  await click(buttonNamed(container, 'Open configuration menu'));
+  const control = container.querySelector<HTMLInputElement>(id);
+  expect(control, `dev switch "${id}"`).not.toBeNull();
+  await click(control!);
+  await click(buttonNamed(container, 'Close configuration menu'));
+}
+
 function byAriaLabel<T extends Element>(container: HTMLElement, label: string): T {
   const control = container.querySelector(`[aria-label="${label}"]`);
   expect(control, `control with aria-label="${label}"`).not.toBeNull();
@@ -256,10 +268,12 @@ async function renderApp(continueSave: boolean, mockMode = true): Promise<HTMLDi
   await click(buttonNamed(container, 'Continue Your Reign'));
   await waitFor(() => expect(container.querySelector('[aria-label="Chat input"]')).not.toBeNull());
   if (mockMode) {
+    await click(buttonNamed(container, 'Open configuration menu'));
     const mockToggle = container.querySelector<HTMLInputElement>('#mock-toggle');
     expect(mockToggle).not.toBeNull();
     await click(mockToggle!);
     expect(mockToggle!.checked).toBe(true);
+    await click(buttonNamed(container, 'Close configuration menu'));
   }
   return container;
 }
@@ -610,7 +624,7 @@ describe('App non-turn save atomicity', () => {
   it('persists a GM directive immediately, with the v1 buildSaveState shape and one confirmation', async () => {
     const container = await mountApp();
     await playOneTurn(container);
-    await click(container.querySelector<HTMLInputElement>('#gm-console-toggle')!);
+    await clickDevSwitch(container, '#gm-console-toggle');
     await click(buttonNamed(container, 'GM Log'));
     const directive = 'The grain fleet arrives under armed escort.';
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Game Master Intervention Input'), directive);
@@ -624,7 +638,7 @@ describe('App non-turn save atomicity', () => {
   it('does not confirm or change a GM directive when both writes fail, and leaves the exact directive retryable', async () => {
     const container = await mountApp();
     await playOneTurn(container);
-    await click(container.querySelector<HTMLInputElement>('#gm-console-toggle')!);
+    await clickDevSwitch(container, '#gm-console-toggle');
     await click(buttonNamed(container, 'GM Log'));
     const before = localStorage.getItem('gloryOfRome:autosave');
     const beforeState = loadGame()!.state;
@@ -713,8 +727,7 @@ describe('App in-flight transaction barrier', () => {
   for (const outcome of ['resolve', 'reject'] as const) {
     it(`cancels custom-character ${outcome} after App unmount without child state writes or save replacement`, async () => {
       const container = await mountApp(makeAppSave(), false);
-      const mockToggle = container.querySelector<HTMLInputElement>('#mock-toggle')!;
-      await click(mockToggle);
+      await clickDevSwitch(container, '#mock-toggle');
       await click(buttonContaining(container, 'Create Your Own'));
       const description = `Custom lifecycle ${outcome}`;
       await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Custom character description'), description);
@@ -753,7 +766,7 @@ describe('App in-flight transaction barrier', () => {
   it('holds one shared mutex from intel request through durable commit and rejects forced cross-surface entry', async () => {
     const container = await mountApp();
     await playOneTurn(container, 'Establish the shared transaction baseline');
-    await click(container.querySelector<HTMLInputElement>('#gm-console-toggle')!);
+    await clickDevSwitch(container, '#gm-console-toggle');
     await click(buttonNamed(container, 'GM Log'));
     const directiveInput = byAriaLabel<HTMLTextAreaElement>(container, 'Game Master Intervention Input');
     const directiveButton = buttonNamed(container, 'Set Directive for Next Turn');
@@ -1042,7 +1055,7 @@ describe('App in-flight transaction barrier', () => {
 
   it('keeps one custom creation lease across duplicate submits, then restores the exact live draft for retry', async () => {
     const container = await mountApp(makeAppSave(), false);
-    await click(container.querySelector<HTMLInputElement>('#mock-toggle')!);
+    await clickDevSwitch(container, '#mock-toggle');
     await click(buttonContaining(container, 'Create Your Own'));
     const draft = 'A veteran jurist with an exact retryable history';
     const input = byAriaLabel<HTMLTextAreaElement>(container, 'Custom character description');
@@ -1203,7 +1216,7 @@ describe('App in-flight transaction barrier', () => {
         : entity),
     });
     const container = await mountApp(terminal, false);
-    await click(container.querySelector<HTMLInputElement>('#mock-toggle')!);
+    await clickDevSwitch(container, '#mock-toggle');
     await click(buttonNamed(container, 'Continue Your Reign'));
     await waitFor(() => expect(container.textContent).toContain('The Story Has Ended'));
     const before = localStorage.getItem('gloryOfRome:autosave');
@@ -1359,7 +1372,7 @@ describe('App in-flight transaction barrier', () => {
     await waitFor(() => expect(loadGame()!.state.turnNumber).toBe(5));
 
     expect(loadGame()!.state.inferredAmbition).toEqual({ ...newestAmbition, asOfTurn: 3 });
-    await click(container.querySelector<HTMLInputElement>('#gm-console-toggle')!);
+    await clickDevSwitch(container, '#gm-console-toggle');
     await click(buttonNamed(container, 'GM Log'));
     expect(container.textContent).toContain('PRESERVE THE LATEST AMBITION');
     await click(buttonNamed(container, 'Close Game Master screen'));
@@ -1368,7 +1381,7 @@ describe('App in-flight transaction barrier', () => {
     await act(async () => oldInstance.root.unmount());
     oldInstance.container.remove();
     const reloaded = await renderApp(true);
-    await click(reloaded.querySelector<HTMLInputElement>('#gm-console-toggle')!);
+    await clickDevSwitch(reloaded, '#gm-console-toggle');
     await click(buttonNamed(reloaded, 'GM Log'));
     expect(reloaded.textContent).toContain('PRESERVE THE LATEST AMBITION');
     expect(loadGame()!.state.turnNumber).toBe(5);
@@ -1378,7 +1391,7 @@ describe('App in-flight transaction barrier', () => {
   it('keeps a failed non-turn alert until the next turn is durably committed, then clears it', async () => {
     const container = await mountApp();
     await playOneTurn(container, 'Create a GM history entry');
-    await click(container.querySelector<HTMLInputElement>('#gm-console-toggle')!);
+    await clickDevSwitch(container, '#gm-console-toggle');
     await click(buttonNamed(container, 'GM Log'));
     const directiveButton = buttonNamed(container, 'Set Directive for Next Turn');
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Game Master Intervention Input'), 'This write will fail.');
@@ -1414,7 +1427,7 @@ describe('App in-flight transaction barrier', () => {
     it(`visibly and at handler level rejects Deep Analysis, investigation, and GM writes during a turn that ends in ${outcome}`, async () => {
       const container = await mountApp();
       await playOneTurn(container, 'Create one ledger entry');
-      await click(container.querySelector<HTMLInputElement>('#gm-console-toggle')!);
+      await clickDevSwitch(container, '#gm-console-toggle');
       await click(buttonNamed(container, 'GM Log'));
       const directiveInput = byAriaLabel<HTMLTextAreaElement>(container, 'Game Master Intervention Input');
       const directiveButton = buttonNamed(container, 'Set Directive for Next Turn');
@@ -2011,7 +2024,7 @@ describe('App commit-site success paths clear the transaction alert (Task 7 pins
   it('clears the GM directive alert when the same directive retry durably commits [REGRESSION PIN]', async () => {
     const container = await mountApp();
     await playOneTurn(container);
-    await click(container.querySelector<HTMLInputElement>('#gm-console-toggle')!);
+    await clickDevSwitch(container, '#gm-console-toggle');
     await click(buttonNamed(container, 'GM Log'));
     const directive = 'Clear this alert on durable success.';
     const input = byAriaLabel<HTMLTextAreaElement>(container, 'Game Master Intervention Input');

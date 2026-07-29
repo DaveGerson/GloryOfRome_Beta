@@ -591,5 +591,6 @@ starts from ground truth:
    `roadmaps/ROADMAP_PHASE_4.md`). **Game-over/epilogue screen**: SHIPPED, see
    `components/EpilogueScreen.tsx` and `GameState.GAME_OVER`. **Persistent NPC dossiers**: still
    unbuilt — Dramatis Personae intel is still component-local state (see S2b Tab 4). **Rumor
-   feed**: still unbuilt. **Settings surface**: still unbuilt as a unified surface; the pieces that
-   exist (LVX/NOX toggle, Mock Mode / GM Console dev checkboxes) are scattered, not consolidated.)*
+   feed**: still unbuilt. **Settings surface**: SHIPPED as the consolidated configuration menu
+   (D31/D43, `components/SettingsMenu.tsx`) — pacing, lighting, GM toggles, API key, and the
+   dev-only Mock Mode / GM-console switches all live there; the floating chrome is gone.)*
