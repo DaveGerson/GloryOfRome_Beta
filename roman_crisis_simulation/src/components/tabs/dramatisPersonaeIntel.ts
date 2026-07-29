@@ -28,6 +28,21 @@ export function priceInvestigation(
   return { cost: FIRST_INVESTIGATION_COST, held };
 }
 
+/**
+ * The week a dossier aspect was first opened, or null if nothing is on file.
+ * Feeds the broken seal's "On file since Week IX — may be stale" caption
+ * (audit item 26). Deliberately separate from `priceInvestigation`, whose
+ * return shape is pinned by dramatisPersonaeIntel.test.ts.
+ */
+export function heldSinceTurn(
+  knowledge: KnowledgeClaim[],
+  targetId: string,
+  kind: InvestigationKind
+): number | null {
+  const entry = deriveDossier(knowledge, targetId).entries.find(e => e.kind === kind);
+  return entry ? entry.firstLearnedTurn : null;
+}
+
 /** The D28 scheme-discovery state the player has earned on a target, or undefined if nothing is known yet. Read model over the knowledge store, never live ground truth. */
 export function schemeDiscoveryFor(knowledge: KnowledgeClaim[], targetId: string): SchemeDiscovery | undefined {
   return deriveDossier(knowledge, targetId).entries.find(e => e.kind === 'scheme')?.schemeDiscovery;

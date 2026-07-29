@@ -4,10 +4,9 @@ import { GoogleGenAI } from '@google/genai';
 import InfoTooltip from '../InfoTooltip';
 import { Card, Button } from '../ui/Core';
 import { Alert } from '../ui/Alert';
-import { toRoman } from '../ui/Brand';
 import { InvestigationKind, KnowledgeClaim, SCHEME_CLUES_TO_REVEAL } from '../../knowledge/store';
 import { isEntityKnownToPlayer, relationshipTimelineFor } from '../../knowledge/relationships';
-import { priceInvestigation, schemeDiscoveryFor, resolveIntelRequest, DEEP_ANALYSIS_COST } from './dramatisPersonaeIntel';
+import { priceInvestigation, heldSinceTurn, schemeDiscoveryFor, resolveIntelRequest, DEEP_ANALYSIS_COST } from './dramatisPersonaeIntel';
 import { quiet, IntelSection, SchemeIntelSection, DeepAnalysisSection } from './dramatisPersonaeUi';
 import RelationshipObservations from './RelationshipObservations';
 import type { DomainMutationContext, RunDomainMutation } from '../../state/domainMutation';
@@ -31,6 +30,9 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
   const [uncoveredIntel, setUncoveredIntel] = useState<UncoveredIntel>({});
   const [loadingState, setLoadingState] = useState<'secrets' | 'beliefs' | 'scheme' | 'deep_analysis' | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
+  // One ❧ Glossary control per dossier instead of five † daggers (audit item
+  // 25) - open it and every gloss in this card appears inline as marginalia.
+  const [glossaryOpen, setGlossaryOpen] = useState(false);
   const mountedRef = useRef(true);
   const price = (kind: InvestigationKind) => priceInvestigation(knowledge, entity.entity_id, kind);
   const schemeDiscovery = schemeDiscoveryFor(knowledge, entity.entity_id);
@@ -92,17 +94,33 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
   const investigations = (playerEntity.resources.investigations as number) || 0;
   const deepAnalyses = (playerEntity.resources.deep_analyses as number) || 0;
   return (
-    <Card title={entity.name} action={<Button size="sm" variant={isExpanded ? 'ghost' : 'secondary'} onClick={() => setIsExpanded(value => !value)}>{isExpanded ? 'Collapse' : 'Intel'}</Button>}>
+    <Card
+      title={entity.name}
+      // The Intel/Collapse control stays first in the header, and so first in
+      // the card's DOM order.
+      action={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+        <Button size="sm" variant={isExpanded ? 'ghost' : 'secondary'} onClick={() => setIsExpanded(value => !value)}>{isExpanded ? 'Collapse' : 'Intel'}</Button>
+        {isExpanded && (
+          <button
+            type="button"
+            className="gor-glossary-toggle"
+            aria-expanded={glossaryOpen}
+            aria-label={`${glossaryOpen ? 'Hide' : 'Show'} glossary for ${entity.name}`}
+            onClick={() => setGlossaryOpen(open => !open)}
+          >❧ Glossary</button>
+        )}
+      </span>}
+    >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <span style={quiet}>{entity.position || entity.entity_type}</span>
         <RelationshipObservations observations={observations} currentTurn={turnNumber} />
         {requestError && <Alert title="Your agents return empty-handed">{requestError}</Alert>}
         {isExpanded && <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 8, borderTop: '1px solid var(--border-faint)' }}>
           <span className="gor-label" style={{ color: 'var(--tyrian-500)' }}>Intelligence Briefing</span>
-          <IntelSection title="Beliefs" {...price('beliefs')} resourceName="Inv." resourceCount={investigations} uncoveredData={uncoveredIntel.beliefs} onUncover={() => handleRequest('beliefs')} isLoading={loadingState === 'beliefs'} interactionLocked={interactionLocked} tooltip="Uncover the core ideologies and principles that drive this character's decisions." />
-          <SchemeIntelSection discovery={schemeDiscovery} threshold={SCHEME_CLUES_TO_REVEAL} cost={price('scheme').cost} resourceCount={investigations} onInvestigate={() => handleRequest('scheme')} isLoading={loadingState === 'scheme'} interactionLocked={interactionLocked} tooltip="Piece together what this character is quietly plotting. Each investigation earns one clue toward its true nature." />
-          <IntelSection title="Secrets" {...price('secrets')} resourceName="Inv." resourceCount={investigations} uncoveredData={uncoveredIntel.secrets} onUncover={() => handleRequest('secrets')} isLoading={loadingState === 'secrets'} interactionLocked={interactionLocked} tooltip="Use high-risk, high-reward investigation to uncover hidden fears, blackmail material, or secret plots." />
-          <DeepAnalysisSection analysis={uncoveredIntel.deep_analysis} cost={DEEP_ANALYSIS_COST} resourceCount={deepAnalyses} onCommission={() => handleRequest('deep_analysis')} isLoading={loadingState === 'deep_analysis'} interactionLocked={interactionLocked} />
+          <IntelSection title="Beliefs" {...price('beliefs')} heldSinceTurn={heldSinceTurn(knowledge, entity.entity_id, 'beliefs')} resourceName="Inv." resourceCount={investigations} uncoveredData={uncoveredIntel.beliefs} onUncover={() => handleRequest('beliefs')} isLoading={loadingState === 'beliefs'} interactionLocked={interactionLocked} showGloss={glossaryOpen} tooltip="Uncover the core ideologies and principles that drive this character's decisions." />
+          <SchemeIntelSection discovery={schemeDiscovery} threshold={SCHEME_CLUES_TO_REVEAL} cost={price('scheme').cost} resourceCount={investigations} onInvestigate={() => handleRequest('scheme')} isLoading={loadingState === 'scheme'} interactionLocked={interactionLocked} showGloss={glossaryOpen} tooltip="Piece together what this character is quietly plotting. Each investigation earns one clue toward its true nature." />
+          <IntelSection title="Secrets" {...price('secrets')} heldSinceTurn={heldSinceTurn(knowledge, entity.entity_id, 'secrets')} resourceName="Inv." resourceCount={investigations} uncoveredData={uncoveredIntel.secrets} onUncover={() => handleRequest('secrets')} isLoading={loadingState === 'secrets'} interactionLocked={interactionLocked} showGloss={glossaryOpen} tooltip="Use high-risk, high-reward investigation to uncover hidden fears, blackmail material, or secret plots." />
+          <DeepAnalysisSection analysis={uncoveredIntel.deep_analysis} cost={DEEP_ANALYSIS_COST} resourceCount={deepAnalyses} onCommission={() => handleRequest('deep_analysis')} isLoading={loadingState === 'deep_analysis'} interactionLocked={interactionLocked} showGloss={glossaryOpen} />
         </div>}
       </div>
     </Card>
@@ -132,7 +150,10 @@ const DramatisPersonaeTab: React.FC<{ playerEntity: Entity | null; entities: Ent
   return <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
     <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
       <span style={quiet}>What is known — and what can be bought.</span>
-      <span className="gor-label" style={{ color: investigations > 0 ? 'var(--gold-700)' : 'var(--crimson-500)', whiteSpace: 'nowrap' }}>Investigations: {investigations > 0 ? toRoman(investigations) : 'None'}<InfoTooltip text="Your capacity for espionage. Spend to reveal beliefs, schemes, or secrets." /></span>
+      {/* The balance is money, so it is Arabic and tabular (audit item 24) —
+          Roman numerals stay on the week ribbon, the turn count and the
+          epilogue. The one † left in this view is on the term itself. */}
+      <span className="gor-label" style={{ color: investigations > 0 ? 'var(--gold-700)' : 'var(--crimson-500)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>Investigations: {investigations}<InfoTooltip text="Your capacity for espionage. Spend to reveal beliefs, schemes, or secrets." /></span>
     </span>
     {knownFactions.map(faction => <FactionSection key={faction.entity_id} faction={faction} members={knownLiving.filter(member => member.faction_id === faction.entity_id)} playerEntity={playerEntity} {...wiring} />)}
     {neutral.length > 0 && <><span className="gor-label">Other known figures</span>{neutral.map(entity => <EntityDetails key={entity.entity_id} entity={entity} playerEntity={playerEntity} {...wiring} />)}</>}
