@@ -219,6 +219,60 @@
 .gor-gauge{display:flex;flex-direction:column;gap:4px}
 .gor-gauge-track{display:block;height:3px;background:var(--surface-inset);box-shadow:var(--shadow-inset);overflow:hidden}
 .gor-gauge-fill{display:block;height:100%;background:var(--gold-600);transition:width var(--duration-slow) var(--ease-standard)}
+/* ── The panel sub-rail (audit items 34–37) ──
+   Four tabs mix two kinds of thing and want one small register switch. It must
+   read QUIETER than the Tyrian pennant tab bar above it, or the hierarchy
+   collapses: no metal, no pennant, a gold wash and a 2px underline. */
+.gor-subrail{display:flex;background:linear-gradient(180deg,rgba(201,162,39,.09),transparent);border-bottom:1px solid var(--border-subtle)}
+.gor-subrail-btn{all:unset;flex:1;box-sizing:border-box;cursor:pointer;text-align:center;padding:8px 6px;font-family:var(--font-display);font-size:10.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);border-bottom:2px solid transparent;margin-bottom:-1px;transition:color var(--duration-fast) var(--ease-standard)}
+.gor-subrail-btn:hover{color:var(--text-heading)}
+.gor-subrail-btn-on{color:var(--gold-700);border-bottom-color:var(--gold-600)}
+.gor-subrail-btn:focus-visible{box-shadow:var(--focus-ring)}
+.gor-subrail-count{margin-left:6px;color:var(--parchment-400);font-variant-numeric:tabular-nums}
+.gor-subrail-count-leverage{color:var(--crimson-500)}
+
+/* ── Assets (audit items 21–23, 34) ── */
+.gor-hero-well{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:12px;padding:12px 14px;background:var(--surface-inset);box-shadow:var(--shadow-inset);border-radius:var(--radius-sm)}
+.gor-hero{display:flex;flex-direction:column;gap:3px;min-width:0}
+.gor-hero-value{font-family:var(--font-body);font-size:21px;font-variant-numeric:tabular-nums;color:var(--text-heading);line-height:1.1}
+.gor-hero-pips{display:block;padding-top:5px}
+.gor-hero-pips .gor-pips{margin-left:0;flex-wrap:wrap}
+/* Leverage is a shelf of sealed letters, not a row of numbers (item 22). */
+.gor-letter{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid rgba(179,58,43,.4);background:rgba(140,28,19,.05);border-radius:var(--radius-sm)}
+
+/* ── Reports grouped by subject (audit items 28, 35) ── */
+.gor-report-group{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid var(--border-faint);border-radius:var(--radius-md);background:var(--surface-card)}
+.gor-report-group-conflict{border:1px solid rgba(179,58,43,.45)}
+.gor-report-group-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.gor-report-subject{font-family:var(--font-display);font-size:12.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text-heading)}
+.gor-verdict{font-family:var(--font-display);font-size:10.5px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);padding:2px 8px;border-radius:var(--radius-sm)}
+.gor-verdict-agree{color:var(--laurel-500);background:rgba(90,107,59,.09)}
+.gor-verdict-conflict{color:#7A1810;background:rgba(140,28,19,.09)}
+.gor-report{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-top:1px solid var(--border-faint)}
+.gor-report-source{font-family:var(--font-display);font-size:13px;font-weight:700;letter-spacing:.06em;color:var(--text-heading)}
+.gor-report-week{flex:none;font-family:var(--font-display);font-size:9.5px;letter-spacing:.12em;color:var(--parchment-400)}
+/* The rumour mill carries no wax at all. */
+.gor-seal-unsealed{width:30px;height:30px;flex:none;display:inline-grid;place-items:center;border:1px dashed var(--border-strong);border-radius:46% 54% 52% 48%/52% 46% 54% 48%;color:var(--parchment-400);font-size:13px}
+
+/* ── The Chronicle's spine (audit item 37) ──
+   One continuous rule down the register, not a gold edge repeated per entry. */
+.gor-spine{position:relative;display:flex;flex-direction:column;gap:14px;padding-left:22px}
+.gor-spine::before{content:"";position:absolute;left:3px;top:4px;bottom:4px;width:2px;background:linear-gradient(180deg,var(--gold-500),rgba(201,162,39,.15))}
+.gor-spine-row{position:relative;display:flex;flex-direction:column;gap:2px}
+.gor-spine-mark{position:absolute;left:-22px;top:5px;width:8px;height:8px;border-radius:50%;background:var(--gold-500);box-shadow:0 0 0 3px var(--surface-page)}
+.gor-spine-mark-fate{left:-23px;width:10px;height:10px;border-radius:46% 54% 52% 48%/52% 46% 54% 48%;background:var(--seal-tyrian)}
+.gor-spine-mark-end{background:var(--seal-crimson)}
+.gor-spine-mark-collapsed{background:transparent;border:2px solid var(--border-strong);box-shadow:none}
+.gor-spine-badge{margin-left:8px;font-size:9.5px;letter-spacing:.14em;color:var(--tyrian-500)}
+.gor-spine-badge-end{color:var(--crimson-500)}
+
+/* ── Item 23 · the RECKONED register, and item 27's blanked vellum ── */
+.gor-reckoned{display:flex;flex-direction:column;gap:5px}
+.gor-reckoned-track{display:block;height:7px;border:1px dashed var(--border-strong);border-radius:var(--radius-sm);background:transparent}
+.gor-reckoned-mark{margin-left:7px;font-size:9px;color:var(--tyrian-500)}
+.gor-vellum{background:repeating-linear-gradient(102deg,rgba(169,154,118,.09) 0 1px,transparent 1px 6px),var(--surface-card);border-style:dashed;border-color:var(--border-strong)}
+.gor-vellum-name{font-family:var(--font-display);font-weight:600;font-size:14px;letter-spacing:.06em;text-transform:uppercase;color:transparent;-webkit-text-stroke:.6px var(--parchment-400)}
+
 /* ── The dossier folio (audit items 24–26) ──
    Three aspects, three silhouettes, so a glance tells them apart. */
 .gor-silhouette{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--radius-sm)}

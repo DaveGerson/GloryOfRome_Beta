@@ -115,3 +115,97 @@ export function reportReliability(
     phrase: sourceCertaintyPhrase(report.source, report.credibility),
   };
 }
+
+/**
+ * The lead of the source phrase on its own — "Your agent", "A courier", "The
+ * rumour mill" — so a report card can be titled by WHO said it rather than by
+ * "Turn 5", the least useful fact available (audit item 35 / item 28). Still
+ * one-way: it reads only `source`, never the figure.
+ */
+export function sourceLead(source: ReportSource): string {
+  return SOURCE_LEAD[source];
+}
+
+/**
+ * The certainty clause alone, for a card that already names its source in the
+ * title and would otherwise repeat it in the line beneath.
+ */
+export function certaintyClause(credibility: number): string {
+  return CERTAINTY_CLAUSE[certaintyBand(credibility)];
+}
+
+/**
+ * How a source's register reads at a glance (audit item 28): a firm agent is
+ * sealed in crimson, a courier in Tyrian, and the rumour mill is not sealed at
+ * all. Source + band, never the figure.
+ */
+export type ReportSeal = 'crimson' | 'tyrian' | 'unsealed';
+
+export function reportSeal(report: { source: ReportSource; credibility: number }): ReportSeal {
+  if (report.source === 'rumor') return 'unsealed';
+  if (certaintyBand(report.credibility) === 'doubtful') return 'unsealed';
+  return report.source === 'spy' || report.source === 'scout' ? 'crimson' : 'tyrian';
+}
+
+/**
+ * What a GROUP of reports about one subject amounts to — D25 states plainly
+ * that "corroborating or conflicting sources are the signal", and until now
+ * the panel listed reports flat and reverse-chronological so three accounts of
+ * the Praetorian Guard, the third contradicting the first two, looked like
+ * three unrelated cards.
+ *
+ * Derived here rather than in the component, and deliberately from structural
+ * metadata only:
+ *   - `stance` (D29) is explicitly player-safe structural data — it says a
+ *     follow-up BACKS or REFUTES the running claim, never whether either is
+ *     true;
+ *   - `topic` separates distinct matters about one subject;
+ *   - certainty RANK (not the number) orders which account outweighs which.
+ *
+ * `credibility` is consumed inside this module and never re-emitted, so no
+ * number can reach the player through this path (D25/D26).
+ */
+export type CorroborationVerdict = 'agree' | 'conflict' | 'single';
+
+export interface GroupCorroboration {
+  verdict: CorroborationVerdict;
+  /** How many accounts the group holds — a count of sources, not a score. */
+  sources: number;
+}
+
+export function corroboration(
+  reports: readonly { source: ReportSource; credibility: number; topic?: string; stance?: 'corroborates' | 'contradicts' }[],
+): GroupCorroboration {
+  if (reports.length <= 1) return { verdict: 'single', sources: reports.length };
+  if (reports.some(report => report.stance === 'contradicts')) {
+    return { verdict: 'conflict', sources: reports.length };
+  }
+  // Absent an explicit stance, two accounts of the SAME topic that sit in
+  // opposite certainty bands are treated as an unresolved disagreement rather
+  // than as agreement — the player should see that the accounts do not sit
+  // easily together, without ever seeing why in figures.
+  const byTopic = new Map<string, Set<CertaintyBand>>();
+  for (const report of reports) {
+    const key = report.topic ?? '';
+    const bands = byTopic.get(key) ?? new Set<CertaintyBand>();
+    bands.add(certaintyBand(report.credibility));
+    byTopic.set(key, bands);
+  }
+  for (const bands of byTopic.values()) {
+    if (bands.has('firm') && bands.has('doubtful')) return { verdict: 'conflict', sources: reports.length };
+  }
+  return { verdict: 'agree', sources: reports.length };
+}
+
+/**
+ * Whether one account in a group sits below a higher-certainty account of the
+ * same topic — the "— and it contradicts the two above." note. Rank only.
+ */
+export function contradictsHigherCertainty(
+  report: { credibility: number; topic?: string; stance?: 'corroborates' | 'contradicts' },
+  group: readonly { credibility: number; topic?: string }[],
+): boolean {
+  if (report.stance !== 'contradicts') return false;
+  const rank = certaintyRank(report.credibility);
+  return group.some(other => (other.topic ?? '') === (report.topic ?? '') && certaintyRank(other.credibility) > rank);
+}

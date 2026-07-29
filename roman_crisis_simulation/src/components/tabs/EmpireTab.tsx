@@ -1,10 +1,15 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { WorldState, RegionState, Entity } from '../../types';
 import GlossaryTooltip from '../GlossaryTooltip';
 import { Card } from '../ui/Core';
+import { SubRail } from '../ui/SubRail';
 import { isRegionKnownToPlayer } from './WorldStateTab';
 import { isEntityKnownToPlayer } from '../../knowledge/relationships';
 import type { KnowledgeClaim } from '../../knowledge/store';
+import { getTabRegister, setTabRegister } from '../../persistence/uiPrefs';
+
+const REGISTERS = ['rome', 'provinces'] as const;
+type EmpireRegister = typeof REGISTERS[number];
 
 const locationGlossary = {
     'Palatine Hill': {
@@ -35,6 +40,23 @@ const statusTone = (stability: string): string => {
 };
 
 /**
+ * Item 23's RECKONED register: a reading the player's agents estimated rather
+ * than counted. A dashed track with a Tyrian ◆ where a solid meter's numeral
+ * would be, so an uncertain reading never wears the clothes of a certain one.
+ */
+const ReckonedReadout: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+    <div className="gor-reckoned">
+        <div className="gor-meter-row">
+            <span className="gor-label">{label}</span>
+            <span style={{ fontSize: 15, fontStyle: 'italic', color: 'var(--text-heading)' }}>
+                {value}<span aria-hidden="true" className="gor-reckoned-mark">◆</span>
+            </span>
+        </div>
+        <span className="gor-reckoned-track" aria-hidden="true" />
+    </div>
+);
+
+/**
  * D5 - the same locality/network sight rule as WorldStateTab
  * (isRegionKnownToPlayer): full detail only for regions the player stands
  * in or has network eyes on; everything else is a name and nothing more.
@@ -47,11 +69,51 @@ const EmpireTab: React.FC<{
     playerEntity: Entity | null;
     knowledge: KnowledgeClaim[];
 }> = ({ worldState, entities, playerEntity, knowledge }) => {
+    const [register, setRegister] = useState<EmpireRegister>(() => getTabRegister('locations', REGISTERS, 'rome'));
     const knownEntities = playerEntity
         ? entities.filter(entity => isEntityKnownToPlayer(playerEntity, entity, knowledge))
         : [];
 
+    const regionNames = Object.keys(worldState.regions);
+    const knownCount = playerEntity
+        ? regionNames.filter(name => isRegionKnownToPlayer(name, playerEntity, entities)).length
+        : 0;
+
+    const selectRegister = (next: EmpireRegister) => {
+        setRegister(next);
+        setTabRegister('locations', next);
+    };
+
+    const rail = (
+        <SubRail
+            ariaLabel="Empire register"
+            value={register}
+            onChange={selectRegister}
+            options={[
+                { value: 'rome', label: 'Rome', count: knownCount },
+                { value: 'provinces', label: 'The Provinces' },
+            ]}
+        />
+    );
+
+    if (register === 'provinces') {
+        return <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {rail}
+            <h3 className="gor-label" style={{ color: 'var(--crimson-500)' }}>The state of the Empire</h3>
+            {/* Item 23's RECKONED register: these two are the model's own free
+                prose, not figures the simulation holds, so they get a hedged
+                phrase behind a dashed track and a Tyrian ◆ — never a
+                false-precise number. */}
+            <ReckonedReadout label="Economic Stability" value={worldState.economic_stability} />
+            <ReckonedReadout label="Political Climate" value={worldState.political_climate} />
+            <p style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--text-muted)', margin: 0 }}>
+                ◆ marks a reading your agents reckoned rather than counted.
+            </p>
+        </div>;
+    }
+
     return <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {rail}
         <h3 className="gor-label" style={{ color: 'var(--crimson-500)' }}>Locations in Rome</h3>
         {Object.entries(worldState.regions).map(([name, region]: [string, RegionState]) => {
             const glossaryEntry = locationGlossary[name as keyof typeof locationGlossary];
@@ -63,9 +125,12 @@ const EmpireTab: React.FC<{
             const known = playerEntity ? isRegionKnownToPlayer(name, playerEntity, entities) : false;
 
             if (!known) {
+                // Item 27: blanked vellum at FULL opacity, not opacity:.6 —
+                // a dimmed card reads as "disabled", when what this actually
+                // means is "unwritten".
                 return (
-                    <div key={name} className="gor-card" style={{ padding: '10px 14px', opacity: 0.6 }}>
-                        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 14, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>{title}</span>
+                    <div key={name} className="gor-card gor-vellum" style={{ padding: '10px 14px' }}>
+                        <span className="gor-vellum-name">{title}</span>
                         <p style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--text-muted)', margin: '3px 0 0' }}>Beyond your sight - no word has reached you from here.</p>
                     </div>
                 );

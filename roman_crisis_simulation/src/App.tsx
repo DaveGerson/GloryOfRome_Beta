@@ -1794,6 +1794,7 @@ const App: React.FC = () => {
                             ai={ai}
                             isMockMode={isMockMode}
                             eventHistory={eventHistory}
+                            turnHistory={turnHistory}
                             pulsingTabs={pulsingTabs}
                         />
                     </>

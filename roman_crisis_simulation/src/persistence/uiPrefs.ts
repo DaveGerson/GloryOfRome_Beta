@@ -87,3 +87,35 @@ export function setComposerMode(mode: 'chat' | 'structured'): void {
     console.warn('setComposerMode: localStorage.setItem failed', e);
   }
 }
+
+/**
+ * Which sub-register a panel tab was last left on (audit items 34-37) -
+ * Assets, Reports, Empire and Chronicle each carry a small register switch,
+ * and it should still be where the player left it after a reload. A device
+ * preference in exactly the same mold as the composer mode above: never save
+ * state, never campaign data.
+ *
+ * The valid registers differ per tab and change with the design, so the
+ * CALLER supplies its own allowed list and the stored value is only returned
+ * when it is still one of them; anything else falls back to the caller's
+ * default. That keeps a stale value from a previous build harmless.
+ */
+const TAB_REGISTER_KEY_PREFIX = 'gloryOfRome:tabRegister:';
+
+export function getTabRegister<T extends string>(tabId: string, allowed: readonly T[], fallback: T): T {
+  try {
+    const stored = localStorage.getItem(`${TAB_REGISTER_KEY_PREFIX}${tabId}`);
+    return allowed.includes(stored as T) ? (stored as T) : fallback;
+  } catch (e) {
+    console.warn(`getTabRegister(${tabId}): localStorage.getItem failed`, e);
+    return fallback;
+  }
+}
+
+export function setTabRegister(tabId: string, register: string): void {
+  try {
+    localStorage.setItem(`${TAB_REGISTER_KEY_PREFIX}${tabId}`, register);
+  } catch (e) {
+    console.warn(`setTabRegister(${tabId}): localStorage.setItem failed`, e);
+  }
+}

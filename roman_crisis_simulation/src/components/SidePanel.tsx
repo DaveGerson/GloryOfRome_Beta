@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { GameState, Entity, InvestigationResult, WorldState, Report, EventHistoryEntry, SimulationState } from '../types';
+import { GameState, Entity, InvestigationResult, WorldState, Report, EventHistoryEntry, SimulationState, TurnHistoryEntry } from '../types';
 import { GoogleGenAI } from "@google/genai";
 import CurrentEventsTab from './tabs/CurrentEventsTab';
 import DramatisPersonaeTab from './tabs/DramatisPersonaeTab';
@@ -50,6 +50,8 @@ const SidePanel: React.FC<{
     ai: GoogleGenAI;
     isMockMode: boolean;
     eventHistory: EventHistoryEntry[];
+    /** Every week the player has played - the Chronicle's Reign register is built from it (audit item 37). */
+    turnHistory: TurnHistoryEntry[];
     /** Tabs whose underlying data was touched by a VISIBLE change in the
      * most recently committed turn (see perception/visibility.ts's
      * tabsForDelta and App.tsx's pulsingTabs). Gets a brief CSS pulse so the
@@ -57,7 +59,7 @@ const SidePanel: React.FC<{
      * filter didn't already let through - this set is built strictly from
      * buildPlayerPerceivedDigest's output, never raw deltas. */
     pulsingTabs: Set<TabId>;
-}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, pulsingTabs }) => {
+}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, turnHistory, pulsingTabs }) => {
     const [activeTab, setActiveTab] = useState<TabId>('world_state');
     // Tabs the player has already looked at since the current pulsingTabs
     // set arrived - clicking a pulsing tab dismisses its own pulse
@@ -116,7 +118,7 @@ const SidePanel: React.FC<{
                 {activeTab === 'world_state' && <WorldStateTab simulationState={simulationState} worldState={worldState} entities={entities} playerEntity={playerEntity} currentEvents={currentEvents} />}
                 {activeTab === 'events' && <CurrentEventsTab events={currentEvents} playerEntity={playerEntity} allEntities={entities} ai={ai} isMockMode={isMockMode} />}
                 {activeTab === 'reports' && <ReportsTab reports={reports} />}
-                {activeTab === 'chronicle' && <ChronicleTab eventHistory={eventHistory} />}
+                {activeTab === 'chronicle' && <ChronicleTab eventHistory={eventHistory} turnHistory={turnHistory} reignEnded={gameState === GameState.GAME_OVER} />}
                 {activeTab === 'dramatis_personae' && <DramatisPersonaeTab
                     playerEntity={playerEntity}
                     entities={entities}
