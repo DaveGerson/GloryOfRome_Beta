@@ -553,3 +553,19 @@ matching `redactInventedPlayerProse`'s existing precedent; the `as
 Adjudication` casts at their call sites (`ai/core/turn.ts`'s
 `enforceNoAttemptBoundary`, `ai/mocks.ts`'s `gatedAdjudication` gate) are
 removed.
+
+## D43 - The configuration menu is the single home for every option
+The July 2026 options-consolidation pass (spec:
+`docs/superpowers/specs/2026-07-29-ui-options-consolidation-design.md`)
+supersedes D31's "Initial contents" list as a ceiling: the configuration
+menu is now the SINGLE home for every option, each with a visible
+description. The fixed bottom-right chrome (the D23 Fates pacing selector
+and the LVX/NOX lighting toggle) is deleted from `App.tsx`; pacing and
+lighting live in the menu as described cards. The dev-only Header pills
+(Mock Mode, the D7 GM-console runtime switch) move into a dev-build-only
+"Developer" card in the same menu; the Header keeps only the world stats
+and the single Settings affordance. Ctrl+Shift+G (D33) is unchanged.
+Storage contracts are untouched - every option remains a device/browser
+preference, never campaign state.
+*Supersedes:* D31's "exactly the initial contents" reading. *Refines:* D7
+(the discoverable dev backup switch now lives in the Developer card).

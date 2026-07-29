@@ -199,10 +199,14 @@ async function mountAppFromSave(state = makeAppSave()): Promise<HTMLDivElement> 
   await waitFor(() => expect(buttonNamed(container, 'Continue Your Reign')).not.toBeNull());
   await click(buttonNamed(container, 'Continue Your Reign'));
   await waitFor(() => expect(container.querySelector('[aria-label="Chat input"]')).not.toBeNull());
+  // Mock Mode moved into the configuration menu's Developer card in the
+  // options-consolidation pass - reach it through the menu.
+  await click(buttonNamed(container, 'Open configuration menu'));
   const mockToggle = container.querySelector<HTMLInputElement>('#mock-toggle');
   expect(mockToggle).not.toBeNull();
   await click(mockToggle!);
   expect(mockToggle!.checked).toBe(true);
+  await click(buttonNamed(container, 'Close configuration menu'));
   return container;
 }
 
@@ -717,8 +721,10 @@ describe('App turn-submission orchestration', () => {
     delete process.env.GEMINI_API_KEY;
     try {
       const container = await mountAppFromSave();
+      await click(buttonNamed(container, 'Open configuration menu'));
       await click(container.querySelector<HTMLInputElement>('#mock-toggle')!);
       expect(container.querySelector<HTMLInputElement>('#mock-toggle')!.checked).toBe(false);
+      await click(buttonNamed(container, 'Close configuration menu'));
       const before = localStorage.getItem('gloryOfRome:autosave');
       const original = '  Keyless real-mode draft\nkeeps whitespace  ';
       await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), original);
@@ -798,26 +804,30 @@ describe('App turn-submission orchestration', () => {
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Earn a GM Log');
     await click(buttonNamed(container, 'Send message'));
     await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
-    const toggle = container.querySelector<HTMLInputElement>('#gm-console-toggle')!;
-    await click(toggle);
+    // The GM console's runtime switch lives in the configuration menu's
+    // Developer card now; the menu stays open through the transitions below
+    // (the settings dialog and GM modal are independent overlay surfaces),
+    // and the switch node remounts with each menu open, so it is re-queried
+    // rather than captured once.
+    const toggle = () => container.querySelector<HTMLInputElement>('#gm-console-toggle')!;
+    await click(buttonNamed(container, 'Open configuration menu'));
+    await click(toggle());
     await click(buttonNamed(container, 'GM Log'));
     await waitFor(() => expect(container.querySelector('[role="dialog"][aria-labelledby="gm-screen-title"]')).not.toBeNull());
-    await click(buttonNamed(container, 'Open configuration menu'));
     await click(container.querySelector<HTMLInputElement>('#settings-gm-console-enabled')!);
     expect(container.querySelector('[role="dialog"][aria-labelledby="gm-screen-title"]')).toBeNull();
     await click(byAriaLabel<HTMLButtonElement>(container, 'Close configuration menu'));
     await click(buttonNamed(container, 'Open configuration menu'));
     await click(container.querySelector<HTMLInputElement>('#settings-gm-console-enabled')!);
-    await click(byAriaLabel<HTMLButtonElement>(container, 'Close configuration menu'));
     expect(container.querySelector('[role="dialog"][aria-labelledby="gm-screen-title"]')).toBeNull();
-    expect(container.querySelector('#gm-console-toggle')!.getAttribute('aria-checked')).not.toBe('true');
-    await click(toggle);
+    expect(toggle().getAttribute('aria-checked')).not.toBe('true');
+    await click(toggle());
     expect(container.querySelector('[role="dialog"][aria-labelledby="gm-screen-title"]')).toBeNull();
     await click(buttonNamed(container, 'GM Log'));
     await waitFor(() => expect(container.querySelector('[role="dialog"][aria-labelledby="gm-screen-title"]')).not.toBeNull());
-    await click(toggle);
+    await click(toggle());
     expect(container.querySelector('[role="dialog"][aria-labelledby="gm-screen-title"]')).toBeNull();
-    await click(toggle);
+    await click(toggle());
     expect(container.querySelector('[role="dialog"][aria-labelledby="gm-screen-title"]')).toBeNull();
     await click(buttonNamed(container, 'GM Log'));
     await waitFor(() => expect(container.querySelector('[role="dialog"][aria-labelledby="gm-screen-title"]')).not.toBeNull());

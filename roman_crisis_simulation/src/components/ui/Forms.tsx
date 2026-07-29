@@ -16,6 +16,43 @@ export const Radio: React.FC<RadioProps> =
         <label className="gor-check" style={style}><input type="radio" {...rest} />{label}</label>
     );
 
+export interface SegmentedOption<T extends string> {
+    value: T;
+    label: React.ReactNode;
+    /** Hover tooltip only — visible descriptions belong next to the control. */
+    title?: string;
+}
+
+type SegmentedControlProps<T extends string> = {
+    options: readonly SegmentedOption<T>[];
+    value: T;
+    onChange: (value: T) => void;
+    ariaLabel: string;
+    /** Optional non-interactive label chip rendered before the buttons. */
+    leading?: React.ReactNode;
+    disabled?: boolean;
+    style?: React.CSSProperties;
+};
+
+export function SegmentedControl<T extends string>({ options, value, onChange, ariaLabel, leading, disabled, style }: SegmentedControlProps<T>) {
+    return (
+        <div role="group" aria-label={ariaLabel} className="gor-seg" style={style}>
+            {leading && <span aria-hidden="true" className="gor-seg-lead">{leading}</span>}
+            {options.map(({ value: optionValue, label, title }) => (
+                <button
+                    key={optionValue}
+                    type="button"
+                    className="gor-seg-btn"
+                    aria-pressed={value === optionValue}
+                    title={title}
+                    disabled={disabled}
+                    onClick={() => onChange(optionValue)}
+                >{label}</button>
+            ))}
+        </div>
+    );
+}
+
 type TextareaProps = {
     label?: React.ReactNode;
     hint?: React.ReactNode;

@@ -236,8 +236,12 @@ describe('journey: player private scenes across audience, reload, and macro-turn
       }
 
       await appClick(appControl<HTMLButtonElement>(app.container, 'Close private scene'));
+      // The GM console's runtime switch lives in the configuration menu's
+      // Developer card since the options-consolidation pass.
+      await appClick(appButton(app.container, 'Open configuration menu'));
       const gmToggle = app.container.querySelector<HTMLInputElement>('#gm-console-toggle')!;
       if (!gmToggle.checked) await appClick(gmToggle);
+      await appClick(appButton(app.container, 'Close configuration menu'));
       await appClick(appButton(app.container, 'GM Log'));
       await appClick(appButton(app.container, 'private'));
       const gmLedger = appControl<HTMLElement>(app.container, 'Private scene GM ledger');

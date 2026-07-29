@@ -13,7 +13,10 @@ export function structuredSubmissionForHistory(text: string): HistorySubmission 
 }
 
 const fieldStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4 };
-const labelStyle: React.CSSProperties = { fontWeight: 700, fontSize: 12, letterSpacing: '.04em', textTransform: 'uppercase' };
+// Rendered inside gor-msg bubbles (player history) and the GM screen alike,
+// so the label rides the shared .gor-label look with a slight size bump for
+// in-bubble legibility.
+const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', opacity: .75 };
 const listStyle: React.CSSProperties = { margin: 0, paddingLeft: 18 };
 
 function recipientLabel(

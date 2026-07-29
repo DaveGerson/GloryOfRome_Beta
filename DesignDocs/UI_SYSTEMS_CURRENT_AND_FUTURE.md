@@ -547,10 +547,11 @@ believe what Maximinus did" viral artifact the Funness roadmap's vision calls fo
 
 **12.3 Settings surface [P1 / S]** — A small modal for: theme (5.3), audio (11.2), text size,
 reduced motion, streaming on/off, and (dev) mock mode — replacing the header checkbox.
-*(Still not built as a unified settings modal — no such component exists. Individual pieces are
-scattered instead: a fixed-position LVX/NOX toggle (`App.tsx`, bottom-right, player-facing) covers
-theme (5.3); Mock Mode is still a bare dev-only Header checkbox, now joined by a second dev-only
-GM Console checkbox. No audio/text-size/reduced-motion/streaming-toggle controls found anywhere.)*
+*(SHIPPED as the consolidated configuration menu, July 2026 (D31/D43,
+`components/SettingsMenu.tsx`): API key, Fates pacing, LVX/NOX lighting, GM console/intervention
+availability, and a dev-build-only Developer card (Mock Mode + the GM-console runtime switch)
+all live there with visible descriptions; the fixed bottom-right chrome and the dev-only Header
+pills are gone. No audio/text-size/reduced-motion/streaming-toggle controls yet.)*
 
 **12.4 GM screen as "Director's Booth" [P2 / M]** — Rebrand the player-facing half (Intervention,
 Summary, Entity States) as an intentional sandbox-director feature with in-theme framing
