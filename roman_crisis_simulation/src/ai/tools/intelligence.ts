@@ -213,8 +213,8 @@ export const getStoryRelevance = async (ai: GoogleGenAI, turnNumber: number, pre
 };
 
 /**
- * Task 4 of the actors-attribution refactor (task-4-design.md section 2/3):
- * the STRIP moves out of this helper to ai/core/turn.ts's commit boundary,
+ * D42 (roadmaps/DESIGN_DECISIONS.md; task-4-design.md section 2/3): the
+ * STRIP moves out of this helper to ai/core/turn.ts's commit boundary,
  * so this now returns the raw `SimulationStateInterchange` (still carrying
  * `actors`) rather than the committed `SimulationState` - the caller must
  * gate `major_ongoing_crisis` against its declaration before stripping.

@@ -16,6 +16,11 @@ Legend for the retired machinery (all deleted per the approved plan):
 `PLAYER_OBJECT_PREDECESSORS`, `containsPlayerAttributedAction` and its
 per-part `and`/`but`/`that` subject inheritance.
 
+"`STATE_ADJECTIVES` apparatus" refers only to the clause-decomposition USAGE
+of that list (feeding the deleted possessed-condition/state-adjective
+classification machinery); the adjective LIST ITSELF survives as flat
+allowlist data feeding the tripwire, sanctioned by row 4 below.
+
 | # | Block (describe → sub-block) | Lines | Disposition | Rationale |
 |---|---|---|---|---|
 | 1 | `player-visible mechanics boundary` — entire describe (token/dice/tier rejection, presentation wrappers, stream gate, casualty-prose acceptance, GM-only mechanics) | 22–138 | **PORT** | Hidden-mechanics half is untouched by the refactor. Keep verbatim. |

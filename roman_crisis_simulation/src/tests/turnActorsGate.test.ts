@@ -341,6 +341,12 @@ describe('Task 4 seams [EXPORTS DO NOT EXIST YET]: generateStructuredStream + ex
     // \n escapes decode to a REAL newline so createNarrationStreamGate's
     // '\nSUGGESTION:' marker check keeps working over extracted prose.
     expect(extract('{"text": "Prose.\\nSUGGESTION: Wait", "actors": []}')).toBe('Prose.\nSUGGESTION: Wait');
+    // A trailing LONE backslash (the marker's escape not yet complete - only
+    // the backslash of '\nSUGGESTION' has arrived, no 'n' yet) must be
+    // withheld entirely, not released as a literal backslash character.
+    const suggestionMarker = '{"text": "Prose.\\nSUGGESTION: Wait", "actors": []}';
+    const loneBackslashCut = suggestionMarker.indexOf('\\nSUGGESTION') + 1;
+    expect(extract(suggestionMarker.slice(0, loneBackslashCut))).toBe('Prose.');
     // Only the TOP-LEVEL "text" key is the payload - values and nested keys
     // spelling "text" are decoys.
     expect(extract('{"title": "text", "text": "Real prose."}')).toBe('Real prose.');

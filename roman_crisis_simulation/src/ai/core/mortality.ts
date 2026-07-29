@@ -278,7 +278,7 @@ export async function processMortality(
 
     for (const o of outcomeResult.outcomes) {
       assertPlayerVisibleTextSafe(o.narrative_directive);
-      // Actors-attribution parse boundary (Task 1): strip the
+      // Actors-attribution parse boundary (D42): strip the
       // interchange-only `actors` sibling off every outcome delta before it
       // joins the committed EventDelta[] merged into the adjudication below.
       const deltas = o.deltas.map(stripActorsFromEventDelta);

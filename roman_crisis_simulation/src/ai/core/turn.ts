@@ -60,30 +60,29 @@ import {
  * Runs at each of the three points the structural gate runs, because each
  * step (mind-scheme folding, mortality) can introduce new prose.
  *
- * Task 4 (gate-before-strip): the parameter widens to accept EITHER shape.
- * The FIRST call (turn.ts, immediately after the adjudication parse) passes
- * the raw `AdjudicationInterchange` - BEFORE `stripActorsFromAdjudication`
- * runs - so `redactInventedPlayerProse` sees each field's declared `actors`
- * and can close the B7 registers the flat tripwire alone cannot reach; the
- * 2nd/3rd calls (post-mind-folding, post-mortality) pass the already-
- * stripped committed `Adjudication` and stay tripwire-only by design (see
- * the call sites below). The body is otherwise UNCHANGED:
- * `redactInventedPlayerProse` already accepts either shape (declared in
- * playerBoundary.ts); the two casts below exist only because
- * `assertNoInventedPlayerAction`/`assertPlayerVisibleAdjudicationSafe`
- * accept the narrower committed shape and don't examine `headlines`'
- * (string vs. `{text, actors}`) representation either way.
+ * D42 (gate-before-strip; roadmaps/DESIGN_DECISIONS.md): the parameter
+ * widens to accept EITHER shape. The FIRST call (turn.ts, immediately after
+ * the adjudication parse) passes the raw `AdjudicationInterchange` - BEFORE
+ * `stripActorsFromAdjudication` runs - so `redactInventedPlayerProse` sees
+ * each field's declared `actors` and can close the B7 registers the flat
+ * tripwire alone cannot reach; the 2nd/3rd calls (post-mind-folding,
+ * post-mortality) pass the already-stripped committed `Adjudication` and
+ * stay tripwire-only by design (see the call sites below). The body is
+ * otherwise UNCHANGED: `assertNoInventedPlayerAction`,
+ * `redactInventedPlayerProse`, and `assertPlayerVisibleAdjudicationSafe` all
+ * accept either shape directly (declared in playerBoundary.ts) and examine
+ * nothing that behaves differently between the two shapes.
  */
 function enforceNoAttemptBoundary(
     adjudication: AdjudicationInterchange | Adjudication,
     playerEntity: Entity,
     hasObservableAttempt: boolean,
 ): void {
-    assertNoInventedPlayerAction(adjudication as Adjudication, playerEntity, hasObservableAttempt);
+    assertNoInventedPlayerAction(adjudication, playerEntity, hasObservableAttempt);
     adjudication.gm_private.push(
         ...playerProseRedactionNotes(redactInventedPlayerProse(adjudication, playerEntity, hasObservableAttempt)),
     );
-    assertPlayerVisibleAdjudicationSafe(adjudication as Adjudication);
+    assertPlayerVisibleAdjudicationSafe(adjudication);
 }
 
 // Adjudication is the highest-stakes, most consequence-dense call of the
@@ -633,14 +632,14 @@ export async function runNewTurn(
         thinkingConfig: { thinkingBudget: 1024 },
         temperature: ADJUDICATION_TEMPERATURE,
     });
-    // Task 4 (gate-before-strip): the FIRST no-attempt boundary run happens
-    // on the RAW interchange, before the actors sibling is stripped, so the
-    // declaration-aware gate (ai/core/playerBoundary.ts) can see each
-    // field's declared `actors` and close the B7 registers the flat
-    // tripwire alone cannot reach. `stripActorsFromAdjudication` below is
-    // now the commit boundary for this surface: nothing downstream (mind-
-    // scheme folding, mortality, engine application, the history entry)
-    // ever sees `actors` again.
+    // D42 (gate-before-strip; roadmaps/DESIGN_DECISIONS.md): the FIRST
+    // no-attempt boundary run happens on the RAW interchange, before the
+    // actors sibling is stripped, so the declaration-aware gate
+    // (ai/core/playerBoundary.ts) can see each field's declared `actors`
+    // and close the B7 registers the flat tripwire alone cannot reach.
+    // `stripActorsFromAdjudication` below is now the commit boundary for
+    // this surface: nothing downstream (mind-scheme folding, mortality,
+    // engine application, the history entry) ever sees `actors` again.
     enforceNoAttemptBoundary(rawAdjudication, playerEntity, narrationSubmission.hasObservableAttempt);
     const adjudication = stripActorsFromAdjudication(rawAdjudication);
 
@@ -952,7 +951,7 @@ export async function runNewTurn(
         rawNarrationPayload.text, playerEntity, narrationSubmission.hasObservableAttempt, 'narration', rawNarrationPayload.actors);
     const monologueRedaction = redactInventedPlayerProseFromValue(
         rawMonologuePayload.text, playerEntity, narrationSubmission.hasObservableAttempt, 'monologue', rawMonologuePayload.actors);
-    // Commit boundary for this surface (Task 4): strip the interchange-only
+    // Commit boundary for this surface (D42): strip the interchange-only
     // `actors` here, after the gate has seen it.
     const updatedSimulationState = stripActorsFromSimulationState({
         ...rawSimulationState,

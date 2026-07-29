@@ -237,17 +237,25 @@ interface Harness {
   promptsByKind: Partial<Record<CallKind, string>>;
   /** The instruction paired with each prompt, retained for prompt-contract assertions. */
   systemInstructionsByKind: Partial<Record<CallKind, string>>;
+  /** Number of raw stream chunks yielded per call kind - lets a test assert the default narration splitter didn't collapse to a single chunk. */
+  chunkCounts: Partial<Record<CallKind, number>>;
   generateContent: ReturnType<typeof vi.fn>;
   generateContentStream: ReturnType<typeof vi.fn>;
 }
 
 /**
  * Builds a fake GoogleGenAI-shaped client. `streamNarration: true` routes
- * the narration call through `generateContentStream` (an async generator
- * split into a prose chunk + a suggestions chunk) instead of
- * `generateContent`, exercising the streaming path unchanged inside the new
- * parallel block (ROADMAP_0_MASTER_PLAN.md Phase 3 item 2 composing with
- * item 3).
+ * the narration call through `generateContentStream` (an async generator)
+ * instead of `generateContent`, exercising the streaming path unchanged
+ * inside the new parallel block (ROADMAP_0_MASTER_PLAN.md Phase 3 item 2
+ * composing with item 3). With no `narrationChunker`, the default splitter
+ * cuts the raw JSON response `{"text": "...", "actors": [...]}` on the
+ * ESCAPED `\nSUGGESTION:` marker as it appears inside the JSON string body -
+ * narration is a structured-output call now, so the real stream text never
+ * contains a literal newline before the marker, only its `\n` escape - into
+ * two chunks (everything up to and including the prose, then the rest of
+ * the JSON). `narrationChunker` overrides this to split at caller-chosen
+ * offsets instead.
  */
 function createHarness(
   streamNarration = false,
@@ -258,6 +266,7 @@ function createHarness(
   const response = Object.fromEntries(ALL_KINDS.map(k => [k, createDeferred<string>()])) as Record<CallKind, Deferred<string>>;
   const promptsByKind: Partial<Record<CallKind, string>> = {};
   const systemInstructionsByKind: Partial<Record<CallKind, string>> = {};
+  const chunkCounts: Partial<Record<CallKind, number>> = {};
 
   const generateContent = vi.fn(async (params: { model: string; contents: string; config?: Record<string, unknown> }) => {
     const kind = classify(params.config?.systemInstruction);
@@ -277,25 +286,33 @@ function createHarness(
     issued[kind].resolve();
     const fullText = await response[kind].promise;
     async function* gen() {
+      const yieldChunk = (text: string) => {
+        chunkCounts[kind] = (chunkCounts[kind] ?? 0) + 1;
+        return { text };
+      };
       if (narrationChunker) {
         const chunks = narrationChunker(fullText);
         if (chunks.join('') !== fullText) {
           throw new Error('turnPipeline test fake: narration chunks must reconstruct the full response.');
         }
-        for (const chunk of chunks) yield { text: chunk };
+        for (const chunk of chunks) yield yieldChunk(chunk);
         return;
       }
-      const marker = '\nSUGGESTION:';
+      // The ESCAPED form, as it appears inside the raw JSON string body -
+      // narration is a structured-output call, so the marker never arrives
+      // as a literal newline character in the stream text (see the doc
+      // comment above).
+      const marker = '\\nSUGGESTION:';
       const idx = fullText.indexOf(marker);
       if (idx === -1) {
-        yield { text: fullText };
+        yield yieldChunk(fullText);
         return;
       }
       // Split across two chunks to exercise createNarrationStreamGate's
       // buffering (see streamSplit.ts) - the marker must never leak even
       // when it arrives in a later chunk than the prose.
-      yield { text: fullText.slice(0, idx) };
-      yield { text: fullText.slice(idx) };
+      yield yieldChunk(fullText.slice(0, idx));
+      yield yieldChunk(fullText.slice(idx));
     }
     return gen();
   });
@@ -304,7 +321,7 @@ function createHarness(
     models: streamNarration ? { generateContent, generateContentStream } : { generateContent },
   } as unknown as GoogleGenAI;
 
-  return { ai, order, issued, response, promptsByKind, systemInstructionsByKind, generateContent, generateContentStream };
+  return { ai, order, issued, response, promptsByKind, systemInstructionsByKind, chunkCounts, generateContent, generateContentStream };
 }
 
 afterEach(() => {
@@ -548,6 +565,11 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     expect(result.playerMonologue).toBe(monologueText);
     expect(result.updatedSimulationState).toEqual(simStateResponse);
 
+    // The default splitter must genuinely exercise TWO raw stream chunks
+    // (prose, then the rest of the JSON carrying the SUGGESTION lines) - not
+    // quietly collapse to one just because the response is JSON-encoded now.
+    expect(h.chunkCounts.narration).toBe(2);
+
     // The stream gate must never let a SUGGESTION line leak into a chunk.
     expect(onNarrationChunk).toHaveBeenCalled();
     for (const call of onNarrationChunk.mock.calls) {
@@ -592,6 +614,11 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
 
     await expect(turnPromise).rejects.toThrow('player-visible mechanics boundary');
     expect(onNarrationChunk).not.toHaveBeenCalled();
+    // This poisoned response carries no SUGGESTION marker, so the default
+    // splitter legitimately has nothing to cut on and the whole response
+    // arrives as ONE raw chunk - the mechanics rejection must therefore be
+    // caught within that single chunk, before it ever reaches the callback.
+    expect(h.chunkCounts.narration).toBe(1);
   });
 
   it.each([

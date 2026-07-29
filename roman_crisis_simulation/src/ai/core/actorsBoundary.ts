@@ -1,8 +1,8 @@
 /**
  * ai/core/actorsBoundary.ts
  *
- * The actors-attribution INTERCHANGE boundary (Task 1 of the
- * actors-attribution refactor, ai/core/zodSchemas.ts / ai/core/schemas.ts):
+ * The actors-attribution INTERCHANGE boundary (D42,
+ * roadmaps/DESIGN_DECISIONS.md; ai/core/zodSchemas.ts / ai/core/schemas.ts):
  * every prose-bearing field on the provider's structured-output schemas
  * carries a sibling `actors: string[]` - the entity ids whose ACTIONS the
  * text narrates. That field is INTERCHANGE-ONLY metadata for a LATER gating

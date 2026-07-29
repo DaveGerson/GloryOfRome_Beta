@@ -41,7 +41,7 @@ export async function selectNoAttemptEvidence(
       responseSchema: NoAttemptEvidenceSelectionSchema,
       zodSchema: zNoAttemptEvidenceSelection,
     });
-    // Actors-attribution parse boundary (Task 1): strip the interchange-only
+    // Actors-attribution parse boundary (D42): strip the interchange-only
     // `actors` sibling before this reaches selection validation/downstream use.
     const selection = stripActorsFromNoAttemptEvidenceSelection(rawSelection);
     return projectSelectionResult(validateNoAttemptSelection(selection, evidence));

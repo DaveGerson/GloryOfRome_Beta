@@ -424,10 +424,10 @@ export const SimulationStateSchema = {
 /**
  * A narration or player-monologue payload: free prose plus the
  * actors-attribution sibling. Mirrors `zNarrationPayload`/
- * `zPlayerMonologuePayload` in ai/core/zodSchemas.ts. NOT YET WIRED:
- * narration/getPlayerMonologue are still plain generateText calls
- * (ai/core/turn.ts, ai/tools/intelligence.ts); these schemas exist so a
- * later task can switch them to structured output without a schema gap.
+ * `zPlayerMonologuePayload` in ai/core/zodSchemas.ts. WIRED: narration
+ * streams through `generateStructuredStream` and getPlayerMonologue is a
+ * `generateStructured` call (ai/core/turn.ts, ai/tools/intelligence.ts),
+ * both using this schema pair directly.
  */
 export const NarrationPayloadSchema = {
     type: Type.OBJECT,

@@ -461,9 +461,9 @@ export const zRelationshipObservations = z.array(z.object({
 /**
  * A narration or player-monologue payload: free prose plus the
  * actors-attribution sibling (interchange-only - see zEventDelta above).
- * NOT YET WIRED: narration/getPlayerMonologue are still plain generateText
- * calls (ai/core/turn.ts, ai/tools/intelligence.ts); these schemas exist so
- * a later task can switch them to structured output without a schema gap.
+ * WIRED: narration streams through `generateStructuredStream` and
+ * getPlayerMonologue is a `generateStructured` call (ai/core/turn.ts,
+ * ai/tools/intelligence.ts), both using this schema pair directly.
  */
 const zProsePayload = z.object({
   text: z.string(),

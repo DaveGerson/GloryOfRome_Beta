@@ -17,7 +17,7 @@
  * docs/superpowers/specs/2026-07-28-schema-declared-attribution-design.md).
  * Every interchange prose field arrives with a declared `actors: string[]` -
  * the entity ids whose ACTIONS the text narrates (ai/core/actorsBoundary.ts,
- * Task 1; mention != actor, empty = pure description). On a no-attempt turn
+ * D42; mention != actor, empty = pure description). On a no-attempt turn
  * the gate decides per FIELD:
  *
  *   1. DECLARED  - `actors` includes the player (`actorsIncludePlayer`, via
@@ -165,8 +165,13 @@ export function assertPlayerVisibleTextSafe(text: string): void {
  * are intentionally excluded. Scheme reasons are excluded as well because
  * they are private active-scheme JSON and every player-facing prompt replaces
  * them with an opaque marker.
+ *
+ * Accepts EITHER the committed `Adjudication` or the attributed
+ * `AdjudicationInterchange` (D42) - both shapes carry the same fields this
+ * function reads, so no reshaping cast is needed either way (mirrors
+ * `redactInventedPlayerProse`'s precedent below).
  */
-export function assertPlayerVisibleAdjudicationSafe(adjudication: Adjudication): void {
+export function assertPlayerVisibleAdjudicationSafe(adjudication: AdjudicationInterchange | Adjudication): void {
   const visibleDeltas = adjudication.deltas.map(delta => {
     const { secret_truth, is_true, origin_id, ...visible } = delta;
     return delta.type === 'scheme'
@@ -659,7 +664,7 @@ function valueRemovesPlayer(value: unknown, player: PlayerIdentity): boolean {
  * empire-level simulation state.
  *
  * DECLARATION-AWARE: pass the field's declared `actors` (per
- * actorsBoundary.ts, Task 1) when it is available for the SINGLE prose field
+ * actorsBoundary.ts, D42) when it is available for the SINGLE prose field
  * being validated. A player declaration throws unconditionally - pure data,
  * the prose is never parsed; an undeclared or rival-declared field falls
  * through to `tripwireFlagsPlayerConduct`. Omitting `actors` (existing 3-arg
@@ -720,16 +725,25 @@ export function assertNoPlayerRemoval(
  * ai/prompts/adjudication.ts itself solicits. Prose now goes through
  * `redactInventedPlayerProse`: a prose leak is a narrative blemish, a delta
  * leak is a mechanical violation, and they must not share a failure mode.
+ *
+ * Accepts EITHER the committed `Adjudication` or the attributed
+ * `AdjudicationInterchange` (D42): the fields read here (entityAction ids,
+ * delta identity, remove_entities) are identical across both shapes.
  */
 export function assertNoInventedPlayerAction(
-  adjudication: Adjudication,
+  adjudication: AdjudicationInterchange | Adjudication,
   player: PlayerIdentity,
   hasObservableAttempt: boolean,
 ): void {
   if (hasObservableAttempt) return;
 
   const inventedAction = adjudication.entityActions.some(action => samePlayerIdentity(action.id, player));
-  const playerOriginatedDelta = adjudication.deltas.some(delta => playerOwnsDelta(delta, player));
+  // Cast: zEventDelta's nullable fields infer `| null` while types.ts's
+  // EventDelta declares them optional-only (`| undefined`) - the same
+  // documented nullable-vs-optional gap actorsBoundary.ts's
+  // stripActorsFromEventDelta already casts around; playerOwnsDelta never
+  // reads a field where the gap matters.
+  const playerOriginatedDelta = adjudication.deltas.some(delta => playerOwnsDelta(delta as EventDelta, player));
   const removesPlayer = valueRemovesPlayer({ remove_entities: adjudication.remove_entities }, player);
 
   if (inventedAction || playerOriginatedDelta || removesPlayer) {
@@ -960,7 +974,7 @@ function redactDeltaReason(
  * Accepts EITHER the committed `Adjudication` (bare headline strings, no
  * `actors` siblings - tripwire-only) OR the attributed `AdjudicationInterchange`
  * (actorsBoundary.ts's {text, actors} headline items, `actors` siblings on
- * entityActions/deltas - declaration-aware) BEFORE Task 4's commit-boundary
+ * entityActions/deltas - declaration-aware) BEFORE D42's commit-boundary
  * strip: the gate must see the declarations to close the B7 gaps by
  * declaration, so the strip happens after this call, not before it.
  *

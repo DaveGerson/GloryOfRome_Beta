@@ -1,7 +1,7 @@
 
 // ai/mocks.ts
 
-import { Adjudication, Entity, NpcIntent, NpcMindDecision, Report, SimulationState, StoryRelevance, TruthLedgerEntry, TurnHistoryEntry, WorldState, EventDelta, EntityStub, TurnSubmission } from '../types';
+import { Entity, NpcIntent, NpcMindDecision, Report, SimulationState, StoryRelevance, TruthLedgerEntry, TurnHistoryEntry, WorldState, EventDelta, EntityStub, TurnSubmission } from '../types';
 import { applyAdjudication } from './core/engine';
 import { MAX_MINDS_PER_TURN } from './prompts/npcMind';
 import { normalizeTurnSubmissionInput, projectForNoAttemptResponse, projectForPlayerReflection, projectForResolution, serializeTurnSubmission } from '../playerInput/turnSubmission';
@@ -480,24 +480,23 @@ export const mockRunNewTurn = async (
     // gaius_pontius_magnus's status delta) still throws in parity with the
     // real pipeline.
     //
-    // Task 4 (gate-before-strip): the mock mirrors the real pipeline's exact
-    // order - project -> assertNoInventedPlayerAction -> redactInventedPlayerProse
-    // (declaration-aware, on the INTERCHANGE, before actors is stripped) ->
-    // assertPlayerVisibleAdjudicationSafe -> stripActorsFromAdjudication ->
-    // applyAdjudication/history. The two casts below exist for the same
-    // reason as ai/core/turn.ts::enforceNoAttemptBoundary: these two
-    // functions accept only the narrower committed `Adjudication` shape and
-    // examine nothing that differs between the two shapes.
+    // D42 (gate-before-strip; roadmaps/DESIGN_DECISIONS.md): the mock mirrors
+    // the real pipeline's exact order - project -> assertNoInventedPlayerAction
+    // -> redactInventedPlayerProse (declaration-aware, on the INTERCHANGE,
+    // before actors is stripped) -> assertPlayerVisibleAdjudicationSafe ->
+    // stripActorsFromAdjudication -> applyAdjudication/history. All three
+    // gates accept the `AdjudicationInterchange | Adjudication` union
+    // directly (playerBoundary.ts), so no reshaping cast is needed here.
     const hasObservableAttempt = observableAttempt !== null;
     const gatedAdjudication = hasObservableAttempt ? adjudication : projectMockAdjudicationForNoAttempt(adjudication, playerEntity);
     // Same consequence split as ai/core/turn.ts::enforceNoAttemptBoundary:
     // structural violations throw, prose is redacted and recorded GM-side.
-    assertNoInventedPlayerAction(gatedAdjudication as unknown as Adjudication, playerEntity, hasObservableAttempt);
+    assertNoInventedPlayerAction(gatedAdjudication, playerEntity, hasObservableAttempt);
     gatedAdjudication.gm_private.push(...playerProseRedactionNotes(
         redactInventedPlayerProse(gatedAdjudication, playerEntity, hasObservableAttempt),
     ));
-    assertPlayerVisibleAdjudicationSafe(gatedAdjudication as unknown as Adjudication);
-    // Commit boundary for this surface (Task 4): strip the interchange-only
+    assertPlayerVisibleAdjudicationSafe(gatedAdjudication);
+    // Commit boundary for this surface (D42): strip the interchange-only
     // `actors` now that the declaration-aware gate has seen it. `gm_private`
     // is the SAME array reference before and after (a shallow spread), so
     // every push above and below lands on the one committed array.

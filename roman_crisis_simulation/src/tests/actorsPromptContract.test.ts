@@ -69,14 +69,13 @@
  * ('entityActions' does not contain the substring 'actors', so the existing
  * NO-ATTEMPT TURNS principle cannot false-satisfy the check.)
  *
- * WIRING GAPS (documented as it.todo, NOT silently worked around):
- * buildSimulationStateUpdatePrompt(adjudication, oldState) and
- * buildPlayerMonologuePrompt(player, headlines, intents) cannot know
- * hasObservableAttempt today, even though ai/core/turn.ts holds
- * `narrationSubmission.hasObservableAttempt` at both call sites
- * (getUpdatedSimulationState / getPlayerMonologue in
- * ai/tools/intelligence.ts). The implementer must thread the flag before
- * those two surfaces can state the turn-conditional player-exclusion rule.
+ * WIRING GAPS - CLOSED (commit 8d14c91): buildSimulationStateUpdatePrompt(
+ * adjudication, oldState, hasObservableAttempt) and buildPlayerMonologuePrompt(
+ * player, headlines, intents, hasObservableAttempt) are now threaded with the
+ * flag from ai/core/turn.ts's `narrationSubmission.hasObservableAttempt` at
+ * both call sites (getUpdatedSimulationState / getPlayerMonologue in
+ * ai/tools/intelligence.ts), so both surfaces state the turn-conditional
+ * player-exclusion rule below.
  *
  * Negative controls: builders whose response schemas carry NO actors field
  * (assessment - ActionAssessmentSchema; NPC mind - NpcMindDecisionSchema)
@@ -248,8 +247,9 @@ describe.each(CONTRACT_SURFACES)('$surface: prompt teaches the actors-attributio
 //
 // On a turn with NO observable player attempt, the player's id must NOT
 // appear in any `actors` list, and no prose may narrate player conduct.
-// Asserted only on the builders that can KNOW the turn is no-attempt today;
-// the two builders that cannot are it.todo'd as wiring gaps below.
+// Asserted on every builder below, including the two once-wiring-gapped
+// surfaces (simulation-state update, player monologue) now that
+// hasObservableAttempt is threaded into both (commit 8d14c91).
 
 describe('no-attempt turns: the prompt bars the player id from every actors list', () => {
   it('adjudication (observableAttempt null): states the player id never appears in any actors list', () => {
