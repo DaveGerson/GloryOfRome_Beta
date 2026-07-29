@@ -9,6 +9,7 @@ import { TURN_STAGE_STATUS_COPY } from './Chat';
 import { ActionPill } from './ui/Game';
 import { Button } from './ui/Core';
 import { SegmentedControl } from './ui/Forms';
+import { WaxSeal } from './ui/Brand';
 
 export type ComposerMode = 'chat' | 'structured';
 
@@ -20,10 +21,20 @@ export interface TurnComposerProps {
   disabled: boolean;
   isProcessing: boolean;
   turnStage?: TurnStage | null;
+  /** The player's initial, pressed into the wax when a week is sealed. */
+  playerInitial?: string;
   onChatDraftChange(value: string): void;
   onStructuredDraftChange(value: StructuredTurnDraft): void;
   onSubmit(input: string | StructuredTurnDraft): void;
 }
+
+/**
+ * How long the seal stays on the tablet after a week is committed. The press
+ * itself runs 520ms (`gorSealPress` in components.css); the extra beat lets
+ * the finished impression be read before it lifts. Purely decorative - the
+ * submission has already been handed to App by the time this starts.
+ */
+const SEAL_PRESS_HOLD_MS = 620;
 
 const formatCharacterCount = (count: number): string => count.toLocaleString('en-US');
 
@@ -46,9 +57,11 @@ const CHAT_INPUT_ELEMENT_ID = 'chat-input';
 
 export const TurnComposer: React.FC<TurnComposerProps> = ({
   chatDraft, structuredDraft, recipientOptions, suggestedActions, disabled, isProcessing,
-  onChatDraftChange, onStructuredDraftChange, onSubmit, turnStage,
+  onChatDraftChange, onStructuredDraftChange, onSubmit, turnStage, playerInitial,
 }) => {
   const [mode, setMode] = useState<ComposerMode>(() => getComposerMode());
+  const [sealing, setSealing] = useState(false);
+  const sealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const chatTextareaRef = useRef<HTMLTextAreaElement>(null);
   const locked = disabled || isProcessing;
   const artifactStatus = canonicalArtifactStatus(mode === 'chat' ? chatDraft : structuredDraft, recipientOptions);
@@ -71,16 +84,45 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
     textarea.style.height = `${textarea.scrollHeight}px`;
   }, [chatDraft, mode]);
 
+  // Clear any seal still on the tablet if the composer unmounts mid-press.
+  useEffect(() => () => {
+    if (sealTimerRef.current !== null) clearTimeout(sealTimerRef.current);
+  }, []);
+
   const selectMode = (next: ComposerMode) => {
     setMode(next);
     setComposerMode(next);
   };
+  /**
+   * Presses the wax. Deliberately fired AFTER `onSubmit` at every call site so
+   * the request is already away - the impression is a confirmation of
+   * something that happened, never a gate in front of it.
+   */
+  const stampSeal = () => {
+    setSealing(true);
+    if (sealTimerRef.current !== null) clearTimeout(sealTimerRef.current);
+    sealTimerRef.current = setTimeout(() => {
+      sealTimerRef.current = null;
+      setSealing(false);
+    }, SEAL_PRESS_HOLD_MS);
+  };
   const submitChat = () => {
-    if (!locked && artifactStatus.ok && !overLimit && chatDraft.trim()) onSubmit(chatDraft);
+    if (!locked && artifactStatus.ok && !overLimit && chatDraft.trim()) {
+      onSubmit(chatDraft);
+      stampSeal();
+    }
   };
   const submitStructured = () => {
-    if (!locked && artifactStatus.ok && !overLimit) onSubmit(structuredDraft);
+    if (!locked && artifactStatus.ok && !overLimit) {
+      onSubmit(structuredDraft);
+      stampSeal();
+    }
   };
+
+  const sealLetter = (playerInitial ?? '').trim().charAt(0).toUpperCase() || 'R';
+  const waxSeal = sealing
+    ? <span className="gor-seal-press" aria-hidden="true"><WaxSeal letter={sealLetter} size={46} tone="crimson" /></span>
+    : null;
 
   const chatPlaceholder = isProcessing
     ? TURN_STAGE_STATUS_COPY[turnStage ?? 'story_relevance']
@@ -117,26 +159,29 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
           onSubmit={event => { event.preventDefault(); submitChat(); }}
           style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
         >
-          <textarea
-            id={CHAT_INPUT_ELEMENT_ID}
-            ref={chatTextareaRef}
-            className="gor-textarea"
-            aria-label="Chat input"
-            value={chatDraft}
-            disabled={locked}
-            rows={1}
-            placeholder={chatPlaceholder}
-            style={{ resize: 'none', maxHeight: 160, overflowY: 'auto' }}
-            aria-invalid={overLimit || undefined}
-            aria-describedby={statusId}
-            onChange={event => onChatDraftChange(event.target.value)}
-            onKeyDown={event => {
-              if (event.key === 'Enter' && !event.shiftKey
-                  && !event.nativeEvent.isComposing && event.keyCode !== 229) {
-                event.preventDefault();
-                submitChat();
-              }
-            }} />
+          <div style={{ position: 'relative', display: 'flex', flexDirection: 'column' }}>
+            <textarea
+              id={CHAT_INPUT_ELEMENT_ID}
+              ref={chatTextareaRef}
+              className="gor-textarea"
+              aria-label="Chat input"
+              value={chatDraft}
+              disabled={locked}
+              rows={1}
+              placeholder={chatPlaceholder}
+              style={{ resize: 'none', maxHeight: 160, overflowY: 'auto' }}
+              aria-invalid={overLimit || undefined}
+              aria-describedby={statusId}
+              onChange={event => onChatDraftChange(event.target.value)}
+              onKeyDown={event => {
+                if (event.key === 'Enter' && !event.shiftKey
+                    && !event.nativeEvent.isComposing && event.keyCode !== 229) {
+                  event.preventDefault();
+                  submitChat();
+                }
+              }} />
+            {waxSeal}
+          </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
             {overLimit ? (
               <p id={statusId} role="alert" className="gor-hint gor-hint-error" style={{ margin: 0 }}>{formatCharacterCount(artifactStatus.excessCharacters)} character{artifactStatus.excessCharacters === 1 ? '' : 's'} over limit</p>
@@ -157,9 +202,12 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
           ) : (
             <p id={statusId} role="status" className="gor-hint" style={{ margin: 0 }}>{formatCharacterCount(remaining ?? 0)} characters remaining</p>
           )}
-          <StructuredTurnComposer draft={structuredDraft} recipientOptions={recipientOptions} disabled={locked} submissionBlocked={overLimit || !artifactStatus.ok}
-            aggregateIssue={overLimit} validationIssues={artifactStatus.ok ? [] : artifactStatus.issues} statusId={statusId}
-            onChange={onStructuredDraftChange} onSubmit={submitStructured} />
+          <div style={{ position: 'relative' }}>
+            <StructuredTurnComposer draft={structuredDraft} recipientOptions={recipientOptions} disabled={locked} submissionBlocked={overLimit || !artifactStatus.ok}
+              aggregateIssue={overLimit} validationIssues={artifactStatus.ok ? [] : artifactStatus.issues} statusId={statusId}
+              onChange={onStructuredDraftChange} onSubmit={submitStructured} />
+            {waxSeal}
+          </div>
         </>
       )}
     </div>

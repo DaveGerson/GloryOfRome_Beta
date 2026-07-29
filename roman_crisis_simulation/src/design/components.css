@@ -145,6 +145,14 @@
 @keyframes gorEmber{0%,100%{opacity:.55;text-shadow:0 0 2px rgba(232,201,89,.2)}50%{opacity:1;text-shadow:0 0 10px rgba(232,201,89,.75)}}
 @keyframes gorShimmer{from{left:-60%}to{left:120%}}
 @keyframes gorLoomWeave{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+/* The seal pressed onto the tablet when a week commits (TurnComposer.tsx). */
+.gor-seal-press{position:absolute;left:50%;top:50%;z-index:2;pointer-events:none;display:block;animation:gorSealPress 520ms cubic-bezier(.34,1.56,.64,1) both}
+@keyframes gorSealPress{
+0%{opacity:0;transform:translate(-50%,-50%) scale(1.7) rotate(-14deg)}
+60%{opacity:1;transform:translate(-50%,-50%) scale(.96) rotate(2deg)}
+100%{opacity:1;transform:translate(-50%,-50%) scale(1) rotate(0deg)}
+}
+@keyframes gorSealSettle{from{opacity:0;transform:translate(-50%,-50%)}to{opacity:1;transform:translate(-50%,-50%)}}
 
 .gor-event-choice{all:unset;box-sizing:border-box;display:flex;flex-direction:column;gap:3px;width:100%;padding:13px 16px;background:linear-gradient(180deg,#FFFEF9,#F1EDE0);border:1px solid var(--border-subtle);clip-path:var(--chamfer-sm);cursor:pointer;transition:border-color var(--duration-fast) var(--ease-standard),filter var(--duration-fast) var(--ease-standard)}
 .gor-event-choice:hover{border-color:var(--crimson-500);filter:brightness(1.02)}
@@ -163,6 +171,8 @@
 .gor-destiny,.gor-destiny:hover{transition:none;transform:none}
 /* The loom keeps its final state — every lit thread at full height, no weave. */
 .gor-loom,.gor-loom-fill{animation:none}
+/* The seal still lands; it simply does not swing in. */
+.gor-seal-press{animation:gorSealSettle var(--duration-fast) linear both}
 }
 
 /* ── Narrow-viewport stacking — CSS-only, no markup change ──

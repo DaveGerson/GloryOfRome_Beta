@@ -1684,6 +1684,7 @@ const App: React.FC = () => {
                                                 disabled={domainMutationInFlight || privateSceneInteractionLocked || gameState !== GameState.AWAITING_PLAYER_INPUT}
                                                 isProcessing={gameState === GameState.PROCESSING}
                                                 turnStage={turnStage}
+                                                playerInitial={playerEntity?.name}
                                             />
                                             {gameState === GameState.AWAITING_PLAYER_INPUT && (
                                                 <PrivateScene
