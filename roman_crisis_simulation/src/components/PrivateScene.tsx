@@ -5,6 +5,7 @@ import { PRIVATE_SCENE_MAX_UTTERANCE_CHARS } from '../privateScene/model';
 import { Button, DraftGauge } from './ui/Core';
 import { Alert } from './ui/Alert';
 import { WaxSeal, toRoman } from './ui/Brand';
+import { EmptyRegister, FoldedLetterSilhouette } from './tabs/EmptyRegister';
 
 const transcriptLineStyle: React.CSSProperties = { margin: '6px 0', paddingLeft: 10, borderLeft: '2px solid var(--border-subtle)' };
 const sectionHeadingStyle: React.CSSProperties = { margin: '14px 0 4px' };
@@ -271,9 +272,15 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
           <Button type="button" variant="ghost" disabled={disabled} onClick={() => onSkipLastWord(active.sceneId)}>Let it stand</Button>
         </>}
       </>}
-      {completed.length > 0 && <section aria-label="Past private scenes">
+      <section aria-label="Past private scenes">
         <h3 className="gor-label" style={sectionHeadingStyle}>Past private scenes</h3>
-        <div className="gor-shelf">
+        {completed.length === 0 ? (
+          <EmptyRegister
+            silhouette={<FoldedLetterSilhouette />}
+            line="No door has closed behind you yet."
+            hint="What is said in private is kept here once the scene ends."
+          />
+        ) : <div className="gor-shelf">
           <div className="gor-shelf-rail">
             {completed.map(scene => {
               const seal = closureSeal(scene);
@@ -322,8 +329,8 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
               </div>
             </div>
           )}
-        </div>
-      </section>}
+        </div>}
+      </section>
       <span className="gor-sr-only">Turn {currentMacroTurn}</span>
     </dialog>}
   </>;

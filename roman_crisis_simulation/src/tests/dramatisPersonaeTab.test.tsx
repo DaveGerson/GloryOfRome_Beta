@@ -278,7 +278,9 @@ describe('components/tabs/DramatisPersonaeTab - player-safe Personae', () => {
     const text = card?.textContent ?? '';
 
     expect(text).toContain(knownActor.position);
-    expect(text).toContain('No observations yet');
+    // WP-20: the zero state names the cause, not the absence — and names
+    // the person, so it never has to guess a pronoun.
+    expect(text).toContain(`You have never been in a room with ${knownActor.name}.`);
     // This fixture carries extreme hidden scores. The old TrustBar expressed
     // them through a meter, signed number, and laurel/crimson heat color;
     // none of those interpretations may return under a different label.

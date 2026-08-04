@@ -104,7 +104,10 @@ describe('components/tabs/EmpireTab - player-safe location roster', () => {
 
     const text = container.textContent ?? '';
     expect(text).toContain('The Curia');
-    expect(text).not.toContain('Beyond your sight');
+    // A known region must never render the unknown-region copy (WP-20
+    // reworded it from "Beyond your sight - no word has reached you from
+    // here."; this tracks the live string so the check stays load-bearing).
+    expect(text).not.toContain('No word has reached you from here.');
     expect(text).toContain('Present:');
     expect(text).toContain('KNOWN_COLOCATED_ACTOR_NAME');
     expect(text).not.toContain('UNKNOWN_COLOCATED_NAME_SENTINEL');

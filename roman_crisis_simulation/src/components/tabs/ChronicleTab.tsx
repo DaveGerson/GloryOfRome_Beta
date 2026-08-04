@@ -4,6 +4,7 @@ import { toRoman } from '../ui/Brand';
 import { SubRail } from '../ui/SubRail';
 import { buildChronicleSpine, ChronicleRow } from './chronicleSpine';
 import { getTabRegister, setTabRegister } from '../../persistence/uiPrefs';
+import { EmptyRegister, SpineSilhouette } from './EmptyRegister';
 
 const REGISTERS = ['reign', 'fates'] as const;
 type ChronicleRegister = typeof REGISTERS[number];
@@ -77,13 +78,17 @@ const ChronicleTab: React.FC<{
             />
             {register === 'reign' ? (
                 spine.length === 0
-                    ? <p style={{ fontStyle: 'italic', color: 'var(--text-muted)', margin: 0 }}>Your chronicle is yet unwritten. Act, and the scribes will follow.</p>
+                    ? <EmptyRegister
+                        silhouette={<SpineSilhouette />}
+                        line="Week I · The reign begins"
+                        hint="Nothing yet. The week is still yours."
+                    />
                     : <div className="gor-spine">{spine.map(row => <SpineRow key={row.key} row={row} />)}</div>
             ) : (
                 <>
                     <h3 className="gor-label" style={{ color: 'var(--crimson-500)' }}>Chronicle of Events</h3>
                     {eventHistory.length === 0 && (
-                        <p style={{ fontStyle: 'italic', color: 'var(--text-muted)', margin: 0 }}>No fate has yet forced your hand.</p>
+                        <EmptyRegister line="No fate has yet cut across your reign." />
                     )}
                     {eventHistory.slice().reverse().map((entry, index) => (
                         <div key={`${entry.eventId}-${index}`} style={{ borderLeft: '2px solid var(--gold-500)', paddingLeft: 14, marginLeft: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>

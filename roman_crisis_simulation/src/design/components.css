@@ -386,6 +386,43 @@
 /* The rumour mill carries no wax at all. */
 .gor-seal-unsealed{width:30px;height:30px;flex:none;display:inline-grid;place-items:center;border:1px dashed var(--border-strong);border-radius:46% 54% 52% 48%/52% 46% 54% 48%;color:var(--parchment-400);font-size:13px}
 
+/* ── The zero states (audit item 45) ──
+   Nine surfaces shared one italic line. Each now draws its own register at
+   rest — full opacity always, because dimming reads as *disabled* (item 27)
+   and nothing here is disabled. */
+.gor-empty{display:flex;flex-direction:column;align-items:center;gap:8px;padding:18px 14px;text-align:center}
+.gor-empty-line{font-size:15.5px;color:var(--text-body)}
+.gor-empty-hint{font-size:14.5px;font-style:italic;color:var(--text-muted)}
+
+/* The silhouettes. One shared ground: dashed rule over blanked vellum. */
+.gor-sil-spine-slot,.gor-sil-slip,.gor-sil-slot,.gor-sil-letter,.gor-sil-axis{border:1px dashed var(--border-strong);background:repeating-linear-gradient(102deg,rgba(169,154,118,.09) 0 1px,transparent 1px 6px)}
+
+.gor-sil-spine{position:relative;display:flex;flex-direction:column;gap:8px;width:150px;padding-left:18px}
+.gor-sil-spine-rule{position:absolute;left:4px;top:2px;bottom:2px;width:1px;background:var(--border-subtle)}
+.gor-sil-spine-marker{position:absolute;left:0;top:6px;width:9px;height:9px;border-radius:50%;background:var(--gold-500);box-shadow:0 0 4px rgba(201,162,39,.6)}
+.gor-sil-spine-slot{height:26px;border-radius:var(--radius-sm)}
+
+.gor-sil-slips{display:flex;gap:8px}
+.gor-sil-slip{display:flex;align-items:center;gap:7px;width:104px;padding:7px 8px;border-radius:var(--radius-sm)}
+.gor-sil-slip-lines{flex:1;height:12px;background:repeating-linear-gradient(180deg,var(--border-faint) 0 1px,transparent 1px 6px)}
+
+.gor-sil-quiet{display:flex;flex-direction:column;align-items:center;gap:5px;width:150px}
+.gor-sil-dentil{width:100%;height:3px;background:var(--dentil)}
+.gor-sil-fleuron{font-size:16px;color:var(--parchment-400)}
+
+.gor-sil-slots{display:flex;gap:7px}
+.gor-sil-slot{width:42px;height:30px;border-radius:var(--radius-sm)}
+
+.gor-sil-axes{display:flex;flex-direction:column;gap:7px;width:150px}
+.gor-sil-axis{position:relative;height:9px;border-radius:2px}
+.gor-sil-axis-centre{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--border-strong)}
+
+.gor-sil-letter{position:relative;width:66px;height:44px;border-radius:var(--radius-sm)}
+.gor-sil-letter-fold{position:absolute;left:0;right:0;top:50%;height:1px;background:var(--border-subtle)}
+
+/* Outline capitals: a name you know is there, not one you have read. */
+.gor-outline-caps{font-family:var(--font-display);font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:transparent;-webkit-text-stroke:.4px var(--border-strong)}
+
 /* ── GM Tools: Narration · Raw · Fixtures (audit item 44) ── */
 /* The narration reads on the tablet register, so it inverts under NOX with
    the Dispatches tablet rather than staying dark against a lit room. */

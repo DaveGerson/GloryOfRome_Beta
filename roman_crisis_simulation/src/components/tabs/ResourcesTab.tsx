@@ -5,6 +5,7 @@ import { WaxSeal } from '../ui/Brand';
 import { CoinPips, Marginalia } from './dramatisPersonaeUi';
 import { describeResource, formatResourceValue, ResourceRegister } from './resourceDescriptors';
 import { getTabRegister, setTabRegister } from '../../persistence/uiPrefs';
+import { EmptyRegister, LetterSlotsSilhouette } from './EmptyRegister';
 
 const quiet: React.CSSProperties = { fontSize: 14, fontStyle: 'italic', color: 'var(--text-muted)' };
 
@@ -130,7 +131,13 @@ const ResourcesTab: React.FC<{ playerEntity: Entity | null }> = ({ playerEntity 
      * (item 22), one per person you hold something over.
      */
     const renderLeverage = () => {
-        if (leverage.length === 0) return <p style={quiet}>You hold nothing over anyone.</p>;
+        if (leverage.length === 0) return (
+            <EmptyRegister
+                silhouette={<LetterSlotsSilhouette />}
+                line="You hold nothing over anyone."
+                hint="Leverage accumulates from what you learn, and from what you are owed."
+            />
+        );
         return leverage.map(([key, value]) => {
             const descriptor = describeResource(key);
             const held = Array.isArray(value) ? value : [String(value)];

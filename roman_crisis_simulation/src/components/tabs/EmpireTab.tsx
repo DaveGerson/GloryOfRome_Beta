@@ -115,6 +115,11 @@ const EmpireTab: React.FC<{
     return <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {rail}
         <h3 className="gor-label" style={{ color: 'var(--crimson-500)' }}>Locations in Rome</h3>
+        {/* What is unwritten is most of the map — say how much, rather than
+            letting a column of blanked vellum read as a fault. */}
+        <span style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--text-muted)', marginTop: -8 }}>
+            {knownCount} of {regionNames.length} known.
+        </span>
         {Object.entries(worldState.regions).map(([name, region]: [string, RegionState]) => {
             const glossaryEntry = locationGlossary[name as keyof typeof locationGlossary];
             const title = glossaryEntry ? (
@@ -131,7 +136,7 @@ const EmpireTab: React.FC<{
                 return (
                     <div key={name} className="gor-card gor-vellum" style={{ padding: '10px 14px' }}>
                         <span className="gor-vellum-name">{title}</span>
-                        <p style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--text-muted)', margin: '3px 0 0' }}>Beyond your sight - no word has reached you from here.</p>
+                        <p style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--text-muted)', margin: '3px 0 0' }}>No word has reached you from here.</p>
                     </div>
                 );
             }

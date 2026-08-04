@@ -113,7 +113,7 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <span style={quiet}>{entity.position || entity.entity_type}</span>
-        <RelationshipObservations observations={observations} currentTurn={turnNumber} />
+        <RelationshipObservations observations={observations} currentTurn={turnNumber} subjectName={entity.name} />
         {requestError && <Alert title="Your agents return empty-handed">{requestError}</Alert>}
         {isExpanded && <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 8, borderTop: '1px solid var(--border-faint)' }}>
           <span className="gor-label" style={{ color: 'var(--tyrian-500)' }}>Intelligence Briefing</span>

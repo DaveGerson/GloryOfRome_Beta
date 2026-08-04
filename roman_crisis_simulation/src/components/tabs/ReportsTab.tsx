@@ -7,6 +7,7 @@ import {
     certaintyClause, contradictsHigherCertainty, corroboration, reportReliability, reportSeal, sourceLead,
 } from '../../knowledge/credibilityFraming';
 import { getTabRegister, setTabRegister } from '../../persistence/uiPrefs';
+import { EmptyRegister, SlipsSilhouette } from './EmptyRegister';
 
 /**
  * D25/D26: the player never sees a credibility NUMBER. Trust is conveyed by
@@ -80,7 +81,11 @@ const ReportsTab: React.FC<{ reports: Report[] }> = ({ reports }) => {
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <h3 className="gor-label" style={{ color: 'var(--crimson-500)' }}>Intelligence Reports</h3>
-                <p style={{ fontStyle: 'italic', color: 'var(--text-muted)', margin: 0 }}>No intelligence reports have been received.</p>
+                <EmptyRegister
+                    silhouette={<SlipsSilhouette />}
+                    line="No one has told you anything yet."
+                    hint="Reports arrive when your agents have something worth carrying."
+                />
             </div>
         );
     }

@@ -9,6 +9,7 @@ import {
     KnowledgeClaim, OCCURRENCE_QUESTIONS, OccurrenceQuestion, occurrenceFindings,
 } from '../../knowledge/store';
 import { getTabRegister, setTabRegister } from '../../persistence/uiPrefs';
+import { EmptyRegister, QuietWeekSilhouette } from './EmptyRegister';
 import type { DomainMutationContext, RunDomainMutation } from '../../state/domainMutation';
 
 /**
@@ -158,13 +159,18 @@ const CurrentEventsTab: React.FC<{
                     { value: 'examined', label: 'Examined', count: examinedThisWeek.length },
                 ]}
             />
-            <span style={quiet}>Press an occurrence and your agents will seek its causes.</span>
+            {/* A standing instruction renders only when there is something to press. */}
+            {shown.length > 0 && <span style={quiet}>Press an occurrence and your agents will seek its causes.</span>}
             {shown.length === 0 && (
-                <p style={{ fontStyle: 'italic', color: 'var(--text-muted)', margin: 0 }}>
-                    {register === 'examined'
+                <EmptyRegister
+                    silhouette={<QuietWeekSilhouette />}
+                    line={register === 'examined'
                         ? 'You have put no questions to this week’s occurrences.'
-                        : 'The city is quiet. No new events to report.'}
-                </p>
+                        : 'Nothing was cried in the forum this week.'}
+                    hint={register === 'examined'
+                        ? 'Press an occurrence and your agents will seek its causes.'
+                        : 'A quiet week is not an empty one.'}
+                />
             )}
             {shown.map(slip)}
         </div>

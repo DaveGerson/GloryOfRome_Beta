@@ -3,6 +3,7 @@ import { SimulationState } from '../../types';
 import { Alert } from '../ui/Alert';
 import { toRoman } from '../ui/Brand';
 import type { TabId } from '../../perception/visibility';
+import { EmptyRegister } from './EmptyRegister';
 
 /**
  * "The week's briefing" (WP-15, audit items 38–39).
@@ -125,7 +126,10 @@ const WorldStateTab: React.FC<{
             <div>
                 <h3 className="gor-label" style={{ color: 'var(--crimson-500)' }}>Where to look</h3>
                 {pointers.length === 0 ? (
-                    <p style={{ ...quiet, marginTop: 8 }}>Nothing waits on you. The week is yours to shape.</p>
+                    <EmptyRegister
+                        line="Nothing waits on you."
+                        hint="Every occurrence has been examined and every report read."
+                    />
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', marginTop: 6 }}>
                         {pointers.map(pointer => (

@@ -1,9 +1,12 @@
 import React from 'react';
 import type { KnowledgeClaim } from '../../knowledge/store';
+import { AxesSilhouette, EmptyRegister } from './EmptyRegister';
 
 type Props = {
   observations: KnowledgeClaim[];
   currentTurn: number;
+  /** Named so the zero state can say who you have never been in a room with. */
+  subjectName?: string;
 };
 
 function learnedTurn(claim: KnowledgeClaim): number {
@@ -31,10 +34,16 @@ const ObservationLine: React.FC<{ claim: KnowledgeClaim; currentTurn: number }> 
 
 /** Player-held, sourced observations only. It intentionally has no
  * relationship score, synthesis, or sentiment interpretation. */
-const RelationshipObservations: React.FC<Props> = ({ observations, currentTurn }) => {
+const RelationshipObservations: React.FC<Props> = ({ observations, currentTurn, subjectName }) => {
   const newestFirst = [...observations].sort((a, b) => learnedTurn(b) - learnedTurn(a));
   if (newestFirst.length === 0) {
-    return <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No observations yet</span>;
+    return (
+      <EmptyRegister
+        silhouette={<AxesSilhouette />}
+        line={`You have never been in a room with ${subjectName ?? 'them'}.`}
+        hint="What you observe yourself is the only account nobody can colour."
+      />
+    );
   }
 
   return (
