@@ -777,6 +777,112 @@ describe('applyAdjudication', () => {
         expect(updatedEntities.find(e => e.entity_id === 'new_gladiator')).toBeDefined();
         expect(updatedEntities.find(e => e.entity_id === 'gaius_pontius_magnus')).toBeUndefined();
     });
+
+    // --- Duplicate add_entities ids: refuse-and-record, never overwrite ---
+    const refusalNotes = (adjudication: Adjudication) =>
+        adjudication.gm_private.filter(note => /\[Engine\] Refused to add entity/.test(note));
+
+    it('refuses an add_entities id already on the roster, keeping the standing record and its accumulated state', () => {
+        const standing = mockEntities.find(e => e.entity_id === 'gaius_pontius_magnus')!;
+        const accumulatedMemory: Memory = {
+            turn: 1,
+            event_description: 'Took a Praetorian bribe in the Curia',
+            emotional_impact: 'Notable',
+            involved_entities: [],
+        };
+        standing.memories.push(accumulatedMemory);
+
+        // A same-id template with none of the standing record's accumulated
+        // state - exactly what a re-issued creation instruction looks like.
+        const impostorTemplate: Entity = {
+            ...deepCopy(newEntity),
+            entity_id: 'gaius_pontius_magnus',
+            name: 'Impostor Magnus',
+            position: 'Upstart',
+        };
+
+        const adjudication = deepCopy(baseAdjudication);
+        adjudication.add_entities = [impostorTemplate];
+
+        const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+
+        expect(updatedEntities.length).toBe(mockEntities.length);
+        const magnus = updatedEntities.filter(e => e.entity_id === 'gaius_pontius_magnus');
+        expect(magnus.length).toBe(1);
+
+        // The standing record survives intact: identity, relationships, memories.
+        expect(magnus[0].name).toBe('Gaius Pontius Magnus');
+        expect(magnus[0].position).toBe('Senator');
+        expect(magnus[0].location).toBe('The Curia');
+        expect(magnus[0].relationships['severus_alexander']).toBeDefined();
+        expect(magnus[0].memories.some(m => m.event_description === accumulatedMemory.event_description)).toBe(true);
+
+        // None of the refused template's distinguishing fields land anywhere.
+        expect(updatedEntities.some(e => e.name === 'Impostor Magnus')).toBe(false);
+        expect(magnus[0].position).not.toBe('Upstart');
+
+        expect(refusalNotes(adjudication).length).toBe(1);
+    });
+
+    it('adds one entity and records one refusal when a single add_entities batch carries the same id twice', () => {
+        const duplicateCopy: Entity = { ...deepCopy(newEntity), name: 'New Gladiator (duplicate)' };
+
+        const adjudication = deepCopy(baseAdjudication);
+        adjudication.add_entities = [deepCopy(newEntity), duplicateCopy];
+
+        const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+
+        expect(updatedEntities.filter(e => e.entity_id === 'new_gladiator').length).toBe(1);
+        expect(updatedEntities.length).toBe(mockEntities.length + 1);
+        // First copy wins; the later one is refused, not merged.
+        expect(updatedEntities.find(e => e.entity_id === 'new_gladiator')?.name).toBe('New Gladiator');
+        expect(refusalNotes(adjudication).length).toBe(1);
+    });
+
+    it('does not accumulate duplicates when successive turns re-add the same entity (Mock Mode scenario)', () => {
+        const firstAdjudication = deepCopy(baseAdjudication);
+        firstAdjudication.add_entities = [deepCopy(newEntity)];
+
+        const first = applyAdjudication(firstAdjudication, mockEntities, mockWorldState, mockReports);
+
+        expect(first.updatedEntities.filter(e => e.entity_id === 'new_gladiator').length).toBe(1);
+        expect(refusalNotes(firstAdjudication).length).toBe(0);
+
+        // Second turn, same canned addition, fed the first turn's roster.
+        const secondAdjudication = deepCopy(baseAdjudication);
+        secondAdjudication.turn = 2;
+        secondAdjudication.add_entities = [deepCopy(newEntity)];
+
+        const second = applyAdjudication(
+            secondAdjudication, first.updatedEntities, first.updatedWorldState, first.updatedReports
+        );
+
+        expect(second.updatedEntities.filter(e => e.entity_id === 'new_gladiator').length).toBe(1);
+        expect(second.updatedEntities.length).toBe(mockEntities.length + 1);
+        expect(refusalNotes(secondAdjudication).length).toBe(1);
+    });
+
+    it('still replaces a record when one adjudication removes an id and adds it back, with no refusal', () => {
+        const freshMagnus: Entity = {
+            ...deepCopy(newEntity),
+            entity_id: 'gaius_pontius_magnus',
+            name: 'Gaius Pontius Magnus the Younger',
+            position: 'Heir',
+        };
+
+        const adjudication = deepCopy(baseAdjudication);
+        adjudication.remove_entities = ['gaius_pontius_magnus'];
+        adjudication.add_entities = [freshMagnus];
+
+        const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+
+        const magnus = updatedEntities.filter(e => e.entity_id === 'gaius_pontius_magnus');
+        expect(magnus.length).toBe(1);
+        expect(magnus[0].name).toBe('Gaius Pontius Magnus the Younger');
+        expect(magnus[0].position).toBe('Heir');
+        expect(updatedEntities.length).toBe(mockEntities.length);
+        expect(refusalNotes(adjudication).length).toBe(0);
+    });
   });
 });
 

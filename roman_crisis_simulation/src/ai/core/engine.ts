@@ -536,7 +536,40 @@ export function applyAdjudication(
     }
 
     if (adjudication.add_entities && adjudication.add_entities.length > 0) {
-        entitiesAfterDeltas.push(...adjudication.add_entities);
+        // `add_entities` is the CREATION channel and deltas are the MUTATION
+        // channel - the adjudication prompt says exactly that ("To add an
+        // entity, use the 'add_entities' field"; every change to an entity
+        // already in play is a delta). An add naming an id already on the
+        // roster is therefore a malformed instruction, and this function's
+        // established answer to a malformed instruction is refuse-and-record
+        // (see the player-removal guard just above): the STANDING record is
+        // kept unchanged, the incoming record is dropped, and the refusal is
+        // written to `gm_private` for the GM console. Never an overwrite - a
+        // duplicate id would otherwise trade the entity's accumulated
+        // `relationships`, the `memories` stamped a few lines above, and its
+        // `active_scheme` for a blank template, losing simulation state that
+        // cannot be recovered.
+        //
+        // Deliberate REPLACEMENT keeps working untouched: `remove_entities`
+        // is processed in the block above, BEFORE this one, so a remove+add
+        // of the same id within one adjudication meets an empty seat here -
+        // it replaces the record and emits no refusal.
+        //
+        // Duplicates WITHIN a single batch collide by the same rule (the id
+        // is claimed as it is added), so `[a, a]` adds one entity and records
+        // one refusal. Mock Mode replays one canned roster addition every
+        // turn (ai/mocks.ts), which is precisely this path - without the
+        // guard a playthrough accumulated a duplicate entity, and a duplicate
+        // React key, per turn.
+        const takenIds = new Set(entitiesAfterDeltas.map(e => e.entity_id));
+        adjudication.add_entities.forEach(entity => {
+            if (takenIds.has(entity.entity_id)) {
+                adjudication.gm_private.push(`[Engine] Refused to add entity '${entity.entity_id}' via add_entities - that id is already on the roster; add_entities creates, deltas change what already exists.`);
+                return;
+            }
+            takenIds.add(entity.entity_id);
+            entitiesAfterDeltas.push(entity);
+        });
     }
 
     return {
