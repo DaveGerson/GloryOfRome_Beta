@@ -598,6 +598,53 @@ describe('persistence/saveGame', () => {
       expect(state.turnHistory[0].proseRedactions).toHaveLength(1);
     });
 
+    // The strip is a boundary, not a broom: it takes GM-private captured
+    // text and nothing else. `playerMonologue` is the same text the chat log
+    // already shows the player, so it must survive - the GM console reads it
+    // off the entry precisely so it never has to infer a chat message's turn
+    // from array position (D44).
+    it('round-trips playerMonologue through the save - it is player-visible, not GM-private', () => {
+      const entry = {
+        ...makeHistoryEntry(1, true),
+        playerMonologue: 'I must tread carefully among the wolves of the Senate.',
+      };
+      const state = makeState({ turnNumber: 2, turnHistory: [entry] });
+
+      saveGame(state);
+
+      const loaded = loadGame();
+      expect(loaded!.state.turnHistory[0].playerMonologue)
+        .toBe('I must tread carefully among the wolves of the Senate.');
+      // The empty case is a RECORD, not an absence: a turn that composed no
+      // monologue must not come back looking like an entry that predates the
+      // field.
+      saveGame(makeState({
+        turnNumber: 2,
+        turnHistory: [{ ...makeHistoryEntry(1, true), playerMonologue: '' }],
+      }));
+      expect(loadGame()!.state.turnHistory[0].playerMonologue).toBe('');
+    });
+
+    // `streamChunks` is round-trip METADATA of the same class as latencyMs,
+    // not captured text - the strip takes promptText/systemInstruction and
+    // leaves it standing.
+    it("keeps a rawCall's streamChunks through the strip", () => {
+      const entry = {
+        ...makeHistoryEntry(1, true),
+        rawCalls: [{ ...makeRawCall('narration'), streamChunks: 7 }],
+      };
+      const state = makeState({ turnNumber: 2, turnHistory: [entry] });
+
+      saveGame(state);
+
+      const raw = localStorage.getItem('gloryOfRome:autosave')!;
+      expect(raw).not.toContain('promptText');
+      const loaded = loadGame();
+      const call = loaded!.state.turnHistory[0].rawCalls![0];
+      expect(call.streamChunks).toBe(7);
+      expect(call.promptText).toBeUndefined();
+    });
+
     it('keeps the prompt text out of the blob on the oversize-retry path too', () => {
       vi.spyOn(console, 'warn').mockImplementation(() => {});
       let calls = 0;

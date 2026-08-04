@@ -570,6 +570,18 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     // quietly collapse to one just because the response is JSON-encoded now.
     expect(h.chunkCounts.narration).toBe(2);
 
+    // WP-19 follow-up: the narration's raw-call record COUNTS those chunks,
+    // so the GM console can read "streamed in N chunks" off the record
+    // rather than off nothing. It must agree with the harness's own count.
+    const streamedRawCalls = result.newHistoryEntry.rawCalls ?? [];
+    const narrationRecord = streamedRawCalls.find(record => record.callName === 'narration');
+    expect(narrationRecord?.streamChunks).toBe(h.chunkCounts.narration);
+    // ...and only the streamed call carries it: an unstreamed round-trip has
+    // no chunk count at all (absent, never 0).
+    for (const record of streamedRawCalls.filter(item => item.callName !== 'narration')) {
+      expect(record.streamChunks).toBeUndefined();
+    }
+
     // The stream gate must never let a SUGGESTION line leak into a chunk.
     expect(onNarrationChunk).toHaveBeenCalled();
     for (const call of onNarrationChunk.mock.calls) {

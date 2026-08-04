@@ -722,10 +722,16 @@ export async function generateStructuredStream<T>(
   // any error at this point is surfaced as transient, since the stream was
   // already successfully acquired.
   let rawSoFar = '';
+  // How many text-bearing chunks arrived - one increment per chunk actually
+  // fed to `onChunk`, so an empty chunk counts for nothing. Round-trip
+  // metadata of the same class as `latencyMs`, recorded on every branch
+  // below via `baseRecord`.
+  let streamChunks = 0;
   try {
     for await (const chunk of stream) {
       if (chunk.text) {
         rawSoFar += chunk.text;
+        streamChunks++;
         onChunk(rawSoFar);
       }
     }
@@ -747,6 +753,7 @@ export async function generateStructuredStream<T>(
     promptText: req.prompt,
     systemInstruction: req.systemInstruction,
     rawResponse: rawSoFar,
+    streamChunks,
   };
 
   let parsed: T;

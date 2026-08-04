@@ -466,6 +466,17 @@ export interface RawCallRecord {
   promptText?: string;
   /** The call's system instruction, if any - same caps, visibility, and persistence rules as `promptText`. */
   systemInstruction?: string;
+  /**
+   * How many text-bearing chunks the streamed response arrived in
+   * (`ai/core/geminiService.ts::generateStructuredStream`). Metadata of the
+   * same class as `latencyMs`/`attempts` - a measurement of the round-trip,
+   * not captured text - so unlike `promptText`/`systemInstruction` it is NOT
+   * stripped on serialize and survives into the save. Optional and absent
+   * (never 0) on every non-streamed call, on mock turns, and on records
+   * written before the field existed: the GM console omits the "streamed in
+   * N chunks" clause entirely rather than reading "0 chunks".
+   */
+  streamChunks?: number;
 }
 
 /**
@@ -549,6 +560,27 @@ export interface TurnHistoryEntry {
   playerIntent: string;
   adjudication: Adjudication;
   narration?: string; // Optional narrated text
+  /**
+   * The player's inner monologue for this turn - the SAME text the chat log
+   * carries as its `player_monologue` message, duplicated onto the entry
+   * exactly as `narration` already is.
+   *
+   * The duplication is the point (D44, one owner per fact - and its
+   * corollary): `messages` has no turn attribution, so the only way the GM
+   * console could pair a monologue with its turn would be to infer it from
+   * array position, which D44 forbids. The entry owns the turn's copy.
+   *
+   * PLAYER-VISIBLE, so it is NEVER stripped on serialize - contrast
+   * `proseRedactions` below, which is GM-private and session-side. It
+   * round-trips through the save intact.
+   *
+   * Three-way, and the distinction is load-bearing for the pane's zero
+   * states (D45 - a zero state names the cause): `undefined` means the entry
+   * predates the record, `''` means the turn composed no monologue, and a
+   * non-empty string is rendered. Every turn that runs the pipeline sets it,
+   * `''` included.
+   */
+  playerMonologue?: string;
   /**
    * Deep copy of the full entity roster as of this turn's commit - the
    * dominant per-turn share of the save blob. Present only on the most

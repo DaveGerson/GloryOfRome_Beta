@@ -991,6 +991,10 @@ export async function runNewTurn(
         playerIntent,
         adjudication: transformedAdjudication,
         narration,
+        // Always set, `''` included: the entry owns this turn's copy of the
+        // monologue so the GM console never has to infer a chat message's
+        // turn from array position (D44).
+        playerMonologue,
         postTurnEntities: updatedEntities, // Store final state
         rawCalls: endTurnCapture(),
         mortalityTrace: mortalityEvents.length > 0 ? mortalityEvents : undefined,

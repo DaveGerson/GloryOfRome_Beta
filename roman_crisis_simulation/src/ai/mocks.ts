@@ -582,6 +582,8 @@ export const mockRunNewTurn = async (
         playerIntent,
         adjudication: strippedAdjudication,
         narration: narrationRedaction.value,
+        // Parity with ai/core/turn.ts: always set, `''` included (D44).
+        playerMonologue: monologueRedaction.value,
         postTurnEntities: updatedEntities,
         perceivingNpcIds,
         npcIntents: durableIntents.length > 0 ? durableIntents : undefined,

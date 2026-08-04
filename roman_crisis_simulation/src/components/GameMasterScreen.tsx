@@ -5,6 +5,7 @@ import { KnowledgeClaim } from '../knowledge/store';
 import { InferredAmbitionState, SAVE_VERSION } from '../persistence/saveGame';
 import { buildEvalCorpus, evalCorpusFilename } from '../persistence/evalCorpus';
 import { getSessionCallLog, MAX_CAPTURED_PROMPT_CHARS } from '../ai/core/geminiService';
+import { replayTurnDraws, type TurnReplayResult } from '../ai/core/turnReplay';
 import { toRoman } from './ui/Brand';
 import { createFocusTrap, FocusTrap } from './ui/focusTrap';
 import { structuredSubmissionForHistory, TurnSubmissionHistory } from './TurnSubmissionHistory';
@@ -448,19 +449,59 @@ function isHeadlineSurface(surface: string): boolean {
 }
 
 /**
+ * The Tyrian treatment `RawRegister` wears for the system instruction, lifted
+ * to a const so the monologue slip can wear the SAME one rather than a second
+ * near-identical purple.
+ */
+const tyrian: React.CSSProperties = { background: 'rgba(94,34,70,.22)', border: '1px solid rgba(94,34,70,.5)' };
+const TYRIAN_KICKER = '#C89BB4';
+
+/**
+ * How the turn's narration arrived, when the record says. `streamChunks` is
+ * written only by `generateStructuredStream`, so a mock turn, a non-streamed
+ * narration and an entry whose rawCalls `stripOldRawCalls` dropped all yield
+ * `undefined` - and the clause is then OMITTED rather than rendered as
+ * "0 chunks".
+ */
+function narrationChunkClause(entry: TurnHistoryEntry): string {
+    const streamed = (entry.rawCalls ?? []).find(
+        call => call.callName === 'narration' && call.streamChunks !== undefined);
+    return streamed ? ` · streamed in ${streamed.streamChunks} chunks` : '';
+}
+
+/**
  * What the player received, and what was withheld. The narration reads on
  * the tablet register (WP-10's `--tablet-*`, so it inverts under NOX with
  * the Dispatches tablet); the right column is the boundary.
+ *
+ * Exported for direct component testing (tests/gmNarrationPane.test.tsx);
+ * the console itself still reaches it through GameMasterScreen.
  */
-const NarrationView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => {
+export const NarrationView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => {
     const redactions = entry.proseRedactions ?? [];
     const cutHeadlines = redactions.filter(cut => isHeadlineSurface(cut.surface));
+    // Three-way (types.ts): undefined = the entry predates the record,
+    // '' = the turn composed none, non-empty = render it. A zero state names
+    // its cause (D45) and stays at FULL opacity - nothing here is disabled.
+    const monologue = entry.playerMonologue;
     return (
         <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
             <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div>
-                    <span style={lbl}>Narration — {(entry.narration ?? '').length} chars</span>
+                    <span style={lbl}>Narration — {(entry.narration ?? '').length} chars{narrationChunkClause(entry)}</span>
                     <div className="gor-gm-tablet gor-dropcap">{entry.narration || 'No narration generated.'}</div>
+                </div>
+                <div style={{ ...well, ...tyrian }}>
+                    <span style={{ ...lbl, color: TYRIAN_KICKER }}>Inner thoughts</span>
+                    {monologue
+                        ? <p style={{ margin: '6px 0 0', fontSize: 13, color: PARCH, fontStyle: 'italic' }}>{monologue}</p>
+                        : (
+                            <p style={{ margin: '6px 0 0', fontSize: 13, color: PARCH }}>
+                                {monologue === undefined
+                                    ? 'This turn predates the monologue record.'
+                                    : 'No monologue was composed this turn.'}
+                            </p>
+                        )}
                 </div>
                 <div style={well}>
                     <span style={lbl}>Headlines</span>
@@ -534,10 +575,10 @@ const CopyButton: React.FC<{ text: string }> = ({ text }) => (
     </button>
 );
 
-const RawRegister: React.FC<{ title: string; meta: string; body: string; tyrian?: boolean }> = ({ title, meta, body, tyrian = false }) => (
-    <details style={{ ...well, ...(tyrian ? { background: 'rgba(94,34,70,.22)', border: '1px solid rgba(94,34,70,.5)' } : {}) }}>
+const RawRegister: React.FC<{ title: string; meta: string; body: string; tyrian?: boolean }> = ({ title, meta, body, tyrian: isTyrian = false }) => (
+    <details style={{ ...well, ...(isTyrian ? tyrian : {}) }}>
         <summary style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline' }}>
-            <span style={{ ...lbl, color: tyrian ? '#C89BB4' : GOLD }}>{title}</span>
+            <span style={{ ...lbl, color: isTyrian ? TYRIAN_KICKER : GOLD }}>{title}</span>
             <span style={{ fontFamily: MONO, fontSize: 10.5, color: DIM }}>{meta}</span>
         </summary>
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}><CopyButton text={body} /></div>
@@ -613,12 +654,23 @@ const RawView: React.FC<{ adjudication: Adjudication; rawCalls?: RawCallRecord[]
     );
 };
 
+/** The pane's one button treatment, worn by both of its controls. */
+const gmButton: React.CSSProperties = { fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, letterSpacing: '.08em', textTransform: 'uppercase', color: '#241C11', background: 'var(--metal-gold)', border: '1px solid #8A6D14', clipPath: 'var(--chamfer-sm)', padding: '9px 16px', cursor: 'pointer', boxShadow: 'var(--bevel)' };
+
 /**
  * What would leave the room if you exported this turn. The seed replays the
  * dice; the manifest names every slice the corpus carries, including the two
  * that are absent rather than empty when a campaign predates them.
+ *
+ * The plaque used to ASSERT that the seed replays the rolls. "Strike the
+ * mould again" proves it: `replayTurnDraws` re-draws from the recorded seed
+ * and compares draw for draw (ai/core/turnReplay.ts). It re-runs no model
+ * call and no pipeline.
+ *
+ * Exported for direct component testing (tests/gmNarrationPane.test.tsx);
+ * the console itself still reaches it through GameMasterScreen.
  */
-const FixturesView: React.FC<{
+export const FixturesView: React.FC<{
     entry: TurnHistoryEntry;
     history: TurnHistoryEntry[];
     sessionCalls: number;
@@ -626,6 +678,12 @@ const FixturesView: React.FC<{
     hasKnowledge: boolean;
     onExport: () => void;
 }> = ({ entry, history, sessionCalls, hasTruthLedger, hasKnowledge, onExport }) => {
+    // A replay belongs to the turn it was STRUCK FROM, so it is stored with
+    // that turn and read back only for it - switching turns on the rail
+    // therefore cannot leave the previous turn's verdict standing, with no
+    // reset effect needed.
+    const [struck, setStruck] = useState<{ entry: TurnHistoryEntry; result: TurnReplayResult } | null>(null);
+    const replay = struck?.entry === entry ? struck.result : null;
     // Draw order: the player action's resolution roll first (when
     // consequential), then each VALID mortality roll in claim order. An
     // invalidated claim never reaches the dice, so it consumes no draw.
@@ -652,14 +710,42 @@ const FixturesView: React.FC<{
                 <div style={well}>
                     <span style={lbl}>Rolls, in draw order</span>
                     <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        {draws.length === 0 && <span style={{ color: DIM }}>This turn drew no dice.</span>}
-                        {draws.map((draw, index) => (
-                            <span key={index} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontFamily: MONO, fontSize: 12, color: PARCH }}>
-                                <span>{index + 1}. {draw.label}</span>
-                                <span style={{ color: GOLD }}>{draw.roll}</span>
+                        {draws.length === 0 && (
+                            <span style={{ color: DIM }}>
+                                This turn drew no dice{entry.turnSeed !== undefined ? ' — there is nothing to strike from the mould.' : '.'}
                             </span>
-                        ))}
+                        )}
+                        {draws.map((draw, index) => {
+                            const struck = replay?.draws[index];
+                            return (
+                                <span key={index} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontFamily: MONO, fontSize: 12, color: PARCH }}>
+                                    <span>{index + 1}. {draw.label}</span>
+                                    <span style={{ color: GOLD }}>
+                                        {draw.roll}
+                                        {struck && (
+                                            <span style={{ color: struck.matches ? GREEN : RED }}>
+                                                {' '}→ {struck.redrawn} {struck.matches ? '✓' : '✕'}
+                                            </span>
+                                        )}
+                                    </span>
+                                </span>
+                            );
+                        })}
                     </div>
+                    {entry.turnSeed !== undefined && draws.length > 0 && (
+                        <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
+                            <button type="button" onClick={() => setStruck({ entry, result: replayTurnDraws(entry) })} style={gmButton}>
+                                Strike the mould again
+                            </button>
+                            {replay && (
+                                <span style={{ fontSize: 12.5, color: replay.allMatch ? GREEN : RED }}>
+                                    {replay.allMatch
+                                        ? 'The mould holds — every roll re-drawn from the seed matches the record.'
+                                        : 'The mould does not hold — the seed and the record disagree.'}
+                                </span>
+                            )}
+                        </div>
+                    )}
                 </div>
             </div>
             <div style={{ flex: 'none', width: 352, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -686,11 +772,7 @@ const FixturesView: React.FC<{
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <span style={{ fontFamily: MONO, fontSize: 11, color: DIM }}>{evalCorpusFilename(entry.turnNumber)}</span>
                     <span style={{ fontSize: 12.5, color: DIM, fontStyle: 'italic' }}>Never written into the save.</span>
-                    <button
-                        type="button"
-                        onClick={onExport}
-                        style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, letterSpacing: '.08em', textTransform: 'uppercase', color: '#241C11', background: 'var(--metal-gold)', border: '1px solid #8A6D14', clipPath: 'var(--chamfer-sm)', padding: '9px 16px', cursor: 'pointer', boxShadow: 'var(--bevel)' }}
-                    >
+                    <button type="button" onClick={onExport} style={gmButton}>
                         Take the impression
                     </button>
                 </div>
