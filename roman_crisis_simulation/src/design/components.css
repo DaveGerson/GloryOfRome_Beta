@@ -386,6 +386,36 @@
 /* The rumour mill carries no wax at all. */
 .gor-seal-unsealed{width:30px;height:30px;flex:none;display:inline-grid;place-items:center;border:1px dashed var(--border-strong);border-radius:46% 54% 52% 48%/52% 46% 54% 48%;color:var(--parchment-400);font-size:13px}
 
+/* ── The rite's specimens (audit item 42) ──
+   Each pillar of the introduction shows the thing it claims: the order you
+   write, the two accounts that cannot both be true, the stone with the name
+   not yet cut. */
+.gor-specimen-caption{margin:16px 24px 0;text-align:center;font-family:var(--font-display);font-size:9.5px;font-weight:600;letter-spacing:.2em;text-transform:uppercase;color:var(--text-muted)}
+.gor-specimen{margin:6px 24px 0;padding:12px 14px;background:var(--surface-inset);box-shadow:var(--shadow-inset);border:1px solid var(--border-faint);border-radius:var(--radius-sm)}
+.gor-specimen-note{margin:10px 24px 0;text-align:center;font-size:13.5px;font-style:italic;color:var(--text-muted)}
+.gor-specimen-order{display:flex;align-items:center;gap:12px}
+.gor-specimen-order-text{flex:1;font-size:15px;color:var(--text-body)}
+.gor-specimen-reports{display:flex;flex-direction:column}
+.gor-specimen-close{margin-top:8px;padding-top:8px;border-top:1px solid var(--border-faint);font-size:13.5px;font-style:italic;color:var(--text-muted)}
+/* One span nobody will name — struck through the weave, not deleted. */
+.gor-redact-weave{background:repeating-linear-gradient(102deg,rgba(179,58,43,.12) 0 1px,transparent 1px 7px);border-radius:2px;padding:0 2px}
+
+/* The epilogue stone, blank. */
+.gor-stone-blank{position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;padding:16px 18px 18px;background:linear-gradient(180deg,#463B2C,#2B2318 62%,#1E1810);border:1px solid rgba(201,162,39,.32);clip-path:polygon(10px 0,calc(100% - 10px) 0,100% 10px,100% 100%,0 100%,0 10px)}
+.gor-stone-dentil{position:absolute;top:6px;left:14px;right:14px;height:3px;background:var(--dentil)}
+.gor-stone-kicker{margin-top:8px;font-family:var(--font-display);font-size:9.5px;letter-spacing:.28em;text-transform:uppercase;color:#A18A5C}
+.gor-stone-name{font-family:var(--font-epic);font-size:22px;color:#E8C959}
+.gor-stone-span{font-family:var(--font-display);font-size:11px;letter-spacing:.2em;color:#C4AC7C}
+.gor-stone-rule{width:64%;height:1px;margin:6px 0 2px;background:linear-gradient(90deg,transparent,var(--gold-600),transparent)}
+.gor-stone-line{font-size:13.5px;font-style:italic;color:#A18A5C;text-align:center}
+
+/* Numerals, matching the seals. */
+.gor-rite-steps{display:flex;gap:14px}
+.gor-rite-step{font-family:var(--font-display);font-size:11px;font-weight:700;letter-spacing:.16em;color:var(--parchment-400);padding-bottom:3px;border-bottom:2px solid transparent;transition:color var(--duration-slow) var(--ease-standard)}
+.gor-rite-step-now{color:var(--gold-700);border-bottom-color:var(--gold-600)}
+
+@media (prefers-reduced-motion:reduce){.gor-rite-step{transition:none}}
+
 /* ── The Chronicle's spine (audit item 37) ──
    One continuous rule down the register, not a gold edge repeated per entry. */
 .gor-spine{position:relative;display:flex;flex-direction:column;gap:14px;padding-left:22px}

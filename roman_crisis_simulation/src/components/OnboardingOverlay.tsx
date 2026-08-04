@@ -29,7 +29,63 @@ interface OnboardingStep {
   title: string;
   body: string;
   seal: string;
+  /** What the pillar is claiming, shown rather than described. */
+  specimenCaption: string;
+  specimen: React.ReactNode;
+  /** An aside beneath the well — never a clause bolted onto the body. */
+  note?: string;
 }
+
+/** The order you write, and the seal that closes it. */
+const WRITTEN_ORDER = (
+  <div className="gor-specimen-order">
+    <span className="gor-specimen-order-text">
+      Summon the Praetorian prefect at dusk. Ask him plainly who pays the guard this month.
+    </span>
+    <WaxSeal letter="S" size={30} tone="crimson" />
+  </div>
+);
+
+/**
+ * Two accounts of one night that cannot both be right. Item 28's Reports
+ * vocabulary, at specimen scale: wax and a laurel clause for the agent you
+ * pay, no wax at all and a bronze clause for what the city merely repeats.
+ */
+const TWO_ACCOUNTS = (
+  <div className="gor-specimen-reports">
+    <div className="gor-report" style={{ borderTop: 'none', paddingTop: 0 }}>
+      <WaxSeal letter="A" size={26} tone="crimson" />
+      <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+        <span className="gor-report-source">Your agent</span>
+        <span style={{ fontSize: 14 }}>“The prefect dined alone.”</span>
+        <span style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--laurel-500)' }}>Stands firmly behind it.</span>
+      </div>
+    </div>
+    <div className="gor-report">
+      <span className="gor-seal-unsealed" aria-hidden="true">?</span>
+      <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+        <span className="gor-report-source">The rumour mill</span>
+        <span style={{ fontSize: 14 }}>
+          “He dined with <span className="gor-redact-weave">a man nobody will name</span>.”
+        </span>
+        <span style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--bronze-500)' }}>Cannot say how they came by it.</span>
+      </div>
+    </div>
+    <span className="gor-specimen-close">Both sit in your panel. It will never tell you which one is true.</span>
+  </div>
+);
+
+/** The stone every reign arrives at, with the name not yet cut. */
+const BLANK_STONE = (
+  <div className="gor-stone-blank">
+    <span className="gor-stone-dentil" aria-hidden="true" />
+    <span className="gor-stone-kicker">Here lies</span>
+    <span className="gor-stone-name">Your name here</span>
+    <span className="gor-stone-span">Week I — Week ?</span>
+    <span className="gor-stone-rule" aria-hidden="true" />
+    <span className="gor-stone-line">What is cut here is cut by how you played.</span>
+  </div>
+);
 
 const STEPS: readonly OnboardingStep[] = [
   {
@@ -38,21 +94,27 @@ const STEPS: readonly OnboardingStep[] = [
     body:
       'You act by writing intentions in your own words — orders, schemes, speeches, letters. ' +
       'Each turn is one week, and the world moves whether you see it or not.',
+    specimenCaption: 'One week, written and sealed',
+    specimen: WRITTEN_ORDER,
   },
   {
     title: 'Knowledge Is Survival',
     seal: 'II',
     body:
-      'The side panel holds what you know — not what is true. Dispatches report only what ' +
-      'reaches your ears. People can be investigated, coin can be spent, and even then, reports ' +
-      'can be wrong or incomplete.',
+      'The side panel holds what you know — not what is true. People can be investigated and ' +
+      'coin can be spent; even then, what comes back can be wrong.',
+    specimenCaption: 'Two accounts of the same night',
+    specimen: TWO_ACCOUNTS,
   },
   {
     title: 'Death Is Real',
     seal: 'III',
     body:
       'There is no winning — only how long you last, and what history writes of you afterward. ' +
-      'The Fates keep their own ledger: your reign is saved automatically, every turn.',
+      'The Fates keep their own ledger.',
+    specimenCaption: 'Every reign ends here',
+    specimen: BLANK_STONE,
+    note: '❦ Your reign is saved automatically, every week.',
   },
 ];
 
@@ -152,18 +214,27 @@ const OnboardingOverlay: React.FC<OnboardingOverlayProps> = ({ isOpen, onClose }
           {current.body}
         </p>
 
+        {/* Each pillar shows its claim rather than asserting it. */}
+        <p className="gor-specimen-caption">{current.specimenCaption}</p>
+        <div className="gor-specimen">{current.specimen}</div>
+        {current.note && <p className="gor-specimen-note">{current.note}</p>}
+
         <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
-          <div style={{ display: 'flex', gap: 8 }} aria-hidden="true">
-            {STEPS.map((_, index) => (
-              <span
-                key={index}
-                style={{ width: 9, height: 9, borderRadius: '50%', transition: 'background var(--duration-slow) var(--ease-standard)', background: index === step ? 'var(--gold-500)' : 'var(--parchment-300)', boxShadow: index === step ? '0 0 4px rgba(201,162,39,.6)' : undefined }}
-              />
+          {/* Numerals, matching the seals — three dots said nothing about which rite you are in. */}
+          <div className="gor-rite-steps" aria-hidden="true">
+            {STEPS.map((entry, index) => (
+              <span key={entry.seal} className={`gor-rite-step${index === step ? ' gor-rite-step-now' : ''}`}>
+                {entry.seal}
+              </span>
             ))}
           </div>
-          <button type="button" onClick={handleAdvance} className="gor-btn gor-btn-md gor-btn-primary">
-            {isLastStep ? 'Begin' : 'Next'}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {/* A dismissable rite should say it is dismissable. */}
+            <button type="button" onClick={onClose} className="gor-btn gor-btn-md gor-btn-ghost">Skip the rite</button>
+            <button type="button" onClick={handleAdvance} className="gor-btn gor-btn-md gor-btn-primary">
+              {isLastStep ? 'Take your place' : 'Next'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
