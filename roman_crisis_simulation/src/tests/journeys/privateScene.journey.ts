@@ -113,6 +113,20 @@ function journeyClient(simulationState: JourneyRunner['thread']['simulationState
   } satisfies TurnScript, 'privateScene/e2e');
 }
 
+/** The doorway's contact cards (WP-16) — the control the eligible-target list is drawn on. */
+function contactIds(container: HTMLElement): string[] {
+  return Array.from(
+    appControl<HTMLElement>(container, 'Private-scene target').querySelectorAll<HTMLButtonElement>('[data-entity-id]'),
+  ).map(card => card.dataset.entityId!);
+}
+
+function contactCard(container: HTMLElement, entityId: string): HTMLButtonElement {
+  const card = appControl<HTMLElement>(container, 'Private-scene target')
+    .querySelector<HTMLButtonElement>(`[data-entity-id="${entityId}"]`);
+  if (!card) throw new Error(`No contact card for ${entityId}`);
+  return card;
+}
+
 async function openPrivateScene(app: MountedJourneyApp): Promise<void> {
   await appClick(appButton(app.container, 'Private scene'));
   await waitForApp(() => expect(app.container.querySelector('[aria-label="Private scene"]')).not.toBeNull());
@@ -139,13 +153,14 @@ describe('journey: player private scenes across audience, reload, and macro-turn
     let app: MountedJourneyApp | null = await mountJourneyApp(buildSaveStateFromThread(seed.thread));
     try {
       await openPrivateScene(app);
-      const target = appControl<HTMLSelectElement>(app.container, 'Private-scene target');
-      const eligibleIds = Array.from(target.options).map(option => option.value);
+      // WP-16: the doorway is a grid of contact cards, not a <select>. The
+      // eligibility rule it proves is unchanged; only the control moved.
+      const eligibleIds = contactIds(app.container);
       expect(eligibleIds).toContain(COLOCATED_NPC);
       expect(eligibleIds).toContain(NETWORK_NPC);
       expect(eligibleIds).not.toContain(INACCESSIBLE_NPC);
 
-      await appSetValue(target, NETWORK_NPC);
+      await appClick(contactCard(app.container, NETWORK_NPC));
       await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Private-scene opening'), FIRST_OPENING);
       await appClick(appButton(app.container, 'Send invitation'));
       await waitForApp(() => expect(loadGame()?.state.privateScenes?.[0]?.npcResponseCount).toBe(1));
@@ -183,7 +198,7 @@ describe('journey: player private scenes across audience, reload, and macro-turn
       const callsBeforeLastWord = privateSceneCallCount(client);
       expect(callsBeforeLastWord).toBe(6);
       await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Private-scene last word'), FIRST_LAST_WORD);
-      await appClick(appButton(app.container, 'Leave last word'));
+      await appClick(appButton(app.container, 'Leave the last word'));
       await waitForApp(() => expect(loadGame()!.state.privateScenes![0].status).toBe('closed'));
       expect(privateSceneCallCount(client)).toBe(callsBeforeLastWord);
       expect(loadGame()!.state.truthLedger).toEqual([]);
@@ -210,7 +225,7 @@ describe('journey: player private scenes across audience, reload, and macro-turn
 
       await waitForApp(() => expect(appButton(app!.container, 'Private scene').disabled).toBe(false));
       await openPrivateScene(app);
-      await appSetValue(appControl<HTMLSelectElement>(app.container, 'Private-scene target'), COLOCATED_NPC);
+      await appClick(contactCard(app.container, COLOCATED_NPC));
       await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Private-scene opening'), REFUSAL_OPENING);
       await appClick(appButton(app.container, 'Send invitation'));
       await waitForApp(() => expect(loadGame()!.state.privateScenes![1]).toMatchObject({
@@ -220,7 +235,7 @@ describe('journey: player private scenes across audience, reload, and macro-turn
       const callsBeforeRefusalLastWord = privateSceneCallCount(client);
       expect(callsBeforeRefusalLastWord).toBe(7);
       await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Private-scene last word'), REFUSAL_LAST_WORD);
-      await appClick(appButton(app.container, 'Leave last word'));
+      await appClick(appButton(app.container, 'Leave the last word'));
       await waitForApp(() => expect(loadGame()!.state.privateScenes![1].status).toBe('closed'));
       expect(privateSceneCallCount(client)).toBe(callsBeforeRefusalLastWord);
 
@@ -229,7 +244,7 @@ describe('journey: player private scenes across audience, reload, and macro-turn
       await openPrivateScene(app);
       expect(app.container.textContent).toContain(REFUSAL_RESPONSE);
       expect(app.container.textContent).toContain(REFUSAL_LAST_WORD);
-      expect(app.container.textContent).toContain('You have already held a private scene this turn.');
+      expect(app.container.textContent).toContain('The door opens again on Week III.');
       expect(app.container.querySelector('[aria-label="Private-scene opening"]')).toBeNull();
       for (const forbidden of [FIRST_HIDDEN, FIRST_MECHANICS, REFUSAL_HIDDEN, REFUSAL_MECHANICS, 'npcPrivate']) {
         expect(app.container.textContent).not.toContain(forbidden);

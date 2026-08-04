@@ -46,6 +46,9 @@ describe('private scene player UI', () => {
     const playerView = projectPrivateSceneForPlayer(rawScene);
     expect(playerView).toEqual({
       sceneId: rawScene.sceneId, npcId: rawScene.npcId, npcName: rawScene.npcName,
+      // WP-16: the week the player was in the room is theirs to know — the
+      // doorway prints "Last alone · Week III" from it.
+      macroTurn: rawScene.macroTurn,
       status: rawScene.status, transcript: rawScene.transcript, npcResponseCount: rawScene.npcResponseCount,
       speechActs: rawScene.speechActs,
       closureReason: rawScene.closureReason, lastWord: rawScene.lastWord,
@@ -105,7 +108,7 @@ describe('private scene player UI', () => {
     expect(history.textContent).toContain('I have heard nothing.');
     expect(history.textContent).toContain('Closure');
     expect(history.textContent).toMatch(/you ended/i);
-    expect(history.textContent).toContain('Last word');
+    expect(history.textContent).toMatch(/your last word/i);
     expect(history.textContent).toContain('PLAYER_LAST_WORD_VISIBLE');
     const speechActs = history.querySelector('[aria-label="Attributed speech acts with Maximinus"]');
     expect(speechActs?.textContent).toContain('PLAYER_EXACT_TERMS_VISIBLE');
@@ -125,7 +128,7 @@ describe('private scene player UI', () => {
     const container = render([closed], false);
     act(() => Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'Private scene')!.click());
     expect(container.querySelector('[aria-label="Private-scene opening"]')).toBeNull();
-    expect(container.textContent).toMatch(/already held.*this turn/i);
+    expect(container.textContent).toMatch(/door opens again on Week IV/i);
   });
 
   it('uses a modal dialog, moves focus inside, traps Tab, closes presentation on Escape, and restores opener focus', async () => {
@@ -167,42 +170,43 @@ describe('private scene player UI', () => {
     const opener = Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'Private scene')!;
     await act(async () => opener.click());
 
-    const select = () => container.querySelector<HTMLSelectElement>('[aria-label="Private-scene target"]');
-    await act(async () => {
-      const target = select()!;
-      const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(target), 'value');
-      descriptor!.set!.call(target, 'b');
-      target.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    expect(select()!.value).toBe('b');
+    // WP-16 replaced the <select> with a grid of contact cards. The
+    // reconciliation contract below is the one the select-driven version
+    // proved; only the control it is driven through has changed.
+    const doorway = () => container.querySelector<HTMLElement>('[aria-label="Private-scene target"]');
+    const chosen = () => doorway()?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.dataset.entityId;
+    const card = (entityId: string) => doorway()!.querySelector<HTMLButtonElement>(`[data-entity-id="${entityId}"]`)!;
+
+    await act(async () => card('b').click());
+    expect(chosen()).toBe('b');
 
     // Step 1: explicit choice preserved while it remains eligible.
     await act(async () => root.render(mountWithTargets([
       { entityId: 'b', displayName: 'Balbus' },
       { entityId: 'c', displayName: 'Cato' },
     ])));
-    expect(select()!.value).toBe('b');
+    expect(chosen()).toBe('b');
 
     // Step 2: chosen target drops out of the list -> fallback to first eligible, not '' or stale 'b'.
     await act(async () => root.render(mountWithTargets([
       { entityId: 'c', displayName: 'Cato' },
       { entityId: 'd', displayName: 'Decimus' },
     ])));
-    expect(select()!.value).toBe('c');
+    expect(chosen()).toBe('c');
     const inviteButton = Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent === 'Send invitation')!;
     await act(async () => inviteButton.click());
     expect(onInvite).toHaveBeenCalledTimes(1);
     expect(onInvite).toHaveBeenCalledWith('c');
 
-    // Step 3: empty list -> no select, fallback copy renders; then a fresh list -> select shows the new first target.
+    // Step 3: empty list -> no doorway, fallback copy renders; then a fresh list -> the new first target is chosen.
     await act(async () => root.render(mountWithTargets([])));
-    expect(select()).toBeNull();
-    expect(container.textContent).toContain('No known contact is currently within reach.');
+    expect(doorway()).toBeNull();
+    expect(container.textContent).toContain('No one you know is within reach.');
 
     await act(async () => root.render(mountWithTargets([
       { entityId: 'e', displayName: 'Ennius' },
     ])));
-    expect(select()!.value).toBe('e');
+    expect(chosen()).toBe('e');
     const inviteButtonAfterEmpty = Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent === 'Send invitation')!;
     expect(inviteButtonAfterEmpty.disabled).toBe(false);
   });
@@ -221,7 +225,7 @@ describe('private scene player UI', () => {
     expect(field.value).toHaveLength(2001);
     expect(field.getAttribute('aria-invalid')).toBe('true');
     expect(container.querySelector('[role="alert"]')?.textContent).toMatch(/2,000/);
-    act(() => Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent === 'Leave last word')!.click());
+    act(() => Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent === 'Leave the last word')!.click());
     expect(onLastWord).not.toHaveBeenCalled();
     expect(field.value).toHaveLength(2001);
   });

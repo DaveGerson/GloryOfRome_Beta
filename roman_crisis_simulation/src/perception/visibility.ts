@@ -39,6 +39,12 @@ export interface PrivateScenePlayerView {
   sceneId: string;
   npcId: string;
   npcName: string;
+  /**
+   * The week the scene was held. The player was in the room; the week they
+   * were in it is theirs to know. Carried so the doorway can say "Last alone ·
+   * Week III" without the caller re-deriving it from GM records (WP-16).
+   */
+  macroTurn: number;
   status: PrivateSceneStatus;
   transcript: Array<{ sequence: number; speaker: PrivateSceneSpeaker; text: string }>;
   speechActs: PrivateSceneSpeechAct[];
@@ -53,6 +59,7 @@ export function projectPrivateSceneForPlayer(scene: PrivateSceneRecord): Private
     sceneId: scene.sceneId,
     npcId: scene.npcId,
     npcName: scene.npcName,
+    macroTurn: scene.macroTurn,
     status: scene.status,
     transcript: scene.transcript.map(line => ({ ...line })),
     speechActs: scene.speechActs.map(act => ({ ...act })),

@@ -199,6 +199,76 @@
 .gor-private-scene{position:fixed;z-index:90;inset:12vh 50% auto 50%;transform:translateX(-50%);width:min(620px,calc(100vw - 32px));max-height:76vh;overflow:auto;padding:20px;background:var(--surface-card);border:1px solid var(--border-strong);box-shadow:var(--shadow-raised);color:var(--text-body)}
 .gor-private-scene::backdrop{background:rgba(24,16,10,.62)}
 .gor-private-scene header{display:flex;justify-content:space-between;align-items:center;gap:12px}.gor-private-scene textarea,.gor-private-scene select{display:block;width:100%;margin:10px 0;padding:8px}.gor-private-scene button{margin:4px}
+
+/* ── The private scene, whole (audit item 41) ──
+   How you get in, what is kept afterwards, and every way it fails. The
+   closure is carried by the SEAL, so a shelf of letters is legible without
+   opening one. */
+
+/* The week's one hour, worn on the header. */
+.gor-scene-hour{display:flex;align-items:center;gap:7px;margin-left:auto}
+.gor-scene-hour-label{font-family:var(--font-display);font-size:9px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--parchment-400)}
+
+/* Intact: you ended it. Broken: they did, or the replies ran out.
+   Unsealed: they never came at all. */
+.gor-scene-seal{position:relative;display:inline-grid;flex:none;line-height:0}
+.gor-scene-seal-broken::after{content:'';position:absolute;inset:0;background:linear-gradient(163deg,transparent 46%,rgba(24,16,10,.62) 46% 50%,transparent 50%),linear-gradient(17deg,transparent 48%,rgba(255,250,235,.28) 48% 51%,transparent 51%)}
+.gor-scene-seal-unsealed{border-radius:50%;border:1px dashed var(--border-strong)}
+.gor-scene-seal-unsealed>*{opacity:.28;filter:grayscale(.7)}
+
+/* Both guard states get a silhouette, never a bare hint line. */
+.gor-scene-guard{display:flex;flex-direction:column;align-items:center;gap:8px;padding:22px 12px;text-align:center}
+.gor-scene-guard-line{margin:0;font-size:15px;color:var(--text-body)}
+
+/* I · Who comes — contacts as cards, not a dropdown. */
+.gor-contact-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.gor-private-scene .gor-contact{margin:0;display:flex;align-items:flex-start;gap:9px;padding:9px 10px 9px 8px;text-align:left;cursor:pointer;background:var(--surface-inset);border:1px solid var(--border-faint);border-left:3px solid transparent;border-radius:var(--radius-sm);transition:border-color var(--duration-fast) var(--ease-standard)}
+.gor-private-scene .gor-contact:hover{border-color:var(--border-subtle)}
+.gor-private-scene .gor-contact-chosen{border-left-color:var(--gold-500);background:linear-gradient(180deg,rgba(201,162,39,.12),transparent)}
+.gor-contact-body{display:flex;flex-direction:column;gap:1px;min-width:0}
+.gor-contact-name{font-family:var(--font-display);font-size:14px;font-weight:700;color:var(--text-heading)}
+.gor-contact-position{font-size:13px;color:var(--text-muted)}
+.gor-contact-meta{font-family:var(--font-display);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--parchment-400)}
+.gor-contact-meta-met{color:var(--tyrian-500)}
+
+/* One gauge for the 2,000-character rule — four sites wrote it before. */
+.gor-draft-gauge-row{display:flex;align-items:center;gap:8px}
+.gor-draft-gauge{flex:1;height:3px;background:var(--surface-inset);box-shadow:var(--shadow-inset);overflow:hidden}
+.gor-draft-gauge-fill{display:block;height:100%;background:var(--gold-600)}
+.gor-draft-gauge-over .gor-draft-gauge-fill{background:var(--metal-crimson)}
+.gor-draft-gauge-count{font-family:var(--font-display);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--crimson-500)}
+
+/* The exchange is over; it recedes so the last word can be seen. */
+.gor-scene-transcript-spent{opacity:.5;transition:opacity var(--duration-slow) var(--ease-standard)}
+.gor-scene-leaving{display:flex;flex-direction:column;gap:2px;margin-top:10px;padding:9px 12px;border:1px solid rgba(94,34,70,.5);border-left:3px solid var(--tyrian-400);background:rgba(94,34,70,.07);border-radius:var(--radius-sm)}
+.gor-scene-leaving-title{font-family:var(--font-display);font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--tyrian-600)}
+.gor-scene-leaving-body{font-size:15px;color:var(--text-body)}
+
+/* The archive: a shelf rail, and a letter open on the desk beside it. */
+.gor-shelf{display:flex;gap:12px;align-items:flex-start;margin-top:6px}
+.gor-shelf-rail{flex:none;width:246px;max-height:340px;overflow-y:auto;display:flex;flex-direction:column;gap:5px}
+.gor-private-scene .gor-shelf-letter{margin:0;display:flex;align-items:center;gap:9px;padding:7px 9px;text-align:left;cursor:pointer;background:transparent;border:1px solid transparent;border-radius:var(--radius-sm)}
+.gor-private-scene .gor-shelf-letter:hover{border-color:var(--border-faint)}
+.gor-private-scene .gor-shelf-letter-open{background:var(--surface-inset);border-color:var(--border-subtle);box-shadow:var(--shadow-inset)}
+.gor-shelf-letter-body{display:flex;flex-direction:column;gap:1px;min-width:0}
+.gor-shelf-name{font-family:var(--font-display);font-size:13px;font-weight:700;color:var(--text-heading)}
+.gor-shelf-closure{font-size:12.5px;font-style:italic;color:var(--text-muted)}
+.gor-shelf-closure-refused{color:var(--crimson-500)}
+.gor-shelf-pane{flex:1;min-width:0}
+
+/* What was said, in kind. */
+.gor-said{display:grid;grid-template-columns:104px 1fr;gap:4px 10px;align-items:baseline}
+.gor-said-kind{font-family:var(--font-display);font-size:9.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted)}
+.gor-said-kind-hard{color:var(--crimson-500)}
+.gor-said-kind-evasive{color:var(--tyrian-500)}
+.gor-said-quote{font-size:15.5px;color:var(--text-body)}
+.gor-lastword{display:flex;flex-direction:column;gap:2px;margin-top:10px;padding:8px 11px;border-left:3px solid var(--metal-crimson);background:var(--surface-inset);box-shadow:var(--shadow-inset);border-radius:var(--radius-sm)}
+.gor-lastword-title{font-family:var(--font-display);font-size:9.5px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--crimson-500)}
+.gor-lastword-body{font-size:15px;color:var(--text-body)}
+
+@media (prefers-reduced-motion:reduce){
+  .gor-private-scene .gor-contact,.gor-scene-transcript-spent{transition:none}
+}
 /* ── The structured composer as a dispatch scroll (audit item 02) ──
    Four numbered registers rather than four identical wells: what you do,
    whom you address, what you intend, what you ask. */

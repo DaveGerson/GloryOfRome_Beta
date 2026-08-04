@@ -405,7 +405,7 @@ describe('private-scene App transaction boundary', () => {
     expect(container.querySelector<HTMLTextAreaElement>('[aria-label="Private-scene reply"]')!.value).toBe('Keep this reply');
     storage.mockRestore(); warn.mockRestore(); mockContinue.mockClear();
     await click(button(container, 'End scene')); await waitFor(() => expect(loadGame()!.state.privateScenes![0].status).toBe('awaiting_last_word'));
-    await click(button(container, 'Skip last word')); await waitFor(() => expect(loadGame()!.state.privateScenes![0].status).toBe('closed'));
+    await click(button(container, 'Let it stand')); await waitFor(() => expect(loadGame()!.state.privateScenes![0].status).toBe('closed'));
     expect(mockContinue).not.toHaveBeenCalled();
   });
 
@@ -416,7 +416,7 @@ describe('private-scene App transaction boundary', () => {
     await setValue(container.querySelector<HTMLTextAreaElement>('[aria-label="Private-scene reply"]')!, 'Sixth exchange'); await click(button(container, 'Send reply'));
     await waitFor(() => expect(loadGame()!.state.privateScenes![0].closureReason).toBe('response_limit'));
     expect(loadGame()!.state.privateScenes![0].npcResponseCount).toBe(6);
-    mockContinue.mockClear(); await setValue(container.querySelector<HTMLTextAreaElement>('[aria-label="Private-scene last word"]')!, 'Remember this.'); await click(button(container, 'Leave last word'));
+    mockContinue.mockClear(); await setValue(container.querySelector<HTMLTextAreaElement>('[aria-label="Private-scene last word"]')!, 'Remember this.'); await click(button(container, 'Leave the last word'));
     await waitFor(() => expect(loadGame()!.state.privateScenes![0].lastWord).toBe('Remember this.'));
     expect(mockContinue).not.toHaveBeenCalled();
   });

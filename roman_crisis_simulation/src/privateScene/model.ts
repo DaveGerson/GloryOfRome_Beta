@@ -186,11 +186,24 @@ function closureForResponse(
   return { status: 'active' };
 }
 
+/**
+ * One contact the player may take aside. `position` and `location` ride along
+ * for the doorway's contact cards (WP-16): both are already-known facts about
+ * an entity the player has met — the eligibility filter below requires
+ * `known.has(entity.entity_id)` — so neither widens what the player can see.
+ */
+export interface PrivateSceneTarget {
+  entityId: string;
+  displayName: string;
+  position?: string;
+  location?: string;
+}
+
 export function eligiblePrivateSceneTargets(input: {
   player: Entity;
   entities: Entity[];
   knownEntityIds: readonly string[];
-}): Array<{ entityId: string; displayName: string }> {
+}): PrivateSceneTarget[] {
   const known = new Set(input.knownEntityIds);
   return input.entities
     .filter(entity =>
@@ -199,7 +212,12 @@ export function eligiblePrivateSceneTargets(input: {
       && entity.status === 'alive'
       && known.has(entity.entity_id)
       && (entity.location === input.player.location || input.player.visibility_network.includes(entity.entity_id)))
-    .map(entity => ({ entityId: entity.entity_id, displayName: entity.name }));
+    .map(entity => ({
+      entityId: entity.entity_id,
+      displayName: entity.name,
+      ...(entity.position ? { position: entity.position } : {}),
+      ...(entity.location ? { location: entity.location } : {}),
+    }));
 }
 
 export function beginPrivateScene(input: {

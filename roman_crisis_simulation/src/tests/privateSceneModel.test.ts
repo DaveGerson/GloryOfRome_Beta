@@ -117,9 +117,13 @@ describe('private scene eligibility', () => {
         'known_group',
         'known_faction',
       ],
+    // WP-16: position and location ride along for the doorway's contact
+    // cards. Both are facts about an entity the eligibility filter has
+    // already required the player to know; `position` is absent on these
+    // fixtures, so it stays off the projection entirely.
     })).toEqual([
-      { entityId: 'npc_local', displayName: 'Local Livia' },
-      { entityId: 'npc_network', displayName: 'Network Nerva' },
+      { entityId: 'npc_local', displayName: 'Local Livia', location: 'The Curia' },
+      { entityId: 'npc_network', displayName: 'Network Nerva', location: 'Ostia' },
     ]);
   });
 });
