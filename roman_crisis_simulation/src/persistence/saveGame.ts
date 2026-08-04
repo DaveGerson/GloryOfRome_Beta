@@ -188,10 +188,15 @@ function stripOldRawCalls(turnHistory: TurnHistoryEntry[]): TurnHistoryEntry[] {
  */
 function stripCapturedCallText(turnHistory: TurnHistoryEntry[]): TurnHistoryEntry[] {
   return turnHistory.map(entry => {
-    if (!entry.rawCalls) return entry;
+    if (!entry.rawCalls && !entry.proseRedactions) return entry;
+    // `proseRedactions` carries each removed span verbatim (WP-19). Same
+    // rule as the captured prompt text: the GM console reads it in session,
+    // the save never sees it — which also keeps the player-facing "Take a
+    // copy of the reign" download free of GM material.
+    const { proseRedactions: _dropped, ...kept } = entry;
     return {
-      ...entry,
-      rawCalls: entry.rawCalls.map(({ promptText, systemInstruction, ...rest }) => rest),
+      ...kept,
+      ...(entry.rawCalls ? { rawCalls: entry.rawCalls.map(({ promptText, systemInstruction, ...rest }) => rest) } : {}),
     };
   });
 }

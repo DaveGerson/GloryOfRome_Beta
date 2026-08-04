@@ -386,6 +386,17 @@
 /* The rumour mill carries no wax at all. */
 .gor-seal-unsealed{width:30px;height:30px;flex:none;display:inline-grid;place-items:center;border:1px dashed var(--border-strong);border-radius:46% 54% 52% 48%/52% 46% 54% 48%;color:var(--parchment-400);font-size:13px}
 
+/* ── GM Tools: Narration · Raw · Fixtures (audit item 44) ── */
+/* The narration reads on the tablet register, so it inverts under NOX with
+   the Dispatches tablet rather than staying dark against a lit room. */
+.gor-gm-tablet{margin-top:6px;padding:12px 14px;background:var(--tablet-grad);border:1px solid var(--tablet-edge);border-radius:var(--radius-sm);color:var(--tablet-text);font-size:15px;line-height:1.6}
+.gor-gm-struck{text-decoration:line-through;background:repeating-linear-gradient(102deg,rgba(179,58,43,.12) 0 1px,transparent 1px 7px)}
+.gor-gm-weave{background:repeating-linear-gradient(102deg,rgba(179,58,43,.12) 0 1px,transparent 1px 7px);padding:3px 5px;border-radius:2px}
+/* An empty boundary is a result, not an absence — so it is laurel, not grey. */
+.gor-gm-laurel{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border:1px solid rgba(124,140,79,.5);border-left:4px solid #5A6B3B;background:rgba(90,107,59,.10);border-radius:var(--radius-sm);color:#C8D3A8}
+.gor-gm-plaque{display:flex;flex-direction:column;align-items:center;gap:4px;padding:18px 14px;background:radial-gradient(120% 100% at 50% 0%, rgba(201,162,39,.14), rgba(0,0,0,.34));border:1px solid rgba(201,162,39,.22);border-radius:var(--radius-sm)}
+.gor-gm-plaque-seed{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:25px;color:#F0D089}
+
 /* ── Forge a New Destiny (audit item 43) ──
    Two registers where two gilt cards stood, and the scenario dealt as
    tesserae rather than two radio dots. */

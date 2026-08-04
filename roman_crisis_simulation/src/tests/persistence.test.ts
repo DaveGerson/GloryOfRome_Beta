@@ -576,6 +576,28 @@ describe('persistence/saveGame', () => {
       expect(state.turnHistory[0].rawCalls![0].systemInstruction).toContain('system instruction for');
     });
 
+    // WP-19: the GM console's boundary column renders `proseRedactions`, and
+    // every entry carries the removed span VERBATIM. It must never reach
+    // storage — not least because WP-21's "Take a copy of the reign" hands
+    // the player this same blob.
+    it('strips proseRedactions from the save while the session keeps them', () => {
+      const entry = {
+        ...makeHistoryEntry(1, true),
+        proseRedactions: [{ surface: 'headlines[0]', original: 'REDACTION_ORIGINAL_MUST_NOT_PERSIST' }],
+      };
+      const state = makeState({ turnNumber: 2, turnHistory: [entry] });
+
+      saveGame(state);
+
+      const raw = localStorage.getItem('gloryOfRome:autosave')!;
+      expect(raw).not.toContain('proseRedactions');
+      expect(raw).not.toContain('REDACTION_ORIGINAL_MUST_NOT_PERSIST');
+      expect(loadGame()!.state.turnHistory[0].proseRedactions).toBeUndefined();
+
+      // The in-memory entry the caller handed in is untouched.
+      expect(state.turnHistory[0].proseRedactions).toHaveLength(1);
+    });
+
     it('keeps the prompt text out of the blob on the oversize-retry path too', () => {
       vi.spyOn(console, 'warn').mockImplementation(() => {});
       let calls = 0;

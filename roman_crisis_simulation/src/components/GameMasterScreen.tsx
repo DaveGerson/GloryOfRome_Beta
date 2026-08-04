@@ -4,7 +4,7 @@ import { classifyDelta, buildPerceivedDigest } from '../perception/visibility';
 import { KnowledgeClaim } from '../knowledge/store';
 import { InferredAmbitionState, SAVE_VERSION } from '../persistence/saveGame';
 import { buildEvalCorpus, evalCorpusFilename } from '../persistence/evalCorpus';
-import { getSessionCallLog } from '../ai/core/geminiService';
+import { getSessionCallLog, MAX_CAPTURED_PROMPT_CHARS } from '../ai/core/geminiService';
 import { toRoman } from './ui/Brand';
 import { createFocusTrap, FocusTrap } from './ui/focusTrap';
 import { structuredSubmissionForHistory, TurnSubmissionHistory } from './TurnSubmissionHistory';
@@ -36,7 +36,8 @@ const well: React.CSSProperties = { background: 'rgba(0,0,0,.32)', border: '1px 
  * The two campaign-wide collections (D11 ledger, D21 knowledge) ignore the
  * rail by construction.
  */
-const TABS = ['summary', 'what changed', 'actions', 'private', 'ground truth', 'npc perception', 'truth ledger', 'player knowledge', 'raw json'];
+const TABS = ['summary', 'what changed', 'narration', 'actions', 'private', 'ground truth', 'npc perception',
+    'raw json', 'fixtures', 'truth ledger', 'player knowledge'];
 
 /** Tabs that render one bounded campaign-wide collection, not per-turn data. */
 const CAMPAIGN_WIDE_TABS = new Set(['truth ledger', 'player knowledge']);
@@ -436,27 +437,268 @@ const EntityStatesView: React.FC<{ entities: Entity[] }> = ({ entities }) => (
     </>
 );
 
-const RawJsonView: React.FC<{ adjudication: Adjudication; rawCalls?: RawCallRecord[] }> = ({ adjudication, rawCalls }) => (
-    <>
-        {rawCalls && rawCalls.length > 0 ? (
-            rawCalls.map((call, index) => (
-                <details key={index} style={{ ...well, fontFamily: MONO, fontSize: 12 }}>
-                    <summary style={{ cursor: 'pointer', color: RED }}>
-                        {call.callName} <span style={{ color: DIM }}>— {call.model} · {call.latencyMs}ms · {call.attempts} attempt{call.attempts > 1 ? 's' : ''} · {call.validated ? 'validated' : 'NOT validated'}</span>
-                    </summary>
-                    <p style={{ color: DIM, margin: '8px 0 0' }}>Prompt chars: {call.promptChars}</p>
-                    <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: '8px 0 0', color: PARCH }}>{call.rawResponse}</pre>
-                </details>
-            ))
-        ) : (
-            <p style={{ color: DIM, margin: 0 }}>No raw calls captured for this turn.</p>
-        )}
-        <details style={{ ...well, fontFamily: MONO, fontSize: 12 }}>
-            <summary style={{ cursor: 'pointer', color: GOLD }}>Parsed adjudication</summary>
-            <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: '8px 0 0', color: PARCH }}>{JSON.stringify(adjudication, null, 2)}</pre>
-        </details>
-    </>
+// ── WP-19: Narration · Raw · Fixtures ─────────────────────────────────
+// Three questions the console could not answer: what the player actually
+// received and what was cut from it; which round-trips it took and what was
+// sent; and what would leave the room if you exported this turn.
+
+/** A headline the boundary dropped, or a reason/notes it replaced. */
+function isHeadlineSurface(surface: string): boolean {
+    return surface.startsWith('headlines[');
+}
+
+/**
+ * What the player received, and what was withheld. The narration reads on
+ * the tablet register (WP-10's `--tablet-*`, so it inverts under NOX with
+ * the Dispatches tablet); the right column is the boundary.
+ */
+const NarrationView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => {
+    const redactions = entry.proseRedactions ?? [];
+    const cutHeadlines = redactions.filter(cut => isHeadlineSurface(cut.surface));
+    return (
+        <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div>
+                    <span style={lbl}>Narration — {(entry.narration ?? '').length} chars</span>
+                    <div className="gor-gm-tablet gor-dropcap">{entry.narration || 'No narration generated.'}</div>
+                </div>
+                <div style={well}>
+                    <span style={lbl}>Headlines</span>
+                    <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {entry.adjudication.headlines.map((headline, index) => (
+                            <span key={index} style={{ fontSize: 14, color: PARCH }}>❧ {headline}</span>
+                        ))}
+                        {cutHeadlines.map((cut, index) => (
+                            <span key={`cut-${index}`} className="gor-gm-struck" style={{ fontSize: 14, color: RED }}>
+                                × {cut.original}
+                            </span>
+                        ))}
+                        {entry.adjudication.headlines.length === 0 && cutHeadlines.length === 0 && (
+                            <span style={{ color: DIM }}>No headlines this turn.</span>
+                        )}
+                    </div>
+                </div>
+            </div>
+            <div style={{ flex: 'none', width: 352, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <span style={lbl}>The boundary</span>
+                {redactions.length === 0 ? (
+                    <div className="gor-gm-laurel">
+                        <span style={{ fontSize: 14 }}>Nothing was withheld this turn.</span>
+                        <span style={{ fontSize: 12.5, fontStyle: 'italic', color: DIM }}>
+                            An empty boundary is a result, not an absence. Kept only for the session — a turn
+                            restored from a save shows none.
+                        </span>
+                    </div>
+                ) : redactions.map((cut, index) => (
+                    <div key={index} style={redacted}>
+                        <span style={{ fontFamily: MONO, fontSize: 11, color: RED }}>{cut.surface}</span>
+                        <p style={{ margin: '4px 0 0', fontSize: 12.5, color: DIM }}>
+                            Read as the player acting, with no attempt on record.
+                        </p>
+                        <p className="gor-gm-weave" style={{ margin: '6px 0 0', fontSize: 13, color: PARCH }}>{cut.original}</p>
+                        <p style={{ margin: '6px 0 0', fontSize: 12.5, color: DIM }}>
+                            → {isHeadlineSurface(cut.surface) ? 'dropped entirely' : '“Something shifts, unremarked.”'}
+                        </p>
+                    </div>
+                ))}
+                <div style={well}>
+                    <span style={lbl}>The narrator's blindfold</span>
+                    <p style={{ margin: '6px 0 0', fontSize: 13, color: PARCH, fontStyle: 'italic' }}>
+                        “A character quietly advanced a private design this turn; its nature is not observable.”
+                    </p>
+                    <p style={{ margin: '6px 0 0', fontSize: 12.5, color: DIM }}>
+                        Substituted for every scheme delta's reason in the narration and intelligence prompts.
+                        Only the prompt was blinded — the delta itself committed intact, and reads unredacted
+                        under <em>what changed</em>.
+                    </p>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+/** validated / attempt N / invalid json — the flag the rail sorts anomalies by. */
+function callFlag(call: RawCallRecord): { word: string; color: string; bad: boolean } {
+    if (!call.validated) return { word: 'invalid json', color: RED, bad: true };
+    if (call.attempts > 1) return { word: `attempt ${call.attempts}`, color: '#E9B36A', bad: false };
+    return { word: 'validated', color: GREEN, bad: false };
+}
+
+const CopyButton: React.FC<{ text: string }> = ({ text }) => (
+    <button
+        type="button"
+        onClick={() => { void navigator.clipboard?.writeText(text); }}
+        style={{ all: 'unset', cursor: 'pointer', fontFamily: 'var(--font-display)', fontSize: 8.5, letterSpacing: '.12em', textTransform: 'uppercase', color: DIM }}
+    >
+        Copy
+    </button>
 );
+
+const RawRegister: React.FC<{ title: string; meta: string; body: string; tyrian?: boolean }> = ({ title, meta, body, tyrian = false }) => (
+    <details style={{ ...well, ...(tyrian ? { background: 'rgba(94,34,70,.22)', border: '1px solid rgba(94,34,70,.5)' } : {}) }}>
+        <summary style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline' }}>
+            <span style={{ ...lbl, color: tyrian ? '#C89BB4' : GOLD }}>{title}</span>
+            <span style={{ fontFamily: MONO, fontSize: 10.5, color: DIM }}>{meta}</span>
+        </summary>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}><CopyButton text={body} /></div>
+        <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: '4px 0 0', fontFamily: MONO, fontSize: 11.5, lineHeight: 1.55, color: PARCH }}>{body}</pre>
+    </details>
+);
+
+/**
+ * Which round-trips this turn took, and what was sent. A schema-repair retry
+ * is pushed as its own record under the same `callName`; the rail is where
+ * that pair finally sits next to itself.
+ */
+const RawView: React.FC<{ adjudication: Adjudication; rawCalls?: RawCallRecord[] }> = ({ adjudication, rawCalls }) => {
+    const calls = rawCalls ?? [];
+    const [selected, setSelected] = useState(0);
+    const call = calls[Math.min(selected, calls.length - 1)];
+    return (
+        <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+            {calls.length > 0 && (
+                <nav aria-label="Raw calls" style={{ flex: 'none', width: 250, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {calls.map((record, index) => {
+                        const flag = callFlag(record);
+                        const active = record === call;
+                        return (
+                            <button
+                                key={index}
+                                type="button"
+                                onClick={() => setSelected(index)}
+                                aria-current={active ? 'true' : undefined}
+                                style={{ all: 'unset', cursor: 'pointer', padding: '7px 9px', borderLeft: `3px solid ${flag.bad ? 'var(--metal-crimson)' : active ? 'var(--gold-500)' : 'transparent'}`, background: active ? 'rgba(201,162,39,.08)' : 'transparent' }}
+                            >
+                                <span style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontFamily: MONO, fontSize: 11.5, color: PARCH }}>
+                                    <span>{record.callName}</span>
+                                    <span style={{ color: DIM }}>{record.latencyMs}ms</span>
+                                </span>
+                                <span style={{ display: 'block', fontFamily: 'var(--font-display)', fontSize: 8.5, letterSpacing: '.12em', textTransform: 'uppercase', color: DIM }}>
+                                    {record.model} · <span style={{ color: flag.color }}>{flag.word}</span>
+                                </span>
+                            </button>
+                        );
+                    })}
+                </nav>
+            )}
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {call ? (
+                    <>
+                        <RawRegister
+                            tyrian
+                            title="System instruction"
+                            meta={call.systemInstruction ? `${call.systemInstruction.length} chars` : 'not captured'}
+                            body={call.systemInstruction ?? 'Not captured — this record was restored from a save, which never carries prompt text.'}
+                        />
+                        <RawRegister
+                            title="Prompt as sent"
+                            meta={`${call.promptChars} chars · captured to ${MAX_CAPTURED_PROMPT_CHARS.toLocaleString()}`}
+                            body={call.promptText ?? 'Not captured — this record was restored from a save, which never carries prompt text.'}
+                        />
+                        <RawRegister
+                            title="Response"
+                            meta={`${call.validated ? 'validated' : 'NOT validated'} · ${call.rawResponse.length} chars`}
+                            body={call.rawResponse}
+                        />
+                    </>
+                ) : (
+                    <p style={{ color: DIM, margin: 0 }}>No raw calls captured for this turn.</p>
+                )}
+                <details style={{ ...well, fontFamily: MONO, fontSize: 12 }}>
+                    <summary style={{ cursor: 'pointer', color: GOLD }}>Parsed adjudication</summary>
+                    <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: '8px 0 0', color: PARCH }}>{JSON.stringify(adjudication, null, 2)}</pre>
+                </details>
+            </div>
+        </div>
+    );
+};
+
+/**
+ * What would leave the room if you exported this turn. The seed replays the
+ * dice; the manifest names every slice the corpus carries, including the two
+ * that are absent rather than empty when a campaign predates them.
+ */
+const FixturesView: React.FC<{
+    entry: TurnHistoryEntry;
+    history: TurnHistoryEntry[];
+    sessionCalls: number;
+    hasTruthLedger: boolean;
+    hasKnowledge: boolean;
+    onExport: () => void;
+}> = ({ entry, history, sessionCalls, hasTruthLedger, hasKnowledge, onExport }) => {
+    // Draw order: the player action's resolution roll first (when
+    // consequential), then each VALID mortality roll in claim order. An
+    // invalidated claim never reaches the dice, so it consumes no draw.
+    const draws: { label: string; roll: number }[] = [];
+    if (entry.resolutionTrace) draws.push({ label: `Action · ${entry.resolutionTrace.assessment.action_category}`, roll: entry.resolutionTrace.roll });
+    for (const event of entry.mortalityTrace ?? []) {
+        if (typeof event.roll === 'number') draws.push({ label: `Mortality · ${event.entity_name}`, roll: event.roll });
+    }
+    const promptTexts = history.reduce((sum, item) => sum + (item.rawCalls ?? []).filter(call => call.promptText).length, 0);
+    const manifest: { label: string; count: string }[] = [
+        { label: 'turns[]', count: `${history.length}` },
+        { label: 'rawCalls[].promptText', count: `${promptTexts} captured` },
+        { label: 'turnSeed · traces', count: `${history.filter(item => item.turnSeed !== undefined).length} seeded` },
+        { label: 'npcIntents · npcMindResults', count: 'private reasoning included' },
+        { label: 'sessionCallLog', count: `${sessionCalls}` },
+    ];
+    return (
+        <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div className="gor-gm-plaque">
+                    <span className="gor-gm-plaque-seed">{entry.turnSeed ?? '—'}</span>
+                    <span style={{ ...lbl, letterSpacing: '.2em' }}>replays this turn's rolls in draw order</span>
+                </div>
+                <div style={well}>
+                    <span style={lbl}>Rolls, in draw order</span>
+                    <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {draws.length === 0 && <span style={{ color: DIM }}>This turn drew no dice.</span>}
+                        {draws.map((draw, index) => (
+                            <span key={index} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontFamily: MONO, fontSize: 12, color: PARCH }}>
+                                <span>{index + 1}. {draw.label}</span>
+                                <span style={{ color: GOLD }}>{draw.roll}</span>
+                            </span>
+                        ))}
+                    </div>
+                </div>
+            </div>
+            <div style={{ flex: 'none', width: 352, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <span style={lbl}>What the corpus carries</span>
+                <div style={well}>
+                    {manifest.map(row => (
+                        <span key={row.label} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '3px 0', fontFamily: MONO, fontSize: 11.5, color: PARCH }}>
+                            <span>{row.label}</span>
+                            <span style={{ color: DIM }}>{row.count}</span>
+                        </span>
+                    ))}
+                    <span style={{ display: 'block', marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(201,162,39,.22)', ...lbl }}>Optional slices</span>
+                    {([['truthLedger', hasTruthLedger], ['knowledge', hasKnowledge]] as const).map(([name, present]) => (
+                        <span key={name} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '3px 0', fontFamily: MONO, fontSize: 11.5, color: PARCH }}>
+                            <span style={{ color: 'var(--tyrian-300)' }}>◆ {name}</span>
+                            <span style={{ color: DIM }}>{present ? 'attached' : 'absent'}</span>
+                        </span>
+                    ))}
+                    <p style={{ margin: '6px 0 0', fontSize: 12, color: DIM, fontStyle: 'italic' }}>
+                        Absent is not empty: a campaign that predates a slice omits the field entirely, so a
+                        consumer can tell "exporter had none" from "campaign has none yet".
+                    </p>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <span style={{ fontFamily: MONO, fontSize: 11, color: DIM }}>{evalCorpusFilename(entry.turnNumber)}</span>
+                    <span style={{ fontSize: 12.5, color: DIM, fontStyle: 'italic' }}>Never written into the save.</span>
+                    <button
+                        type="button"
+                        onClick={onExport}
+                        style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, letterSpacing: '.08em', textTransform: 'uppercase', color: '#241C11', background: 'var(--metal-gold)', border: '1px solid #8A6D14', clipPath: 'var(--chamfer-sm)', padding: '9px 16px', cursor: 'pointer', boxShadow: 'var(--bevel)' }}
+                    >
+                        Take the impression
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 
 /**
  * The Ground Truth tuning view (D7 + Phase 2 item 4). Puts the two sides
@@ -891,15 +1133,9 @@ const GameMasterScreen: React.FC<{
                         <h2 id="gm-screen-title" style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 26, color: GOLD, textShadow: '0 2px 3px rgba(0,0,0,.6)', margin: 0 }}>Game Master Tools</h2>
                         <span style={{ ...lbl, letterSpacing: '.24em' }}>The Fates' ledger — every thread measured, every die recorded</span>
                     </div>
+                    {/* The export moved to `fixtures` (WP-19), where the manifest
+                        states what would leave the room before you take it. */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <button
-                            type="button"
-                            onClick={handleExportEvalCorpus}
-                            title="Download this session's captured prompts, responses, seeds, and traces as JSON"
-                            style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, letterSpacing: '.08em', textTransform: 'uppercase', color: '#241C11', background: 'var(--metal-gold)', border: '1px solid #8A6D14', clipPath: 'var(--chamfer-sm)', padding: '9px 16px', cursor: 'pointer', boxShadow: 'var(--bevel)' }}
-                        >
-                            Export Eval Corpus
-                        </button>
                         <button type="button" onClick={onClose} aria-label="Close Game Master screen" style={{ all: 'unset', cursor: 'pointer', color: DIM, fontSize: 26, lineHeight: 1, padding: '2px 8px' }}>×</button>
                     </div>
                 </div>
@@ -1019,7 +1255,18 @@ const GameMasterScreen: React.FC<{
                                 {activeTab === 'private' && <PrivateView adjudication={selectedEntry.adjudication} />}
                                 {activeTab === 'ground truth' && <GroundTruthView entry={selectedEntry} playerCharacterId={playerCharacterId} worldState={worldState} />}
                                 {activeTab === 'npc perception' && <NpcPerceptionView entry={selectedEntry} worldState={worldState} />}
-                                {activeTab === 'raw json' && <RawJsonView adjudication={selectedEntry.adjudication} rawCalls={selectedEntry.rawCalls} />}
+                                {activeTab === 'narration' && <NarrationView entry={selectedEntry} />}
+                                {activeTab === 'raw json' && <RawView adjudication={selectedEntry.adjudication} rawCalls={selectedEntry.rawCalls} />}
+                                {activeTab === 'fixtures' && (
+                                    <FixturesView
+                                        entry={selectedEntry}
+                                        history={history}
+                                        sessionCalls={getSessionCallLog().length}
+                                        hasTruthLedger={Boolean(truthLedger)}
+                                        hasKnowledge={Boolean(knowledge)}
+                                        onExport={handleExportEvalCorpus}
+                                    />
+                                )}
                             </div>
                         )}
                     </div>

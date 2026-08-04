@@ -38,6 +38,7 @@ import {
     redactInventedPlayerProse,
     redactInventedPlayerProseFromValue,
 } from './playerBoundary';
+import type { PlayerProseRedaction } from './playerBoundary';
 
 /**
  * The no-attempt boundary, applied to an adjudication. SPLIT BY CONSEQUENCE:
@@ -77,12 +78,15 @@ function enforceNoAttemptBoundary(
     adjudication: AdjudicationInterchange | Adjudication,
     playerEntity: Entity,
     hasObservableAttempt: boolean,
-): void {
+): PlayerProseRedaction[] {
     assertNoInventedPlayerAction(adjudication, playerEntity, hasObservableAttempt);
-    adjudication.gm_private.push(
-        ...playerProseRedactionNotes(redactInventedPlayerProse(adjudication, playerEntity, hasObservableAttempt)),
-    );
+    const redactions = redactInventedPlayerProse(adjudication, playerEntity, hasObservableAttempt);
+    adjudication.gm_private.push(...playerProseRedactionNotes(redactions));
     assertPlayerVisibleAdjudicationSafe(adjudication);
+    // Returned as well as narrated: the `[Boundary]` sentences stay the
+    // durable record, but the GM console's Narration pane renders from the
+    // structured objects rather than parsing that prose back apart (WP-19).
+    return redactions;
 }
 
 // Adjudication is the highest-stakes, most consequence-dense call of the
@@ -640,7 +644,12 @@ export async function runNewTurn(
     // `stripActorsFromAdjudication` below is now the commit boundary for
     // this surface: nothing downstream (mind-scheme folding, mortality,
     // engine application, the history entry) ever sees `actors` again.
-    enforceNoAttemptBoundary(rawAdjudication, playerEntity, narrationSubmission.hasObservableAttempt);
+    // Every redaction this turn makes, kept structured for the GM console's
+    // Narration pane. GM-private (it carries the removed text verbatim), so
+    // persistence/saveGame.ts strips it on serialize exactly as it strips
+    // captured prompt text.
+    const proseRedactions: PlayerProseRedaction[] = [];
+    proseRedactions.push(...enforceNoAttemptBoundary(rawAdjudication, playerEntity, narrationSubmission.hasObservableAttempt));
     const adjudication = stripActorsFromAdjudication(rawAdjudication);
 
     // Record the resolution layer's trace as a GM-private note (mirrors the
@@ -708,7 +717,7 @@ export async function runNewTurn(
             adjudication.gm_private.push(`[Mind] Superseded ${supersededIds.length} competing 'scheme' delta(s) for mind-evolved entities (${supersededIds.join(', ')}) - the entity's own mind owns its scheme evolution this turn; no double-application or overwrite.`);
         }
     }
-    enforceNoAttemptBoundary(adjudication, playerEntity, narrationSubmission.hasObservableAttempt);
+    proseRedactions.push(...enforceNoAttemptBoundary(adjudication, playerEntity, narrationSubmission.hasObservableAttempt));
 
     // *** NEW STEP 2.6: MORTALITY PIPELINE (DESIGN_DECISIONS.md D2/D3/D4) ***
     // Runs BEFORE applyAdjudication and BEFORE narration: any death claim in
@@ -737,7 +746,7 @@ export async function runNewTurn(
         turnRng,
         { trustedResolutionContext }
     );
-    enforceNoAttemptBoundary(transformedAdjudication, playerEntity, narrationSubmission.hasObservableAttempt);
+    proseRedactions.push(...enforceNoAttemptBoundary(transformedAdjudication, playerEntity, narrationSubmission.hasObservableAttempt));
 
     // 3. Apply the (mortality-transformed) adjudication to get new state.
     // Pure/synchronous (ai/core/engine.ts) - runs to completion before any
@@ -961,11 +970,13 @@ export async function runNewTurn(
     });
     const fullText = narrationRedaction.value;
     const playerMonologue = monologueRedaction.value;
-    transformedAdjudication.gm_private.push(...playerProseRedactionNotes([
+    const proseSurfaceRedactions = [
         ...simulationCrisisRedaction.redactions,
         ...narrationRedaction.redactions,
         ...monologueRedaction.redactions,
-    ]));
+    ];
+    transformedAdjudication.gm_private.push(...playerProseRedactionNotes(proseSurfaceRedactions));
+    proseRedactions.push(...proseSurfaceRedactions);
     const narrationParts = fullText.split('SUGGESTION:');
     const narration = narrationParts[0].trim();
     const suggestedActions = narrationParts.slice(1).map(s => s.trim()).filter(s => s.length > 0);
@@ -994,6 +1005,8 @@ export async function runNewTurn(
         // included - GM-console-only (D4/D5), trimmed with the snapshot
         // window like perceivingNpcIds (state/gameReducer.ts).
         npcMindResults: npcMindResults.length > 0 ? npcMindResults : undefined,
+        // Session-side only: stripped on serialize (persistence/saveGame.ts).
+        proseRedactions: proseRedactions.length > 0 ? proseRedactions : undefined,
     };
 
     const result = {

@@ -1,4 +1,8 @@
 
+// Type-only, so it erases at compile time and forms no runtime cycle with
+// playerBoundary.ts (which imports value types from this module).
+import type { PlayerProseRedaction } from './ai/core/playerBoundary';
+
 // Enums
 export enum GameState {
   SETUP,
@@ -604,6 +608,19 @@ export interface TurnHistoryEntry {
    * D4 it is GM-console-only, never rendered on any player-facing surface.
    */
   turnSeed?: number;
+  /**
+   * Every span of player-visible prose the no-attempt boundary removed this
+   * turn, kept structured so the GM console's Narration pane can render each
+   * cut without parsing the `[Boundary]` sentences in `gm_private` back
+   * apart (see ai/core/playerBoundary.ts).
+   *
+   * GM-private and SESSION-SIDE ONLY: each entry carries the removed text
+   * verbatim, so persistence/saveGame.ts strips it on serialize exactly as
+   * it strips captured prompt text. A turn restored from disk therefore has
+   * no boundary column - the pane says so rather than implying nothing was
+   * withheld. Optional: absent whenever the turn cut nothing.
+   */
+  proseRedactions?: PlayerProseRedaction[];
 }
 
 export interface SpotlightEntity {
