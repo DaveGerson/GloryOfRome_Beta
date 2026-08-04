@@ -1,9 +1,35 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { PlayerCharacterOption } from '../types';
-import { Card, Button } from './ui/Core';
-import { Radio, Textarea } from './ui/Forms';
+import { Card, Button, RegisterHeading, DraftGauge } from './ui/Core';
+import { Textarea } from './ui/Forms';
 import { Medallion, WaxSeal, toRoman } from './ui/Brand';
 import { DestinyCard, TypingIndicator } from './ui/Game';
+import { Alert } from './ui/Alert';
+
+/** Advisory lengths — the Fates read longer, but nobody writes better past these. */
+const PERSONA_SOFT_LIMIT = 1200;
+const META_NARRATIVE_SOFT_LIMIT = 400;
+
+/**
+ * A six-row empty textarea is the real reason players bounce off this
+ * screen. Each chip appends the line it names and gets out of the way.
+ */
+const PERSONA_PROMPTS: readonly { label: string; scaffold: string }[] = [
+    { label: 'Name and standing', scaffold: 'I am ' },
+    { label: 'What you want', scaffold: 'What I want above all is ' },
+    { label: 'What you hold', scaffold: 'What I hold is ' },
+    { label: 'Whom you owe', scaffold: 'I owe ' },
+];
+
+/** What the Fates settle from what you write — the honest version of the old hint. */
+const DECIDED_FROM_THIS: readonly { head: string; body: string }[] = [
+    { head: 'Standing', body: 'Your position, and who already knows your name.' },
+    { head: 'Purse', body: 'What you have to spend in your first week.' },
+    { head: 'First week', body: 'Where you begin, and what is already in motion around you.' },
+];
+
+/** In-fiction titles. A form that will not proceed still speaks in the world's voice. */
+interface FormRefusal { title: string; message: string }
 
 /** Summary info shown on the "Continue your reign" card - deliberately just
  * the handful of fields needed for display, not the full save bundle. */
@@ -34,7 +60,7 @@ const CharacterSelection: React.FC<{
     const [showCustomForm, setShowCustomForm] = useState(false);
     const [customDescription, setCustomDescription] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState('');
+    const [error, setError] = useState<FormRefusal | null>(null);
     const [useCustomGamestate, setUseCustomGamestate] = useState(false);
     const [metaNarrative, setMetaNarrative] = useState('');
     const [confirmAnew, setConfirmAnew] = useState(false);
@@ -59,14 +85,20 @@ const CharacterSelection: React.FC<{
         e.preventDefault();
         if (creationInFlightRef.current) return;
         if (!customDescription.trim()) {
-            setError('Describe your character — the Fates cannot work from silence.');
+            setError({
+                title: 'The Fates cannot work from silence',
+                message: 'Describe who you wish to become. A line is enough to begin with.',
+            });
             return;
         }
         if (useCustomGamestate && !metaNarrative.trim()) {
-            setError('A new world needs its meta-narrative. Give the Fates a theme.');
+            setError({
+                title: 'A world needs its theme',
+                message: 'Give the Fates a meta-narrative, and they will weave the rest around it.',
+            });
             return;
         }
-        setError('');
+        setError(null);
         creationInFlightRef.current = true;
         setIsLoading(true);
         try {
@@ -77,7 +109,10 @@ const CharacterSelection: React.FC<{
             });
         } catch (err) {
             if (!isMountedRef.current) return;
-            setError('Failed to create character. The auguries are not in our favor. Please try again.');
+            setError({
+                title: 'The auguries are unfavourable',
+                message: 'Failed to create character. The auguries are not in our favor. Your words are kept exactly as you wrote them — send them again.',
+            });
             console.error(err);
         } finally {
             creationInFlightRef.current = false;
@@ -110,29 +145,50 @@ const CharacterSelection: React.FC<{
                         <p style={{ margin: '8px auto 0', maxWidth: '52ch' }}>Describe who you wish to become. The Game Master will write you into the world — or write a world around you.</p>
                     </div>
                     <form onSubmit={handleCustomSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-                        <Card gilt title="The Scenario">
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                <Radio name="scenario" checked={!useCustomGamestate} onChange={() => setUseCustomGamestate(false)}
-                                    label={<span><strong>Rome, 235 CE</strong> — enter the default succession crisis as a new player upon its board.</span>} />
-                                <Radio name="scenario" checked={useCustomGamestate} onChange={() => setUseCustomGamestate(true)}
-                                    label={<span><strong>A world of your design</strong> — the Fates generate a new world, its characters and conflicts, from your theme.</span>} />
-                                {useCustomGamestate && (
-                                    <div style={{ animation: 'gorRise .3s ease-out both', marginTop: 4 }}>
-                                        <Textarea
-                                            label="Meta-Narrative"
-                                            id="meta-narrative"
-                                            rows={3}
-                                            value={metaNarrative}
-                                            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setMetaNarrative(e.target.value)}
-                                            hint="The core theme of your story — it will guide the generation of the entire world."
-                                            placeholder={'E.g. “A gothic horror in a remote Roman province” — or “a farce about a bumbling senator building an aqueduct.”'}
-                                            aria-label="Meta-narrative for custom world"
-                                        />
-                                    </div>
-                                )}
+                        <section>
+                            <RegisterHeading numeral="I" title="The world you enter" />
+                            {/* A choice is dealt as tesserae, not as two radio dots. */}
+                            <div className="gor-tessera-pair" role="radiogroup" aria-label="Scenario">
+                                <button
+                                    type="button" role="radio" aria-checked={!useCustomGamestate}
+                                    className={`gor-tessera${!useCustomGamestate ? ' gor-tessera-chosen' : ''}`}
+                                    onClick={() => setUseCustomGamestate(false)}
+                                >
+                                    <span className="gor-tessera-name">Rome, 235 CE</span>
+                                    <span className="gor-tessera-seals" aria-hidden="true">
+                                        {PLAYER_CHARACTER_OPTIONS.map(option => (
+                                            <WaxSeal key={option.entity_id} letter={DESTINY_HERALDRY[option.entity_id]?.seal ?? '·'} size={19} tone="crimson" />
+                                        ))}
+                                    </span>
+                                    <span className="gor-tessera-desc">Four destinies are playing it; you enter as a fifth.</span>
+                                </button>
+                                <button
+                                    type="button" role="radio" aria-checked={useCustomGamestate}
+                                    className={`gor-tessera gor-tessera-woven${useCustomGamestate ? ' gor-tessera-chosen' : ''}`}
+                                    onClick={() => setUseCustomGamestate(true)}
+                                >
+                                    <span className="gor-tessera-name">A world of your design</span>
+                                    <span className="gor-tessera-desc">The Fates generate a new world, its characters and its conflicts, from your theme.</span>
+                                </button>
                             </div>
-                        </Card>
-                        <Card gilt title="Your Persona">
+                            {useCustomGamestate && (
+                                <div className="gor-tablet-unroll">
+                                    <Textarea
+                                        label="Meta-Narrative"
+                                        id="meta-narrative"
+                                        rows={3}
+                                        value={metaNarrative}
+                                        onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setMetaNarrative(e.target.value)}
+                                        hint="The core theme of your story — it will guide the generation of the entire world."
+                                        placeholder={'E.g. “A gothic horror in a remote Roman province” — or “a farce about a bumbling senator building an aqueduct.”'}
+                                        aria-label="Meta-narrative for custom world"
+                                    />
+                                    <DraftGauge length={metaNarrative.length} limit={META_NARRATIVE_SOFT_LIMIT} />
+                                </div>
+                            )}
+                        </section>
+                        <section>
+                            <RegisterHeading numeral="II" title="Who you will be in it" />
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 <Textarea
                                     id="character-description"
@@ -145,12 +201,37 @@ const CharacterSelection: React.FC<{
                                     placeholder={'E.g. “I am Lucius Vorenus, veteran centurion of Legio II Parthica, loyal to the old ways and disgusted by the corruption of Rome. I seek to restore honor to the military.”'}
                                     aria-label="Custom character description"
                                 />
-                                {error && <span style={{ color: 'var(--crimson-400)', fontSize: 15, fontStyle: 'italic' }}>{error}</span>}
+                                <DraftGauge length={customDescription.length} limit={PERSONA_SOFT_LIMIT} />
+                                <div className="gor-prompt-chips">
+                                    {PERSONA_PROMPTS.map(prompt => (
+                                        <button
+                                            key={prompt.label} type="button" className="gor-prompt-chip"
+                                            onClick={() => setCustomDescription(current => (
+                                                current.trim() ? `${current.trimEnd()}\n${prompt.scaffold}` : prompt.scaffold
+                                            ))}
+                                        >
+                                            {prompt.label}
+                                        </button>
+                                    ))}
+                                </div>
+                                {error && <Alert title={error.title}>{error.message}</Alert>}
                             </div>
-                        </Card>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-                            <Button type="button" variant="ghost" onClick={() => { setShowCustomForm(false); setError(''); }}>‹ Back to the destinies</Button>
-                            <Button type="submit" size="lg" disabled={interactionLocked}>{useCustomGamestate ? 'Generate World' : 'Create Character'}</Button>
+                        </section>
+                        <div className="gor-decided">
+                            <span className="gor-decided-head">What is decided from this</span>
+                            <div className="gor-decided-cols">
+                                {DECIDED_FROM_THIS.map(column => (
+                                    <span key={column.head} className="gor-decided-col">
+                                        <span className="gor-decided-col-head">{column.head}</span>
+                                        <span className="gor-decided-col-body">{column.body}</span>
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+                        {/* With the custom branch open the submit used to sit below the fold. */}
+                        <div className="gor-foot-bar">
+                            <Button type="button" variant="ghost" onClick={() => { setShowCustomForm(false); setError(null); }}>‹ Back to the destinies</Button>
+                            <Button type="submit" size="lg" disabled={interactionLocked}>{useCustomGamestate ? 'Weave the world' : 'Take your place'}</Button>
                         </div>
                     </form>
                 </div>

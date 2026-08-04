@@ -741,7 +741,7 @@ describe('App in-flight transaction barrier', () => {
           }
         };
       }));
-      await click(buttonNamed(container, 'Create Character'));
+      await click(buttonNamed(container, 'Take your place'));
       await waitFor(() => expect(mockCreateCharacter).toHaveBeenCalledTimes(1));
       expect(container.textContent).toContain('Consulting the Fates');
 
@@ -1078,9 +1078,9 @@ describe('App in-flight transaction barrier', () => {
     rejectCreation(new Error('live custom provider failure'));
     await waitFor(() => expect(container.textContent).toContain('auguries are not in our favor'));
     expect(byAriaLabel<HTMLTextAreaElement>(container, 'Custom character description').value).toBe(draft);
-    expect(buttonNamed(container, 'Create Character').disabled).toBe(false);
+    expect(buttonNamed(container, 'Take your place').disabled).toBe(false);
 
-    await click(buttonNamed(container, 'Create Character'));
+    await click(buttonNamed(container, 'Take your place'));
     await waitFor(() => expect(mockCreateCharacter).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(container.querySelector('[aria-label="Chat input"]')).not.toBeNull());
     expect(loadGame()!.state.messages).toHaveLength(1);

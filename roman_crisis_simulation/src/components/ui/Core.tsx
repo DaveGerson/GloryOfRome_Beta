@@ -61,6 +61,24 @@ type RegisterHeadingProps = {
  * The numeral and the rule are decorative; only the `<h3>` carries the id, so
  * a labelled section's accessible name stays the heading's own words.
  */
+/**
+ * A hairline against a soft limit: fills gold, turns crimson past it, and
+ * counts the overage in plain Arabic — a number the player does arithmetic
+ * on, so never a numeral. Shared by the private scene's utterance cap and
+ * the destiny form's two tablets.
+ */
+export const DraftGauge: React.FC<{ length: number; limit: number }> = ({ length, limit }) => {
+    const over = length - limit;
+    return (
+        <div className="gor-draft-gauge-row">
+            <span className={`gor-draft-gauge${over > 0 ? ' gor-draft-gauge-over' : ''}`} aria-hidden="true">
+                <span className="gor-draft-gauge-fill" style={{ width: `${Math.min(1, length / limit) * 100}%` }} />
+            </span>
+            {over > 0 && <span className="gor-draft-gauge-count">{over} over</span>}
+        </div>
+    );
+};
+
 export const RegisterHeading: React.FC<RegisterHeadingProps> = ({ numeral, headingId, title, trailing }) => (
     <div className="gor-register-head">
         {numeral && <span className="gor-register-numeral" aria-hidden="true">{numeral}</span>}

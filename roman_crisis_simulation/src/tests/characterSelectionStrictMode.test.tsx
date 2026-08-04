@@ -123,7 +123,7 @@ describe('CharacterSelection under React StrictMode', () => {
     );
     expect(description).not.toBeNull();
     await setValue(description!, draft);
-    await click(buttonNamed('Create Character'));
+    await click(buttonNamed('Take your place'));
     expect(container!.textContent).toContain('Consulting the Fates');
 
     await act(async () => {
@@ -137,9 +137,9 @@ describe('CharacterSelection under React StrictMode', () => {
       '[aria-label="Custom character description"]',
     );
     expect(restoredDescription?.value).toBe(draft);
-    expect(buttonNamed('Create Character').disabled).toBe(false);
+    expect(buttonNamed('Take your place').disabled).toBe(false);
 
-    await click(buttonNamed('Create Character'));
+    await click(buttonNamed('Take your place'));
     await waitFor(() => {
       expect(container!.querySelector('[role="status"]')?.textContent).toBe('Character created');
     });

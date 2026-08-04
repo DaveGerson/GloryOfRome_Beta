@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { PrivateScenePlayerView } from '../perception/visibility';
 import type { PrivateSceneTarget } from '../privateScene/model';
 import { PRIVATE_SCENE_MAX_UTTERANCE_CHARS } from '../privateScene/model';
-import { Button } from './ui/Core';
+import { Button, DraftGauge } from './ui/Core';
 import { Alert } from './ui/Alert';
 import { WaxSeal, toRoman } from './ui/Brand';
 
@@ -75,24 +75,6 @@ function speechActClass(kind: string): string {
   if (kind === 'evasion') return 'gor-said-kind gor-said-kind-evasive';
   return 'gor-said-kind';
 }
-
-/**
- * The 2,000-character rule, drawn once. A hairline that fills gold and turns
- * crimson past the limit, with the overage counted in plain Arabic — this is
- * a number the player does arithmetic on.
- */
-const DraftGauge: React.FC<{ length: number }> = ({ length }) => {
-  const over = length - PRIVATE_SCENE_MAX_UTTERANCE_CHARS;
-  const ratio = Math.min(1, length / PRIVATE_SCENE_MAX_UTTERANCE_CHARS);
-  return (
-    <div className="gor-draft-gauge-row">
-      <span className={`gor-draft-gauge${over > 0 ? ' gor-draft-gauge-over' : ''}`} aria-hidden="true">
-        <span className="gor-draft-gauge-fill" style={{ width: `${ratio * 100}%` }} />
-      </span>
-      {over > 0 && <span className="gor-draft-gauge-count">{over} over</span>}
-    </div>
-  );
-};
 
 /** The one over-limit notice. Four sites wrote this sentence; only one composer ever mounts. */
 const OverLimitNotice: React.FC<{ length: number; onTrim: () => void; disabled: boolean }> = ({ length, onTrim, disabled }) => (
@@ -253,7 +235,7 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
           </div>
           <textarea className="gor-textarea" rows={3} aria-label="Private-scene opening" maxLength={PRIVATE_SCENE_MAX_UTTERANCE_CHARS} value={openingDraft} disabled={disabled}
             aria-invalid={openingOverLimit || undefined} onChange={event => onOpeningDraftChange(event.target.value)} />
-          <DraftGauge length={openingDraft.length} />
+          <DraftGauge length={openingDraft.length} limit={PRIVATE_SCENE_MAX_UTTERANCE_CHARS} />
           {openingOverLimit && <OverLimitNotice length={openingDraft.length} disabled={disabled} onTrim={() => onOpeningDraftChange(trimLastSentence(openingDraft))} />}
           <Button type="button" disabled={disabled || openingOverLimit || !targetId || !openingDraft.trim()} onClick={() => onInvite(targetId)}>Send invitation</Button>
         </>}
@@ -267,7 +249,7 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
         {active.status === 'active' && <>
           <textarea className="gor-textarea" rows={3} aria-label="Private-scene reply" maxLength={PRIVATE_SCENE_MAX_UTTERANCE_CHARS} value={replyDraft} disabled={disabled}
             aria-invalid={replyOverLimit || undefined} onChange={event => onReplyDraftChange(event.target.value)} />
-          <DraftGauge length={replyDraft.length} />
+          <DraftGauge length={replyDraft.length} limit={PRIVATE_SCENE_MAX_UTTERANCE_CHARS} />
           {replyOverLimit && <OverLimitNotice length={replyDraft.length} disabled={disabled} onTrim={() => onReplyDraftChange(trimLastSentence(replyDraft))} />}
           <Button type="button" disabled={disabled || replyOverLimit || !replyDraft.trim()} onClick={() => onReply(active.sceneId)}>Send reply</Button>
           <Button type="button" variant="secondary" disabled={disabled} onClick={() => onEnd(active.sceneId)}>End scene</Button>
@@ -283,7 +265,7 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
           </div>
           <textarea className="gor-textarea" rows={3} aria-label="Private-scene last word" maxLength={PRIVATE_SCENE_MAX_UTTERANCE_CHARS} value={lastWordDraft} disabled={disabled}
             aria-invalid={lastWordOverLimit || undefined} onChange={event => onLastWordDraftChange(event.target.value)} />
-          <DraftGauge length={lastWordDraft.length} />
+          <DraftGauge length={lastWordDraft.length} limit={PRIVATE_SCENE_MAX_UTTERANCE_CHARS} />
           {lastWordOverLimit && <OverLimitNotice length={lastWordDraft.length} disabled={disabled} onTrim={() => onLastWordDraftChange(trimLastSentence(lastWordDraft))} />}
           <Button type="button" disabled={disabled || lastWordOverLimit || !lastWordDraft.trim()} onClick={() => onLastWord(active.sceneId)}>Leave the last word</Button>
           <Button type="button" variant="ghost" disabled={disabled} onClick={() => onSkipLastWord(active.sceneId)}>Let it stand</Button>
