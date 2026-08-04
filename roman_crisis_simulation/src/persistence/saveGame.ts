@@ -550,3 +550,19 @@ export function clearSave(): SaveGameResult {
 export function hasSave(): boolean {
   return loadGame() !== null;
 }
+
+/**
+ * The persisted reign verbatim, for "Take a copy of the reign" (WP-21).
+ * Player-safe by construction: this is the same blob `saveGame` wrote, and
+ * that path already strips captured prompt text and `proseRedactions`. It is
+ * NOT the eval corpus, which carries GM-private material and stays behind
+ * the GM console.
+ */
+export function rawSaveBlob(): string | null {
+  try {
+    return localStorage.getItem(SAVE_KEY);
+  } catch (error) {
+    console.warn('Could not read the saved reign:', error);
+    return null;
+  }
+}

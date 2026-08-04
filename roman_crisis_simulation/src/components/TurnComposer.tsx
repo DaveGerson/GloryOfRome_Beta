@@ -10,6 +10,7 @@ import { ActionPill } from './ui/Game';
 import { Button } from './ui/Core';
 import { SegmentedControl } from './ui/Forms';
 import { WaxSeal } from './ui/Brand';
+import { TurnFailureNotice } from './ui/FailureNotices';
 
 export type ComposerMode = 'chat' | 'structured';
 
@@ -23,6 +24,17 @@ export interface TurnComposerProps {
   turnStage?: TurnStage | null;
   /** The player's initial, pressed into the wax when a week is sealed. */
   playerInitial?: string;
+  /**
+   * Item 46: whether anything CAN be sent. False shows a bronze pre-flight
+   * notice above the tablet from first paint, rather than letting the player
+   * write a week and only then discover the device carries no key.
+   * `App.tsx`'s pre-call guard stays as the backstop, in the same words.
+   */
+  canReachTheFates?: boolean;
+  /** Item 49: while the roads are shut, Speak says so instead of failing. */
+  online?: boolean;
+  onOpenSettings?(): void;
+  onEnableMockMode?(): void;
   onChatDraftChange(value: string): void;
   onStructuredDraftChange(value: StructuredTurnDraft): void;
   onSubmit(input: string | StructuredTurnDraft): void;
@@ -58,6 +70,7 @@ const CHAT_INPUT_ELEMENT_ID = 'chat-input';
 export const TurnComposer: React.FC<TurnComposerProps> = ({
   chatDraft, structuredDraft, recipientOptions, suggestedActions, disabled, isProcessing,
   onChatDraftChange, onStructuredDraftChange, onSubmit, turnStage, playerInitial,
+  canReachTheFates = true, online = true, onOpenSettings, onEnableMockMode,
 }) => {
   const [mode, setMode] = useState<ComposerMode>(() => getComposerMode());
   const [sealing, setSealing] = useState(false);
@@ -133,6 +146,15 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
 
   return (
     <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* Item 46: said before the week is written, not after it is lost. */}
+      {!canReachTheFates && onOpenSettings && onEnableMockMode && (
+        <TurnFailureNotice
+          failure={{ kind: 'no_key' }}
+          onEditTheWeek={() => {}}
+          onOpenSettings={onOpenSettings}
+          onEnableMockMode={onEnableMockMode}
+        />
+      )}
       {suggestedActions.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8 }}>
           {suggestedActions.map((action, index) => (
@@ -191,7 +213,13 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
             ) : (
               <p id={statusId} role="status" className="gor-hint" style={{ margin: 0 }}>{formatCharacterCount(remaining ?? 0)} characters remaining</p>
             )}
-            <Button type="submit" aria-label="Send message" disabled={locked || overLimit || !artifactStatus.ok || !chatDraft.trim()}>Speak</Button>
+            <Button
+              type="submit"
+              aria-label="Send message"
+              disabled={!online || locked || overLimit || !artifactStatus.ok || !chatDraft.trim()}
+            >
+              {online ? 'Speak' : 'Hold until the roads reopen'}
+            </Button>
           </div>
         </form>
       ) : (

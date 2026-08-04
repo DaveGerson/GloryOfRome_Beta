@@ -29,8 +29,8 @@ import { inferAmbition } from './ai/tools/ambition';
 import { checkForTriggeredEvent, applyEventChoiceDeltas, recordEventFiring } from './events/engine';
 import { initiateWorld } from './ai/core/initiator';
 import { runSmokeTest } from './tests/smokeTest';
-import { resetSessionCallLog } from './ai/core/geminiService';
-import { saveGame, loadGame, clearSave, hasSave, updateSavedAmbition, SaveGameState, InferredAmbitionState } from './persistence/saveGame';
+import { AiServiceError, resetSessionCallLog } from './ai/core/geminiService';
+import { saveGame, loadGame, clearSave, hasSave, rawSaveBlob, updateSavedAmbition, SaveGameState, InferredAmbitionState } from './persistence/saveGame';
 import { hasSeenOnboarding, markOnboardingSeen } from './persistence/onboarding';
 import { getPacingPosture, setPacingPosture } from './persistence/settings';
 import { getApiKey, setApiKey, clearApiKey, resolveApiKey } from './persistence/apiKey';
@@ -80,6 +80,48 @@ import {
 import { appendFallout, buildInterventionTextWithFallout, hasFallout } from './components/investigationLoop';
 import { Button } from './components/ui/Core';
 import { Alert, RECORD_REFUSES } from './components/ui/Alert';
+import {
+    HalfCommitNotice, OfflineStrip, SaveFailureNotice, TurnFailureNotice, useOnline, type TurnFailure,
+} from './components/ui/FailureNotices';
+
+/**
+ * What a non-turn transaction has to say (WP-21). Three shapes, because
+ * three different things happen: a write that would not land names the last
+ * safe week and offers a copy of the reign; a half-commit is not a failure
+ * at all and takes `role="status"`; and the delete path is neither.
+ */
+type TransactionNote =
+    | { kind: 'save'; lead: string }
+    | { kind: 'half_commit' }
+    | { kind: 'plain'; message: string };
+
+/** The reign as it sits on disk — what "Take a copy of the reign" hands over. */
+function downloadTheReign(): void {
+    const blob = rawSaveBlob();
+    if (!blob) return;
+    const parsed = JSON.parse(blob) as { state?: { turnNumber?: number } };
+    const url = URL.createObjectURL(new Blob([blob], { type: 'application/json' }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `gor-reign-week${parsed.state?.turnNumber ?? 0}.json`;
+    anchor.click();
+    // Same deferral as the eval-corpus export: revoking synchronously can
+    // abort the download in Firefox/Safari.
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+const TransactionNoteView: React.FC<{ note: TransactionNote; style?: React.CSSProperties }> = ({ note, style }) => {
+    if (note.kind === 'half_commit') return <HalfCommitNotice style={style} />;
+    if (note.kind === 'plain') return <Alert title={RECORD_REFUSES} style={style}>{note.message}</Alert>;
+    return (
+        <SaveFailureNotice
+            lead={note.lead}
+            lastSafeTurn={loadGame()?.state.turnNumber ?? 1}
+            onTakeCopy={downloadTheReign}
+            style={style}
+        />
+    );
+};
 import { Tooltip } from './components/ui/Feedback';
 import { toRoman } from './components/ui/Brand';
 import { shouldToggleGmConsole } from './components/ui/gmConsoleHotkey';
@@ -213,8 +255,13 @@ const App: React.FC = () => {
     const [retrySubmission, setRetrySubmission] = useState<TurnSubmission | null>(null);
     const [retryDraft, setRetryDraft] = useState<string | StructuredTurnDraft | null>(null);
     const [pendingPlayerMessage, setPendingPlayerMessage] = useState<Message | null>(null);
-    const [turnError, setTurnError] = useState<string | null>(null);
-    const [transactionError, setTransactionError] = useState<string | null>(null);
+    // WP-21: WHICH failure, not a sentence. All the copy lives in
+    // components/ui/FailureNotices.tsx, so the four kinds cannot drift
+    // apart into four differently-worded versions of "try again".
+    const [turnFailure, setTurnFailure] = useState<TurnFailure | null>(null);
+    const [transactionNote, setTransactionNote] = useState<TransactionNote | null>(null);
+    // navigator.onLine plus its two events — no network call, no polling.
+    const online = useOnline();
     const [domainMutationInFlight, setDomainMutationInFlight] = useState(false);
     // The beat between weeks (audit item 18): a 320ms wash over the marble as
     // the vexillum drops in. Purely decorative and never awaited - it is set
@@ -824,7 +871,7 @@ const App: React.FC = () => {
                 })),
             };
         setPendingPlayerMessage(playerMessage);
-        setTurnError(null);
+        setTurnFailure(null);
         setRetrySubmission(null);
         setRetryDraft(null);
         dispatch({ type: 'TURN_STARTED', playerMessage });
@@ -841,7 +888,7 @@ const App: React.FC = () => {
             setPendingPlayerMessage(null);
             setRetrySubmission(submission);
             setRetryDraft(restoreDraft);
-            setTurnError('The turn could not be resolved. Your draft has been restored; retry when you are ready.');
+            setTurnFailure({ kind: 'fatal' });
             dispatch({ type: 'TURN_ROLLED_BACK', snapshot: preTurnSnapshot });
             dispatch({ type: 'GAME_STATE_SET', gameState: GameState.AWAITING_PLAYER_INPUT });
             if (typeof restoreDraft === 'string') setChatDraft(restoreDraft);
@@ -860,7 +907,12 @@ const App: React.FC = () => {
             setPendingPlayerMessage(null);
             setRetrySubmission(submission);
             setRetryDraft(restoreDraft);
-            setTurnError('The turn could not be resolved. Your draft has been restored; retry when you are ready.');
+            // No notice here: the composer already carries the standing
+            // "No token on this device" notice from first paint (item 46),
+            // and rendering a second copy of it would be two alerts saying
+            // the same thing. This guard's job is to stop the call and keep
+            // the draft, which it does above.
+            setTurnFailure(null);
             dispatch({ type: 'TURN_ROLLED_BACK', snapshot: preTurnSnapshot });
             dispatch({ type: 'GAME_STATE_SET', gameState: GameState.AWAITING_PLAYER_INPUT });
             if (typeof restoreDraft === 'string') setChatDraft(restoreDraft);
@@ -1167,7 +1219,7 @@ const App: React.FC = () => {
                     committedTail.current = { diedThisTurn };
                     privateScenesRef.current = committedPrivateScenes;
                 },
-                onCommitted: () => { setTransactionError(null); strikeWeekBeat(); },
+                onCommitted: () => { setTransactionNote(null); strikeWeekBeat(); },
             });
             // The final, parsed narration message above now replaces the
             // transient streaming bubble - clear the thinking-theater state
@@ -1192,7 +1244,7 @@ const App: React.FC = () => {
             if (submission.kind === 'freeform') setChatDraft('');
             else setStructuredDraft(emptyStructuredDraft());
             setPendingPlayerMessage(null);
-            setTurnError(null);
+            setTurnFailure(null);
 
             // DESIGN_DECISIONS.md D8 - a cheap periodic model call infers the
             // player's apparent ambition every AMBITION_INFERENCE_TURN_INTERVAL
@@ -1253,7 +1305,7 @@ const App: React.FC = () => {
                     if (submission.kind === 'freeform') setChatDraft('');
                     else setStructuredDraft(emptyStructuredDraft());
                     if (!committedTail.current.diedThisTurn) setIsCheckingEvents(true);
-                    setTransactionError('The turn was saved, but a follow-up step failed. Play continues from the saved turn.');
+                    setTransactionNote({ kind: 'half_commit' });
                 }
                 return;
             }
@@ -1272,7 +1324,14 @@ const App: React.FC = () => {
             setPendingPlayerMessage(null);
             setRetrySubmission(submission);
             setRetryDraft(restoreDraft);
-            setTurnError('The turn could not be resolved. Your draft has been restored; retry when you are ready.');
+            // `AiServiceError.kind` already split these; only the player was
+            // never told which. `debugSnippet` stays where it is (D4/D5) —
+            // nothing below reads it.
+            setTurnFailure(
+                !online ? { kind: 'offline' }
+                    : error instanceof AiServiceError && error.kind === 'transient' ? { kind: 'transient' }
+                        : { kind: 'fatal' },
+            );
 
             // Roll back to the pre-turn snapshot. In practice nothing above
             // was committed yet, but restore explicitly (rather than relying
@@ -1289,7 +1348,7 @@ const App: React.FC = () => {
         }
         });
         return mutation.acquired;
-    }, [ai, buildSaveState, commitDomainMutation, dispatch, entities, eventFirings, getStateGeneration, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, pendingIntelligenceFallout, playerCharacterId, reports, resolvedApiKey, runDomainMutation, simulationState, strikeWeekBeat, truthLedger, turnHistory, turnNumber, worldState]);
+    }, [ai, buildSaveState, commitDomainMutation, dispatch, entities, eventFirings, getStateGeneration, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, online, pendingIntelligenceFallout, playerCharacterId, reports, resolvedApiKey, runDomainMutation, simulationState, strikeWeekBeat, truthLedger, turnHistory, turnNumber, worldState]);
 
     const handleComposerSubmit = (draft: string | StructuredTurnDraft) => {
         if (gameState !== GameState.AWAITING_PLAYER_INPUT || privateSceneInteractionLocked) return;
@@ -1327,8 +1386,8 @@ const App: React.FC = () => {
                 worldState: initialWorldState,
                 metaNarrative: initialMetaNarrative,
             },
-            onSaveFailure: () => setTransactionError('Your campaign could not be saved. Please try again.'),
-            beforeDispatch: () => setTransactionError(null),
+            onSaveFailure: () => setTransactionNote({ kind: 'save', lead: 'Your campaign could not be saved.' }),
+            beforeDispatch: () => setTransactionNote(null),
         })) {
             return;
         }
@@ -1406,8 +1465,8 @@ const App: React.FC = () => {
         return commitDomainMutation({
             candidate: buildSaveState({ entities: newEntities }),
             action: { type: 'RESOURCE_SPENT', entities: newEntities },
-            onSaveFailure: () => setTransactionError('Your change could not be saved. Please try again.'),
-            beforeDispatch: () => setTransactionError(null),
+            onSaveFailure: () => setTransactionNote({ kind: 'save', lead: 'Your change could not be saved.' }),
+            beforeDispatch: () => setTransactionNote(null),
         });
     };
 
@@ -1441,8 +1500,8 @@ const App: React.FC = () => {
                 pendingIntelligenceFallout,
                 knowledge: newKnowledge,
             },
-            onSaveFailure: () => setTransactionError('What your agents found could not be recorded. Please try again.'),
-            beforeDispatch: () => setTransactionError(null),
+            onSaveFailure: () => setTransactionNote({ kind: 'save', lead: 'What your agents found could not be recorded.' }),
+            beforeDispatch: () => setTransactionNote(null),
         });
     };
 
@@ -1541,8 +1600,8 @@ const App: React.FC = () => {
         if (!commitDomainMutation({
             candidate: buildSaveState({ entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge, messages: falloutMessage ? [...messages, falloutMessage] : messages }),
             action: { type: 'INVESTIGATION_COMMITTED', entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge, falloutMessage },
-            onSaveFailure: () => setTransactionError('Your investigation could not be saved. Please try again.'),
-            beforeDispatch: () => setTransactionError(null),
+            onSaveFailure: () => setTransactionNote({ kind: 'save', lead: 'Your investigation could not be saved.' }),
+            beforeDispatch: () => setTransactionNote(null),
         })) {
             return false;
         }
@@ -1561,8 +1620,8 @@ const App: React.FC = () => {
         return commitDomainMutation({
             candidate: buildSaveState({ gmInterventionText: text }),
             action: { type: 'GM_INTERVENTION_SET', text },
-            onSaveFailure: () => setTransactionError('The directive could not be saved. Please try again.'),
-            beforeDispatch: () => setTransactionError(null),
+            onSaveFailure: () => setTransactionNote({ kind: 'save', lead: 'The directive could not be saved.' }),
+            beforeDispatch: () => setTransactionNote(null),
         });
     };
     
@@ -1605,7 +1664,7 @@ const App: React.FC = () => {
             },
             onSaveFailure: () => setEventChoiceError('Your choice could not be saved. Please try again.'),
             beforeDispatch: () => {
-                setTransactionError(null);
+                setTransactionNote(null);
                 setEventChoiceError(null);
             },
         })) {
@@ -1633,16 +1692,16 @@ const App: React.FC = () => {
         // are, and a save CAN legitimately be reloaded on an already-ended
         // run when the player closed the tab on the epilogue screen).
         dispatch({ type: 'GAME_LOADED', save: save.state });
-        setTransactionError(null);
+        setTransactionNote(null);
     }, [beginCampaignSession, dispatch]);
 
     const handleStartAnew = useCallback(() => {
         if (!clearSave().ok) {
-            setTransactionError('Your saved reign could not be removed. Please try again.');
+            setTransactionNote({ kind: 'plain', message: 'Your saved reign could not be removed. Please try again.' });
             return false;
         }
         beginCampaignSession();
-        setTransactionError(null);
+        setTransactionNote(null);
         setSavedGameInfo(null);
         return true;
     }, [beginCampaignSession]);
@@ -1668,6 +1727,9 @@ const App: React.FC = () => {
                     grade={crisisGrade(simulationState) ?? 'crisis'}
                 />
             )}
+            {/* Item 49: the roads are shut. The tablet stays fully editable —
+                writing the week is the one thing that still works. */}
+            {!online && gameState !== GameState.SETUP && <OfflineStrip />}
             {/*
               DESIGN_DECISIONS.md D1: exile/missing are survivable - the run
               keeps going, input stays enabled - so this is a persistent
@@ -1702,8 +1764,8 @@ const App: React.FC = () => {
                 ) : (
                     <>
                         <section data-screen-label="Chat" style={{ flex: 2, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                            {gameState === GameState.SETUP && transactionError && (
-                                <Alert title={RECORD_REFUSES} style={{ margin: '0 24px 12px' }}>{transactionError}</Alert>
+                            {gameState === GameState.SETUP && transactionNote && (
+                                <TransactionNoteView note={transactionNote} style={{ margin: '0 24px 12px' }} />
                             )}
                             {gameState === GameState.SETUP ? (
                                 <CharacterSelection
@@ -1738,16 +1800,25 @@ const App: React.FC = () => {
                                         <div ref={messagesEndRef} />
                                     </div>
                                     <div style={{ flex: 'none', borderTop: '1px solid var(--border-subtle)', padding: '12px 24px 16px', background: 'rgba(255,254,249,.55)' }}>
-                                        {/* A week that would not run and a week that would not
-                                            save are different failures, and read as such. */}
-                                        {(turnError || transactionError) && (
-                                            <Alert
-                                                title={turnError ? 'The week will not turn' : RECORD_REFUSES}
-                                                style={{ marginBottom: 10 }}
-                                            >
-                                                {turnError ?? transactionError}
-                                            </Alert>
+                                        {/* Four kinds of failed week, and three kinds of
+                                            transaction note — each in its own voice and its
+                                            own tone. Nothing here is modal: the tablet below
+                                            stays editable in every one of these states. */}
+                                        {turnFailure && (
+                                            <div style={{ marginBottom: 10 }}>
+                                                <TurnFailureNotice
+                                                    failure={turnFailure}
+                                                    onEditTheWeek={() => {
+                                                        setTurnFailure(null);
+                                                        document.getElementById('chat-input')?.focus();
+                                                    }}
+                                                    onOpenSettings={() => setIsSettingsMenuOpen(true)}
+                                                    onEnableMockMode={() => { setIsMockMode(true); setTurnFailure(null); }}
+                                                    onOpenLedger={isGmConsoleEnabled ? () => setIsGmScreenVisible(true) : undefined}
+                                                />
+                                            </div>
                                         )}
+                                        {transactionNote && <TransactionNoteView note={transactionNote} style={{ marginBottom: 10 }} />}
                                         {gameState === GameState.AWAITING_PLAYER_INPUT && retrySubmission && retryDraft && (
                                             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10, animation: 'gorRise .4s ease-out both' }}>
                                                 <Button
@@ -1773,6 +1844,10 @@ const App: React.FC = () => {
                                                 isProcessing={gameState === GameState.PROCESSING}
                                                 turnStage={turnStage}
                                                 playerInitial={playerEntity?.name}
+                                                canReachTheFates={isMockMode || Boolean(resolvedApiKey)}
+                                                online={online}
+                                                onOpenSettings={() => setIsSettingsMenuOpen(true)}
+                                                onEnableMockMode={() => setIsMockMode(true)}
                                             />
                                             {gameState === GameState.AWAITING_PLAYER_INPUT && (
                                                 <PrivateScene

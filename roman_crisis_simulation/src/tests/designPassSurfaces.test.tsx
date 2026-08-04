@@ -23,6 +23,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { TypingIndicator } from '../components/Chat';
 import CrisisBanner from '../components/CrisisBanner';
 import WorldStateTab from '../components/tabs/WorldStateTab';
+import { Alert } from '../components/ui/Alert';
+import { SaveFailureNotice, TurnFailureNotice } from '../components/ui/FailureNotices';
 import { getTabRegister, setTabRegister } from '../persistence/uiPrefs';
 import { INITIAL_SIMULATION_STATE } from '../constants/baseScenario';
 import type { SimulationState } from '../types';
@@ -159,6 +161,83 @@ describe("the week's briefing (WP-15)", () => {
     );
     expect(container.querySelectorAll('.gor-macro-fell')).toHaveLength(1);
     expect(container.textContent).toContain('marks a standing that fell this week');
+  });
+});
+
+describe('the three alert tones (WP-21)', () => {
+  it('announces crimson and bronze as alerts, because something failed', async () => {
+    for (const tone of ['crimson', 'bronze'] as const) {
+      const container = await mount(<Alert tone={tone} title="A title">A message.</Alert>);
+      expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1);
+      expect(container.querySelectorAll('[role="status"]')).toHaveLength(0);
+    }
+  });
+
+  // The defect this fixes: a screen reader announced a SAVED turn as an error.
+  it('never announces laurel as an alert, because nothing failed', async () => {
+    const container = await mount(<Alert tone="laurel" title="The week is written">Saved.</Alert>);
+    expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);
+    expect(container.querySelectorAll('[role="status"]')).toHaveLength(1);
+  });
+
+  it('keeps crimson the default, so every call site that predates tones is unchanged', async () => {
+    const container = await mount(<Alert title="A title">A message.</Alert>);
+    const alert = container.querySelector('.gor-alert')!;
+    expect(alert.getAttribute('role')).toBe('alert');
+    expect(alert.classList.contains('gor-alert-crimson')).toBe(true);
+  });
+});
+
+describe('the four turn failures (WP-21)', () => {
+  const handlers = {
+    onEditTheWeek: () => {},
+    onOpenSettings: () => {},
+    onEnableMockMode: () => {},
+  };
+
+  it('names what happened, what is kept, and what to press — for every kind', async () => {
+    const expected = [
+      ['transient', 'The couriers were turned back'],
+      ['fatal', 'The Fates could not read the omens'],
+      ['no_key', 'No token on this device'],
+      ['offline', 'No word can leave the city'],
+    ] as const;
+    for (const [kind, title] of expected) {
+      const container = await mount(<TurnFailureNotice failure={{ kind }} {...handlers} />);
+      expect(container.textContent).toContain(title);
+      // "what is kept" — the clause today's single sentence had, and the
+      // only one the player actually needs under a failure.
+      expect(container.textContent).toMatch(/kept|untouched|safe/i);
+    }
+  });
+
+  it('draws the spent attempts rather than describing them', async () => {
+    const container = await mount(<TurnFailureNotice failure={{ kind: 'transient' }} {...handlers} />);
+    expect(container.querySelectorAll('.gor-pip')).toHaveLength(3);
+    expect(container.querySelectorAll('.gor-pip-spent')).toHaveLength(3);
+  });
+
+  it("offers the Fates' ledger only where the console is already open", async () => {
+    const withoutConsole = await mount(<TurnFailureNotice failure={{ kind: 'fatal' }} {...handlers} />);
+    expect(withoutConsole.textContent).not.toContain("Open the Fates' ledger");
+    const withConsole = await mount(<TurnFailureNotice failure={{ kind: 'fatal' }} {...handlers} onOpenLedger={() => {}} />);
+    expect(withConsole.textContent).toContain("Open the Fates' ledger");
+  });
+});
+
+describe('the save notice and the half-commit (WP-21)', () => {
+  it('names the last safe week in ceremonial numerals and keeps the site’s own sentence', async () => {
+    const container = await mount(<SaveFailureNotice lead="Your investigation could not be saved." lastSafeTurn={11} />);
+    expect(container.textContent).toContain('Your investigation could not be saved.');
+    expect(container.textContent).toContain('Week XI');
+    expect(container.querySelector('.gor-alert-title')?.textContent).toBe('The record refuses');
+  });
+
+  it('offers a copy of the reign only when the caller can produce one', async () => {
+    const without = await mount(<SaveFailureNotice lead="Lost." lastSafeTurn={2} />);
+    expect(without.textContent).not.toContain('Take a copy of the reign');
+    const with_ = await mount(<SaveFailureNotice lead="Lost." lastSafeTurn={2} onTakeCopy={() => {}} />);
+    expect(with_.textContent).toContain('Take a copy of the reign');
   });
 });
 

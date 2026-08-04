@@ -100,6 +100,26 @@
 .gor-alert-title{font-family:var(--font-display);font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#7A1810}
 .gor-alert-msg{font-family:var(--font-body);font-size:15px;color:var(--text-body)}
 /* The epilogue's stele is the one dark ground an alert has to land on. */
+/* Three tones (WP-21). Bronze and laurel reuse the badge palette. */
+.gor-alert-bronze{border-color:rgba(199,123,43,.5);background:rgba(162,96,31,.09)}
+.gor-alert-bronze .gor-alert-bar{background:linear-gradient(180deg,#D9913F,#A2601F)}
+.gor-alert-bronze .gor-alert-title{color:#7A4A16}
+.gor-alert-laurel{border-color:rgba(124,140,79,.5);background:rgba(90,107,59,.10)}
+.gor-alert-laurel .gor-alert-bar{background:linear-gradient(180deg,#8DA45C,#5A6B3B)}
+.gor-alert-laurel .gor-alert-title{color:#46552B}
+.gor-alert-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:7px}
+/* Attempts already spent, drawn rather than counted in prose. */
+.gor-pips{display:inline-flex;gap:4px;align-items:center}
+.gor-pip{width:7px;height:7px;border-radius:50%;border:1px solid var(--border-strong)}
+.gor-pip-spent{background:var(--metal-crimson);border-color:transparent}
+.gor-evidence{font-family:var(--font-display);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted)}
+/* No word can leave the city. */
+.gor-offline{display:flex;align-items:center;gap:12px;padding:8px 20px 9px;background:linear-gradient(180deg,rgba(162,96,31,.18),rgba(162,96,31,.06));border-bottom:1px solid rgba(199,123,43,.45);animation:gorFadeIn .3s ease-out both}
+.gor-offline-tick{flex:none;width:26px;height:3px;background:var(--dentil)}
+.gor-offline-title{font-family:var(--font-display);font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#7A4A16}
+.gor-offline-body{flex:1;font-size:15px;color:var(--text-body)}
+.gor-offline-watch{flex:none;font-family:var(--font-display);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--parchment-400)}
+@media (prefers-reduced-motion:reduce){.gor-offline{animation:none}}
 .gor-alert-dark{border-color:rgba(192,68,52,.55);background:rgba(140,28,19,.22)}
 .gor-alert-dark .gor-alert-title{color:#E89A8C}
 .gor-alert-dark .gor-alert-msg{color:#F2E3BE}

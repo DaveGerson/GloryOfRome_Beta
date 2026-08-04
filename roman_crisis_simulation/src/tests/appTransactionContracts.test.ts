@@ -289,6 +289,17 @@ function failBothSaveWrites(): ReturnType<typeof vi.spyOn> {
   });
 }
 
+/**
+ * The laurel half-commit notice (WP-21), found by what it says. It is the
+ * one notice in the app that reports a SUCCESS, so it takes `role="status"`
+ * rather than `role="alert"` — and that role is shared with the composer's
+ * character count, so a bare count would prove nothing.
+ */
+function halfCommitNotes(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>('[role="status"]'))
+    .filter(node => /turn was saved.*follow-up step failed/i.test(node.textContent ?? ''));
+}
+
 function expectOneTransactionAlert(container: HTMLElement): void {
   const alerts = container.querySelectorAll('[role="alert"]');
   expect(alerts, 'one accessible in-session persistence alert').toHaveLength(1);
@@ -930,7 +941,7 @@ describe('App in-flight transaction barrier', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), exactDraft);
     await click(buttonNamed(container, 'Send message'));
-    await waitFor(() => expect(container.textContent).toContain('draft has been restored'));
+    await waitFor(() => expect(container.textContent).toMatch(/your draft is kept/i));
     expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').value).toBe(exactDraft);
     const retry = buttonNamed(container, 'Retry the last action');
 
@@ -958,7 +969,7 @@ describe('App in-flight transaction barrier', () => {
     await waitFor(() => expect(mockRunNewTurnCore).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(loadGame()!.state.turnNumber).toBe(3));
     expect(loadGame()!.state.messages.some(message => message.text.includes(exactDraft))).toBe(true);
-    expect(container.textContent).not.toContain('draft has been restored');
+    expect(container.textContent).not.toMatch(/your draft is kept/i);
     errorSpy.mockRestore();
   });
 
@@ -1817,7 +1828,7 @@ describe('App no-attempt response privacy and atomicity', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     await submitStructured(container, { questionOrContext: question, privateIntent });
-    await waitFor(() => expect(container.textContent).toContain('draft has been restored'));
+    await waitFor(() => expect(container.textContent).toMatch(/your draft is kept/i));
     failingStorage.mockRestore();
 
     expect(localStorage.getItem('gloryOfRome:autosave')).toBe(beforeBytes);
@@ -1852,14 +1863,18 @@ describe('App turn-commit boundary and hidden-error surfacing (C1)', () => {
     expect(loadGame()!.state.messages.some(message => message.text.includes('Trigger post-commit failure'))).toBe(true);
 
     // No rollback / no Retry.
-    expect(container.textContent).not.toContain('draft has been restored');
+    expect(container.textContent).not.toMatch(/your draft is kept/i);
     expect(container.querySelector('[aria-label="Retry the last action"]')).toBeNull();
     expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').value).toBe('');
 
-    // Non-destructive surfacing.
-    const alerts = container.querySelectorAll('[role="alert"]');
-    expect(alerts).toHaveLength(1);
-    expect(alerts[0].textContent).toMatch(/turn was saved.*follow-up step failed/i);
+    // Non-destructive surfacing. WP-21: this is the ONE notice in the app
+    // that reports a success, so it is laurel and takes `role="status"` —
+    // announcing a saved turn as an error was the defect. It must still be
+    // surfaced, still be exactly one, and still say the same thing.
+    expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);
+    // Scoped by text, not by count: `role="status"` is not unique on this
+    // screen (the composer's character count is one), unlike `role="alert"`.
+    expect(halfCommitNotes(container)).toHaveLength(1);
     expect(errorSpy).toHaveBeenCalled();
 
     // Liveness: no PROCESSING soft-lock, and no double resolution.
@@ -1867,7 +1882,9 @@ describe('App turn-commit boundary and hidden-error surfacing (C1)', () => {
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Play continues');
     await click(buttonNamed(container, 'Send message'));
     await waitFor(() => expect(loadGame()!.state.turnNumber).toBe(5));
+    // And it clears on the next successful commit, as it always did.
     expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);
+    expect(halfCommitNotes(container)).toHaveLength(0);
 
     errorSpy.mockRestore();
   });

@@ -13,19 +13,36 @@ import React from 'react';
  * reader (or a test) sees is exactly what it was before this component
  * existed.
  */
+/**
+ * Three volumes (WP-21). Crimson: something failed and you must act.
+ * Bronze: something is in the way, and waiting may clear it. Laurel: nothing
+ * failed at all — which is why laurel takes `role="status"` rather than
+ * `role="alert"`. A screen reader must not announce a successful save as an
+ * error.
+ */
+export type AlertTone = 'crimson' | 'bronze' | 'laurel';
+
 export const Alert: React.FC<{
   /** In-fiction, in the player's world. Never "Error". */
   title: string;
+  tone?: AlertTone;
   /** Set on dark grounds — the epilogue's stele, not the marble. */
   onDarkGround?: boolean;
   style?: React.CSSProperties;
   children: React.ReactNode;
-}> = ({ title, onDarkGround = false, style, children }) => (
-  <div className={`gor-alert${onDarkGround ? ' gor-alert-dark' : ''}`} role="alert" style={style}>
+  /** One primary that can plausibly work, and at most one secondary beside it. */
+  actions?: React.ReactNode;
+}> = ({ title, tone = 'crimson', onDarkGround = false, style, children, actions }) => (
+  <div
+    className={`gor-alert gor-alert-${tone}${onDarkGround ? ' gor-alert-dark' : ''}`}
+    role={tone === 'laurel' ? 'status' : 'alert'}
+    style={style}
+  >
     <span className="gor-alert-bar" aria-hidden="true" />
     <span className="gor-alert-body">
       <span className="gor-alert-title">{title}</span>
       <span className="gor-alert-msg">{children}</span>
+      {actions && <span className="gor-alert-actions">{actions}</span>}
     </span>
   </div>
 );

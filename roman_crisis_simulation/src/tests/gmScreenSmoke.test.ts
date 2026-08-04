@@ -653,7 +653,7 @@ describe('App turn-submission orchestration', () => {
     expect(log.textContent).not.toContain('temporary provider failure');
     const alerts = container.querySelectorAll('[role="alert"]');
     expect(alerts).toHaveLength(1);
-    expect(alerts[0].textContent).toMatch(/retry|try again/i);
+    expect(alerts[0].textContent).toMatch(/send it again/i);
 
     const firstSubmission = mockRunNewTurn.mock.calls[0][0];
     await click(buttonNamed(container, 'Retry the last action'));

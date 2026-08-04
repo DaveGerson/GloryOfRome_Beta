@@ -70,9 +70,16 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
             A fracture appeared in the chronicle and the scene could not be rendered. Your
             progress is not lost — the Republic's records survive even this.
           </p>
-          <p style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 13, color: 'var(--text-muted)', background: 'var(--surface-inset)', boxShadow: 'var(--shadow-inset)', borderRadius: 'var(--radius-sm)', padding: 12, margin: '0 0 22px', wordBreak: 'break-word' }}>
-            {error.message}
-          </p>
+          {/* WP-21: a stack-shaped sentence is not information to a player,
+              it is alarm. It stays one press away for whoever wants it. */}
+          <details style={{ margin: '0 0 22px', textAlign: 'left' }}>
+            <summary style={{ cursor: 'pointer', textAlign: 'center', fontFamily: 'var(--font-display)', fontSize: 10.5, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+              Show the fracture
+            </summary>
+            <p style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 13, color: 'var(--text-muted)', background: 'var(--surface-inset)', boxShadow: 'var(--shadow-inset)', borderRadius: 'var(--radius-sm)', padding: 12, margin: '10px 0 0', wordBreak: 'break-word' }}>
+              {error.message}
+            </p>
+          </details>
           <button onClick={this.handleReload} className="gor-btn gor-btn-lg gor-btn-primary">
             {canRestore ? 'Restore Last Save' : 'Reload'}
           </button>

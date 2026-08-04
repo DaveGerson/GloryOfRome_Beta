@@ -199,7 +199,7 @@ describe('journey: structured player input through the real App transaction', ()
       installAppGeminiScript(failed);
       const expectedConsole = vi.spyOn(console, 'error').mockImplementation(() => {});
       await appClick(appButton(app.container, 'Submit turn'));
-      await waitForApp(() => expect(app.container.textContent).toContain('Your draft has been restored'));
+      await waitForApp(() => expect(app.container.textContent).toMatch(/your draft is kept/i));
       expectedConsole.mockRestore();
       expect(loadThreadState().turnNumber).toBe(3);
       expect(loadThreadState().turnHistory).toHaveLength(1);
@@ -379,7 +379,7 @@ describe('journey: structured player input through the real App transaction', ()
       await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Question / Context'), question);
       const expectedConsole = vi.spyOn(console, 'error').mockImplementation(() => {});
       await appClick(appButton(app.container, 'Submit turn'));
-      await waitForApp(() => expect(app.container.textContent).toContain('Your draft has been restored'));
+      await waitForApp(() => expect(app.container.textContent).toMatch(/your draft is kept/i));
       expectedConsole.mockRestore();
 
       const failedState = loadThreadState();

@@ -193,7 +193,7 @@ describe('private-scene App transaction boundary', () => {
     const container = await mountForMacroTurn(state);
 
     await submitMacroTurn(container, 'Retry this exact macro turn');
-    await waitFor(() => expect(container.querySelector('[role="alert"]')?.textContent).toMatch(/retry/i));
+    await waitFor(() => expect(container.querySelector('[role="alert"]')?.textContent).toMatch(/send it again/i));
     expect(loadGame()!.state.privateScenes).toEqual([pending]);
     expect(livePrivateScenes).toEqual([pending]);
     expect(JSON.stringify(mockRunNewTurn.mock.calls[0][14]?.privateSceneAdjudicatorProjection)).toContain('RETRY_SCENE_CLAIM');
@@ -228,7 +228,7 @@ describe('private-scene App transaction boundary', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     await act(async () => release());
-    await waitFor(() => expect(container.querySelector('[role="alert"]')?.textContent).toMatch(/restored|retry/i));
+    await waitFor(() => expect(container.querySelector('[role="alert"]')?.textContent).toMatch(/draft is kept|send it again/i));
 
     expect(localStorage.getItem('gloryOfRome:autosave')).toBe(beforeBytes);
     expect(loadGame()!.state.privateScenes).toEqual([pending]);
