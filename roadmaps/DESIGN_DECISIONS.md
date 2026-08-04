@@ -671,13 +671,35 @@ timed button inside the notice would be two controls doing one job, and
 `retryTransient` has already waited ~7s by the time anyone is told. The
 notice carries the evidence instead — three attempts, 1s/2s/4s apart.
 
-*Deferred, deliberately:* the GM Narration pane's monologue slip
-(`TurnHistoryEntry` carries no monologue, and `messages` has no turn
-attribution — inferring it from array position is exactly what D44 forbids),
-its "streamed in N chunks" count (never captured), and the Fixtures pane's
-"Replay from the mould" (no replay exists, and a dead control is worse than
-none). Three handoff gaps remain undrawn and uninvented: **C** Consulting
-the Fates, **H** narrow viewports, **I** the player dossier header.
+**Ratified** on the residual review, and now pinned by a test in
+`gmScreenSmoke.test.ts`: the arming will not ship. The decisive argument is
+not the wait, it is the bypass — after a failure the draft is restored into
+the composer and the composer stays enabled (this same decision requires it:
+a failure never takes the room), so pressing Send with the restored draft is
+the same act as pressing Retry. An armed Retry beside a live Send protects
+nothing and merely looks careful, which is the class of dishonest chrome
+this pass spent its time removing. Two further reasons: every press
+re-enters the same 1s/2s/4s budget, so there is no hammering to prevent; and
+the single catch derives its kind from `AiServiceError.kind` with no record
+of WHICH pipeline step failed, so "arm only for an exhausted turn budget"
+cannot be scoped honestly without tagging errors by step. Arming this button
+later must now confront the test and this paragraph together.
+
+*Closed on the residual review:* the GM Narration pane's three deferrals.
+The monologue is duplicated onto `TurnHistoryEntry.playerMonologue` rather
+than read back off `messages`, because that list has no turn attribution and
+inferring one from array position is what D44 forbids; it follows
+`narration`'s existing precedent for the same duplication, and being
+player-visible it is NOT stripped on serialize. The chunk count rides
+`RawCallRecord.streamChunks` as `latencyMs`-class metadata. "Replay from the
+mould" became buildable by inverting it: `ai/core/turnReplay.ts` re-draws
+from the recorded seed and compares against the recorded rolls, which
+**proves** the seed plaque's standing claim instead of asserting it — no
+turn is re-run, no model is called. A control that verifies is worth
+building where a control that merely gestures is not.
+
+*Still undrawn and uninvented:* handoff gaps **C** Consulting the Fates,
+**H** narrow viewports, **I** the player dossier header.
 
 *Refines:* D4/D5 (the session-side strip as the GM boundary), D7 (the Fates'
 ledger deep-link only where the console is already enabled), D34 (the
