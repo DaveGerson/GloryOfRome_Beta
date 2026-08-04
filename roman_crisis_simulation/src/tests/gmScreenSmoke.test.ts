@@ -655,6 +655,14 @@ describe('App turn-submission orchestration', () => {
     expect(alerts).toHaveLength(1);
     expect(alerts[0].textContent).toMatch(/send it again/i);
 
+    // Pinned: WP-21 item 47's 15s arming + live countdown was considered and refused.
+    // The composer keeps the restored draft and stays enabled, so "Send message" IS this
+    // same affordance — arming Retry beside a live Send is two controls doing one job.
+    // Arming this button later must confront this test and the recorded decision together.
+    const retryButton = buttonNamed(container, 'Retry the last action');
+    expect(retryButton.disabled).toBe(false);
+    expect(alerts[0].textContent).toContain('3 attempts, 1s · 2s · 4s apart');
+
     const firstSubmission = mockRunNewTurn.mock.calls[0][0];
     await click(buttonNamed(container, 'Retry the last action'));
     await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
