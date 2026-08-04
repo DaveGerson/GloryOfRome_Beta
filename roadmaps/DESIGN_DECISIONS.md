@@ -612,3 +612,74 @@ scope field, so a province list would mean changing the world model and its
 AI contract).
 *Refines:* D25/D26 (adds corroboration as a player-safe signal), D5 (the
 sight rule's home), D14 (dossier prices in coin, not numerals).
+
+---
+
+## D45 — The failure pass and the five closed gaps (WP-16…WP-21)
+
+The second half of the visual enhancement handoff: the private scene's
+doorway and archive, the rite's specimens, Forge a New Destiny, the GM
+console's three unbuilt panes, nine zero states, and every way the game can
+fail. Five rules came out of it that outlive the pass.
+
+**A failure states three things, or it states nothing.** What happened, in
+the world's voice and specific to this failure. What is kept — name the last
+safe thing: the draft, the week, the reign. And one thing to press that can
+plausibly work. The single sentence this replaced ("The turn could not be
+resolved. Your draft has been restored; retry when you are ready.") carried
+only the middle clause, and said it identically for four unrelated failures.
+The copy lives in `components/ui/FailureNotices.tsx`, never at the call
+site, so the kinds cannot drift into four differently-worded versions of
+"try again".
+
+**Success is never announced as an error.** `gor-alert` has three tones.
+Crimson and bronze keep `role="alert"`; **laurel takes `role="status"`**.
+The half-commit line ("the turn was saved, but a follow-up step failed") is
+reassurance, and a screen reader announcing it as an error was a defect, not
+a styling choice. Corollary for tests: `role="status"` is NOT unique on a
+screen — the composer's character count uses it — so a status assertion must
+be scoped by what it says, never by counting.
+
+**A failure never takes the room.** Nothing in this pass is modal. The
+player's unsent words are the most valuable thing on the screen and stay
+visible and editable in every failure state, offline included; while the
+roads are shut the tablet still writes and only the send is held.
+
+**A zero state names the cause, not the absence.** "No one has told you
+anything yet", never "No data available" — an empty panel is a fact about
+the world, not a gap in the software. Each register draws its own silhouette
+in blanked vellum at FULL opacity (dimming reads as *disabled*, and nothing
+there is disabled — see item 27), carries at most one affordance and only
+where that affordance already exists, and a fresh reign gets its own state
+rather than the empty one. `components/tabs/EmptyRegister.tsx` owns all nine.
+
+**GM-private material is session-side, and the strip is the boundary.**
+`TurnHistoryEntry.proseRedactions` carries each removed span verbatim so the
+GM console's Narration pane can render the boundary without parsing the
+`[Boundary]` sentences back apart — and `persistence/saveGame.ts` strips it
+on serialize exactly as it strips captured prompt text. This is what makes
+WP-21's "Take a copy of the reign" safe to hand the player: the save blob is
+player-safe *by construction*, and the eval corpus, which is not, stays
+behind the GM console. A turn restored from disk therefore shows an empty
+boundary column, and the pane says so rather than implying nothing was cut.
+
+*Deviation, deliberate:* the design arms the transient retry after 15s and
+states that number is a feel question rather than a spec. Not shipped. The
+retry affordance is the existing "↻ Retry the last action", which also
+serves a failed private scene and a failed observation commit; a second
+timed button inside the notice would be two controls doing one job, and
+`retryTransient` has already waited ~7s by the time anyone is told. The
+notice carries the evidence instead — three attempts, 1s/2s/4s apart.
+
+*Deferred, deliberately:* the GM Narration pane's monologue slip
+(`TurnHistoryEntry` carries no monologue, and `messages` has no turn
+attribution — inferring it from array position is exactly what D44 forbids),
+its "streamed in N chunks" count (never captured), and the Fixtures pane's
+"Replay from the mould" (no replay exists, and a dead control is worse than
+none). Three handoff gaps remain undrawn and uninvented: **C** Consulting
+the Fates, **H** narrow viewports, **I** the player dossier header.
+
+*Refines:* D4/D5 (the session-side strip as the GM boundary), D7 (the Fates'
+ledger deep-link only where the console is already enabled), D34 (the
+keyless notice is device-side and names no key), D44 (ceremony Roman —
+"safe up to Week XI" — while the attempt pips stay Arabic).
