@@ -71,10 +71,20 @@ function describeSpeechActKind(kind: string): string {
   return kind === 'unclassified' ? 'Statement' : kind.charAt(0).toUpperCase() + kind.slice(1);
 }
 
-/** Grounded crimson for a demand or a threat, Tyrian for evasion, an inset well for the rest. */
+/**
+ * Two kinds carry a colour, and they are a pair: crimson where something was
+ * PRESSED FOR (`request`, `threat` — the ask and the ask with menace), Tyrian
+ * where it was DECLINED (`refusal`). Scanning the column tells you who asked
+ * and who closed the door; everything else is an inset well.
+ *
+ * These are drawn from the closed `PrivateSceneSpeechActKind` set in
+ * `privateScene/model.ts`. It shipped branching on `'demand'` and `'evasion'`,
+ * neither of which is in that set, so the hard style fired only for `threat`
+ * and `gor-said-kind-evasive` was unreachable.
+ */
 function speechActClass(kind: string): string {
-  if (kind === 'demand' || kind === 'threat') return 'gor-said-kind gor-said-kind-hard';
-  if (kind === 'evasion') return 'gor-said-kind gor-said-kind-evasive';
+  if (kind === 'request' || kind === 'threat') return 'gor-said-kind gor-said-kind-hard';
+  if (kind === 'refusal') return 'gor-said-kind gor-said-kind-refusal';
   return 'gor-said-kind';
 }
 
@@ -121,9 +131,19 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
   // until that scene leaves the list.
   const reading = completed.find(scene => scene.sceneId === readingSceneId) ?? completed[completed.length - 1];
 
-  /** The last week you were alone with this contact — "Never" reads as an invitation. */
+  /**
+   * The last week you were alone with this contact — "Never" reads as an
+   * invitation. A REFUSED scene is not one of those weeks: the invitation was
+   * turned down, so the hour was spent but the room never held two people. It
+   * used to count, which told the player "Last alone · Week N" about a door
+   * that never opened — and, through `gor-contact-meta-met`, coloured the card
+   * Tyrian as though they had met. Both read off this one value, so both are
+   * fixed here.
+   */
   const lastAloneWith = (entityId: string): number | null => {
-    const weeks = scenes.filter(scene => scene.npcId === entityId).map(scene => scene.macroTurn);
+    const weeks = scenes
+      .filter(scene => scene.npcId === entityId && scene.closureReason !== 'refused')
+      .map(scene => scene.macroTurn);
     return weeks.length ? Math.max(...weeks) : null;
   };
 

@@ -25,7 +25,22 @@ export const EmptyRegister: React.FC<{
     line: string;
     /** Why that is not a problem, or what will change it. */
     hint?: string;
-    /** At most one row, and only where the affordance already exists. */
+    /**
+     * At most one row, and only where the affordance already exists — the slot
+     * through which rule 4 is enforced rather than merely stated.
+     *
+     * No shipped call site passes one yet: the single use WP-20 specified is
+     * the Reports zero state's Personae row of unspent-investigation pips, and
+     * that row needs data `ReportsTab` does not hold. Kept unbuilt rather than
+     * faked, per rule 4 — a zero state must never invent a button.
+     *
+     * It needs no CSS of its own and gets none. `.gor-empty` is a centred
+     * column with an 8px gap, so whatever the caller passes is laid out on the
+     * same rhythm as the line and the hint; and the affordance must ALREADY
+     * exist, which means it arrives carrying its own class (`.gor-btn`). A
+     * bespoke `.gor-empty-action` would be a shape invented for a caller that
+     * does not exist — the class of dead CSS this pass has been deleting.
+     */
     action?: React.ReactNode;
 }> = ({ silhouette, line, hint, action }) => (
     <div className="gor-empty">

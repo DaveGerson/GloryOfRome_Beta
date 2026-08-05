@@ -87,7 +87,6 @@
 .gor-dialog-rule{position:relative;height:1px;background:linear-gradient(90deg,transparent,var(--border-strong),transparent);margin:16px 0 2px}
 .gor-dialog-rule::after{content:"\25C6";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:9px;color:var(--gold-600);background:var(--surface-card);padding:0 9px;line-height:1}
 .gor-dialog-body{padding:16px 22px;color:var(--text-body)}
-.gor-dialog-foot{padding:0 22px 18px;display:flex;justify-content:flex-end;gap:10px}
 .gor-toast{display:flex;align-items:flex-start;gap:12px;background:var(--surface-raised);border:1px solid var(--border-subtle);border-radius:var(--radius-md);box-shadow:var(--shadow-raised);padding:12px 16px;max-width:380px}
 .gor-toast-bar{width:5px;align-self:stretch;border-radius:2px;flex:none}
 .gor-toast-title{font-family:var(--font-display);font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-heading)}
@@ -274,7 +273,13 @@
 .gor-shelf-rail{flex:none;width:246px;max-height:340px;overflow-y:auto;display:flex;flex-direction:column;gap:5px}
 .gor-private-scene .gor-shelf-letter{margin:0;display:flex;align-items:center;gap:9px;padding:7px 9px;text-align:left;cursor:pointer;background:transparent;border:1px solid transparent;border-radius:var(--radius-sm)}
 .gor-private-scene .gor-shelf-letter:hover{border-color:var(--border-faint)}
-.gor-private-scene .gor-shelf-letter-open{background:var(--surface-inset);border-color:var(--border-subtle);box-shadow:var(--shadow-inset)}
+/* Same defect as `.gor-contact-chosen` above: `…-letter:hover` carries one
+   class more than `…-letter-open`, so hovering the letter you already have
+   open faded its border from `--border-subtle` back to `--border-faint` —
+   the open letter lost its edge exactly while you were pointing at it.
+   Listing the hover state here makes it equal-specificity and later. */
+.gor-private-scene .gor-shelf-letter-open,
+.gor-private-scene .gor-shelf-letter-open:hover{background:var(--surface-inset);border-color:var(--border-subtle);box-shadow:var(--shadow-inset)}
 .gor-shelf-letter-body{display:flex;flex-direction:column;gap:1px;min-width:0}
 .gor-shelf-name{font-family:var(--font-display);font-size:13px;font-weight:700;color:var(--text-heading)}
 .gor-shelf-closure{font-size:12.5px;font-style:italic;color:var(--text-muted)}
@@ -284,8 +289,11 @@
 /* What was said, in kind. */
 .gor-said{display:grid;grid-template-columns:104px 1fr;gap:4px 10px;align-items:baseline}
 .gor-said-kind{font-family:var(--font-display);font-size:9.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted)}
+/* A pair: crimson where something was pressed for (request / threat), Tyrian
+   where it was declined (refusal). Named for the kinds they draw — the class
+   this replaced was `-evasive`, and no such speech-act kind exists. */
 .gor-said-kind-hard{color:var(--crimson-500)}
-.gor-said-kind-evasive{color:var(--tyrian-500)}
+.gor-said-kind-refusal{color:var(--tyrian-500)}
 .gor-said-quote{font-size:15.5px;color:var(--text-body)}
 .gor-lastword{display:flex;flex-direction:column;gap:2px;margin-top:10px;padding:8px 11px;border-left:3px solid var(--metal-crimson);background:var(--surface-inset);box-shadow:var(--shadow-inset);border-radius:var(--radius-sm)}
 .gor-lastword-title{font-family:var(--font-display);font-size:9.5px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--crimson-500)}
@@ -445,9 +453,6 @@
 .gor-sil-letter{position:relative;width:66px;height:44px;border-radius:var(--radius-sm)}
 .gor-sil-letter-fold{position:absolute;left:0;right:0;top:50%;height:1px;background:var(--border-subtle)}
 
-/* Outline capitals: a name you know is there, not one you have read. */
-.gor-outline-caps{font-family:var(--font-display);font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:transparent;-webkit-text-stroke:.4px var(--border-strong)}
-
 /* ── GM Tools: Narration · Raw · Fixtures (audit item 44) ── */
 /* The narration reads on the tablet register, so it inverts under NOX with
    the Dispatches tablet rather than staying dark against a lit room. */
@@ -465,7 +470,13 @@
 .gor-tessera-pair{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
 .gor-tessera{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:12px 14px;text-align:left;cursor:pointer;background:var(--surface-card);border:1px solid var(--border-faint);border-radius:var(--radius-md);transition:border-color var(--duration-fast) var(--ease-standard)}
 .gor-tessera:hover{border-color:var(--border-subtle)}
-.gor-tessera-woven{background:linear-gradient(180deg,rgba(94,34,70,.07),transparent);border:1px solid rgba(94,34,70,.5)}
+/* Third of the same family (see `.gor-contact-chosen` and
+   `.gor-shelf-letter-open`): `.gor-tessera:hover` sets the `border-color`
+   longhand and `.gor-tessera-woven` the `border` shorthand, so at equal
+   specificity the hover rule's longhand won and "A world of your design" lost
+   its Tyrian edge the moment you reached for it. */
+.gor-tessera-woven,
+.gor-tessera-woven:hover{background:linear-gradient(180deg,rgba(94,34,70,.07),transparent);border:1px solid rgba(94,34,70,.5)}
 .gor-tessera-name{font-family:var(--font-display);font-size:15px;font-weight:700;letter-spacing:.04em;color:var(--text-heading)}
 .gor-tessera-seals{display:flex;gap:5px}
 .gor-tessera-desc{font-size:13.5px;color:var(--text-muted)}
@@ -673,7 +684,6 @@ div:has(>div>form>#chat-input){flex-wrap:wrap}
    Skip/Next row - selected as the sibling after the numerals, since it has
    no class of its own - breaks at ~390px. */
 .gor-foot-bar{flex-wrap:wrap}
-.gor-dialog-foot{flex-wrap:wrap}
 .gor-rite-steps+div{flex-wrap:wrap;justify-content:center}
 
 /* The segmented control is `nowrap`, so PATIENT|MEASURED|EAGER has a hard
