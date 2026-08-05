@@ -196,8 +196,9 @@ function stripCapturedCallText(turnHistory: TurnHistoryEntry[]): TurnHistoryEntr
     // NOT a privacy boundary, and it must never be described as one: the
     // same spans also reach `adjudication.gm_private` as `[Boundary] …
     // Removed text: "…"` notes (ai/core/playerBoundary.ts), and that field
-    // is required and persisted. The save blob is GM-side material and is
-    // never handed to a player.
+    // is required and persisted. The blob's GM-side content is shareable by
+    // owner ruling (spoilers, not secrets — see D45); this strip just avoids
+    // persisting a redundant copy.
     const { proseRedactions: _dropped, ...kept } = entry;
     return {
       ...kept,

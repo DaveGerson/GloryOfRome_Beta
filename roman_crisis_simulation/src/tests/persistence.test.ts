@@ -587,7 +587,7 @@ describe('persistence/saveGame', () => {
     // and gm_private is required and persisted. The assertion below now
     // mirrors production and pins BOTH halves of the real behaviour, so
     // nobody can read the strip as a guarantee it does not give.
-    it('drops the proseRedactions copy on serialize, but does not make the blob player-safe', () => {
+    it('drops the proseRedactions copy on serialize; the span still rides in gm_private', () => {
       const span = 'REDACTION_ORIGINAL_SPAN';
       const entry = makeHistoryEntry(1, true);
       entry.adjudication.gm_private = [`[Boundary] Redacted invented player-action prose from headlines[0] - Removed text: "${span}"`];
@@ -603,9 +603,9 @@ describe('persistence/saveGame', () => {
       // The in-memory entry the caller handed in is untouched.
       expect(withRedactions.proseRedactions).toHaveLength(1);
 
-      // …and the span itself is STILL in the blob, via gm_private. The save
-      // is GM-side material. Anything that hands this file to a player has
-      // to project it first — see the removed "Take a copy of the reign".
+      // …and the span itself is STILL in the blob, via gm_private — which
+      // is fine to share by owner ruling (spoilers, not secrets; see D45),
+      // but means the strip must never be read as a redaction guarantee.
       expect(raw).toContain(span);
       expect(loadGame()!.state.turnHistory[0].adjudication.gm_private[0]).toContain(span);
     });

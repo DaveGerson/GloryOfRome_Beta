@@ -311,10 +311,11 @@ describe('the save notice and the half-commit (WP-21)', () => {
   });
 
   // The notice deliberately offers no "take a copy" escape hatch. One was
-  // built and removed: it handed the player the raw save blob — gm_private,
-  // truth ledger, NPC intents, hidden rolls — and the app has no import
-  // path, so it could not be loaded back either. Pinned so it cannot return
-  // without someone first building a player-safe projection.
+  // built and removed because the app has no import path, so the downloaded
+  // blob could never be loaded back — a recovery affordance that cannot
+  // recover. (Its GM-side content is shareable by owner ruling — spoilers,
+  // not secrets; see D45.) Pinned so it cannot return without someone first
+  // building an import route.
   it('never offers the player a copy of the raw reign', async () => {
     const container = await mount(<SaveFailureNotice lead="Lost." lastSafeTurn={2} onRetry={() => {}} />);
     expect(container.textContent).not.toMatch(/take a copy/i);

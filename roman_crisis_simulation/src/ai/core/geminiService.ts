@@ -130,7 +130,7 @@ export class AiServiceError extends Error {
 }
 
 const MAX_ATTEMPTS = 3;
-const BASE_BACKOFF_MS = 1000; // ~1s / 2s / 4s before jitter
+const BASE_BACKOFF_MS = 1000; // sleeps ~1s then ~2s; the loop throws before a third sleep
 const MAX_RAW_RESPONSE_CHARS = 20_000;
 /**
  * Cap on captured prompt/system-instruction text per record. Generous on

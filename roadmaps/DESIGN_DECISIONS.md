@@ -653,7 +653,8 @@ there is disabled — see item 27), carries at most one affordance and only
 where that affordance already exists, and a fresh reign gets its own state
 rather than the empty one. `components/tabs/EmptyRegister.tsx` owns all nine.
 
-**The save blob is GM-side material. There is no player-safe export.**
+**The save blob is spoiler material, not private material — and the export
+was removed because it did not work, not because the blob is secret.**
 `TurnHistoryEntry.proseRedactions` carries each removed span verbatim so the
 GM console's Narration pane can render the boundary without parsing the
 `[Boundary]` sentences back apart, and `persistence/saveGame.ts` drops it on
@@ -664,16 +665,24 @@ field is required and persisted; the blob further carries `rawResponse`,
 `truthLedger`, `npcIntents`, `npcPrivate`, `mortalityTrace`,
 `resolutionTrace`, `turnSeed`, `npcMindResults` and `secret_truth`.
 
-This paragraph previously claimed the opposite, and WP-21 shipped a "Take a
-copy of the reign" download on the strength of it. That action handed any
-player who hit a quota error every NPC's hidden intent, every rumour's true
-disposition, every hidden roll, and which "dead" characters are secretly
-alive — and, since the app has no import path, the file could not be loaded
-back either. It has been removed. **Restoring it needs a real player-safe
-projection AND an import route; until both exist, nothing hands a player the
-save.** The lesson generalises: a strip that removes one of several copies
-proves nothing, and a test whose fixture does not mirror production will
-happily agree with the code while both are wrong.
+*Owner ruling (2026-08-05):* that content is fine to share. The GM-private
+notes are not anyone's private thoughts — they are a gameplay artifact,
+material communicated to the AI GM that sits below the player's line of
+sight. A player who opens the file spoils their own game, the way a player
+who reads the DM's notes behind the screen does; no privacy is breached. An
+earlier version of this paragraph classified the blob as a leak and required
+a "player-safe projection" before any export could return; that requirement
+is void.
+
+WP-21's "Take a copy of the reign" was still rightly removed, on the ground
+that survives the reclassification: the app has no import path — no file
+input, no `FileReader` — so the downloaded file could never be loaded back,
+and a recovery affordance on a save-failure notice that cannot recover
+anything is dishonest chrome. **Restoring it needs an import route, nothing
+more** — with one, raw-blob export/import becomes an ordinary save-to-file
+feature. The lesson generalises unchanged: a strip that removes one of
+several copies proves nothing, and a test whose fixture does not mirror
+production will happily agree with the code while both are wrong.
 
 A turn restored from disk shows an empty boundary column, and the pane says
 so rather than implying nothing was cut.
@@ -698,7 +707,8 @@ a failure never takes the room), so pressing Send with the restored draft is
 the same act as pressing Retry. An armed Retry beside a live Send protects
 nothing and merely looks careful, which is the class of dishonest chrome
 this pass spent its time removing. Two further reasons: every press
-re-enters the same 1s/2s/4s budget, so there is no hammering to prevent; and
+re-enters the same retry budget (three attempts, two backoff sleeps — see
+above), so there is no hammering to prevent; and
 the single catch derives its kind from `AiServiceError.kind` with no record
 of WHICH pipeline step failed, so "arm only for an exhausted turn budget"
 cannot be scoped honestly without tagging errors by step. Arming this button

@@ -139,12 +139,12 @@ export const TurnFailureNotice: React.FC<{
  * sentence and share the rest — one failure, one name (`RECORD_REFUSES`).
  *
  * This notice deliberately offers NO "take a copy" escape hatch. One was
- * built and removed: it handed the player the raw save blob, which carries
- * `gm_private`, the truth ledger, NPC intents and hidden rolls — and the app
- * has no import path, so the file could not be loaded back either. A leak
- * that also does not work is not a feature. Restoring the capability means
- * building a player-safe projection AND an import route; until then the
- * honest thing is to say what is safe and what is not.
+ * built and removed because it did not work: the app has no import path, so
+ * the downloaded blob could never be loaded back, and a recovery affordance
+ * that cannot recover is dishonest chrome. (The blob's GM-side content —
+ * `gm_private`, truth ledger, hidden rolls — is shareable by owner ruling:
+ * spoilers, not secrets. See D45.) Restoring the capability means building
+ * an import route; until then the honest thing is to promise nothing.
  */
 export const SaveFailureNotice: React.FC<{
   /** The site's own sentence: "Your investigation could not be saved." */
