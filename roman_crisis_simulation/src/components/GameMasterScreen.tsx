@@ -760,7 +760,13 @@ export const FixturesView: React.FC<{
                     <span style={{ display: 'block', marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(201,162,39,.22)', ...lbl }}>Optional slices</span>
                     {([['truthLedger', hasTruthLedger], ['knowledge', hasKnowledge]] as const).map(([name, present]) => (
                         <span key={name} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '3px 0', fontFamily: MONO, fontSize: 11.5, color: PARCH }}>
-                            <span style={{ color: 'var(--tyrian-300)' }}>◆ {name}</span>
+                            {/* The console's own light Tyrian, not the scale
+                                token: `--tyrian-300` is cut for the marble
+                                ground and NOX never re-cuts it, so on this
+                                permanently dark console it sat near 3.8:1.
+                                The other two Tyrian marks here already use
+                                this const. */}
+                            <span style={{ color: TYRIAN_KICKER }}>◆ {name}</span>
                             <span style={{ color: DIM }}>{present ? 'attached' : 'absent'}</span>
                         </span>
                     ))}
