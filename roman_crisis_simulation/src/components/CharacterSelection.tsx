@@ -128,7 +128,16 @@ const CharacterSelection: React.FC<{
         event.target.value = '';
         if (!file) return;
         setImportFailure(null);
-        const text = await readChosenFileAsText(file);
+        let text: string;
+        try {
+            text = await readChosenFileAsText(file);
+        } catch {
+            // The device refusing to read the file is, to a player, the same
+            // refusal as a file that will not parse - one notice, one reason,
+            // never an unhandled rejection.
+            setImportFailure('unreadable');
+            return;
+        }
         // A reign is at stake only when a savedGame exists — the confirm
         // gates the overwrite; with nothing to lose the copy applies at once.
         if (savedGame) {

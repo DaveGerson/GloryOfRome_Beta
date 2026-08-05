@@ -173,6 +173,31 @@ actor in its own right.
   earlier. Not tracked with a test; noted here so a future maintainer
   doesn't have to rediscover it.
 
+### B7a — Reign-import hardening notes  *(from the 2026-08-05 adversarial merge review)*
+The import route ships with the boot-dereferenced fields validated
+(`entities` array, `turnNumber` non-negative integer — the latter closing a
+`1e999`→`Infinity`→`toRoman` boot hang). Three graded-NOTE residuals were
+deliberately not fixed:
+- **`entities[].name` non-string** passes the shallow validator, so
+  `ImportResult.characterName` can silently violate its `string` type and
+  boot's `(characterName || 'R').charAt(0)` crash-loops on such a file.
+  Inside the documented hand-edit-parity carve-out; a deeper per-entity
+  validator (or a `String(...)` coercion in both derives) closes it.
+- **A poisoned slot has no in-app escape** (pre-existing, structural):
+  `ErrorBoundary`'s only affordance reloads into the same slot; nothing
+  anywhere clears a slot that crashes render. Any future poisoning bug is
+  unrecoverable without devtools. Wants a "begin anew" escape on the
+  boundary, independent of import.
+- **The D8 ambition fire-and-forget tail** (`useExecuteTurn`'s deferred
+  `updateSavedAmbition`) runs outside the domain-mutation lease and is not
+  invalidated by an import: in the window between a confirmed mid-campaign
+  import and its reload, a landing patch can stamp the OLD campaign's
+  `inferredAmbition`/`savedAt` onto the freshly-imported slot. One GM-side
+  field, no reign loss; a `campaignGenerationRef` bump on import closes it.
+- **Test gap:** the Settings import lock pins the trigger's `disabled`, but
+  the Replace confirm's `disabled` (the actual half-commit seam) is
+  implemented yet unpinned.
+
 ### B8 — Raw relationship numbers on the Personae tab  *(ruling needed)*
 `DramatisPersonaeTab` renders the player's own Trust/Respect/Threat/
 Alignment/Dependency toward each NPC as raw signed numbers + bars
@@ -301,6 +326,15 @@ rather than rediscover it.
   (`components/ui/FailureNotices.tsx`'s `SaveFailureNotice`) regained its
   "Take a copy of the reign" action. See
   `docs/superpowers/specs/2026-08-05-reign-export-import-design.md`.
+  One accepted residual from the adversarial merge review: the copy
+  affordance gates at RENDER on the same `loadGame()` read as the notice
+  copy, but `downloadTheReign` re-reads the slot at CLICK and silently
+  no-ops if storage died in between (and its `JSON.parse` of the slot is
+  unguarded against an external writer poisoning it in that window). The
+  body is the deliberately-verbatim pre-`d8df778` restoration and the
+  window is a render-to-click race in an already-broken-storage state;
+  left as-is. A hardening pass would surface a notice on a null/unparsable
+  click-time read instead of doing nothing.
 - **`role="tablist"` is claimed and unkept in two more places.**
   `SidePanel.tsx`'s seven-tab dashboard bar and `GameMasterScreen.tsx`'s
   eleven-tab console bar both declare `role="tablist"`/`role="tab"` with no

@@ -111,7 +111,10 @@ describe('persistence/saveGame — rawSaveBlob and importSaveBlob', () => {
     expect(importSaveBlob(blob!).ok).toBe(true);
 
     // Import acceptance and load acceptance are the same code path, so the
-    // reign that comes back is exactly the reign that went out.
+    // reign that comes back is exactly the reign that went out. This is
+    // also the anti-poison invariant, pinned: an ok import can NEVER leave
+    // the slot in a state loadGame returns null for - acceptance is one
+    // validator, and the result derive runs before the write.
     const loaded = loadGame();
     expect(loaded).not.toBeNull();
     expect(loaded!.state).toEqual(state);
@@ -137,6 +140,81 @@ describe('persistence/saveGame — rawSaveBlob and importSaveBlob', () => {
     const before = localStorage.getItem(SAVE_KEY);
 
     const result = importSaveBlob(JSON.stringify({ hello: 'world' }));
+
+    expect(result).toEqual({ ok: false, reason: 'not_a_reign' });
+    expect(localStorage.getItem(SAVE_KEY)).toBe(before);
+    expect(loadGame()!.state.turnNumber).toBe(9);
+  });
+
+  it('refuses an empty-state envelope as not_a_reign - the payload class that once poisoned the slot', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    saveGame(makeState({ turnNumber: 9 }));
+    const before = localStorage.getItem(SAVE_KEY);
+
+    // version/savedAt/state-is-a-record all pass; `entities` and
+    // `turnNumber` - the two fields the boot path dereferences before any
+    // normalization runs - are missing. Accepting this once overwrote the
+    // slot and crash-looped boot via loadSavedGameSummary.
+    const result = importSaveBlob(JSON.stringify({ version: SAVE_VERSION, savedAt: 'x', state: {} }));
+
+    expect(result).toEqual({ ok: false, reason: 'not_a_reign' });
+    expect(localStorage.getItem(SAVE_KEY)).toBe(before);
+    expect(loadGame()!.state.turnNumber).toBe(9);
+  });
+
+  it('refuses entities of the wrong type as not_a_reign, slot untouched', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    saveGame(makeState({ turnNumber: 9 }));
+    const before = localStorage.getItem(SAVE_KEY);
+
+    const result = importSaveBlob(JSON.stringify({
+      version: SAVE_VERSION,
+      savedAt: 'x',
+      state: { ...makeState(), entities: 'not an array' },
+    }));
+
+    expect(result).toEqual({ ok: false, reason: 'not_a_reign' });
+    expect(localStorage.getItem(SAVE_KEY)).toBe(before);
+    expect(loadGame()!.state.turnNumber).toBe(9);
+  });
+
+  it('refuses a non-integer or non-finite turnNumber as not_a_reign, slot untouched', () => {
+    // `1e999` parses to Infinity, and `typeof Infinity === 'number'` - but
+    // toRoman(Infinity) never terminates, so a bare number check lets a
+    // crafted file hang boot. The validator requires a non-negative integer.
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    saveGame(makeState({ turnNumber: 9 }));
+    const before = localStorage.getItem(SAVE_KEY);
+
+    // Hand-written JSON: JSON.stringify cannot emit the 1e999 literal
+    // (Infinity serializes to null). The same envelope with an integer
+    // turnNumber imports fine, so these pin the integer predicate alone.
+    for (const turnNumber of ['1e999', '1.5', '-1'] as const) {
+      const result = importSaveBlob(
+        `{"version":${SAVE_VERSION},"savedAt":"x","state":{"entities":[],"turnNumber":${turnNumber}}}`,
+      );
+      expect(result).toEqual({ ok: false, reason: 'not_a_reign' });
+      expect(localStorage.getItem(SAVE_KEY)).toBe(before);
+    }
+    expect(loadGame()!.state.turnNumber).toBe(9);
+  });
+
+  it('refuses without throwing or writing when the interior breaks the character derive', () => {
+    // Array.isArray(entities) passes but the element is null, so the same
+    // find the boot summary runs would throw. importSaveBlob promises never
+    // to throw and never to write on a refusal - both must hold here.
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    saveGame(makeState({ turnNumber: 9 }));
+    const before = localStorage.getItem(SAVE_KEY);
+
+    let result: ReturnType<typeof importSaveBlob> | undefined;
+    expect(() => {
+      result = importSaveBlob(JSON.stringify({
+        version: SAVE_VERSION,
+        savedAt: 'x',
+        state: { ...makeState(), entities: [null] },
+      }));
+    }).not.toThrow();
 
     expect(result).toEqual({ ok: false, reason: 'not_a_reign' });
     expect(localStorage.getItem(SAVE_KEY)).toBe(before);

@@ -275,14 +275,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-/** Minimal structural check - enough to safely read `.version`/`.state` without throwing. */
+/**
+ * Structural check on the envelope. Deliberately minimal - but "minimal"
+ * means the BOOT path cannot crash on what this accepts: `.version`/`.state`
+ * are readable, and `state.entities`/`state.turnNumber` - the two fields
+ * `loadSavedGameSummary` and the import derive dereference before any
+ * normalization runs - carry the right types. `turnNumber` must be a
+ * non-negative INTEGER, not merely a number: `1e999` parses to `Infinity`,
+ * `typeof Infinity === 'number'`, and `toRoman(Infinity)` never terminates
+ * - so a `number` check alone lets a crafted file hang boot. Deeper
+ * interior malformations keep parity with the pre-existing hand-edit
+ * exposure: GAME_LOADED normalizes what it normalizes.
+ */
 function looksLikeSaveGame(value: unknown): value is SaveGame {
-  return (
-    isRecord(value) &&
-    typeof value['version'] === 'number' &&
-    typeof value['savedAt'] === 'string' &&
-    isRecord(value['state'])
-  );
+  if (
+    !isRecord(value) ||
+    typeof value['version'] !== 'number' ||
+    typeof value['savedAt'] !== 'string'
+  ) {
+    return false;
+  }
+  const state = value['state'];
+  if (!isRecord(state)) return false;
+  return Array.isArray(state['entities']) && isNonNegativeInteger(state['turnNumber']);
 }
 
 /**
@@ -612,6 +627,25 @@ export function importSaveBlob(text: string): ImportResult {
   const validated = validateSaveBlob(text);
   if (!validated.ok) return validated;
 
+  // Derived BEFORE the write, so the ok path has nothing left that can
+  // throw once the slot is overwritten - the write is the last fallible
+  // operation, and its failure is already `storage_failed`. The derive is
+  // guarded too: the validator vouches for the fields boot dereferences,
+  // not for every interior shape, and this function promises never to
+  // throw - an envelope whose interior breaks the derive is refused, slot
+  // untouched.
+  let turnNumber: number;
+  let characterName: string;
+  try {
+    const { state } = validated.save;
+    const restoredCharacter = state.entities.find(entity => entity.entity_id === state.playerCharacterId);
+    turnNumber = state.turnNumber;
+    characterName = restoredCharacter?.name ?? 'Unknown';
+  } catch (e) {
+    console.warn('importSaveBlob: save data has an unrecognized shape, discarding', e);
+    return { ok: false, reason: 'not_a_reign' };
+  }
+
   try {
     localStorage.setItem(SAVE_KEY, text);
   } catch (e) {
@@ -619,11 +653,5 @@ export function importSaveBlob(text: string): ImportResult {
     return { ok: false, reason: 'storage_failed' };
   }
 
-  const { state } = validated.save;
-  const restoredCharacter = state.entities.find(entity => entity.entity_id === state.playerCharacterId);
-  return {
-    ok: true,
-    turnNumber: state.turnNumber,
-    characterName: restoredCharacter?.name ?? 'Unknown',
-  };
+  return { ok: true, turnNumber, characterName };
 }

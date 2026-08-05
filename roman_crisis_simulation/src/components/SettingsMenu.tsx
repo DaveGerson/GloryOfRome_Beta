@@ -84,6 +84,14 @@ const SettingsMenu: React.FC<{
     hasSavedReign: boolean;
     onExportReign: () => void;
     onImportReign?: (fileText: string) => ImportResult;
+    /**
+     * Same grammar as CharacterSelection's: while a domain mutation or turn
+     * is in flight, a confirmed restore could be silently un-done - the
+     * in-flight save lands after the reload is cancelled and overwrites the
+     * imported slot - so the import controls hold until the world is quiet.
+     * Export stays live: a read races nothing.
+     */
+    interactionLocked?: boolean;
 }> = ({
     onClose,
     apiKey,
@@ -104,6 +112,7 @@ const SettingsMenu: React.FC<{
     hasSavedReign,
     onExportReign,
     onImportReign,
+    interactionLocked = false,
 }) => {
     const [keyInput, setKeyInput] = useState(apiKey ?? '');
     const [showKey, setShowKey] = useState(false);
@@ -190,7 +199,16 @@ const SettingsMenu: React.FC<{
         event.target.value = '';
         if (!file) return;
         setImportFailure(null);
-        const text = await readChosenFileAsText(file);
+        let text: string;
+        try {
+            text = await readChosenFileAsText(file);
+        } catch {
+            // The device refusing to read the file is, to a player, the same
+            // refusal as a file that will not parse - one notice, one reason,
+            // never an unhandled rejection.
+            setImportFailure('unreadable');
+            return;
+        }
         // A reign is at stake only when hasSavedReign - the confirm gates
         // the overwrite; with nothing to lose the copy applies at once.
         if (hasSavedReign) {
@@ -329,7 +347,7 @@ const SettingsMenu: React.FC<{
                         {pendingImportText !== null ? (
                             <span style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                                 <span style={{ color: 'var(--crimson-500)', fontStyle: 'italic', fontSize: 15 }}>Replace your saved reign with this copy? It cannot be undone.</span>
-                                <Button type="button" variant="danger" onClick={confirmImport}>Replace</Button>
+                                <Button type="button" variant="danger" disabled={interactionLocked} onClick={confirmImport}>Replace</Button>
                                 <Button type="button" variant="ghost" onClick={cancelImport}>Keep my reign</Button>
                             </span>
                         ) : (
@@ -337,7 +355,7 @@ const SettingsMenu: React.FC<{
                                 {hasSavedReign && (
                                     <Button type="button" variant="ghost" onClick={onExportReign}>Take a copy of the reign</Button>
                                 )}
-                                <Button type="button" variant="ghost" onClick={() => importInputRef.current?.click()}>Restore from a copy</Button>
+                                <Button type="button" variant="ghost" disabled={interactionLocked} onClick={() => importInputRef.current?.click()}>Restore from a copy</Button>
                             </div>
                         )}
                         <p className="gor-config-note">A raw copy of the save file — spoilers if you open it, nothing private (D45).</p>

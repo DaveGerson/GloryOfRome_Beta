@@ -1484,6 +1484,7 @@ const App: React.FC = () => {
                     hasSavedReign={hasSave()}
                     onExportReign={downloadTheReign}
                     onImportReign={importSaveBlob}
+                    interactionLocked={domainMutationInFlight || gameState === GameState.PROCESSING}
                 />
             )}
         </div>

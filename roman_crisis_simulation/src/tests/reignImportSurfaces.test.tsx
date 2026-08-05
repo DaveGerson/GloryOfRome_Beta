@@ -261,6 +261,35 @@ describe('CharacterSelection — "Restore from a copy"', () => {
     expect(localStorage.getItem(SAVE_KEY)).toBe(SLOT_SENTINEL);
   });
 
+  it('treats a scroll the device itself cannot read as unreadable - a notice, never an unhandled rejection', async () => {
+    // FileReader is swapped for one whose read always errors. The failure
+    // must land on the same in-fiction notice as a parse refusal, and the
+    // import callback must never see text that was never read.
+    class RefusingFileReader {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      result: string | null = null;
+      error = new DOMException('The requested file could not be read.', 'NotReadableError');
+      readAsText(): void {
+        queueMicrotask(() => this.onerror?.());
+      }
+    }
+    vi.stubGlobal('FileReader', RefusingFileReader);
+    const reload = stubReload();
+    const onImportReign = vi.fn(() => OK_IMPORT);
+    const container = await mount(
+      <CharacterSelection {...selectionProps()} onImportReign={onImportReign} />,
+    );
+
+    await chooseReignFile(container, 'never actually read');
+
+    await waitFor(() =>
+      expect(container.textContent).toContain('This scroll could not be read as a reign.'));
+    expect(container.textContent).toContain('Your current reign is untouched.');
+    expect(onImportReign).not.toHaveBeenCalled();
+    expect(reload).not.toHaveBeenCalled();
+  });
+
   it('a failed import speaks each reason in-fiction, never reloads, never writes', async () => {
     const reload = stubReload();
     for (const [reason, lead] of FAILURE_LEADS) {
@@ -338,6 +367,17 @@ describe('SettingsMenu — the reign register', () => {
     expect(workshop, 'the DEV-gated Workshop section').not.toBeNull();
     expect(workshop!.textContent).not.toContain('Take a copy of the reign');
     expect(workshop!.textContent).not.toContain('Restore from a copy');
+  });
+
+  it('holds the import control while the world is busy, leaving export live', async () => {
+    // App passes interactionLocked while a domain mutation or turn is in
+    // flight: a confirmed restore mid-turn could be silently un-done by the
+    // in-flight save landing after a cancelled reload.
+    const container = await mount(<SettingsMenu {...settingsProps({ interactionLocked: true })} />);
+
+    expect(buttonNamed(container, 'Restore from a copy').disabled).toBe(true);
+    // Export is a read and races nothing - it stays pressable.
+    expect(buttonNamed(container, 'Take a copy of the reign').disabled).toBe(false);
   });
 
   it('confirms before overwriting from Settings, and reloads on ok', async () => {
