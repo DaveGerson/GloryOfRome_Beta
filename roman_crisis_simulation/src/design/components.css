@@ -244,7 +244,12 @@
 .gor-contact-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
 .gor-private-scene .gor-contact{margin:0;display:flex;align-items:flex-start;gap:9px;padding:9px 10px 9px 8px;text-align:left;cursor:pointer;background:var(--surface-inset);border:1px solid var(--border-faint);border-left:3px solid transparent;border-radius:var(--radius-sm);transition:border-color var(--duration-fast) var(--ease-standard)}
 .gor-private-scene .gor-contact:hover{border-color:var(--border-subtle)}
-.gor-private-scene .gor-contact-chosen{border-left-color:var(--gold-500);background:linear-gradient(180deg,rgba(201,162,39,.12),transparent)}
+/* The chosen edge must also beat :hover. `border-color` on the hover rule is
+   a SHORTHAND and carries one class more, so without listing the hover state
+   here the gold edge turned muted brown the moment the pointer sat on the
+   card you had just chosen — i.e. exactly when you were looking at it. */
+.gor-private-scene .gor-contact-chosen,
+.gor-private-scene .gor-contact-chosen:hover{border-left-color:var(--gold-500);background:linear-gradient(180deg,rgba(201,162,39,.12),transparent)}
 .gor-contact-body{display:flex;flex-direction:column;gap:1px;min-width:0}
 .gor-contact-name{font-family:var(--font-display);font-size:14px;font-weight:700;color:var(--text-heading)}
 .gor-contact-position{font-size:13px;color:var(--text-muted)}
@@ -625,4 +630,101 @@ header h1{font-size:20px!important}
 div:has(>div>form>#chat-input){flex-wrap:wrap}
 /* Registers III and IV sit side by side only where there is room for two. */
 .gor-register-pair{grid-template-columns:1fr}
+
+/* ── Gap H · the layouts the visual pass built at 1280 ──
+   Everything below is structural only: no new colour, radius, shadow or
+   font, and nothing here exists above this breakpoint. Rules split between
+   the two stops on one test - does the OLD layout overflow its container,
+   or is it merely cramped? Overflow is fixed here; cramping waits for 480.
+   Several rules are WRAP-ONLY and therefore self-activating: they change
+   nothing until the row genuinely runs out of room, which is why they sit
+   at 768 rather than at the width where each first breaks. */
+
+/* The five destinies. `repeat(4,1fr)` with `min-width:auto` tracks grows to
+   the cards' min-content (~136px each), so the row wants ~586px and blows
+   out of the 32px-padded page below ~650px. Two columns halves that; the
+   fifth card still takes its own line - `>:last-child{grid-column:1/-1}`
+   spans whatever the column count happens to be. */
+.gor-destiny-grid{grid-template-columns:1fr 1fr}
+
+/* The archive: rail beside pane becomes rail ABOVE pane. The 246px rail is
+   `flex:none`, so below ~520px the pane is squeezed under the 192px that
+   `.gor-said` needs (a 104px label track + a word of quote) and the dialog
+   scrolls sideways. Stacked, the pane always gets the dialog's full width;
+   the rail keeps its own scroll but is capped so the letter on the desk
+   stays reachable without scrolling past the whole shelf. */
+.gor-shelf{flex-direction:column;align-items:stretch}
+.gor-shelf-rail{width:auto;max-height:150px;padding-bottom:6px;border-bottom:1px solid var(--border-faint)}
+.gor-shelf-pane{flex:none}
+
+/* The private scene is `width:min(620px,100vw - 32px)` on a content box, so
+   its 20px padding and 1px border hang 42px past that - it is 10px wider
+   than the viewport at every width below 652px. Border-box makes the stated
+   width the real one. The textareas inside it are the same bug one level
+   down (`width:100%` + 8px padding + 1px border = 18px of overhang, at
+   EVERY width - see the report; the desktop case is deliberately untouched). */
+.gor-private-scene{box-sizing:border-box}
+.gor-private-scene textarea,.gor-private-scene select{box-sizing:border-box}
+
+/* Button rows that cannot shrink - `.gor-btn` is `white-space:nowrap`, so
+   its min-content is the whole label. Wrapping is self-activating: no
+   effect until the labels genuinely stop fitting. `.gor-foot-bar` (‹ Back
+   to the destinies + Weave the world = ~497px) breaks at ~560px; the rite's
+   Skip/Next row - selected as the sibling after the numerals, since it has
+   no class of its own - breaks at ~390px. */
+.gor-foot-bar{flex-wrap:wrap}
+.gor-dialog-foot{flex-wrap:wrap}
+.gor-rite-steps+div{flex-wrap:wrap;justify-content:center}
+
+/* The segmented control is `nowrap`, so PATIENT|MEASURED|EAGER has a hard
+   ~270px min-content that the configuration grid's 1fr track cannot get
+   below. Wrapping is self-activating; the buttons grow so a short final row
+   still fills its width, and the 1px row gap over the container colour
+   draws the rule between rows - the same trick `.gor-macro-grid` uses for
+   its cut lines. Nothing wraps until the row is genuinely too narrow. */
+.gor-seg{flex-wrap:wrap;row-gap:1px;background:var(--border-subtle);max-width:100%}
+.gor-seg-btn{flex:1 1 auto}
+}
+
+/* ── Gap H · the tightest stop ──
+   Below 480 the fixes above hold the box model together but the columns are
+   no longer legible: a 2-up card is ~150px wide, a 3-up register ~85px.
+   Everything here collapses to a single column or reclaims a fixed inset.
+   Nothing in this block applies above 480px. */
+@media (max-width:480px){
+/* Two-up cards, one-up. The contact card gives its body ~78px beside a 38px
+   seal at 375px - a name, a position and a "Last alone · Week XIV" line all
+   want ~140px, so the pair only earns its keep above ~500px. */
+.gor-contact-grid{grid-template-columns:1fr}
+/* Rome, 235 CE / A world of your design: the seals row alone is 91px inside
+   30px of padding, so the pair is within ~5px of hard overflow at 320. */
+.gor-tessera-pair{grid-template-columns:1fr}
+/* Standing · Purse · First week at ~85px a column is four characters a line. */
+.gor-decided-cols{grid-template-columns:1fr}
+/* Two destinies a row leaves ~160px a card at 480 and overflows below ~380. */
+.gor-destiny-grid{grid-template-columns:1fr}
+/* The configuration registers: a 104px label track plus a 14px gutter is
+   47% of the dialog's 252px body at 320px. Stacked, the label sits over its
+   control, so `.gor-config-label`'s optical nudge onto the control's first
+   line is no longer wanted. */
+.gor-config-grid{grid-template-columns:1fr;gap:4px 0}
+.gor-config-label{padding-top:0}
+/* What was said, in kind: the 104px kind track is 40% of the pane at 320px.
+   Stacked, the kind reads as a heading over its quote - the row gap tightens
+   and the space between pairs moves onto the kind itself. */
+.gor-said{grid-template-columns:1fr;gap:2px}
+.gor-said .gor-said-kind{margin-top:9px}
+.gor-said .gor-said-kind:first-child{margin-top:0}
+/* 20px of padding a side is 12% of a 320px scene; the header's three items
+   (title, the week's hour, Close) want ~281px and no longer fit on one line. */
+.gor-private-scene{padding:14px}
+.gor-private-scene header{flex-wrap:wrap}
+/* The week ribbon is `min-width:280px` on a content box with 30px of side
+   padding - 340px of vexillum in a 272px chat log at 320. It hangs from the
+   centre either way, so it can simply be as wide as its week and its date. */
+.gor-vexillum{min-width:0;max-width:100%;box-sizing:border-box}
+/* The 260px rule under Choose Your Destiny, in a 256px column at 320. */
+.gor-mosaic{max-width:100%}
+/* Once the foot bar wraps to two rows it is ~118px of a short viewport. */
+.gor-foot-bar{padding:10px 0}
 }

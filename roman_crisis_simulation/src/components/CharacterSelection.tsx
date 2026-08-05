@@ -137,8 +137,14 @@ const CharacterSelection: React.FC<{
     }
 
     if (showCustomForm) {
+        // The foot bar is sticky, so the scrollport needs room BELOW the form
+        // for the bar to unstick into — otherwise the last screenful of
+        // content can never be scrolled clear of it and the bar simply sits on
+        // top of the persona field you are typing into. `scrollPaddingBottom`
+        // covers the other half: a field focused by keyboard scrolls to above
+        // the bar rather than under it.
         return (
-            <div style={{ flex: 1, overflowY: 'auto', padding: '40px 32px 56px' }}>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '40px 32px 132px', scrollPaddingBottom: 96 }}>
                 <div style={{ maxWidth: 660, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 18 }}>
                     <div style={{ textAlign: 'center' }}>
                         <WaxSeal letter="V" size={54} />
