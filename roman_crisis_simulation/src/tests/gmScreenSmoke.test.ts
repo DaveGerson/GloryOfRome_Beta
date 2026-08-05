@@ -661,7 +661,11 @@ describe('App turn-submission orchestration', () => {
     // Arming this button later must confront this test and the recorded decision together.
     const retryButton = buttonNamed(container, 'Retry the last action');
     expect(retryButton.disabled).toBe(false);
-    expect(alerts[0].textContent).toContain('3 attempts, 1s · 2s · 4s apart');
+    // The evidence must describe what retryTransient actually does: it waits
+    // only BETWEEN attempts and throws on the third failure before sleeping,
+    // so three attempts cost two waits (~1s, ~2s). The 4s the backoff can
+    // compute is unreachable, and claiming it was a false receipt.
+    expect(alerts[0].textContent).toContain('3 attempts, 1s · 2s apart');
 
     const firstSubmission = mockRunNewTurn.mock.calls[0][0];
     await click(buttonNamed(container, 'Retry the last action'));

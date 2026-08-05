@@ -31,7 +31,12 @@ export type TurnFailure =
   | { kind: 'no_key' }
   | { kind: 'offline' };
 
-/** `retryTransient` spends three attempts at 1s/2s/4s before it gives up. */
+/**
+ * `retryTransient` spends three attempts before it gives up. It waits only
+ * BETWEEN attempts — the third failure throws immediately — so three attempts
+ * cost two waits, ~1s and ~2s (the 4s the backoff can compute is never
+ * reached). The evidence below says exactly that and nothing more.
+ */
 export const TRANSIENT_ATTEMPT_BUDGET = 3;
 
 const Pips: React.FC<{ spent: number }> = ({ spent }) => (
@@ -60,7 +65,7 @@ const TransientNotice: React.FC<{ attempts: number }> = ({ attempts }) => (
     actions={
       <>
         <Pips spent={Math.min(attempts, TRANSIENT_ATTEMPT_BUDGET)} />
-        <span className="gor-evidence">{attempts} attempts, 1s · 2s · 4s apart</span>
+        <span className="gor-evidence">{attempts} attempts, 1s · 2s apart</span>
       </>
     }
   >
@@ -144,8 +149,13 @@ export const TurnFailureNotice: React.FC<{
 export const SaveFailureNotice: React.FC<{
   /** The site's own sentence: "Your investigation could not be saved." */
   lead: string;
-  /** The last week that is safely on disk. */
-  lastSafeTurn: number;
+  /**
+   * The last week that is safely on disk, or `null` when NOTHING is: storage
+   * dead since boot, a corrupted blob, a version the loader rejects. Naming a
+   * week in that case would be the one lie this notice must not tell — there
+   * is no reign on disk to be safe up to.
+   */
+  lastSafeTurn: number | null;
   onRetry?: () => void;
   style?: React.CSSProperties;
 }> = ({ lead, lastSafeTurn, onRetry, style }) => (
@@ -155,8 +165,10 @@ export const SaveFailureNotice: React.FC<{
     style={style}
     actions={onRetry && <Button size="sm" onClick={onRetry}>Write it down again</Button>}
   >
-    {lead} This device would not take the writing down. Your reign is safe up to
-    Week {toRoman(lastSafeTurn)} — everything since is only on this screen.
+    {lead} This device would not take the writing down.{' '}
+    {lastSafeTurn === null
+      ? 'Nothing of this reign has been written down yet — all of it is only on this screen.'
+      : `Your reign is safe up to Week ${toRoman(lastSafeTurn)} — everything since is only on this screen.`}
   </Alert>
 );
 

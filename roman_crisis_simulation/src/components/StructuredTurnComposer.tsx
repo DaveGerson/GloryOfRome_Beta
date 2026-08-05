@@ -24,10 +24,20 @@ const RecipientSeal: React.FC<{ initial: string | null }> = ({ initial }) => (
     : <span className="gor-seal-blank" aria-hidden="true">·</span>
 );
 
+/**
+ * The fatal notice's "Edit the week" focuses the composer that is actually
+ * mounted, and in structured mode that is this register's first field —
+ * `#chat-input` does not exist here. App.tsx focuses `#chat-input,
+ * #structured-input`; exactly one of the two is ever in the document.
+ */
+const STRUCTURED_INPUT_ELEMENT_ID = 'structured-input';
+
 interface StructuredTurnComposerProps {
   draft: StructuredTurnDraft;
   recipientOptions: readonly KnownRecipientOption[];
   disabled: boolean;
+  /** Item 49: while the roads are shut, the send is held here too. */
+  online?: boolean;
   submissionBlocked?: boolean;
   aggregateIssue?: boolean;
   validationIssues?: readonly { field: string; message: string }[];
@@ -37,7 +47,7 @@ interface StructuredTurnComposerProps {
 }
 
 export const StructuredTurnComposer: React.FC<StructuredTurnComposerProps> = ({
-  draft, recipientOptions, disabled, submissionBlocked = false, aggregateIssue = false, validationIssues = [], statusId, onChange, onSubmit,
+  draft, recipientOptions, disabled, online = true, submissionBlocked = false, aggregateIssue = false, validationIssues = [], statusId, onChange, onSubmit,
 }) => {
   const hasIssue = (field: string) => validationIssues.some(issue =>
     issue.field === 'submission' || issue.field === field);
@@ -47,7 +57,7 @@ export const StructuredTurnComposer: React.FC<StructuredTurnComposerProps> = ({
   const submitOnShortcut = (event: React.KeyboardEvent<HTMLTextAreaElement | HTMLInputElement>) => {
     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
-      if (!disabled) onSubmit();
+      if (!disabled && !submissionBlocked) onSubmit();
     }
   };
   const initialFor = (recipient: StructuredTurnDraft['messagesOrOrders'][number]['recipient']): string | null => {
@@ -66,6 +76,7 @@ export const StructuredTurnComposer: React.FC<StructuredTurnComposerProps> = ({
         {draft.actions.map((action, index) => (
           <textarea
             key={index}
+            id={index === 0 ? STRUCTURED_INPUT_ELEMENT_ID : undefined}
             className="gor-textarea"
             rows={2}
             aria-label={`Action ${index + 1}`}
@@ -160,7 +171,9 @@ export const StructuredTurnComposer: React.FC<StructuredTurnComposerProps> = ({
       <div className="gor-register-foot">
         {/* The visible label is the player's imperative; the aria-label stays
             "Submit turn" — the name every caller and test already knows. */}
-        <Button type="button" aria-label="Submit turn" disabled={disabled || submissionBlocked} onClick={onSubmit}>Seal &amp; send</Button>
+        <Button type="button" aria-label="Submit turn" disabled={disabled || submissionBlocked} onClick={onSubmit}>
+          {online ? 'Seal & send' : 'Hold until the roads reopen'}
+        </Button>
         <span className="gor-register-shortcut" aria-hidden="true">⌃⏎</span>
       </div>
     </div>

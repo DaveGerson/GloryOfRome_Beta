@@ -101,7 +101,11 @@ const TransactionNoteView: React.FC<{ note: TransactionNote; style?: React.CSSPr
     return (
         <SaveFailureNotice
             lead={note.lead}
-            lastSafeTurn={loadGame()?.state.turnNumber ?? 1}
+            // Derived from whether a save actually loads, never defaulted to a
+            // week: with storage dead since boot, a corrupted blob or a version
+            // the loader rejects there IS no last safe week, and "safe up to
+            // Week I" would be the notice's one falsehood. `null` says so.
+            lastSafeTurn={loadGame()?.state.turnNumber ?? null}
             style={style}
         />
     );
@@ -720,7 +724,9 @@ const App: React.FC = () => {
         return commitDomainMutation({
             candidate: buildSaveState({ privateScenes: candidateScenes }),
             action: { type: 'PRIVATE_SCENES_COMMITTED', privateScenes: candidateScenes },
-            onSaveFailure: () => setPrivateSceneError('The scene could not be saved. Your words remain ready to retry.'),
+            // Same voice as every other write that would not land (D45): the
+            // device is named, and what is kept is named. No bare "try again".
+            onSaveFailure: () => setPrivateSceneError('The scene could not be saved. This device would not take the writing down — your words are kept here, and the scene has not moved.'),
             beforeDispatch: () => {
                 // The durable bytes exist before this point. Set the handler-level
                 // guard before reducer dispatch so another event cannot enter an
@@ -1311,11 +1317,26 @@ const App: React.FC = () => {
             // `AiServiceError.kind` already split these; only the player was
             // never told which. `debugSnippet` stays where it is (D4/D5) —
             // nothing below reads it.
-            setTurnFailure(
-                !online ? { kind: 'offline' }
-                    : error instanceof AiServiceError && error.kind === 'transient' ? { kind: 'transient' }
-                        : { kind: 'fatal' },
-            );
+            //
+            // A failed autosave is NOT a failure of the Fates: the model
+            // answered, the same words would work, and there is nothing in the
+            // week to change. Routing it to the fatal notice told the player
+            // three false things in a row, so it goes to the save notice — the
+            // one that names the device and the last safe week — while the
+            // retry affordance below stays exactly as it was.
+            if (error instanceof Error && error.message === 'AUTOSAVE_FAILED') {
+                setTurnFailure(null);
+                setTransactionNote({
+                    kind: 'save',
+                    lead: 'The week could not be saved. Your draft is kept and the week has not turned.',
+                });
+            } else {
+                setTurnFailure(
+                    !online ? { kind: 'offline' }
+                        : error instanceof AiServiceError && error.kind === 'transient' ? { kind: 'transient' }
+                            : { kind: 'fatal' },
+                );
+            }
 
             // Roll back to the pre-turn snapshot. In practice nothing above
             // was committed yet, but restore explicitly (rather than relying
@@ -1788,13 +1809,24 @@ const App: React.FC = () => {
                                             transaction note — each in its own voice and its
                                             own tone. Nothing here is modal: the tablet below
                                             stays editable in every one of these states. */}
-                                        {turnFailure && (
+                                        {/* The offline kind is deliberately not drawn here: the
+                                            strip under the crisis banner is the standing statement
+                                            that the roads are shut, and rendering the same sentence
+                                            again — once role="status", once role="alert" — said one
+                                            thing twice. (It would also outlive its own truth: once
+                                            the roads reopen the notice would still claim they are
+                                            shut.) The kind is still recorded, and the send stays
+                                            held while `online` is false. */}
+                                        {turnFailure && turnFailure.kind !== 'offline' && (
                                             <div style={{ marginBottom: 10 }}>
                                                 <TurnFailureNotice
                                                     failure={turnFailure}
                                                     onEditTheWeek={() => {
                                                         setTurnFailure(null);
-                                                        document.getElementById('chat-input')?.focus();
+                                                        // Whichever composer is mounted — `#chat-input`
+                                                        // does not exist in structured mode, where this
+                                                        // used to dismiss the notice and focus nothing.
+                                                        document.querySelector<HTMLElement>('#chat-input, #structured-input')?.focus();
                                                     }}
                                                     onOpenSettings={() => setIsSettingsMenuOpen(true)}
                                                     onEnableMockMode={() => { setIsMockMode(true); setTurnFailure(null); }}
@@ -1809,9 +1841,12 @@ const App: React.FC = () => {
                                                     variant="secondary"
                                                     onClick={() => void executeTurn(retrySubmission, retryDraft)}
                                                     aria-label="Retry the last action"
-                                                    disabled={domainMutationInFlight}
+                                                    // Item 49: this is a send like any other, so the
+                                                    // shut roads hold it too — it used to be the one
+                                                    // way past the offline gate.
+                                                    disabled={domainMutationInFlight || !online}
                                                 >
-                                                    ↻ Retry the last action
+                                                    {online ? '↻ Retry the last action' : '↻ Hold until the roads reopen'}
                                                 </Button>
                                             </div>
                                         )}

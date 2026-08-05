@@ -120,14 +120,21 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
       setSealing(false);
     }, SEAL_PRESS_HOLD_MS);
   };
+  /**
+   * Item 49: the send is held while the roads are shut, and the hold lives
+   * HERE rather than on the Speak button's `disabled` alone — Enter-to-send,
+   * the form's own submit and the structured ⌃⏎ shortcut all arrive through
+   * these two functions and each one used to walk straight past an offline
+   * gate that was only ever painted on one button.
+   */
   const submitChat = () => {
-    if (!locked && artifactStatus.ok && !overLimit && chatDraft.trim()) {
+    if (online && !locked && artifactStatus.ok && !overLimit && chatDraft.trim()) {
       onSubmit(chatDraft);
       stampSeal();
     }
   };
   const submitStructured = () => {
-    if (!locked && artifactStatus.ok && !overLimit) {
+    if (online && !locked && artifactStatus.ok && !overLimit) {
       onSubmit(structuredDraft);
       stampSeal();
     }
@@ -239,7 +246,7 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
             </div>
           )}
           <div style={{ position: 'relative' }}>
-            <StructuredTurnComposer draft={structuredDraft} recipientOptions={recipientOptions} disabled={locked} submissionBlocked={overLimit || !artifactStatus.ok}
+            <StructuredTurnComposer draft={structuredDraft} recipientOptions={recipientOptions} disabled={locked} online={online} submissionBlocked={overLimit || !artifactStatus.ok || !online}
               aggregateIssue={overLimit} validationIssues={artifactStatus.ok ? [] : artifactStatus.issues} statusId={statusId}
               onChange={onStructuredDraftChange} onSubmit={submitStructured} />
             {waxSeal}
