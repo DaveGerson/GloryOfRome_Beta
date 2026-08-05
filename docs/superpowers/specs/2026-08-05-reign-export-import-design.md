@@ -81,10 +81,14 @@ save-to-file feature."
 
 ### `components/CharacterSelection.tsx`
 
-- "Restore from a copy" beside Start anew (hidden `<input type="file"
-  accept="application/json">` + visible ghost button). With a `savedGame`,
-  file selection swaps in the Abandon-style confirm before applying.
-  Failure renders an inline in-fiction notice. Success reloads.
+- "Restore from a copy" renders in BOTH states (hidden `<input type="file"
+  accept="application/json">` + visible ghost button): with a `savedGame`,
+  beside Start anew inside the Continue card, and file selection swaps in
+  the Abandon-style confirm before applying; with no save (the fresh-device
+  restore case), as a standalone quiet action below the destiny grid, no
+  confirm needed. Failure renders an inline in-fiction notice. Success
+  reloads. `characterName` derivation (and its missing-entity fallback)
+  mirrors App's existing `loadSavedGameSummary` exactly.
 
 ## Copy (veto queue — owner may reword)
 
@@ -94,6 +98,9 @@ save-to-file feature."
   - `unreadable` / `not_a_reign`: "This scroll could not be read as a reign."
   - `version_mismatch`: "This copy was written for another age of the Republic."
   - `storage_failed`: "This device would not take the writing down."
+- D45's "one thing to press" clause: the import control itself stays present
+  and enabled beside the failure notice — trying another file IS the
+  affordance; no extra button.
 
 ## Tests (TDD — write red first)
 
@@ -108,6 +115,12 @@ Persistence (`tests/persistence.test.ts` or a sibling `importSave.test.ts`):
 5. `rawSaveBlob()` is `null` with no save and byte-identical to the slot
    with one.
 6. `ok` result carries the imported `turnNumber` and `characterName`.
+7. A slot write that throws (quota/storage) → `'storage_failed'`.
+
+An App-level wiring test (the failure notice actually carries the copy
+action; the import homes are actually wired) is owned by the VERIFY stage,
+not the red phase — the feature died at the wiring last time (`d8df778`),
+so wiring is checked by a later, adversarially-minded pass.
 
 Surfaces:
 

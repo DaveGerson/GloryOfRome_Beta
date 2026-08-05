@@ -3,6 +3,8 @@ import { PacingPosture } from '../types';
 import { Card, Button, Badge, RegisterHeading } from './ui/Core';
 import { Switch, SegmentedControl } from './ui/Forms';
 import { createFocusTrap, FocusTrap } from './ui/focusTrap';
+import { ImportFailureNotice } from './ui/FailureNotices';
+import type { ImportResult } from '../persistence/saveGame';
 
 /**
  * ROADMAP_0_MASTER_PLAN.md Phase 5 (DESIGN_DECISIONS.md D31) - the FATES
@@ -71,6 +73,17 @@ const SettingsMenu: React.FC<{
     onSetIsMockMode: (isMock: boolean) => void;
     gmConsoleOpen: boolean;
     onSetGmConsoleOpen: (enabled: boolean) => void;
+    /**
+     * "Take a copy of the reign" / "Restore from a copy" (docs/superpowers/
+     * specs/2026-08-05-reign-export-import-design.md). NOT DEV-gated - both
+     * ship to players. `hasSavedReign` decides whether export has anything
+     * to act on (D45's zero-state spirit) AND whether import needs the
+     * overwrite confirm; import itself always renders, because a device
+     * with no reign is exactly where a restore matters.
+     */
+    hasSavedReign: boolean;
+    onExportReign: () => void;
+    onImportReign?: (fileText: string) => ImportResult;
 }> = ({
     onClose,
     apiKey,
@@ -88,12 +101,22 @@ const SettingsMenu: React.FC<{
     onSetIsMockMode,
     gmConsoleOpen,
     onSetGmConsoleOpen,
+    hasSavedReign,
+    onExportReign,
+    onImportReign,
 }) => {
     const [keyInput, setKeyInput] = useState(apiKey ?? '');
     const [showKey, setShowKey] = useState(false);
     const [savedFlash, setSavedFlash] = useState(false);
     const dialogRef = useRef<HTMLDivElement>(null);
     const trapRef = useRef<FocusTrap | null>(null);
+    // "Restore from a copy": the chosen file's text while it awaits the
+    // Abandon-style overwrite confirm (staged only when hasSavedReign - with
+    // no reign at stake a chosen file applies at once), and the reason of
+    // the last refused import, if any. Same shape as CharacterSelection's.
+    const [pendingImportText, setPendingImportText] = useState<string | null>(null);
+    const [importFailure, setImportFailure] = useState<Exclude<ImportResult, { ok: true }>['reason'] | null>(null);
+    const importInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         if (!savedFlash) return;
@@ -137,6 +160,54 @@ const SettingsMenu: React.FC<{
         setSavedFlash(false);
         onClearApiKey();
     };
+
+    // jsdom's File does not implement Blob.text() - FileReader does, and it
+    // is what every browser this ships to actually supports too.
+    const readChosenFileAsText = (file: File): Promise<string> => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+        reader.onerror = () => reject(reader.error);
+        reader.readAsText(file);
+    });
+
+    // Runs an already-consented import: the confirm (if any) has already
+    // been answered by the time this is called. `onImportReign` writes the
+    // slot itself; this only reacts to what it reports.
+    const applyImport = (text: string) => {
+        if (!onImportReign) return;
+        const result = onImportReign(text);
+        if (result.ok) {
+            window.location.reload();
+        } else {
+            setImportFailure(result.reason);
+        }
+    };
+
+    const handleImportFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        // Reset now, not after the read - choosing the SAME file twice in a
+        // row must still fire a change event.
+        event.target.value = '';
+        if (!file) return;
+        setImportFailure(null);
+        const text = await readChosenFileAsText(file);
+        // A reign is at stake only when hasSavedReign - the confirm gates
+        // the overwrite; with nothing to lose the copy applies at once.
+        if (hasSavedReign) {
+            setPendingImportText(text);
+        } else {
+            applyImport(text);
+        }
+    };
+
+    const confirmImport = () => {
+        if (pendingImportText === null) return;
+        const text = pendingImportText;
+        setPendingImportText(null);
+        applyImport(text);
+    };
+
+    const cancelImport = () => setPendingImportText(null);
 
     return (
         <div className="gor-dialog-backdrop">
@@ -240,6 +311,37 @@ const SettingsMenu: React.FC<{
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => onSetGmInterventionEnabled(e.target.checked)}
                             label="GM Intervention available"
                         />
+                    </section>
+
+                    {/* "Take a copy of the reign" / "Restore from a copy" (D45 as
+                        amended) - an ordinary save-to-file feature, not DEV-gated. */}
+                    <section aria-labelledby="settings-reign" style={registerStyle}>
+                        <RegisterHeading headingId="settings-reign" title="Your reign" />
+                        <input
+                            ref={importInputRef}
+                            type="file"
+                            accept="application/json"
+                            onChange={handleImportFileChange}
+                            style={{ display: 'none' }}
+                            aria-hidden="true"
+                            tabIndex={-1}
+                        />
+                        {pendingImportText !== null ? (
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                                <span style={{ color: 'var(--crimson-500)', fontStyle: 'italic', fontSize: 15 }}>Replace your saved reign with this copy? It cannot be undone.</span>
+                                <Button type="button" variant="danger" onClick={confirmImport}>Replace</Button>
+                                <Button type="button" variant="ghost" onClick={cancelImport}>Keep my reign</Button>
+                            </span>
+                        ) : (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                                {hasSavedReign && (
+                                    <Button type="button" variant="ghost" onClick={onExportReign}>Take a copy of the reign</Button>
+                                )}
+                                <Button type="button" variant="ghost" onClick={() => importInputRef.current?.click()}>Restore from a copy</Button>
+                            </div>
+                        )}
+                        <p className="gor-config-note">A raw copy of the save file — spoilers if you open it, nothing private (D45).</p>
+                        {importFailure && <ImportFailureNotice reason={importFailure} />}
                     </section>
 
                     {import.meta.env.DEV && (

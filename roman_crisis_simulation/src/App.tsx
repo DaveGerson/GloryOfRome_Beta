@@ -30,7 +30,7 @@ import { checkForTriggeredEvent, applyEventChoiceDeltas, recordEventFiring } fro
 import { initiateWorld } from './ai/core/initiator';
 import { runSmokeTest } from './tests/smokeTest';
 import { AiServiceError, resetSessionCallLog } from './ai/core/geminiService';
-import { saveGame, loadGame, clearSave, hasSave, updateSavedAmbition, SaveGameState, InferredAmbitionState } from './persistence/saveGame';
+import { saveGame, loadGame, clearSave, hasSave, rawSaveBlob, importSaveBlob, updateSavedAmbition, SaveGameState, InferredAmbitionState } from './persistence/saveGame';
 import { hasSeenOnboarding, markOnboardingSeen } from './persistence/onboarding';
 import { getPacingPosture, setPacingPosture } from './persistence/settings';
 import { getApiKey, setApiKey, clearApiKey, resolveApiKey } from './persistence/apiKey';
@@ -87,26 +87,51 @@ import {
 /**
  * What a non-turn transaction has to say (WP-21). Three shapes, because
  * three different things happen: a write that would not land names the last
- * safe week (and deliberately offers no copy of the reign — see
- * SaveFailureNotice); a half-commit is not a failure at all and takes
- * `role="status"`; and the delete path is neither.
+ * safe week AND offers "Take a copy of the reign" (restored 2026-08-05 —
+ * the import route exists now; DESIGN_DECISIONS.md D45 as amended); a
+ * half-commit is not a failure at all and takes `role="status"`; and the
+ * delete path is neither.
  */
 type TransactionNote =
     | { kind: 'save'; lead: string }
     | { kind: 'half_commit' }
     | { kind: 'plain'; message: string };
 
+/**
+ * The reign as it sits on disk — what "Take a copy of the reign" hands over
+ * (WP-21, restored 2026-08-05). Not a privacy boundary: D45 as amended rules
+ * the blob's GM-side content spoiler material, not private material — see
+ * `rawSaveBlob`'s own doc comment.
+ */
+function downloadTheReign(): void {
+    const blob = rawSaveBlob();
+    if (!blob) return;
+    const parsed = JSON.parse(blob) as { state?: { turnNumber?: number } };
+    const url = URL.createObjectURL(new Blob([blob], { type: 'application/json' }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `gor-reign-week${parsed.state?.turnNumber ?? 0}.json`;
+    anchor.click();
+    // Same deferral as the eval-corpus export: revoking synchronously can
+    // abort the download in Firefox/Safari.
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
 const TransactionNoteView: React.FC<{ note: TransactionNote; style?: React.CSSProperties }> = ({ note, style }) => {
     if (note.kind === 'half_commit') return <HalfCommitNotice style={style} />;
     if (note.kind === 'plain') return <Alert title={RECORD_REFUSES} style={style}>{note.message}</Alert>;
+    // Derived from whether a save actually loads, never defaulted to a
+    // week: with storage dead since boot, a corrupted blob or a version
+    // the loader rejects there IS no last safe week, and "safe up to
+    // Week I" would be the notice's one falsehood. `null` says so — and the
+    // copy action gates on the SAME read, so "there is no last safe week"
+    // and "no copy to take" can never disagree.
+    const lastSafe = loadGame()?.state.turnNumber ?? null;
     return (
         <SaveFailureNotice
             lead={note.lead}
-            // Derived from whether a save actually loads, never defaulted to a
-            // week: with storage dead since boot, a corrupted blob or a version
-            // the loader rejects there IS no last safe week, and "safe up to
-            // Week I" would be the notice's one falsehood. `null` says so.
-            lastSafeTurn={loadGame()?.state.turnNumber ?? null}
+            lastSafeTurn={lastSafe}
+            onTakeCopy={lastSafe === null ? undefined : downloadTheReign}
             style={style}
         />
     );
@@ -1788,6 +1813,7 @@ const App: React.FC = () => {
                                     onStartAnew={() => {
                                         void runDomainMutation(handleStartAnew);
                                     }}
+                                    onImportReign={importSaveBlob}
                                     interactionLocked={domainMutationInFlight}
                                 />
                             ) : (
@@ -1986,6 +2012,9 @@ const App: React.FC = () => {
                             updateGmConsoleEnabled(enabled);
                         }
                     }}
+                    hasSavedReign={hasSave()}
+                    onExportReign={downloadTheReign}
+                    onImportReign={importSaveBlob}
                 />
             )}
         </div>

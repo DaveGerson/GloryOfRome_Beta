@@ -2060,3 +2060,151 @@ describe('App commit-site success paths clear the transaction alert (Task 7 pins
     warnSpy.mockRestore();
   });
 });
+
+// Reign export/import wiring (spec:
+// docs/superpowers/specs/2026-08-05-reign-export-import-design.md, "Tests").
+// The feature died at the wiring once — d8df778 removed onTakeCopy at the
+// App seam while every unit surface stayed green — so these mount the REAL
+// App and pin the seams themselves: the save-failure notice actually carries
+// the copy action, pressing it actually runs the download path against the
+// real slot, and character select's "Restore from a copy" actually reaches
+// importSaveBlob's slot write.
+//
+// jsdom implements neither URL.createObjectURL nor revokeObjectURL, so the
+// pair is defined here for the whole file — downloadTheReign cannot run
+// without them. They are installed once and never removed: the 10s deferred
+// revoke can fire after the suite is done, and that late timer must meet a
+// function, not undefined.
+const createdObjectUrlBlobs: Blob[] = [];
+Object.defineProperty(URL, 'createObjectURL', {
+  configurable: true,
+  value: (blob: Blob): string => {
+    createdObjectUrlBlobs.push(blob);
+    return `blob:gor-test-${createdObjectUrlBlobs.length}`;
+  },
+});
+Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: (): void => {} });
+
+// An anchor click in jsdom would try to navigate; capture the download name
+// it would have started instead. Same never-removed rule as the URL pair.
+const anchorDownloads: string[] = [];
+Object.defineProperty(HTMLAnchorElement.prototype, 'click', {
+  configurable: true,
+  value(this: HTMLAnchorElement): void {
+    anchorDownloads.push(this.download);
+  },
+});
+
+/** jsdom's Blob has no .text() — read it the way the app itself reads files. */
+function readBlobText(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+    reader.onerror = () => reject(reader.error);
+    reader.readAsText(blob);
+  });
+}
+
+/**
+ * Plants a File on the hidden import input and fires the change the OS
+ * picker would (same shape as reignImportSurfaces.test.tsx — the array
+ * carries `item` too, so the component may read `files[0]` or `files.item(0)`).
+ */
+async function chooseImportFile(container: HTMLElement, text: string): Promise<void> {
+  const input = container.querySelector<HTMLInputElement>('input[type="file"]');
+  expect(input, 'the hidden reign file input').not.toBeNull();
+  const file = new File([text], 'gor-reign-week5.json', { type: 'application/json' });
+  const fileList = Object.assign([file], { item: (index: number) => [file][index] ?? null });
+  Object.defineProperty(input!, 'files', { configurable: true, value: fileList });
+  await act(async () => {
+    input!.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
+
+describe('App reign export/import wiring (VERIFY pins)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    createdObjectUrlBlobs.length = 0;
+    anchorDownloads.length = 0;
+  });
+
+  it('offers "Take a copy of the reign" on a real forced save failure, and pressing it downloads the slot bytes', async () => {
+    const container = await mountApp(makeAppSave(), false);
+    const slotBefore = localStorage.getItem('gloryOfRome:autosave');
+    const preset = buttonContaining(container, 'The Young Emperor');
+    const storageSpy = failBothSaveWrites();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await click(preset);
+    await waitFor(() => expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1));
+
+    // The notice ITSELF — not some other control on the screen — offers the
+    // copy: TransactionNoteView passes onTakeCopy through to SaveFailureNotice.
+    const alert = container.querySelector<HTMLElement>('[role="alert"]')!;
+    expect(alert.textContent).toContain('Take a copy of the reign');
+
+    // Pressing it runs the real download path against the real slot: reads
+    // still work while writes fail, which is exactly the rescue this notice
+    // exists for. The filename carries the SLOT's week (the failed campaign
+    // never landed), and the blob handed over is the slot byte-for-byte.
+    await click(buttonNamed(alert, 'Take a copy of the reign'));
+    expect(anchorDownloads).toEqual(['gor-reign-week2.json']);
+    expect(createdObjectUrlBlobs).toHaveLength(1);
+    expect(await readBlobText(createdObjectUrlBlobs[0])).toBe(slotBefore);
+
+    storageSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it('offers no copy on a save failure when there is no reign on disk to copy', async () => {
+    // Fresh device, first campaign, and the write fails. The copy action
+    // gates on the SAME loadGame() read as lastSafeTurn, so the notice that
+    // says nothing is written down yet cannot also offer a download of it.
+    const container = await renderApp(false);
+    const preset = buttonContaining(container, 'The Young Emperor');
+    const storageSpy = failBothSaveWrites();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await click(preset);
+    await waitFor(() => expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1));
+
+    const alert = container.querySelector<HTMLElement>('[role="alert"]')!;
+    expect(alert.textContent).toContain('Nothing of this reign has been written down yet');
+    expect(alert.textContent).not.toMatch(/take a copy/i);
+    expect(anchorDownloads).toEqual([]);
+
+    storageSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it('wires character select\'s "Restore from a copy" to the real import route: refusal in fiction, then a real slot write and reload', async () => {
+    // Mint a genuine blob through the real save pipeline, then clear the
+    // device — the fresh-device restore case, where no confirm gates it.
+    saveGame(makeAppSave({ turnNumber: 5 }));
+    const blob = localStorage.getItem('gloryOfRome:autosave')!;
+    localStorage.clear();
+    localStorage.setItem('gloryOfRome:onboardingSeen', '1');
+    const reload = vi.fn();
+    vi.stubGlobal('location', { ...window.location, reload });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const container = await renderApp(false);
+    expect(container.textContent).toContain('Restore from a copy');
+
+    // A refused scroll speaks in fiction and writes nothing. The reason can
+    // only have come from the real validateSaveBlob, so the seam is live.
+    await chooseImportFile(container, 'not even json');
+    await waitFor(() => expect(container.textContent).toContain('This scroll could not be read as a reign.'));
+    expect(container.textContent).toContain('Your current reign is untouched.');
+    expect(localStorage.getItem('gloryOfRome:autosave')).toBeNull();
+    expect(reload).not.toHaveBeenCalled();
+
+    // The genuine blob goes through: the REAL importSaveBlob writes the slot
+    // byte-for-byte, and only then does the boot-path reload fire.
+    await chooseImportFile(container, blob);
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+    expect(localStorage.getItem('gloryOfRome:autosave')).toBe(blob);
+    expect(loadGame()!.state.turnNumber).toBe(5);
+    warnSpy.mockRestore();
+  });
+});

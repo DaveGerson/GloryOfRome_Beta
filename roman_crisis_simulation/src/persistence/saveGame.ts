@@ -207,6 +207,14 @@ function stripCapturedCallText(turnHistory: TurnHistoryEntry[]): TurnHistoryEntr
   });
 }
 
+/**
+ * `ImportResult` reasons, mirrored by `looksLikeSaveGame`'s rejections plus
+ * the version check below - see `validateSaveBlob`.
+ */
+export type ImportResult =
+  | { ok: true; turnNumber: number; characterName: string }
+  | { ok: false; reason: 'unreadable' | 'not_a_reign' | 'version_mismatch' | 'storage_failed' };
+
 function canonicalPrivateSceneTranscriptLine(
   line: PrivateSceneRecord['transcript'][number],
 ): PrivateSceneRecord['transcript'][number] {
@@ -275,6 +283,38 @@ function looksLikeSaveGame(value: unknown): value is SaveGame {
     typeof value['savedAt'] === 'string' &&
     isRecord(value['state'])
   );
+}
+
+/**
+ * The one parse-then-shape-then-version gate a save envelope must clear,
+ * whichever door it came through - `loadGame` reading the autosave slot or
+ * `importSaveBlob` reading a player-chosen file. Both delegate here so
+ * import acceptance and load acceptance are the SAME code path and can never
+ * quietly drift apart (docs/superpowers/specs/2026-08-05-reign-export-import
+ * -design.md). Never throws.
+ */
+function validateSaveBlob(raw: string): { ok: true; save: SaveGame } | { ok: false; reason: 'unreadable' | 'not_a_reign' | 'version_mismatch' } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    console.warn('validateSaveBlob: save data is corrupted JSON, discarding', e);
+    return { ok: false, reason: 'unreadable' };
+  }
+
+  if (!looksLikeSaveGame(parsed)) {
+    console.warn('validateSaveBlob: save data has an unrecognized shape, discarding');
+    return { ok: false, reason: 'not_a_reign' };
+  }
+
+  if (parsed.version !== SAVE_VERSION) {
+    console.warn(
+      `validateSaveBlob: save version mismatch (found ${parsed.version}, expected ${SAVE_VERSION}), discarding`
+    );
+    return { ok: false, reason: 'version_mismatch' };
+  }
+
+  return { ok: true, save: parsed };
 }
 
 function isNonNegativeInteger(value: unknown): value is number {
@@ -514,27 +554,8 @@ export function loadGame(): SaveGame | null {
 
   if (!raw) return null;
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (e) {
-    console.warn('loadGame: save data is corrupted JSON, discarding', e);
-    return null;
-  }
-
-  if (!looksLikeSaveGame(parsed)) {
-    console.warn('loadGame: save data has an unrecognized shape, discarding');
-    return null;
-  }
-
-  if (parsed.version !== SAVE_VERSION) {
-    console.warn(
-      `loadGame: save version mismatch (found ${parsed.version}, expected ${SAVE_VERSION}), discarding`
-    );
-    return null;
-  }
-
-  return parsed;
+  const validated = validateSaveBlob(raw);
+  return validated.ok ? validated.save : null;
 }
 
 /**
@@ -557,3 +578,52 @@ export function hasSave(): boolean {
   return loadGame() !== null;
 }
 
+/**
+ * The persisted reign verbatim, for "Take a copy of the reign" (WP-21,
+ * restored 2026-08-05 - see DESIGN_DECISIONS.md D45 as amended). This is
+ * NOT a privacy boundary: the blob's GM-side content - `gm_private`, the
+ * truth ledger, NPC intents, hidden rolls - is spoiler material, not
+ * private material, by owner ruling. It is the same blob `saveGame` wrote;
+ * what changed since the download was first pulled is that `importSaveBlob`
+ * below can now read it back.
+ */
+export function rawSaveBlob(): string | null {
+  try {
+    return localStorage.getItem(SAVE_KEY);
+  } catch (error) {
+    console.warn('Could not read the saved reign:', error);
+    return null;
+  }
+}
+
+/**
+ * Accepts a player-chosen file's text as a full replacement for the
+ * autosave slot (docs/superpowers/specs/2026-08-05-reign-export-import
+ * -design.md). Never throws. Runs the save envelope through the SAME
+ * `validateSaveBlob` gate `loadGame` uses, so whatever `loadGame` would
+ * discard, this refuses too - with a reason, never a throw.
+ *
+ * The UI's overwrite confirm happens BEFORE this is called; this function
+ * never asks. So on `ok` the slot has ALREADY been written; on any `ok:
+ * false` the slot is byte-for-byte untouched - `text` is only ever written
+ * once validation clears it.
+ */
+export function importSaveBlob(text: string): ImportResult {
+  const validated = validateSaveBlob(text);
+  if (!validated.ok) return validated;
+
+  try {
+    localStorage.setItem(SAVE_KEY, text);
+  } catch (e) {
+    console.warn('importSaveBlob: write failed, the existing reign is untouched', e);
+    return { ok: false, reason: 'storage_failed' };
+  }
+
+  const { state } = validated.save;
+  const restoredCharacter = state.entities.find(entity => entity.entity_id === state.playerCharacterId);
+  return {
+    ok: true,
+    turnNumber: state.turnNumber,
+    characterName: restoredCharacter?.name ?? 'Unknown',
+  };
+}

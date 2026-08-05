@@ -5,7 +5,9 @@ import { Textarea } from './ui/Forms';
 import { Medallion, WaxSeal, toRoman } from './ui/Brand';
 import { DestinyCard, TypingIndicator } from './ui/Game';
 import { Alert } from './ui/Alert';
+import { ImportFailureNotice } from './ui/FailureNotices';
 import { radioGroupKeyDown, radioTabIndex } from './ui/rovingRadio';
+import type { ImportResult } from '../persistence/saveGame';
 
 /** Advisory lengths — the Fates read longer, but nobody writes better past these. */
 const PERSONA_SOFT_LIMIT = 1200;
@@ -56,8 +58,16 @@ const CharacterSelection: React.FC<{
     savedGame?: SavedGameSummary | null;
     onContinue?: () => void;
     onStartAnew?: () => void;
+    /**
+     * "Restore from a copy" (docs/superpowers/specs/2026-08-05-reign-export
+     * -import-design.md) — App wires this to persistence/saveGame.ts's
+     * importSaveBlob. This component owns the overwrite confirm, the
+     * in-fiction failure notice and the reload-on-ok; the callback owns the
+     * slot and never asks — by the time it runs the player has consented.
+     */
+    onImportReign?: (fileText: string) => ImportResult;
     interactionLocked?: boolean;
-}> = ({ onSelectCharacter, onCreateCharacter, savedGame, onContinue, onStartAnew, interactionLocked = false }) => {
+}> = ({ onSelectCharacter, onCreateCharacter, savedGame, onContinue, onStartAnew, onImportReign, interactionLocked = false }) => {
     const [showCustomForm, setShowCustomForm] = useState(false);
     const [customDescription, setCustomDescription] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -65,6 +75,13 @@ const CharacterSelection: React.FC<{
     const [useCustomGamestate, setUseCustomGamestate] = useState(false);
     const [metaNarrative, setMetaNarrative] = useState('');
     const [confirmAnew, setConfirmAnew] = useState(false);
+    // "Restore from a copy": the chosen file's text while it awaits the
+    // Abandon-style overwrite confirm (only staged when a savedGame is at
+    // stake — with none, a chosen file applies at once), and the reason of
+    // the last refused import, if any.
+    const [pendingImportText, setPendingImportText] = useState<string | null>(null);
+    const [importFailure, setImportFailure] = useState<Exclude<ImportResult, { ok: true }>['reason'] | null>(null);
+    const importInputRef = useRef<HTMLInputElement>(null);
     const isMountedRef = useRef(true);
     const creationInFlightRef = useRef(false);
 
@@ -81,6 +98,54 @@ const CharacterSelection: React.FC<{
         { name: "The Wealthy Senator", entity_id: "gaius_pontius_magnus", description: "Use your vast wealth and political influence to manipulate the Senate from within.", difficulty: "Medium" },
         { name: "The Cunning Spymaster", entity_id: "lycinia_stolo", description: "Operate from the shadows, trading secrets and lies to shape the future of the Empire.", difficulty: "Hard" },
     ];
+
+    // jsdom's File does not implement Blob.text() - FileReader does, and it
+    // is what every browser this ships to actually supports too.
+    const readChosenFileAsText = (file: File): Promise<string> => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+        reader.onerror = () => reject(reader.error);
+        reader.readAsText(file);
+    });
+
+    // Runs an already-consented import: the confirm (if any) has already
+    // been answered by the time this is called. `onImportReign` writes the
+    // slot itself; this only reacts to what it reports.
+    const applyImport = (text: string) => {
+        if (!onImportReign) return;
+        const result = onImportReign(text);
+        if (result.ok) {
+            window.location.reload();
+        } else {
+            setImportFailure(result.reason);
+        }
+    };
+
+    const handleImportFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        // Reset now, not after the read - choosing the SAME file twice in a
+        // row must still fire a change event.
+        event.target.value = '';
+        if (!file) return;
+        setImportFailure(null);
+        const text = await readChosenFileAsText(file);
+        // A reign is at stake only when a savedGame exists — the confirm
+        // gates the overwrite; with nothing to lose the copy applies at once.
+        if (savedGame) {
+            setPendingImportText(text);
+        } else {
+            applyImport(text);
+        }
+    };
+
+    const confirmImport = () => {
+        if (pendingImportText === null) return;
+        const text = pendingImportText;
+        setPendingImportText(null);
+        applyImport(text);
+    };
+
+    const cancelImport = () => setPendingImportText(null);
 
     const handleCustomSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -263,6 +328,19 @@ const CharacterSelection: React.FC<{
                     <div className="gor-mosaic" style={{ width: 260, margin: '18px auto 0' }}></div>
                 </div>
 
+                {/* "Restore from a copy" (spec: 2026-08-05-reign-export-import-design.md)
+                    — one hidden input shared by whichever visible button below is
+                    on screen; a JSON-only scroll, never anything else. */}
+                <input
+                    ref={importInputRef}
+                    type="file"
+                    accept="application/json"
+                    onChange={handleImportFileChange}
+                    style={{ display: 'none' }}
+                    aria-hidden="true"
+                    tabIndex={-1}
+                />
+
                 {savedGame && (
                     <Card gilt title="Continue Your Reign" action={<span className="gor-label" style={{ color: 'var(--gold-700)' }}>Turn {toRoman(savedGame.turnNumber)}</span>}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
@@ -279,13 +357,21 @@ const CharacterSelection: React.FC<{
                                     <Button variant="danger" disabled={interactionLocked} onClick={() => { setConfirmAnew(false); onStartAnew?.(); }}>Abandon</Button>
                                     <Button variant="ghost" onClick={() => setConfirmAnew(false)}>Keep my reign</Button>
                                 </span>
+                            ) : pendingImportText !== null ? (
+                                <span style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                                    <span style={{ color: 'var(--crimson-500)', fontStyle: 'italic', fontSize: 15 }}>Replace your saved reign with this copy? It cannot be undone.</span>
+                                    <Button variant="danger" disabled={interactionLocked} onClick={confirmImport}>Replace</Button>
+                                    <Button variant="ghost" onClick={cancelImport}>Keep my reign</Button>
+                                </span>
                             ) : (
-                                <span style={{ display: 'flex', gap: 10 }}>
+                                <span style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                                     <Button size="lg" disabled={interactionLocked} onClick={onContinue}>Continue Your Reign</Button>
                                     <Button variant="ghost" onClick={() => setConfirmAnew(true)}>Start anew</Button>
+                                    <Button variant="ghost" onClick={() => importInputRef.current?.click()}>Restore from a copy</Button>
                                 </span>
                             )}
                         </div>
+                        {importFailure && <ImportFailureNotice reason={importFailure} />}
                     </Card>
                 )}
 
@@ -318,6 +404,19 @@ const CharacterSelection: React.FC<{
                     </button>
                 </div>
                 <p style={{ textAlign: 'center', margin: 0, fontSize: 14, fontStyle: 'italic', color: 'var(--text-muted)' }}>Every destiny is played against the same living world — only your hand in it changes.</p>
+
+                {/* No savedGame: a fresh device is exactly where a restore matters, so
+                    the affordance stands alone here — quiet, no confirm, nothing at stake. */}
+                {!savedGame && (
+                    <div style={{ textAlign: 'center' }}>
+                        <Button variant="ghost" onClick={() => importInputRef.current?.click()}>Restore from a copy</Button>
+                        {importFailure && (
+                            <div style={{ maxWidth: 520, margin: '12px auto 0', textAlign: 'left' }}>
+                                <ImportFailureNotice reason={importFailure} />
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
         </div>
     );

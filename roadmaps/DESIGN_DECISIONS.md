@@ -675,14 +675,26 @@ a "player-safe projection" before any export could return; that requirement
 is void.
 
 WP-21's "Take a copy of the reign" was still rightly removed, on the ground
-that survives the reclassification: the app has no import path — no file
-input, no `FileReader` — so the downloaded file could never be loaded back,
-and a recovery affordance on a save-failure notice that cannot recover
-anything is dishonest chrome. **Restoring it needs an import route, nothing
-more** — with one, raw-blob export/import becomes an ordinary save-to-file
-feature. The lesson generalises unchanged: a strip that removes one of
+that survived the reclassification: the app had no import path — no file
+input, no `FileReader`, until the 2026-08-05 route below landed — so the
+downloaded file could never be loaded back, and a recovery affordance on a
+save-failure notice that cannot recover anything is dishonest chrome.
+**Restoring it needed an import route, nothing more** — with one, raw-blob
+export/import becomes an ordinary save-to-file feature. The lesson generalises unchanged: a strip that removes one of
 several copies proves nothing, and a test whose fixture does not mirror
 production will happily agree with the code while both are wrong.
+
+**Closed 2026-08-05.** The import route landed: `persistence/saveGame.ts`'s
+`importSaveBlob` runs the save envelope through the same parse/shape/version
+validator `loadGame` delegates to, so import acceptance and load acceptance
+are one code path by construction. Export is back — `rawSaveBlob` and
+`App.tsx`'s `downloadTheReign`, restored verbatim — on both of the owner's
+named homes: the save-failure notice (`SaveFailureNotice`'s `onTakeCopy`)
+and the Settings menu (not DEV-gated). Import lives on the character-select
+screen ("Restore from a copy", rendered with or without an existing saved
+reign) and in Settings; where a reign is at stake, the Abandon-style confirm
+gates the overwrite before `importSaveBlob` ever runs. See
+`docs/superpowers/specs/2026-08-05-reign-export-import-design.md`.
 
 A turn restored from disk shows an empty boundary column, and the pane says
 so rather than implying nothing was cut.

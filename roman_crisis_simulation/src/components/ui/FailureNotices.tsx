@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Alert, RECORD_REFUSES } from './Alert';
 import { Button } from './Core';
 import { toRoman } from './Brand';
+import type { ImportResult } from '../../persistence/saveGame';
 
 /**
  * Every failure the player can meet (WP-21, audit items 46–49), in one
@@ -138,13 +139,14 @@ export const TurnFailureNotice: React.FC<{
  * A write that would not land. All six save sites pass their own lead
  * sentence and share the rest — one failure, one name (`RECORD_REFUSES`).
  *
- * This notice deliberately offers NO "take a copy" escape hatch. One was
- * built and removed because it did not work: the app has no import path, so
- * the downloaded blob could never be loaded back, and a recovery affordance
- * that cannot recover is dishonest chrome. (The blob's GM-side content —
- * `gm_private`, truth ledger, hidden rolls — is shareable by owner ruling:
- * spoilers, not secrets. See D45.) Restoring the capability means building
- * an import route; until then the honest thing is to promise nothing.
+ * `onTakeCopy` — restored 2026-08-05. It was removed once (WP-21) because
+ * the app had no import path, so a downloaded blob could never be loaded
+ * back; per DESIGN_DECISIONS.md D45 (as amended), that was the only reason
+ * it stayed removed, not privacy — the blob's GM-side content is spoiler
+ * material, not private material. `persistence/saveGame.ts`'s
+ * `importSaveBlob` is that import route now (surfaced as "Restore from a
+ * copy" on character select and in Settings), so the escape hatch is back:
+ * optional, and honest — a site that wires no export offers no dead control.
  */
 export const SaveFailureNotice: React.FC<{
   /** The site's own sentence: "Your investigation could not be saved." */
@@ -157,18 +159,53 @@ export const SaveFailureNotice: React.FC<{
    */
   lastSafeTurn: number | null;
   onRetry?: () => void;
+  /** The reign as it sits on disk right now — see App.tsx's `downloadTheReign`. */
+  onTakeCopy?: () => void;
   style?: React.CSSProperties;
-}> = ({ lead, lastSafeTurn, onRetry, style }) => (
+}> = ({ lead, lastSafeTurn, onRetry, onTakeCopy, style }) => (
   <Alert
     tone="crimson"
     title={RECORD_REFUSES}
     style={style}
-    actions={onRetry && <Button size="sm" onClick={onRetry}>Write it down again</Button>}
+    actions={(onRetry || onTakeCopy) && (
+      <>
+        {onRetry && <Button size="sm" onClick={onRetry}>Write it down again</Button>}
+        {onTakeCopy && <Button size="sm" variant="ghost" onClick={onTakeCopy}>Take a copy of the reign</Button>}
+      </>
+    )}
   >
     {lead} This device would not take the writing down.{' '}
     {lastSafeTurn === null
       ? 'Nothing of this reign has been written down yet — all of it is only on this screen.'
       : `Your reign is safe up to Week ${toRoman(lastSafeTurn)} — everything since is only on this screen.`}
+  </Alert>
+);
+
+/**
+ * The reign import route's own failure lead (docs/superpowers/specs/2026-08
+ * -05-reign-export-import-design.md's copy table). `unreadable` and
+ * `not_a_reign` share a sentence deliberately — the player has no way to
+ * tell "not JSON" from "JSON, but not a reign" apart, and the distinction
+ * would only ever be useful to whoever reads the console.warn.
+ */
+const IMPORT_FAILURE_LEAD: Record<Exclude<ImportResult, { ok: true }>['reason'], string> = {
+  unreadable: 'This scroll could not be read as a reign.',
+  not_a_reign: 'This scroll could not be read as a reign.',
+  version_mismatch: 'This copy was written for another age of the Republic.',
+  storage_failed: 'This device would not take the writing down.',
+};
+
+/**
+ * CharacterSelection and SettingsMenu's shared "Restore from a copy"
+ * failure surface. `importSaveBlob` already guarantees the slot is
+ * untouched on every rejection, so this notice adds no write of its own —
+ * and per D45's "one thing to press" clause, the import control beside it
+ * stays present and enabled; choosing another file IS the retry, no extra
+ * button.
+ */
+export const ImportFailureNotice: React.FC<{ reason: Exclude<ImportResult, { ok: true }>['reason'] }> = ({ reason }) => (
+  <Alert tone="crimson" title="The scroll is refused">
+    {IMPORT_FAILURE_LEAD[reason]} Your current reign is untouched.
   </Alert>
 );
 

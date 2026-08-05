@@ -18,7 +18,7 @@
  * no testing-library.
  */
 import React, { act } from 'react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { TypingIndicator } from '../components/Chat';
 import CrisisBanner from '../components/CrisisBanner';
@@ -310,13 +310,33 @@ describe('the save notice and the half-commit (WP-21)', () => {
     expect(container.querySelector('.gor-alert-title')?.textContent).toBe('The record refuses');
   });
 
-  // The notice deliberately offers no "take a copy" escape hatch. One was
-  // built and removed because the app has no import path, so the downloaded
-  // blob could never be loaded back — a recovery affordance that cannot
-  // recover. (Its GM-side content is shareable by owner ruling — spoilers,
-  // not secrets; see D45.) Pinned so it cannot return without someone first
-  // building an import route.
-  it('never offers the player a copy of the raw reign', async () => {
+  // FLIPPED (2026-08-05). This pin used to read "never offers the player a
+  // copy of the raw reign": the hatch had been removed because the app had
+  // no import path, and its comment said it could not return "without
+  // someone first building an import route." That route now exists —
+  // persistence/saveGame.ts's importSaveBlob, surfaced as "Restore from a
+  // copy" on character select and in Settings — so the escape hatch is back:
+  // the notice offers "Take a copy of the reign" again when the site passes
+  // onTakeCopy. (The blob's GM-side content is spoiler material, not private
+  // material — owner ruling, D45 as amended.)
+  it('offers the player a copy of the raw reign again, now that an import route exists', async () => {
+    const onTakeCopy = vi.fn();
+    const container = await mount(
+      <SaveFailureNotice lead="Lost." lastSafeTurn={2} onRetry={() => {}} onTakeCopy={onTakeCopy} />,
+    );
+    expect(container.textContent).toContain('Take a copy of the reign');
+    const takeCopy = Array.from(container.querySelectorAll('button'))
+      .find(button => button.textContent === 'Take a copy of the reign');
+    expect(takeCopy, 'the "Take a copy of the reign" button').toBeDefined();
+    await act(async () => takeCopy!.click());
+    expect(onTakeCopy).toHaveBeenCalledOnce();
+    // The retry the notice always carried still stands beside it.
+    expect(container.textContent).toContain('Write it down again');
+  });
+
+  // The prop is optional and the honesty rule survives the flip: a site
+  // that wires no export offers no dead control.
+  it('offers no copy where the site passes no onTakeCopy', async () => {
     const container = await mount(<SaveFailureNotice lead="Lost." lastSafeTurn={2} onRetry={() => {}} />);
     expect(container.textContent).not.toMatch(/take a copy/i);
     expect(container.textContent).toContain('Write it down again');

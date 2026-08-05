@@ -281,16 +281,26 @@ fixed — with the reason, so the next person can disagree on the evidence
 rather than rediscover it.
 
 - **Reign export needs an import route — and only that.** WP-21 shipped
-  "Take a copy of the reign" and it was removed, but the reason that survives
-  is functional, not privacy: the app has **no import path at all** (no file
-  input, no `FileReader`), so the downloaded file could never be loaded back,
+  "Take a copy of the reign" and it was removed, but the reason that survived
+  was functional, not privacy: the app had **no import path at all** (no file
+  input, no `FileReader`, until the route below landed), so the downloaded
+  file could never be loaded back,
   and a recovery affordance that cannot recover is dishonest chrome. The
   owner ruled (2026-08-05) that the blob's GM-side content — `gm_private`,
   `truthLedger`, `npcIntents`, hidden rolls, `secret_truth` — is fine to
   share: a gameplay artifact below the player's line of sight, a spoiler if
   opened but nobody's private data. So no player-safe projection is
   required; build an import route and the raw-blob export can return as an
-  ordinary save-to-file feature. See D45 (as amended).
+  ordinary save-to-file feature. See D45 (as amended). **CLOSED 2026-08-05** -
+  `persistence/saveGame.ts` grew `importSaveBlob` (one validator shared with
+  `loadGame`, so import acceptance and load acceptance can never drift) and
+  export returned as `rawSaveBlob`/`downloadTheReign`. Two import homes:
+  `components/CharacterSelection.tsx` ("Restore from a copy", both with and
+  without a saved reign) and `components/SettingsMenu.tsx` (export +
+  import, not DEV-gated); the save-failure notice
+  (`components/ui/FailureNotices.tsx`'s `SaveFailureNotice`) regained its
+  "Take a copy of the reign" action. See
+  `docs/superpowers/specs/2026-08-05-reign-export-import-design.md`.
 - **`role="tablist"` is claimed and unkept in two more places.**
   `SidePanel.tsx`'s seven-tab dashboard bar and `GameMasterScreen.tsx`'s
   eleven-tab console bar both declare `role="tablist"`/`role="tab"` with no
