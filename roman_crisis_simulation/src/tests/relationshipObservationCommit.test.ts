@@ -183,6 +183,20 @@ async function waitFor(assertion: () => void, attempts = 50): Promise<void> {
       await flush();
     }
   }
+  // A trip-wire, not a fix. This file's turn-commit assertions can only fail
+  // if the transaction rolled back, and the bare diff for that is
+  // "expected 2 to be 3", which says nothing about WHY. The app puts the
+  // reason on screen in its failure notice, so carry it into the error.
+  //
+  // Written after one unreproducible failure during a full-suite run (20
+  // solo runs, 24 forks on 12 cores, CPU contention and both shuffle modes
+  // all stayed green). The budget above is a TICK budget, not a wall-clock
+  // timeout, so it is immune to load and raising it would be a placebo.
+  // Next occurrence should explain itself rather than be lost again.
+  if (lastError instanceof Error) {
+    const notice = mounted.at(-1)?.container.querySelector('[role="alert"]')?.textContent;
+    if (notice) lastError.message += `\n[app failure notice] ${notice}`;
+  }
   throw lastError;
 }
 
