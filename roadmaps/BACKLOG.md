@@ -264,3 +264,72 @@ Nothing here blocks; all are one edit from rewording.
 - **FATES posture wording** — PATIENT / MEASURED / EAGER.
 - **D27 decay numbers** (floor 0.2×, cold threshold 6 turns) — moot while
   dormant; revisit alongside B1.
+
+---
+
+## Residuals from the visual-enhancement pass (WP-1…WP-21 + adversarial review)
+
+Nothing here blocks the merge. Each was found, verified, and deliberately not
+fixed — with the reason, so the next person can disagree on the evidence
+rather than rediscover it.
+
+- **A player-safe reign export, and an import route.** WP-21 shipped "Take a
+  copy of the reign", which handed the player the raw save blob —
+  `gm_private` (including the boundary's removed spans verbatim),
+  `rawResponse`, `truthLedger`, `npcIntents`, `npcPrivate`, hidden rolls,
+  `turnSeed`, `npcMindResults` and `secret_truth`. Removed, not repaired: the
+  app also has **no import path at all** (no file input, no `FileReader`), so
+  the file could never be loaded back. Restoring the capability needs BOTH a
+  projection that drops every GM channel AND a way to load the result — and a
+  projected blob is no longer a loadable save, which is a product decision,
+  not a refactor. See D45.
+- **`role="tablist"` is claimed and unkept in two more places.**
+  `SidePanel.tsx`'s seven-tab dashboard bar and `GameMasterScreen.tsx`'s
+  eleven-tab console bar both declare `role="tablist"`/`role="tab"` with no
+  arrow keys, no roving tabindex, no `aria-controls` and no
+  `role="tabpanel"`. Pre-existing, not from this pass. Unlike the sub-rails —
+  which were converted to `aria-pressed` because they are filters, not tabs —
+  **these two genuinely do control a panel**, so the right fix is to complete
+  the contract rather than drop the roles. `ui/rovingRadio.ts` has the
+  keyboard half already; it needs its selector generalised off `[role="radio"]`.
+- **Offline holds the turn, but not the side quests.** The composer now
+  refuses to send with the roads shut, on every path. Private-scene invites
+  and replies, and the relationship-observation commit, still call the
+  provider and fail. Behaviour is degraded-but-honest (an in-fiction notice,
+  draft kept), which is why it was left — but it is inconsistent with the
+  composer and should converge.
+- **`EmptyRegister.action` is built, correct and unused.** WP-20 specified
+  exactly one caller — the Reports zero state carrying a Personae row of
+  unspent-investigation pips — and that row needs data `ReportsTab` does not
+  hold. Kept rather than deleted because it is the only place D45 rule 4 ("at
+  most one affordance") is enforced; delete it and the next implementer adds
+  a button outside the component, which the rule forbids.
+- **"Strike the mould again" has never been seen working by a human.** Mock
+  Mode short-circuits before `turnSeed` is generated, so mock turns carry no
+  dice and the control correctly never renders. It is reachable only with a
+  real API key. Covered by `turnReplay.test.ts` and `gmNarrationPane.test.tsx`
+  instead — but a real-key pass should confirm it once.
+- **Mock Mode and the GM console cannot be reached in a production build.**
+  Both toggles live in `SettingsMenu`'s `import.meta.env.DEV`-gated Workshop
+  section. Correct for a shipped artifact, but it means a `vite preview` build
+  cannot be QA'd without console access; two browser passes hit this
+  independently and each worked around it differently.
+- **One unreproduced flake.** `relationshipObservationCommit.test.ts` failed
+  once in a full run and never again across 20 solo runs, 24 forks on 12
+  cores, deliberate CPU contention and both shuffle modes. Two suspects are
+  now ruled out with evidence: the retry budget is a TICK budget (immune to
+  load, so raising it would be a placebo), and cross-file leakage is
+  impossible under `pool: forks` with `isolate: true`. A trip-wire now
+  attaches the app's own failure notice to the assertion error, so the next
+  occurrence explains itself instead of being lost as the first one was.
+- **`occurrenceSlug` can collide** (`knowledge/store.ts`): 60-char truncation,
+  or an all-punctuation headline slugging to `''`, can merge two occurrences'
+  findings under one claim key. Cosmetic misfiling, bounded.
+- **Two content-box overhangs at desktop.** `.gor-private-scene` and its
+  textareas are `width:100%` with padding and border and no `box-sizing`, so
+  the textarea overhangs its dialog by 18px at EVERY width inside a container
+  with `overflow:auto`. Fixed only inside the narrow-viewport queries, because
+  gap H's brief forbade changing desktop. Wants a one-line fix outside any
+  query.
+- **Gaps C and I remain undrawn** — Consulting the Fates, and the player
+  dossier header. Gap H was closed by this pass and is recorded in D45.

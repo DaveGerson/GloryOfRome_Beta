@@ -653,23 +653,42 @@ there is disabled — see item 27), carries at most one affordance and only
 where that affordance already exists, and a fresh reign gets its own state
 rather than the empty one. `components/tabs/EmptyRegister.tsx` owns all nine.
 
-**GM-private material is session-side, and the strip is the boundary.**
+**The save blob is GM-side material. There is no player-safe export.**
 `TurnHistoryEntry.proseRedactions` carries each removed span verbatim so the
 GM console's Narration pane can render the boundary without parsing the
-`[Boundary]` sentences back apart — and `persistence/saveGame.ts` strips it
-on serialize exactly as it strips captured prompt text. This is what makes
-WP-21's "Take a copy of the reign" safe to hand the player: the save blob is
-player-safe *by construction*, and the eval corpus, which is not, stays
-behind the GM console. A turn restored from disk therefore shows an empty
-boundary column, and the pane says so rather than implying nothing was cut.
+`[Boundary]` sentences back apart, and `persistence/saveGame.ts` drops it on
+serialize as it drops captured prompt text. **That strip is not a privacy
+boundary and must never be cited as one.** The same spans also reach
+`adjudication.gm_private` as `[Boundary] … Removed text: "…"` notes, and that
+field is required and persisted; the blob further carries `rawResponse`,
+`truthLedger`, `npcIntents`, `npcPrivate`, `mortalityTrace`,
+`resolutionTrace`, `turnSeed`, `npcMindResults` and `secret_truth`.
+
+This paragraph previously claimed the opposite, and WP-21 shipped a "Take a
+copy of the reign" download on the strength of it. That action handed any
+player who hit a quota error every NPC's hidden intent, every rumour's true
+disposition, every hidden roll, and which "dead" characters are secretly
+alive — and, since the app has no import path, the file could not be loaded
+back either. It has been removed. **Restoring it needs a real player-safe
+projection AND an import route; until both exist, nothing hands a player the
+save.** The lesson generalises: a strip that removes one of several copies
+proves nothing, and a test whose fixture does not mirror production will
+happily agree with the code while both are wrong.
+
+A turn restored from disk shows an empty boundary column, and the pane says
+so rather than implying nothing was cut.
 
 *Deviation, deliberate:* the design arms the transient retry after 15s and
 states that number is a feel question rather than a spec. Not shipped. The
 retry affordance is the existing "↻ Retry the last action", which also
 serves a failed private scene and a failed observation commit; a second
-timed button inside the notice would be two controls doing one job, and
-`retryTransient` has already waited ~7s by the time anyone is told. The
-notice carries the evidence instead — three attempts, 1s/2s/4s apart.
+timed button inside the notice would be two controls doing one job, and the
+retry loop has already spent its backoff by the time anyone is told. The
+notice carries the evidence instead — three attempts, spaced by the backoff
+`retryTransient` actually sleeps. (An earlier draft of this paragraph said
+"~7s" and "1s/2s/4s"; both were wrong. The loop throws at
+`attempt >= MAX_ATTEMPTS` *before* its third sleep, so only two sleeps ever
+occur. State what the code does, not what its constants suggest.)
 
 **Ratified** on the residual review, and now pinned by a test in
 `gmScreenSmoke.test.ts`: the arming will not ship. The decisive argument is
@@ -698,8 +717,14 @@ from the recorded seed and compares against the recorded rolls, which
 turn is re-run, no model is called. A control that verifies is worth
 building where a control that merely gestures is not.
 
-*Still undrawn and uninvented:* handoff gaps **C** Consulting the Fates,
-**H** narrow viewports, **I** the player dossier header.
+*Gap H, since closed:* narrow viewports were undrawn by the handoff and were
+later designed rather than transcribed — two width stops in
+`design/components.css`, split on whether the desktop layout OVERFLOWS its
+container (768px) or is merely cramped (480px). Nothing was invented above
+those stops; desktop is byte-identical.
+
+*Still undrawn and uninvented:* handoff gaps **C** Consulting the Fates and
+**I** the player dossier header.
 
 *Refines:* D4/D5 (the session-side strip as the GM boundary), D7 (the Fates'
 ledger deep-link only where the console is already enabled), D34 (the
