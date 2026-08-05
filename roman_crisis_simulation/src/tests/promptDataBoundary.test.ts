@@ -750,14 +750,14 @@ describe('ambition-inference prompt: recent intent text stays delimited as data 
 //
 // WHAT THIS SCAN DOES NOT CATCH:
 //  - Player text reaching a prompt through an identifier NOT in the curated
-//    list below. This is real and already known: ai/prompts/characterCreation.ts
-//    passes the player's typed custom-character description through a bare
+//    list below. This class is real: ai/prompts/characterCreation.ts once
+//    passed the player's typed custom-character description through a bare
 //    `"${description}"` - `description` is a generic parameter name this
-//    sweep's task-given identifier list does not include. Rather than stay
-//    silent about it, it is listed explicitly in KNOWN_DEFERRED_GAPS below
-//    (and tracked in roadmaps/BACKLOG.md B7) precisely so a differently-named
-//    future instance of the SAME gap is not the first anyone hears of this
-//    class of risk.
+//    sweep's task-given identifier list does not include. That instance is
+//    CLOSED (characterCreation.ts now wraps it in `asPromptData`; see
+//    roadmaps/BACKLOG.md B7), so it has no KNOWN_DEFERRED_GAPS entry - but a
+//    differently-named future instance of the SAME gap would still be
+//    invisible to this sweep, which is why the class is described here.
 //  - `${asPromptData(x)}` mistakenly wrapped in ADDITIONAL literal quotes
 //    (double-quoting) - a different bug shape from the one this sweep found.
 //  - Player text concatenated with `+` outside a template-literal

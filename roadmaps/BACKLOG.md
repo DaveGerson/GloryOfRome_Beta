@@ -225,7 +225,7 @@ structural checks. `tooling/eslint-warning-baseline.json` now has an empty
 inventory. `npm run lint` therefore fails loudly for every future ESLint
 warning; no B11 warning remains accepted debt.
 
-### B12 — Task 4b vendor-chunk-split interactive preview smoke: not yet run
+### B12 — Task 4b vendor-chunk-split interactive preview smoke  *(RUN & PASSED 2026-08-05)*
 When Task 4b split the single oversized JS bundle into deterministic vendor
 chunks (`vite.config.ts`'s `manualChunks`, commit `1cef76e`), the task brief
 called for an interactive preview smoke check afterward — start `npm run
@@ -248,11 +248,18 @@ the app in a browser and watching it run. If a defect exists that this
 evidence can't see — a runtime-only ESM chunk-loading failure that only
 manifests once a real browser parses and executes the split bundles — its
 consequence would be loud and global: the app would fail to boot for every
-player, not a subtle or silent gameplay-corruption failure. Trigger to
-revisit: rerun the interactive smoke (character creation → one turn →
-Ctrl+Shift+G toggle → confirm zero console errors) the next time a session
-has a working browser backend available, and treat it as blocking before
-treating the vendor-chunk split as fully verified end-to-end.
+player, not a subtle or silent gameplay-corruption failure.
+
+**Closed 2026-08-05:** the interactive smoke ran against `npm run preview`
+(port 4173) in a real Chrome session: full boot of the multi-chunk build,
+character creation (preset destiny), one complete turn against canned
+responses (Week I → II, autosave written and re-read), Ctrl+Shift+G → GM
+Log → GM console open with all panes rendering — zero console errors or
+exceptions across the whole session. The vendor-chunk split is verified
+end-to-end in a real browser. One observation, not a defect: CDP screenshot
+capture intermittently timed out (>30s) during heavy transitions while
+in-page JS stayed instant throughout — an automation-pipeline artifact, and
+worth knowing before blaming the app in a future browser pass.
 
 ---
 
@@ -310,11 +317,15 @@ rather than rediscover it.
   dice and the control correctly never renders. It is reachable only with a
   real API key. Covered by `turnReplay.test.ts` and `gmNarrationPane.test.tsx`
   instead — but a real-key pass should confirm it once.
-- **Mock Mode and the GM console cannot be reached in a production build.**
-  Both toggles live in `SettingsMenu`'s `import.meta.env.DEV`-gated Workshop
-  section. Correct for a shipped artifact, but it means a `vite preview` build
-  cannot be QA'd without console access; two browser passes hit this
-  independently and each worked around it differently.
+- **Mock Mode and the GM console ARE reachable in a production build — an
+  earlier version of this entry claimed the opposite.** Only `SettingsMenu`'s
+  Workshop section is `import.meta.env.DEV`-gated; both capabilities ship
+  non-Workshop paths: the no-key gate offers "Play against canned responses"
+  (`App.tsx`'s `onEnableMockMode`), and Ctrl+Shift+G enables the GM Log
+  button in every build by design (the D7 hotkey effect, `App.tsx`, says so
+  in its own comment). Both were exercised live in a `vite preview` build
+  during the 2026-08-05 B12 smoke, so a production build CAN be QA'd
+  end-to-end with no key and no console access.
 - **One unreproduced flake.** `relationshipObservationCommit.test.ts` failed
   once in a full run and never again across 20 solo runs, 24 forks on 12
   cores, deliberate CPU contention and both shuffle modes. Two suspects are

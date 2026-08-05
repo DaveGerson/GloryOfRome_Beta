@@ -87,8 +87,9 @@ import {
 /**
  * What a non-turn transaction has to say (WP-21). Three shapes, because
  * three different things happen: a write that would not land names the last
- * safe week and offers a copy of the reign; a half-commit is not a failure
- * at all and takes `role="status"`; and the delete path is neither.
+ * safe week (and deliberately offers no copy of the reign — see
+ * SaveFailureNotice); a half-commit is not a failure at all and takes
+ * `role="status"`; and the delete path is neither.
  */
 type TransactionNote =
     | { kind: 'save'; lead: string }

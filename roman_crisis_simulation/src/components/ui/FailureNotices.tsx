@@ -135,7 +135,7 @@ export const TurnFailureNotice: React.FC<{
 };
 
 /**
- * A write that would not land. All five save sites pass their own lead
+ * A write that would not land. All six save sites pass their own lead
  * sentence and share the rest — one failure, one name (`RECORD_REFUSES`).
  *
  * This notice deliberately offers NO "take a copy" escape hatch. One was

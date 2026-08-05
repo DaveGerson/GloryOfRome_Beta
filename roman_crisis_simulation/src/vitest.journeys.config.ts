@@ -7,7 +7,7 @@ import { defineConfig } from 'vitest/config';
  * NEVER run under the default `npm test`:
  *  - This filename is NOT one vitest auto-detects (vitest.config.* /
  *    vite.config.*), so the default `npm test` run never picks this config
- *    up and stays byte-identical (589 tests).
+ *    up and stays byte-identical.
  *  - The include glob below (`*.journey.ts`) never overlaps the default
  *    `*.test.ts` glob, so a journey file can never leak into the normal
  *    suite - and the normal suite never runs under this config.

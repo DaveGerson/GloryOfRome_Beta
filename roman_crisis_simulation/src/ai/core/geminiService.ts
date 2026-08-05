@@ -278,7 +278,11 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-/** Exponential backoff (1s/2s/4s for attempts 1/2/3) with +/-30% jitter. */
+/**
+ * Exponential backoff with +/-30% jitter: ~1s for attempt 1, ~2s for attempt
+ * 2. The math extends to a 4s attempt-3 leg, but no caller ever reaches it -
+ * `retryTransient` throws before a third sleep.
+ */
 function jitteredBackoffMs(attempt: number): number {
   const base = BASE_BACKOFF_MS * Math.pow(2, attempt - 1);
   const jitter = base * 0.3 * (Math.random() * 2 - 1);
