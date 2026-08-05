@@ -30,7 +30,7 @@ import { checkForTriggeredEvent, applyEventChoiceDeltas, recordEventFiring } fro
 import { initiateWorld } from './ai/core/initiator';
 import { runSmokeTest } from './tests/smokeTest';
 import { AiServiceError, resetSessionCallLog } from './ai/core/geminiService';
-import { saveGame, loadGame, clearSave, hasSave, rawSaveBlob, updateSavedAmbition, SaveGameState, InferredAmbitionState } from './persistence/saveGame';
+import { saveGame, loadGame, clearSave, hasSave, updateSavedAmbition, SaveGameState, InferredAmbitionState } from './persistence/saveGame';
 import { hasSeenOnboarding, markOnboardingSeen } from './persistence/onboarding';
 import { getPacingPosture, setPacingPosture } from './persistence/settings';
 import { getApiKey, setApiKey, clearApiKey, resolveApiKey } from './persistence/apiKey';
@@ -95,21 +95,6 @@ type TransactionNote =
     | { kind: 'half_commit' }
     | { kind: 'plain'; message: string };
 
-/** The reign as it sits on disk — what "Take a copy of the reign" hands over. */
-function downloadTheReign(): void {
-    const blob = rawSaveBlob();
-    if (!blob) return;
-    const parsed = JSON.parse(blob) as { state?: { turnNumber?: number } };
-    const url = URL.createObjectURL(new Blob([blob], { type: 'application/json' }));
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `gor-reign-week${parsed.state?.turnNumber ?? 0}.json`;
-    anchor.click();
-    // Same deferral as the eval-corpus export: revoking synchronously can
-    // abort the download in Firefox/Safari.
-    setTimeout(() => URL.revokeObjectURL(url), 10_000);
-}
-
 const TransactionNoteView: React.FC<{ note: TransactionNote; style?: React.CSSProperties }> = ({ note, style }) => {
     if (note.kind === 'half_commit') return <HalfCommitNotice style={style} />;
     if (note.kind === 'plain') return <Alert title={RECORD_REFUSES} style={style}>{note.message}</Alert>;
@@ -117,7 +102,6 @@ const TransactionNoteView: React.FC<{ note: TransactionNote; style?: React.CSSPr
         <SaveFailureNotice
             lead={note.lead}
             lastSafeTurn={loadGame()?.state.turnNumber ?? 1}
-            onTakeCopy={downloadTheReign}
             style={style}
         />
     );

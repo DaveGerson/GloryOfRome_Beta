@@ -191,8 +191,13 @@ function stripCapturedCallText(turnHistory: TurnHistoryEntry[]): TurnHistoryEntr
     if (!entry.rawCalls && !entry.proseRedactions) return entry;
     // `proseRedactions` carries each removed span verbatim (WP-19). Same
     // rule as the captured prompt text: the GM console reads it in session,
-    // the save never sees it — which also keeps the player-facing "Take a
-    // copy of the reign" download free of GM material.
+    // the save does not carry this copy of it.
+    //
+    // NOT a privacy boundary, and it must never be described as one: the
+    // same spans also reach `adjudication.gm_private` as `[Boundary] …
+    // Removed text: "…"` notes (ai/core/playerBoundary.ts), and that field
+    // is required and persisted. The save blob is GM-side material and is
+    // never handed to a player.
     const { proseRedactions: _dropped, ...kept } = entry;
     return {
       ...kept,
@@ -551,18 +556,3 @@ export function hasSave(): boolean {
   return loadGame() !== null;
 }
 
-/**
- * The persisted reign verbatim, for "Take a copy of the reign" (WP-21).
- * Player-safe by construction: this is the same blob `saveGame` wrote, and
- * that path already strips captured prompt text and `proseRedactions`. It is
- * NOT the eval corpus, which carries GM-private material and stays behind
- * the GM console.
- */
-export function rawSaveBlob(): string | null {
-  try {
-    return localStorage.getItem(SAVE_KEY);
-  } catch (error) {
-    console.warn('Could not read the saved reign:', error);
-    return null;
-  }
-}

@@ -576,26 +576,38 @@ describe('persistence/saveGame', () => {
       expect(state.turnHistory[0].rawCalls![0].systemInstruction).toContain('system instruction for');
     });
 
-    // WP-19: the GM console's boundary column renders `proseRedactions`, and
-    // every entry carries the removed span VERBATIM. It must never reach
-    // storage — not least because WP-21's "Take a copy of the reign" hands
-    // the player this same blob.
-    it('strips proseRedactions from the save while the session keeps them', () => {
-      const entry = {
-        ...makeHistoryEntry(1, true),
-        proseRedactions: [{ surface: 'headlines[0]', original: 'REDACTION_ORIGINAL_MUST_NOT_PERSIST' }],
-      };
-      const state = makeState({ turnNumber: 2, turnHistory: [entry] });
+    // WP-19: `proseRedactions` is dropped on serialize, the same way captured
+    // prompt text is.
+    //
+    // This is NOT a privacy boundary, and this test previously implied it was
+    // — it asserted the removed span never reaches storage using a fixture
+    // that put the span ONLY in `proseRedactions`. Production never does
+    // that: ai/core/playerBoundary.ts writes the same text into
+    // `adjudication.gm_private` as a `[Boundary] … Removed text: "…"` note,
+    // and gm_private is required and persisted. The assertion below now
+    // mirrors production and pins BOTH halves of the real behaviour, so
+    // nobody can read the strip as a guarantee it does not give.
+    it('drops the proseRedactions copy on serialize, but does not make the blob player-safe', () => {
+      const span = 'REDACTION_ORIGINAL_SPAN';
+      const entry = makeHistoryEntry(1, true);
+      entry.adjudication.gm_private = [`[Boundary] Redacted invented player-action prose from headlines[0] - Removed text: "${span}"`];
+      const withRedactions = { ...entry, proseRedactions: [{ surface: 'headlines[0]', original: span }] };
+      const state = makeState({ turnNumber: 2, turnHistory: [withRedactions] });
 
       saveGame(state);
-
       const raw = localStorage.getItem('gloryOfRome:autosave')!;
-      expect(raw).not.toContain('proseRedactions');
-      expect(raw).not.toContain('REDACTION_ORIGINAL_MUST_NOT_PERSIST');
-      expect(loadGame()!.state.turnHistory[0].proseRedactions).toBeUndefined();
 
+      // The structured field is gone, and the session keeps its own copy.
+      expect(raw).not.toContain('proseRedactions');
+      expect(loadGame()!.state.turnHistory[0].proseRedactions).toBeUndefined();
       // The in-memory entry the caller handed in is untouched.
-      expect(state.turnHistory[0].proseRedactions).toHaveLength(1);
+      expect(withRedactions.proseRedactions).toHaveLength(1);
+
+      // …and the span itself is STILL in the blob, via gm_private. The save
+      // is GM-side material. Anything that hands this file to a player has
+      // to project it first — see the removed "Take a copy of the reign".
+      expect(raw).toContain(span);
+      expect(loadGame()!.state.turnHistory[0].adjudication.gm_private[0]).toContain(span);
     });
 
     // The strip is a boundary, not a broom: it takes GM-private captured

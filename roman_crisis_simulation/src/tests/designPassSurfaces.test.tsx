@@ -310,11 +310,15 @@ describe('the save notice and the half-commit (WP-21)', () => {
     expect(container.querySelector('.gor-alert-title')?.textContent).toBe('The record refuses');
   });
 
-  it('offers a copy of the reign only when the caller can produce one', async () => {
-    const without = await mount(<SaveFailureNotice lead="Lost." lastSafeTurn={2} />);
-    expect(without.textContent).not.toContain('Take a copy of the reign');
-    const with_ = await mount(<SaveFailureNotice lead="Lost." lastSafeTurn={2} onTakeCopy={() => {}} />);
-    expect(with_.textContent).toContain('Take a copy of the reign');
+  // The notice deliberately offers no "take a copy" escape hatch. One was
+  // built and removed: it handed the player the raw save blob — gm_private,
+  // truth ledger, NPC intents, hidden rolls — and the app has no import
+  // path, so it could not be loaded back either. Pinned so it cannot return
+  // without someone first building a player-safe projection.
+  it('never offers the player a copy of the raw reign', async () => {
+    const container = await mount(<SaveFailureNotice lead="Lost." lastSafeTurn={2} onRetry={() => {}} />);
+    expect(container.textContent).not.toMatch(/take a copy/i);
+    expect(container.textContent).toContain('Write it down again');
   });
 });
 

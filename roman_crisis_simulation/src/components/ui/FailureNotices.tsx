@@ -133,10 +133,13 @@ export const TurnFailureNotice: React.FC<{
  * A write that would not land. All five save sites pass their own lead
  * sentence and share the rest — one failure, one name (`RECORD_REFUSES`).
  *
- * "Take a copy of the reign" downloads the SAVE BLOB, which is player-safe.
- * It is not the eval corpus, which is not (see GameMasterScreen's Fixtures
- * pane) — and `saveGame` strips captured prompt text and `proseRedactions`
- * on serialize, so what the player receives is exactly what the reign is.
+ * This notice deliberately offers NO "take a copy" escape hatch. One was
+ * built and removed: it handed the player the raw save blob, which carries
+ * `gm_private`, the truth ledger, NPC intents and hidden rolls — and the app
+ * has no import path, so the file could not be loaded back either. A leak
+ * that also does not work is not a feature. Restoring the capability means
+ * building a player-safe projection AND an import route; until then the
+ * honest thing is to say what is safe and what is not.
  */
 export const SaveFailureNotice: React.FC<{
   /** The site's own sentence: "Your investigation could not be saved." */
@@ -144,19 +147,13 @@ export const SaveFailureNotice: React.FC<{
   /** The last week that is safely on disk. */
   lastSafeTurn: number;
   onRetry?: () => void;
-  onTakeCopy?: () => void;
   style?: React.CSSProperties;
-}> = ({ lead, lastSafeTurn, onRetry, onTakeCopy, style }) => (
+}> = ({ lead, lastSafeTurn, onRetry, style }) => (
   <Alert
     tone="crimson"
     title={RECORD_REFUSES}
     style={style}
-    actions={(onRetry || onTakeCopy) && (
-      <>
-        {onRetry && <Button size="sm" onClick={onRetry}>Write it down again</Button>}
-        {onTakeCopy && <Button size="sm" variant="ghost" onClick={onTakeCopy}>Take a copy of the reign</Button>}
-      </>
-    )}
+    actions={onRetry && <Button size="sm" onClick={onRetry}>Write it down again</Button>}
   >
     {lead} This device would not take the writing down. Your reign is safe up to
     Week {toRoman(lastSafeTurn)} — everything since is only on this screen.
