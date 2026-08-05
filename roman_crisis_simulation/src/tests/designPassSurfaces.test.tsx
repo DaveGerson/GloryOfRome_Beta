@@ -23,6 +23,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { TypingIndicator } from '../components/Chat';
 import CrisisBanner from '../components/CrisisBanner';
 import WorldStateTab from '../components/tabs/WorldStateTab';
+import { PrivateScene } from '../components/PrivateScene';
 import { Alert } from '../components/ui/Alert';
 import { SaveFailureNotice, TurnFailureNotice } from '../components/ui/FailureNotices';
 import { getTabRegister, setTabRegister } from '../persistence/uiPrefs';
@@ -161,6 +162,82 @@ describe("the week's briefing (WP-15)", () => {
     );
     expect(container.querySelectorAll('.gor-macro-fell')).toHaveLength(1);
     expect(container.textContent).toContain('marks a standing that fell this week');
+  });
+});
+
+/**
+ * WP-16 and WP-18 each replaced a native control with a grid of cards. The
+ * originals were ONE tab stop with arrows to change the selection; these pin
+ * that the replacements kept the contract `role="radiogroup"` announces,
+ * rather than degrading to "every card is a tab stop".
+ */
+describe('the doorway keeps its keyboard (WP-16)', () => {
+  const targets = [
+    { entityId: 'a', displayName: 'Aulus' },
+    { entityId: 'b', displayName: 'Balbus' },
+    { entityId: 'c', displayName: 'Cato' },
+  ];
+
+  async function openDoorway(): Promise<HTMLElement> {
+    const container = await mount(
+      <PrivateScene
+        scenes={[]} currentMacroTurn={3} canStartScene eligibleTargets={targets}
+        openingDraft="Come." replyDraft="" lastWordDraft="" loading={false} error={null}
+        onOpeningDraftChange={() => {}} onReplyDraftChange={() => {}} onLastWordDraftChange={() => {}}
+        onInvite={() => {}} onReply={() => {}} onEnd={() => {}} onLastWord={() => {}} onSkipLastWord={() => {}}
+      />,
+    );
+    await act(async () => {
+      Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'Private scene')!.click();
+    });
+    return container;
+  }
+
+  const group = (container: HTMLElement) => container.querySelector<HTMLElement>('[aria-label="Private-scene target"]')!;
+  const chosen = (container: HTMLElement) => group(container).querySelector<HTMLElement>('[aria-checked="true"]')?.dataset.entityId;
+  const press = async (container: HTMLElement, key: string) => {
+    await act(async () => {
+      group(container).dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    });
+  };
+
+  it('keeps exactly one card in the tab order, not one per contact', async () => {
+    const container = await openDoorway();
+    const cards = Array.from(group(container).querySelectorAll<HTMLElement>('[role="radio"]'));
+    expect(cards).toHaveLength(3);
+    expect(cards.filter(card => card.tabIndex === 0)).toHaveLength(1);
+    expect(cards.find(card => card.tabIndex === 0)?.dataset.entityId).toBe('a');
+  });
+
+  it('moves the selection with the arrows, and takes focus with it', async () => {
+    const container = await openDoorway();
+    await press(container, 'ArrowRight');
+    expect(chosen(container)).toBe('b');
+    expect((document.activeElement as HTMLElement)?.dataset.entityId).toBe('b');
+    await press(container, 'ArrowDown');
+    expect(chosen(container)).toBe('c');
+  });
+
+  it('wraps at both ends — a radiogroup is a ring, not a list', async () => {
+    const container = await openDoorway();
+    await press(container, 'ArrowLeft');
+    expect(chosen(container)).toBe('c');
+    await press(container, 'ArrowRight');
+    expect(chosen(container)).toBe('a');
+  });
+
+  it('jumps to the extremes with Home and End', async () => {
+    const container = await openDoorway();
+    await press(container, 'End');
+    expect(chosen(container)).toBe('c');
+    await press(container, 'Home');
+    expect(chosen(container)).toBe('a');
+  });
+
+  it('leaves an unrelated key alone', async () => {
+    const container = await openDoorway();
+    await press(container, 'Tab');
+    expect(chosen(container)).toBe('a');
   });
 });
 

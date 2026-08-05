@@ -5,6 +5,7 @@ import { Textarea } from './ui/Forms';
 import { Medallion, WaxSeal, toRoman } from './ui/Brand';
 import { DestinyCard, TypingIndicator } from './ui/Game';
 import { Alert } from './ui/Alert';
+import { radioGroupKeyDown, radioTabIndex } from './ui/rovingRadio';
 
 /** Advisory lengths — the Fates read longer, but nobody writes better past these. */
 const PERSONA_SOFT_LIMIT = 1200;
@@ -148,9 +149,15 @@ const CharacterSelection: React.FC<{
                         <section>
                             <RegisterHeading numeral="I" title="The world you enter" />
                             {/* A choice is dealt as tesserae, not as two radio dots. */}
-                            <div className="gor-tessera-pair" role="radiogroup" aria-label="Scenario">
+                            <div
+                                className="gor-tessera-pair"
+                                role="radiogroup"
+                                aria-label="Scenario"
+                                onKeyDown={radioGroupKeyDown([false, true], useCustomGamestate, setUseCustomGamestate)}
+                            >
                                 <button
                                     type="button" role="radio" aria-checked={!useCustomGamestate}
+                                    tabIndex={radioTabIndex(!useCustomGamestate, true, true)}
                                     className={`gor-tessera${!useCustomGamestate ? ' gor-tessera-chosen' : ''}`}
                                     onClick={() => setUseCustomGamestate(false)}
                                 >
@@ -164,6 +171,7 @@ const CharacterSelection: React.FC<{
                                 </button>
                                 <button
                                     type="button" role="radio" aria-checked={useCustomGamestate}
+                                    tabIndex={radioTabIndex(useCustomGamestate, false, true)}
                                     className={`gor-tessera gor-tessera-woven${useCustomGamestate ? ' gor-tessera-chosen' : ''}`}
                                     onClick={() => setUseCustomGamestate(true)}
                                 >

@@ -5,6 +5,7 @@ import { PRIVATE_SCENE_MAX_UTTERANCE_CHARS } from '../privateScene/model';
 import { Button, DraftGauge } from './ui/Core';
 import { Alert } from './ui/Alert';
 import { WaxSeal, toRoman } from './ui/Brand';
+import { radioGroupKeyDown, radioTabIndex } from './ui/rovingRadio';
 import { EmptyRegister, FoldedLetterSilhouette } from './tabs/EmptyRegister';
 
 const transcriptLineStyle: React.CSSProperties = { margin: '6px 0', paddingLeft: 10, borderLeft: '2px solid var(--border-subtle)' };
@@ -201,7 +202,12 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
             <h3 className="gor-label gor-register-title">Who comes</h3>
             <span className="gor-register-rule" aria-hidden="true" />
           </div>
-          <div className="gor-contact-grid" role="radiogroup" aria-label="Private-scene target">
+          <div
+            className="gor-contact-grid"
+            role="radiogroup"
+            aria-label="Private-scene target"
+            onKeyDown={radioGroupKeyDown(eligibleTargets.map(target => target.entityId), targetId, setSelectedTargetId)}
+          >
             {eligibleTargets.map(target => {
               const lastAlone = lastAloneWith(target.entityId);
               const chosen = target.entityId === targetId;
@@ -211,6 +217,7 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
                   type="button"
                   role="radio"
                   aria-checked={chosen}
+                  tabIndex={radioTabIndex(chosen, target.entityId === eligibleTargets[0]?.entityId, Boolean(targetId))}
                   data-entity-id={target.entityId}
                   disabled={disabled}
                   className={`gor-contact${chosen ? ' gor-contact-chosen' : ''}`}
