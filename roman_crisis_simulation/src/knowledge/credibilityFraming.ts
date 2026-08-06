@@ -21,6 +21,7 @@
  */
 
 import type { ReportSource } from '../types';
+import type { PerceptionSource } from '../perception/visibility';
 
 /**
  * The three ordinal certainty regions. Boundaries match the cutpoints the
@@ -132,6 +133,31 @@ export function sourceLead(source: ReportSource): string {
  */
 export function certaintyClause(credibility: number): string {
   return CERTAINTY_CLAUSE[certaintyBand(credibility)];
+}
+
+/**
+ * Leads for the D5 perception sources, so a surface that renders a
+ * KnowledgeUpdate (whose source may be a perception source OR a report
+ * source) can always name who is speaking. Perception entries are
+ * binary-fidelity (D5 v1): they carry no credibility, so they get a lead
+ * and never a certainty clause.
+ */
+const PERCEPTION_LEAD: Record<PerceptionSource, string> = {
+  self: 'Your own reading',
+  witnessed: 'Your own eyes',
+  network: 'Your eyes and ears',
+  public: 'Common knowledge',
+};
+
+/**
+ * The source lead for ANY knowledge-update source — the total function over
+ * `KnowledgeSource` (perception ∪ report vocabularies) the B2 surfaces
+ * read. One-way like everything here: reads the source word, never a figure.
+ */
+export function knowledgeSourceLead(source: PerceptionSource | ReportSource): string {
+  return source in PERCEPTION_LEAD
+    ? PERCEPTION_LEAD[source as PerceptionSource]
+    : SOURCE_LEAD[source as ReportSource];
 }
 
 /**
