@@ -10,6 +10,7 @@ import { toRoman } from './ui/Brand';
 import { createFocusTrap, FocusTrap } from './ui/focusTrap';
 import { structuredSubmissionForHistory, TurnSubmissionHistory } from './TurnSubmissionHistory';
 import type { PrivateSceneRecord } from '../privateScene/model';
+import { radioGroupKeyDown } from './ui/rovingRadio';
 
 /**
  * Game Master Tools — "the Fates' ledger": a dark tablinum modal over the
@@ -42,6 +43,14 @@ const TABS = ['summary', 'what changed', 'narration', 'actions', 'private', 'gro
 
 /** Tabs that render one bounded campaign-wide collection, not per-turn data. */
 const CAMPAIGN_WIDE_TABS = new Set(['truth ledger', 'player knowledge']);
+
+/**
+ * The tablist contract (spec: 2026-08-05-b7a-hardening-and-tablist-design.md
+ * work item 2): one stable id per tab, one panel per bar whose content
+ * swaps, `aria-controls`/`aria-labelledby` tying the two together.
+ */
+const GM_TABPANEL_ID = 'gm-tabpanel';
+const gmTabDomId = (tab: string): string => `gm-tab-${tab.replace(/\s+/g, '-')}`;
 
 /**
  * A GM-private note must never be mistakable for narration you would read
@@ -1281,12 +1290,20 @@ const GameMasterScreen: React.FC<{
                     </div>
                 )}
 
-                <div style={{ flex: 'none', display: 'flex', gap: 2, borderBottom: '1px solid rgba(201,162,39,.25)', flexWrap: 'wrap' }} role="tablist" aria-label="Ledger views">
+                <div
+                    style={{ flex: 'none', display: 'flex', gap: 2, borderBottom: '1px solid rgba(201,162,39,.25)', flexWrap: 'wrap' }}
+                    role="tablist"
+                    aria-label="Ledger views"
+                    onKeyDown={radioGroupKeyDown(TABS, activeTab, setActiveTab, { role: 'tab' })}
+                >
                     {TABS.map(tab => (
                         <button
                             key={tab}
+                            id={gmTabDomId(tab)}
                             role="tab"
                             aria-selected={tab === activeTab}
+                            aria-controls={GM_TABPANEL_ID}
+                            tabIndex={tab === activeTab ? 0 : -1}
                             onClick={() => setActiveTab(tab)}
                             style={{ all: 'unset', cursor: 'pointer', fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase', padding: '8px 12px', color: tab === activeTab ? GOLD : DIM, borderBottom: tab === activeTab ? '2px solid var(--gold-500)' : '2px solid transparent', background: tab === activeTab ? 'rgba(201,162,39,.08)' : 'transparent' }}
                         >
@@ -1324,7 +1341,12 @@ const GameMasterScreen: React.FC<{
                         </nav>
                     )}
 
-                    <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', paddingRight: 6, display: 'flex', flexDirection: 'column', gap: 20, color: PARCH }}>
+                    <div
+                        role="tabpanel"
+                        id={GM_TABPANEL_ID}
+                        aria-labelledby={gmTabDomId(activeTab)}
+                        style={{ flex: 1, minWidth: 0, overflowY: 'auto', paddingRight: 6, display: 'flex', flexDirection: 'column', gap: 20, color: PARCH }}
+                    >
                         {activeTab === 'private' && <PrivateSceneGmView scenes={privateScenes ?? []} />}
                         {/* The truth ledger and the player knowledge store are each one campaign-wide bounded collection (D11/D21), not per-turn data - rendered whole, ignoring the rail. */}
                         {activeTab === 'truth ledger' ? (

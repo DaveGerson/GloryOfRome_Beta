@@ -1,7 +1,11 @@
 import React from 'react';
 
 /**
- * The keyboard half of an ARIA radiogroup.
+ * The keyboard half of an ARIA radiogroup — and, since the B7a/tablist pass
+ * (2026-08-05-b7a-hardening-and-tablist-design.md), of a WAI-APG
+ * automatic-activation tablist too. Both patterns share one keyboard
+ * contract: a roving tabindex, arrow keys that move selection AND focus
+ * together, wrapping at both ends, Home/End for the extremes.
  *
  * Two surfaces in the design pass replaced a native control with a grid of
  * cards: the private scene's doorway (WP-16, was a `<select>`) and Forge a
@@ -20,6 +24,13 @@ import React from 'react';
  * Deliberately DOM-driven rather than ref-driven: the handler reads the
  * options out of the group element it is bound to, so a caller only has to
  * put `role="radio"` on each option and nothing has to be threaded through.
+ *
+ * The item role is now a parameter (`options.role`, default `'radio'`) so
+ * the dashboard and GM console tablists (role="tab") can share this same
+ * handler instead of forking it — every pre-existing call site (the
+ * radiogroups above, plus the sub-rails, which use a different toggle
+ * pattern entirely and never called this file) omits the argument and is
+ * byte-for-byte unaffected.
  */
 
 /** Which way each key moves, or `null` for the absolute keys. */
@@ -36,7 +47,9 @@ export function radioGroupKeyDown<T>(
     values: readonly T[],
     selected: T,
     onSelect: (value: T) => void,
+    options: { role?: string } = {},
 ): React.KeyboardEventHandler<HTMLElement> {
+    const role = options.role ?? 'radio';
     return event => {
         if (!(event.key in STEP) || values.length === 0) return;
         // Let a modifier chord (or a browser shortcut) through untouched.
@@ -51,8 +64,8 @@ export function radioGroupKeyDown<T>(
             : (current + step + values.length) % values.length;
 
         onSelect(values[next]);
-        const options = event.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]');
-        options[next]?.focus();
+        const items = event.currentTarget.querySelectorAll<HTMLElement>(`[role="${role}"]`);
+        items[next]?.focus();
     };
 }
 

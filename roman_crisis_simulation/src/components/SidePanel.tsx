@@ -17,6 +17,7 @@ import type { BriefingPointer } from './tabs/WorldStateTab';
 import type { KnowledgeClaim, OccurrenceQuestion } from '../knowledge/store';
 import { occurrenceFindings } from '../knowledge/store';
 import type { DomainMutationContext, RunDomainMutation } from '../state/domainMutation';
+import { radioGroupKeyDown } from './ui/rovingRadio';
 
 /**
  * The intelligence dashboard — player dossier header, Tyrian-pennant tab bar,
@@ -34,6 +35,14 @@ const TABS: { id: TabId; label: string; fullLabel: string }[] = [
     { id: 'locations', label: 'Empire', fullLabel: 'Empire' },
     { id: 'resources', label: 'Assets', fullLabel: 'Assets' },
 ];
+
+/**
+ * The tablist contract (spec: 2026-08-05-b7a-hardening-and-tablist-design.md
+ * work item 2): one stable id per tab, one panel per bar whose content
+ * swaps, `aria-controls`/`aria-labelledby` tying the two together.
+ */
+const SIDEPANEL_TABPANEL_ID = 'sidepanel-tabpanel';
+const sidePanelTabDomId = (id: TabId): string => `sidepanel-tab-${id}`;
 
 const SidePanel: React.FC<{
     gameState: GameState;
@@ -157,15 +166,23 @@ const SidePanel: React.FC<{
                 @media (prefers-reduced-motion: reduce) { .gor-tab-pulse { animation: none; } }
             `}</style>
             <PlayerStatus playerEntity={playerEntity} />
-            <div style={{ flex: 'none', display: 'flex', flexWrap: 'wrap', borderBottom: '1px solid var(--border-subtle)' }} role="tablist" aria-label="Intelligence dashboard">
+            <div
+                style={{ flex: 'none', display: 'flex', flexWrap: 'wrap', borderBottom: '1px solid var(--border-subtle)' }}
+                role="tablist"
+                aria-label="Intelligence dashboard"
+                onKeyDown={radioGroupKeyDown(TABS.map(tab => tab.id), activeTab, handleTabClick, { role: 'tab' })}
+            >
                 {TABS.map(tab => {
                     const shouldPulse = pulsingTabs.has(tab.id) && !dismissed.has(tab.id);
                     return (
                         <button
                             key={tab.id}
+                            id={sidePanelTabDomId(tab.id)}
                             className={`gor-tab ${shouldPulse ? 'gor-tab-pulse' : ''}`}
                             role="tab"
                             aria-selected={activeTab === tab.id}
+                            aria-controls={SIDEPANEL_TABPANEL_ID}
+                            tabIndex={activeTab === tab.id ? 0 : -1}
                             onClick={() => handleTabClick(tab.id)}
                             aria-label={shouldPulse ? `${tab.fullLabel} (new intelligence)` : tab.fullLabel}
                             style={{ padding: '9px 7px', fontSize: 11, flex: '1 0 auto', textAlign: 'center', position: 'relative' }}
@@ -176,7 +193,12 @@ const SidePanel: React.FC<{
                     );
                 })}
             </div>
-            <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+            <div
+                role="tabpanel"
+                id={SIDEPANEL_TABPANEL_ID}
+                aria-labelledby={sidePanelTabDomId(activeTab)}
+                style={{ flex: 1, overflowY: 'auto', padding: 16 }}
+            >
                 {activeTab === 'world_state' && <WorldStateTab
                     simulationState={simulationState}
                     week={worldState.week}
