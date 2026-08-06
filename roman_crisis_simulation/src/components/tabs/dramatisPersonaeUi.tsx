@@ -127,6 +127,21 @@ export const SchemeIntelSection: React.FC<{
     );
 };
 
+/**
+ * B2: the durable dossier reading (D14/D27) - what the player HOLDS on an
+ * aspect, derived from the knowledge store's deriveDossier read model rather
+ * than session state, so it survives a tab switch and a reload. The stamps
+ * carry provenance and age (D25: a source lead and week numerals, never a
+ * figure); `stale` is the D27 cold threshold expressed as wording only.
+ */
+export interface HeldDossierReading {
+    latestText: string;
+    firstLearnedTurn: number;
+    lastRefreshedTurn: number;
+    sourceLead: string;
+    stale: boolean;
+}
+
 export const IntelSection: React.FC<{
     title: string;
     cost: number;
@@ -136,6 +151,8 @@ export const IntelSection: React.FC<{
     held: boolean;
     /** The week the dossier was first opened, for the broken seal's caption. */
     heldSinceTurn?: number | null;
+    /** The durable reading for a held aspect - see HeldDossierReading. */
+    heldReading?: HeldDossierReading;
     uncoveredData: string[] | undefined;
     onUncover: () => void;
     isLoading: boolean;
@@ -143,7 +160,7 @@ export const IntelSection: React.FC<{
     tooltip: string;
     footnote?: React.ReactNode;
     showGloss?: boolean;
-}> = ({ title, cost, resourceName, resourceCount, held, heldSinceTurn, uncoveredData, onUncover, isLoading, interactionLocked = false, tooltip, footnote, showGloss = false }) => {
+}> = ({ title, cost, resourceName, resourceCount, held, heldSinceTurn, heldReading, uncoveredData, onUncover, isLoading, interactionLocked = false, tooltip, footnote, showGloss = false }) => {
 
     const renderContent = () => {
         if (uncoveredData) {
@@ -153,6 +170,28 @@ export const IntelSection: React.FC<{
                         {uncoveredData.map((item, i) => <li key={i}>{item}</li>)}
                     </ul>
                     {footnote}
+                </div>
+            );
+        }
+        // The held aspect, read durably off the store (B2). The refresh
+        // affordance stays beside it at the same flat price.
+        if (heldReading) {
+            return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <span style={{ fontSize: 14 }}>{heldReading.latestText}</span>
+                    <span style={quiet}>
+                        First learned Week {toRoman(heldReading.firstLearnedTurn)} · as of Week {toRoman(heldReading.lastRefreshedTurn)} · {heldReading.sourceLead}
+                    </span>
+                    {heldReading.stale && (
+                        <span style={{ ...quiet, fontStyle: 'italic', color: 'var(--bronze-500)' }}>
+                            The file has aged; Rome has not stood still.
+                        </span>
+                    )}
+                    <span>
+                        <Button size="sm" variant="secondary" onClick={onUncover} disabled={resourceCount < cost || isLoading || interactionLocked}>
+                            <Price verb="Refresh" cost={cost} balance={resourceCount} unit={resourceName} />
+                        </Button>
+                    </span>
                 </div>
             );
         }

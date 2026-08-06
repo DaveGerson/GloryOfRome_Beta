@@ -217,7 +217,7 @@ const SidePanel: React.FC<{
                     runDomainMutation={runDomainMutation}
                     interactionLocked={interactionLocked}
                 />}
-                {activeTab === 'reports' && <ReportsTab reports={reports} />}
+                {activeTab === 'reports' && <ReportsTab reports={reports} knowledge={knowledge} />}
                 {activeTab === 'chronicle' && <ChronicleTab eventHistory={eventHistory} turnHistory={turnHistory} reignEnded={gameState === GameState.GAME_OVER} />}
                 {activeTab === 'dramatis_personae' && <DramatisPersonaeTab
                     playerEntity={playerEntity}

@@ -4,8 +4,9 @@ import { Badge } from '../ui/Core';
 import { WaxSeal, toRoman } from '../ui/Brand';
 import { SubRail } from '../ui/SubRail';
 import {
-    certaintyClause, contradictsHigherCertainty, corroboration, reportReliability, reportSeal, sourceLead,
+    certaintyClause, contradictsHigherCertainty, corroboration, knowledgeSourceLead, reportReliability, reportSeal, sourceLead,
 } from '../../knowledge/credibilityFraming';
+import type { KnowledgeClaim } from '../../knowledge/store';
 import { getTabRegister, setTabRegister } from '../../persistence/uiPrefs';
 import { EmptyRegister, SlipsSilhouette } from './EmptyRegister';
 
@@ -23,10 +24,59 @@ import { EmptyRegister, SlipsSilhouette } from './EmptyRegister';
  * three unrelated cards (audit item 35).
  */
 
-const REGISTERS = ['subject', 'week'] as const;
+const REGISTERS = ['subject', 'week', 'rumors'] as const;
 type ReportRegister = typeof REGISTERS[number];
 
 const subjectLabel = (about: string): string => about.replace(/_/g, ' ');
+
+/**
+ * B2's rumor feed (D21): which knowledge claims belong to the feed. Report
+ * and digest channels are "word received"; investigation and scheme claims
+ * are what you PAID to hold (the dossier's material, D14), and claims
+ * carrying a relationship-observation marker have their own home on the
+ * Personae relationship map — listing them here twice would say the same
+ * thing in two rooms.
+ */
+function isFeedClaim(claim: KnowledgeClaim): boolean {
+    const channel = claim.claimKey.split(':')[0];
+    return (channel === 'report' || channel === 'digest') && !claim.relationshipObservation;
+}
+
+function latestWordTurn(claim: KnowledgeClaim): number {
+    return Math.max(claim.firstLearnedTurn, ...claim.updates.map(update => update.turn));
+}
+
+/**
+ * One claim's card in the feed: the subject, the frozen opening claim, and
+ * the full visible timeline (D21 — claims evolve; `updates[0]` is the
+ * original learning). Each row is source-tagged in the source's own voice;
+ * a row that carries credibility gets the certainty CLAUSE, never the
+ * figure (D25/D26). Digest rows are binary-fidelity (D5 v1): lead only.
+ */
+const RumorClaimCard: React.FC<{ claim: KnowledgeClaim }> = ({ claim }) => (
+    <section className="gor-rumor-claim gor-report-group">
+        <header className="gor-report-group-head">
+            <span className="gor-report-subject">{subjectLabel(claim.subject)}</span>
+            <span className="gor-report-week">as of {toRoman(latestWordTurn(claim))}</span>
+        </header>
+        <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {claim.updates.map((update, index) => (
+                <li key={index} className="gor-rumor-update" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <span style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+                        <span className="gor-report-source">{knowledgeSourceLead(update.source)}</span>
+                        <span className="gor-report-week">{toRoman(update.turn)}</span>
+                    </span>
+                    <span style={{ fontSize: 15 }}>{update.text}</span>
+                    {typeof update.credibility === 'number' && (
+                        <span style={{ fontSize: 14, fontStyle: 'italic', color: 'var(--text-muted)' }}>
+                            {certaintyClause(update.credibility)}
+                        </span>
+                    )}
+                </li>
+            ))}
+        </ul>
+    </section>
+);
 
 /** The seal a source is worth: crimson for a firm agent, Tyrian for a courier,
  *  and dashed-and-unsealed for the rumour mill (audit item 28). */
@@ -69,7 +119,7 @@ const GroupVerdict: React.FC<{ reports: readonly Report[] }> = ({ reports }) => 
     return <span className="gor-verdict">One account</span>;
 };
 
-const ReportsTab: React.FC<{ reports: Report[] }> = ({ reports }) => {
+const ReportsTab: React.FC<{ reports: Report[]; knowledge?: KnowledgeClaim[] }> = ({ reports, knowledge = [] }) => {
     const [register, setRegister] = useState<ReportRegister>(() => getTabRegister('reports', REGISTERS, 'subject'));
 
     const selectRegister = (next: ReportRegister) => {
@@ -77,7 +127,13 @@ const ReportsTab: React.FC<{ reports: Report[] }> = ({ reports }) => {
         setTabRegister('reports', next);
     };
 
-    if (reports.length === 0) {
+    const feedClaims = knowledge.filter(isFeedClaim)
+        .sort((a, b) => latestWordTurn(b) - latestWordTurn(a));
+
+    // Nothing anywhere: the tab keeps its original single zero state. With
+    // word in EITHER ledger the rail renders, and each register names its
+    // own absence (D45) rather than hiding the other's content.
+    if (reports.length === 0 && feedClaims.length === 0) {
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <h3 className="gor-label" style={{ color: 'var(--crimson-500)' }}>Intelligence Reports</h3>
@@ -120,9 +176,26 @@ const ReportsTab: React.FC<{ reports: Report[] }> = ({ reports }) => {
                 options={[
                     { value: 'subject', label: 'By subject', count: subjects.length },
                     { value: 'week', label: 'By week', count: weeks.length },
+                    { value: 'rumors', label: 'Rumors', count: feedClaims.length },
                 ]}
             />
-            {register === 'subject'
+            {register === 'rumors' && (
+                feedClaims.length === 0
+                    ? <EmptyRegister
+                        silhouette={<SlipsSilhouette />}
+                        line="No word has reached you yet."
+                        hint="Rumors gather as the weeks turn and your sources talk."
+                    />
+                    : feedClaims.map(claim => <RumorClaimCard key={claim.id} claim={claim} />)
+            )}
+            {register !== 'rumors' && reports.length === 0 && (
+                <EmptyRegister
+                    silhouette={<SlipsSilhouette />}
+                    line="No one has told you anything yet."
+                    hint="Reports arrive when your agents have something worth carrying."
+                />
+            )}
+            {register !== 'rumors' && reports.length > 0 && (register === 'subject'
                 ? subjects.map(({ about, group }) => {
                     const conflicted = corroboration(group).verdict === 'conflict';
                     return (
@@ -143,7 +216,7 @@ const ReportsTab: React.FC<{ reports: Report[] }> = ({ reports }) => {
                         </header>
                         {group.map(report => <ReportCard key={report.id} report={report} group={bySubject.get(report.about) ?? [report]} />)}
                     </section>
-                ))}
+                )))}
         </div>
     );
 };

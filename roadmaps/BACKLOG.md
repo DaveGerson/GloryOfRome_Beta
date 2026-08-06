@@ -55,16 +55,27 @@ bridge between the soft resource bag and the hard investigation mechanic.
   intel-buying into the relationship system, so who you know gates what you
   can trade).
 
-### B2 — Player-facing intelligence VISUAL surfaces
-The substrate is built (knowledge graph D29, sourced-credibility framing
-D25/D26, truth ledger, dossiers). The *views* are the payoff layer:
-- **Rumor feed** — chronological, source-tagged, showing claims evolve (D21).
-- **Relationship map** — fill the 0-byte `RelationshipsTab`: interpretation +
-  hearsay edges with provenance and age (D13), can be wrong when a source
-  lied.
-- **Rich per-NPC dossier tab** — render `deriveDossier` output (frozen
-  snapshots, source, staleness) instead of the current inline reveal.
-All read the knowledge store only, never live ground truth.
+### B2 — Player-facing intelligence VISUAL surfaces  *(LANDED 2026-08-06)*
+The substrate was built (knowledge graph D29, sourced-credibility framing
+D25/D26, truth ledger, dossiers); the views landed as spec
+`docs/superpowers/specs/2026-08-06-b2-intelligence-surfaces-design.md`:
+- **Rumor feed** — a third register on the Reports tab: claim timelines,
+  chronological, source-tagged via `knowledgeSourceLead`, certainty as
+  clause never figure (D21/D25).
+- **Relationship map** — `RelationshipsTab` filled (was 0-byte) and mounted
+  as a second register on Personae: observation edges grouped by pair with
+  provenance + week on every edge; a rumor-sourced edge keeps the rumor's
+  voice, so the map is wrong exactly when a source lied (D13/D11).
+- **Durable dossier reading** — each Personae card renders `deriveDossier`
+  output (frozen snapshot, First learned/as of stamps, source lead, and a
+  worded staleness clause past D27's cold threshold) where before only a
+  session-local reveal showed.
+All three read the knowledge store / player-visible slices only; no truth
+flag, gm_private field, ground-truth relationship, or credibility number is
+reachable from their props. Copy is veto-queue (registers "Rumors",
+zero-state lines, the staleness clause, pair em-dash headers). The feed
+includes digest-channel (witnessed) claims alongside reports — drop
+`digest` from `isFeedClaim` if pure hearsay is preferred.
 
 ### B3 — Clue-driven scheme-discovery mini-game  *(D28 forward direction)*
 The data model is built (awareness vs earned nature, clue accretion, reveal
@@ -215,16 +226,20 @@ deliberately not fixed:
   asserts `Replace` is `disabled` while `Keep my reign` is not; the
   implementation was already correct. See the spec above, 1d.
 
-### B8 — Raw relationship numbers on the Personae tab  *(ruling needed)*
-`DramatisPersonaeTab` renders the player's own Trust/Respect/Threat/
-Alignment/Dependency toward each NPC as raw signed numbers + bars
-(`TrustBar`). These are the player's OWN relationship reads (arguably D5
-'self'-visible, so legitimate) — but they are the kind of raw ground-truth
-number D13's relationship map is meant to reframe as interpretation with
-provenance. Decide when B2's relationship map is built: keep the raw
-self-numbers, or fold them into sourced/interpretive framing (the D13/D25
-no-bare-numbers spirit). Not a bug — a consistency call. Surfaced by the
-close-out UI pass.
+### B8 — Raw relationship numbers on the Personae tab  *(proposed ruling — owner veto pending)*
+The question this item held ("keep the raw Trust/Respect/Threat
+self-numbers, or fold them into sourced framing?") was half-answered in
+code before B2 landed: the visual-enhancement pass already REMOVED the
+`TrustBar` meters and signed numbers from Personae, and
+`dramatisPersonaeTab.test.tsx` forbids any meter/heat/tier rendering of the
+hidden scores from returning under any label. **Proposed ruling
+(2026-08-06, with B2): ratify that state.** The player's own reads surface
+exclusively through the sourced relationship-observation timeline and the
+D13 map — "what you yourself witnessed" is just a source like any other —
+and raw ground-truth numbers stay GM-console-only. B2's map is built on
+observations alone, implementing the proposal. If the owner vetoes and
+wants the self-numbers back, that is a revert of the TrustBar removal plus
+a carve-out in the Personae player-safety test — nothing in B2 blocks it.
 
 ### B9 — Owner-funded hosted mode (key proxy + quota policy)
 Superseded-for-now by D34 (bring-your-own-key is the default path; no server
