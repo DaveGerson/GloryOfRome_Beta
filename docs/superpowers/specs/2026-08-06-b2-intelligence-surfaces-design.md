@@ -96,6 +96,14 @@ the threshold; no meter/valuenow/progress anywhere on the three surfaces.
 Existing suites must pass unedited — the 7-tab tablist pin, Personae card
 pins, ReportsTab pins, panelRegisters.
 
+## Accepted residuals (adversarial review NOTEs, recorded not fixed)
+
+- `knowledgeSourceLead` returns undefined (a silent empty lead) for an
+  out-of-vocabulary source from a hand-edited save; parity with the
+  hand-edit exposure class, and the row still renders its text.
+- Rumor cards title by raw entity id via `subjectLabel` (underscores to
+  spaces) — the pre-existing ReportsTab idiom, kept for consistency.
+
 ## Open questions for the owner (veto queue)
 
 1. The B8 ratification above.

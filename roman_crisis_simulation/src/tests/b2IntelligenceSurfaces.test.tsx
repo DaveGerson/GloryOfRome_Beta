@@ -27,6 +27,7 @@ import ReportsTab from '../components/tabs/ReportsTab';
 import RelationshipsTab from '../components/tabs/RelationshipsTab';
 import DramatisPersonaeTab from '../components/tabs/DramatisPersonaeTab';
 import type { KnowledgeClaim } from '../knowledge/store';
+import { ingestRelationshipObservations } from '../knowledge/relationships';
 import type { Entity, Report } from '../types';
 import type { RunDomainMutation } from '../state/domainMutation';
 
@@ -151,6 +152,27 @@ function observationClaim(overrides: Partial<KnowledgeClaim> = {}): KnowledgeCla
   };
 }
 
+/**
+ * A PRODUCTION-shaped observation claim, built through the real ingest path
+ * (adversarial fix 2): claimKey grammar `relationship-observation:{turn}:{n}`
+ * and the exact marker shape ingestRelationshipObservations emits — not the
+ * hand-rolled report-channel shape the other fixtures use, which production
+ * never writes.
+ */
+function productionObservationClaim(): KnowledgeClaim {
+  const text = 'Aulus Fulvius and Senator Livia met at the docks after dark.';
+  const store = ingestRelationshipObservations([], {
+    evidence: [{ id: 'ev-prod', source: 'rumor', text }],
+    drafts: [{ evidenceId: 'ev-prod', participantIds: ['aulus', 'livia'], excerpt: text }],
+    entities: [aulus, livia],
+    knownEntityIds: ['aulus', 'livia'],
+    turn: 6,
+  });
+  expect(store).toHaveLength(1);
+  expect(store[0].claimKey).toBe('relationship-observation:6:0');
+  return store[0];
+}
+
 const noopMutation: RunDomainMutation = async work => ({
   acquired: true,
   value: await work({ isCurrent: () => true }),
@@ -214,6 +236,31 @@ describe('the rumor feed — a third register on Reports (D21)', () => {
     // The digest word renders; the paid dossier material does not.
     expect(container.textContent).toContain('Livia spoke against the donative');
     expect(container.textContent).not.toContain('beyond saving');
+  });
+
+  it('keeps observation-marked claims out of the feed in BOTH shapes — their home is the map', async () => {
+    // Two exclusion mechanisms, each pinned by the shape that needs it: the
+    // production claimKey grammar (`relationship-observation:{turn}:{n}`)
+    // falls to the channel-prefix check, and the synthetic report-channel
+    // marker claim — which production never writes, but a hand-edited save
+    // could — falls only to the explicit `!relationshipObservation` clause.
+    // Deleting either mechanism turns exactly one of these red.
+    const production = productionObservationClaim();
+    const container = await mount(
+      <ReportsTab reports={[]} knowledge={[digestClaim(), production, observationClaim()]} />,
+    );
+    await click(buttonNamed(container, 'Rumors'));
+
+    expect(container.textContent).toContain('Livia spoke against the donative');
+    expect(container.textContent).not.toContain('met at the docks after dark');
+    expect(container.textContent).not.toContain('deferred to Livia before the assembled Senate');
+
+    // …and the same production-shaped claim IS the map's material.
+    const map = await mount(
+      <RelationshipsTab knowledge={[production]} entities={[aulus, livia]} currentTurn={7} />,
+    );
+    expect(map.querySelectorAll('.gor-relationship-pair')).toHaveLength(1);
+    expect(map.textContent).toContain('met at the docks after dark');
   });
 
   it('names the cause when no word has arrived (D45)', async () => {
@@ -288,6 +335,41 @@ describe('the relationship map — RelationshipsTab filled (D13)', () => {
       <RelationshipsTab knowledge={[observationClaim()]} entities={[aulus, livia]} currentTurn={7} />,
     );
     expect(container.querySelectorAll('[role="meter"], [aria-valuenow], progress')).toHaveLength(0);
+  });
+
+  it('leaks nothing from sentinel-loaded ground truth — not as text, not in any attribute (D13/D11)', async () => {
+    // The adversarial merge review proved the decimal-regex and meter-role
+    // guards alone cannot catch an INTEGER ground-truth score rendered as
+    // plain text. These entities carry unmistakable sentinels in exactly the
+    // fields the map must never read; if any reaches the DOM, the map has
+    // started rendering truth instead of testimony.
+    const loadedAulus: Entity = {
+      ...aulus,
+      relationships: {
+        livia: {
+          entity_id: 'livia',
+          relationship_type: 'GROUND_TRUTH_TYPE_LEAK',
+          trust_level: 94417,
+          respect_level: 94418,
+          perceived_threat: 94419,
+          ideological_alignment: 94420,
+          dependency_level: 94421,
+          recent_interactions: ['GROUND_TRUTH_INTERACTION_LEAK'],
+        },
+      },
+      secret_truth: { actually_alive: true, hidden_since_turn: 2, motive: 'LEAK_SECRET_MOTIVE' },
+    } as Entity;
+    const container = await mount(
+      <RelationshipsTab knowledge={[observationClaim(), productionObservationClaim()]} entities={[loadedAulus, livia, player]} currentTurn={7} />,
+    );
+
+    const rendered = container.textContent ?? '';
+    for (const sentinel of ['94417', '94418', '94419', '94420', '94421', 'GROUND_TRUTH', 'LEAK_SECRET_MOTIVE']) {
+      expect(rendered).not.toContain(sentinel);
+    }
+    // Attributes too — a leak through a title/aria-label is still a leak.
+    expect(container.innerHTML).not.toContain('94417');
+    expect(container.innerHTML).not.toContain('LEAK_SECRET_MOTIVE');
   });
 });
 
