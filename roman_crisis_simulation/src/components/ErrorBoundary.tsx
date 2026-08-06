@@ -11,7 +11,20 @@ interface ErrorBoundaryState {
    * see the class doc comment below. Independent of `error` so it survives
    * whatever partial state `getDerivedStateFromError` merges in. */
   confirmAbandon: boolean;
+  /**
+   * The danger button mounts disabled and arms DANGER_ARM_MS later. The
+   * keyed remount + safe-default focus below kill the keyboard walkthrough,
+   * but a rapid double-CLICK hits whatever pixels the confirm row puts under
+   * the pointer - only card layout stood between the ghost's former position
+   * and the danger button. (This is not the arming D45 ratified against:
+   * that guarded a RETRY beside a live Send and protected nothing; this
+   * guards an irreversible destruction against pointer double-activation,
+   * which focus and keys cannot structurally prevent.)
+   */
+  dangerArmed: boolean;
 }
+
+const DANGER_ARM_MS = 300;
 
 /**
  * A last line of defense against a render-crash (e.g. a malformed
@@ -45,13 +58,26 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
   declare props: ErrorBoundaryProps;
   state: ErrorBoundaryState;
 
+  private armTimer: ReturnType<typeof setTimeout> | null = null;
+  private escapeRef = React.createRef<HTMLButtonElement>();
+
   constructor(props: ErrorBoundaryProps) {
     super(props);
-    this.state = { error: null, confirmAbandon: false };
+    this.state = { error: null, confirmAbandon: false, dangerArmed: false };
   }
 
-  static getDerivedStateFromError(error: Error): Pick<ErrorBoundaryState, 'error'> {
-    return { error };
+  static getDerivedStateFromError(error: unknown): Pick<ErrorBoundaryState, 'error'> {
+    // A component can throw anything - `throw null` included. A falsy value
+    // here would leave `state.error` null, re-render the children, and
+    // re-enter the crash forever. Normalize, so the boundary holds on ANY
+    // throw and `error.message` below is always readable.
+    return {
+      error: error instanceof Error ? error : new Error(String(error ?? 'An unnamed fracture')),
+    };
+  }
+
+  componentWillUnmount(): void {
+    if (this.armTimer !== null) clearTimeout(this.armTimer);
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo): void {
@@ -65,11 +91,16 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
   };
 
   private handleAbandonRequest = (): void => {
-    this.setState({ confirmAbandon: true });
+    this.setState({ confirmAbandon: true, dangerArmed: false });
+    this.armTimer = setTimeout(() => this.setState({ dangerArmed: true }), DANGER_ARM_MS);
   };
 
   private handleAbandonCancel = (): void => {
-    this.setState({ confirmAbandon: false });
+    if (this.armTimer !== null) clearTimeout(this.armTimer);
+    // Backing out returns the keyboard user exactly where they were - on
+    // the escape - instead of dropping focus to body. The callback runs
+    // after the keyed resting row has remounted, so the ref is live.
+    this.setState({ confirmAbandon: false }, () => this.escapeRef.current?.focus());
   };
 
   /**
@@ -134,7 +165,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
               <span style={{ color: 'var(--crimson-500)', fontStyle: 'italic', fontSize: 15 }}>
                 Abandon your saved reign? It cannot be undone.
               </span>
-              <button onClick={this.handleAbandonConfirm} className="gor-btn gor-btn-danger">Abandon</button>
+              <button onClick={this.handleAbandonConfirm} className="gor-btn gor-btn-danger" disabled={!this.state.dangerArmed}>Abandon</button>
               <button onClick={this.handleAbandonCancel} className="gor-btn gor-btn-ghost" autoFocus>Keep my reign</button>
             </div>
           ) : (
@@ -142,7 +173,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
               <button onClick={this.handleReload} className="gor-btn gor-btn-lg gor-btn-primary">
                 {canRestore ? 'Restore Last Save' : 'Reload'}
               </button>
-              <button onClick={this.handleAbandonRequest} className="gor-btn gor-btn-ghost">
+              <button ref={this.escapeRef} onClick={this.handleAbandonRequest} className="gor-btn gor-btn-ghost">
                 Abandon the reign and begin anew
               </button>
             </div>

@@ -84,6 +84,7 @@ afterEach(async () => {
   }
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  vi.useRealTimers();
   localStorage.clear();
 });
 
@@ -147,17 +148,78 @@ describe('ErrorBoundary — the poisoned slot gets an in-app escape (B7a 1b)', (
   });
 
   it('confirming abandons the reign: the slot is cleared, then the reload fires', async () => {
+    vi.useFakeTimers();
     localStorage.setItem(SAVE_KEY, VALID_SLOT);
     const reload = stubReload();
     const container = await mountBoundary();
 
     await click(abandonAction(container));
+    await act(async () => vi.advanceTimersByTime(300));
     await click(dangerButton(container));
 
     // The escape's whole point: the poisoned slot is GONE, so the reload
     // lands on a fresh CharacterSelection instead of the same crash.
     expect(localStorage.getItem(SAVE_KEY)).toBeNull();
     expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('the danger button arms only after a beat, so a double-click at fixed coordinates cannot land twice', async () => {
+    // The keyed remount and safe-default focus kill the KEYBOARD walkthrough,
+    // but a rapid double-CLICK hits whatever pixels the confirm row puts
+    // under the pointer — only layout stood between the ghost's former
+    // position and the danger button. Structural fix: the danger button
+    // mounts disabled and arms ~300ms later, longer than any double-click.
+    vi.useFakeTimers();
+    localStorage.setItem(SAVE_KEY, VALID_SLOT);
+    const reload = stubReload();
+    const container = await mountBoundary();
+
+    await click(abandonAction(container));
+
+    const danger = dangerButton(container);
+    expect(danger.disabled).toBe(true);
+    await click(danger);
+    expect(localStorage.getItem(SAVE_KEY)).toBe(VALID_SLOT);
+    expect(reload).not.toHaveBeenCalled();
+
+    await act(async () => vi.advanceTimersByTime(300));
+    expect(dangerButton(container).disabled).toBe(false);
+    await click(dangerButton(container));
+    expect(localStorage.getItem(SAVE_KEY)).toBeNull();
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('"Keep my reign" returns focus to the escape that opened the confirm', async () => {
+    localStorage.setItem(SAVE_KEY, VALID_SLOT);
+    stubReload();
+    const container = await mountBoundary();
+
+    await click(abandonAction(container));
+    await click(buttonNamed(container, 'Keep my reign'));
+
+    // Backing out should put the keyboard user exactly where they were —
+    // on the escape — not drop focus to body and make them Tab back.
+    expect(document.activeElement).toBe(abandonAction(container));
+  });
+
+  it('holds the fallback even when the render throws a falsy non-Error', async () => {
+    // `throw null` used to leave state.error falsy, re-render the children,
+    // and re-enter the crash forever. The boundary must hold on ANY throw.
+    const NullThrower: React.FC = () => {
+      throw null;
+    };
+    stubReload();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    mounted.push({ root, container });
+    await act(async () => root.render(
+      <ErrorBoundary>
+        <NullThrower />
+      </ErrorBoundary>,
+    ));
+
+    expect(container.textContent).toContain('The Republic Endures');
   });
 
   it('a held or repeated Enter cannot walk through the confirm — focus lands on "Keep my reign"', async () => {
