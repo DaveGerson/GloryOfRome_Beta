@@ -183,20 +183,37 @@ deliberately not fixed:
   boot's `(characterName || 'R').charAt(0)` crash-loops on such a file.
   Inside the documented hand-edit-parity carve-out; a deeper per-entity
   validator (or a `String(...)` coercion in both derives) closes it.
+  **CLOSED 2026-08-05** - both derive sites (`persistence/saveGame.ts`'s
+  `importSaveBlob`, `App.tsx`'s `loadSavedGameSummary`) now read
+  `typeof name === 'string' ? name : 'Unknown'`, guarding the derive rather
+  than widening the shallow validator. See
+  `docs/superpowers/specs/2026-08-05-b7a-hardening-and-tablist-design.md` 1a.
 - **A poisoned slot has no in-app escape** (pre-existing, structural):
   `ErrorBoundary`'s only affordance reloads into the same slot; nothing
   anywhere clears a slot that crashes render. Any future poisoning bug is
   unrecoverable without devtools. Wants a "begin anew" escape on the
   boundary, independent of import.
+  **CLOSED 2026-08-05** - `components/ErrorBoundary.tsx` gained a secondary,
+  confirm-gated "Abandon the reign and begin anew" action beside "Restore
+  Last Save"; confirming clears the autosave slot and reloads. See the spec
+  above, 1b.
 - **The D8 ambition fire-and-forget tail** (`useExecuteTurn`'s deferred
   `updateSavedAmbition`) runs outside the domain-mutation lease and is not
   invalidated by an import: in the window between a confirmed mid-campaign
   import and its reload, a landing patch can stamp the OLD campaign's
   `inferredAmbition`/`savedAt` onto the freshly-imported slot. One GM-side
   field, no reign loss; a `campaignGenerationRef` bump on import closes it.
+  **CLOSED 2026-08-05** - `App.tsx`'s `handleImportReign` wraps
+  `importSaveBlob` and bumps `campaignGenerationRef` on `ok`; both import
+  homes (`CharacterSelection`, `SettingsMenu`) now receive the wrapper,
+  never the raw function. See the spec above, 1c.
 - **Test gap:** the Settings import lock pins the trigger's `disabled`, but
   the Replace confirm's `disabled` (the actual half-commit seam) is
   implemented yet unpinned.
+  **CLOSED 2026-08-05** - `tests/reignImportSurfaces.test.tsx`'s Settings
+  lock test now stages the Replace confirm under `interactionLocked` and
+  asserts `Replace` is `disabled` while `Keep my reign` is not; the
+  implementation was already correct. See the spec above, 1d.
 
 ### B8 — Raw relationship numbers on the Personae tab  *(ruling needed)*
 `DramatisPersonaeTab` renders the player's own Trust/Respect/Threat/
@@ -344,6 +361,14 @@ rather than rediscover it.
   **these two genuinely do control a panel**, so the right fix is to complete
   the contract rather than drop the roles. `ui/rovingRadio.ts` has the
   keyboard half already; it needs its selector generalised off `[role="radio"]`.
+  **CLOSED 2026-08-05** - both bars now carry the full tabs contract: roving
+  tabindex, automatic activation (arrow keys move focus AND selection, Home/
+  End, wrap at both ends), one `role="tabpanel"` per bar with matching
+  `aria-controls`/`aria-labelledby`. `ui/rovingRadio.ts`'s
+  `radioGroupKeyDown` took a `{ role }` option (default `'radio'`), so every
+  pre-existing radiogroup call site is untouched. See
+  `docs/superpowers/specs/2026-08-05-b7a-hardening-and-tablist-design.md`,
+  work item 2.
 - **Offline holds the turn, but not the side quests.** The composer now
   refuses to send with the roads shut, on every path. Private-scene invites
   and replies, and the relationship-observation commit, still call the

@@ -378,6 +378,16 @@ describe('SettingsMenu — the reign register', () => {
     expect(buttonNamed(container, 'Restore from a copy').disabled).toBe(true);
     // Export is a read and races nothing - it stays pressable.
     expect(buttonNamed(container, 'Take a copy of the reign').disabled).toBe(false);
+
+    // B7a 1d — the lock reaches INTO a staged confirm. The picker cannot be
+    // opened under the lock, but the lock can ARRIVE while a confirm is up
+    // (the menu stays open across a turn starting), so the confirm is staged
+    // here directly on the hidden input: Replace — the write — holds, while
+    // "Keep my reign" stays free, because backing out races nothing.
+    await chooseReignFile(container, '{"version":1}');
+    await waitFor(() => expect(container.textContent).toContain('Keep my reign'));
+    expect(buttonNamed(container, 'Replace').disabled).toBe(true);
+    expect(buttonNamed(container, 'Keep my reign').disabled).toBe(false);
   });
 
   it('confirms before overwriting from Settings, and reloads on ok', async () => {

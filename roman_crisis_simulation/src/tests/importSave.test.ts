@@ -260,6 +260,27 @@ describe('persistence/saveGame — rawSaveBlob and importSaveBlob', () => {
     expect(result).toEqual({ ok: true, turnNumber: 11, characterName: 'Severus Alexander' });
   });
 
+  it("derives characterName 'Unknown' — never a coerced pretense — when the reigning entity's name is not a string", () => {
+    // B7a 1a (spec: 2026-08-05-b7a-hardening-and-tablist-design.md). The
+    // shallow validator ACCEPTS this envelope on purpose — deeper interior
+    // malformation keeps parity with hand-edits — so the guard lives at the
+    // DERIVE, mirrored in App.tsx's loadSavedGameSummary. A numeric name is
+    // malformed data: 'Unknown' is honest, "5" would be a pretense (String()
+    // coercion is ruled out), and the raw 5 once crashed boot at
+    // `(characterName || 'R').charAt(0)`.
+    const result = importSaveBlob(JSON.stringify({
+      version: SAVE_VERSION,
+      savedAt: new Date().toISOString(),
+      state: { ...makeState(), playerCharacterId: 'p', entities: [{ entity_id: 'p', name: 5 }] },
+    }));
+
+    expect(result).toEqual({ ok: true, turnNumber: 4, characterName: 'Unknown' });
+    // ok means written: the slot holds the imported reign and loadGame
+    // accepts it (the anti-poison invariant, same as the round-trip pin).
+    expect(loadGame()).not.toBeNull();
+    expect(loadGame()!.state.turnNumber).toBe(4);
+  });
+
   it('reports storage_failed without throwing when the device will not take the writing down', () => {
     // Not in the spec's numbered test list, but the reason string is in its
     // ImportResult type and the copy table names its notice — so the failure

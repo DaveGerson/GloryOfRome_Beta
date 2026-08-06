@@ -2208,3 +2208,81 @@ describe('App reign export/import wiring (VERIFY pins)', () => {
     warnSpy.mockRestore();
   });
 });
+
+describe('B7a hardening — the import-review residuals (spec: 2026-08-05-b7a-hardening-and-tablist-design.md)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('boots a saved reign whose name is not a string to the continue summary — never a crash loop (1a)', async () => {
+    // The boot reader (App's loadSavedGameSummary) mirrors importSaveBlob's
+    // derive: a non-string name reads 'Unknown' — NOT String() coercion ("5"
+    // is a pretense), and NOT the raw 5, which crashed CharacterSelection at
+    // `(characterName || 'R').charAt(0)` and, behind the ErrorBoundary's
+    // reload, crash-looped boot forever. The shallow validator accepts this
+    // slot on purpose (hand-edit parity), so the derive is the guard.
+    // React reports the render crash this red test exists to remove; the spy
+    // keeps the run readable in both states.
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const poisoned = makeAppSave({
+      playerCharacterId: 'p',
+      entities: [{ entity_id: 'p', name: 5 } as unknown as Entity],
+    });
+
+    const container = await mountApp(poisoned, false);
+
+    expect(container.textContent).toContain('Choose Your Destiny');
+    expect(container.textContent).toContain('Playing as');
+    expect(container.textContent).toContain('Unknown');
+  });
+
+  it('an ok reign import invalidates the pending ambition tail, exactly like turn rollback (1c)', async () => {
+    // The D8 tail is fire-and-forget and lands well after its turn: without
+    // a campaign-generation bump on import, a tail armed by the OLD reign
+    // patches its stale ambition into the freshly IMPORTED slot. The ruling:
+    // App wraps importSaveBlob in a handleImportReign that bumps
+    // campaignGenerationRef on ok, and BOTH homes receive the wrapper. The
+    // ref is App-internal, so the bump's one honest observable is the
+    // existing generation guard at useExecuteTurn's tail — pinned here in
+    // this file's own held-ambition idiom, through the Settings home.
+    const container = await mountApp(makeAppSave({ turnNumber: 3 }));
+    let resolveAmbition!: (value: Awaited<ReturnType<typeof ambitionTool.inferAmbition>>) => void;
+    mockInferAmbition.mockImplementationOnce(() => new Promise(resolve => { resolveAmbition = resolve; }));
+
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Arm the ambition tail');
+    await click(buttonNamed(container, 'Send message'));
+    await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(4));
+    await waitFor(() => expect(mockInferAmbition).toHaveBeenCalledTimes(1));
+
+    const reload = vi.fn();
+    vi.stubGlobal('location', { ...window.location, reload });
+    const imported = JSON.stringify({
+      version: 1,
+      savedAt: new Date().toISOString(),
+      state: makeAppSave({ turnNumber: 9 }),
+    });
+
+    await click(buttonNamed(container, 'Open configuration menu'));
+    await chooseImportFile(container, imported);
+    // A reign is at stake, so the Abandon-grammar confirm gates the write.
+    await waitFor(() => expect(container.textContent).toContain('Keep my reign'));
+    await click(buttonNamed(container, 'Replace'));
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+    expect(loadGame()!.state.turnNumber).toBe(9);
+    expect(loadGame()!.state.inferredAmbition).toBeNull();
+
+    // Now the held inference resolves — AFTER the import bumped the
+    // generation. The tail must not dispatch and must not patch the slot.
+    vi.useFakeTimers();
+    resolveAmbition({ apparent_ambition: 'STALE_PRE_IMPORT_AMBITION', confidence: 'high' });
+    await act(async () => {
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    vi.useRealTimers();
+
+    expect(loadGame()!.state.turnNumber).toBe(9);
+    expect(loadGame()!.state.inferredAmbition).toBeNull();
+    expect(JSON.stringify(loadGame()!.state)).not.toContain('STALE_PRE_IMPORT_AMBITION');
+  });
+});

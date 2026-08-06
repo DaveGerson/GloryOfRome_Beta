@@ -1,5 +1,5 @@
 import React from 'react';
-import { hasSave } from '../persistence/saveGame';
+import { hasSave, clearSave, SAVE_KEY } from '../persistence/saveGame';
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
@@ -7,6 +7,10 @@ interface ErrorBoundaryProps {
 
 interface ErrorBoundaryState {
   error: Error | null;
+  /** B7a 1b: the Abandon-grammar inline confirm staged over the fallback -
+   * see the class doc comment below. Independent of `error` so it survives
+   * whatever partial state `getDerivedStateFromError` merges in. */
+  confirmAbandon: boolean;
 }
 
 /**
@@ -21,6 +25,14 @@ interface ErrorBoundaryState {
  * `persistence/saveGame.ts`), a reload drops the player back at
  * `CharacterSelection`'s "Continue your reign" card, which restores
  * everything up to the last successful commit.
+ *
+ * B7a 1b (spec: 2026-08-05-b7a-hardening-and-tablist-design.md): that
+ * restore path assumed the slot itself was healthy. A save whose SHAPE
+ * passes `loadGame`'s shallow validator but whose INTERIOR crashes render
+ * (a malformed entity, say) had no in-app escape at all before this - reload
+ * lands right back on the same crash, forever. The fix is a SECONDARY,
+ * confirm-gated action beside "Restore Last Save": this boundary catches ANY
+ * render crash, so the escape must never fire on a single accidental press.
  */
 class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   // `react` ships no bundled type declarations in this project (no
@@ -35,10 +47,10 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
 
   constructor(props: ErrorBoundaryProps) {
     super(props);
-    this.state = { error: null };
+    this.state = { error: null, confirmAbandon: false };
   }
 
-  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+  static getDerivedStateFromError(error: Error): Pick<ErrorBoundaryState, 'error'> {
     return { error };
   }
 
@@ -52,8 +64,37 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
     window.location.reload();
   };
 
+  private handleAbandonRequest = (): void => {
+    this.setState({ confirmAbandon: true });
+  };
+
+  private handleAbandonCancel = (): void => {
+    this.setState({ confirmAbandon: false });
+  };
+
+  /**
+   * `clearSave()` already never throws (every localStorage call in
+   * persistence/saveGame.ts is guarded) - but this boundary is the last
+   * line of defense in the app, so the call is wrapped again here anyway,
+   * with a direct guarded `removeItem` fallback. Reload fires regardless of
+   * whether the clear itself succeeded: a poisoned slot that fails to clear
+   * must not trap the player behind this screen forever either.
+   */
+  private handleAbandonConfirm = (): void => {
+    try {
+      clearSave();
+    } catch {
+      try {
+        localStorage.removeItem(SAVE_KEY);
+      } catch {
+        // Nothing more this boundary can do - fall through to the reload.
+      }
+    }
+    window.location.reload();
+  };
+
   render(): React.ReactNode {
-    const { error } = this.state;
+    const { error, confirmAbandon } = this.state;
     if (!error) {
       return this.props.children;
     }
@@ -80,9 +121,32 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
               {error.message}
             </p>
           </details>
-          <button onClick={this.handleReload} className="gor-btn gor-btn-lg gor-btn-primary">
-            {canRestore ? 'Restore Last Save' : 'Reload'}
-          </button>
+          {/* The two rows are KEYED and the safe action takes focus on
+              entry, both load-bearing: unkeyed, React reused the button node
+              at the same child index, so the focused ghost escape morphed in
+              place into the danger confirm and a held/double-tapped Enter
+              (which fires click on keydown and auto-repeats) walked straight
+              through the gate — destroying a healthy reign after a merely
+              transient crash. The keys force a fresh node; autoFocus lands
+              the repeat press on "Keep my reign". */}
+          {confirmAbandon ? (
+            <div key="abandon-confirm" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ color: 'var(--crimson-500)', fontStyle: 'italic', fontSize: 15 }}>
+                Abandon your saved reign? It cannot be undone.
+              </span>
+              <button onClick={this.handleAbandonConfirm} className="gor-btn gor-btn-danger">Abandon</button>
+              <button onClick={this.handleAbandonCancel} className="gor-btn gor-btn-ghost" autoFocus>Keep my reign</button>
+            </div>
+          ) : (
+            <div key="resting" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <button onClick={this.handleReload} className="gor-btn gor-btn-lg gor-btn-primary">
+                {canRestore ? 'Restore Last Save' : 'Reload'}
+              </button>
+              <button onClick={this.handleAbandonRequest} className="gor-btn gor-btn-ghost">
+                Abandon the reign and begin anew
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );

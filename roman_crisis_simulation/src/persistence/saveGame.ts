@@ -41,7 +41,12 @@ import type { PrivateSceneRecord } from '../privateScene/model';
 /** Bump this whenever `SaveGameState`'s shape changes in a backwards-incompatible way. */
 export const SAVE_VERSION = 1 as const;
 
-const SAVE_KEY = 'gloryOfRome:autosave';
+/**
+ * Exported for exactly one outside consumer: ErrorBoundary's last-resort
+ * `removeItem` fallback, which must clear THIS slot even if `clearSave`
+ * itself could not run. Everything else goes through the functions below.
+ */
+export const SAVE_KEY = 'gloryOfRome:autosave';
 
 /**
  * The periodic D8 ambition-inference snapshot (App.tsx / ai/tools/ambition.ts),
@@ -640,7 +645,9 @@ export function importSaveBlob(text: string): ImportResult {
     const { state } = validated.save;
     const restoredCharacter = state.entities.find(entity => entity.entity_id === state.playerCharacterId);
     turnNumber = state.turnNumber;
-    characterName = restoredCharacter?.name ?? 'Unknown';
+    // B7a 1a: a non-string name is malformed data, not a pretense to coerce
+    // - 'Unknown' is honest, String(5) === '5' is not (see the spec).
+    characterName = typeof restoredCharacter?.name === 'string' ? restoredCharacter.name : 'Unknown';
   } catch (e) {
     console.warn('importSaveBlob: save data has an unrecognized shape, discarding', e);
     return { ok: false, reason: 'not_a_reign' };

@@ -155,8 +155,12 @@ function loadSavedGameSummary(): SavedGameSummary | null {
     const save = loadGame();
     if (!save) return null;
     const savedCharacter = save.state.entities.find(entity => entity.entity_id === save.state.playerCharacterId);
+    // B7a 1a (spec: 2026-08-05-b7a-hardening-and-tablist-design.md): mirrors
+    // importSaveBlob's derive - a non-string name is malformed data, not a
+    // pretense to coerce ('Unknown' is honest, String(5) === '5' is not),
+    // and this closes the boot crash at `(characterName || 'R').charAt(0)`.
     return {
-        characterName: savedCharacter?.name ?? 'Unknown',
+        characterName: typeof savedCharacter?.name === 'string' ? savedCharacter.name : 'Unknown',
         turnNumber: save.state.turnNumber,
         savedAt: save.savedAt,
     };
@@ -1206,6 +1210,22 @@ const App: React.FC = () => {
         return true;
     }, [beginCampaignSession]);
 
+    /**
+     * B7a 1c (spec: 2026-08-05-b7a-hardening-and-tablist-design.md): a
+     * successful import must invalidate any in-flight D8 ambition tail from
+     * the PRIOR reign the same way turn-rollback invalidation works
+     * (useExecuteTurn.ts's generation guard) - otherwise a stale inference
+     * that resolves after the import patches its old ambition into the
+     * freshly imported slot. Bumping the generation here is that guard's one
+     * trigger; both import homes receive this wrapper, never the raw
+     * `importSaveBlob`.
+     */
+    const handleImportReign = useCallback((text: string) => {
+        const result = importSaveBlob(text);
+        if (result.ok) campaignGenerationRef.current += 1;
+        return result;
+    }, []);
+
     // Fires on X, Escape, or finishing the final step alike (see
     // OnboardingOverlay's onClose) - marks the device-level seen-flag so it
     // never shows again, then hides the overlay.
@@ -1282,7 +1302,7 @@ const App: React.FC = () => {
                                     onStartAnew={() => {
                                         void runDomainMutation(handleStartAnew);
                                     }}
-                                    onImportReign={importSaveBlob}
+                                    onImportReign={handleImportReign}
                                     interactionLocked={domainMutationInFlight}
                                 />
                             ) : (
@@ -1483,7 +1503,7 @@ const App: React.FC = () => {
                     }}
                     hasSavedReign={hasSave()}
                     onExportReign={downloadTheReign}
-                    onImportReign={importSaveBlob}
+                    onImportReign={handleImportReign}
                     interactionLocked={domainMutationInFlight || gameState === GameState.PROCESSING}
                 />
             )}
