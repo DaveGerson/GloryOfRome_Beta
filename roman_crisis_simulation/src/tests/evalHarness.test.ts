@@ -18,6 +18,7 @@ import {
 import { judgeTurn, formatJudgeVerdict, EvalJudgeVerdict } from '../eval/judge';
 import { buildEvalJudgePrompt } from '../ai/prompts/evalJudge';
 import { zEvalJudgeVerdict } from '../ai/core/zodSchemas';
+import { EvalJudgeVerdictSchema } from '../ai/core/schemas';
 import { GeminiClient } from '../ai/core/geminiService';
 import { getMockInitialState } from './mockData';
 import type {
@@ -624,6 +625,21 @@ describe('eval judge scaffold', () => {
       consequence_density: { score: 6, rationale: 'too high' },
     };
     expect(zEvalJudgeVerdict.safeParse(outOfRange).success).toBe(false);
+  });
+
+  it('the verdict schema trio (judge.ts interface / zEvalJudgeVerdict / EvalJudgeVerdictSchema) stays in lockstep', () => {
+    // The trio is hand-maintained; its Entity and NpcMindDecision siblings
+    // carry the same pin in voice.test.ts / npcMinds.test.ts. This was the
+    // one trio with no drift guard.
+    const axes = Object.keys(zEvalJudgeVerdict.shape).sort();
+    expect(Object.keys(EvalJudgeVerdictSchema.properties).sort()).toEqual(axes);
+    expect([...EvalJudgeVerdictSchema.required].sort()).toEqual(axes);
+
+    // The hand interface: zod → interface assignability is enforced by the
+    // compiler (npm run typecheck), interface → zod by the parse below.
+    const parsed = zEvalJudgeVerdict.parse(WELL_FORMED_VERDICT);
+    const asInterface: EvalJudgeVerdict = parsed;
+    expect(zEvalJudgeVerdict.safeParse(asInterface).success).toBe(true);
   });
 
   it('judgeTurn routes through the gateway with a mocked client and returns the parsed verdict', async () => {

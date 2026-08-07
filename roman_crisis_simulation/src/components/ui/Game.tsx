@@ -27,23 +27,6 @@ export const TypingIndicator: React.FC<{ lines?: string[]; intervalMs?: number }
         );
     };
 
-export const TrustBar: React.FC<{ level?: number; label?: React.ReactNode; style?: React.CSSProperties }> =
-    ({ level = 0, label, style }) => {
-        const clamped = Math.max(-10, Math.min(10, level));
-        const pct = ((clamped + 10) / 20) * 100;
-        const tone = clamped > 3 ? 'var(--laurel-500)' : clamped < -3 ? 'var(--crimson-500)' : 'var(--ink-500)';
-        const sign = clamped > 0 ? '+' + clamped : String(clamped);
-        return (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, ...style }}>
-                {label && <div className="gor-meter-row"><span className="gor-label">{label}</span><span className="gor-meter-val">{sign}</span></div>}
-                <div className="gor-trust" title={'Trust: ' + sign} role="meter" aria-label={typeof label === 'string' ? label : 'Trust'} aria-valuenow={clamped} aria-valuemin={-10} aria-valuemax={10}>
-                    <div className="gor-trust-fill" style={{ width: pct + '%', background: tone }}></div>
-                    <div className="gor-trust-zero"></div>
-                </div>
-            </div>
-        );
-    };
-
 const difficultyTones: Record<string, 'crimson' | 'bronze' | 'laurel'> = { Hard: 'crimson', Medium: 'bronze', Easy: 'laurel' };
 
 export const DestinyCard: React.FC<{

@@ -1,16 +1,11 @@
 import type { PerceivedChange } from '../perception/visibility';
-import type { Entity, Report } from '../types';
+import type { Entity, KnownRecipientOption, Report } from '../types';
 import {
   enforceKnowledgeClaimCap,
   type KnowledgeClaim,
   type PlayerSafeEvidence,
   type RelationshipObservationDraft,
 } from './store';
-
-export interface KnownRecipientOption {
-  entityId: string;
-  displayName: string;
-}
 
 /**
  * The complete public input surface for turn relationship evidence. Keeping

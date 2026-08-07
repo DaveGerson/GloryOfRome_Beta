@@ -2,6 +2,7 @@ import React from 'react';
 import { SimulationState } from '../../types';
 import { Alert } from '../ui/Alert';
 import { toRoman } from '../ui/Brand';
+import { RegisterHeading } from '../ui/Core';
 import type { TabId } from '../../perception/visibility';
 import { EmptyRegister } from './EmptyRegister';
 
@@ -124,7 +125,7 @@ const WorldStateTab: React.FC<{
             {anyFell && <p style={{ ...quiet, fontSize: 13, margin: 0 }}>▾ marks a standing that fell this week.</p>}
 
             <div>
-                <h3 className="gor-label" style={{ color: 'var(--crimson-500)' }}>Where to look</h3>
+                <RegisterHeading title="Where to look" />
                 {pointers.length === 0 ? (
                     <EmptyRegister
                         line="Nothing waits on you."

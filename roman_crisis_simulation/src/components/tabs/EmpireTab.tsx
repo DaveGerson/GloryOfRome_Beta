@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { WorldState, RegionState, Entity } from '../../types';
 import GlossaryTooltip from '../GlossaryTooltip';
-import { Card } from '../ui/Core';
+import { Card, RegisterHeading } from '../ui/Core';
 import { SubRail } from '../ui/SubRail';
 import { isRegionKnownToPlayer } from '../../perception/visibility';
 import { isEntityKnownToPlayer } from '../../knowledge/relationships';
@@ -99,7 +99,7 @@ const EmpireTab: React.FC<{
     if (register === 'provinces') {
         return <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {rail}
-            <h3 className="gor-label" style={{ color: 'var(--crimson-500)' }}>The state of the Empire</h3>
+            <RegisterHeading title="The state of the Empire" />
             {/* Item 23's RECKONED register: these two are the model's own free
                 prose, not figures the simulation holds, so they get a hedged
                 phrase behind a dashed track and a Tyrian ◆ — never a
@@ -114,7 +114,7 @@ const EmpireTab: React.FC<{
 
     return <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {rail}
-        <h3 className="gor-label" style={{ color: 'var(--crimson-500)' }}>Locations in Rome</h3>
+        <RegisterHeading title="Locations in Rome" />
         {/* What is unwritten is most of the map — say how much, rather than
             letting a column of blanked vellum read as a fault. */}
         <span style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--text-muted)', marginTop: -8 }}>
