@@ -263,16 +263,6 @@ const WorldStateSchema = {
     required: ['year', 'week', 'economic_stability', 'political_climate', 'regions']
 };
 
-export const InitialWorldSchema = {
-    type: Type.OBJECT,
-    properties: {
-        worldState: WorldStateSchema,
-        entities: { type: Type.ARRAY, items: EntitySchema },
-        playerCharacterId: { type: Type.STRING, description: "The entity_id of the player's character within the entities array." }
-    },
-    required: ['worldState', 'entities', 'playerCharacterId']
-};
-
 export const EntityStubSchema = {
     type: Type.OBJECT,
     properties: {

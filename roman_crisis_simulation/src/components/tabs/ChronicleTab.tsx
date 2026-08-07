@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { EventHistoryEntry, TurnHistoryEntry } from '../../types';
 import { toRoman } from '../ui/Brand';
+import { RegisterHeading } from '../ui/Core';
 import { SubRail } from '../ui/SubRail';
 import { buildChronicleSpine, ChronicleRow } from './chronicleSpine';
 import { getTabRegister, setTabRegister } from '../../persistence/uiPrefs';
@@ -86,7 +87,7 @@ const ChronicleTab: React.FC<{
                     : <div className="gor-spine">{spine.map(row => <SpineRow key={row.key} row={row} />)}</div>
             ) : (
                 <>
-                    <h3 className="gor-label" style={{ color: 'var(--crimson-500)' }}>Chronicle of Events</h3>
+                    <RegisterHeading title="Chronicle of Events" />
                     {eventHistory.length === 0 && (
                         <EmptyRegister line="No fate has yet cut across your reign." />
                     )}

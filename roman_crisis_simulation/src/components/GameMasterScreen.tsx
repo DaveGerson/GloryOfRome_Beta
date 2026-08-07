@@ -25,6 +25,9 @@ const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
 const lbl: React.CSSProperties = { fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', color: DIM };
 const well: React.CSSProperties = { background: 'rgba(0,0,0,.32)', border: '1px solid rgba(201,162,39,.22)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' };
 
+/** The console's one quiet-note / empty-state paragraph treatment. */
+const GmNote: React.FC<{ children: React.ReactNode }> = ({ children }) => <p style={{ color: DIM, margin: 0 }}>{children}</p>;
+
 /**
  * WP-12 — the console became a turn inspector. Every per-turn tab used to
  * re-render EVERY turn in history, so "deltas" was a wall of two turns' deltas
@@ -158,7 +161,7 @@ const ActionsView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => {
                 </div>
             ))
         ) : (
-            <p style={{ color: DIM, margin: 0 }}>No specific entity actions were recorded.</p>
+            <GmNote>No specific entity actions were recorded.</GmNote>
         )}
     </>
     );
@@ -228,7 +231,7 @@ const WhatChangedView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <span style={{ ...lbl, color: GOLD }}>The ledger</span>
                 {adjudication.deltas.length === 0 ? (
-                    <p style={{ color: DIM, margin: 0 }}>No state deltas were recorded.</p>
+                    <GmNote>No state deltas were recorded.</GmNote>
                 ) : adjudication.deltas.map((delta, index) => (
                     <div key={index} style={{ ...well, display: 'grid', gridTemplateColumns: '1fr auto', gap: '2px 10px' }}>
                         <span style={{ ...lbl, color: RED }}>{delta.type}</span>
@@ -246,9 +249,9 @@ const WhatChangedView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <span style={{ ...lbl, color: GOLD }}>Who moved</span>
                 {!roster ? (
-                    <p style={{ color: DIM, margin: 0 }}>Entity snapshot trimmed for this older turn - only the most recent turns retain one.</p>
+                    <GmNote>Entity snapshot trimmed for this older turn - only the most recent turns retain one.</GmNote>
                 ) : moved.length === 0 ? (
-                    <p style={{ color: DIM, margin: 0 }}>No entity was touched by this turn's deltas.</p>
+                    <GmNote>No entity was touched by this turn's deltas.</GmNote>
                 ) : moved.map(entityId => {
                     const entity = roster.find(e => e.entity_id === entityId);
                     if (!entity) return null;
@@ -293,7 +296,7 @@ const PrivateView: React.FC<{ adjudication: Adjudication }> = ({ adjudication })
                 <div key={index} style={{ ...redacted, fontStyle: 'italic', fontSize: 14, color: DIM }}>“{note}”</div>
             ))
         ) : (
-            <p style={{ color: DIM, margin: 0 }}>No private GM notes for this turn.</p>
+            <GmNote>No private GM notes for this turn.</GmNote>
         )}
     </>
 );
@@ -334,7 +337,7 @@ const PrivateSceneGmView: React.FC<{ scenes: readonly PrivateSceneRecord[] }> = 
     <section aria-label="Private scene GM ledger" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <span style={{ ...lbl, color: GOLD }}>Private Scene Ledger</span>
         {scenes.length === 0 ? (
-            <p style={{ color: DIM, margin: 0 }}>No private scenes have been recorded.</p>
+            <GmNote>No private scenes have been recorded.</GmNote>
         ) : scenes.slice().reverse().map(scene => (
             <details key={scene.sceneId} style={well}>
                 <summary style={{ cursor: 'pointer', color: PARCH }}>
@@ -652,7 +655,7 @@ const RawView: React.FC<{ adjudication: Adjudication; rawCalls?: RawCallRecord[]
                         />
                     </>
                 ) : (
-                    <p style={{ color: DIM, margin: 0 }}>No raw calls captured for this turn.</p>
+                    <GmNote>No raw calls captured for this turn.</GmNote>
                 )}
                 <details style={{ ...well, fontFamily: MONO, fontSize: 12 }}>
                     <summary style={{ cursor: 'pointer', color: GOLD }}>Parsed adjudication</summary>
@@ -804,9 +807,7 @@ export const FixturesView: React.FC<{
  * let through for the current player character - so filter rules can be
  * tuned by eyeballing the diff.
  *
- * Also surfaces `mortalityTrace` off the turn history entry, if present -
- * accessed defensively via an untyped cast so this file compiles regardless
- * of the mortality pipeline's landing order.
+ * Also surfaces `mortalityTrace` off the turn history entry, if present.
  */
 const GroundTruthView: React.FC<{
     entry: TurnHistoryEntry;
@@ -819,7 +820,7 @@ const GroundTruthView: React.FC<{
     // this view can only say so.
     const snapshotEntities = entry.postTurnEntities;
     const playerAtTurn = snapshotEntities?.find(e => e.entity_id === playerCharacterId) ?? null;
-    const mortalityTrace = (entry as unknown as Record<string, unknown>).mortalityTrace;
+    const mortalityTrace = entry.mortalityTrace;
 
     return (
         <>
@@ -830,11 +831,11 @@ const GroundTruthView: React.FC<{
                     {playerAtTurn ? <span style={{ color: PARCH }}>{playerAtTurn.name}</span> : 'the player'} perceive.
                 </p>
                 {!snapshotEntities ? (
-                    <p style={{ color: DIM, margin: 0 }}>Entity snapshot trimmed for this older turn - only the most recent turns retain one, and the perception classification needs the turn's own roster.</p>
+                    <GmNote>Entity snapshot trimmed for this older turn - only the most recent turns retain one, and the perception classification needs the turn's own roster.</GmNote>
                 ) : !playerAtTurn ? (
-                    <p style={{ color: DIM, margin: 0 }}>No player character to classify against for this turn.</p>
+                    <GmNote>No player character to classify against for this turn.</GmNote>
                 ) : entry.adjudication.deltas.length === 0 ? (
-                    <p style={{ color: DIM, margin: 0 }}>No deltas were recorded this turn.</p>
+                    <GmNote>No deltas were recorded this turn.</GmNote>
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         {entry.adjudication.deltas.map((delta, index) => {
@@ -867,7 +868,7 @@ const GroundTruthView: React.FC<{
                 {mortalityTrace ? (
                     <pre style={{ ...well, fontFamily: MONO, fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginTop: 6, color: PARCH }}>{JSON.stringify(mortalityTrace, null, 2)}</pre>
                 ) : (
-                    <p style={{ fontSize: 13, color: DIM, margin: '4px 0 0' }}>No mortality trace recorded for this turn (mortality pipeline not yet wired in, or nothing triggered it).</p>
+                    <p style={{ fontSize: 13, color: DIM, margin: '4px 0 0' }}>No mortality trace recorded for this turn — nothing triggered the Fates' scales.</p>
                 )}
             </div>
         </>
@@ -903,13 +904,13 @@ const NpcPerceptionView: React.FC<{
     const perceivingIds = entry.perceivingNpcIds;
 
     if (!snapshotEntities) {
-        return <p style={{ color: DIM, margin: 0 }}>Entity snapshot trimmed for this older turn - only the most recent turns retain one, and the per-NPC perception derivation needs the turn's own roster.</p>;
+        return <GmNote>Entity snapshot trimmed for this older turn - only the most recent turns retain one, and the per-NPC perception derivation needs the turn's own roster.</GmNote>;
     }
     if (!perceivingIds) {
-        return <p style={{ color: DIM, margin: 0 }}>No perceiving-NPC set recorded for this turn.</p>;
+        return <GmNote>No perceiving-NPC set recorded for this turn.</GmNote>;
     }
     if (perceivingIds.length === 0) {
-        return <p style={{ color: DIM, margin: 0 }}>No NPCs were selected to perceive this turn.</p>;
+        return <GmNote>No NPCs were selected to perceive this turn.</GmNote>;
     }
     return (
         <>
@@ -959,7 +960,7 @@ const NpcPerceptionView: React.FC<{
 const TruthLedgerView: React.FC<{ ledger: TruthLedgerEntry[]; reports: Report[] }> = ({ ledger, reports }) => (
     <>
         {ledger.length === 0 ? (
-            <p style={{ color: DIM, margin: 0 }}>No rumors have been recorded in the truth ledger yet.</p>
+            <GmNote>No rumors have been recorded in the truth ledger yet.</GmNote>
         ) : (
             ledger.slice().reverse().map(entry => {
                 const matchingReport = reports.find(r => r.id === entry.reportId);
@@ -1011,7 +1012,7 @@ const PlayerKnowledgeView: React.FC<{ knowledge: KnowledgeClaim[] }> = ({ knowle
     return (
         <>
             {knowledge.length === 0 ? (
-                <p style={{ color: DIM, margin: 0 }}>The player holds no recorded knowledge claims yet.</p>
+                <GmNote>The player holds no recorded knowledge claims yet.</GmNote>
             ) : (
                 knowledge.slice().reverse().map(claim => (
                     <div key={claim.id} style={well}>
@@ -1210,7 +1211,7 @@ const GameMasterScreen: React.FC<{
      *  retries a turn cost, and whether the Fates weighed a life in it. */
     const railFlags = (entry: TurnHistoryEntry): string => {
         const retries = (entry.rawCalls ?? []).reduce((sum, call) => sum + Math.max(0, call.attempts - 1), 0);
-        const weighed = (entry as unknown as Record<string, unknown>).mortalityTrace ? '✝' : '';
+        const weighed = entry.mortalityTrace ? '✝' : '';
         return [retries > 0 ? `↻${retries}` : '', weighed].filter(Boolean).join(' ');
     };
 

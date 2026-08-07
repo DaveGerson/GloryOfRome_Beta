@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import path from 'path';
 import { execFileSync } from 'node:child_process';
 import { defineConfig, loadEnv } from 'vite';
@@ -72,12 +73,16 @@ export default defineConfig(({ mode, command }) => {
     const env = loadEnv(mode, '.', '');
     // Owner dev-key priority: an explicit .env beats the machine-global
     // credential store; the in-app configuration-menu key (localStorage)
-    // beats both at runtime in App.tsx. Resolved only for `serve` so no
-    // credential read ever happens during a build.
-    const devGeminiKey = command === 'serve'
+    // beats both at runtime in App.tsx. Resolved only for the actual dev
+    // server: `command === 'serve'` alone is NOT enough, because Vitest
+    // also invokes this factory with command 'serve' — the VITEST guard
+    // keeps the owner's real key out of every test process (tests run
+    // against ai/mocks.ts and must never touch a live key).
+    const isDevServer = command === 'serve' && !process.env.VITEST;
+    const devGeminiKey = isDevServer
       ? (env.GEMINI_API_KEY || readWindowsGenericCredential(CREDMAN_TARGET))
       : undefined;
-    if (command === 'serve' && !env.GEMINI_API_KEY && devGeminiKey) {
+    if (isDevServer && !env.GEMINI_API_KEY && devGeminiKey) {
       console.log(`[gor] GEMINI_API_KEY sourced from Windows Credential Manager (${CREDMAN_TARGET})`);
     }
     return {
@@ -89,13 +94,14 @@ export default defineConfig(({ mode, command }) => {
       // DESIGN_DECISIONS.md D34 - bring-your-own-key is the default path;
       // no server component, no build-time key injection into a
       // production bundle (that was the deploy blocker/billing leak this
-      // ruling closes). `command === 'serve'` is true only for the local
-      // dev server, never for `vite build` - so this convenience (reading
-      // GEMINI_API_KEY from .env for the owner's own local play) never
-      // reaches shipped output. App.tsx's dev-only read of this seam is
-      // itself guarded by `import.meta.env.DEV` so a prod build never even
-      // evaluates a `process` reference.
-      define: command === 'serve' ? {
+      // ruling closes). `isDevServer` is true only for the local dev
+      // server — never for `vite build`, never under Vitest - so this
+      // convenience (reading GEMINI_API_KEY from .env for the owner's own
+      // local play) never reaches shipped output or a test process.
+      // App.tsx's dev-only read of this seam is itself guarded by
+      // `import.meta.env.DEV` so a prod build never even evaluates a
+      // `process` reference.
+      define: isDevServer ? {
         'process.env.API_KEY': JSON.stringify(devGeminiKey),
         'process.env.GEMINI_API_KEY': JSON.stringify(devGeminiKey)
       } : {},
@@ -103,6 +109,12 @@ export default defineConfig(({ mode, command }) => {
         alias: {
           '@': path.resolve(__dirname, '.'),
         }
+      },
+      // Main suite only (`vitest run` picks up this config; the journeys
+      // and eval legs have their own). Seeds the fake device key — see
+      // tests/vitest.setup.ts for why.
+      test: {
+        setupFiles: ['./tests/vitest.setup.ts'],
       },
       // Task 4b (bundle-triage.md, FIX_NOW_DEFECT): split slow-changing
       // node_modules code into stable, package-keyed vendor chunks so a

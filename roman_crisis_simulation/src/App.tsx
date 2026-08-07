@@ -1110,13 +1110,6 @@ const App: React.FC = () => {
             return false;
         }
 
-        if (hasFallout(result.consequences)) {
-            // The visible hint was included in the candidate transaction above.
-            /* addMessage({
-                sender: 'gm',
-                text: "Your agent returns — but something in their manner suggests the visit did not go unnoticed."
-            }); */
-        }
         return true;
     };
 

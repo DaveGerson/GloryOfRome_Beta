@@ -32,3 +32,7 @@ jobs:
       - run: npm run test:journeys
 
       - run: npm run build
+
+      # `npm run eval` is intentionally NOT a CI gate: it makes one real
+      # model call per corpus turn when an API key is present (see
+      # vitest.eval.config.ts) — a paid, non-deterministic leg run locally.

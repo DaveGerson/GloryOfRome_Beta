@@ -28,34 +28,25 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      // Task 5 (task-5-brief.md): seed rules so the current tree exits
-      // zero without any source rewrite. Each downgrade below is a
-      // deliberate, temporary allowance documented in task-5-report.md,
-      // not a permanent stance on the rule.
-      '@typescript-eslint/no-explicit-any': 'warn',
-      // Task 8a (task-8a-brief.md): `ignoreRestSiblings` recognizes the
-      // deliberate `const { drop, ...rest } = obj` omit idiom (used by the
-      // narration redaction that strips gm_private/secret_truth fields)
-      // instead of flagging the omitted name as an unused variable.
-      '@typescript-eslint/no-unused-vars': ['warn', { ignoreRestSiblings: true }],
-      // typescript-eslint's eslint-recommended override; current tree has
-      // existing `let` bindings that are never reassigned.
-      'prefer-const': 'warn',
-      // @eslint/js recommended; the dead reassignments that seeded this
-      // downgrade were fixed by commit 6caf233 (assertions now read the
-      // intermediate values), leaving zero occurrences. Kept at 'warn'
-      // alongside the other seeded rules; package.json's lint command uses
-      // the exact checked-in warning manifest verifier. Any baseline change
-      // requires the deliberate triage and matching B11 update documented in
-      // roadmaps/BACKLOG.md.
-      'no-useless-assignment': 'warn',
-      // @eslint/js recommended; current tree has existing rethrows that
-      // don't attach the original error as `cause`.
-      'preserve-caught-error': 'warn',
-      // eslint-plugin-react-hooks recommended; current tree has existing
-      // effects that call setState synchronously (React Compiler-era
-      // rule), which is a behavior-adjacent change out of scope here.
-      'react-hooks/set-state-in-effect': 'warn',
+      // These six rules were seeded at 'warn' to tolerate a 17-item legacy
+      // inventory (roadmaps/BACKLOG.md B11) while it was burned down. That
+      // inventory reached zero (tooling/eslint-warning-baseline.json is
+      // empty), so the ratchet is locked: each is now 'error'. A future
+      // deliberate exception goes through an inline disable with a
+      // justification comment, or back through the baseline machinery
+      // (tooling/lint-baseline.mjs) with a matching B11 entry.
+      // The one accepted `any` (ai/core/geminiService.ts's Zod escape
+      // hatch) carries its own inline disable.
+      '@typescript-eslint/no-explicit-any': 'error',
+      // `ignoreRestSiblings` recognizes the deliberate
+      // `const { drop, ...rest } = obj` omit idiom (used by the narration
+      // redaction that strips gm_private/secret_truth fields) instead of
+      // flagging the omitted name as an unused variable.
+      '@typescript-eslint/no-unused-vars': ['error', { ignoreRestSiblings: true }],
+      'prefer-const': 'error',
+      'no-useless-assignment': 'error',
+      'preserve-caught-error': 'error',
+      'react-hooks/set-state-in-effect': 'error',
     },
   }
 );

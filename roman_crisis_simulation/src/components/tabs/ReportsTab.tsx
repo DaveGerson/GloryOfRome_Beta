@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Report } from '../../types';
-import { Badge } from '../ui/Core';
+import { Badge, RegisterHeading } from '../ui/Core';
 import { WaxSeal, toRoman } from '../ui/Brand';
 import { SubRail } from '../ui/SubRail';
 import {
@@ -136,7 +136,7 @@ const ReportsTab: React.FC<{ reports: Report[]; knowledge?: KnowledgeClaim[] }> 
     if (reports.length === 0 && feedClaims.length === 0) {
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <h3 className="gor-label" style={{ color: 'var(--crimson-500)' }}>Intelligence Reports</h3>
+                <RegisterHeading title="Intelligence Reports" />
                 <EmptyRegister
                     silhouette={<SlipsSilhouette />}
                     line="No one has told you anything yet."
