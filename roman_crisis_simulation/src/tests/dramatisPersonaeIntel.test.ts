@@ -16,23 +16,10 @@ import {
   resolveIntelRequest,
   DEEP_ANALYSIS_COST,
 } from '../components/tabs/dramatisPersonaeIntel';
+import { makeEntity as baseMakeEntity } from './factories';
 
 function makeEntity(overrides: Partial<Entity> = {}): Entity {
-  return {
-    entity_id: 'e1',
-    name: 'Test Entity',
-    entity_type: 'individual',
-    status: 'alive',
-    location: 'Rome',
-    relationships: {},
-    memories: [],
-    resources: {},
-    visibility_network: [],
-    current_state_narrative: '',
-    short_term_goals: [],
-    long_term_ambitions: [],
-    ...overrides,
-  };
+  return baseMakeEntity({ entity_id: 'e1', name: 'Test Entity', ...overrides });
 }
 
 const target = makeEntity({ entity_id: 'maximinus_thrax', name: 'Maximinus Thrax' });

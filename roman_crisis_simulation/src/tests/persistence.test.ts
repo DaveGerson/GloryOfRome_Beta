@@ -9,7 +9,6 @@ import {
   hasSave,
   updateSavedAmbition,
   SAVE_VERSION,
-  type SaveGameState,
   type InferredAmbitionState,
   type SaveGameResult,
 } from '../persistence/saveGame';
@@ -18,94 +17,31 @@ import type { TurnHistoryEntry, RawCallRecord, Memory } from '../types';
 import type { KnowledgeClaim } from '../knowledge/store';
 import type { PrivateSceneRecord } from '../privateScene/model';
 import { serializeTurnSubmission } from '../playerInput/turnSubmission';
-
-function makeState(overrides: Partial<SaveGameState> = {}): SaveGameState {
-  return {
-    entities: [],
-    worldState: {
-      year: 235,
-      week: 3,
-      economic_stability: 'stable',
-      political_climate: 'tense',
-      regions: {},
-    },
-    simulationState: {
-      imperial_status: 'Stable',
-      senate_status: 'Functional',
-      military_status: 'Loyal',
-      plebeian_mood: 'Uneasy',
-      major_ongoing_crisis: null,
-    },
-    reports: [],
-    turnNumber: 4,
-    playerCharacterId: 'severus_alexander',
-    turnHistory: [],
-    eventHistory: [],
-    metaNarrative: 'A crisis of succession.',
-    messages: [{ sender: 'gm', text: 'Welcome.' }],
-    triggeredEventIds: [],
-    suggestedActions: [],
-    currentEvents: [],
-    gmInterventionText: '',
-    ...overrides,
-  };
-}
+import {
+  makeLegacySaveState as makeState,
+  makeTurnHistoryEntry,
+  makeAdjudication,
+  makeRawCall as baseMakeRawCall,
+  makePrivateScene,
+} from './factories';
 
 function makeRawCall(callName: string): RawCallRecord {
-  return {
+  return baseMakeRawCall({
     callName,
-    model: 'gemini-3-pro-preview',
-    latencyMs: 100,
-    attempts: 1,
-    promptChars: 1000,
     promptText: `full prompt for ${callName}: ${'p'.repeat(500)}`,
     systemInstruction: `system instruction for ${callName}`,
-    rawResponse: 'x'.repeat(1000),
-    validated: true,
-  };
+  });
 }
 
 function makeHistoryEntry(turnNumber: number, withRawCalls: boolean): TurnHistoryEntry {
-  return {
+  return makeTurnHistoryEntry({
     turnNumber,
     playerIntent: `do thing ${turnNumber}`,
-    adjudication: {
-      turn: turnNumber,
-      entityActions: [],
-      deltas: [],
-      headlines: [`Headline ${turnNumber}`],
-      gm_private: [],
-    },
+    adjudication: makeAdjudication({ turn: turnNumber, headlines: [`Headline ${turnNumber}`] }),
     narration: `Narration for turn ${turnNumber}`,
     postTurnEntities: [],
     rawCalls: withRawCalls ? [makeRawCall('adjudication'), makeRawCall('narration')] : undefined,
-  };
-}
-
-function makePrivateScene(overrides: Partial<PrivateSceneRecord> = {}): PrivateSceneRecord {
-  return {
-    sceneId: 'scene_4_1',
-    macroTurn: 4,
-    playerId: 'severus_alexander',
-    npcId: 'maximinus_thrax',
-    playerName: 'Severus Alexander',
-    npcName: 'Maximinus Thrax',
-    status: 'closed',
-    transcript: [
-      { sequence: 1, speaker: 'player', text: 'Speak plainly.' },
-      { sequence: 2, speaker: 'npc', text: 'I have heard you.' },
-    ],
-    npcResponseCount: 1,
-    speechActs: [{ speaker: 'npc', kind: 'claim', text: 'I have heard you.', exchange: 1 }],
-    npcPrivate: {
-      sincerity: 'Guarded.',
-      hiddenIntent: 'Measure the emperor before choosing a side.',
-      plannedFollowThrough: ['Question the camp prefect.'],
-    },
-    closureReason: 'player_ended',
-    consequenceStatus: 'pending',
-    ...overrides,
-  };
+  });
 }
 
 describe('persistence/saveGame', () => {

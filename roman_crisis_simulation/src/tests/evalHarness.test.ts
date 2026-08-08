@@ -21,6 +21,12 @@ import { zEvalJudgeVerdict } from '../ai/core/zodSchemas';
 import { EvalJudgeVerdictSchema } from '../ai/core/schemas';
 import { GeminiClient } from '../ai/core/geminiService';
 import { getMockInitialState } from './mockData';
+import {
+  makeRawCall as baseMakeRawCall,
+  makeResolutionTrace as baseMakeResolutionTrace,
+  makeMortalityEvent as baseMakeMortalityEvent,
+  makeTurnHistoryEntry,
+} from './factories';
 import type {
   Adjudication,
   ActionResolutionEvent,
@@ -49,18 +55,15 @@ function makeAdjudication(turn: number): Adjudication {
 }
 
 function makeRawCall(callName: string, rawResponse: string, overrides: Partial<RawCallRecord> = {}): RawCallRecord {
-  return {
+  return baseMakeRawCall({
     callName,
     model: 'test-model',
-    latencyMs: 100,
-    attempts: 1,
     promptChars: 500,
     promptText: `prompt for ${callName}`,
     systemInstruction: `system for ${callName}`,
     rawResponse,
-    validated: true,
     ...overrides,
-  };
+  });
 }
 
 /**
@@ -88,7 +91,7 @@ const VALID_ADJUDICATION_JSON = makeAdjudicationInterchangeJson(3);
 const INVALID_ADJUDICATION_JSON = JSON.stringify({ ...JSON.parse(VALID_ADJUDICATION_JSON), headlines: 'not an array' });
 
 function makeEntry(turnNumber: number, overrides: Partial<TurnHistoryEntry> = {}): TurnHistoryEntry {
-  return {
+  return makeTurnHistoryEntry({
     turnNumber,
     playerIntent: `intent ${turnNumber}`,
     adjudication: makeAdjudication(turnNumber),
@@ -96,11 +99,11 @@ function makeEntry(turnNumber: number, overrides: Partial<TurnHistoryEntry> = {}
     rawCalls: [makeRawCall('adjudication', VALID_ADJUDICATION_JSON)],
     turnSeed: 42,
     ...overrides,
-  };
+  });
 }
 
 function makeResolutionTrace(roll: number): ActionResolutionEvent {
-  return {
+  return baseMakeResolutionTrace({
     assessment: {
       is_consequential: true,
       action_category: 'oratory persuasion',
@@ -113,18 +116,25 @@ function makeResolutionTrace(roll: number): ActionResolutionEvent {
     total: roll + 3,
     margin: roll + 3 - 12,
     tier: 'partial_success',
-  };
+  });
 }
 
 function makeMortalityEvent(entityId: string, roll: number | undefined, valid: boolean): MortalityEvent {
   const entity = MOCK_ENTITIES.find(e => e.entity_id === entityId)!;
-  return {
+  // roll/band are optional-with-a-canonical-default fields (factories.ts
+  // makeMortalityEvent defaults them to roll: 4, band: 'dies'); drop them
+  // back off here so an invalidated claim (no roll reached) still produces
+  // an event with NO roll/band keys at all, matching the pre-migration shape.
+  const { roll: _defaultRoll, band: _defaultBand, ...rest } = baseMakeMortalityEvent({
     entity_id: entity.entity_id,
     entity_name: entity.name,
     claim: 'Cut down in the forum.',
     valid,
-    ...(roll !== undefined ? { roll, band: 'confirmed_dead' } : {}),
     outcomeSummary: valid ? 'The blade finds its mark.' : 'Death claim invalidated.',
+  });
+  return {
+    ...rest,
+    ...(roll !== undefined ? { roll, band: 'confirmed_dead' } : {}),
   };
 }
 

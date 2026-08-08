@@ -31,49 +31,34 @@ import { buildNarrationPrompt } from '../ai/prompts/narration';
 import { gameReducer, createInitialGameState } from '../state/gameReducer';
 import type { SaveGameState } from '../persistence/saveGame';
 import { getMockInitialState } from './mockData';
-import { Entity, GameEvent, SimulationState, WorldState, EventFiringRecord } from '../types';
+import {
+  makeEntity as baseMakeEntity,
+  makeWorldState,
+  makeSimulationState as makeSim,
+} from './factories';
+import { Entity, GameEvent, WorldState, EventFiringRecord } from '../types';
 
 // --- fixtures ---------------------------------------------------------------
 
 function makeEntity(overrides: Partial<Entity> = {}): Entity {
-  return {
+  return baseMakeEntity({
     entity_id: 'lycinia_stolo',
     name: 'Lycinia Stolo',
-    entity_type: 'individual',
-    status: 'alive',
     position: 'Informant Broker', // deliberately NOT an Emperor
     location: 'The Suburra',
-    relationships: {},
-    memories: [],
     resources: { denarii: 20000 },
-    visibility_network: [],
     current_state_narrative: 'Trading in secrets.',
-    short_term_goals: [],
-    long_term_ambitions: [],
     ...overrides,
-  };
+  });
 }
 
 function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
-  return {
-    year: 235,
+  return makeWorldState({
     week: 5,
     economic_stability: 'Stable',
     political_climate: 'Volatile',
-    regions: {},
     ...overrides,
-  };
-}
-
-function makeSim(overrides: Partial<SimulationState> = {}): SimulationState {
-  return {
-    imperial_status: 'Stable',
-    senate_status: 'Functional',
-    military_status: 'Loyal',
-    plebeian_mood: 'Uneasy',
-    major_ongoing_crisis: null,
-    ...overrides,
-  };
+  });
 }
 
 function eventById(id: string): GameEvent {

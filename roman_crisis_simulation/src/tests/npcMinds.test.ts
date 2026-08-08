@@ -34,6 +34,7 @@ import { withOldSnapshotsDropped, KEEP_FULL_SNAPSHOTS } from '../state/gameReduc
 import { mockRunNewTurn, mockGetNpcMindDecision } from '../ai/mocks';
 import { getMockInitialState } from './mockData';
 import { ALL_INITIAL_ENTITIES, INITIAL_WORLD_STATE } from '../constants/baseScenario';
+import { makeEntity as baseMakeEntity } from './factories';
 import type { PrivateSceneNpcMemoryProjection } from '../privateScene/model';
 import type { Entity, EventDelta, NpcMindDecision, Scheme, SimulationState, StoryRelevance, TurnHistoryEntry, TurnSubmission, WorldState } from '../types';
 
@@ -59,21 +60,13 @@ const WORLD_STATE: WorldState = {
 };
 
 function makeEntity(overrides: Partial<Entity> = {}): Entity {
-  return {
+  return baseMakeEntity({
     entity_id: 'npc_generic',
     name: 'Generic Roman',
-    entity_type: 'individual',
-    status: 'alive',
     location: 'Palatine Hill',
-    relationships: {},
-    memories: [],
-    resources: {},
-    visibility_network: [],
     current_state_narrative: 'A Roman.',
-    short_term_goals: [],
-    long_term_ambitions: [],
     ...overrides,
-  };
+  });
 }
 
 const freeform = (text: string): TurnSubmission => ({ version: 1, kind: 'freeform', text });

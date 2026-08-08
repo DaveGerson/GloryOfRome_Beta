@@ -17,7 +17,14 @@ import { GameState, Message, TurnHistoryEntry, GameEvent } from '../types';
 import type { SaveGameState } from '../persistence/saveGame';
 import type { KnowledgeClaim } from '../knowledge/store';
 import type { PrivateSceneRecord } from '../privateScene/model';
-import { getMockInitialState } from './mockData';
+import {
+  getMockInitialState,
+  makeTurnHistoryEntry,
+  makeAdjudication,
+  makeKnowledgeClaim as baseMakeKnowledgeClaim,
+  makePrivateScene as baseMakePrivateScene,
+  makeLegacySaveState,
+} from './factories';
 
 const PLAYER_ID = 'severus_alexander';
 type TurnCommitWithPlayerMessage = Extract<GameAction, { type: 'TURN_COMMITTED' }> & {
@@ -25,20 +32,14 @@ type TurnCommitWithPlayerMessage = Extract<GameAction, { type: 'TURN_COMMITTED' 
 };
 
 function makeHistoryEntry(turnNumber: number): TurnHistoryEntry {
-  return {
+  return makeTurnHistoryEntry({
     turnNumber,
     playerIntent: `intent ${turnNumber}`,
-    adjudication: {
-      turn: turnNumber,
-      entityActions: [],
-      deltas: [],
-      headlines: [`Headline ${turnNumber}`],
-      gm_private: [],
-    },
+    adjudication: makeAdjudication({ turn: turnNumber, headlines: [`Headline ${turnNumber}`] }),
     narration: `Narration ${turnNumber}`,
     postTurnEntities: [],
     perceivingNpcIds: ['maximinus_thrax'],
-  };
+  });
 }
 
 /** A mid-campaign state with the mock scenario's entities and the player set. */
@@ -71,18 +72,16 @@ function withDeadPlayer(state: GameDomainState): GameDomainState['entities'] {
 
 /** A minimal knowledge-store claim (D21) for slice-flow assertions. */
 function makeKnowledgeClaim(id: string, turn: number): KnowledgeClaim {
-  return {
+  return baseMakeKnowledgeClaim({
     id,
-    subject: 'maximinus_thrax',
-    claim: 'Thrax courts the Rhine legions',
     claimKey: `report:maximinus_thrax:rumor:${id}`,
     firstLearnedTurn: turn,
     updates: [{ turn, source: 'rumor', text: 'Thrax courts the Rhine legions', credibility: 0.6 }],
-  };
+  });
 }
 
 function makePrivateScene(overrides: Partial<PrivateSceneRecord> = {}): PrivateSceneRecord {
-  return {
+  return baseMakePrivateScene({
     sceneId: 'scene_3_1', macroTurn: 3, playerId: PLAYER_ID, npcId: 'maximinus_thrax',
     playerName: 'Severus Alexander', npcName: 'Maximinus Thrax', status: 'closed',
     transcript: [{ sequence: 1, speaker: 'player', text: 'Speak.' }, { sequence: 2, speaker: 'npc', text: 'I hear you.' }],
@@ -91,7 +90,7 @@ function makePrivateScene(overrides: Partial<PrivateSceneRecord> = {}): PrivateS
     npcPrivate: { sincerity: 'Guarded.', hiddenIntent: 'Assess the offer.', plannedFollowThrough: ['Consult allies.'] },
     closureReason: 'player_ended', consequenceStatus: 'pending',
     ...overrides,
-  };
+  });
 }
 
 /**
@@ -202,13 +201,11 @@ function makeTurnCommit(state: GameDomainState, entities = state.entities): Turn
 
 function makeSaveState(overrides: Partial<SaveGameState> = {}): SaveGameState {
   const { entities, worldState } = getMockInitialState();
-  return {
+  return makeLegacySaveState({
     entities,
     worldState,
     simulationState: createInitialGameState().simulationState,
-    reports: [],
     turnNumber: 7,
-    playerCharacterId: PLAYER_ID,
     turnHistory: [makeHistoryEntry(6)],
     eventHistory: [{ eventId: 'ev1', eventTitle: 'The Omen', choiceText: 'Ignore it', turnNumber: 4 }],
     metaNarrative: 'A loaded crisis.',
@@ -218,7 +215,7 @@ function makeSaveState(overrides: Partial<SaveGameState> = {}): SaveGameState {
     currentEvents: ['Loaded headline'],
     gmInterventionText: 'Loaded intervention',
     ...overrides,
-  };
+  });
 }
 
 describe('state/gameReducer', () => {

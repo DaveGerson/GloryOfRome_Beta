@@ -29,7 +29,7 @@ import {
   SAVE_VERSION,
   type SaveGameState,
 } from '../persistence/saveGame';
-import type { Memory } from '../types';
+import { makeEntity, makeLegacySaveState } from './factories';
 
 const SAVE_KEY = 'gloryOfRome:autosave';
 
@@ -40,52 +40,18 @@ const SAVE_KEY = 'gloryOfRome:autosave';
  * `playerCharacterId`.
  */
 function makePlayerEntity() {
-  return {
+  return makeEntity({
     entity_id: 'severus_alexander',
     name: 'Severus Alexander',
-    entity_type: 'individual' as const,
-    status: 'alive' as const,
-    location: 'Rome',
-    relationships: {},
-    memories: [] as Memory[],
-    resources: {},
-    visibility_network: [] as string[],
     current_state_narrative: 'The young emperor holds a fraying court.',
-    short_term_goals: [] as string[],
-    long_term_ambitions: [] as string[],
-  };
+  });
 }
 
 function makeState(overrides: Partial<SaveGameState> = {}): SaveGameState {
-  return {
+  return makeLegacySaveState({
     entities: [makePlayerEntity()],
-    worldState: {
-      year: 235,
-      week: 3,
-      economic_stability: 'stable',
-      political_climate: 'tense',
-      regions: {},
-    },
-    simulationState: {
-      imperial_status: 'Stable',
-      senate_status: 'Functional',
-      military_status: 'Loyal',
-      plebeian_mood: 'Uneasy',
-      major_ongoing_crisis: null,
-    },
-    reports: [],
-    turnNumber: 4,
-    playerCharacterId: 'severus_alexander',
-    turnHistory: [],
-    eventHistory: [],
-    metaNarrative: 'A crisis of succession.',
-    messages: [{ sender: 'gm', text: 'Welcome.' }],
-    triggeredEventIds: [],
-    suggestedActions: [],
-    currentEvents: [],
-    gmInterventionText: '',
     ...overrides,
-  };
+  });
 }
 
 describe('persistence/saveGame — rawSaveBlob and importSaveBlob', () => {

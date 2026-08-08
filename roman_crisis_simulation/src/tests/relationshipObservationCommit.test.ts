@@ -9,8 +9,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../App';
 import { GameProvider } from '../state/GameContext';
-import { createInitialGameState } from '../state/gameReducer';
-import { loadGame, saveGame, type SaveGameState } from '../persistence/saveGame';
+import { loadGame, saveGame } from '../persistence/saveGame';
 import { projectForExternalInference } from '../playerInput/turnSubmission';
 import * as relationshipModule from '../knowledge/relationships';
 import * as observationTool from '../ai/tools/relationshipObservations';
@@ -23,7 +22,7 @@ import type { PlayerSafeEvidence, RelationshipObservationDraft } from '../knowle
 import type { GeminiClient } from '../ai/core/geminiService';
 import type { Entity, Report, TurnSubmission } from '../types';
 import { ingestRelationshipObservations } from '../knowledge/relationships';
-import { getMockInitialState } from './mockData';
+import { makeAppSave } from './factories';
 
 vi.mock('../ai/core/turn', async importOriginal => {
   const actual = await importOriginal<typeof import('../ai/core/turn')>();
@@ -110,33 +109,6 @@ async function defaultTurnResult(...args: Parameters<typeof turnModule.runNewTur
     args[1], args[2], args[3], args[4], args[5], args[8], args[11], args[13],
     args[6], args[9], args[10],
   );
-}
-
-function makeAppSave(overrides: Partial<SaveGameState> = {}): SaveGameState {
-  const initial = getMockInitialState();
-  return {
-    entities: initial.entities,
-    worldState: initial.worldState,
-    simulationState: createInitialGameState().simulationState,
-    reports: [],
-    truthLedger: [],
-    knowledge: [],
-    npcIntents: [],
-    turnNumber: 2,
-    playerCharacterId: 'severus_alexander',
-    turnHistory: [],
-    eventHistory: [],
-    metaNarrative: 'Task 7 observation integration.',
-    messages: [],
-    triggeredEventIds: [],
-    eventFirings: [],
-    suggestedActions: [],
-    currentEvents: [],
-    gmInterventionText: '',
-    inferredAmbition: null,
-    pendingIntelligenceFallout: [],
-    ...overrides,
-  };
 }
 
 function buttonNamed(container: HTMLElement, name: string): HTMLButtonElement {

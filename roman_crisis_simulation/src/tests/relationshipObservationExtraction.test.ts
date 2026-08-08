@@ -11,17 +11,10 @@ import { buildRelationshipObservationsPrompt } from '../ai/prompts/relationshipO
 import { getRelationshipObservations } from '../ai/tools/relationshipObservations';
 import { parseModelJson } from '../ai/core/json';
 import { evidenceContainsExactEntityName } from '../knowledge/relationships';
+import { makeQueuedTextAi } from './factories';
 
-function makeMockAi(...responses: unknown[]): {
-  ai: GeminiClient;
-  generateContent: ReturnType<typeof vi.fn>;
-} {
-  const generateContent = vi.fn();
-  for (const response of responses) {
-    generateContent.mockResolvedValueOnce({ text: JSON.stringify(response) });
-  }
-  return { ai: { models: { generateContent } }, generateContent };
-}
+const makeMockAi = (...responses: unknown[]) =>
+  makeQueuedTextAi(...responses.map(response => JSON.stringify(response)));
 
 const SAFE_TEXT = 'Senator Lucius defended Severus Alexander before the Curia.';
 const evidence: PlayerSafeEvidence[] = [{

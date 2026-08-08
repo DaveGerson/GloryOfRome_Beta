@@ -18,7 +18,6 @@ import { createRoot, type Root } from 'react-dom/client';
 import GameMasterScreen from '../components/GameMasterScreen';
 import App from '../App';
 import { GameProvider } from '../state/GameContext';
-import { createInitialGameState } from '../state/gameReducer';
 import { AiServiceError } from '../ai/core/geminiService';
 import * as aiMocks from '../ai/mocks';
 import { loadGame, saveGame, type SaveGameState } from '../persistence/saveGame';
@@ -27,6 +26,7 @@ import type { Entity, TurnHistoryEntry, TurnSubmission, WorldState } from '../ty
 import type { KnowledgeClaim } from '../knowledge/store';
 import type { PrivateSceneRecord } from '../privateScene/model';
 import { getMockInitialState } from './mockData';
+import { makeAppSave as baseMakeAppSave } from './factories';
 
 vi.mock('../ai/mocks', async importOriginal => {
   const actual = await importOriginal<typeof import('../ai/mocks')>();
@@ -158,7 +158,10 @@ function makeAppSave(): SaveGameState {
     memories: [],
     visibility_network: [],
   };
-  return {
+  // `inferredAmbition` must stay ABSENT (not `null`) - the canonical
+  // makeAppSave sets it to `null`, so it is destructured off here to
+  // preserve this file's legacy-shaped field absence exactly.
+  const { inferredAmbition: _omit, ...base } = baseMakeAppSave({
     entities: [
       ...initial.entities.map(entity => entity.entity_id === player.entity_id
         ? { ...entity, visibility_network: ['maximinus_thrax'] }
@@ -166,25 +169,10 @@ function makeAppSave(): SaveGameState {
       knownFaction,
       hiddenActor,
     ],
-    worldState: initial.worldState,
-    simulationState: createInitialGameState().simulationState,
-    reports: [],
-    truthLedger: [],
     knowledge: [makeKnowledgeClaim(knownFaction.entity_id)],
-    npcIntents: [],
-    turnNumber: 2,
-    playerCharacterId: player.entity_id,
-    turnHistory: [],
-    eventHistory: [],
     metaNarrative: 'A test of exact turn orchestration.',
-    messages: [],
-    triggeredEventIds: [],
-    eventFirings: [],
-    suggestedActions: [],
-    currentEvents: [],
-    gmInterventionText: '',
-    pendingIntelligenceFallout: [],
-  };
+  });
+  return base;
 }
 
 async function mountAppFromSave(state = makeAppSave()): Promise<HTMLDivElement> {

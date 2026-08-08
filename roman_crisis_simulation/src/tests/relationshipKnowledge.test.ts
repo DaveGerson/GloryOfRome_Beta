@@ -14,23 +14,10 @@ import {
   relationshipTimelineFor,
   validateRelationshipObservationDrafts,
 } from '../knowledge/relationships';
+import { makeEntity as baseMakeEntity } from './factories';
 
 function makeEntity(overrides: Partial<Entity> = {}): Entity {
-  return {
-    entity_id: 'severus_alexander',
-    name: 'Severus Alexander',
-    entity_type: 'individual',
-    status: 'alive',
-    location: 'Rome',
-    relationships: {},
-    memories: [],
-    resources: {},
-    visibility_network: [],
-    current_state_narrative: '',
-    short_term_goals: [],
-    long_term_ambitions: [],
-    ...overrides,
-  };
+  return baseMakeEntity({ entity_id: 'severus_alexander', name: 'Severus Alexander', ...overrides });
 }
 
 const player = makeEntity({

@@ -32,6 +32,7 @@ import { runNewTurn } from '../ai/core/turn';
 import { endTurnCapture } from '../ai/core/geminiService';
 import { mockCreateCharacter, mockGenerateEntitiesDetails, mockGenerateScenarioStructure } from '../ai/mocks';
 import { ALL_INITIAL_ENTITIES } from '../constants/baseScenario';
+import { makeEntity as baseMakeEntity } from './factories';
 import type { Entity, SimulationState, WorldState } from '../types';
 
 // --- fixtures --------------------------------------------------------------
@@ -44,21 +45,13 @@ const BYSTANDER_VOICE = 'reedy scholarly drone, dates and precedents';
 const BYSTANDER_EPITHET = 'the Archivist';
 
 function makeEntity(overrides: Partial<Entity> = {}): Entity {
-  return {
+  return baseMakeEntity({
     entity_id: 'npc_generic',
     name: 'Generic Roman',
-    entity_type: 'individual',
-    status: 'alive',
     location: 'Palatine Hill',
-    relationships: {},
-    memories: [],
-    resources: {},
-    visibility_network: [],
     current_state_narrative: 'A Roman.',
-    short_term_goals: [],
-    long_term_ambitions: [],
     ...overrides,
-  };
+  });
 }
 
 /** A pre-4C.5 entity: no voice, no epithet - the legacy-save shape. */
