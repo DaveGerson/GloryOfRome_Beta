@@ -11,18 +11,23 @@ where the work lands, so execution is mechanical once you've ruled.
 
 **2026-08-08 obvious-call pass (per owner request):** Q3–Q10 are pre-answered with the
 recommended option — each is cheap, reversible, and gate-refereed, so there was no real
-trade-off to weigh. **Q1 and Q2 remain OPEN**: they are the only two with material cost
-(a review-heavy structural diff; a semantic-risk migration) and need the owner's ruling.
+trade-off to weigh.
+
+**2026-08-08 (later): the owner ruled Q1-A and Q2-A; both are EXECUTED and merged**
+(Q2 → `a966f32`, Q1 → `9b14094`). What remains actionable in this file is Q3–Q10:
+still answered-but-unexecuted — hand this file to a session with the execute
+instruction below whenever you want them done.
 
 ---
 
 ## Structure
 
-### Q1 — Split `GameMasterScreen.tsx` (1,427 lines)? **[OPEN — your ruling]**
+### Q1 — Split `GameMasterScreen.tsx` (1,427 lines)? **[RULED A — executed, merged 9b14094]**
 
-**The call in one line:** the only real cost is one ~20-file review-heavy diff; behavior
-risk is zero. Pick A unless you have in-flight work touching this file or you actively
-prefer the one-file-per-screen convention.
+**Owner ruled 2026-08-08:** break apart the monolith with an aggressive TDD plan.
+Executed via staged-pipeline workflow (Fable arch → Opus RED tests → Sonnet code
+motion → Opus purity audit + gate): shell now 417 lines, 16 views + shared.tsx under
+`components/gm/`, 63 new characterization tests, credibility surface-guard tightened.
 
 **Context:** ~17 self-contained `XView` components + the shell share one file. The seam is
 clean: every view reads only its own props plus 4 shared display consts (`GOLD`/`DIM`/`lbl`/`well`).
@@ -34,11 +39,13 @@ and one review-heavy diff.
 - [ ] **B — Split only the two already-exported, directly-tested views** (`NarrationView`, `FixturesView`)
 - [ ] **C — Leave it whole** (one file per screen is a defensible convention)
 
-### Q2 — Consolidate the copy-pasted test fixture factories? **[OPEN — your ruling]**
+### Q2 — Consolidate the copy-pasted test fixture factories? **[RULED A — executed, merged a966f32]**
 
-**The call in one line:** the 18 copies have divergent defaults, so a safe merge needs the
-supervised staged pipeline (real token/time cost) — pay it if the test suite keeps growing;
-take C for free if it's near-frozen. B is a false economy (leaves the divergent majority).
+**Owner ruled 2026-08-08:** get a single fixture vocabulary in place. Executed via
+staged-pipeline workflow (inventory → Fable arch → Opus TDD → Sonnet migration →
+Opus adversarial default-diff + gate): `tests/factories.ts` (21 canonical factories +
+43-test pin suite), 34 files migrated, 38 thin wrappers preserve divergent defaults,
+zero assertion lines changed, net −533 lines.
 
 **Context:** `makeEntity` is hand-reimplemented in **18** test files (`makePlayer` ×6,
 `makeMockAi` ×5, `makeRawCall` ×3, `makeAppSave` ×3). `tests/mockData.ts` exists but exports
