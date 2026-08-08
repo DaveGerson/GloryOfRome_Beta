@@ -11,17 +11,7 @@ import { zNoAttemptEvidenceSelection } from '../ai/core/zodSchemas';
 import { buildNoAttemptEvidenceSelectionPrompt } from '../ai/prompts/noAttemptResponse';
 import { selectNoAttemptEvidence } from '../ai/tools/noAttemptResponse';
 import type { NoAttemptEvidence } from '../playerView/noAttemptResponse';
-
-function makeAi(...responseTexts: string[]): {
-  ai: GeminiClient;
-  generateContent: ReturnType<typeof vi.fn>;
-} {
-  const generateContent = vi.fn();
-  for (const text of responseTexts) {
-    generateContent.mockResolvedValueOnce({ text });
-  }
-  return { ai: { models: { generateContent } }, generateContent };
-}
+import { makeQueuedTextAi as makeAi } from './factories';
 
 const QUESTION = '  What can I tell from the empty benches?  ';
 const evidence: NoAttemptEvidence[] = [

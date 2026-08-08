@@ -3,81 +3,56 @@ import { buildEvalCorpus, evalCorpusFilename } from '../persistence/evalCorpus';
 import { SAVE_VERSION } from '../persistence/saveGame';
 import type { KnowledgeClaim } from '../knowledge/store';
 import type {
-  ActionResolutionEvent,
   MortalityEvent,
   RawCallRecord,
   TruthLedgerEntry,
   TurnHistoryEntry,
 } from '../types';
+import {
+  makeRawCall as baseMakeRawCall,
+  makeResolutionTrace,
+  makeMortalityEvent,
+  makeTurnHistoryEntry,
+  makeAdjudication,
+  makeNpcIntent,
+} from './factories';
 
 function makeRawCall(callName: string, withPromptText = true): RawCallRecord {
-  return {
+  return baseMakeRawCall({
     callName,
-    model: 'gemini-3-pro-preview',
     latencyMs: 120,
-    attempts: 1,
     promptChars: 900,
     rawResponse: `{"result":"response for ${callName}"}`,
-    validated: true,
     ...(withPromptText
       ? {
           promptText: `full prompt for ${callName}`,
           systemInstruction: `system instruction for ${callName}`,
         }
       : {}),
-  };
-}
-
-function makeResolutionTrace(): ActionResolutionEvent {
-  return {
-    assessment: {
-      is_consequential: true,
-      action_category: 'political maneuvering',
-      relevant_skill: 'intrigue',
-      difficulty: 14,
-      opposing_entity_id: 'maximinus_thrax',
-      rationale: 'A direct move against a rival.',
-    },
-    roll: 11,
-    total: 17,
-    margin: 3,
-    tier: 'success',
-  };
+  });
 }
 
 function makeMortalityTrace(): MortalityEvent[] {
-  return [
-    {
-      entity_id: 'gaius_pontius_magnus',
-      entity_name: 'Gaius Pontius Magnus',
-      claim: 'Poisoned at a banquet.',
-      valid: true,
-      roll: 4,
-      band: 'dies',
-      outcomeSummary: 'The poison takes him before dawn.',
-    },
-  ];
+  return [makeMortalityEvent()];
 }
 
 /** An entry with every optional field populated. */
 function makeFullEntry(turnNumber: number): TurnHistoryEntry {
-  return {
+  return makeTurnHistoryEntry({
     turnNumber,
     playerIntent: `do thing ${turnNumber}`,
-    adjudication: {
+    adjudication: makeAdjudication({
       turn: turnNumber,
-      entityActions: [],
-      deltas: [],
       headlines: [`Headline ${turnNumber}`],
       gm_private: [`Private note ${turnNumber}`],
-    },
+    }),
     narration: `Narration for turn ${turnNumber}`,
     postTurnEntities: [],
     rawCalls: [makeRawCall('adjudication'), makeRawCall('narration')],
     mortalityTrace: makeMortalityTrace(),
     resolutionTrace: makeResolutionTrace(),
     turnSeed: 987654321,
-    npcIntents: [{ entity_id: 'maximinus_thrax', intent: 'Court the Rhine legions', continuity: 'new' }],
+    npcIntents: [makeNpcIntent()],
     npcMindResults: [{
       entity_id: 'maximinus_thrax',
       chosen_action: 'Rally the Danube veterans to my standard.',
@@ -85,23 +60,17 @@ function makeFullEntry(turnNumber: number): TurnHistoryEntry {
       private_reasoning: 'The purple is within reach.',
       scheme_adjustment: null,
     }],
-  };
+  });
 }
 
 /** The shape entries persisted before the optional capture fields existed have. */
 function makeLegacyEntry(turnNumber: number): TurnHistoryEntry {
-  return {
+  return makeTurnHistoryEntry({
     turnNumber,
     playerIntent: `old thing ${turnNumber}`,
-    adjudication: {
-      turn: turnNumber,
-      entityActions: [],
-      deltas: [],
-      headlines: [],
-      gm_private: [],
-    },
+    adjudication: makeAdjudication({ turn: turnNumber }),
     postTurnEntities: [],
-  };
+  });
 }
 
 const META = { saveVersion: SAVE_VERSION, turnNumber: 5, playerCharacterId: 'severus_alexander' };

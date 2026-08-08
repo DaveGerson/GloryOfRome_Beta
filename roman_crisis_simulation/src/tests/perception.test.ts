@@ -8,21 +8,10 @@
 import { describe, it, expect } from 'vitest';
 import { classifyDelta, buildPerceivedDigest, tabsForDelta } from '../perception/visibility';
 import { Entity, EventDelta, WorldState } from '../types';
+import { makeEntity as baseMakeEntity } from './factories';
 
 function makeEntity(overrides: Partial<Entity> & { entity_id: string; name: string }): Entity {
-  return {
-    entity_type: 'individual',
-    status: 'alive',
-    location: 'Palatine Hill',
-    relationships: {},
-    memories: [],
-    resources: {},
-    visibility_network: [],
-    current_state_narrative: '',
-    short_term_goals: [],
-    long_term_ambitions: [],
-    ...overrides,
-  };
+  return baseMakeEntity({ location: 'Palatine Hill', ...overrides });
 }
 
 const worldState: WorldState = {

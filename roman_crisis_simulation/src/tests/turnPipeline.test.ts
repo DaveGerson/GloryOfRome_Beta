@@ -22,25 +22,12 @@ import { endTurnCapture } from '../ai/core/geminiService';
 import { rollD20, createSeededRng } from '../ai/core/resolution';
 import type { PrivateSceneAdjudicatorProjection } from '../privateScene/model';
 import type { Entity, WorldState, SimulationState, Report, TruthLedgerEntry, TurnSubmission } from '../types';
+import { makeEntity as baseMakeEntity } from './factories';
 
 // --- fixtures ---------------------------------------------------------
 
 function makeEntity(overrides: Partial<Entity> = {}): Entity {
-  return {
-    entity_id: 'player_1',
-    name: 'Gaius Testus',
-    entity_type: 'individual',
-    status: 'alive',
-    location: 'Rome',
-    relationships: {},
-    memories: [],
-    resources: { denarii: 1000 },
-    visibility_network: [],
-    current_state_narrative: 'Testing.',
-    short_term_goals: [],
-    long_term_ambitions: [],
-    ...overrides,
-  };
+  return baseMakeEntity({ resources: { denarii: 1000 }, current_state_narrative: 'Testing.', ...overrides });
 }
 
 const freeform = (text: string): TurnSubmission => ({ version: 1, kind: 'freeform', text });

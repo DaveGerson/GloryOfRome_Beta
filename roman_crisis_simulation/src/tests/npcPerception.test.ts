@@ -21,21 +21,10 @@ import {
 import { applyAdjudication } from '../ai/core/engine';
 import { Adjudication, Entity, EventDelta, WorldState } from '../types';
 import type { PerceivedChange } from '../perception/visibility';
+import { makeEntity as baseMakeEntity } from './factories';
 
 function makeEntity(overrides: Partial<Entity> & { entity_id: string; name: string }): Entity {
-  return {
-    entity_type: 'individual',
-    status: 'alive',
-    location: 'Palatine Hill',
-    relationships: {},
-    memories: [],
-    resources: {},
-    visibility_network: [],
-    current_state_narrative: '',
-    short_term_goals: [],
-    long_term_ambitions: [],
-    ...overrides,
-  };
+  return baseMakeEntity({ location: 'Palatine Hill', ...overrides });
 }
 
 const worldState: WorldState = {

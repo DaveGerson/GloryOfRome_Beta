@@ -24,32 +24,9 @@ import {
   SCHEME_NATURE_UNSYNTHESIZED,
   normalizeTopic,
 } from '../knowledge/store';
+import { makePerceivedChange as makeChange, makeReport } from './factories';
 import type { PerceivedChange } from '../perception/visibility';
 import type { Report } from '../types';
-
-function makeChange(overrides: Partial<PerceivedChange> = {}): PerceivedChange {
-  return {
-    text: 'Your denarii dwindles.',
-    source: 'self',
-    tabs: ['resources'],
-    subject: 'severus_alexander',
-    deltaType: 'resource',
-    deltaKey: 'severus_alexander:denarii',
-    ...overrides,
-  };
-}
-
-function makeReport(overrides: Partial<Report> = {}): Report {
-  return {
-    id: 'report_2_1',
-    turn: 2,
-    source: 'rumor',
-    about: 'maximinus_thrax',
-    claim: 'Thrax courts the Rhine legions',
-    credibility: 0.6,
-    ...overrides,
-  };
-}
 
 describe('knowledge/store', () => {
   describe('KnowledgeClaim save-v1 shape', () => {

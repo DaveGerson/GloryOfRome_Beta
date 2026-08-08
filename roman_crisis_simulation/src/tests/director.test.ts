@@ -25,24 +25,13 @@ import { buildDirectorIntentsBlock } from '../ai/prompts/fragments';
 import { selectDurableIntents, buildIntentConsistencyNotes, buildIntentDiscardNotes, MAX_NPC_INTENTS } from '../ai/core/turn';
 import { mockGetStoryRelevance, mockRunNewTurn } from '../ai/mocks';
 import { getMockInitialState } from './mockData';
-import { Entity, EntityAction, NpcIntent, NpcIntentContinuityEnum, SimulationState, StoryRelevance } from '../types';
+import { makeNpcIntent as makeIntent, makeStoryRelevance as makeRelevance } from './factories';
+import { Entity, EntityAction, NpcIntent, NpcIntentContinuityEnum, SimulationState } from '../types';
 
 const SIM_STATE: SimulationState = {
   imperial_status: 'Stable', senate_status: 'Functional', military_status: 'Loyal',
   plebeian_mood: 'Uneasy', major_ongoing_crisis: null,
 };
-
-function makeIntent(overrides: Partial<NpcIntent> = {}): NpcIntent {
-  return { entity_id: 'maximinus_thrax', intent: 'Court the Rhine legions', continuity: 'new', ...overrides };
-}
-
-function makeRelevance(overrides: Partial<StoryRelevance> = {}): StoryRelevance {
-  return {
-    spotlight_entities: [{ entity_id: 'maximinus_thrax', reason: 'Momentum.' }],
-    spotlight_intents: [makeIntent()],
-    ...overrides,
-  };
-}
 
 /**
  * Minimal roster rows for selectDurableIntents' alive gate - it reads only

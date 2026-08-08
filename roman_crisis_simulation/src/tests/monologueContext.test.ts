@@ -3,6 +3,7 @@ import type { GoogleGenAI } from '@google/genai';
 import { runNewTurn } from '../ai/core/turn';
 import { endTurnCapture } from '../ai/core/geminiService';
 import { serializeTurnSubmission } from '../playerInput/turnSubmission';
+import { makeEntity as baseMakeEntity } from './factories';
 import type { Entity, SimulationState, TurnHistoryEntry, TurnSubmission, WorldState } from '../types';
 
 const WORLD_STATE: WorldState = {
@@ -25,22 +26,12 @@ const SIMULATION_STATE: SimulationState = {
 };
 
 function makeEntity(overrides: Partial<Entity> = {}): Entity {
-  return {
-    entity_id: 'player_1',
-    name: 'Gaius Testus',
-    entity_type: 'individual',
-    status: 'alive',
+  return baseMakeEntity({
     position: 'Emperor',
-    location: 'Rome',
-    relationships: {},
-    memories: [],
     resources: { denarii: 1000 },
-    visibility_network: [],
     current_state_narrative: 'The throne is contested.',
-    short_term_goals: [],
-    long_term_ambitions: [],
     ...overrides,
-  };
+  });
 }
 
 function makeCast(): { player: Entity; npcA: Entity } {

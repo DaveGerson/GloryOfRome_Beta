@@ -21,32 +21,11 @@ import {
 } from '../ai/core/resolution';
 import { buildActionAssessmentPrompt } from '../ai/prompts/assessment';
 import { projectForResolution } from '../playerInput/turnSubmission';
-import type { Entity, PersonalityTraits, Relationship, TurnSubmission } from '../types';
-
-function makePersonality(overrides: Partial<PersonalityTraits> = {}): PersonalityTraits {
-  return { ambition: 5, paranoia: 5, loyalty: 5, cunning: 5, honor: 5, ...overrides };
-}
-
-function makeRelationship(overrides: Partial<Relationship> = {}): Relationship {
-  return { entity_id: 'target', relationship_type: 'rival', trust_level: 0, recent_interactions: [], ...overrides };
-}
+import type { Entity, TurnSubmission } from '../types';
+import { makePersonality, makeRelationship, makeEntity as baseMakeEntity } from './factories';
 
 function makeEntity(overrides: Partial<Entity> = {}): Entity {
-  return {
-    entity_id: 'e1',
-    name: 'Test Entity',
-    entity_type: 'individual',
-    status: 'alive',
-    location: 'Rome',
-    relationships: {},
-    memories: [],
-    resources: {},
-    visibility_network: [],
-    current_state_narrative: '',
-    short_term_goals: [],
-    long_term_ambitions: [],
-    ...overrides,
-  };
+  return baseMakeEntity({ entity_id: 'e1', name: 'Test Entity', ...overrides });
 }
 
 describe('ai/core/resolution.ts resolveAction - margin/tier bands', () => {

@@ -1,38 +1,24 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { inferAmbition, zAmbitionInference } from '../ai/tools/ambition';
-import { AiServiceError, GeminiClient } from '../ai/core/geminiService';
+import { AiServiceError } from '../ai/core/geminiService';
 import { projectForExternalInference, serializeTurnSubmission } from '../playerInput/turnSubmission';
+import { makeEntity, makeQueuedTextAi as makeMockAi } from './factories';
 import type { Entity, TurnSubmission } from '../types';
 
 // --- fixtures --------------------------------------------------------------
 
 function makePlayer(overrides: Partial<Entity> = {}): Entity {
-  return {
+  return makeEntity({
     entity_id: 'severus_alexander',
     name: 'Severus Alexander',
-    entity_type: 'individual',
-    status: 'alive',
     position: 'Emperor',
-    location: 'Rome',
-    relationships: {},
-    memories: [],
     resources: { denarii: 5000 },
-    visibility_network: [],
     current_state_narrative: 'Beset on all sides by rivals.',
-    short_term_goals: [],
-    long_term_ambitions: [],
     ...overrides,
-  };
-}
-
-/** Minimal mock GeminiClient - a queue of raw-text responses, matching tests/mortality.test.ts's convention. */
-function makeMockAi(...responses: string[]): { ai: GeminiClient; generateContent: ReturnType<typeof vi.fn> } {
-  const generateContent = vi.fn();
-  responses.forEach(text => generateContent.mockResolvedValueOnce({ text }));
-  return { ai: { models: { generateContent } }, generateContent };
+  });
 }
 
 describe('ai/tools/ambition.ts', () => {

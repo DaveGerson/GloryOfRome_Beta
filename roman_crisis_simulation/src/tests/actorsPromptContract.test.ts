@@ -83,16 +83,13 @@
  * the implementer from blanket-pasting the paragraph into every prompt.
  */
 import { describe, expect, it } from 'vitest';
-import {
-  buildAdjudicationPrompt,
-  type AdjudicationPromptInput,
-} from '../ai/prompts/adjudication';
+import { buildAdjudicationPrompt } from '../ai/prompts/adjudication';
 import { buildSimulationStateUpdatePrompt } from '../ai/prompts/intelligence';
 import { buildNoAttemptEvidenceSelectionPrompt } from '../ai/prompts/noAttemptResponse';
 import { buildNarrationPrompt, buildPlayerMonologuePrompt } from '../ai/prompts/narration';
 import { buildActionAssessmentPrompt } from '../ai/prompts/assessment';
 import { buildNpcMindPrompt, type NpcMindPromptInput } from '../ai/prompts/npcMind';
-import { getMockInitialState } from './mockData';
+import { buildAdjudicationPromptInput, makeEntity } from './factories';
 import type { NoAttemptEvidence } from '../playerView/noAttemptResponse';
 import type { AdjudicationSubmissionProjection } from '../playerInput/turnSubmission';
 import type { Adjudication, Entity, SimulationState } from '../types';
@@ -136,37 +133,15 @@ const SIM_STATE: SimulationState = {
 };
 
 function buildAdjudication(submission: AdjudicationSubmissionProjection): BuiltPrompt {
-  const { entities, worldState } = getMockInitialState();
-  const input: AdjudicationPromptInput = {
-    worldState,
-    simulationState: SIM_STATE,
-    playerEntity: entities[0],
-    npcEntities: entities.slice(1),
-    history: [],
-    submission,
-    gmInterventionText: '',
-    storyRelevance: { spotlight_entities: [], spotlight_intents: [] },
-    metaNarrative: 'A succession crisis.',
-  };
-  return buildAdjudicationPrompt(input);
+  return buildAdjudicationPrompt(buildAdjudicationPromptInput({ submission }));
 }
 
 function makePlayer(): Entity {
-  return {
-    entity_id: 'player_1',
-    name: 'Gaius Testus',
-    entity_type: 'individual',
-    status: 'alive',
+  return makeEntity({
     position: 'Senator',
     location: 'The Curia',
-    relationships: {},
-    memories: [],
-    resources: {},
-    visibility_network: [],
     current_state_narrative: 'A cautious senator.',
-    short_term_goals: [],
-    long_term_ambitions: [],
-  };
+  });
 }
 
 /** Committed-shape adjudication (actors are interchange-only and already stripped). */

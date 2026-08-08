@@ -14,43 +14,31 @@ import { processMortality } from '../ai/core/mortality';
 import { applyDeltas } from '../ai/core/engine';
 import { buildMortalityOutcomePrompt } from '../ai/prompts/mortality';
 import type { GeminiClient } from '../ai/core/geminiService';
+import {
+  makeEntity as baseMakeEntity,
+  makeAdjudication as baseMakeAdjudication,
+  makeQueuedTextAi as makeMockAi,
+} from './factories';
 import type { Adjudication, Entity } from '../types';
 
 // --- fixtures -------------------------------------------------------------
 
 function makeEntity(overrides: Partial<Entity> = {}): Entity {
-  return {
+  return baseMakeEntity({
     entity_id: 'test_entity',
     name: 'Test Entity',
-    entity_type: 'individual',
-    status: 'alive',
     location: 'Palatine Hill',
-    relationships: {},
-    memories: [],
     resources: { denarii: 1000 },
-    visibility_network: [],
-    current_state_narrative: '',
-    short_term_goals: [],
-    long_term_ambitions: [],
     ...overrides,
-  };
+  });
 }
 
 function makeAdjudication(deltas: Adjudication['deltas'] = []): Adjudication {
-  return {
+  return baseMakeAdjudication({
     turn: 5,
-    entityActions: [],
     deltas,
     headlines: ['Something dramatic happened.'],
-    gm_private: [],
-  };
-}
-
-/** Minimal mock GeminiClient matching geminiService.test.ts's convention - a queue of raw-text responses. */
-function makeMockAi(...responses: string[]): { ai: GeminiClient; generateContent: ReturnType<typeof vi.fn> } {
-  const generateContent = vi.fn();
-  responses.forEach(text => generateContent.mockResolvedValueOnce({ text }));
-  return { ai: { models: { generateContent } }, generateContent };
+  });
 }
 
 describe('ai/core/resolution.ts', () => {

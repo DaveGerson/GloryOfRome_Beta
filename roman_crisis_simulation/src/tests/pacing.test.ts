@@ -21,28 +21,12 @@ import { buildAdjudicationPrompt } from '../ai/prompts/adjudication';
 import { getPacingPosture, setPacingPosture, DEFAULT_PACING_POSTURE } from '../persistence/settings';
 import { mockRunNewTurn } from '../ai/mocks';
 import { getMockInitialState } from './mockData';
-import { PacingPosture, PacingPostureEnum, SimulationState } from '../types';
-
-const SIM_STATE: SimulationState = {
-  imperial_status: 'Stable', senate_status: 'Functional', military_status: 'Loyal',
-  plebeian_mood: 'Uneasy', major_ongoing_crisis: null,
-};
+import { buildAdjudicationPromptInput, makeSimulationState } from './factories';
+import { PacingPosture, PacingPostureEnum } from '../types';
 
 /** The adjudication system instruction for a given posture (absent = default). */
 function buildSystem(pacingPosture?: PacingPosture): string {
-  const { entities, worldState } = getMockInitialState();
-  const { systemInstruction } = buildAdjudicationPrompt({
-    worldState,
-    simulationState: SIM_STATE,
-    playerEntity: entities[0],
-    npcEntities: entities.slice(1),
-    history: [],
-    submission: { observableAttempt: 'Hold court', questionOrContext: null },
-    gmInterventionText: '',
-    storyRelevance: { spotlight_entities: [], spotlight_intents: [] },
-    metaNarrative: 'A succession crisis.',
-    pacingPosture,
-  });
+  const { systemInstruction } = buildAdjudicationPrompt(buildAdjudicationPromptInput({ pacingPosture }));
   return systemInstruction;
 }
 
@@ -185,7 +169,7 @@ describe('persistence/settings: pacing posture localStorage round-trip', () => {
 describe('mockRunNewTurn: the pacing judgment loop runs offline (4D.1)', () => {
   it('records exactly one "[Pacing]" gm_private note on the committed adjudication', async () => {
     const { entities, worldState } = getMockInitialState();
-    const result = await mockRunNewTurn('Hold court', entities[0], 1, entities, worldState, [], '', 'A crisis.', SIM_STATE, [], []);
+    const result = await mockRunNewTurn('Hold court', entities[0], 1, entities, worldState, [], '', 'A crisis.', makeSimulationState(), [], []);
     const pacingNotes = result.newHistoryEntry.adjudication.gm_private.filter(n => n.startsWith('[Pacing]'));
     expect(pacingNotes).toHaveLength(1);
     // GM-private discipline (D4/D5): the judgment never reaches the
@@ -196,8 +180,8 @@ describe('mockRunNewTurn: the pacing judgment loop runs offline (4D.1)', () => {
 
   it('emits ONE note per turn, never accumulating onto the shared mock constant across turns', async () => {
     const { entities, worldState } = getMockInitialState();
-    const first = await mockRunNewTurn('Hold court', entities[0], 1, entities, worldState, [], '', 'A crisis.', SIM_STATE, [], []);
-    const second = await mockRunNewTurn('Hold court again', entities[0], 2, entities, worldState, [], '', 'A crisis.', SIM_STATE, [], []);
+    const first = await mockRunNewTurn('Hold court', entities[0], 1, entities, worldState, [], '', 'A crisis.', makeSimulationState(), [], []);
+    const second = await mockRunNewTurn('Hold court again', entities[0], 2, entities, worldState, [], '', 'A crisis.', makeSimulationState(), [], []);
     for (const result of [first, second]) {
       expect(result.newHistoryEntry.adjudication.gm_private.filter(n => n.startsWith('[Pacing]'))).toHaveLength(1);
     }

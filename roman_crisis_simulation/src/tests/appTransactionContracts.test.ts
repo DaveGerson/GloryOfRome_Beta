@@ -11,7 +11,6 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import App from '../App';
 import { GameProvider } from '../state/GameContext';
-import { createInitialGameState } from '../state/gameReducer';
 import * as aiMocks from '../ai/mocks';
 import * as ambitionTool from '../ai/tools/ambition';
 import * as turnCore from '../ai/core/turn';
@@ -21,6 +20,7 @@ import { loadGame, saveGame, type SaveGameState } from '../persistence/saveGame'
 import { AiServiceError } from '../ai/core/geminiService';
 import type { Entity, TurnSubmission } from '../types';
 import { getMockInitialState } from './mockData';
+import { makeAppSave as baseMakeAppSave } from './factories';
 import {
   NO_ATTEMPT_NO_ANSWER,
   PRIVATE_INTENT_ACKNOWLEDGEMENT,
@@ -225,34 +225,16 @@ function makeAppSave(overrides: Partial<SaveGameState> = {}): SaveGameState {
     memories: [],
     visibility_network: [],
   };
-  return {
+  return baseMakeAppSave({
     entities: [
       ...initial.entities.map(entity => entity.entity_id === player.entity_id
         ? { ...entity, visibility_network: ['maximinus_thrax', 'gaius_pontius_magnus'] }
         : entity),
       hiddenActor,
     ],
-    worldState: initial.worldState,
-    simulationState: createInitialGameState().simulationState,
-    reports: [],
-    truthLedger: [],
-    knowledge: [],
-    npcIntents: [],
-    turnNumber: 2,
-    playerCharacterId: player.entity_id,
-    turnHistory: [],
-    eventHistory: [],
     metaNarrative: 'Task 4 transaction contract.',
-    messages: [],
-    triggeredEventIds: [],
-    eventFirings: [],
-    suggestedActions: [],
-    currentEvents: [],
-    gmInterventionText: '',
-    inferredAmbition: null,
-    pendingIntelligenceFallout: [],
     ...overrides,
-  };
+  });
 }
 
 async function renderApp(continueSave: boolean, mockMode = true): Promise<HTMLDivElement> {

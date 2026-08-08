@@ -22,29 +22,16 @@ import { mockRunNewTurn } from '../ai/mocks';
 import { ingestReports } from '../knowledge/store';
 import { computeTurnKnowledge } from '../knowledge/commit';
 import { getMockInitialState } from './mockData';
-import { Adjudication, Report, SimulationState, TruthLedgerEntry } from '../types';
-
-const SIM_STATE: SimulationState = {
-  imperial_status: 'Stable', senate_status: 'Functional', military_status: 'Loyal',
-  plebeian_mood: 'Uneasy', major_ongoing_crisis: null,
-};
+import { buildAdjudicationPromptInput, makeSimulationState } from './factories';
+import { Adjudication, Report, TruthLedgerEntry } from '../types';
 
 function buildSystemInstruction(): string {
-  const { entities, worldState } = getMockInitialState();
-  const { systemInstruction } = buildAdjudicationPrompt({
-    worldState,
-    simulationState: SIM_STATE,
-    playerEntity: entities[0],
-    npcEntities: entities.slice(1),
-    history: [],
+  const { systemInstruction } = buildAdjudicationPrompt(buildAdjudicationPromptInput({
     submission: {
       observableAttempt: 'Spread word that Thrax steals from his own men',
       questionOrContext: null,
     },
-    gmInterventionText: '',
-    storyRelevance: { spotlight_entities: [], spotlight_intents: [] },
-    metaNarrative: 'A succession crisis.',
-  });
+  }));
   return systemInstruction;
 }
 
@@ -104,7 +91,7 @@ describe('mock mode: the player-planted rumor path is exercisable offline', () =
     const { entities, worldState } = getMockInitialState();
     return mockRunNewTurn(
       'Plant a rumor about Thrax', entities[0], turnNumber, entities, worldState,
-      currentReports, '', 'A succession crisis.', SIM_STATE, currentLedger
+      currentReports, '', 'A succession crisis.', makeSimulationState(), currentLedger
     );
   };
 

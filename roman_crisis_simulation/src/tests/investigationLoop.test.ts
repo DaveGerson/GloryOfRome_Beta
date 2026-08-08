@@ -7,17 +7,13 @@ import {
   buildInterventionTextWithFallout,
   type FalloutQueue,
 } from '../components/investigationLoop';
+import { makeInvestigationResult } from './factories';
 import type { InvestigationResult } from '../types';
 
 // --- fixtures ----------------------------------------------------------
 
 function makeResult(consequences: string | null, overrides: Partial<InvestigationResult> = {}): InvestigationResult {
-  return {
-    target_id: 'maximinus_thrax',
-    report: 'Some uncovered fact.',
-    consequences,
-    ...overrides,
-  };
+  return makeInvestigationResult({ consequences, ...overrides });
 }
 
 describe('components/investigationLoop.ts', () => {
