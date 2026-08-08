@@ -9,11 +9,20 @@ options don't fit). Then hand this file to a session with: *"execute the answere
 questionnaire in roadmaps/TECH_DEBT_QUESTIONNAIRE.md"* — each question names exactly
 where the work lands, so execution is mechanical once you've ruled.
 
+**2026-08-08 obvious-call pass (per owner request):** Q3–Q10 are pre-answered with the
+recommended option — each is cheap, reversible, and gate-refereed, so there was no real
+trade-off to weigh. **Q1 and Q2 remain OPEN**: they are the only two with material cost
+(a review-heavy structural diff; a semantic-risk migration) and need the owner's ruling.
+
 ---
 
 ## Structure
 
-### Q1 — Split `GameMasterScreen.tsx` (1,427 lines)?
+### Q1 — Split `GameMasterScreen.tsx` (1,427 lines)? **[OPEN — your ruling]**
+
+**The call in one line:** the only real cost is one ~20-file review-heavy diff; behavior
+risk is zero. Pick A unless you have in-flight work touching this file or you actively
+prefer the one-file-per-screen convention.
 
 **Context:** ~17 self-contained `XView` components + the shell share one file. The seam is
 clean: every view reads only its own props plus 4 shared display consts (`GOLD`/`DIM`/`lbl`/`well`).
@@ -25,7 +34,11 @@ and one review-heavy diff.
 - [ ] **B — Split only the two already-exported, directly-tested views** (`NarrationView`, `FixturesView`)
 - [ ] **C — Leave it whole** (one file per screen is a defensible convention)
 
-### Q2 — Consolidate the copy-pasted test fixture factories?
+### Q2 — Consolidate the copy-pasted test fixture factories? **[OPEN — your ruling]**
+
+**The call in one line:** the 18 copies have divergent defaults, so a safe merge needs the
+supervised staged pipeline (real token/time cost) — pay it if the test suite keeps growing;
+take C for free if it's near-frozen. B is a false economy (leaves the divergent majority).
 
 **Context:** `makeEntity` is hand-reimplemented in **18** test files (`makePlayer` ×6,
 `makeMockAi` ×5, `makeRawCall` ×3, `makeAppSave` ×3). `tests/mockData.ts` exists but exports
@@ -47,7 +60,7 @@ the claude.ai/design "Glory of Rome Design System" — not an abandoned file. No
 this already caused: `ResourcesTab` duplicated `Meter` rather than importing it, and the copy
 dropped the ARIA contract (fixed in the sweep, but the drift pattern is the argument).
 
-- [ ] **A — Delete all three; git history is the archive** *(recommended: unused exports invite exactly the drift we just repaired)*
+- [x] **A — Delete all three; git history is the archive** *(recommended: unused exports invite exactly the drift we just repaired)*
 - [ ] **B — Keep as inventory** for near-future UI work
 - [ ] **C — Keep `Meter` only** (most likely to be wanted), delete `Divider`/`Radio`
 
@@ -57,7 +70,7 @@ dropped the ARIA contract (fixed in the sweep, but the drift pattern is the argu
 `uncoveredIntel`/`loadingState` and the intelligence-gathering flow live inline in the
 component. It's a real refactor (state + async + cancellation), not a rename.
 
-- [ ] **A — Schedule it** as the next maintenance-window item (a `useIntelGathering` hook) *(recommended)*
+- [x] **A — Schedule it** as the next maintenance-window item (a `useIntelGathering` hook) *(recommended)*
 - [ ] **B — Keep the TODO standing** (accurate, not urgent)
 - [ ] **C — Strike it** (won't-do; the inline form is acceptable)
 
@@ -70,7 +83,7 @@ so the ~150-line wrapper (`tooling/lint-baseline.mjs`), its unit test, and two C
 tolerate a class of debt that can no longer exist. The sweep kept it as an escape hatch; that
 was the conservative call, yours to overrule.
 
-- [ ] **A — Delete it:** `lint` becomes plain `eslint .`, drop `test:lint-baseline` + both CI steps + the B11 note *(recommended: its reason-to-exist is gone; git can resurrect it)*
+- [x] **A — Delete it:** `lint` becomes plain `eslint .`, drop `test:lint-baseline` + both CI steps + the B11 note *(recommended: its reason-to-exist is gone; git can resurrect it)*
 - [ ] **B — Keep it** as the documented escape hatch for the next deliberate exception
 
 ### Q6 — CI has no eval leg — leave it that way?
@@ -79,7 +92,7 @@ was the conservative call, yours to overrule.
 paid, non-deterministic). The deterministic *half* of the eval harness, though, could run in
 CI against fixtures with the judge skipped — it already skips itself when no key is set.
 
-- [ ] **A — Add the deterministic eval leg to CI** (judge auto-skips; catches harness rot) *(recommended)*
+- [x] **A — Add the deterministic eval leg to CI** (judge auto-skips; catches harness rot) *(recommended)*
 - [ ] **B — Keep eval fully local** (CI stays cheap and byte-identical to today)
 
 ## Type safety
@@ -92,7 +105,7 @@ invariant lives in reading the logic, not in the types; a future refactor can si
 reintroduce an `undefined` crash. The two in `relationships.ts` sit farthest from their
 guards; the other five are locally obvious.
 
-- [ ] **A — Refactor the two in `relationships.ts`, leave the five locally-provable ones** *(recommended)*
+- [x] **A — Refactor the two in `relationships.ts`, leave the five locally-provable ones** *(recommended)*
 - [ ] **B — Refactor all seven**
 - [ ] **C — Leave all** (the assertions are commented and reviewed)
 
@@ -103,7 +116,7 @@ guards; the other five are locally obvious.
 tsconfig's `useDefineForClassFields: false` leans on the same era. A cheap probe (remove
 workaround, flip flag, typecheck + suite) settles whether either is still load-bearing.
 
-- [ ] **A — Probe and remove whatever proves dead** *(recommended: ten-minute experiment, full gate as referee)*
+- [x] **A — Probe and remove whatever proves dead** *(recommended: ten-minute experiment, full gate as referee)*
 - [ ] **B — Leave both** (working code, low traffic)
 
 ### Q9 — Drift protection for the ~15 unpinned Zod↔TS schema pairs?
@@ -115,7 +128,7 @@ bridge and **no** pin — nobody gets a compile error if one silently diverges. 
 `z.infer` would fight the codebase's documented nullable-vs-optional boundary design; pins
 don't.
 
-- [ ] **A — Add key-set pin tests for the high-traffic pairs** (Relationship, Memory, Scheme, WorldState) *(recommended: same cheap pattern as the trio pins)*
+- [x] **A — Add key-set pin tests for the high-traffic pairs** (Relationship, Memory, Scheme, WorldState) *(recommended: same cheap pattern as the trio pins)*
 - [ ] **B — Migrate selected schemas to `z.infer` as source of truth** (bigger, fights the boundary design)
 - [ ] **C — Accept the risk** (the schemas move rarely)
 
@@ -126,6 +139,6 @@ don't.
 **Context:** `[InitWorld…]`/`[CharCreator…]` progress logs run unconditionally in production
 paths (unlike the intentionally-loud mocks/eval logs).
 
-- [ ] **A — Gate behind `import.meta.env.DEV`** *(recommended: keeps the telemetry, silences prod)*
+- [x] **A — Gate behind `import.meta.env.DEV`** *(recommended: keeps the telemetry, silences prod)*
 - [ ] **B — Remove them**
 - [ ] **C — Leave them** (world-gen is rare and the logs are useful)
