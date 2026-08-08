@@ -146,16 +146,23 @@ describe('surface guard: the credibility number renders in the GM console only (
   }
 
   it('no player-facing component formats a credibility number', () => {
+    // The GM console surface is a directory: the shell (GameMasterScreen.tsx)
+    // plus every view under components/gm/ — both exempt, same as before the
+    // split when the idiom lived in the one monolith file.
     const offenders = collectTsx(componentsDir)
       .filter(f => !f.pathname.endsWith('GameMasterScreen.tsx'))
+      .filter(f => !f.pathname.includes('/components/gm/'))
       .filter(f => readFileSync(f, 'utf8').includes(NUMERIC_CREDIBILITY))
       .map(f => f.pathname);
     expect(offenders).toEqual([]);
   });
 
   it('the GM console still shows the raw credibility number', () => {
-    const gm = readFileSync(new URL('../components/GameMasterScreen.tsx', import.meta.url), 'utf8');
-    expect(gm).toContain(NUMERIC_CREDIBILITY);
+    // Post-split, the idiom lives in the two views that render it, not the shell.
+    const truthLedger = readFileSync(new URL('../components/gm/TruthLedgerView.tsx', import.meta.url), 'utf8');
+    const playerKnowledge = readFileSync(new URL('../components/gm/PlayerKnowledgeView.tsx', import.meta.url), 'utf8');
+    expect(truthLedger).toContain(NUMERIC_CREDIBILITY);
+    expect(playerKnowledge).toContain(NUMERIC_CREDIBILITY);
   });
 
   it('ReportsTab renders through the sourced-framing helper, not a raw figure', () => {
