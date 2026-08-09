@@ -20,7 +20,10 @@ trade-off to weigh.
 (spec: `docs/superpowers/specs/2026-08-09-q3-q10-batches-design.md`).
 Batch 1 (Q3, Q5, Q6, Q10) EXECUTED and merged → `37e7dda`. Batch 2 (Q7, Q8, Q9)
 EXECUTED and merged → `719976e` (both Q8 probes proved dead; Q9 found no drift).
-Batch 3 (Q4) follows.
+Batch 3 (Q4) EXECUTED and merged → `73b3b4a`.
+
+**ALL TEN QUESTIONS ARE RULED, EXECUTED, AND MERGED. This file is now a record,
+not a work queue.**
 
 ---
 
@@ -75,7 +78,7 @@ dropped the ARIA contract (fixed in the sweep, but the drift pattern is the argu
 - [ ] **B — Keep as inventory** for near-future UI work
 - [ ] **C — Keep `Meter` only** (most likely to be wanted), delete `Divider`/`Radio`
 
-### Q4 — The README's live TODO: extract `DramatisPersonaeTab`'s intel logic into a hook?
+### Q4 — The README's live TODO: extract `DramatisPersonaeTab`'s intel logic into a hook? **[EXECUTED 73b3b4a — useIntelGathering, TDD-first]**
 
 **Context:** README.md's TODO section has one item left and it is still accurate —
 `uncoveredIntel`/`loadingState` and the intelligence-gathering flow live inline in the
