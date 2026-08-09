@@ -14,9 +14,12 @@ recommended option — each is cheap, reversible, and gate-refereed, so there wa
 trade-off to weigh.
 
 **2026-08-08 (later): the owner ruled Q1-A and Q2-A; both are EXECUTED and merged**
-(Q2 → `a966f32`, Q1 → `9b14094`). What remains actionable in this file is Q3–Q10:
-still answered-but-unexecuted — hand this file to a session with the execute
-instruction below whenever you want them done.
+(Q2 → `a966f32`, Q1 → `9b14094`).
+
+**2026-08-09: Q3–Q10 execution approved as three batches**
+(spec: `docs/superpowers/specs/2026-08-09-q3-q10-batches-design.md`).
+Batch 1 (Q3, Q5, Q6, Q10) EXECUTED and merged → `37e7dda`. Batches 2 (Q7, Q8, Q9)
+and 3 (Q4) follow sequentially.
 
 ---
 
@@ -59,7 +62,7 @@ passing tests.
 
 ## Inventory
 
-### Q3 — Dead design-system primitives: `Divider`, `Meter`, `Radio`?
+### Q3 — Dead design-system primitives: `Divider`, `Meter`, `Radio`? **[EXECUTED 37e7dda]**
 
 **Context:** all three are exported from the design-system modules with **zero consumers**
 (checked app + tests). Siblings in the same files are live, so these are held inventory from
@@ -83,7 +86,7 @@ component. It's a real refactor (state + async + cancellation), not a rename.
 
 ## Tooling policy
 
-### Q5 — Retire the lint-baseline machinery now that the ratchet is locked?
+### Q5 — Retire the lint-baseline machinery now that the ratchet is locked? **[EXECUTED 37e7dda]**
 
 **Context:** all six formerly-`warn` rules are now `error` and the baseline manifest is empty,
 so the ~150-line wrapper (`tooling/lint-baseline.mjs`), its unit test, and two CI steps now
@@ -93,7 +96,7 @@ was the conservative call, yours to overrule.
 - [x] **A — Delete it:** `lint` becomes plain `eslint .`, drop `test:lint-baseline` + both CI steps + the B11 note *(recommended: its reason-to-exist is gone; git can resurrect it)*
 - [ ] **B — Keep it** as the documented escape hatch for the next deliberate exception
 
-### Q6 — CI has no eval leg — leave it that way?
+### Q6 — CI has no eval leg — leave it that way? **[EXECUTED 37e7dda — deterministic leg added]**
 
 **Context:** `npm run eval` is excluded from CI (now documented in ci.yml: real model calls,
 paid, non-deterministic). The deterministic *half* of the eval harness, though, could run in
@@ -141,7 +144,7 @@ don't.
 
 ## Hygiene (footnote-tier)
 
-### Q10 — Ungated `console.log` in `ai/core/initiator.ts` / `ai/tools/characterCreator.ts`?
+### Q10 — Ungated `console.log` in `ai/core/initiator.ts` / `ai/tools/characterCreator.ts`? **[EXECUTED 37e7dda]**
 
 **Context:** `[InitWorld…]`/`[CharCreator…]` progress logs run unconditionally in production
 paths (unlike the intentionally-loud mocks/eval logs).
