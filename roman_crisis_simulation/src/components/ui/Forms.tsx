@@ -9,13 +9,6 @@ export const Switch: React.FC<SwitchProps> =
         <label className="gor-switch" style={style}><input type="checkbox" role="switch" {...rest} />{label}</label>
     );
 
-type RadioProps = { label?: React.ReactNode; style?: React.CSSProperties } & Omit<React.ComponentPropsWithoutRef<'input'>, 'style' | 'type'>;
-
-export const Radio: React.FC<RadioProps> =
-    ({ label, style, ...rest }) => (
-        <label className="gor-check" style={style}><input type="radio" {...rest} />{label}</label>
-    );
-
 export interface SegmentedOption<T extends string> {
     value: T;
     label: React.ReactNode;

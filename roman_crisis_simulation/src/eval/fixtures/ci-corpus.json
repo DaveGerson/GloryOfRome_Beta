@@ -1,0 +1,191 @@
+{
+  "meta": {
+    "saveVersion": 1,
+    "turnNumber": 2,
+    "playerCharacterId": "severus_alexander"
+  },
+  "turns": [
+    {
+      "turnNumber": 1,
+      "playerIntent": "Pay a donative to the Praetorian Guard to secure their loyalty.",
+      "narration": "The treasury doors swing open; the Guard counts its silver in silence.",
+      "adjudication": {
+        "turn": 1,
+        "entityActions": [
+          {
+            "id": "maximinus_thrax",
+            "intent": "recruit",
+            "notes": "Raising fresh cohorts on the Danube."
+          }
+        ],
+        "deltas": [
+          {
+            "type": "resource",
+            "key": "severus_alexander:denarii",
+            "delta": -5000,
+            "reason": "Donative to the Praetorians."
+          },
+          {
+            "type": "relation",
+            "key": "maximinus_thrax:severus_alexander:trust_level",
+            "delta": -2,
+            "reason": "The donative reads as fear."
+          }
+        ],
+        "headlines": [
+          "The Emperor opens the treasury to the Guard."
+        ],
+        "gm_private": [
+          "Thrax interprets the donative as weakness."
+        ]
+      },
+      "rawCalls": [
+        {
+          "callName": "adjudication",
+          "model": "ci-fixture",
+          "latencyMs": 1200,
+          "attempts": 1,
+          "promptChars": 42,
+          "rawResponse": "{\"turn\":1,\"entityActions\":[{\"id\":\"maximinus_thrax\",\"intent\":\"recruit\",\"notes\":\"Raising fresh cohorts on the Danube.\",\"actors\":[\"maximinus_thrax\"]}],\"deltas\":[{\"type\":\"resource\",\"key\":\"severus_alexander:denarii\",\"delta\":-5000,\"reason\":\"Donative to the Praetorians.\",\"actors\":[\"severus_alexander\"]},{\"type\":\"relation\",\"key\":\"maximinus_thrax:severus_alexander:trust_level\",\"delta\":-2,\"reason\":\"The donative reads as fear.\",\"actors\":[]}],\"headlines\":[{\"text\":\"The Emperor opens the treasury to the Guard.\",\"actors\":[\"severus_alexander\"]}],\"gm_private\":[\"Thrax interprets the donative as weakness.\"]}",
+          "validated": true,
+          "promptText": "fixture prompt for adjudication",
+          "systemInstruction": "fixture system instruction for adjudication"
+        },
+        {
+          "callName": "narration",
+          "model": "ci-fixture",
+          "latencyMs": 1200,
+          "attempts": 1,
+          "promptChars": 42,
+          "rawResponse": "The treasury doors swing open; the Guard counts its silver in silence.",
+          "validated": true,
+          "promptText": "fixture prompt for narration",
+          "systemInstruction": "fixture system instruction for narration"
+        }
+      ],
+      "turnSeed": 42,
+      "resolutionTrace": {
+        "assessment": {
+          "is_consequential": true,
+          "action_category": "political maneuvering",
+          "relevant_skill": "intrigue",
+          "difficulty": 12,
+          "opposing_entity_id": "maximinus_thrax",
+          "rationale": "Buying the Guard invites rivals to outbid."
+        },
+        "roll": 13,
+        "total": 16,
+        "margin": 4,
+        "tier": "partial_success"
+      },
+      "mortalityTrace": [
+        {
+          "entity_id": "gaius_pontius_magnus",
+          "entity_name": "Gaius Pontius Magnus",
+          "claim": "Cut down by a mutinous cohort at the pay muster.",
+          "valid": true,
+          "roll": 9,
+          "band": "survive_with_loss",
+          "outcomeSummary": "Wounded at the muster; survives, diminished."
+        },
+        {
+          "entity_id": "julia_mamaea",
+          "entity_name": "Julia Mamaea",
+          "claim": "Poisoned at the evening meal.",
+          "valid": false,
+          "outcomeSummary": "Claim dispositioned as adjudicator overreach; no roll made."
+        }
+      ],
+      "npcIntents": null,
+      "npcMindResults": null
+    },
+    {
+      "turnNumber": 2,
+      "playerIntent": "Hold court and hear petitions from the provinces.",
+      "narration": "A quiet day of petitions; nothing is decided that steel would notice.",
+      "adjudication": {
+        "turn": 2,
+        "entityActions": [
+          {
+            "id": "maximinus_thrax",
+            "intent": "recruit",
+            "notes": "Raising fresh cohorts on the Danube."
+          }
+        ],
+        "deltas": [
+          {
+            "type": "resource",
+            "key": "severus_alexander:denarii",
+            "delta": -5000,
+            "reason": "Donative to the Praetorians."
+          },
+          {
+            "type": "relation",
+            "key": "maximinus_thrax:severus_alexander:trust_level",
+            "delta": -2,
+            "reason": "The donative reads as fear."
+          }
+        ],
+        "headlines": [
+          "The Emperor opens the treasury to the Guard."
+        ],
+        "gm_private": [
+          "Thrax interprets the donative as weakness."
+        ]
+      },
+      "rawCalls": [
+        {
+          "callName": "adjudication",
+          "model": "ci-fixture",
+          "latencyMs": 1200,
+          "attempts": 1,
+          "promptChars": 42,
+          "rawResponse": "{\"turn\":2,\"entityActions\":[{\"id\":\"maximinus_thrax\",\"intent\":\"recruit\",\"notes\":\"Raising fresh cohorts on the Danube.\",\"actors\":[\"maximinus_thrax\"]}],\"deltas\":[{\"type\":\"resource\",\"key\":\"severus_alexander:denarii\",\"delta\":-5000,\"reason\":\"Donative to the Praetorians.\",\"actors\":[\"severus_alexander\"]},{\"type\":\"relation\",\"key\":\"maximinus_thrax:severus_alexander:trust_level\",\"delta\":-2,\"reason\":\"The donative reads as fear.\",\"actors\":[]}],\"headlines\":[{\"text\":\"The Emperor opens the treasury to the Guard.\",\"actors\":[\"severus_alexander\"]}],\"gm_private\":[\"Thrax interprets the donative as weakness.\"]}",
+          "validated": true,
+          "promptText": "fixture prompt for adjudication",
+          "systemInstruction": "fixture system instruction for adjudication"
+        }
+      ],
+      "turnSeed": 235,
+      "resolutionTrace": null,
+      "mortalityTrace": null,
+      "npcIntents": null,
+      "npcMindResults": null
+    }
+  ],
+  "sessionCallLog": [
+    {
+      "callName": "adjudication",
+      "model": "ci-fixture",
+      "latencyMs": 1200,
+      "attempts": 1,
+      "promptChars": 42,
+      "rawResponse": "{\"turn\":1,\"entityActions\":[{\"id\":\"maximinus_thrax\",\"intent\":\"recruit\",\"notes\":\"Raising fresh cohorts on the Danube.\",\"actors\":[\"maximinus_thrax\"]}],\"deltas\":[{\"type\":\"resource\",\"key\":\"severus_alexander:denarii\",\"delta\":-5000,\"reason\":\"Donative to the Praetorians.\",\"actors\":[\"severus_alexander\"]},{\"type\":\"relation\",\"key\":\"maximinus_thrax:severus_alexander:trust_level\",\"delta\":-2,\"reason\":\"The donative reads as fear.\",\"actors\":[]}],\"headlines\":[{\"text\":\"The Emperor opens the treasury to the Guard.\",\"actors\":[\"severus_alexander\"]}],\"gm_private\":[\"Thrax interprets the donative as weakness.\"]}",
+      "validated": true,
+      "promptText": "fixture prompt for adjudication",
+      "systemInstruction": "fixture system instruction for adjudication"
+    },
+    {
+      "callName": "adjudication",
+      "model": "ci-fixture",
+      "latencyMs": 1200,
+      "attempts": 1,
+      "promptChars": 42,
+      "rawResponse": "{\"turn\":2,\"entityActions\":[{\"id\":\"maximinus_thrax\",\"intent\":\"recruit\",\"notes\":\"Raising fresh cohorts on the Danube.\",\"actors\":[\"maximinus_thrax\"]}],\"deltas\":[{\"type\":\"resource\",\"key\":\"severus_alexander:denarii\",\"delta\":-5000,\"reason\":\"Donative to the Praetorians.\",\"actors\":[\"severus_alexander\"]},{\"type\":\"relation\",\"key\":\"maximinus_thrax:severus_alexander:trust_level\",\"delta\":-2,\"reason\":\"The donative reads as fear.\",\"actors\":[]}],\"headlines\":[{\"text\":\"The Emperor opens the treasury to the Guard.\",\"actors\":[\"severus_alexander\"]}],\"gm_private\":[\"Thrax interprets the donative as weakness.\"]}",
+      "validated": true,
+      "promptText": "fixture prompt for adjudication",
+      "systemInstruction": "fixture system instruction for adjudication"
+    },
+    {
+      "callName": "clarification",
+      "model": "ci-fixture",
+      "latencyMs": 1200,
+      "attempts": 1,
+      "promptChars": 42,
+      "rawResponse": "The Guard expects donatives at each accession; this one is early.",
+      "validated": true,
+      "promptText": "fixture prompt for clarification",
+      "systemInstruction": "fixture system instruction for clarification"
+    }
+  ]
+}

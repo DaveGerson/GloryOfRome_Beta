@@ -31,10 +31,10 @@ export default tseslint.config(
       // These six rules were seeded at 'warn' to tolerate a 17-item legacy
       // inventory (roadmaps/BACKLOG.md B11) while it was burned down. That
       // inventory reached zero (tooling/eslint-warning-baseline.json is
-      // empty), so the ratchet is locked: each is now 'error'. A future
-      // deliberate exception goes through an inline disable with a
-      // justification comment, or back through the baseline machinery
-      // (tooling/lint-baseline.mjs) with a matching B11 entry.
+      // empty), so the ratchet is locked: each is now 'error'. The
+      // baseline machinery itself is retired (Q5, roadmaps/BACKLOG.md
+      // B11); a future deliberate exception goes through an inline
+      // disable with a justification comment.
       // The one accepted `any` (ai/core/geminiService.ts's Zod escape
       // hatch) carries its own inline disable.
       '@typescript-eslint/no-explicit-any': 'error',
