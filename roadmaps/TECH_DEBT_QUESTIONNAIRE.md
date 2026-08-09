@@ -18,8 +18,9 @@ trade-off to weigh.
 
 **2026-08-09: Q3–Q10 execution approved as three batches**
 (spec: `docs/superpowers/specs/2026-08-09-q3-q10-batches-design.md`).
-Batch 1 (Q3, Q5, Q6, Q10) EXECUTED and merged → `37e7dda`. Batches 2 (Q7, Q8, Q9)
-and 3 (Q4) follow sequentially.
+Batch 1 (Q3, Q5, Q6, Q10) EXECUTED and merged → `37e7dda`. Batch 2 (Q7, Q8, Q9)
+EXECUTED and merged → `719976e` (both Q8 probes proved dead; Q9 found no drift).
+Batch 3 (Q4) follows.
 
 ---
 
@@ -107,7 +108,7 @@ CI against fixtures with the judge skipped — it already skips itself when no k
 
 ## Type safety
 
-### Q7 — The seven compiler-unenforced non-null assertions?
+### Q7 — The seven compiler-unenforced non-null assertions? **[EXECUTED 719976e]**
 
 **Context:** `knowledge/relationships.ts:160,181`, `ai/core/mortality.ts:263,334-335`,
 `ai/prompts/fragments.ts:257`. All provably safe **today** via upstream filters — but the
@@ -119,7 +120,7 @@ guards; the other five are locally obvious.
 - [ ] **B — Refactor all seven**
 - [ ] **C — Leave all** (the assertions are commented and reviewed)
 
-### Q8 — Probe the stale `ErrorBoundary` workaround?
+### Q8 — Probe the stale `ErrorBoundary` workaround? **[EXECUTED 719976e — both probes dead, removed]**
 
 **Context:** `components/ErrorBoundary.tsx:51-58` justifies a `declare props` workaround with
 "no `@types/react` in this project" — false since commit 4ecc2d1 (2026-07-23) added the types.
@@ -129,7 +130,7 @@ workaround, flip flag, typecheck + suite) settles whether either is still load-b
 - [x] **A — Probe and remove whatever proves dead** *(recommended: ten-minute experiment, full gate as referee)*
 - [ ] **B — Leave both** (working code, low traffic)
 
-### Q9 — Drift protection for the ~15 unpinned Zod↔TS schema pairs?
+### Q9 — Drift protection for the ~15 unpinned Zod↔TS schema pairs? **[EXECUTED 719976e — no drift found]**
 
 **Context:** the three hand-maintained *trios* (Entity, NpcMindDecision, EvalJudgeVerdict) now
 all have lockstep pin tests. But ~15 non-Interchange Zod schemas (`zRelationship`, `zMemory`,
