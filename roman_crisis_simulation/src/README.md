@@ -111,10 +111,6 @@ The simulation's data is primarily structured around the types defined in types.
 
 # **TODO Section**
 
-## **Proposed Codebase Organization Changes**
-
-* **Separate Logic from Components (optional, not yet implemented)**: `DramatisPersonaeTab.tsx` still contains significant logic for handling intelligence gathering directly in the component. This logic could be extracted into a custom hook (e.g., `useIntelligence(targetEntity)`) to make the component purely responsible for rendering the UI, improving separation of concerns. This is the only open item in this section — the AI service layer and centralized state management described in earlier drafts of this document have shipped as `ai/core/geminiService.ts` and `state/GameContext.tsx` / `state/gameReducer.ts` respectively.
-
 ## **Proposed Feature Enhancements**
 
 * **Faction Cohesion & Internal Politics**: Add a `cohesion` property to factions (e.g., from 0 to 10). Low cohesion could cause factions to splinter, with ambitious members breaking off to form their own sub-factions or defecting. This would make managing a faction more challenging and dynamic. *Feasibility: Medium. Requires new logic for faction splits and updates to the AI's adjudication rules.*
