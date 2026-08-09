@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { Entity, InvestigationResult } from '../../types';
 import { GoogleGenAI } from '@google/genai';
 import InfoTooltip from '../InfoTooltip';
@@ -8,7 +8,8 @@ import { InvestigationKind, KnowledgeClaim, SCHEME_CLUES_TO_REVEAL, deriveDossie
 import { DOSSIER_COLD_THRESHOLD } from '../../knowledge/dossierCost';
 import { knowledgeSourceLead } from '../../knowledge/credibilityFraming';
 import { isEntityKnownToPlayer, relationshipTimelineFor } from '../../knowledge/relationships';
-import { priceInvestigation, heldSinceTurn, schemeDiscoveryFor, resolveIntelRequest, DEEP_ANALYSIS_COST } from './dramatisPersonaeIntel';
+import { priceInvestigation, heldSinceTurn, schemeDiscoveryFor, DEEP_ANALYSIS_COST } from './dramatisPersonaeIntel';
+import { useIntelGathering } from './useIntelGathering';
 import { quiet, IntelSection, SchemeIntelSection, DeepAnalysisSection, type HeldDossierReading } from './dramatisPersonaeUi';
 import RelationshipObservations from './RelationshipObservations';
 import RelationshipsTab from './RelationshipsTab';
@@ -16,7 +17,6 @@ import { SubRail } from '../ui/SubRail';
 import { getTabRegister, setTabRegister } from '../../persistence/uiPrefs';
 import type { DomainMutationContext, RunDomainMutation } from '../../state/domainMutation';
 
-type UncoveredIntel = { secrets?: string[]; beliefs?: string[]; deep_analysis?: string };
 type Wiring = {
   knowledge: KnowledgeClaim[];
   turnNumber: number;
@@ -32,13 +32,12 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
   entity, playerEntity, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, ai, isMockMode, interactionLocked,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [uncoveredIntel, setUncoveredIntel] = useState<UncoveredIntel>({});
-  const [loadingState, setLoadingState] = useState<'secrets' | 'beliefs' | 'scheme' | 'deep_analysis' | null>(null);
-  const [requestError, setRequestError] = useState<string | null>(null);
   // One ❧ Glossary control per dossier instead of five † daggers (audit item
   // 25) - open it and every gloss in this card appears inline as marginalia.
   const [glossaryOpen, setGlossaryOpen] = useState(false);
-  const mountedRef = useRef(true);
+  const { uncoveredIntel, loadingState, requestError, handleRequest } = useIntelGathering({
+    entity, playerEntity, knowledge, ai, isMockMode, interactionLocked, runDomainMutation, onSpendDeepAnalysis, onInvestigationOutcome,
+  });
   const price = (kind: InvestigationKind) => priceInvestigation(knowledge, entity.entity_id, kind);
   const schemeDiscovery = schemeDiscoveryFor(knowledge, entity.entity_id);
   const observations = relationshipTimelineFor(knowledge, entity.entity_id);
@@ -58,59 +57,6 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
       sourceLead: knowledgeSourceLead(held.source),
       stale: turnNumber - held.lastRefreshedTurn > DOSSIER_COLD_THRESHOLD,
     };
-  };
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  const handleRequest = async (type: 'secrets' | 'beliefs' | 'scheme' | 'deep_analysis') => {
-    if (interactionLocked) return;
-    try {
-      await runDomainMutation(async transaction => {
-        // The App lease outlives this details surface when the player changes
-        // tabs. Every child state write and both paid commit callbacks need the
-        // narrower lifetime, and App re-checks this guard at its save boundary.
-        const request: DomainMutationContext = {
-          isCurrent: () => mountedRef.current && transaction.isCurrent(),
-        };
-        if (!request.isCurrent()) return;
-        setRequestError(null);
-        setLoadingState(type);
-        try {
-          const outcome = await resolveIntelRequest({ type, target: entity, playerEntity, knowledge, ai, isMockMode });
-          if (outcome.kind === 'deep_analysis') {
-            if (outcome.charged) {
-              const committed = await onSpendDeepAnalysis(outcome.cost, request);
-              if (request.isCurrent() && committed !== false) {
-                setUncoveredIntel(previous => ({ ...previous, deep_analysis: outcome.analysis }));
-              }
-            }
-            return;
-          }
-          if (outcome.charged) {
-            if (outcome.investigationKind !== 'scheme') {
-              const committed = await onInvestigationOutcome(outcome.investigationKind, entity.entity_id, outcome.reportData, outcome.cost, outcome.outcome, request);
-              if (request.isCurrent() && committed !== false) {
-                setUncoveredIntel(previous => ({ ...previous, [outcome.investigationKind]: outcome.display }));
-              }
-            } else {
-              await onInvestigationOutcome(outcome.investigationKind, entity.entity_id, outcome.reportData, outcome.cost, outcome.outcome, request);
-            }
-          }
-        } finally {
-          if (request.isCurrent()) setLoadingState(null);
-        }
-      });
-    } catch (error) {
-      if (mountedRef.current) {
-        console.error('Error resolving intelligence request:', error);
-        setRequestError('The intelligence request could not be completed. Please try again.');
-      }
-    }
   };
 
   const investigations = (playerEntity.resources.investigations as number) || 0;
