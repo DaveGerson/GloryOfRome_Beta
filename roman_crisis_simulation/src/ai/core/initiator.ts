@@ -13,7 +13,7 @@ export const generateScenarioStructure = async (
     playerCharacterDescription: string,
     isMockMode: boolean
 ): Promise<{ worldState: WorldState, playerStub: EntityStub, npcStubs: EntityStub[] }> => {
-    console.log(`[InitWorld:Step1] Generating scenario structure...`);
+    if (import.meta.env.DEV) console.log(`[InitWorld:Step1] Generating scenario structure...`);
 
     if (isMockMode) {
         return mockGenerateScenarioStructure(metaNarrative, playerCharacterDescription);
@@ -22,7 +22,7 @@ export const generateScenarioStructure = async (
     const { systemInstruction, prompt } = buildScenarioStructurePrompt(metaNarrative, playerCharacterDescription);
 
     try {
-        console.log(`[InitWorld:Step1] Sending request to Gemini (Budget: 512)...`);
+        if (import.meta.env.DEV) console.log(`[InitWorld:Step1] Sending request to Gemini (Budget: 512)...`);
         const result = await generateStructured<{ worldState: WorldState, playerStub: EntityStub, npcStubs: EntityStub[] }>(ai, {
             callName: 'scenarioStructure',
             model: GEMINI_PRO,
@@ -33,7 +33,7 @@ export const generateScenarioStructure = async (
             thinkingConfig: { thinkingBudget: 512 },
         });
 
-        console.log(`[InitWorld:Step1] Parsed successfully. Player: ${result.playerStub?.entity_id}, NPCs: ${result.npcStubs?.length}`);
+        if (import.meta.env.DEV) console.log(`[InitWorld:Step1] Parsed successfully. Player: ${result.playerStub?.entity_id}, NPCs: ${result.npcStubs?.length}`);
         return result;
     } catch (e) {
         console.error("[InitWorld:Step1] Failed to generate structure:", e);
@@ -51,12 +51,12 @@ const generateEntityBatch = async (
     budget: number
 ): Promise<Entity[]> => {
     const targetIds = targetStubs.map(s => s.entity_id).join(', ');
-    console.log(`[InitWorld:Step2:${batchName}] preparing prompt for IDs: [${targetIds}]`);
+    if (import.meta.env.DEV) console.log(`[InitWorld:Step2:${batchName}] preparing prompt for IDs: [${targetIds}]`);
 
     const { systemInstruction, prompt } = buildEntityBatchPrompt(targetStubs, allStubs, metaNarrative, worldState);
 
     try {
-        console.log(`[InitWorld:Step2:${batchName}] Sending request to Gemini (Budget: ${budget})...`);
+        if (import.meta.env.DEV) console.log(`[InitWorld:Step2:${batchName}] Sending request to Gemini (Budget: ${budget})...`);
         const start = Date.now();
         const result = await generateStructured<{ entities?: Entity[] }>(ai, {
             callName: `entityBatch:${batchName}`,
@@ -68,13 +68,13 @@ const generateEntityBatch = async (
             thinkingConfig: { thinkingBudget: budget },
         });
         const duration = Date.now() - start;
-        console.log(`[InitWorld:Step2:${batchName}] Request complete in ${duration}ms.`);
+        if (import.meta.env.DEV) console.log(`[InitWorld:Step2:${batchName}] Request complete in ${duration}ms.`);
 
         if (!result.entities || !Array.isArray(result.entities)) {
              throw new Error(`Invalid JSON structure for batch ${batchName}: missing 'entities' array.`);
         }
 
-        console.log(`[InitWorld:Step2:${batchName}] Successfully generated ${result.entities.length} entities.`);
+        if (import.meta.env.DEV) console.log(`[InitWorld:Step2:${batchName}] Successfully generated ${result.entities.length} entities.`);
         return result.entities;
     } catch (e) {
         console.error(`[InitWorld:Step2:${batchName}] Failed:`, e);
@@ -88,7 +88,7 @@ export const initiateWorld = async (
     playerCharacterDescription: string,
     isMockMode: boolean
 ): Promise<{ worldState: WorldState, entities: Entity[], playerCharacterId: string }> => {
-    console.log(`[InitWorld] Starting world generation for narrative: "${metaNarrative}"`);
+    if (import.meta.env.DEV) console.log(`[InitWorld] Starting world generation for narrative: "${metaNarrative}"`);
 
     if (isMockMode) {
         return mockInitiateWorld(metaNarrative, playerCharacterDescription);
@@ -139,7 +139,7 @@ export const initiateWorld = async (
 
         npcEntityBatches.forEach(npcEntities => entities.push(...npcEntities));
 
-        console.log(`[InitWorld] World Generation Complete. Total Entities: ${entities.length}`);
+        if (import.meta.env.DEV) console.log(`[InitWorld] World Generation Complete. Total Entities: ${entities.length}`);
 
         return {
             worldState: structure.worldState,

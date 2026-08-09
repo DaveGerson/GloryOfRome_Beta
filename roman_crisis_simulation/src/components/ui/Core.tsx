@@ -37,8 +37,6 @@ export const Badge: React.FC<BadgeProps> = ({ tone = 'neutral', children, ...res
     <span className={`gor-badge gor-badge-${tone}`} {...rest}>{children}</span>
 );
 
-export const Divider: React.FC<Omit<React.ComponentPropsWithoutRef<'hr'>, 'className'>> = (props) => <hr className="gor-divider" {...props} />;
-
 type RegisterHeadingProps = {
     /** A ceremonial numeral, where the registers are ordered (the dispatch scroll). */
     numeral?: string;

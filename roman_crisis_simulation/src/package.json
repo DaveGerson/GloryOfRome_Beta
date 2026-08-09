@@ -14,9 +14,8 @@
     "eval": "vitest run --config vitest.eval.config.ts",
     "test:journeys": "vitest run --config vitest.journeys.config.ts",
     "typecheck": "tsc --noEmit",
-    "test:lint-baseline": "node --test tooling/lint-baseline.node-test.mjs",
-    "lint": "node tooling/lint-baseline.mjs",
-    "verify": "npm run typecheck && npm run lint && npm run test:lint-baseline && npm test && npm run test:journeys && npm run build"
+    "lint": "eslint .",
+    "verify": "npm run typecheck && npm run lint && npm test && npm run test:journeys && npm run build"
   },
   "dependencies": {
     "@google/genai": "^1.22.0",

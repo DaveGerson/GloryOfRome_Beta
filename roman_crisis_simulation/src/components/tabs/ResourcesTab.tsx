@@ -20,9 +20,9 @@ const asNumber = (value: unknown): number | null => (typeof value === 'number' ?
 /**
  * A scalar standing, drawn as a meter — item 23's COUNTED register: a crisp
  * numeral over a solid track, for a figure the simulation actually holds.
- * Scales run 0-100 by convention in this model. Not ui/Feedback's Meter:
- * this fill is the metallic gradient (--metal-gold), not the flat gold-500,
- * but it keeps the same role="meter" contract.
+ * Scales run 0-100 by convention in this model. The fill is the metallic
+ * gradient (--metal-gold) and the track carries the role="meter" ARIA
+ * contract.
  */
 const StandingMeter: React.FC<{ label: string; value: number }> = ({ label, value }) => {
     const share = Math.max(0, Math.min(100, value));

@@ -9,7 +9,7 @@ import { zEntity } from '../core/zodSchemas';
 import { buildCharacterCreationPrompt } from '../prompts/characterCreation';
 
 export const createCharacter = async (ai: GoogleGenAI, description: string, isMockMode: boolean): Promise<Entity> => {
-    console.log(`[CharCreator] Starting character creation for: "${description}"`);
+    if (import.meta.env.DEV) console.log(`[CharCreator] Starting character creation for: "${description}"`);
     if (isMockMode) {
         if(!mockCreateCharacter) throw new Error("Mock function 'mockCreateCharacter' is not implemented.");
         return mockCreateCharacter(description);
@@ -17,7 +17,7 @@ export const createCharacter = async (ai: GoogleGenAI, description: string, isMo
 
     const { systemInstruction, prompt } = buildCharacterCreationPrompt(description, ALL_INITIAL_ENTITIES);
 
-    console.log(`[CharCreator] Sending request to Gemini 3.0...`);
+    if (import.meta.env.DEV) console.log(`[CharCreator] Sending request to Gemini 3.0...`);
     try {
         const character = await generateStructured<Entity>(ai, {
             callName: 'characterCreation',
@@ -29,7 +29,7 @@ export const createCharacter = async (ai: GoogleGenAI, description: string, isMo
             thinkingConfig: { thinkingBudget: 1024 },
         });
 
-        console.log(`[CharCreator] Character created: ${character.name} (${character.entity_id})`);
+        if (import.meta.env.DEV) console.log(`[CharCreator] Character created: ${character.name} (${character.entity_id})`);
         return character;
     } catch (error) {
         console.error(`[CharCreator] Error creating character:`, error);

@@ -282,6 +282,10 @@ structural checks. `tooling/eslint-warning-baseline.json` now has an empty
 inventory. `npm run lint` therefore fails loudly for every future ESLint
 warning; no B11 warning remains accepted debt.
 
+**Retired 2026-08-09:** the ratchet stayed locked at zero, so the
+`tooling/lint-baseline.mjs` wrapper and its `test:lint-baseline` unit test
+were retired (Q5); `lint` is now plain `eslint .` in package.json and CI.
+
 ### B12 — Task 4b vendor-chunk-split interactive preview smoke  *(RUN & PASSED 2026-08-05)*
 When Task 4b split the single oversized JS bundle into deterministic vendor
 chunks (`vite.config.ts`'s `manualChunks`, commit `1cef76e`), the task brief
