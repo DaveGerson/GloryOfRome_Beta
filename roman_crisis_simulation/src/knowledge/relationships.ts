@@ -151,8 +151,11 @@ export function validateRelationshipObservationDrafts(input: ValidationInput): R
     if (!evidence || !Array.isArray(raw.participantIds) || typeof raw.excerpt !== 'string' || raw.excerpt.trim().length === 0 || !evidence.text.includes(raw.excerpt)) continue;
     const participantIds = [...new Set(raw.participantIds)];
     if (participantIds.length < 2 || participantIds.some(id => !entityById.has(id))) continue;
-    if (participantIds.some(id => !knownIds.has(id)
-      && !evidenceContainsExactEntityName(evidence.text, entityById.get(id)!.name))) continue;
+    if (participantIds.some(id => {
+      if (knownIds.has(id)) return false;
+      const entity = entityById.get(id);
+      return !entity || !evidenceContainsExactEntityName(evidence.text, entity.name);
+    })) continue;
     accepted.push({ evidenceId: raw.evidenceId, participantIds, excerpt: raw.excerpt });
   }
   return accepted;
@@ -173,7 +176,8 @@ export function ingestRelationshipObservations(
       ? draft.evidenceId
       : `turn:${input.turn}:${draft.evidenceId}`;
     if (existingEvidenceIds.has(canonicalEvidenceId)) continue;
-    const evidence = evidenceById.get(draft.evidenceId)!;
+    const evidence = evidenceById.get(draft.evidenceId);
+    if (!evidence) continue;
     const quote = evidence.trustedQuote
       && draft.participantIds.includes(evidence.trustedQuote.speakerId)
       && draft.excerpt.includes(evidence.trustedQuote.text)

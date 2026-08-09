@@ -48,14 +48,6 @@ const DANGER_ARM_MS = 300;
  * render crash, so the escape must never fire on a single accidental press.
  */
 class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  // `react` ships no bundled type declarations in this project (no
-  // @types/react either - see package.json), so `React.Component` resolves
-  // as an untyped/`any` base class here. TS therefore doesn't know about
-  // the `props`/`state` members the real base class provides at runtime;
-  // declare them explicitly so the rest of this class type-checks.
-  // `declare` (no emitted code) for `props`, since the real React.Component
-  // constructor is what actually assigns `this.props` via `super(props)`.
-  declare props: ErrorBoundaryProps;
   state: ErrorBoundaryState;
 
   private armTimer: ReturnType<typeof setTimeout> | null = null;
