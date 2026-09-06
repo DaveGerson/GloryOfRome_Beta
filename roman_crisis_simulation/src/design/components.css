@@ -698,6 +698,7 @@ body{transition:none}
 .gor-stream .gor-msg{max-width:100%}
 .gor-stream .gor-msg-player{max-width:78%}
 .gor-stream .gor-tablet{max-width:none}
+.gor-stream .gor-loom{max-width:none;width:100%;box-sizing:border-box}
 
 /* ── The composer tablet ── */
 .gor-composer-strip{flex:none;border-top:1px solid var(--border-subtle);padding:10px 24px 14px;background:rgba(255,254,249,.55)}
