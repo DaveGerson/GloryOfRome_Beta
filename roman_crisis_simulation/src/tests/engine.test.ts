@@ -85,12 +85,29 @@ describe('applyAdjudication', () => {
 
     it('should create and set a new resource if it does not exist', () => {
       const adjudication = deepCopy(baseAdjudication);
-      adjudication.deltas.push({ type: 'resource', key: 'maximinus_thrax:influence', delta: 10, reason: 'Gained support' });
-      
+      adjudication.deltas.push({ type: 'resource', key: 'maximinus_thrax:grain_modii', delta: 10, reason: 'A granary seized' });
+
       const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
       const entity = updatedEntities.find(e => e.entity_id === 'maximinus_thrax');
 
-      expect(entity?.resources.influence).toBe(10);
+      expect(entity?.resources.grain_modii).toBe(10);
+    });
+
+    it('folds an alias onto its canonical key so one quantity never accrues under two names (D46)', () => {
+      const adjudication = deepCopy(baseAdjudication);
+      // 'influence' is the registry alias for 'political_influence'; the
+      // engine's fold is the backstop for paths that skip the turn
+      // pipeline's economy guard (authored choices, direct callers).
+      adjudication.deltas.push({ type: 'resource', key: 'maximinus_thrax:influence', delta: 10, reason: 'Gained support' });
+      adjudication.deltas.push({ type: 'resource', key: 'maximinus_thrax:gold', delta: 700, reason: 'A bribe pocketed' });
+
+      const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+      const entity = updatedEntities.find(e => e.entity_id === 'maximinus_thrax');
+
+      expect(entity?.resources.political_influence).toBe(10);
+      expect(entity?.resources.influence).toBeUndefined();
+      expect(entity?.resources.denarii).toBe(700); // booked under the canonical key
+      expect(entity?.resources.gold).toBeUndefined();
     });
 
     it('should not error for a resource delta on a non-existent entity', () => {
@@ -104,16 +121,32 @@ describe('applyAdjudication', () => {
 
     // --- Systemic Resource Registry (DESIGN_DECISIONS.md D6) ---
     describe('Systemic resources: denarii (D6)', () => {
-      it('should allow a non-systemic resource to go negative freely (regression)', () => {
+      it('should allow an undeclared resource to go negative freely (regression)', () => {
         const adjudication = deepCopy(baseAdjudication);
-        // legion_support is not in the systemic registry - should behave exactly
-        // as before: a bare running total, free to go negative.
-        adjudication.deltas.push({ type: 'resource', key: 'maximinus_thrax:legion_support', delta: -200, reason: 'Legions mutiny' });
+        // 'grain_modii' is neither systemic nor catalogued - it behaves exactly
+        // as every freeform resource always has: a bare running total, free to
+        // go negative, no report.
+        adjudication.deltas.push({ type: 'resource', key: 'maximinus_thrax:grain_modii', delta: -200, reason: 'The granary burns' });
 
         const { updatedEntities, updatedReports } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
         const entity = updatedEntities.find(e => e.entity_id === 'maximinus_thrax');
 
-        expect(entity?.resources.legion_support).toBe(-115); // 85 - 200
+        expect(entity?.resources.grain_modii).toBe(-200);
+        expect(updatedReports.length).toBe(0);
+      });
+
+      it('clamps a catalogued 0-100 standing to its floor and cap without a report (D46)', () => {
+        const adjudication = deepCopy(baseAdjudication);
+        // legion_support is a catalogued standing (0-100 scale). A mutiny
+        // takes it to the floor, not to -115; the clamp is silent - the
+        // narration, not a report, carries the consequence.
+        adjudication.deltas.push({ type: 'resource', key: 'maximinus_thrax:legion_support', delta: -200, reason: 'Legions mutiny' });
+        adjudication.deltas.push({ type: 'resource', key: 'severus_alexander:legion_support', delta: 500, reason: 'A donative beyond precedent' });
+
+        const { updatedEntities, updatedReports } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+
+        expect(updatedEntities.find(e => e.entity_id === 'maximinus_thrax')?.resources.legion_support).toBe(0);
+        expect(updatedEntities.find(e => e.entity_id === 'severus_alexander')?.resources.legion_support).toBe(100);
         expect(updatedReports.length).toBe(0);
       });
 

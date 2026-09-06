@@ -553,6 +553,43 @@ export interface ActionResolutionEvent {
 }
 
 /**
+ * Which weekly ledger rule wrote a line (DESIGN_DECISIONS.md D46,
+ * ai/core/ledger.ts). Closed so the Assets tab and the GM console can group
+ * and colour lines without parsing their prose.
+ */
+export const LedgerLineKindEnum = [
+  'income', 'upkeep', 'arrears', 'interest', 'levy', 'desertion', 'regen', 'drift', 'adjustment',
+] as const;
+export type LedgerLineKind = typeof LedgerLineKindEnum[number];
+
+/**
+ * One line of the player's weekly ledger (D46): an ENGINE-authored change to
+ * the player's own holdings - wages paid, an estate's yield, interest taken
+ * or capitalised, levies arriving, a standing slipping under the crisis.
+ * Written once per committed turn by ai/core/ledger.ts, AFTER the
+ * adjudication and its no-attempt boundary have run, so a line can never be
+ * mistaken for an invented player act (ai/core/playerBoundary.ts gates
+ * adjudicator deltas, not this record).
+ *
+ * PLAYER-VISIBLE by construction (D5/D6: the player's own treasury is
+ * objectively knowable): `text` is the sentence the Dispatches digest and the
+ * Assets tab print, `amount` is Arabic arithmetic the player may do sums on
+ * (D44). `detail` is the itemisation for the GM console and the Assets
+ * ledger's fine print - it carries nothing the player may not see either.
+ */
+export interface LedgerLine {
+  kind: LedgerLineKind;
+  /** The CANONICAL resource key the line moved (ai/core/resourceRegistry.ts), e.g. 'denarii'. */
+  key: string;
+  /** The signed amount applied to `key`, after any floor/cap clamp. */
+  amount: number;
+  /** The player-facing sentence. */
+  text: string;
+  /** The itemisation behind the amount (e.g. 'guards 150 x 12, agents 3 x 15'). */
+  detail?: string;
+}
+
+/**
  * An entry for the Game Master's turn history log.
  */
 export interface TurnHistoryEntry {
@@ -653,6 +690,17 @@ export interface TurnHistoryEntry {
    * withheld. Optional: absent whenever the turn cut nothing.
    */
   proseRedactions?: PlayerProseRedaction[];
+  /**
+   * The player's weekly ledger for this turn (D46, ai/core/ledger.ts): every
+   * engine-authored line - wages, yields, interest, levies, desertions,
+   * intel regeneration, standing drift - applied once, AFTER the adjudication
+   * committed. Player-visible (the Dispatches digest and the Assets tab read
+   * it) and GM-visible (the console's what-changed pane). Optional for save
+   * compatibility (D17): entries persisted before the ledger existed lack
+   * it, and a quiet week that moved nothing omits it rather than carrying
+   * an empty list - consumers treat absent and empty alike.
+   */
+  ledger?: LedgerLine[];
 }
 
 export interface SpotlightEntity {

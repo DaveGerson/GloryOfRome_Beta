@@ -1,5 +1,6 @@
 import { Entity, WorldState, Adjudication, Report, EventDelta, Relationship, TruthLedgerEntry } from '../../types';
 import { SYSTEMIC_RESOURCES, applySystemicResourceRule } from './resources';
+import { canonicalResourceKey, clampToKind, getResourceKind, normalizeResources } from './resourceRegistry';
 import { buildNpcPerceptions, selectMemoryChanges, selectPerceivingNpcs } from '../../perception/npcPerception';
 
 // NOTE: The turn-adjudication prompt (formerly `compileContext` here) has
@@ -98,9 +99,19 @@ export function applyDeltas(
         try {
             switch(delta.type) {
                 case 'resource': {
-                    const [entityId, resourceName] = delta.key.split(':');
+                    const [entityId, rawResourceName] = delta.key.split(':');
                     const entity = updatedEntities.find(e => e.entity_id === entityId);
-                    if (entity) {
+                    if (entity && rawResourceName) {
+                        // CANONICAL KEYS (DESIGN_DECISIONS.md D46,
+                        // ai/core/resourceRegistry.ts): the model's spelling is
+                        // folded onto the registry's - 'gold' lands on
+                        // 'denarii', 'legion_loyalty' on 'legion_support' - so
+                        // one quantity never accrues under two names. The turn
+                        // pipeline folds delta keys before they get here
+                        // (ai/core/economyGuard.ts); this fold is the backstop
+                        // for the paths that skip it (authored event choices,
+                        // direct callers, legacy fixtures).
+                        const resourceName = canonicalResourceKey(rawResourceName) || rawResourceName;
                         const currentVal = (entity.resources[resourceName] as number) || 0;
                         const rawNewVal = currentVal + delta.delta;
 
@@ -110,15 +121,20 @@ export function applyDeltas(
                         // exactly today's behavior. A small registry (denarii
                         // first) instead gets engine-enforced floors/thresholds/
                         // consequences (e.g. an overdraft becomes debt rather
-                        // than a bare zero floor). Non-registry resource names
-                        // fall through to the `else` branch, unchanged.
+                        // than a bare zero floor). A catalogued kind with a
+                        // declared floor/cap (a 0-100 standing, a headcount) is
+                        // clamped to it (D46); anything undeclared falls through
+                        // to the bare running total, unchanged.
                         const rule = SYSTEMIC_RESOURCES[resourceName];
+                        const kind = getResourceKind(resourceName);
                         if (rule) {
                             const { finalValue, reports } = applySystemicResourceRule(
                                 rule, entity, resourceName, currentVal, rawNewVal, turnNumber
                             );
                             entity.resources[resourceName] = finalValue;
                             newReports.push(...reports);
+                        } else if (kind) {
+                            entity.resources[resourceName] = clampToKind(kind, rawNewVal);
                         } else {
                             entity.resources[resourceName] = rawNewVal;
                         }
@@ -568,7 +584,12 @@ export function applyAdjudication(
                 return;
             }
             takenIds.add(entity.entity_id);
-            entitiesAfterDeltas.push(entity);
+            // A roster addition's bag is folded onto canonical keys as it
+            // lands (D46): the one write point every model-authored entity
+            // passes through, so 'gold' never sits beside 'denarii' on a
+            // newcomer. Numbers under two spellings add; the record is
+            // otherwise the model's own.
+            entitiesAfterDeltas.push({ ...entity, resources: normalizeResources(entity.resources).resources });
         });
     }
 
