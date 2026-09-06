@@ -12,7 +12,18 @@
  * (function signatures, JSDoc) is new.
  */
 
-import { Entity, WorldState, SimulationState, StoryRelevance, NpcIntent, NpcMindDecision } from '../../types';
+import { Entity, WorldState, SimulationState, StoryRelevance, NpcIntent, NpcMindDecision, LedgerLine } from '../../types';
+import {
+  BLACKMAIL_PREFIX,
+  HOLDING_PREFIX,
+  classifyResourceKey,
+  formatArabic,
+  formatResourcesCompact,
+  numericResource,
+  RESOURCE_CATEGORIES,
+  ResourceCategory,
+} from '../core/resourceRegistry';
+import { creditorsPress, investigationCap, projectWeeklyCoinFlow, runwayWeeks, CREDITORS_PRESS_THRESHOLD, DESERTION_ARREARS_WEEKS } from '../core/ledger';
 
 /**
  * The opaque stand-in that REPLACES a 'scheme' delta's `reason` before that
@@ -80,6 +91,13 @@ export function asPromptData(value: unknown, space?: number): string {
  * mind prompt (ai/prompts/npcMind.ts) and the narration prompt's bounded
  * voice-cast block (ai/prompts/narration.ts). Both fields are OPTIONAL: a
  * legacy entity without them renders exactly as before (never "undefined").
+ *
+ * `Holdings` (D46): the entity's resource bag as stored, compact - the
+ * omniscient adjudicator prices an NPC's bribe or donative against what that
+ * NPC actually holds, and echoes the stored keys on its deltas. Before D46
+ * no prompt ever showed the adjudicator a single holding, so nothing could
+ * cost anything. The player's own holdings get the fuller ledger block
+ * (`buildPlayerLedgerBlock`), not this line.
  */
 export function getEntityBrief(entity: Entity): string {
   const relationships = Object.values(entity.relationships)
@@ -89,7 +107,107 @@ export function getEntityBrief(entity: Entity): string {
   const skills = entity.skills ? `Skills: ${Object.entries(entity.skills).map(([name, value]) => `${name}:${value}`).join(', ')}` : '';
   const beliefs = entity.beliefs ? `Beliefs: ${entity.beliefs.join('; ')}` : '';
   const scheme = entity.active_scheme ? `Active Scheme: ${JSON.stringify(entity.active_scheme)}` : '';
-  return `${entity.name}${entity.epithet ? ` "${entity.epithet}"` : ''} (${entity.position || entity.entity_type}) [Status: ${entity.status}, Location: ${entity.location}] Goals: ${entity.short_term_goals.join(', ')}. ${scheme}. ${personality}. ${skills}. ${beliefs}. Relationships: ${relationships}`;
+  const holdings = Object.keys(entity.resources ?? {}).length > 0 ? `Holdings: ${formatResourcesCompact(entity.resources)}` : 'Holdings: none recorded';
+  return `${entity.name}${entity.epithet ? ` "${entity.epithet}"` : ''} (${entity.position || entity.entity_type}) [Status: ${entity.status}, Location: ${entity.location}] Goals: ${entity.short_term_goals.join(', ')}. ${scheme}. ${personality}. ${skills}. ${beliefs}. ${holdings}. Relationships: ${relationships}`;
+}
+
+/** The registers the ledger block lists the player's bag under, in reading order. */
+const LEDGER_BLOCK_CATEGORY_LABELS: Record<ResourceCategory, string> = {
+  coin: 'Coin',
+  debt: 'Owed',
+  intel: 'Intel',
+  forces: 'Forces',
+  holdings: 'Holdings',
+  standing: 'Standing',
+  leverage: 'Leverage',
+};
+
+/**
+ * The adjudicator's window onto the player's own economy (D46) - the
+ * ENGINE's figures, authoritative, rendered every turn so that "every act
+ * has a price" (ai/prompts/adjudication.ts's RESOURCE ECONOMY principle)
+ * is priced against real holdings rather than guessed at. Carries the
+ * treasury, debt and back pay; the week's projected income/upkeep/interest
+ * and the runway they imply (ai/core/ledger.ts::projectWeeklyCoinFlow, the
+ * same arithmetic the Assets tab shows the player); the bag by register;
+ * the intel ceiling; the creditor-pressure and arrears flags DEBT HAS TEETH
+ * bites with; and last week's ledger lines, so the adjudicator narrates
+ * the wages that came due rather than contradicting them.
+ *
+ * Every string here is engine- or model-authored (keys, numbers, catalogue
+ * labels); the one exception - a string-valued or list-valued resource the
+ * model once wrote - is JSON-quoted through `asPromptData` (D41) so it can
+ * never occupy line-start position. GM-side prompt only: this block never
+ * reaches a player-bound call (the narration prompt carries the player
+ * entity's own resources map, which is the player's to see).
+ */
+export function buildPlayerLedgerBlock(player: Entity, lastLedger: LedgerLine[] | undefined): string {
+  const bag = player.resources ?? {};
+  const treasury = numericResource(bag, 'denarii');
+  const debt = numericResource(bag, 'debt_denarii');
+  const arrears = numericResource(bag, 'pay_arrears');
+  const flow = projectWeeklyCoinFlow(bag);
+  const runway = runwayWeeks(treasury, flow.net);
+
+  const byCategory = new Map<ResourceCategory, string[]>();
+  for (const [key, value] of Object.entries(bag)) {
+    if (key === 'denarii' || key === 'debt_denarii' || key === 'pay_arrears') continue;
+    const kind = classifyResourceKey(key);
+    const rendered = Array.isArray(value)
+      ? `${key} (${value.length} item${value.length === 1 ? '' : 's'})`
+      : typeof value === 'number'
+        ? key === 'investigations'
+          ? `${key} ${value} of ${investigationCap(bag)}`
+          : `${key} ${value}`
+        : `${key} ${asPromptData(value)}`;
+    const list = byCategory.get(kind.category) ?? [];
+    list.push(rendered);
+    byCategory.set(kind.category, list);
+  }
+  const registers = RESOURCE_CATEGORIES
+    .filter(category => (byCategory.get(category) ?? []).length > 0)
+    .map(category => `${LEDGER_BLOCK_CATEGORY_LABELS[category]}: ${(byCategory.get(category) ?? []).join(', ')}.`)
+    .join(' ');
+
+  const incomeLine = flow.income.length > 0
+    ? `income +${formatArabic(flow.incomeTotal)} (${flow.income.map(i => `${i.key} ${i.count} x ${i.perUnit}`).join(', ')})`
+    : 'income none';
+  const upkeepLine = flow.upkeep.length > 0
+    ? `wages -${formatArabic(flow.upkeepTotal)} (${flow.upkeep.map(i => `${i.key} ${i.count} x ${i.perUnit}`).join(', ')})`
+    : 'wages none';
+  const interestLine = flow.interest > 0 ? `; interest -${formatArabic(flow.interest)}` : '';
+  const runwayLine = flow.net >= 0
+    ? 'the treasury holds level or grows'
+    : runway === 0
+      ? 'the treasury is already empty against this drain - next week overdraws into debt'
+      : `at this rate the treasury lasts about ${runway} week${runway === 1 ? '' : 's'}`;
+
+  const pressures: string[] = [];
+  if (creditorsPress(bag)) {
+    pressures.push(`CREDITORS PRESS: the debt of ${formatArabic(debt)} denarii is at or past ${formatArabic(CREDITORS_PRESS_THRESHOLD)} - a creditor must be FELT this week (DEBT HAS TEETH): named, calling, raising 'dependency_level', or turning hostile.`);
+  } else if (debt > 0) {
+    pressures.push(`Debt stands at ${formatArabic(debt)} denarii; interest is taken from the treasury each week or added to the debt when the treasury cannot pay.`);
+  }
+  if (arrears > 0) {
+    const weeksOwed = flow.upkeepTotal > 0 ? arrears / flow.upkeepTotal : 0;
+    pressures.push(`BACK PAY OWED: the player's own men are owed ${formatArabic(arrears)} denarii${flow.upkeepTotal > 0 ? ` (${weeksOwed.toFixed(1)} weeks' wages)` : ''}; their loyalty erodes weekly and desertions begin at ${DESERTION_ARREARS_WEEKS} weeks' pay - let the grumbling be heard.`);
+  }
+  const heldItems = Object.keys(bag).filter(key => key.startsWith(HOLDING_PREFIX) || key.startsWith(BLACKMAIL_PREFIX));
+  if (heldItems.length > 0) {
+    pressures.push(`Discrete holdings and leverage the player may draw on: ${heldItems.join(', ')}.`);
+  }
+
+  const lastWeek = lastLedger && lastLedger.length > 0
+    ? `Last week's ledger: ${lastLedger.map(line => line.text).join(' ')}`
+    : "Last week's ledger: nothing was booked.";
+
+  return `
+PLAYER HOLDINGS & LEDGER (engine-kept and authoritative - price every act against this, echo these keys on deltas):
+Treasury: ${formatArabic(treasury)} denarii. Debt: ${debt > 0 ? formatArabic(debt) : 'none'}. Back pay owed: ${arrears > 0 ? formatArabic(arrears) : 'none'}.
+Weekly flow: ${incomeLine}; ${upkeepLine}${interestLine}; net ${flow.net >= 0 ? '+' : ''}${formatArabic(flow.net)} - ${runwayLine}.
+${registers || 'No other holdings recorded.'}
+${pressures.length > 0 ? `${pressures.join('\n')}\n` : ''}${lastWeek}
+`;
 }
 
 /** One-line world summary (year/week/political climate/economic stability). */

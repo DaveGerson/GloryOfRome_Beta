@@ -32,6 +32,16 @@ const PLAYER = 'severus_alexander';
 const SENATE = 'roman_senate';
 const MAGNUS = 'gaius_pontius_magnus'; // at The Curia, NOT in the player's visibility_network -> off-network
 
+/**
+ * D46: the steward closes the player's books every week AFTER the
+ * adjudication commits - estate yields in, wages out - so the treasury
+ * moves by the scripted delta PLUS the week's booked net. The lines ride
+ * the history entry; summing them here keeps the journey honest about the
+ * arithmetic without hard-coding the pay tables.
+ */
+const weekNet = (entry: { ledger?: Array<{ key: string; amount: number }> }): number =>
+  (entry.ledger ?? []).filter(line => line.key === 'denarii').reduce((sum, line) => sum + line.amount, 0);
+
 describe('journey: a quiet reign (3 turns of ordinary governance)', () => {
   it('accumulates treasury/relationships, rolls dice only when consequential, and keeps an off-network senator invisible all journey', async () => {
     const runner = new JourneyRunner({ name: 'quietReign' });
@@ -72,7 +82,14 @@ describe('journey: a quiet reign (3 turns of ordinary governance)', () => {
     ]);
 
     // Ground truth committed for BOTH the player and the off-network senator.
-    expect(runner.player().resources.denarii).toBe(52000);
+    // The Emperor's week closes at a loss: two estates yield less than a
+    // Praetorian household and three agents cost (D46 ledger) - the
+    // scripted tax receipts land on top of that booked net.
+    expect(t1.entry.ledger?.map(line => line.kind)).toEqual(expect.arrayContaining(['income', 'upkeep']));
+    expect(weekNet(t1.entry)).toBeLessThan(0);
+    expect(runner.player().resources.denarii).toBe(52000 + weekNet(t1.entry));
+    // The ledger is the PLAYER's alone (D5/D6): the senator's purse moves by
+    // the scripted delta and nothing else.
     expect(runner.entity(MAGNUS).resources.denarii).toBe(245000);
     expect(runner.rel(SENATE, PLAYER)?.trust_level).toBe(8);
 
@@ -150,8 +167,11 @@ describe('journey: a quiet reign (3 turns of ordinary governance)', () => {
 
     expect(t3.entry.resolutionTrace).toBeUndefined();
 
-    // Final accumulated ground truth across the whole reign.
-    expect(runner.player().resources.denarii).toBe(53000);
+    // Final accumulated ground truth across the whole reign: three scripted
+    // receipts and three weekly closings, every one of them booked on its
+    // own history entry (a quiet week with no scripted coin still pays wages).
+    expect(weekNet(t2.entry)).toBe(weekNet(t1.entry));
+    expect(runner.player().resources.denarii).toBe(53000 + weekNet(t1.entry) + weekNet(t2.entry) + weekNet(t3.entry));
     expect(runner.entity(MAGNUS).resources.denarii).toBe(242000);
     expect(runner.rel(SENATE, PLAYER)?.trust_level).toBe(9);
 

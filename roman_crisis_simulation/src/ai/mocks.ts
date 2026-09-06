@@ -3,6 +3,8 @@
 
 import { Entity, NpcIntent, NpcMindDecision, Report, SimulationState, StoryRelevance, TruthLedgerEntry, TurnHistoryEntry, WorldState, EventDelta, EntityStub, TurnSubmission } from '../types';
 import { applyAdjudication } from './core/engine';
+import { guardEconomy } from './core/economyGuard';
+import { applyWeeklyLedger } from './core/ledger';
 import { MAX_MINDS_PER_TURN } from './prompts/npcMind';
 import { normalizeTurnSubmissionInput, projectForNoAttemptResponse, projectForPlayerReflection, projectForResolution, serializeTurnSubmission } from '../playerInput/turnSubmission';
 import type { PrivateSceneAdjudicatorProjection, PrivateSceneModelResponse, PrivateSceneNpcMemoryProjection } from '../privateScene/model';
@@ -455,11 +457,35 @@ export const mockRunNewTurn = async (
         // task-4-design.md).
         actors: ['maximinus_thrax'],
     };
+    // The player's own economy in mock mode (D46 parity): a priced act (the
+    // bribe the canned suggestion keeps offering) and an UNSOURCED windfall
+    // the conservation guard (ai/core/economyGuard.ts) will clamp for any
+    // preset holding under 24,000 denarii - so a keyless QA pass sees a
+    // debit land on the ledger AND an `[Economy]` clamp note in the GM
+    // console. Player-keyed, so built per call like the planted rumor and,
+    // like it, stripped by projectMockAdjudicationForNoAttempt on a
+    // no-attempt turn (a spend is player agency).
+    const playerEconomyDeltas: EventDeltaInterchange[] = [
+        {
+            type: 'resource',
+            key: `${playerEntity.entity_id}:gold`, // an alias, on purpose: the guard folds it onto 'denarii'
+            delta: -1500,
+            reason: 'Coin is paid out to the Praetorian prefects to keep their ears open.',
+            actors: [playerEntity.entity_id],
+        },
+        {
+            type: 'resource',
+            key: `${playerEntity.entity_id}:denarii`,
+            delta: 12000,
+            reason: 'A grateful provincial delegation presents a gift of coin.',
+            actors: [],
+        },
+    ];
     const adjudication: AdjudicationInterchange = {
         ...MOCK_ADJUDICATION,
         turn: turnNumber,
         deltas: observableAttempt
-            ? [...MOCK_ADJUDICATION.deltas, playerPlantedRumor]
+            ? [...MOCK_ADJUDICATION.deltas, playerPlantedRumor, ...playerEconomyDeltas]
             : [...MOCK_ADJUDICATION.deltas],
         // FRESH array, never the shared MOCK_ADJUDICATION.gm_private - the
         // pushes below (and this pacing note) must not accumulate onto the
@@ -502,6 +528,12 @@ export const mockRunNewTurn = async (
     // every push above and below lands on the one committed array.
     const strippedAdjudication = stripActorsFromAdjudication(gatedAdjudication);
 
+    // The conservation guard, in the same slot the real pipeline runs it
+    // (ai/core/turn.ts step 2.8): after the last boundary, before apply.
+    const guarded = guardEconomy(strippedAdjudication.deltas, currentEntities, playerEntity.entity_id);
+    strippedAdjudication.deltas = guarded.deltas;
+    strippedAdjudication.gm_private.push(...guarded.notes);
+
     // Same perception context the real pipeline passes (ai/core/turn.ts):
     // the player is excluded from the NPC memory loop, and the mock
     // Director's spotlight pair stands in as the spotlight cast.
@@ -510,8 +542,19 @@ export const mockRunNewTurn = async (
         spotlightIds: storyRelevance.spotlight_entities.map(s => s.entity_id),
         turnNumber,
     });
-    const { updatedEntities, updatedWorldState } = appliedAdjudication;
-    const { updatedReports, updatedTruthLedger, perceivingNpcIds } = appliedAdjudication;
+    // The weekly ledger, as its own engine step after apply (ai/core/turn.ts
+    // step 3.5) - so a keyless playthrough pays wages, earns yields and
+    // regenerates intel exactly as a keyed one does.
+    const weeklyLedger = applyWeeklyLedger({
+        entities: appliedAdjudication.updatedEntities,
+        playerId: playerEntity.entity_id,
+        turnNumber,
+        simulationState: currentSimulationState,
+    });
+    const updatedEntities = weeklyLedger.entities;
+    const { updatedWorldState, updatedTruthLedger, perceivingNpcIds } = appliedAdjudication;
+    const updatedReports = [...appliedAdjudication.updatedReports, ...weeklyLedger.reports];
+    strippedAdjudication.gm_private.push(...weeklyLedger.gmNotes);
 
     // Task 4: narration/monologue become structured {text, actors} payloads,
     // mirroring the real pipeline's switch to structured output. Declared
@@ -588,6 +631,8 @@ export const mockRunNewTurn = async (
         perceivingNpcIds,
         npcIntents: durableIntents.length > 0 ? durableIntents : undefined,
         npcMindResults: mindDecisions.length > 0 ? mindDecisions : undefined,
+        // Parity with ai/core/turn.ts: omitted on a week that moved nothing.
+        ledger: weeklyLedger.lines.length > 0 ? weeklyLedger.lines : undefined,
     };
 
     return {
