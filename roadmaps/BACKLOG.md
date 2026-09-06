@@ -31,29 +31,49 @@ hard mechanic should ask: *what soft resources feed it, at what exchange rate,
 and with what friction?* Surfaced while pricing investigations (see B1); it
 will recur for every systemic mechanic added.
 
+**Resolution (D46, 2026-09-06 — owner veto pending).** The two kinds now
+meet at three seams, each of which answers the question above: (a) the
+canonical registry (`ai/core/resourceRegistry.ts`) folds every model
+spelling onto one key, so a soft resource the world generated is counted
+under the same name the hard mechanics read; (b) the exchequer
+(`ai/core/exchequer.ts`) states the rate and the friction — coin into
+inquiries up to the agents' ceiling, a favour into an inquiry, three
+inquiries into a deep analysis, coin into levies that arrive a week late;
+(c) the conservation guard (`ai/core/economyGuard.ts`) is the guardrail
+against minting — an unsourced windfall, free intel, a reputation leaping by
+tens, or unpaid men are clamped to what a week can honestly yield, GM-noted,
+never rejected. A new hard mechanic still has to answer the question; now it
+answers it by adding a registry kind, an exchequer row, and a guard rule.
+
 ---
 
 ## Backlog items
 
-### B1 — Currency converter: soft resources → investigations  *(owner-requested)*
+### B1 — Currency converter: soft resources → investigations  *(owner-requested; LANDED 2026-09-06 as D46's exchequer — owner veto pending)*
 Let the player exchange other currencies they hold — money/denarii, troops,
 favors, standing, etc. — into investigation capacity. Investigations are a
-hard gating currency but are currently unit-priced and scarce, with no way to
-trade a surplus of one kind for intel. A converter is the T1 interoperability
+hard gating currency but were unit-priced and scarce, with no way to trade a
+surplus of one kind for intel. The converter is the T1 interoperability
 bridge between the soft resource bag and the hard investigation mechanic.
 
-- **Unlocks graded investigation pricing.** Once investigations have a real
-  (non-unit) cost via conversion, the currently-dormant dossier-refresh decay
-  curve (`knowledge/dossierCost.ts`, D27) becomes meaningful again — a warm
-  refresh can cost genuinely less than a cold one. **Until the converter
-  lands, investigations stay flat/simple ("as is") and the decay curve is
-  preserved-but-dormant.** The converter is therefore the prerequisite that
-  makes D27's graded pricing worth having.
-- **Open design:** per-resource exchange rates; friction/loss on conversion
-  (to prevent trivial minting — the T1 guardrail); whether conversion is
-  instant or costs a turn; whether some conversions need an NPC/broker (tying
-  intel-buying into the relationship system, so who you know gates what you
-  can trade).
+- **Landed:** the Exchequer register on the Assets tab
+  (`ai/core/exchequer.ts`, committed through `App.tsx`'s `handleExchange`).
+  Rates, stated with their friction: 1,500 denarii → 1 investigation, bounded
+  by the agents-driven ceiling (2 + one per three agents, max 8); 1 favour →
+  1 investigation; 3 investigations → 1 deep analysis; 60 denarii a head in
+  lots of ten → troops that muster and arrive NEXT week; 90 a head in fives →
+  guards at once; 400 → an agent; coin repays debt or back pay at par; an
+  estate or ship sells under duress for fifteen weeks of its yield. No
+  conversion costs a turn; the levy's week-long delay is the one deliberate
+  delay. Standing is NOT convertible — a reputation is spent in play, never
+  at a counter.
+- **Graded investigation pricing is live (D27):** a first acquisition or a
+  cold refresh costs one investigation; a warm refresh is settled in denarii
+  along the decay curve (300 rising toward the 1,500 exchequer price), gated
+  on the treasury. See D46's flagged deviation from "the SAME resource".
+- **Still open:** a broker — whether some conversions should need an NPC
+  (tying intel-buying into the relationship system, so who you know gates
+  what you can trade). The table is data; a broker would be a gate on a row.
 
 ### B2 — Player-facing intelligence VISUAL surfaces  *(LANDED 2026-08-06)*
 The substrate was built (knowledge graph D29, sourced-credibility framing
@@ -330,8 +350,14 @@ Nothing here blocks; all are one edit from rewording.
 - **Event text** — 3 new (Acclamation on the Rhine, Stirrings in Africa, The
   Donative Comes Due) + 2 reworked (grain shortage, whispers of mutiny).
 - **FATES posture wording** — PATIENT / MEASURED / EAGER.
-- **D27 decay numbers** (floor 0.2×, cold threshold 6 turns) — moot while
-  dormant; revisit alongside B1.
+- **D27 decay numbers** (floor 0.2×, cold threshold 6 turns) — LIVE since
+  D46 priced an investigation at 1,500 denarii: a warm refresh now costs
+  300 rising toward 1,500 denarii. Review together with D46's tuning
+  constants (wages, yields, 5% weekly interest, the 10,000 creditors'
+  threshold, the guard's 2,000 / half-treasury windfall allowance).
+- **D46 ledger and exchequer copy** — every ledger line, report claim,
+  exchequer verb/gloss, zero state and the Assets tab's runway sentence are
+  authored text; one edit each to reword.
 
 ---
 
