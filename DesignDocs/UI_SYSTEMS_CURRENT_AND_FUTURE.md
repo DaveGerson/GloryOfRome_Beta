@@ -2,6 +2,17 @@
 
 > **Status (July 2026):** written before the Phase 2-3 engine work and the PR #4 design-system
 > re-skin; annotations below mark what has since shipped.
+>
+> **September 2026 design pass:** the masthead became a single ~84px row with the four world
+> readings as an engraved plate (the twin-medallion vexillum took ~140px of every viewport);
+> the seven-tab intelligence bar is one non-wrapping row; the player dossier is a labelled grid;
+> the chronicle reads in one 760px column with the inner monologue set left and the Dispatches
+> tablet placed before a trailing week ribbon; the composer is a tablet with its own head (mode
+> switch, live stage, the Private scene / GM Log tools) and a lit-vellum field; and below 768px the
+> intelligence panel is a sheet summoned by a gilt bar between chronicle and composer (item 10.2
+> below). All of it is class-driven CSS in `design/components.css`, re-lit by `nocturne.css`
+> through tokens. In the same pass every model call moved to Gemini 3.8 (`gemini-3.8-flash`,
+> thinking levels in place of budgets — see `ai/core/geminiService.ts`).
 
 This document is the comprehensive reference for the user interface of the Roman Crisis Simulation.
 It has two parts:
@@ -409,8 +420,9 @@ counts. Pure presentation over existing state.
 `economic_stability`/`political_climate` (*ROADMAP_4 P2.1*), upgrade the Header strip from plain
 text to compact trend meters (value + directional arrow + spark of recent history).
 *(PARTIALLY SHIPPED — the blocker is gone: the `'world'` delta type now unfreezes both fields
-(`ai/core/engine.ts`). `Header.tsx` still renders them as plain text `Stat` rows, not trend
-meters/arrows/sparkline — that visual upgrade is still open.)*
+(`ai/core/engine.ts`). Since the September 2026 design pass `Header.tsx` renders Year / Week /
+Economy / Climate as an engraved readings plate (`.gor-masthead-readings`), bronze and crimson for
+the two free-prose readings; a directional arrow or sparkline of recent history is still open.)*
 
 ## 7. Surface the Drama (stakes, endings, tension)
 
@@ -509,9 +521,12 @@ bars. *(= ROADMAP_3 P2.2a)*
 bottom switcher (Chat ↔ Intel); PlayerStatus becomes a collapsible summary bar; modals go
 full-screen; pills wrap into a horizontal scroller. The conversational core is naturally
 phone-shaped — this widens the audience considerably. *(= ROADMAP_3 P2.1)*
-*(Still not built — no responsive breakpoints/media queries found in `design/`; the layout is
-still the fixed flex-based 2:1 desktop split. Tailwind's `md:`/`w-2/3`/`w-1/3` are gone, replaced
-with inline `flex: 2`/`flex: 1` styles, but the fixed-split constraint itself is unchanged.)*
+*(SHIPPED, September 2026 design pass — below 768px the chronicle takes the whole height and the
+intelligence panel becomes a full-screen sheet summoned by a gilt "Intelligence" bar between the
+chronicle and the composer (a crimson pip marks new intelligence), closed by its own "Back to the
+week" row or Escape; the masthead folds its readings under the title below 900px; the counsel
+pills scroll sideways. Modals were already full-width at that stop. See `.gor-side`,
+`.gor-intel-toggle` and the `@media (max-width:768px)` block in `design/components.css`.)*
 
 **10.3 Inclusive meters [P2 / S]** — Add text/pattern redundancy to color-coded meters (trust,
 stability, credibility); respect `prefers-reduced-motion` for all entrance/typing animations;
