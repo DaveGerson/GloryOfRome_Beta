@@ -451,11 +451,11 @@ rather than rediscover it.
 - **`occurrenceSlug` can collide** (`knowledge/store.ts`): 60-char truncation,
   or an all-punctuation headline slugging to `''`, can merge two occurrences'
   findings under one claim key. Cosmetic misfiling, bounded.
-- **Two content-box overhangs at desktop.** `.gor-private-scene` and its
-  textareas are `width:100%` with padding and border and no `box-sizing`, so
-  the textarea overhangs its dialog by 18px at EVERY width inside a container
-  with `overflow:auto`. Fixed only inside the narrow-viewport queries, because
-  gap H's brief forbade changing desktop. Wants a one-line fix outside any
-  query.
+- **Two content-box overhangs at desktop — CLOSED 2026-09-06.**
+  `.gor-private-scene` and its textareas/selects were `width:100%` with
+  padding and border and no `box-sizing`, so the textarea overhung its dialog
+  by 18px at every width. The September 2026 design pass made them
+  `box-sizing:border-box` in their base rules (`design/components.css`),
+  outside any viewport query; verified by screenshot at 1440, 1024 and 390px.
 - **Gaps C and I remain undrawn** — Consulting the Fates, and the player
   dossier header. Gap H was closed by this pass and is recorded in D45.
