@@ -21,7 +21,7 @@
 import { Type } from '@google/genai';
 import { z } from 'zod';
 import { Entity } from '../../types';
-import { GeminiClient, generateStructured, GEMINI_FLASH } from '../core/geminiService';
+import { GeminiClient, generateStructured, GEMINI_FLASH, THINKING_QUICK } from '../core/geminiService';
 import { buildAmbitionInferencePrompt, buildApparentAmbitionPlayerBrief } from '../prompts/ambition';
 import { deserializeTurnSubmission, isReservedTurnSubmissionArtifact, projectForExternalInference } from '../../playerInput/turnSubmission';
 
@@ -103,8 +103,8 @@ export async function inferAmbition(
     prompt,
     responseSchema: AmbitionInferenceSchema,
     zodSchema: zAmbitionInference,
-    // Small thinking budget - this is a cheap, periodic read of an existing
+    // The quick posture - this is a cheap, periodic read of an existing
     // pattern, not a high-stakes deliberation like adjudication/mortality.
-    thinkingConfig: { thinkingBudget: 256 },
+    thinkingConfig: THINKING_QUICK,
   });
 }

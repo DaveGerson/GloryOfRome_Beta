@@ -15,6 +15,10 @@ DESIGN_DECISIONS.md D34: bring-your-own-key is the default, preferred way to pla
 * **As the owner, on Windows, without a plaintext file:** store the key as a **generic credential** in Windows Credential Manager under the target `GloryOfRome:GEMINI_API_KEY` (`cmdkey /generic:GloryOfRome:GEMINI_API_KEY /user:api /pass:<key>`, or the Credential Manager UI). The dev server reads it at startup via `vite.config.ts` and injects it through the same serve-only `define` seam. Priority when several sources exist: the in-app configuration-menu key (localStorage) wins at runtime, then a filled-in `.env`, then the credential store. Same D34 boundary — dev server only, never in build output.
 * The configuration menu also surfaces the D23 pacing posture (previously a bottom-right-only toggle) and the D32/D33 GM Intervention / GM console availability toggles — both default to "available", matching prior behavior.
 
+## **The Model — Gemini 3.8**
+
+Every call runs on **`gemini-3.8-flash`** (Gemini 3.8, September 2026), the one model Google shipped for the generation — a GA id, and by Google's own account its strongest reasoning model to date; there is no "3.8 Pro". The app's two historical call tiers survive as **thinking postures** on the same id rather than as two model ids (`ai/core/geminiService.ts`): `THINKING_DEEP` (`HIGH`) for the adjudicator, world generation and character creation; `THINKING_STANDARD` (`MEDIUM`) for narration, mortality, story relevance, the simulation-state update, investigations, private scenes and the epilogue; `THINKING_QUICK` (`LOW`) for the per-turn flash tier (the action assessment, NPC minds, the monologue, ambition inference, clarifications, the eval judge). Gemini 3.x takes a thinking *level*, never a token budget — the API rejects a request carrying both — so `ThinkingConfigLike` has no budget field at all. If the primary id is ever retired, every call falls back (sticky, per session) to `gemini-3.7-flash`, the previous-generation GA Flash model, which honours the same LOW/MEDIUM/HIGH contract. The SDK is `@google/genai` 2.x.
+
 # **Codebase**
 
 ## **Current Structure of Game Files**

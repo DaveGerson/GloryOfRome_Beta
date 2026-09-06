@@ -2,7 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import { Entity, WorldState, StoryRelevance, Adjudication, SimulationState, ActionResolutionEvent, NpcIntent } from '../../types';
 import { mockGetClarificationOnEvent, mockGetDeepAnalysis, mockGetInvestigationResult, mockGetPlayerMonologue, mockGetStoryRelevance } from '../mocks';
 import { StoryRelevanceSchema, SimulationStateSchema, PlayerMonologuePayloadSchema, buildInvestigationResultSchema } from '../core/schemas';
-import { generateStructured, generateText, GEMINI_PRO, GEMINI_FLASH } from '../core/geminiService';
+import { generateStructured, generateText, GEMINI_PRO, GEMINI_FLASH, THINKING_QUICK, THINKING_STANDARD } from '../core/geminiService';
 import { zStoryRelevance, zSimulationState, zPlayerMonologuePayload, zInvestigationResult } from '../core/zodSchemas';
 import type { PlayerMonologuePayloadInterchange, SimulationStateInterchange } from '../core/actorsBoundary';
 import {
@@ -36,7 +36,7 @@ export const getClarificationOnEvent = async (ai: GoogleGenAI, event: string, qu
     const isVisible = entitiesInEvent.every(e => player.visibility_network.includes(e.entity_id) || e.entity_id === player.entity_id);
 
     const { systemInstruction, prompt } = buildClarificationPrompt(event, question, player, isVisible);
-    const text = await generateText(ai, { callName: 'clarification', model: GEMINI_FLASH, systemInstruction, prompt });
+    const text = await generateText(ai, { callName: 'clarification', model: GEMINI_FLASH, systemInstruction, prompt, thinkingConfig: THINKING_QUICK });
     const playerVisibleText = text || "No response generated.";
     assertPlayerVisibleTextSafe(playerVisibleText);
     return playerVisibleText;
@@ -50,7 +50,8 @@ export const getDeepAnalysis = async (ai: GoogleGenAI, target: Entity, player: E
     }
     const isVisible = player.visibility_network.includes(target.entity_id);
     const { systemInstruction, prompt } = buildDeepAnalysisPrompt(target, player, isVisible);
-    const text = await generateText(ai, { callName: 'deepAnalysis', model: GEMINI_FLASH, systemInstruction, prompt });
+    // A paid, premium read (deep_analyses are rare) - the standard posture, not the quick one.
+    const text = await generateText(ai, { callName: 'deepAnalysis', model: GEMINI_FLASH, systemInstruction, prompt, thinkingConfig: THINKING_STANDARD });
     const playerVisibleText = text || "Intelligence unavailable.";
     assertPlayerVisibleTextSafe(playerVisibleText);
     return playerVisibleText;
@@ -143,7 +144,7 @@ export const getInvestigationResult = async (ai: GoogleGenAI, target: Entity, pl
         prompt,
         responseSchema: buildInvestigationResultSchema(subject),
         zodSchema: zInvestigationResult,
-        thinkingConfig: { thinkingBudget: 512 },
+        thinkingConfig: THINKING_STANDARD,
     });
 
     // Enforce the tier's consequences contract POST-HOC, in code - not just
@@ -188,6 +189,7 @@ export const getPlayerMonologue = async (ai: GoogleGenAI, player: Entity, turnHe
         prompt,
         responseSchema: PlayerMonologuePayloadSchema,
         zodSchema: zPlayerMonologuePayload,
+        thinkingConfig: THINKING_QUICK,
     });
     const playerVisibleText = payload.text || "I am contemplative.";
     assertPlayerVisibleTextSafe(playerVisibleText);
@@ -208,7 +210,7 @@ export const getStoryRelevance = async (ai: GoogleGenAI, turnNumber: number, pre
         prompt,
         responseSchema: StoryRelevanceSchema,
         zodSchema: zStoryRelevance,
-        thinkingConfig: { thinkingBudget: 512 },
+        thinkingConfig: THINKING_STANDARD,
     });
 };
 
@@ -236,7 +238,7 @@ export const getUpdatedSimulationState = async (ai: GoogleGenAI, adjudication: A
         prompt,
         responseSchema: SimulationStateSchema,
         zodSchema: zSimulationState,
-        thinkingConfig: { thinkingBudget: 512 },
+        thinkingConfig: THINKING_STANDARD,
     });
     assertPlayerVisibleValueSafe(rawUpdatedState);
     return rawUpdatedState;

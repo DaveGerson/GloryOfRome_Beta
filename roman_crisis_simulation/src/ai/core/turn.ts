@@ -10,7 +10,7 @@ import { getNpcMindDecision } from '../tools/npcMind';
 import { MAX_MINDS_PER_TURN } from '../prompts/npcMind';
 import { buildWorldSummary } from '../prompts/fragments';
 import { buildPerceivedDigest, buildPlayerPerceivedDigest, PerceivedChange } from '../../perception/visibility';
-import { generateStructured, generateStructuredStream, GEMINI_PRO, beginTurnCapture, endTurnCapture } from './geminiService';
+import { generateStructured, generateStructuredStream, GEMINI_PRO, THINKING_DEEP, THINKING_STANDARD, beginTurnCapture, endTurnCapture } from './geminiService';
 import { zAdjudication, zNarrationPayload } from './zodSchemas';
 import {
     stripActorsFromAdjudication,
@@ -633,7 +633,8 @@ export async function runNewTurn(
         prompt,
         responseSchema: AdjudicationSchema,
         zodSchema: zAdjudication,
-        thinkingConfig: { thinkingBudget: 1024 },
+        // The one call that decides the week: the deepest thinking posture.
+        thinkingConfig: THINKING_DEEP,
         temperature: ADJUDICATION_TEMPERATURE,
     });
     // D42 (gate-before-strip; roadmaps/DESIGN_DECISIONS.md): the FIRST
@@ -875,7 +876,7 @@ export async function runNewTurn(
         prompt: narrationPrompt.prompt,
         responseSchema: NarrationPayloadSchema,
         zodSchema: zNarrationPayload,
-        thinkingConfig: { thinkingBudget: 512 },
+        thinkingConfig: THINKING_STANDARD,
         temperature: NARRATION_TEMPERATURE,
     };
     // Task 4 narration decision (task-4-design.md section 1): ONE

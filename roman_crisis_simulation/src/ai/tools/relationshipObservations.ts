@@ -4,7 +4,7 @@ import {
   hasDuplicateEvidenceIds,
   validateRelationshipObservationDrafts,
 } from '../../knowledge/relationships';
-import { GEMINI_FLASH, generateStructured, type GeminiClient } from '../core/geminiService';
+import { GEMINI_FLASH, THINKING_QUICK, generateStructured, type GeminiClient } from '../core/geminiService';
 import { RelationshipObservationsSchema } from '../core/schemas';
 import { zRelationshipObservations } from '../core/zodSchemas';
 import { buildRelationshipObservationsPrompt } from '../prompts/relationshipObservations';
@@ -41,6 +41,7 @@ export async function getRelationshipObservations(
         prompt,
         responseSchema: RelationshipObservationsSchema,
         zodSchema: zRelationshipObservations,
+        thinkingConfig: THINKING_QUICK,
       });
     })();
   const accepted = validateRelationshipObservationDrafts({

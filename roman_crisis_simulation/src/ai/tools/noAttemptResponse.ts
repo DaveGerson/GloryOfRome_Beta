@@ -3,7 +3,7 @@ import type {
   NoAttemptSelectionResult,
 } from '../../playerView/noAttemptResponse';
 import { validateNoAttemptSelection } from '../../playerView/noAttemptResponse';
-import { GEMINI_FLASH, generateStructured, type GeminiClient } from '../core/geminiService';
+import { GEMINI_FLASH, THINKING_QUICK, generateStructured, type GeminiClient } from '../core/geminiService';
 import { NoAttemptEvidenceSelectionSchema } from '../core/schemas';
 import { zNoAttemptEvidenceSelection } from '../core/zodSchemas';
 import { stripActorsFromNoAttemptEvidenceSelection, type NoAttemptEvidenceSelectionInterchange } from '../core/actorsBoundary';
@@ -40,6 +40,7 @@ export async function selectNoAttemptEvidence(
       prompt,
       responseSchema: NoAttemptEvidenceSelectionSchema,
       zodSchema: zNoAttemptEvidenceSelection,
+      thinkingConfig: THINKING_QUICK,
     });
     // Actors-attribution parse boundary (D42): strip the interchange-only
     // `actors` sibling before this reaches selection validation/downstream use.

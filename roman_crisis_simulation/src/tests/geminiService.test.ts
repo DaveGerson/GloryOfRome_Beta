@@ -16,6 +16,9 @@ import {
   GEMINI_PRO,
   GEMINI_PRO_FALLBACK,
   GEMINI_FLASH,
+  THINKING_DEEP,
+  THINKING_STANDARD,
+  THINKING_QUICK,
   resetProFallback,
   isProFallbackActive,
 } from '../ai/core/geminiService';
@@ -668,7 +671,7 @@ describe('geminiService', () => {
     });
 
     it('falls back once to GEMINI_PRO_FALLBACK when GEMINI_PRO 404s, and succeeds', async () => {
-      const notFound = new ApiError({ status: 404, message: 'models/gemini-3-pro-preview is not found' });
+      const notFound = new ApiError({ status: 404, message: 'models/gemini-3.8-flash is not found' });
       const generateContent = vi.fn()
         .mockRejectedValueOnce(notFound)
         .mockResolvedValueOnce({ text: '{"ok":1}' });
@@ -688,7 +691,7 @@ describe('geminiService', () => {
     });
 
     it('records the model actually used (the fallback) in the RawCallRecord', async () => {
-      const notFound = new ApiError({ status: 404, message: 'models/gemini-3-pro-preview is not found' });
+      const notFound = new ApiError({ status: 404, message: 'models/gemini-3.8-flash is not found' });
       const generateContent = vi.fn()
         .mockRejectedValueOnce(notFound)
         .mockResolvedValueOnce({ text: '{"ok":1}' });
@@ -706,7 +709,7 @@ describe('geminiService', () => {
     });
 
     it('sticks to the fallback for a later pro-tier call - no further 404 attempt against the preview id', async () => {
-      const notFound = new ApiError({ status: 404, message: 'models/gemini-3-pro-preview is not found' });
+      const notFound = new ApiError({ status: 404, message: 'models/gemini-3.8-flash is not found' });
       const generateContent = vi.fn()
         .mockRejectedValueOnce(notFound)
         .mockResolvedValueOnce({ text: '{"ok":1}' });
@@ -727,7 +730,7 @@ describe('geminiService', () => {
     });
 
     it('resetProFallback clears stickiness - a later pro call retries the preview id again', async () => {
-      const notFound = new ApiError({ status: 404, message: 'models/gemini-3-pro-preview is not found' });
+      const notFound = new ApiError({ status: 404, message: 'models/gemini-3.8-flash is not found' });
       const generateContent = vi.fn()
         .mockRejectedValueOnce(notFound)
         .mockResolvedValueOnce({ text: '{"ok":1}' });
@@ -750,8 +753,8 @@ describe('geminiService', () => {
     });
 
     it.each([
-      ['NOT_FOUND', 'models/gemini-3-pro-preview is NOT_FOUND'],
-      ['is not found', 'models/gemini-3-pro-preview is not found'],
+      ['NOT_FOUND', 'models/gemini-3.8-flash is NOT_FOUND'],
+      ['is not found', 'models/gemini-3.8-flash is not found'],
     ])('detects a model-unavailable 404 whose message reads "%s"', async (_label, message) => {
       const notFound = new ApiError({ status: 404, message });
       const generateContent = vi.fn()
@@ -870,22 +873,50 @@ describe('geminiService', () => {
       expect(isProFallbackActive()).toBe(false);
     });
 
-    it('a 404 on GEMINI_FLASH does not substitute the pro fallback (it keys on the preview id, not any 404)', async () => {
-      const notFound = new ApiError({ status: 404, message: 'models/gemini-2.5-flash is not found' });
+    // Gemini 3.8: both tiers share the one primary id, so a retirement 404
+    // on a flash-tier call falls back exactly like a pro-tier one - the
+    // fallback keys on the PRIMARY ID, not on the tier the caller named.
+    it('a 404 on a flash-tier call falls back too, since GEMINI_FLASH is the same primary id', async () => {
+      const notFound = new ApiError({ status: 404, message: `models/${GEMINI_FLASH} is not found` });
+      const generateContent = vi.fn()
+        .mockRejectedValueOnce(notFound)
+        .mockResolvedValueOnce({ text: 'quick read' });
+      const ai = makeMockAi(generateContent);
+
+      const result = await generateText(ai, { callName: 'test-flash-404', model: GEMINI_FLASH, prompt: 'p' });
+
+      expect(result).toBe('quick read');
+      expect(generateContent).toHaveBeenCalledTimes(2);
+      expect(generateContent.mock.calls[0][0].model).toBe(GEMINI_FLASH);
+      expect(generateContent.mock.calls[1][0].model).toBe(GEMINI_PRO_FALLBACK);
+      expect(isProFallbackActive()).toBe(true);
+    });
+
+    it('a 404 on an explicit non-primary model id never substitutes the fallback (it keys on the primary id, not any 404)', async () => {
+      const notFound = new ApiError({ status: 404, message: 'models/some-other-model is not found' });
       const generateContent = vi.fn().mockRejectedValue(notFound);
       const ai = makeMockAi(generateContent);
 
       await expect(
-        generateText(ai, { callName: 'test-flash-404', model: GEMINI_FLASH, prompt: 'p' })
+        generateText(ai, { callName: 'test-other-404', model: 'some-other-model', prompt: 'p' })
       ).rejects.toMatchObject({ name: 'AiServiceError', kind: 'fatal' });
 
       expect(generateContent).toHaveBeenCalledTimes(1);
-      expect(generateContent.mock.calls[0][0].model).toBe(GEMINI_FLASH);
+      expect(generateContent.mock.calls[0][0].model).toBe('some-other-model');
       expect(isProFallbackActive()).toBe(false);
     });
 
+    it('the thinking postures are Gemini 3.x LEVELS, never a token budget (the API rejects both together)', () => {
+      for (const posture of [THINKING_DEEP, THINKING_STANDARD, THINKING_QUICK]) {
+        expect(posture).not.toHaveProperty('thinkingBudget');
+        expect(['MINIMAL', 'LOW', 'MEDIUM', 'HIGH']).toContain(posture.thinkingLevel);
+      }
+      expect(THINKING_DEEP.thinkingLevel).toBe('HIGH');
+      expect(THINKING_QUICK.thinkingLevel).toBe('LOW');
+    });
+
     it('surfaces the error when the fallback attempt itself also fails (attempted once, no infinite loop)', async () => {
-      const notFound = new ApiError({ status: 404, message: 'models/gemini-3-pro-preview is not found' });
+      const notFound = new ApiError({ status: 404, message: 'models/gemini-3.8-flash is not found' });
       const serverError = new ApiError({ status: 500, message: 'Internal Server Error' });
       const generateContent = vi.fn()
         .mockRejectedValueOnce(notFound)
@@ -903,7 +934,7 @@ describe('geminiService', () => {
     });
 
     it('generateText also gets the pro-tier fallback (the substitution lives in the shared request path)', async () => {
-      const notFound = new ApiError({ status: 404, message: 'models/gemini-3-pro-preview is not found' });
+      const notFound = new ApiError({ status: 404, message: 'models/gemini-3.8-flash is not found' });
       const generateContent = vi.fn()
         .mockRejectedValueOnce(notFound)
         .mockResolvedValueOnce({ text: 'Recovered narration text' });
@@ -917,7 +948,7 @@ describe('geminiService', () => {
     });
 
     it('generateTextStream acquisition also gets the pro-tier fallback (narration streams on GEMINI_PRO)', async () => {
-      const notFound = new ApiError({ status: 404, message: 'models/gemini-3-pro-preview is not found' });
+      const notFound = new ApiError({ status: 404, message: 'models/gemini-3.8-flash is not found' });
       const generateContentStream = vi.fn()
         .mockRejectedValueOnce(notFound)
         .mockResolvedValueOnce(chunksOf(['Recovered ', 'narration']));

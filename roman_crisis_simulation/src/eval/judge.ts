@@ -18,7 +18,7 @@
  */
 
 import type { EvalCorpusTurn } from '../persistence/evalCorpus';
-import { GeminiClient, generateStructured, GEMINI_FLASH } from '../ai/core/geminiService';
+import { GeminiClient, generateStructured, GEMINI_FLASH, THINKING_QUICK } from '../ai/core/geminiService';
 import { buildEvalJudgePrompt } from '../ai/prompts/evalJudge';
 import { EvalJudgeVerdictSchema } from '../ai/core/schemas';
 import { zEvalJudgeVerdict } from '../ai/core/zodSchemas';
@@ -61,6 +61,7 @@ export async function judgeTurn(ai: GeminiClient, turn: EvalCorpusTurn): Promise
     prompt,
     responseSchema: EvalJudgeVerdictSchema,
     zodSchema: zEvalJudgeVerdict,
+    thinkingConfig: THINKING_QUICK,
   });
 }
 

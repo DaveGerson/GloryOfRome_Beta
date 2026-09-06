@@ -23,7 +23,7 @@
  */
 
 import { Adjudication, Entity, EventDelta, MortalityEvent } from '../../types';
-import { GeminiClient, generateStructured, GEMINI_PRO } from './geminiService';
+import { GeminiClient, generateStructured, GEMINI_PRO, THINKING_STANDARD } from './geminiService';
 import { isDeathClaimDelta } from './engine';
 import {
   rollD20,
@@ -227,7 +227,7 @@ export async function processMortality(
     prompt: valPrompt,
     responseSchema: MortalityValidationSchema,
     zodSchema: zMortalityValidation,
-    thinkingConfig: { thinkingBudget: 512 },
+    thinkingConfig: THINKING_STANDARD,
   });
 
   const dispositionByEntity = new Map(validation.dispositions.map(d => [d.entity_id, d]));
@@ -273,7 +273,7 @@ export async function processMortality(
       prompt: outPrompt,
       responseSchema: MortalityOutcomeSchema,
       zodSchema: zMortalityOutcome,
-      thinkingConfig: { thinkingBudget: 512 },
+      thinkingConfig: THINKING_STANDARD,
     });
 
     for (const o of outcomeResult.outcomes) {

@@ -125,7 +125,7 @@ describe('EpilogueScreen player-visible mechanics boundary', () => {
     });
     expect(container!.textContent).not.toContain(poison);
     expect(generateContent).toHaveBeenCalledTimes(1);
-    expect(generateContent.mock.calls[0][0]).toMatchObject({ model: 'gemini-3-pro-preview' });
+    expect(generateContent.mock.calls[0][0]).toMatchObject({ model: 'gemini-3.8-flash' });
   });
 
   it('never sends or renders the GM-only inferred ambition while preserving public epilogue context', async () => {
@@ -169,6 +169,6 @@ describe('EpilogueScreen player-visible mechanics boundary', () => {
     expect(request).not.toContain(mortalityPoison);
     expect(container!.textContent).not.toContain(mortalityPoison);
     expect(generateContent).toHaveBeenCalledTimes(1);
-    expect(generateContent.mock.calls[0][0]).toMatchObject({ model: 'gemini-3-pro-preview' });
+    expect(generateContent.mock.calls[0][0]).toMatchObject({ model: 'gemini-3.8-flash' });
   });
 });

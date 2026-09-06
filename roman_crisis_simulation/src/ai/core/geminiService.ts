@@ -32,23 +32,36 @@ import type { RawCallRecord } from '../../types';
 import { parseModelJson } from './json';
 
 /**
- * Centralized model ids. `gemini-3-pro-preview` is a preview id Google can
- * retire at any time; `gemini-2.5-flash` is used for cheap/flavor calls.
- * Previously hardcoded at ~14 call sites (10 for the pro tier alone, per
- * ROADMAP_2_AI_ARCHITECTURE.md's dependency notes) - now a one-line change
- * if either model is retired or swapped.
+ * Centralized model ids (previously hardcoded at ~14 call sites, per
+ * ROADMAP_2_AI_ARCHITECTURE.md's dependency notes - now a one-line change
+ * if a model is retired or swapped).
+ *
+ * GEMINI 3.8 (September 2026). Google shipped the generation as ONE model,
+ * `gemini-3.8-flash` - a GA id, and by Google's own account its strongest
+ * reasoning model to date; there is no "3.8 Pro" (the Pro line stopped at
+ * 3.1). The app's two call TIERS therefore run on the same id and differ in
+ * THINKING LEVEL rather than model: the high-stakes tier (adjudication,
+ * narration, mortality, world generation, the epilogue) thinks at
+ * `THINKING_DEEP` / `THINKING_STANDARD`; the cheap per-turn tier (the action
+ * assessment, NPC minds, the monologue, ambition inference, clarifications)
+ * at `THINKING_QUICK`. `GEMINI_PRO` / `GEMINI_FLASH` keep their names because
+ * every call site names its TIER through them - the fact that still matters
+ * on the day the tiers diverge onto different ids again.
  */
-export const GEMINI_PRO = 'gemini-3-pro-preview';
-export const GEMINI_FLASH = 'gemini-2.5-flash';
+export const GEMINI_38_FLASH = 'gemini-3.8-flash';
+export const GEMINI_PRO = GEMINI_38_FLASH;
+export const GEMINI_FLASH = GEMINI_38_FLASH;
 /**
- * GA (non-preview) pro-tier model, used as an automatic fallback if
- * `GEMINI_PRO` (a preview id) is retired out from under us. Google gives no
- * advance notice when a preview id stops resolving - every pro-tier call
- * (adjudication, narration, ...) would otherwise start failing 404 with no
- * code path to recover, bricking the game. See Phase 5.5c. `GEMINI_FLASH` is
- * already GA, so it needs no fallback of its own.
+ * The automatic fallback if the primary id ever stops resolving. Google
+ * retires ids without notice - every call would otherwise start failing 404
+ * with no code path to recover, bricking the game (see Phase 5.5c). The
+ * previous-generation GA Flash model, chosen over the Pro line's
+ * `gemini-3.1-pro-preview` because it is a stable (non-preview) id AND
+ * honours the same LOW/MEDIUM/HIGH thinking-level contract, so every call's
+ * config carries over unchanged. Sticky per session once hit - see
+ * `proFallbackActive` below.
  */
-export const GEMINI_PRO_FALLBACK = 'gemini-2.5-pro';
+export const GEMINI_PRO_FALLBACK = 'gemini-3.7-flash';
 
 /**
  * The minimal structural shape this service needs from a Gemini client.
@@ -83,12 +96,34 @@ export interface GeminiClient {
   };
 }
 
-/** Loosely-typed thinking config to avoid a hard dependency on the SDK's exact shape here. */
+/**
+ * The SDK's `ThinkingLevel` enum members, spelled as the SDK serializes them.
+ * Kept as string literals (not an import of the enum) so test mocks stay
+ * plain objects and this module keeps no hard dependency on the SDK's shape.
+ */
+export type ThinkingLevelName = 'MINIMAL' | 'LOW' | 'MEDIUM' | 'HIGH';
+
+/**
+ * Loosely-typed thinking config. The Gemini 3.x contract is a LEVEL, never a
+ * token budget: the API rejects a request that sets both `thinkingLevel` and
+ * the legacy `thinkingBudget`, so the budget field is deliberately absent
+ * from this type - a call site cannot reintroduce it without a type error.
+ */
 export interface ThinkingConfigLike {
   includeThoughts?: boolean;
-  thinkingBudget?: number;
-  thinkingLevel?: string;
+  thinkingLevel?: ThinkingLevelName;
 }
+
+/**
+ * The three thinking postures every call site picks from (see the model-id
+ * doc above for which tier takes which). DEEP is the adjudicator's and the
+ * world-forge's; STANDARD covers the pro tier's other structured calls and
+ * the streamed narration; QUICK is the per-turn flash tier, where latency
+ * is paid up to MAX_MINDS_PER_TURN times over inside one turn.
+ */
+export const THINKING_DEEP: ThinkingConfigLike = { thinkingLevel: 'HIGH' };
+export const THINKING_STANDARD: ThinkingConfigLike = { thinkingLevel: 'MEDIUM' };
+export const THINKING_QUICK: ThinkingConfigLike = { thinkingLevel: 'LOW' };
 
 /**
  * Typed error thrown by this service once all recourse (retries, and for
@@ -164,12 +199,13 @@ function isTransientError(e: unknown): boolean {
 }
 
 /**
- * Session-wide sticky flag: once a `GEMINI_PRO` call has actually hit the
- * fallback (see `isProUnavailableError`), every later pro-tier call goes
- * straight to `GEMINI_PRO_FALLBACK` without re-attempting the retired
- * preview id first. In-memory only, like `sessionCallLog` - does not
- * survive a reload, and a fresh session always starts by trusting the
- * preview id again.
+ * Session-wide sticky flag: once a call on the primary id has actually hit
+ * the fallback (see `isProUnavailableError`), every later call on that id
+ * goes straight to `GEMINI_PRO_FALLBACK` without re-attempting the retired
+ * id first. Since both tiers share the primary id today, the flag covers the
+ * whole pipeline. In-memory only, like `sessionCallLog` - does not survive a
+ * reload, and a fresh session always starts by trusting the primary id
+ * again.
  */
 let proFallbackActive = false;
 
@@ -190,12 +226,12 @@ function resolveModel(model: string): string {
 
 /**
  * Detects "this model id no longer resolves" - as opposed to a transient
- * 429/5xx or an unrelated 4xx - so the pro-tier fallback only fires on an
- * actual retirement of the preview id, never on rate limits, server errors,
- * or a genuinely bad request. Per the SDK's `ApiError` shape (status: number,
+ * 429/5xx or an unrelated 4xx - so the fallback only fires on an actual
+ * retirement of the primary id, never on rate limits, server errors, or a
+ * genuinely bad request. Per the SDK's `ApiError` shape (status: number,
  * message: string), Google surfaces this either as HTTP 404 or as a message
  * carrying "NOT_FOUND"/"is not found" - checked defensively since neither
- * documents which one it'll be for a retired preview id.
+ * documents which one it'll be for a retired id.
  */
 function isProUnavailableError(e: unknown): boolean {
   if (!(e instanceof ApiError)) return false;
@@ -203,9 +239,9 @@ function isProUnavailableError(e: unknown): boolean {
   return /NOT_FOUND|is not found/i.test(e.message);
 }
 
-/** Whether `error` (thrown by `retryTransient` for `resolvedModel`) warrants a one-shot pro-fallback retry. */
+/** Whether `error` (thrown by `retryTransient` for `resolvedModel`) warrants a one-shot fallback retry. */
 function canAttemptProFallback(resolvedModel: string, error: unknown): boolean {
-  if (resolvedModel !== GEMINI_PRO) return false; // not the preview id (already on fallback, or a non-pro call)
+  if (resolvedModel !== GEMINI_PRO) return false; // not the primary id (already on the fallback, or an explicit other model)
   const cause = error instanceof AiServiceError ? error.cause : error;
   return isProUnavailableError(cause);
 }
@@ -240,12 +276,13 @@ interface ProFallbackResult<T> {
  * Shared by every request path (`generateStructured`, `generateText`, and
  * `generateTextStream`'s stream-acquisition phase): runs `invoke` against
  * the resolved model through the normal transient-retry loop, and - only
- * when the call was against the still-live `GEMINI_PRO` preview id AND the
- * failure is specifically "model not found" - makes exactly ONE additional
- * bare attempt against `GEMINI_PRO_FALLBACK` (no nested retry loop, so a
- * fallback that itself fails can't recurse or loop) before giving up. On
- * that first successful fallback call, sets the sticky flag so every later
- * pro-tier call in the session resolves straight to the fallback.
+ * when the call was against the still-trusted primary id (`GEMINI_PRO`) AND
+ * the failure is specifically "model not found" - makes exactly ONE
+ * additional bare attempt against `GEMINI_PRO_FALLBACK` (no nested retry
+ * loop, so a fallback that itself fails can't recurse or loop) before giving
+ * up. On that first successful fallback call, sets the sticky flag so every
+ * later call on the primary id in the session resolves straight to the
+ * fallback.
  *
  * Transient 429/5xx handling for the ORIGINAL model, and any non-model
  * error (400, zod, unparseable JSON - those aren't even seen here, since
@@ -853,7 +890,7 @@ export async function generateTextStream(
 
   // Phase 1: acquire the stream, retrying transient failures exactly like
   // callWithRetry does for a non-streaming call (and, like callWithRetry,
-  // eligible for the same one-shot pro-tier fallback - narration runs on
+  // eligible for the same one-shot model fallback - narration runs on
   // GEMINI_PRO and streams when App.tsx opts into onNarrationChunk).
   const { value: stream, attempts, model: usedModel } = await invokeWithProFallback(callName, model, (resolvedModel) =>
     streamFn({ model: resolvedModel, contents: req.prompt, config })

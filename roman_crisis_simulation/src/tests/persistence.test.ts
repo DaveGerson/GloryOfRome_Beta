@@ -625,7 +625,7 @@ describe('persistence/saveGame', () => {
       // persisted before the fields existed.
       const legacyCall = {
         callName: 'adjudication',
-        model: 'gemini-3-pro-preview',
+        model: 'gemini-3.8-flash',
         latencyMs: 100,
         attempts: 1,
         promptChars: 1000,

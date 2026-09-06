@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Entity, TurnHistoryEntry, EventHistoryEntry } from '../types';
-import { generateText, GEMINI_PRO, GeminiClient } from '../ai/core/geminiService';
+import { generateText, GEMINI_PRO, THINKING_STANDARD, GeminiClient } from '../ai/core/geminiService';
 import { buildEpiloguePrompt, EpilogueTurnHeadlines, EpilogueEventChoice } from '../ai/prompts/epilogue';
 import { clearSave } from '../persistence/saveGame';
 import { GildedAquila, toRoman } from './ui/Brand';
@@ -107,6 +107,7 @@ const EpilogueScreen: React.FC<{
           model: GEMINI_PRO,
           systemInstruction,
           prompt,
+          thinkingConfig: THINKING_STANDARD,
           temperature: EPILOGUE_TEMPERATURE,
         });
         const safeText = text && text.trim() ? text.trim() : buildStaticFallbackEpitaph(player, causeNarration);

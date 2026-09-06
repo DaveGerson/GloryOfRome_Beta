@@ -297,7 +297,7 @@ describe('makeRawCall', () => {
     const rawCall: RawCallRecord = makeRawCall();
     expect(rawCall).toStrictEqual({
       callName: 'adjudication',
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-3.8-flash',
       latencyMs: 100,
       attempts: 1,
       promptChars: 1000,
@@ -311,7 +311,7 @@ describe('makeRawCall', () => {
     const rawCall = makeRawCall({ callName: 'narration', validated: false });
     expect(rawCall.callName).toBe('narration');
     expect(rawCall.validated).toBe(false);
-    expect(rawCall.model).toBe('gemini-3-pro-preview');
+    expect(rawCall.model).toBe('gemini-3.8-flash');
     expect(rawCall.latencyMs).toBe(100);
     expect(rawCall.promptChars).toBe(1000);
     expect(rawCall.rawResponse).toBe('x'.repeat(1000));

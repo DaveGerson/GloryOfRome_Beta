@@ -125,7 +125,7 @@ describe('ai/tools/ambition.ts', () => {
       expect(generateContent).toHaveBeenCalledTimes(1);
 
       const call = generateContent.mock.calls[0][0];
-      expect(call.model).toBe('gemini-2.5-flash');
+      expect(call.model).toBe('gemini-3.8-flash');
       expect(call.contents).toContain(JSON.stringify({
         entityId: 'severus_alexander',
         name: 'Severus Alexander',

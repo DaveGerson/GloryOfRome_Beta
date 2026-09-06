@@ -26,7 +26,7 @@ It all begins with you. You type your action for the week into the input box—t
 
 Before simulating the week, the game determines which characters are most central to the unfolding drama and gathers all the necessary information for the AI Game Master.
 
-* **Mechanics**: The runNewTurn function in ai/core/turn.ts makes its first call to the Gemini AI using the getStoryRelevance function (ai/tools/intelligence.ts), on the **gemini-3-pro-preview** model. It sends the previous turn's public headlines and the current WorldState (e.g., political climate is 'Volatile'). The AI responds by identifying 2-4 "spotlight entities"—characters whose actions are most likely to drive the story forward this week—and may also suggest adding/removing an entity or location to keep the world evolving. Subsequently, the compileContext function assembles a massive text prompt. This "World Bible" includes:  
+* **Mechanics**: The runNewTurn function in ai/core/turn.ts makes its first call to the Gemini AI using the getStoryRelevance function (ai/tools/intelligence.ts), on the **gemini-3.8-flash** model, thinking at `MEDIUM`. It sends the previous turn's public headlines and the current WorldState (e.g., political climate is 'Volatile'). The AI responds by identifying 2-4 "spotlight entities"—characters whose actions are most likely to drive the story forward this week—and may also suggest adding/removing an entity or location to keep the world evolving. Subsequently, the compileContext function assembles a massive text prompt. This "World Bible" includes:  
   * The current WorldState.  
   * Detailed profiles of every Entity, including their personality, goals, relationships, and resources. Spotlight NPCs are explicitly marked as "proactive."  
   * A summary of the last six turns to provide historical context.  
@@ -38,7 +38,7 @@ Before simulating the week, the game determines which characters are most centra
 
 The AI Game Master receives the "World Bible" and begins the simulation. The first phase is to determine what the most important NPCs do on their own initiative.
 
-* **Mechanics**: This is the first part of the main adjudication call to Gemini (on the **gemini-3-pro-preview** model, with `thinkingConfig.thinkingBudget: 1024`). The AI is specifically instructed to look at the "spotlight" NPCs and, based on their personality and active\_scheme, decide on a proactive course of action for the week. For example, if Maximinus Thrax's scheme is to "undermine the Emperor," he might independently decide to spread propaganda or attempt to bribe a guard captain.  
+* **Mechanics**: This is the first part of the main adjudication call to Gemini (on the **gemini-3.8-flash** model, thinking at `HIGH`). The AI is specifically instructed to look at the "spotlight" NPCs and, based on their personality and active\_scheme, decide on a proactive course of action for the week. For example, if Maximinus Thrax's scheme is to "undermine the Emperor," he might independently decide to spread propaganda or attempt to bribe a guard captain.  
 * **Player Implication**: The world moves without you. This phase ensures that plots are always in motion and that the political situation can change even if you choose to do nothing. It prevents the game from becoming a simple reactive sandbox and makes it feel like a living, breathing world.
 
 ### **4\. Player Action Adjudication & NPC Reactions**
@@ -65,7 +65,7 @@ The AI's simulation is complete. It doesn't return a story; instead, it returns 
 
 Immediately after the Adjudication JSON comes back, the game updates a separate, high-level tracker of the empire's overall condition, before any deltas are applied to individual entities.
 
-* **Mechanics**: The runNewTurn function calls getUpdatedSimulationState (ai/tools/intelligence.ts), on the **gemini-3-pro-preview** model. It sends the previous SimulationState plus the turn's headlines and a sample of the deltas, and asks the AI to return a new SimulationState object with fields like imperial\_status ('Stable' | 'Contested' | 'Vacant'), senate\_status, military\_status, plebeian\_mood, and major\_ongoing\_crisis. The AI is instructed with hard rules (e.g., if an emperor was killed, imperial\_status MUST become 'Vacant').  
+* **Mechanics**: The runNewTurn function calls getUpdatedSimulationState (ai/tools/intelligence.ts), on the **gemini-3.8-flash** model, thinking at `MEDIUM`. It sends the previous SimulationState plus the turn's headlines and a sample of the deltas, and asks the AI to return a new SimulationState object with fields like imperial\_status ('Stable' | 'Contested' | 'Vacant'), senate\_status, military\_status, plebeian\_mood, and major\_ongoing\_crisis. The AI is instructed with hard rules (e.g., if an emperor was killed, imperial\_status MUST become 'Vacant').  
 * **Player Implication**: This is the empire's "big picture" health bar, distinct from any single entity's stats. It's what lets the game recognize when a Civil War or Succession Crisis has begun, even before that reality is reflected in any one character's sheet.
 
 ### **6\. State Application (Making It Real)**
@@ -80,8 +80,8 @@ The game's code now takes the AI's Adjudication plan and executes it, permanentl
 The game world is updated, but you, the player, see numbers and stats. The simulation now translates these mechanical changes into a compelling narrative, in two more sequential Gemini calls.
 
 * **Mechanics**:  
-  1. **Player Monologue** (called first): getPlayerMonologue (ai/tools/intelligence.ts), on the **gemini-2.5-flash** model. It sends your *updated* character profile (with new resources, relationships, etc.), this week's headlines, and your last few turns' intents, asking the AI to generate a brief, first-person inner thought reflecting your character's personality and recent strategy.  
-  2. **Main Narration** (called second): A direct `ai.models.generateContent` call inline in runNewTurn, on the **gemini-3-pro-preview** model (`thinkingConfig.thinkingBudget: 512`). It sends the entire Adjudication object plus your updated character profile and asks the AI to write a 2-3 paragraph story summarizing the turn from your perspective (direct consequences → observed/reported events → sourced information), followed by exactly 3 "SUGGESTION:"-prefixed next actions, which are parsed out of the response text.  
+  1. **Player Monologue** (called first): getPlayerMonologue (ai/tools/intelligence.ts), on the **gemini-3.8-flash** model, thinking at `LOW`. It sends your *updated* character profile (with new resources, relationships, etc.), this week's headlines, and your last few turns' intents, asking the AI to generate a brief, first-person inner thought reflecting your character's personality and recent strategy.  
+  2. **Main Narration** (called second): A direct `ai.models.generateContent` call inline in runNewTurn, on the **gemini-3.8-flash** model, thinking at `MEDIUM`. It sends the entire Adjudication object plus your updated character profile and asks the AI to write a 2-3 paragraph story summarizing the turn from your perspective (direct consequences → observed/reported events → sourced information), followed by exactly 3 "SUGGESTION:"-prefixed next actions, which are parsed out of the response text.  
 * **Player Implication**: This is how the game communicates the results to you. Instead of just seeing "-5000 denarii," you read a story about the crippling cost of the grain dole you authorized. The monologue gives you insight into your character's evolving state of mind, enhancing your future decisions.
 
 ### **8\. Event Check (Checking for Fateful Events)**
@@ -95,23 +95,23 @@ Finally, with the new state of the world in place, the game checks if this new r
 
 A single player turn (`runNewTurn` in `ai/core/turn.ts`) makes a variable number of Gemini calls because the assessment and per-spotlight NPC mind calls are conditional. The main adjudication is the sole authority for turn consequences, including directional relationship deltas. `isMockMode` bypasses the provider calls via `mockRunNewTurn`.
 
-1.  **getStoryRelevance** — *gemini-3-pro-preview*  
+1.  **getStoryRelevance** — *gemini-3.8-flash* (`thinkingLevel: MEDIUM`)  
    * **Purpose**: Determine which 2-4 NPCs are the primary drivers of the story for this turn (and optionally suggest adding/removing an entity or location).  
    * **Context Included**: Previous turn's headlines, current WorldState (political climate, etc.), turn number.  
    * **Result Usage**: The "spotlight entities" are woven into the main prompt (compileContext) to instruct the AI to simulate proactive actions for them, and reused in Step 4 below.  
-2.  **Main Adjudication Call** — *gemini-3-pro-preview* (`thinkingBudget: 1024`)  
+2.  **Main Adjudication Call** — *gemini-3.8-flash* (`thinkingLevel: HIGH`)  
    * **Purpose**: Simulate the entire week's events — proactive spotlight-NPC actions, the consequences of the player's intent, and every other NPC's reaction — as a single structured `Adjudication` JSON object (schema in ai/core/schemas.ts).  
    * **Context Included**: The complete "World Bible" from compileContext — all Entity data, WorldState, recent history, the player's intent, the Meta-Narrative theme, and Step 1's spotlight entities.  
    * **Result Usage**: Parsed into the `Adjudication` object used by every subsequent step.  
-3.  **getUpdatedSimulationState** — *gemini-3-pro-preview*  
+3.  **getUpdatedSimulationState** — *gemini-3.8-flash* (`thinkingLevel: MEDIUM`)  
    * **Purpose**: Update the empire-wide `SimulationState` (imperial\_status, senate\_status, military\_status, plebeian\_mood, major\_ongoing\_crisis) based on the Adjudication's headlines and deltas.  
    * **Result Usage**: Returned SimulationState is stored as-is; this happens before `applyAdjudication` mutates entities/world state.  
    * *(Non-AI step in between: `applyAdjudication`/`applyDeltas` mechanically apply all of the Adjudication's deltas to entities, worldState, and reports.)*  
-4.  **getPlayerMonologue** — *gemini-2.5-flash*
+4.  **getPlayerMonologue** — *gemini-3.8-flash* (`thinkingLevel: LOW`)
    * **Purpose**: Generate a brief first-person inner thought for the player character.  
    * **Context Included**: The player's *updated* Entity profile, this turn's headlines, and the player's last few turns' intents.  
    * **Result Usage**: Displayed to the player as the "Inner Thoughts" monologue.  
-5.  **Main Narration Call** (inline `ai.models.generateContent`, not a named tool function) — *gemini-3-pro-preview* (`thinkingBudget: 512`)
+5.  **Main Narration Call** (inline `ai.models.generateContent`, not a named tool function) — *gemini-3.8-flash* (`thinkingLevel: MEDIUM`)
    * **Purpose**: Turn the Adjudication JSON into a 2-3 paragraph narrative plus exactly 3 suggested next actions.  
    * **Context Included**: The full Adjudication object and the player's updated Entity profile.  
    * **Result Usage**: Split on the `SUGGESTION:` marker into the displayed narration text and the 3 suggested-action prompts.  

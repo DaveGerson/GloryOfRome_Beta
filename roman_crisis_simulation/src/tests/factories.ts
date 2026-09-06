@@ -150,7 +150,7 @@ export function makeTurnHistoryEntry(overrides: Partial<TurnHistoryEntry> = {}):
 export function makeRawCall(overrides: Partial<RawCallRecord> = {}): RawCallRecord {
   return {
     callName: 'adjudication',
-    model: 'gemini-3-pro-preview',
+    model: 'gemini-3.8-flash',
     latencyMs: 100,
     attempts: 1,
     promptChars: 1000,

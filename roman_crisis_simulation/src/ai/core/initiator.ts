@@ -3,7 +3,7 @@ import { GoogleGenAI } from "@google/genai";
 import { Entity, WorldState, EntityStub } from '../../types';
 import { ScenarioStructureSchema, EntityListSchema } from './schemas';
 import { mockGenerateScenarioStructure, mockInitiateWorld } from '../mocks';
-import { generateStructured, GEMINI_PRO } from './geminiService';
+import { generateStructured, GEMINI_PRO, THINKING_DEEP, THINKING_STANDARD, type ThinkingConfigLike } from './geminiService';
 import { zScenarioStructure, zEntityBatch } from './zodSchemas';
 import { buildScenarioStructurePrompt, buildEntityBatchPrompt } from '../prompts/worldGen';
 
@@ -22,7 +22,7 @@ export const generateScenarioStructure = async (
     const { systemInstruction, prompt } = buildScenarioStructurePrompt(metaNarrative, playerCharacterDescription);
 
     try {
-        if (import.meta.env.DEV) console.log(`[InitWorld:Step1] Sending request to Gemini (Budget: 512)...`);
+        if (import.meta.env.DEV) console.log(`[InitWorld:Step1] Sending request to ${GEMINI_PRO} (thinking: ${THINKING_DEEP.thinkingLevel})...`);
         const result = await generateStructured<{ worldState: WorldState, playerStub: EntityStub, npcStubs: EntityStub[] }>(ai, {
             callName: 'scenarioStructure',
             model: GEMINI_PRO,
@@ -30,7 +30,9 @@ export const generateScenarioStructure = async (
             prompt,
             responseSchema: ScenarioStructureSchema,
             zodSchema: zScenarioStructure,
-            thinkingConfig: { thinkingBudget: 512 },
+            // The skeleton decides the whole campaign's cast and conflicts - one
+            // deep think here is cheaper than a shallow world played for weeks.
+            thinkingConfig: THINKING_DEEP,
         });
 
         if (import.meta.env.DEV) console.log(`[InitWorld:Step1] Parsed successfully. Player: ${result.playerStub?.entity_id}, NPCs: ${result.npcStubs?.length}`);
@@ -48,7 +50,7 @@ const generateEntityBatch = async (
     metaNarrative: string,
     worldState: WorldState,
     batchName: string,
-    budget: number
+    thinking: ThinkingConfigLike
 ): Promise<Entity[]> => {
     const targetIds = targetStubs.map(s => s.entity_id).join(', ');
     if (import.meta.env.DEV) console.log(`[InitWorld:Step2:${batchName}] preparing prompt for IDs: [${targetIds}]`);
@@ -56,7 +58,7 @@ const generateEntityBatch = async (
     const { systemInstruction, prompt } = buildEntityBatchPrompt(targetStubs, allStubs, metaNarrative, worldState);
 
     try {
-        if (import.meta.env.DEV) console.log(`[InitWorld:Step2:${batchName}] Sending request to Gemini (Budget: ${budget})...`);
+        if (import.meta.env.DEV) console.log(`[InitWorld:Step2:${batchName}] Sending request to ${GEMINI_PRO} (thinking: ${thinking.thinkingLevel})...`);
         const start = Date.now();
         const result = await generateStructured<{ entities?: Entity[] }>(ai, {
             callName: `entityBatch:${batchName}`,
@@ -65,7 +67,7 @@ const generateEntityBatch = async (
             prompt,
             responseSchema: EntityListSchema,
             zodSchema: zEntityBatch,
-            thinkingConfig: { thinkingBudget: budget },
+            thinkingConfig: thinking,
         });
         const duration = Date.now() - start;
         if (import.meta.env.DEV) console.log(`[InitWorld:Step2:${batchName}] Request complete in ${duration}ms.`);
@@ -102,7 +104,9 @@ export const initiateWorld = async (
         const entities: Entity[] = [];
 
         // Step 2: Generate Player (Detailed)
-        // Reduced budget to 512 to avoid "hallucination loops" or excessive output size
+        // The standard posture, not the deep one: the skeleton already did the
+        // hard thinking, and a deeper posture on a big structured entity dump
+        // used to invite "hallucination loops" and oversized output.
         const playerEntities = await generateEntityBatch(
             ai,
             [structure.playerStub],
@@ -110,7 +114,7 @@ export const initiateWorld = async (
             metaNarrative,
             structure.worldState,
             "Player",
-            512
+            THINKING_STANDARD
         );
         entities.push(...playerEntities);
 
@@ -133,7 +137,7 @@ export const initiateWorld = async (
                 metaNarrative,
                 structure.worldState,
                 `NPCs_${index + 1}`,
-                512
+                THINKING_STANDARD
             ))
         );
 

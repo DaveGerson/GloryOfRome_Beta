@@ -1,6 +1,6 @@
 import type { GoogleGenAI } from '@google/genai';
 import type { PrivateSceneModelResponse } from '../../privateScene/model';
-import { generateStructured, GEMINI_PRO } from '../core/geminiService';
+import { generateStructured, GEMINI_PRO, THINKING_STANDARD } from '../core/geminiService';
 import { PrivateSceneModelResponseSchema } from '../core/schemas';
 import { zPrivateSceneModelResponse } from '../core/zodSchemas';
 import { mockContinuePrivateScene } from '../mocks';
@@ -40,7 +40,7 @@ export async function continuePrivateScene(
     prompt,
     responseSchema: PrivateSceneModelResponseSchema,
     zodSchema: zPrivateSceneModelResponse,
-    thinkingConfig: { thinkingBudget: 512 },
+    thinkingConfig: THINKING_STANDARD,
     temperature: 0.8,
   });
   return validateResponseForRequest(response, boundedInput);

@@ -28,7 +28,7 @@
  * note).
  */
 import { NpcMindDecision } from '../../types';
-import { GeminiClient, generateStructured, GEMINI_FLASH } from '../core/geminiService';
+import { GeminiClient, generateStructured, GEMINI_FLASH, THINKING_QUICK } from '../core/geminiService';
 import { NpcMindDecisionSchema } from '../core/schemas';
 import { zNpcMindDecision } from '../core/zodSchemas';
 import { buildNpcMindPrompt, NpcMindPromptInput } from '../prompts/npcMind';
@@ -58,7 +58,7 @@ export const getNpcMindDecision = async (
     prompt,
     responseSchema: NpcMindDecisionSchema,
     zodSchema: zNpcMindDecision,
-    thinkingConfig: { thinkingBudget: 256 },
+    thinkingConfig: THINKING_QUICK,
     temperature: MIND_TEMPERATURE,
   });
 

@@ -458,7 +458,7 @@ describe('LatencyStrip', () => {
     const bars = Array.from(container.querySelectorAll('[title]'));
     expect(bars).toHaveLength(2);
     expect(bars.map(bar => bar.getAttribute('title'))).toEqual([
-      'adjudication · gemini-3-pro-preview · 120ms · 1 attempt',
+      'adjudication · gemini-3.8-flash · 120ms · 1 attempt',
       'narration · gemini-3-flash · 180ms · 2 attempts',
     ]);
   });

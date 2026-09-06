@@ -54,7 +54,7 @@ function entry(overrides: Partial<TurnHistoryEntry> = {}): TurnHistoryEntry {
 function rawCall(callName: string, overrides: Partial<RawCallRecord> = {}): RawCallRecord {
   return {
     callName,
-    model: 'gemini-3-pro-preview',
+    model: 'gemini-3.8-flash',
     latencyMs: 120,
     attempts: 1,
     promptChars: 400,

@@ -26,7 +26,7 @@
  * assessment skipped, no roll" contract (see ai/prompts/README.md).
  */
 import { Entity, WorldState } from '../../types';
-import { GeminiClient, generateStructured, GEMINI_FLASH } from '../core/geminiService';
+import { GeminiClient, generateStructured, GEMINI_FLASH, THINKING_QUICK } from '../core/geminiService';
 import { ActionAssessmentSchema } from '../core/schemas';
 import { zActionAssessment } from '../core/zodSchemas';
 import { buildActionAssessmentPrompt } from '../prompts/assessment';
@@ -75,6 +75,6 @@ export const getActionAssessment = async (
     prompt,
     responseSchema: ActionAssessmentSchema,
     zodSchema: zActionAssessment,
-    thinkingConfig: { thinkingBudget: 256 },
+    thinkingConfig: THINKING_QUICK,
   });
 };

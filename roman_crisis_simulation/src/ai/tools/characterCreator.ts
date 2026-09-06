@@ -3,7 +3,7 @@ import { GoogleGenAI } from "@google/genai";
 import { Entity } from '../../types';
 import { ALL_INITIAL_ENTITIES } from '../../constants/baseScenario';
 import { mockCreateCharacter } from "../mocks";
-import { generateStructured, GEMINI_PRO } from '../core/geminiService';
+import { generateStructured, GEMINI_PRO, THINKING_DEEP } from '../core/geminiService';
 import { CharacterCreationEntitySchema } from '../core/schemas';
 import { zEntity } from '../core/zodSchemas';
 import { buildCharacterCreationPrompt } from '../prompts/characterCreation';
@@ -17,7 +17,7 @@ export const createCharacter = async (ai: GoogleGenAI, description: string, isMo
 
     const { systemInstruction, prompt } = buildCharacterCreationPrompt(description, ALL_INITIAL_ENTITIES);
 
-    if (import.meta.env.DEV) console.log(`[CharCreator] Sending request to Gemini 3.0...`);
+    if (import.meta.env.DEV) console.log(`[CharCreator] Sending request to ${GEMINI_PRO}...`);
     try {
         const character = await generateStructured<Entity>(ai, {
             callName: 'characterCreation',
@@ -26,7 +26,8 @@ export const createCharacter = async (ai: GoogleGenAI, description: string, isMo
             prompt,
             responseSchema: CharacterCreationEntitySchema,
             zodSchema: zEntity,
-            thinkingConfig: { thinkingBudget: 1024 },
+            // A one-off that sets the whole campaign's protagonist: worth the deepest posture.
+            thinkingConfig: THINKING_DEEP,
         });
 
         if (import.meta.env.DEV) console.log(`[CharCreator] Character created: ${character.name} (${character.entity_id})`);
