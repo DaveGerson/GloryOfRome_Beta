@@ -75,7 +75,16 @@ const SidePanel: React.FC<{
     pulsingTabs: Set<TabId>;
     /** Commits one occurrence finding to the knowledge store (audit item 40). */
     onOccurrenceFinding: (occurrence: string, question: OccurrenceQuestion, text: string, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
-}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, turnHistory, pulsingTabs, onOccurrenceFinding }) => {
+    /**
+     * Narrow viewports only (design pass): below 768px the panel is a sheet
+     * summoned by App.tsx's Intel button rather than a strip beside the
+     * chronicle. `mobileOpen` slides it in; the sheet's own "Back to the
+     * week" row and Escape call `onMobileClose`. Both are inert at desktop
+     * widths, where the panel is always in view.
+     */
+    mobileOpen?: boolean;
+    onMobileClose?: () => void;
+}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, turnHistory, pulsingTabs, onOccurrenceFinding, mobileOpen = false, onMobileClose }) => {
     const [activeTab, setActiveTab] = useState<TabId>('world_state');
     // Tabs the player has already looked at since the current pulsingTabs
     // set arrived - clicking a pulsing tab dismisses its own pulse
@@ -86,7 +95,7 @@ const SidePanel: React.FC<{
 
     if (gameState === GameState.SETUP) {
         return (
-            <aside data-screen-label="Side Panel" style={{ flex: 1, minWidth: 0, borderLeft: '1px solid var(--border-strong)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,254,249,.45)', padding: 16 }}>
+            <aside data-screen-label="Side Panel" className="gor-side gor-side-setup">
                 <p style={{ fontStyle: 'italic', color: 'var(--text-muted)', textAlign: 'center' }}>Awaiting the choice of a destiny…</p>
             </aside>
         );
@@ -156,18 +165,21 @@ const SidePanel: React.FC<{
     }
 
     return (
-        <aside data-screen-label="Side Panel" style={{ flex: 1, minWidth: 0, borderLeft: '1px solid var(--border-strong)', display: 'flex', flexDirection: 'column', background: 'rgba(255,254,249,.45)' }}>
-            <style>{`
-                @keyframes gorTabPulse {
-                    0%, 100% { box-shadow: inset 0 0 0 rgba(158,126,27,0); }
-                    50% { box-shadow: inset 0 0 0 2px rgba(201,162,39,.75); }
-                }
-                .gor-tab-pulse { animation: gorTabPulse 1.4s ease-in-out 3; }
-                @media (prefers-reduced-motion: reduce) { .gor-tab-pulse { animation: none; } }
-            `}</style>
+        <aside
+            data-screen-label="Side Panel"
+            className={`gor-side${mobileOpen ? ' gor-side-open' : ''}`}
+            onKeyDown={event => {
+                if (event.key === 'Escape' && mobileOpen) onMobileClose?.();
+            }}
+        >
+            {/* The sheet's own way back, drawn only below 768px (components.css). */}
+            <div className="gor-side-close-row">
+                <span className="gor-label">Intelligence</span>
+                <button type="button" className="gor-btn gor-btn-sm gor-btn-ghost" onClick={onMobileClose}>‹ Back to the week</button>
+            </div>
             <PlayerStatus playerEntity={playerEntity} />
             <div
-                style={{ flex: 'none', display: 'flex', flexWrap: 'wrap', borderBottom: '1px solid var(--border-subtle)' }}
+                className="gor-dash-tabs"
                 role="tablist"
                 aria-label="Intelligence dashboard"
                 onKeyDown={radioGroupKeyDown(TABS.map(tab => tab.id), activeTab, handleTabClick, { role: 'tab' })}
@@ -178,17 +190,16 @@ const SidePanel: React.FC<{
                         <button
                             key={tab.id}
                             id={sidePanelTabDomId(tab.id)}
-                            className={`gor-tab ${shouldPulse ? 'gor-tab-pulse' : ''}`}
+                            className={`gor-tab${shouldPulse ? ' gor-tab-pulse' : ''}`}
                             role="tab"
                             aria-selected={activeTab === tab.id}
                             aria-controls={SIDEPANEL_TABPANEL_ID}
                             tabIndex={activeTab === tab.id ? 0 : -1}
                             onClick={() => handleTabClick(tab.id)}
                             aria-label={shouldPulse ? `${tab.fullLabel} (new intelligence)` : tab.fullLabel}
-                            style={{ padding: '9px 7px', fontSize: 11, flex: '1 0 auto', textAlign: 'center', position: 'relative' }}
                         >
                             {tab.label}
-                            {shouldPulse && <span aria-hidden="true" style={{ position: 'absolute', top: 4, right: 4, width: 7, height: 7, borderRadius: '50%', background: 'radial-gradient(circle at 35% 30%, #E8C959, #9E7E1B 70%)', boxShadow: '0 0 4px rgba(232,201,89,.8)' }} />}
+                            {shouldPulse && <span aria-hidden="true" className="gor-tab-dot" />}
                         </button>
                     );
                 })}
@@ -197,7 +208,7 @@ const SidePanel: React.FC<{
                 role="tabpanel"
                 id={SIDEPANEL_TABPANEL_ID}
                 aria-labelledby={sidePanelTabDomId(activeTab)}
-                style={{ flex: 1, overflowY: 'auto', padding: 16 }}
+                className="gor-side-panel"
             >
                 {activeTab === 'world_state' && <WorldStateTab
                     simulationState={simulationState}

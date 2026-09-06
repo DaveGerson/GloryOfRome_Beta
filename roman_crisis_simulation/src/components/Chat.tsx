@@ -171,11 +171,13 @@ export const ChatMessage: React.FC<{ message: Message; illuminated?: boolean }> 
     }
 
     if (message.sender === 'player_monologue') {
+        // The player's own voice, set left under a Tyrian rule (design
+        // pass) - see `.gor-monologue` in design/components.css.
         return (
-            <div style={{ width: '100%', maxWidth: 640, margin: '0 auto 14px' }}>
-                <div className="gor-msg-kicker">Inner Thoughts</div>
-                <div className="gor-msg gor-msg-monologue" style={{ maxWidth: 'none' }}><FormattedText text={message.text} /></div>
-            </div>
+            <aside className="gor-monologue" aria-label="Inner thoughts">
+                <span className="gor-monologue-kicker">Inner thoughts</span>
+                <div className="gor-monologue-text"><FormattedText text={message.text} /></div>
+            </aside>
         );
     }
 

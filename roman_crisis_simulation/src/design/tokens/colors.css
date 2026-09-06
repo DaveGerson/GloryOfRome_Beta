@@ -11,9 +11,14 @@
 --bronze-400:#C77B2B;--bronze-500:#A2601F;
 /* Semantic aliases */
 --surface-page:var(--parchment-100);--surface-card:#FAF8F1;--surface-raised:var(--parchment-050);--surface-inset:#E8E3D3;--surface-hover:#ECE8DB;
+/* The writing surface (design pass): inputs used to sit on the same inset
+   grey as a disabled well and read as dead. A field is lit vellum - a shade
+   lighter than the card - so the place you write is the brightest thing in
+   the composer. nocturne.css re-cuts it for the dark. */
+--surface-field:#FFFDF6;
 --text-heading:var(--ink-900);--text-body:var(--ink-700);--text-muted:var(--ink-500);--text-inverse:var(--parchment-050);
 --accent:var(--gold-500);--accent-strong:var(--gold-600);--accent-quiet:rgba(158,126,27,.12);
 --danger:var(--crimson-500);--danger-strong:var(--crimson-600);
 --success:var(--laurel-500);--warning:var(--bronze-500);--intrigue:var(--tyrian-500);
---border-subtle:rgba(138,109,20,.35);--border-strong:rgba(138,109,20,.6);--border-faint:rgba(58,49,37,.16);
+--border-subtle:rgba(138,109,20,.38);--border-strong:rgba(138,109,20,.62);--border-faint:rgba(58,49,37,.2);
 }

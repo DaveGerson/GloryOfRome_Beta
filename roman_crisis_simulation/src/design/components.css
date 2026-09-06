@@ -1,7 +1,7 @@
 /* Component classes — consumed by the React primitives */
 .gor-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font-family:var(--font-display);font-weight:600;letter-spacing:.08em;text-transform:uppercase;border-radius:var(--radius-sm);border:1px solid transparent;cursor:pointer;clip-path:var(--chamfer-sm);transition:background var(--duration-fast) var(--ease-standard),color var(--duration-fast) var(--ease-standard),border-color var(--duration-fast) var(--ease-standard),filter var(--duration-fast) var(--ease-standard),transform var(--duration-fast) var(--ease-standard);white-space:nowrap}
 .gor-btn:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--parchment-050),inset 0 0 0 4px var(--ink-900),var(--bevel)}
-.gor-btn:disabled{opacity:.4;cursor:not-allowed}
+.gor-btn:disabled{opacity:.55;filter:saturate(.55);cursor:not-allowed}
 .gor-btn-md{height:38px;padding:0 18px;font-size:13px}
 .gor-btn-sm{height:30px;padding:0 12px;font-size:11px}
 .gor-btn-lg{height:46px;padding:0 26px;font-size:14px}
@@ -10,6 +10,11 @@
 .gor-btn-primary:hover:not(:disabled){filter:brightness(1.07) drop-shadow(0 2px 2px rgba(74,56,20,.3))}
 .gor-btn-primary:hover:not(:disabled)::after{animation:gorShimmer .8s ease-out}
 .gor-btn-primary:active:not(:disabled){filter:brightness(.92);transform:translateY(1px)}
+/* A primary that cannot be pressed is flat parchment with gilt lettering,
+   never washed-out metal: the old 40% gold read as broken rather than
+   waiting. Opacity stays at 1 so the label keeps its contrast. */
+.gor-btn-primary:disabled{opacity:1;filter:none;background:var(--surface-inset);color:var(--text-muted);border-color:var(--border-faint);box-shadow:none;text-shadow:none}
+.gor-btn-primary:disabled::after{content:none}
 .gor-btn-secondary{background:linear-gradient(180deg,#FFFDF4,#F3E9CF);color:var(--gold-700);border-color:var(--border-strong);box-shadow:inset 0 1px 0 rgba(255,255,255,.6);filter:drop-shadow(0 1px 1px rgba(74,56,20,.22))}
 .gor-btn-secondary:hover:not(:disabled){border-color:var(--gold-600);color:var(--gold-600);filter:brightness(1.02) drop-shadow(0 1px 1px rgba(74,56,20,.22))}
 .gor-btn-danger{background:var(--metal-crimson);color:#F8F1DE;border-color:#5E1008;box-shadow:var(--bevel);filter:drop-shadow(0 2px 2px rgba(74,56,20,.3));text-shadow:0 1px 1px rgba(0,0,0,.35)}
@@ -38,10 +43,14 @@
 .gor-card-body{padding:16px 18px}
 .gor-field{display:flex;flex-direction:column;gap:6px}
 .gor-label{font-family:var(--font-display);font-size:var(--text-label);font-weight:600;letter-spacing:var(--tracking-label);text-transform:uppercase;color:var(--text-muted)}
-.gor-input,.gor-select,.gor-textarea{font-family:var(--font-body);font-size:16px;color:var(--text-heading);background:var(--surface-inset);border:1px solid var(--border-faint);border-radius:var(--radius-sm);box-shadow:var(--shadow-inset);padding:9px 12px;transition:border-color var(--duration-fast) var(--ease-standard)}
+/* Fields are lit vellum (design pass): the brightest surface in the
+   composer, a hairline the colour of gilt, and a soft gold halo on focus -
+   the inset grey they used to share with disabled wells read as dead. */
+.gor-input,.gor-select,.gor-textarea{font-family:var(--font-body);font-size:16px;color:var(--text-heading);background:var(--surface-field);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);box-shadow:inset 0 1px 2px rgba(74,56,20,.07);padding:9px 12px;transition:border-color var(--duration-fast) var(--ease-standard),box-shadow var(--duration-fast) var(--ease-standard)}
 .gor-input::placeholder,.gor-textarea::placeholder{color:var(--text-muted);font-style:italic}
-.gor-input:hover,.gor-select:hover,.gor-textarea:hover{border-color:var(--border-subtle)}
-.gor-input:focus,.gor-select:focus,.gor-textarea:focus{outline:none;border-color:var(--gold-500)}
+.gor-input:hover,.gor-select:hover,.gor-textarea:hover{border-color:var(--border-strong)}
+.gor-input:focus,.gor-select:focus,.gor-textarea:focus{outline:none;border-color:var(--gold-500);box-shadow:inset 0 1px 2px rgba(74,56,20,.07),0 0 0 3px rgba(201,162,39,.16)}
+.gor-input:disabled,.gor-select:disabled,.gor-textarea:disabled{background:var(--surface-inset);color:var(--text-muted);border-color:var(--border-faint);box-shadow:none;cursor:not-allowed}
 .gor-input[aria-invalid="true"]{border-color:var(--crimson-400)}
 .gor-hint{font-size:14px;color:var(--text-muted);font-style:italic}
 .gor-hint-error{color:#E0968B}
@@ -147,7 +156,13 @@
 .gor-msg{max-width:560px;padding:12px 16px;font-size:17px;line-height:1.55;white-space:pre-wrap;animation:gorFadeIn .5s ease-out both}
 .gor-msg-gm{background:var(--surface-card);border:1px solid var(--border-faint);border-left:4px solid var(--crimson-500);border-radius:var(--radius-md);box-shadow:var(--shadow-card)}
 .gor-msg-player{background:var(--metal-tyrian);color:#F2EBDC;border:1px solid #38122A;border-radius:var(--radius-md);box-shadow:var(--bevel),0 2px 4px rgba(58,44,16,.25);text-shadow:0 1px 1px rgba(0,0,0,.25)}
-.gor-msg-monologue{background:rgba(255,254,249,.5);border:1px dashed var(--border-strong);color:var(--text-muted);font-style:italic;border-radius:var(--radius-md);text-align:center}
+/* The inner monologue (design pass): a left-set aside under a Tyrian rule,
+   not a centred dashed box - centred italic paragraphs are the hardest
+   thing on the page to read, and this is the one voice that is the
+   player's own. */
+.gor-monologue{margin:0 0 14px;padding:10px 16px 12px;border-left:3px solid var(--tyrian-400);border-radius:0 var(--radius-md) var(--radius-md) 0;background:rgba(94,34,70,.055);animation:gorFadeIn .5s ease-out both}
+.gor-monologue-kicker{display:block;font-family:var(--font-epic);font-weight:700;font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--tyrian-500);margin-bottom:5px}
+.gor-monologue-text{font-style:italic;font-size:16.5px;line-height:1.55;color:var(--text-body);white-space:pre-wrap}
 .gor-msg-kicker{font-family:var(--font-epic);font-weight:700;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--text-muted);text-align:center;margin-bottom:5px}
 .gor-pill{display:inline-flex;align-items:center;gap:8px;font-family:var(--font-display);font-weight:600;font-size:13px;letter-spacing:.05em;padding:9px 16px;background:linear-gradient(180deg,#FFFEF9,#EFEBDC);border:1px solid var(--border-strong);clip-path:var(--chamfer-sm);cursor:pointer;color:var(--gold-700);transition:color var(--duration-fast) var(--ease-standard),border-color var(--duration-fast) var(--ease-standard),filter var(--duration-fast) var(--ease-standard);animation:gorRise .4s ease-out both}
 .gor-pill:hover:not(:disabled){color:var(--tyrian-500);border-color:var(--tyrian-400);filter:brightness(1.03)}
@@ -590,7 +605,8 @@
 .gor-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 
 @media (prefers-reduced-motion:reduce){
-.gor-msg,.gor-pill,.gor-typing,.gor-crisis-glyph{animation:none}
+.gor-msg,.gor-pill,.gor-typing,.gor-crisis-glyph,.gor-monologue,.gor-tab-pulse{animation:none}
+.gor-side{transition:none}
 .gor-destiny,.gor-destiny:hover{transition:none;transform:none}
 /* The loom keeps its final state — every lit thread at full height, no weave. */
 .gor-loom,.gor-loom-fill{animation:none}
@@ -606,39 +622,127 @@
 body{transition:none}
 }
 
-/* ── Narrow-viewport stacking — CSS-only, no markup change ──
-   App.tsx's <main> lays out `section[data-screen-label="Chat"]` beside
-   `aside[data-screen-label="Side Panel"]` as a row; below the breakpoint
-   they stack instead (chat first, side panel beneath, its own scroll
-   region given a fixed share of the viewport so chat keeps the rest).
-   Several of the overridden properties (flex, width, padding, font-size)
-   are set inline by the components themselves, hence the `!important` —
-   same inline-override technique nocturne.css already uses. Header.tsx's
-   two flanking Medallions and Latin kicker line are selected structurally
-   (no class of their own to hang a selector on) - see the comments below
-   each rule for exactly which element that reaches. */
+/* ═══ The September 2026 design pass ═══
+   A compact masthead, a one-row intelligence bar, one reading column for the
+   chronicle, a tablet composer that carries its own tools, lit vellum fields,
+   and a phone layout in which the intelligence panel is a sheet you summon
+   rather than a strip that overlapped the composer. Every surface here is a
+   class, so nocturne.css re-lights it without attribute surgery and the
+   narrow stops below need no structural selectors. */
+
+/* ── The masthead ── */
+.gor-masthead{position:relative;flex:none;display:flex;align-items:center;gap:20px;min-height:84px;box-sizing:border-box;padding:12px 20px 14px;background:var(--dentil) left bottom/100% 4px no-repeat,var(--banner-grad);border-bottom:1px solid var(--banner-edge);box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 2px 6px rgba(74,56,20,.35)}
+.gor-masthead-cornice{position:absolute;left:0;right:0;top:0;height:3px;background:var(--banner-cornice)}
+.gor-masthead-settings{flex:none;display:inline-flex;align-items:center;gap:6px;padding:7px 11px;background:rgba(0,0,0,.28);border:1px solid rgba(232,201,89,.32);border-radius:var(--radius-sm);color:var(--banner-label);font-family:var(--font-display);font-weight:600;font-size:11px;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;transition:border-color var(--duration-fast) var(--ease-standard),color var(--duration-fast) var(--ease-standard)}
+.gor-masthead-settings:hover{border-color:rgba(232,201,89,.6);color:var(--banner-title)}
+.gor-masthead-settings:focus-visible{outline:none;box-shadow:0 0 0 2px var(--banner-edge),0 0 0 4px var(--gold-300)}
+.gor-masthead-brand{display:flex;align-items:center;gap:14px;min-width:0}
+.gor-masthead-title{display:flex;flex-direction:column;min-width:0}
+.gor-masthead-kicker{font-family:var(--font-display);font-weight:600;font-size:9px;letter-spacing:.34em;text-transform:uppercase;color:var(--banner-label);text-shadow:0 1px 1px rgba(0,0,0,.4);white-space:nowrap}
+.gor-masthead h1{font-family:var(--font-epic);font-weight:700;font-size:23px;line-height:1.1;letter-spacing:.02em;margin:2px 0 1px;color:var(--banner-title);text-shadow:0 2px 3px rgba(0,0,0,.5);white-space:nowrap}
+.gor-masthead-sub{font-family:var(--font-display);font-weight:600;font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--banner-title);opacity:.8;white-space:nowrap}
+/* The four readings, engraved: one dark plate, hairlines between cells. */
+.gor-masthead-readings{display:flex;flex:none;margin:0 0 0 auto;padding:0;border:1px solid rgba(232,201,89,.28);border-radius:var(--radius-sm);background:rgba(0,0,0,.24);box-shadow:inset 0 1px 2px rgba(0,0,0,.4),0 1px 0 rgba(255,255,255,.08)}
+.gor-reading{display:flex;flex-direction:column;gap:2px;padding:7px 14px;margin:0;min-width:0}
+.gor-reading+.gor-reading{border-left:1px solid rgba(232,201,89,.22)}
+.gor-reading-label{font-family:var(--font-display);font-size:9px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--banner-label);margin:0}
+.gor-reading-value{font-family:var(--font-body);font-size:15.5px;line-height:1.15;color:var(--banner-value);font-variant-numeric:tabular-nums;white-space:nowrap;margin:0}
+.gor-reading-bronze .gor-reading-value{color:var(--banner-stat-bronze)}
+.gor-reading-crimson .gor-reading-value{color:var(--banner-stat-crimson)}
+
+/* ── The player's dossier head ── */
+.gor-dossier{flex:none;padding:12px 16px 11px;border-bottom:1px solid var(--border-subtle);background:var(--dentil) left bottom/100% 3px no-repeat,linear-gradient(180deg,rgba(201,162,39,.12),rgba(201,162,39,0))}
+.gor-dossier-name-row{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.gor-dossier-name{font-family:var(--font-epic);font-weight:700;font-size:18px;line-height:1.2;color:var(--tyrian-600)}
+.gor-dossier-where{font-size:13.5px;font-style:italic;color:var(--text-muted);min-width:0}
+.gor-dossier-facts{display:grid;grid-template-columns:auto 1fr;gap:5px 12px;margin:9px 0 0;align-items:baseline}
+.gor-dossier-fact{display:contents}
+.gor-dossier-facts dt{margin:0;white-space:nowrap}
+.gor-dossier-facts dd{margin:0;min-width:0;font-size:14px;line-height:1.4}
+.gor-dossier-goal{font-style:italic;color:var(--text-heading)}
+.gor-dossier-state{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+
+/* ── The intelligence panel and its one-row bar ── */
+.gor-side{flex:0 0 clamp(360px,34vw,520px);min-width:0;display:flex;flex-direction:column;border-left:1px solid var(--border-strong);background:rgba(255,254,249,.45)}
+.gor-side-setup{align-items:center;justify-content:center;padding:16px}
+.gor-side-close-row{display:none}
+/* Seven tabs, one row: the bar no longer wraps a lone ASSETS onto a second
+   line. Below the panel's natural width it scrolls sideways (scrollbar
+   hidden; the roving arrows still walk every tab). */
+.gor-dash-tabs{flex:none;display:flex;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding:0 6px;border-bottom:1px solid var(--border-subtle)}
+.gor-dash-tabs::-webkit-scrollbar{display:none}
+.gor-dash-tabs .gor-tab{flex:1 0 auto;min-width:0;padding:10px 6px 9px;font-size:10.5px;letter-spacing:.07em;text-align:center;white-space:nowrap}
+.gor-dash-tabs .gor-tab[aria-selected="true"]{padding:10px 8px 17px;margin-bottom:-8px;clip-path:polygon(0 0,100% 0,100% 100%,50% calc(100% - 8px),0 100%)}
+.gor-tab-dot{position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#E8C959,#9E7E1B 70%);box-shadow:0 0 4px rgba(232,201,89,.8)}
+@keyframes gorTabPulse{0%,100%{box-shadow:inset 0 0 0 rgba(158,126,27,0)}50%{box-shadow:inset 0 0 0 2px rgba(201,162,39,.75)}}
+.gor-tab-pulse{animation:gorTabPulse 1.4s ease-in-out 3}
+.gor-side-panel{flex:1;min-height:0;overflow-y:auto;padding:22px 16px 16px}
+.gor-intel-toggle{display:none}
+/* Below 1200px the panel is at its 360px floor and the seven labels only
+   just fit - they draw a size smaller rather than scrolling out of sight. */
+@media (max-width:1200px){
+.gor-dash-tabs .gor-tab{font-size:9.4px;letter-spacing:.04em;padding:10px 3px 9px}
+.gor-dash-tabs .gor-tab[aria-selected="true"]{padding:10px 5px 17px}
+}
+
+/* ── The chronicle: one reading column ── */
+.gor-chat{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
+.gor-chat-log{flex:1;min-height:0;overflow-y:auto;padding:22px 24px 10px}
+.gor-stream{max-width:760px;margin:0 auto;display:flex;flex-direction:column}
+.gor-stream .gor-msg{max-width:100%}
+.gor-stream .gor-msg-player{max-width:78%}
+.gor-stream .gor-tablet{max-width:none}
+
+/* ── The composer tablet ── */
+.gor-composer-strip{flex:none;border-top:1px solid var(--border-subtle);padding:10px 24px 14px;background:rgba(255,254,249,.55)}
+.gor-composer{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:10px}
+.gor-composer-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.gor-composer-stage{margin:0;flex:1 1 200px;font-size:14px;font-style:italic;color:var(--text-muted)}
+.gor-composer-tools{margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.gor-counsel{display:flex;align-items:flex-start;gap:10px}
+.gor-counsel-label{flex:none;padding-top:8px;font-family:var(--font-display);font-size:9.5px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:var(--text-muted)}
+.gor-counsel-pills{display:flex;flex-wrap:wrap;gap:8px;min-width:0}
+.gor-counsel .gor-pill{padding:7px 13px;font-size:12.5px}
+.gor-composer-form{display:flex;flex-direction:column;gap:8px}
+.gor-composer-field{position:relative;display:flex;flex-direction:column}
+.gor-composer-textarea{resize:none;min-height:58px;max-height:180px;overflow-y:auto;font-size:16.5px;line-height:1.5}
+.gor-composer-foot{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.gor-composer-count{margin:0;font-size:12.5px}
+.gor-composer-send{display:flex;align-items:center;gap:12px;margin-left:auto}
+.gor-send-hint{font-family:var(--font-display);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);white-space:nowrap}
+
+/* ── Narrow viewports ──
+   The masthead folds its readings under the title, the chronicle takes the
+   whole height, and the intelligence panel becomes a sheet summoned by a
+   fixed Intel button - the 34vh strip it used to be left the composer no
+   room and overlapped it. */
+@media (max-width:900px){
+.gor-masthead{flex-wrap:wrap;gap:10px 16px;padding:12px 16px 14px}
+.gor-masthead-readings{margin-left:0;width:100%;box-sizing:border-box;justify-content:space-between}
+.gor-reading{flex:1 1 0;padding:6px 10px}
+}
 @media (max-width:768px){
-main{flex-direction:column}
-section[data-screen-label="Chat"]{flex:1 1 auto!important;min-height:0}
-aside[data-screen-label="Side Panel"]{flex:0 0 34vh!important;min-height:0;border-left:none!important;border-top:1px solid var(--border-strong)}
-/* Header.tsx's masthead is tall enough (two 68px medallions, a Latin
-   kicker, the title, an AUC line, then the world-stats row) that simply
-   letting it wrap leaves too little height for the stacked chat below -
-   trim it to the title + world stats, which is what a player actually
-   reads turn to turn. */
-header{padding-top:44px!important}
-header>div:first-of-type{flex-wrap:wrap;gap:10px!important}
-header>div:first-of-type>span{display:none!important} /* the two flanking Medallions - Medallion sets `display:inline-block` inline */
-header>div:first-of-type>div{min-width:0}
-header>div:first-of-type>div>div:first-child{display:none} /* the "SENATVS · POPVLVSQUE · ROMANVS" kicker */
-header h1{font-size:20px!important}
+.gor-masthead h1{font-size:19px}
+.gor-masthead-kicker,.gor-masthead-sub{display:none}
+.gor-masthead-settings-text{display:none}
+.gor-side{position:fixed;inset:0;z-index:85;flex:none;border-left:none;background:var(--surface-page);transform:translateY(100%);transition:transform 260ms var(--ease-standard);box-shadow:0 -8px 30px rgba(0,0,0,.35)}
+.gor-side-setup{display:none}
+.gor-side-open{transform:none}
+.gor-side-close-row{display:flex;flex:none;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border-bottom:1px solid var(--border-subtle);background:var(--surface-card)}
+/* The summons: a gilt bar between the chronicle and the composer, never a
+   floating button (which sat exactly over Speak). */
+.gor-intel-toggle{display:flex;flex:none;width:100%;box-sizing:border-box;align-items:center;justify-content:center;gap:8px;padding:9px 14px;font-family:var(--font-display);font-weight:700;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-950);background:var(--metal-gold);border:none;border-top:1px solid var(--gold-700);border-bottom:1px solid var(--gold-700);box-shadow:var(--bevel);cursor:pointer}
+.gor-intel-toggle:focus-visible{outline:none;box-shadow:var(--bevel),inset 0 0 0 2px var(--ink-900)}
+.gor-intel-toggle-pulse{width:9px;height:9px;border-radius:50%;background:var(--metal-crimson);box-shadow:0 0 0 2px rgba(255,255,255,.6)}
+.gor-chat-log{padding:16px 14px 8px}
+.gor-composer-strip{padding:8px 14px 12px}
+.gor-counsel{flex-direction:column;gap:4px}
+.gor-counsel-pills{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding:0 28px 4px 0;box-sizing:border-box;width:100%;-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 28px),transparent)}
+.gor-counsel-pills::-webkit-scrollbar{display:none}
+.gor-counsel .gor-pill{flex:none}
+.gor-send-hint{display:none}
 .gor-dialog{width:calc(100% - 24px)}
 [aria-labelledby="gm-screen-title"]{width:calc(100% - 16px)!important;height:calc(100% - 16px)!important;padding:14px 14px 12px!important}
-/* App.tsx's chat-input row sits the TurnComposer beside the Private
-   scene / GM Log buttons with no wrap - at this width they can exceed
-   the viewport together. Selected structurally via the chat textarea's
-   stable id, since the row itself has no class of its own. */
-div:has(>div>form>#chat-input){flex-wrap:wrap}
 /* Registers III and IV sit side by side only where there is room for two. */
 .gor-register-pair{grid-template-columns:1fr}
 

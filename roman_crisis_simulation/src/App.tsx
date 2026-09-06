@@ -317,6 +317,10 @@ const App: React.FC = () => {
     // D31 - the configuration menu's own open/closed flag. Purely transient
     // UI state, never part of the save bundle.
     const [isSettingsMenuOpen, setIsSettingsMenuOpen] = useState(false);
+    // Narrow viewports only (design pass): whether the intelligence panel,
+    // a sheet below 768px, is currently summoned. Inert at desktop widths,
+    // where the panel is always beside the chronicle. Transient UI state.
+    const [intelOpen, setIntelOpen] = useState(false);
     const [isMockMode, setIsMockMode] = useState(false);
     // Set when a turn commits with the player still alive; an effect below
     // then runs the authored-event trigger check against the freshly
@@ -1227,6 +1231,18 @@ const App: React.FC = () => {
         setShowOnboarding(false);
     }, []);
 
+    // The Dispatches tablet closes the week it reports on (design pass). The
+    // turn commit ends the stream with the NEXT week's vexillum, so a digest
+    // appended after every message sat under "WEEK N+1" as though the new
+    // week's banner headed last week's news. When the stream ends on a
+    // ribbon the tablet is set BEFORE it - narration, inner thoughts,
+    // dispatches, then the new week - and only otherwise after the last
+    // message, exactly where it used to be.
+    const digest = gameState !== GameState.PROCESSING && lastTurn
+        ? <DispatchesDigest changes={lastTurnPerceivedChanges} />
+        : null;
+    const streamEndsOnRibbon = messages.length > 0 && messages[messages.length - 1].sender === 'ribbon';
+
     return (
         <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
             {weekBeat && <div className="gor-week-beat" aria-hidden="true" />}
@@ -1276,7 +1292,7 @@ const App: React.FC = () => {
                     />
                 ) : (
                     <>
-                        <section data-screen-label="Chat" style={{ flex: 2, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                        <section data-screen-label="Chat" className="gor-chat">
                             {gameState === GameState.SETUP && transactionNote && (
                                 <TransactionNoteView note={transactionNote} style={{ margin: '0 24px 12px' }} />
                             )}
@@ -1300,20 +1316,41 @@ const App: React.FC = () => {
                                 />
                             ) : (
                                 <>
-                                    <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }} role="log" aria-live="polite" aria-label="Chat log">
-                                        {messages.map((msg, index) => <ChatMessage key={index} message={msg} illuminated={illuminatedNarrations.has(index)} />)}
-                                        {pendingPlayerMessage && <ChatMessage message={pendingPlayerMessage} />}
-                                        {gameState === GameState.PROCESSING && (
-                                            streamingNarration
-                                                ? <StreamingNarrationBubble text={streamingNarration} />
-                                                : <TypingIndicator stage={turnStage} />
-                                        )}
-                                        {gameState !== GameState.PROCESSING && lastTurn && (
-                                            <DispatchesDigest changes={lastTurnPerceivedChanges} />
-                                        )}
-                                        <div ref={messagesEndRef} />
+                                    <div className="gor-chat-log" role="log" aria-live="polite" aria-label="Chat log">
+                                        {/* One reading column for everything in the stream (design pass). */}
+                                        <div className="gor-stream">
+                                            {messages.map((msg, index) => (
+                                                <React.Fragment key={index}>
+                                                    {digest && streamEndsOnRibbon && index === messages.length - 1 && digest}
+                                                    <ChatMessage message={msg} illuminated={illuminatedNarrations.has(index)} />
+                                                </React.Fragment>
+                                            ))}
+                                            {pendingPlayerMessage && <ChatMessage message={pendingPlayerMessage} />}
+                                            {gameState === GameState.PROCESSING && (
+                                                streamingNarration
+                                                    ? <StreamingNarrationBubble text={streamingNarration} />
+                                                    : <TypingIndicator stage={turnStage} />
+                                            )}
+                                            {digest && !streamEndsOnRibbon && digest}
+                                            <div ref={messagesEndRef} />
+                                        </div>
                                     </div>
-                                    <div style={{ flex: 'none', borderTop: '1px solid var(--border-subtle)', padding: '12px 24px 16px', background: 'rgba(255,254,249,.55)' }}>
+                                    {/* Narrow viewports only (drawn by components.css below 768px):
+                                        the intelligence panel is a sheet, and this gilt bar between
+                                        the chronicle and the composer summons it. A crimson pip says a
+                                        tab has new intelligence waiting. */}
+                                    <button
+                                        type="button"
+                                        className="gor-intel-toggle"
+                                        aria-expanded={intelOpen}
+                                        aria-label="Open the intelligence panel"
+                                        onClick={() => setIntelOpen(true)}
+                                    >
+                                        <span aria-hidden="true">◈</span>
+                                        <span>Intelligence</span>
+                                        {pulsingTabs.size > 0 && <span className="gor-intel-toggle-pulse" aria-hidden="true" />}
+                                    </button>
+                                    <div className="gor-composer-strip">
                                         {/* Four kinds of failed week, and three kinds of
                                             transaction note — each in its own voice and its
                                             own tone. Nothing here is modal: the tablet below
@@ -1359,58 +1396,64 @@ const App: React.FC = () => {
                                                 </Button>
                                             </div>
                                         )}
-                                        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
-                                            <TurnComposer
-                                                chatDraft={chatDraft}
-                                                structuredDraft={structuredDraft}
-                                                recipientOptions={recipientOptions}
-                                                suggestedActions={gameState === GameState.PROCESSING ? [] : suggestedActions}
-                                                onChatDraftChange={setChatDraft}
-                                                onStructuredDraftChange={setStructuredDraft}
-                                                onSubmit={handleComposerSubmit}
-                                                disabled={domainMutationInFlight || privateSceneInteractionLocked || gameState !== GameState.AWAITING_PLAYER_INPUT}
-                                                isProcessing={gameState === GameState.PROCESSING}
-                                                turnStage={turnStage}
-                                                playerInitial={playerEntity?.name}
-                                                canReachTheFates={isMockMode || Boolean(resolvedApiKey)}
-                                                online={online}
-                                                onOpenSettings={() => setIsSettingsMenuOpen(true)}
-                                                onEnableMockMode={() => setIsMockMode(true)}
-                                            />
-                                            {gameState === GameState.AWAITING_PLAYER_INPUT && (
-                                                <PrivateScene
-                                                    scenes={privateSceneViews}
-                                                    currentMacroTurn={turnNumber}
-                                                    canStartScene={!privateSceneInteractionLocked && !state.privateScenes.some(scene => scene.macroTurn === turnNumber)}
-                                                    eligibleTargets={privateSceneTargets}
-                                                    openingDraft={privateSceneOpeningDraft}
-                                                    replyDraft={privateSceneReplyDraft}
-                                                    lastWordDraft={privateSceneLastWordDraft}
-                                                    loading={domainMutationInFlight}
-                                                    error={privateSceneError}
-                                                    onOpeningDraftChange={setPrivateSceneOpeningDraft}
-                                                    onReplyDraftChange={setPrivateSceneReplyDraft}
-                                                    onLastWordDraftChange={setPrivateSceneLastWordDraft}
-                                                    onInvite={handlePrivateSceneInvite}
-                                                    onReply={handlePrivateSceneReply}
-                                                    onEnd={handlePrivateSceneEnd}
-                                                    onLastWord={sceneId => handlePrivateSceneFinalize(sceneId, privateSceneLastWordDraft)}
-                                                    onSkipLastWord={sceneId => handlePrivateSceneFinalize(sceneId, null)}
-                                                />
-                                            )}
-                                            {isGmConsoleEnabled && (
-                                                <Tooltip wide label={turnHistory.length > 0 ? "The Fates' ledger — every thread and die of the simulation, recorded." : 'The ledger opens once a turn has been played.'}>
-                                                    <Button
-                                                        variant="secondary"
-                                                        onClick={() => setIsGmScreenVisible(true)}
-                                                        aria-label="Open Game Master Screen"
-                                                        disabled={turnHistory.length === 0}
-                                                    >
-                                                        GM Log
-                                                    </Button>
-                                                </Tooltip>
-                                            )}
-                                        </div>
+                                        <TurnComposer
+                                            chatDraft={chatDraft}
+                                            structuredDraft={structuredDraft}
+                                            recipientOptions={recipientOptions}
+                                            suggestedActions={gameState === GameState.PROCESSING ? [] : suggestedActions}
+                                            onChatDraftChange={setChatDraft}
+                                            onStructuredDraftChange={setStructuredDraft}
+                                            onSubmit={handleComposerSubmit}
+                                            disabled={domainMutationInFlight || privateSceneInteractionLocked || gameState !== GameState.AWAITING_PLAYER_INPUT}
+                                            isProcessing={gameState === GameState.PROCESSING}
+                                            turnStage={turnStage}
+                                            playerInitial={playerEntity?.name}
+                                            canReachTheFates={isMockMode || Boolean(resolvedApiKey)}
+                                            online={online}
+                                            onOpenSettings={() => setIsSettingsMenuOpen(true)}
+                                            onEnableMockMode={() => setIsMockMode(true)}
+                                            // The composer's own tools live in its head (design pass):
+                                            // the private-scene doorway and, once the console is on,
+                                            // the GM Log. What renders here is still App's decision.
+                                            tools={
+                                                <>
+                                                    {gameState === GameState.AWAITING_PLAYER_INPUT && (
+                                                        <PrivateScene
+                                                            scenes={privateSceneViews}
+                                                            currentMacroTurn={turnNumber}
+                                                            canStartScene={!privateSceneInteractionLocked && !state.privateScenes.some(scene => scene.macroTurn === turnNumber)}
+                                                            eligibleTargets={privateSceneTargets}
+                                                            openingDraft={privateSceneOpeningDraft}
+                                                            replyDraft={privateSceneReplyDraft}
+                                                            lastWordDraft={privateSceneLastWordDraft}
+                                                            loading={domainMutationInFlight}
+                                                            error={privateSceneError}
+                                                            onOpeningDraftChange={setPrivateSceneOpeningDraft}
+                                                            onReplyDraftChange={setPrivateSceneReplyDraft}
+                                                            onLastWordDraftChange={setPrivateSceneLastWordDraft}
+                                                            onInvite={handlePrivateSceneInvite}
+                                                            onReply={handlePrivateSceneReply}
+                                                            onEnd={handlePrivateSceneEnd}
+                                                            onLastWord={sceneId => handlePrivateSceneFinalize(sceneId, privateSceneLastWordDraft)}
+                                                            onSkipLastWord={sceneId => handlePrivateSceneFinalize(sceneId, null)}
+                                                        />
+                                                    )}
+                                                    {isGmConsoleEnabled && (
+                                                        <Tooltip wide label={turnHistory.length > 0 ? "The Fates' ledger — every thread and die of the simulation, recorded." : 'The ledger opens once a turn has been played.'}>
+                                                            <Button
+                                                                variant="secondary"
+                                                                size="sm"
+                                                                onClick={() => setIsGmScreenVisible(true)}
+                                                                aria-label="Open Game Master Screen"
+                                                                disabled={turnHistory.length === 0}
+                                                            >
+                                                                GM Log
+                                                            </Button>
+                                                        </Tooltip>
+                                                    )}
+                                                </>
+                                            }
+                                        />
                                     </div>
                                 </>
                             )}
@@ -1436,6 +1479,8 @@ const App: React.FC = () => {
                             turnHistory={turnHistory}
                             pulsingTabs={pulsingTabs}
                             onOccurrenceFinding={handleOccurrenceFinding}
+                            mobileOpen={intelOpen}
+                            onMobileClose={() => setIntelOpen(false)}
                         />
                     </>
                 )}

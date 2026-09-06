@@ -3,22 +3,27 @@ import { WorldState } from '../types';
 import { Medallion, toRoman } from './ui/Brand';
 
 /**
- * Twin-medallion Tyrian vexillum masthead (design system ui_kits/simulation/Header):
- * SENATVS·POPVLVSQVE·ROMANVS kicker, gold cornice, ◆-separated world stats, and
- * the ⚙ Settings affordance. World stats are live from `worldState`. The old
- * dev-only Mock Mode / GM Console switches now live in the configuration
- * menu's Developer card (components/SettingsMenu.tsx).
+ * The masthead, compact (the September 2026 design pass).
+ *
+ * The twin-medallion vexillum stood ~140px tall on every screen - a fifth of
+ * a laptop viewport given to a title the player reads once - and pushed the
+ * chronicle and the composer down with it. It is now ONE row: a single
+ * medallion, the title stacked with its SPQR kicker and the AUC line, and the
+ * four world readings as engraved cells on the right, so the week and the
+ * empire's condition read at a glance without a second row. Same Tyrian
+ * metal, gold cornice and dentil rule; ~84px instead of ~140. Layout lives in
+ * design/components.css (`.gor-masthead*`), so nocturne.css re-lights it
+ * through the same banner tokens as before and the narrow stops can wrap the
+ * readings under the title without structural selectors.
+ *
+ * The ⚙ Settings affordance keeps its accessible name ("Open configuration
+ * menu") - every settings test and the onboarding flow reach it by that name.
  */
-
-const Stat: React.FC<{ k: string; v: React.ReactNode; tone?: string }> = ({ k, v, tone }) => (
-    <span style={{ padding: '0 16px', display: 'inline-flex', gap: 8, alignItems: 'baseline' }}>
-        <span className="gor-label" style={{ color: 'var(--banner-label)' }}>{k}</span>
-        <span style={{ color: tone || 'var(--banner-value)', fontVariantNumeric: 'tabular-nums', fontSize: 15 }}>{v}</span>
-    </span>
-);
-
-const Gem: React.FC = () => (
-    <span aria-hidden="true" style={{ color: 'rgba(232,201,89,.55)', fontSize: 8, alignSelf: 'center' }}>◆</span>
+const Reading: React.FC<{ label: string; value: React.ReactNode; tone?: 'bronze' | 'crimson' }> = ({ label, value, tone }) => (
+    <div className={`gor-reading${tone ? ` gor-reading-${tone}` : ''}`}>
+        <dt className="gor-reading-label">{label}</dt>
+        <dd className="gor-reading-value">{value}</dd>
+    </div>
 );
 
 const Header: React.FC<{
@@ -26,33 +31,32 @@ const Header: React.FC<{
     /** D31 - opens the configuration menu (components/SettingsMenu.tsx). */
     onOpenSettings: () => void,
 }> = ({ worldState, onOpenSettings }) => (
-    <header style={{ position: 'relative', textAlign: 'center', padding: '14px 24px 13px', borderBottom: '1px solid var(--banner-edge)', background: 'var(--dentil) left bottom/100% 4px no-repeat, var(--banner-grad)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,.15), 0 2px 6px rgba(74,56,20,.35)', flex: 'none' }}>
-        <span aria-hidden="true" style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 3, background: 'var(--banner-cornice)' }}></span>
+    <header className="gor-masthead">
+        <span aria-hidden="true" className="gor-masthead-cornice" />
         <button
             type="button"
+            className="gor-masthead-settings"
             onClick={onOpenSettings}
             aria-label="Open configuration menu"
             title="Configuration — API key, pacing, lighting, GM console"
-            style={{ position: 'absolute', top: 12, left: 14, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'rgba(0,0,0,.28)', border: '1px solid rgba(232,201,89,.3)', borderRadius: 'var(--radius-sm)', color: 'var(--banner-label)', fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 11, letterSpacing: '.12em', textTransform: 'uppercase', cursor: 'pointer' }}
-        >⚙ Settings</button>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 26 }}>
-            <Medallion size={68} />
-            <div>
-                <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 11, letterSpacing: '.42em', color: 'var(--banner-label)', textShadow: '0 1px 1px rgba(0,0,0,.4)' }}>SENATVS · POPVLVSQVE · ROMANVS</div>
-                <h1 style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 33, color: 'var(--banner-title)', textShadow: '0 2px 3px rgba(0,0,0,.5)', letterSpacing: '.02em', lineHeight: 1.15, margin: '2px 0' }}>Roman Crisis Simulation</h1>
-                <div className="gor-label" style={{ color: 'var(--tablet-head)' }}>The Glory of Rome · {worldState.year + 753} Ab Urbe Condita</div>
+        >
+            <span aria-hidden="true">⚙</span>
+            <span className="gor-masthead-settings-text">Settings</span>
+        </button>
+        <div className="gor-masthead-brand">
+            <Medallion size={48} />
+            <div className="gor-masthead-title">
+                <span className="gor-masthead-kicker">Senatvs · Popvlvsqve · Romanvs</span>
+                <h1>Roman Crisis Simulation</h1>
+                <span className="gor-masthead-sub">The Glory of Rome · {worldState.year + 753} Ab Urbe Condita</span>
             </div>
-            <Medallion size={68} />
         </div>
-        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 10, flexWrap: 'wrap' }}>
-            <Stat k="Year" v={`${worldState.year} CE`} />
-            <Gem />
-            <Stat k="Week" v={toRoman(worldState.week)} />
-            <Gem />
-            <Stat k="Economic Stability" v={worldState.economic_stability} tone="var(--banner-stat-bronze)" />
-            <Gem />
-            <Stat k="Political Climate" v={worldState.political_climate} tone="var(--banner-stat-crimson)" />
-        </div>
+        <dl className="gor-masthead-readings" aria-label="The state of the world">
+            <Reading label="Year" value={`${worldState.year} CE`} />
+            <Reading label="Week" value={toRoman(worldState.week)} />
+            <Reading label="Economy" value={worldState.economic_stability} tone="bronze" />
+            <Reading label="Climate" value={worldState.political_climate} tone="crimson" />
+        </dl>
     </header>
 );
 

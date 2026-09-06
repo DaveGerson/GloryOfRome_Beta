@@ -33,7 +33,7 @@ const DispatchesDigest: React.FC<{ changes: PerceivedChange[] }> = ({ changes })
 
     return (
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 14, width: '100%', animation: 'gorFadeIn .5s ease-out both' }}>
-            <div className="gor-tablet" style={{ width: '100%', maxWidth: 640, background: 'var(--tablet-dentil) left top/100% 3px no-repeat, var(--tablet-grad)', border: '1px solid var(--tablet-edge)', borderRadius: 'var(--radius-md)', padding: '12px 16px 13px', boxShadow: 'var(--bevel), 0 2px 6px rgba(58,44,16,.3)', color: 'var(--tablet-text)' }}>
+            <div className="gor-tablet" style={{ width: '100%', background: 'var(--tablet-dentil) left top/100% 3px no-repeat, var(--tablet-grad)', border: '1px solid var(--tablet-edge)', borderRadius: 'var(--radius-md)', padding: '12px 16px 13px', boxShadow: 'var(--bevel), 0 2px 6px rgba(58,44,16,.3)', color: 'var(--tablet-text)' }}>
                 <h4 style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 12, letterSpacing: '.24em', textTransform: 'uppercase', color: 'var(--tablet-head)', borderBottom: '1px solid var(--tablet-rule)', paddingBottom: 6, marginBottom: 8, textShadow: '0 1px 1px rgba(0,0,0,.5)' }}>
                     Dispatches &amp; Observations
                 </h4>
