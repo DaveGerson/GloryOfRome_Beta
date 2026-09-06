@@ -234,9 +234,13 @@
 .gor-event-choice-title{font-family:var(--font-display);font-weight:700;font-size:15px;letter-spacing:.05em;color:var(--crimson-500)}
 .gor-event-choice-desc{font-size:14px;font-style:italic;color:var(--text-muted)}
 
-.gor-private-scene{position:fixed;z-index:90;inset:12vh 50% auto 50%;transform:translateX(-50%);width:min(620px,calc(100vw - 32px));max-height:76vh;overflow:auto;padding:20px;background:var(--surface-card);border:1px solid var(--border-strong);box-shadow:var(--shadow-raised);color:var(--text-body)}
+/* Border-box at every width (design pass): the dialog and its fields were
+   content boxes, so the 20px padding and the 1px border hung 42px past the
+   stated width and every textarea overran the dialog by 18px - the two
+   "content-box overhangs at desktop" the backlog recorded. */
+.gor-private-scene{position:fixed;z-index:90;inset:12vh 50% auto 50%;transform:translateX(-50%);width:min(620px,calc(100vw - 32px));max-height:76vh;overflow:auto;padding:20px;box-sizing:border-box;background:var(--surface-card);border:1px solid var(--border-strong);box-shadow:var(--shadow-raised);color:var(--text-body)}
 .gor-private-scene::backdrop{background:rgba(24,16,10,.62)}
-.gor-private-scene header{display:flex;justify-content:space-between;align-items:center;gap:12px}.gor-private-scene textarea,.gor-private-scene select{display:block;width:100%;margin:10px 0;padding:8px}.gor-private-scene button{margin:4px}
+.gor-private-scene header{display:flex;justify-content:space-between;align-items:center;gap:12px}.gor-private-scene textarea,.gor-private-scene select{display:block;width:100%;box-sizing:border-box;margin:10px 0;padding:8px}.gor-private-scene button{margin:4px}
 
 /* ── The private scene, whole (audit item 41) ──
    How you get in, what is kept afterwards, and every way it fails. The
