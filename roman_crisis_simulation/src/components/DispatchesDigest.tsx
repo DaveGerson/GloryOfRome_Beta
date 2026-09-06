@@ -1,5 +1,6 @@
 import React from 'react';
 import { PerceivedChange, QUIET_DIGEST_MESSAGE, PerceptionSource } from '../perception/visibility';
+import type { LedgerLine } from '../types';
 
 // Subtle source tags per the task brief - 'self' deliberately gets none: a
 // player's own feelings/consequences need no attribution, they're just
@@ -27,8 +28,15 @@ const SOURCE_LABELS: Partial<Record<PerceptionSource, string>> = {
  * self-only noise is suppressed in favor of a single quiet line - the
  * player's own consequences are already covered by the narration bubble
  * above, so repeating them here would just be noise with nothing new.
+ *
+ * The steward's lines (D46) sit under the dispatches: the engine's weekly
+ * ledger for the player's OWN holdings - wages paid, an estate's yield,
+ * interest taken - each with its Arabic amount (D5/D6: your own treasury is
+ * yours to know; D44: arithmetic is Arabic). They are bookkeeping, not
+ * intelligence, so they render whether or not the week was quiet and never
+ * count toward the quiet-week test above.
  */
-const DispatchesDigest: React.FC<{ changes: PerceivedChange[] }> = ({ changes }) => {
+const DispatchesDigest: React.FC<{ changes: PerceivedChange[]; ledger?: LedgerLine[] }> = ({ changes, ledger = [] }) => {
     const beyondSelf = changes.filter(c => c.source !== 'self');
 
     return (
@@ -57,6 +65,26 @@ const DispatchesDigest: React.FC<{ changes: PerceivedChange[] }> = ({ changes })
                             </li>
                         ))}
                     </ul>
+                )}
+                {ledger.length > 0 && (
+                    <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--tablet-rule)' }}>
+                        <h5 style={{ margin: '0 0 6px', fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 10.5, letterSpacing: '.2em', textTransform: 'uppercase', color: 'var(--tablet-head)' }}>
+                            The steward reports
+                        </h5>
+                        <ul aria-label="The steward's ledger" style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 5, fontSize: 14 }}>
+                            {ledger.map((line, index) => (
+                                <li key={index} className="gor-tablet-line" style={{ animationDelay: `${(changes.length + index) * 40}ms`, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+                                    <span style={{ display: 'inline-flex', gap: 8 }}>
+                                        <span aria-hidden="true" style={{ color: 'var(--tablet-mark)', flex: 'none' }}>❧</span>
+                                        <span>{line.text}</span>
+                                    </span>
+                                    <span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', flexShrink: 0, color: line.amount < 0 ? 'var(--tablet-quiet)' : 'var(--tablet-head)' }}>
+                                        {line.amount > 0 ? '+' : line.amount < 0 ? '−' : ''}{Math.abs(line.amount).toLocaleString('en-US')}
+                                    </span>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
                 )}
             </div>
         </div>

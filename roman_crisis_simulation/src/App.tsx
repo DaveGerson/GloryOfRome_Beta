@@ -60,6 +60,8 @@ import {
     deepFreezeTurnSubmission,
 } from './playerInput/turnSubmission';
 import { appendFallout, hasFallout } from './components/investigationLoop';
+import { applyExchange, type ExchangeId } from './ai/core/exchequer';
+import type { IntelPrice } from './components/tabs/dramatisPersonaeIntel';
 import { Button } from './components/ui/Core';
 import { Alert, RECORD_REFUSES } from './components/ui/Alert';
 import {
@@ -975,6 +977,35 @@ const App: React.FC = () => {
     };
 
     /**
+     * The exchequer (DESIGN_DECISIONS.md D46, BACKLOG B1): one bargain from
+     * ai/core/exchequer.ts's table - coin into informants, favours into
+     * inquiries, coin against debt - applied to the player's own bag and
+     * committed durably through the same RESOURCE_SPENT path a deep-analysis
+     * spend uses. No AI call; the rate table is code. A refused bargain
+     * (unaffordable, below the lot minimum, over the ceiling) commits
+     * nothing and returns false so the tab can say so.
+     */
+    const handleExchange = (
+        exchangeId: ExchangeId,
+        lots: number,
+        request: DomainMutationContext,
+    ): boolean => {
+        if (!request.isCurrent()) return false;
+        const current = entities.find(e => e.entity_id === playerCharacterId);
+        if (!current) return false;
+        const exchanged = applyExchange(current.resources, exchangeId, lots);
+        if (!exchanged.ok) return false;
+        const newEntities = entities.map(e => (e.entity_id === playerCharacterId ? { ...e, resources: exchanged.resources } : e));
+        if (!request.isCurrent()) return false;
+        return commitDomainMutation({
+            candidate: buildSaveState({ entities: newEntities }),
+            action: { type: 'RESOURCE_SPENT', entities: newEntities },
+            onSaveFailure: () => setTransactionNote({ kind: 'save', lead: 'The bargain could not be saved.' }),
+            beforeDispatch: () => setTransactionNote(null),
+        });
+    };
+
+    /**
      * WP-15 / audit item 40 — what your agents came back with about a public
      * occurrence. It used to live in CurrentEventsTab's component-local
      * `useState` and was discarded the moment the player switched tabs, even
@@ -1027,7 +1058,11 @@ const App: React.FC = () => {
         kind: 'beliefs' | 'scheme' | 'secrets',
         targetId: string,
         reportData: unknown,
-        cost: number,
+        // Graded (D27, live since D46's exchequer gave investigations a coin
+        // price): a fresh acquisition or a cold refresh is paid in
+        // investigations, a warm refresh in denarii - see
+        // components/tabs/dramatisPersonaeIntel.ts::priceInvestigation.
+        cost: IntelPrice,
         result: InvestigationResult,
         request: DomainMutationContext,
     ): Promise<boolean> => {
@@ -1063,7 +1098,11 @@ const App: React.FC = () => {
             if (e.entity_id === playerCharacterId) {
                 const newResources = {...e.resources};
                 const currentInv = (newResources.investigations as number) || 0;
-                newResources.investigations = Math.max(0, currentInv - cost);
+                newResources.investigations = Math.max(0, currentInv - cost.investigations);
+                if (cost.denarii > 0) {
+                    const currentDenarii = (newResources.denarii as number) || 0;
+                    newResources.denarii = Math.max(0, currentDenarii - cost.denarii);
+                }
                 if (kind === 'secrets' && Array.isArray(reportData)) {
                     const resourceKey = `blackmail_on_${targetId}`;
                     const existingSecrets = (newResources[resourceKey] as string[]) || [];
@@ -1309,7 +1348,7 @@ const App: React.FC = () => {
                                                 : <TypingIndicator stage={turnStage} />
                                         )}
                                         {gameState !== GameState.PROCESSING && lastTurn && (
-                                            <DispatchesDigest changes={lastTurnPerceivedChanges} />
+                                            <DispatchesDigest changes={lastTurnPerceivedChanges} ledger={lastTurn?.ledger} />
                                         )}
                                         <div ref={messagesEndRef} />
                                     </div>
@@ -1428,6 +1467,7 @@ const App: React.FC = () => {
                             turnNumber={turnNumber}
                             onSpendDeepAnalysis={(cost, request) => handleSpendResource('deep_analyses', cost, request)}
                             onInvestigationOutcome={handleInvestigationOutcome}
+                            onExchange={handleExchange}
                             runDomainMutation={runDomainMutation}
                             interactionLocked={domainMutationInFlight || privateSceneInteractionLocked || gameState === GameState.PROCESSING}
                             ai={ai}

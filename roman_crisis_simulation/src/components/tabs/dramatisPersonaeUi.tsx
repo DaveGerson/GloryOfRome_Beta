@@ -2,6 +2,7 @@ import React from 'react';
 import { Button } from '../ui/Core';
 import { WaxSeal, toRoman } from '../ui/Brand';
 import { SchemeDiscovery } from '../../knowledge/store';
+import type { IntelPrice } from './dramatisPersonaeIntel';
 
 export const labelStyle: React.CSSProperties = { fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--text-muted)' };
 export const quiet: React.CSSProperties = { fontSize: 14, fontStyle: 'italic', color: 'var(--text-muted)' };
@@ -42,6 +43,28 @@ const Price: React.FC<{ verb: string; cost: number; balance: number; unit: strin
         <span className="gor-sr-only">{cost <= 0 ? '' : ` costs ${cost} ${unit}, ${Math.max(0, balance - cost)} remaining`}</span>
     </>
 );
+
+/**
+ * A graded intel price (D27, live since D46): whole investigations draw as
+ * coin pips exactly as before; a warm refresh settled in denarii writes its
+ * fee in Arabic, tabular, with the unit on the resource (D44) — "Refresh ·
+ * 300 den." — because a treasury figure is arithmetic, never pips.
+ */
+const IntelPriceTag: React.FC<{ verb: string; price: IntelPrice; investigations: number; denarii: number; unit: string }> = ({ verb, price, investigations, denarii, unit }) => {
+    if (price.investigations > 0) {
+        return <Price verb={verb} cost={price.investigations} balance={investigations} unit={unit} />;
+    }
+    if (price.denarii > 0) {
+        return (
+            <>
+                {verb}
+                <span style={{ marginLeft: 8, fontVariantNumeric: 'tabular-nums' }}>· {price.denarii.toLocaleString('en-US')} den.</span>
+                <span className="gor-sr-only">{` costs ${price.denarii} denarii, ${Math.max(0, denarii - price.denarii).toLocaleString('en-US')} remaining`}</span>
+            </>
+        );
+    }
+    return <>{verb} · Free</>;
+};
 
 /**
  * The gloss a section used to hang behind a † (audit item 25). Five daggers in
@@ -144,10 +167,13 @@ export interface HeldDossierReading {
 
 export const IntelSection: React.FC<{
     title: string;
-    cost: number;
+    /** Graded (D27): investigations for a reveal or a cold refresh, denarii for a warm one - see priceInvestigation. */
+    cost: IntelPrice;
     resourceName: string;
     resourceCount: number;
-    /** True once the player holds a persisted dossier on this aspect (D14): the button reads "Refresh", not "Reveal". Flat-priced (see priceInvestigation). */
+    /** The player's treasury, against which a coin-priced warm refresh is gated. */
+    denarii: number;
+    /** True once the player holds a persisted dossier on this aspect (D14): the button reads "Refresh", not "Reveal". */
     held: boolean;
     /** The week the dossier was first opened, for the broken seal's caption. */
     heldSinceTurn?: number | null;
@@ -160,7 +186,8 @@ export const IntelSection: React.FC<{
     tooltip: string;
     footnote?: React.ReactNode;
     showGloss?: boolean;
-}> = ({ title, cost, resourceName, resourceCount, held, heldSinceTurn, heldReading, uncoveredData, onUncover, isLoading, interactionLocked = false, tooltip, footnote, showGloss = false }) => {
+}> = ({ title, cost, resourceName, resourceCount, denarii, held, heldSinceTurn, heldReading, uncoveredData, onUncover, isLoading, interactionLocked = false, tooltip, footnote, showGloss = false }) => {
+    const unaffordable = resourceCount < cost.investigations || denarii < cost.denarii;
 
     const renderContent = () => {
         if (uncoveredData) {
@@ -188,17 +215,17 @@ export const IntelSection: React.FC<{
                         </span>
                     )}
                     <span>
-                        <Button size="sm" variant="secondary" onClick={onUncover} disabled={resourceCount < cost || isLoading || interactionLocked}>
-                            <Price verb="Refresh" cost={cost} balance={resourceCount} unit={resourceName} />
+                        <Button size="sm" variant="secondary" onClick={onUncover} disabled={unaffordable || isLoading || interactionLocked}>
+                            <IntelPriceTag verb="Refresh" price={cost} investigations={resourceCount} denarii={denarii} unit={resourceName} />
                         </Button>
                     </span>
                 </div>
             );
         }
-        // A held dossier is REFRESHED, not revealed afresh - at the same flat
-        // price (D14; the D27 staleness discount stays dormant until B1's
-        // graded currency). Only a spend AMOUNT is ever shown - never a
-        // credibility number (D25).
+        // A held dossier is REFRESHED, not revealed afresh - at the graded
+        // D27 price (a warm file tops up for coin, a cold one takes a fresh
+        // investigation; see priceInvestigation). Only a spend AMOUNT is ever
+        // shown - never a credibility number (D25).
         //
         // Two silhouettes, not one row twice (audit item 26): nothing on file
         // is blanked vellum; something on file is a seal already broken, and
@@ -220,8 +247,8 @@ export const IntelSection: React.FC<{
                         <span style={quiet}>Nothing on file.</span>
                     )}
                 </span>
-                <Button size="sm" variant="secondary" onClick={onUncover} disabled={resourceCount < cost || isLoading || interactionLocked}>
-                    <Price verb={verb} cost={cost} balance={resourceCount} unit={resourceName} />
+                <Button size="sm" variant="secondary" onClick={onUncover} disabled={unaffordable || isLoading || interactionLocked}>
+                    <IntelPriceTag verb={verb} price={cost} investigations={resourceCount} denarii={denarii} unit={resourceName} />
                 </Button>
             </div>
         );

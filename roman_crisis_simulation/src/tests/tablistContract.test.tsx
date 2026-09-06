@@ -129,6 +129,7 @@ async function mountSidePanel(): Promise<HTMLElement> {
       turnNumber={3}
       onSpendDeepAnalysis={vi.fn()}
       onInvestigationOutcome={vi.fn(async () => {})}
+      onExchange={vi.fn()}
       runDomainMutation={runDomainMutation}
       ai={{} as GoogleGenAI}
       isMockMode

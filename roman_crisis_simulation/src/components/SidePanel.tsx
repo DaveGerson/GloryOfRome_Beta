@@ -17,6 +17,8 @@ import type { BriefingPointer } from './tabs/WorldStateTab';
 import type { KnowledgeClaim, OccurrenceQuestion } from '../knowledge/store';
 import { occurrenceFindings } from '../knowledge/store';
 import type { DomainMutationContext, RunDomainMutation } from '../state/domainMutation';
+import type { ExchangeId } from '../ai/core/exchequer';
+import type { IntelPrice } from './tabs/dramatisPersonaeIntel';
 import { radioGroupKeyDown } from './ui/rovingRadio';
 
 /**
@@ -57,8 +59,10 @@ const SidePanel: React.FC<{
     /** The App's authoritative turn counter - the staleness clock D27 prices a dossier refresh against. */
     turnNumber: number;
     onSpendDeepAnalysis: (cost: number, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
-    /** One atomic callback per investigation reveal - spend + blackmail + fallout in a single state/save pass (see App.tsx's handleInvestigationOutcome). */
-    onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult, request: DomainMutationContext) => Promise<boolean | void>;
+    /** One atomic callback per investigation reveal - spend + blackmail + fallout in a single state/save pass (see App.tsx's handleInvestigationOutcome). The price is graded (D27): a fresh acquisition or cold refresh in investigations, a warm refresh in denarii. */
+    onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: IntelPrice, result: InvestigationResult, request: DomainMutationContext) => Promise<boolean | void>;
+    /** One durable exchequer bargain (D46/B1) - App.tsx's handleExchange; the Assets tab's converter commits through it. */
+    onExchange: (exchangeId: ExchangeId, lots: number, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
     runDomainMutation: RunDomainMutation;
     interactionLocked?: boolean;
     ai: GoogleGenAI;
@@ -75,7 +79,7 @@ const SidePanel: React.FC<{
     pulsingTabs: Set<TabId>;
     /** Commits one occurrence finding to the knowledge store (audit item 40). */
     onOccurrenceFinding: (occurrence: string, question: OccurrenceQuestion, text: string, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
-}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, turnHistory, pulsingTabs, onOccurrenceFinding }) => {
+}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, onExchange, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, turnHistory, pulsingTabs, onOccurrenceFinding }) => {
     const [activeTab, setActiveTab] = useState<TabId>('world_state');
     // Tabs the player has already looked at since the current pulsingTabs
     // set arrived - clicking a pulsing tab dismisses its own pulse
@@ -232,7 +236,7 @@ const SidePanel: React.FC<{
                     isMockMode={isMockMode}
                 />}
                 {activeTab === 'locations' && <EmpireTab worldState={worldState} entities={entities} playerEntity={playerEntity} knowledge={knowledge} />}
-                {activeTab === 'resources' && <ResourcesTab playerEntity={playerEntity} />}
+                {activeTab === 'resources' && <ResourcesTab playerEntity={playerEntity} turnHistory={turnHistory} turnNumber={turnNumber} onExchange={onExchange} runDomainMutation={runDomainMutation} interactionLocked={interactionLocked} />}
             </div>
         </aside>
     );

@@ -25,6 +25,7 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { GoogleGenAI } from '@google/genai';
 import { useIntelGathering } from '../components/tabs/useIntelGathering';
+import type { IntelPrice } from '../components/tabs/dramatisPersonaeIntel';
 import { makeEntity } from './factories';
 import type { KnowledgeClaim } from '../knowledge/store';
 import type { Entity, InvestigationResult } from '../types';
@@ -39,6 +40,7 @@ type HookInput = {
   entity: Entity;
   playerEntity: Entity;
   knowledge: KnowledgeClaim[];
+  turnNumber: number;
   ai: GoogleGenAI;
   isMockMode: boolean;
   interactionLocked?: boolean;
@@ -48,7 +50,7 @@ type HookInput = {
     kind: 'beliefs' | 'scheme' | 'secrets',
     targetId: string,
     reportData: unknown,
-    cost: number,
+    cost: IntelPrice,
     result: InvestigationResult,
     request: DomainMutationContext,
   ) => boolean | void | Promise<boolean | void>;
@@ -105,6 +107,7 @@ function wire(overrides: Partial<HookInput> = {}): HookInput {
     entity: target,
     playerEntity: makePlayer({ investigations: 3, deep_analyses: 2 }),
     knowledge: [],
+    turnNumber: 4,
     ai: {} as GoogleGenAI,
     isMockMode: true,
     runDomainMutation: liveMutation,
@@ -309,12 +312,14 @@ describe('components/tabs/useIntelGathering — extracted intel async core', () 
       secrets: MOCK_SECRETS_DISPLAY,
     });
 
+    // A first acquisition is priced in whole investigations, never coin
+    // (D27 graded pricing settles only a WARM refresh in denarii - D46).
     expect(onInvestigationOutcome).toHaveBeenNthCalledWith(
       1,
       'beliefs',
       'maximinus_thrax',
       MOCK_BELIEFS_DISPLAY,
-      1,
+      { investigations: 1, denarii: 0 },
       { target_id: 'maximinus_thrax', report: MOCK_BELIEFS_REPORT, consequences: RISKY_CONSEQUENCE },
       anyContext(),
     );
@@ -323,7 +328,7 @@ describe('components/tabs/useIntelGathering — extracted intel async core', () 
       'secrets',
       'maximinus_thrax',
       MOCK_SECRETS_DISPLAY,
-      1,
+      { investigations: 1, denarii: 0 },
       { target_id: 'maximinus_thrax', report: MOCK_SECRETS_REPORT, consequences: RISKY_CONSEQUENCE },
       anyContext(),
     );
@@ -340,7 +345,7 @@ describe('components/tabs/useIntelGathering — extracted intel async core', () 
       'scheme',
       'maximinus_thrax',
       MOCK_SCHEME_CLUES,
-      1,
+      { investigations: 1, denarii: 0 },
       expect.objectContaining({ target_id: 'maximinus_thrax', consequences: RISKY_CONSEQUENCE }),
       anyContext(),
     );

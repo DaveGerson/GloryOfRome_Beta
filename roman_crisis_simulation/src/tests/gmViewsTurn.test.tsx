@@ -262,6 +262,37 @@ describe('WhatChangedView', () => {
     expect(text).not.toContain('Full roster after this turn');
   });
 
+  it("renders the steward's ledger under the deltas: kind, signed amount, key with its itemisation, and the quoted line (D46)", async () => {
+    const entry = makeTurnHistoryEntry({
+      adjudication: makeAdjudication({
+        deltas: [{ type: 'resource', key: 'npc_full:denarii', delta: 5, reason: 'A purse arrives.' }],
+      }),
+      ledger: [
+        { kind: 'upkeep', key: 'denarii', amount: -1845, text: "Your treasury pays out 1,845 denarii - the week's wages for 150 guards and 3 agents.", detail: 'guards 150 x 12, agents 3 x 15' },
+        { kind: 'regen', key: 'investigations', amount: 1, text: 'Your agents open a fresh line of inquiry; you may pursue one more investigation.' },
+      ],
+    });
+    const container = await mount(<WhatChangedView entry={entry} />);
+    const text = container.textContent ?? '';
+
+    expect(text).toContain("The steward's ledger");
+    expect(text).toContain('upkeep');
+    expect(text).toContain('-1845');
+    expect(text).toContain('denarii · guards 150 x 12, agents 3 x 15');
+    expect(text).toContain("“Your treasury pays out 1,845 denarii - the week's wages for 150 guards and 3 agents.”");
+    expect(text).toContain('regen');
+    expect(text).toContain('+1');
+    expect(text).not.toContain('No weekly ledger lines were booked for this turn.');
+  });
+
+  it('names the absence of ledger lines on a legacy or quiet turn rather than hiding the section', async () => {
+    const container = await mount(<WhatChangedView entry={makeTurnHistoryEntry()} />);
+    const text = container.textContent ?? '';
+
+    expect(text).toContain("The steward's ledger");
+    expect(text).toContain('No weekly ledger lines were booked for this turn.');
+  });
+
   it('resolves moved entities by colon segments, not substrings', async () => {
     // 'npc' is a proper substring of the segment 'npc_full' — segment
     // matching must move only npc_full.

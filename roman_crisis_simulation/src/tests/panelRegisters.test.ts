@@ -27,11 +27,16 @@ describe('resourceDescriptors (audit item 34)', () => {
   });
 
   it('buckets by declaration, not by substring match on the key', () => {
-    expect(describeResource('denarii').register).toBe('coin');
+    // D46: coin, debt and intel share the ledger register; forces and
+    // property share holdings; standings and leverage keep their own.
+    expect(describeResource('denarii').register).toBe('ledger');
     expect(describeResource('senatorial_support').register).toBe('standing');
     // "investigations" is a substring of nothing else, but "personal_fortune"
     // used to be caught by the same `.includes` sweep as "blackmail".
-    expect(describeResource('personal_fortune').register).toBe('coin');
+    expect(describeResource('personal_fortune').register).toBe('ledger');
+    expect(describeResource('troops').register).toBe('holdings');
+    expect(describeResource('estates').register).toBe('holdings');
+    expect(describeResource('favors').register).toBe('leverage');
   });
 
   it('titles an undeclared resource without guessing its unit', () => {

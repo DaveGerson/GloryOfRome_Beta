@@ -2,6 +2,9 @@ import { GoogleGenAI } from "@google/genai";
 import { Entity, InvestigationResult } from '../../types';
 import { getInvestigationResult, getDeepAnalysis } from '../../ai/tools/intelligence';
 import { deriveDossier, InvestigationKind, KnowledgeClaim, SchemeDiscovery } from '../../knowledge/store';
+import { computeRefreshCost, DOSSIER_COLD_THRESHOLD } from '../../knowledge/dossierCost';
+import { INVESTIGATION_PRICE_DENARII } from '../../ai/core/exchequer';
+import { numericResource } from '../../ai/core/resourceRegistry';
 
 /**
  * DESIGN_DECISIONS.md D14 - the full first-acquisition price of one
@@ -10,22 +13,63 @@ import { deriveDossier, InvestigationKind, KnowledgeClaim, SchemeDiscovery } fro
 const FIRST_INVESTIGATION_COST = 1;
 
 /**
- * Prices one investigation aspect (D14). FLAT: every aspect - and every
- * repeat of it - costs the full first-acquisition price, whether or not the
- * player already holds a dossier on it. Investigations stay a simple unit
- * price until the currency converter lands (BACKLOG.md B1); the staleness
- * decay curve (knowledge/dossierCost.ts::computeRefreshCost, D27) stays
- * DORMANT - not on this active cost path - until a graded (non-unit) price
- * gives it room to discount a warm refresh. `held` only labels Reveal-vs-
- * Refresh and never reads any credibility number (D25).
+ * What an intel purchase costs (D27, graded): whole `investigations`, or
+ * `denarii` for a warm refresh. Exactly one of the two is non-zero for any
+ * price the game quotes today; both are always present so a charge site
+ * debits both without branching on shape.
+ */
+export interface IntelPrice {
+  investigations: number;
+  denarii: number;
+}
+
+export const FREE_INTEL: IntelPrice = { investigations: 0, denarii: 0 };
+
+/** True when the bag covers both halves of a price. */
+export function canAffordIntel(resources: Entity['resources'], price: IntelPrice): boolean {
+  return numericResource(resources, 'investigations') >= price.investigations
+    && numericResource(resources, 'denarii') >= price.denarii;
+}
+
+/**
+ * Prices one investigation aspect (D14/D27). GRADED since D46's exchequer
+ * gave an investigation a coin price (ai/core/exchequer.ts's
+ * INVESTIGATION_PRICE_DENARII), which is what BACKLOG B1 said the dormant
+ * D27 curve was waiting for:
+ *
+ *  - a FIRST acquisition costs one investigation (D14, as before);
+ *  - a COLD refresh (staleness at or past knowledge/dossierCost.ts's
+ *    DOSSIER_COLD_THRESHOLD) is a fresh acquisition again - one
+ *    investigation;
+ *  - a WARM refresh is settled in COIN at the D27 curve run over the
+ *    exchequer's price: `computeRefreshCost(1500, staleness)` - 300 denarii
+ *    the same week, rising a notch a week toward 1,500 at the cold
+ *    threshold. Never free (the curve's floor is a fifth of full price),
+ *    never a whole investigation (that is what "costs less than first
+ *    acquisition" means once the unit price has room to grade).
+ *
+ * D27 says "paid in the same resource the first investigation used"; the
+ * coin settlement reads that resource as the currency investigations are
+ * now bought WITH - the warm fee is the exchequer's own price for a fraction
+ * of one. Flagged for the owner in D46. A 'scheme' aspect is never a
+ * refresh: each buy earns a NEW clue toward the reveal (D28), so it always
+ * pays full price. `held` only labels Reveal-vs-Refresh and never reads any
+ * credibility number (D25).
  */
 export function priceInvestigation(
   knowledge: KnowledgeClaim[],
   targetId: string,
-  kind: InvestigationKind
-): { cost: number; held: boolean } {
-  const held = deriveDossier(knowledge, targetId).entries.some(e => e.kind === kind);
-  return { cost: FIRST_INVESTIGATION_COST, held };
+  kind: InvestigationKind,
+  currentTurn: number
+): { cost: IntelPrice; held: boolean } {
+  const entry = deriveDossier(knowledge, targetId).entries.find(e => e.kind === kind);
+  const full: IntelPrice = { investigations: FIRST_INVESTIGATION_COST, denarii: 0 };
+  if (!entry) return { cost: full, held: false };
+  if (kind === 'scheme') return { cost: full, held: true };
+  const staleness = currentTurn - entry.lastRefreshedTurn;
+  if (staleness >= DOSSIER_COLD_THRESHOLD) return { cost: full, held: true };
+  const fee = Math.round(computeRefreshCost(INVESTIGATION_PRICE_DENARII, staleness, DOSSIER_COLD_THRESHOLD));
+  return { cost: { investigations: 0, denarii: fee }, held: true };
 }
 
 /**
@@ -68,7 +112,7 @@ export type IntelRequestOutcome =
       kind: 'investigation';
       investigationKind: 'scheme';
       charged: true;
-      cost: number;
+      cost: IntelPrice;
       reportData: unknown;
       outcome: InvestigationResult;
     }
@@ -77,7 +121,7 @@ export type IntelRequestOutcome =
       kind: 'investigation';
       investigationKind: 'beliefs' | 'secrets';
       charged: true;
-      cost: number;
+      cost: IntelPrice;
       display: string[];
       reportData: unknown;
       outcome: InvestigationResult;
@@ -95,10 +139,12 @@ export async function resolveIntelRequest(params: {
   target: Entity;
   playerEntity: Entity;
   knowledge: KnowledgeClaim[];
+  /** The App's authoritative turn counter - the staleness clock a refresh is priced against (D27). */
+  turnNumber: number;
   ai: GoogleGenAI;
   isMockMode: boolean;
 }): Promise<IntelRequestOutcome> {
-  const { type, target, playerEntity, knowledge, ai, isMockMode } = params;
+  const { type, target, playerEntity, knowledge, turnNumber, ai, isMockMode } = params;
   switch (type) {
     case 'deep_analysis': {
       // ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - wires the previously-dead
@@ -116,11 +162,10 @@ export async function resolveIntelRequest(params: {
     case 'beliefs':
     case 'secrets':
     case 'scheme': {
-      // Flat first-acquisition cost in the `investigations` resource (D14);
-      // priced at click from the current store so it matches the label the
-      // player saw.
-      const { cost } = priceInvestigation(knowledge, target.entity_id, type);
-      if ((playerEntity.resources.investigations as number) >= cost) {
+      // Graded price (D14/D27); priced at click from the current store and
+      // turn so it matches the label the player saw.
+      const { cost } = priceInvestigation(knowledge, target.entity_id, type, turnNumber);
+      if (canAffordIntel(playerEntity.resources, cost)) {
         const result = await getInvestigationResult(ai, target, playerEntity, true, isMockMode, type);
         const outcome = { target_id: target.entity_id, report: result.report, consequences: result.consequences };
         // A 'scheme' buy does NOT display its raw reportData (D28): the
