@@ -258,7 +258,7 @@ beforeEach(() => {
     kind: 'investigation',
     investigationKind: 'secrets',
     charged: true,
-    cost: 1,
+    cost: { investigations: 1, denarii: 0 },
     display: ['REPORT_DATA_PRIVATE_POISON'],
     reportData: ['REPORT_DATA_PRIVATE_POISON'],
     outcome: {

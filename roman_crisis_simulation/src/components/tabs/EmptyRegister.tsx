@@ -103,3 +103,11 @@ export const FoldedLetterSilhouette: React.FC = () => (
         <span className="gor-sil-letter-fold" />
     </span>
 );
+
+/** Three ruled lines of a ledger page with the sum still blank — the coffer before the steward writes (D46). */
+export const CofferSilhouette: React.FC = () => (
+    <span className="gor-sil-coffer" aria-hidden="true">
+        {[0, 1, 2].map(index => <span key={index} className="gor-sil-coffer-line" />)}
+        <span className="gor-sil-coffer-sum" />
+    </span>
+);

@@ -752,3 +752,134 @@ those stops; desktop is byte-identical.
 ledger deep-link only where the console is already enabled), D34 (the
 keyless notice is device-side and names no key), D44 (ceremony Roman —
 "safe up to Week XI" — while the attempt pips stay Arabic).
+
+---
+
+## D46 — The resource economy: dynamic bag, one name per quantity, and a steward who keeps the books
+
+*Status: implemented; owner veto pending.* The owner's ask: "the game needs
+to be kept dynamic, but we also should have some level of resource
+management so it doesn't end up just being improv." Five rules deliver
+that without retiring D6's dynamic bag.
+
+**One quantity, one name.** `ai/core/resourceRegistry.ts` is the canonical
+catalogue D6's "small systemic registry" grew into: every kind declares its
+key, label, category (coin / debt / intel / forces / holdings / standing /
+leverage), unit (D44), floor and cap, weekly yield or wage, who may know it
+(D5), a gloss, and the spellings the model is known to mint for it. Every
+`resource` delta key is folded onto the canonical spelling before it is
+applied — `gold`, `money` and `coin` land on `denarii`; `soldiers` and
+`legionaries` on `troops`; `spies` and `informants` on `agents`;
+`legion_loyalty` on `legion_support` — so the ledger, the exchequer, the
+Assets tab and the adjudicator's briefs all count one thing. Two pattern
+families are canonical: `blackmail_on_<entity_id>` (leverage, one per
+person) and `holding_<slug>` (a discrete thing the story minted — a villa,
+a hostage, a sealed letter — carrying no yield or wage of its own). An
+UNDECLARED key is still allowed (D6 stands): it is classified by its NAME
+alone into a sensible register and written exactly as stored. A catalogued
+0–100 standing is now clamped to its scale by the engine (a mutiny takes
+`legion_support` to 0, not to −115); an undeclared key keeps the bare
+running total it always had.
+
+**The steward closes the books every week, as an engine step.**
+`ai/core/ledger.ts` runs ONCE per committed turn, AFTER the adjudication is
+applied and after every no-attempt boundary (`ai/core/turn.ts` step 3.5;
+`ai/mocks.ts` in the same slot), on the PLAYER's bag only: levies raised at
+the exchequer arrive; estates, ships and workshops yield; troops, guards,
+agents and legions draw wages, and what the treasury cannot pay becomes
+`pay_arrears`; interest on `debt_denarii` is serviced or capitalised; back
+pay erodes `legion_support` and, at two weeks' wages, a twentieth of the
+men desert; investigations regenerate toward an agents-driven ceiling
+(2 + one per three agents, at most 8; weekly with three agents, else every
+third week); and a standing the player already holds drifts under the
+crisis as it stood that week (a Divided army costs a point of legion
+support a week; a Rioting city, popular support and legitimacy). Income
+lands before wages so the estates pay the guards; interest comes after
+wages because a Roman paid his men before his banker. The lines ride the
+history entry as `TurnHistoryEntry.ledger` — rendered under the Dispatches
+digest ("The steward reports"), on the Assets tab, and in the GM console —
+and never enter `adjudication.deltas`, so the player-action gate can never
+mistake a wage for an invented act. A healthy week raises no Report; unpaid
+men, desertions and a debt crossing 10,000 do.
+
+**Gains cite a source; the guard clamps, never rejects.**
+`ai/core/economyGuard.ts` runs after the last boundary and before apply: an
+unsourced treasury gain above the larger of 2,000 denarii and half the
+standing treasury is cut to that allowance unless a payer lost at least half
+of it, a creditor lent at least half of it, or a standing paid at least 3
+for it; narration may grant at most one investigation or deep analysis a
+week; a standing swings by at most 15; more than twenty volunteers (or a
+tenth of the standing force) appear only when coin was spent or borrowed.
+Losses, NPC bags and undeclared keys pass untouched. Every clamp is an
+`[Economy]` `gm_private` note — the GM console's refuse-and-record voice —
+and the smaller gain still commits, because a whole turn's provider calls
+are already spent by the time deltas exist and a retry re-rolls the same
+model (the `playerBoundary.ts` lesson).
+
+**The exchequer is code, and its friction is the price (BACKLOG B1
+landed; T1 resolved).** `ai/core/exchequer.ts` is a rate table: 1,500
+denarii buy one investigation up to the agents' ceiling; a favour owed
+becomes an inquiry; three inquiries pool into a deep analysis; troops are
+raised at 60 a head in tens and arrive NEXT week as `levy_pending`; guards
+at 90 in fives at once; an agent at 400; coin repays debt or back pay at
+par; an estate or a ship sells under duress for fifteen weeks of its yield.
+A bargain is one durable domain mutation through `App.tsx`'s
+`handleExchange` (the `RESOURCE_SPENT` path), no AI call. This is T1's
+interoperability bridge: a soft resource the world generated is worth
+something concrete, the hard currency is reachable from the lived
+narrative, and narration cannot mint it directly because the guard caps
+that road. With investigations priced in coin, **D27's refresh curve is
+live**: a first acquisition or a cold refresh costs one investigation; a
+warm refresh costs `computeRefreshCost(1,500, staleness)` in DENARII
+(300 rising toward 1,500), gated on the treasury. *Deviation, flagged:*
+ROADMAP_PHASE_4 4B.3 said the refresh is "paid in the SAME resource"; the
+exchequer settles it in the resource that now prices an investigation, so
+a top-up never costs a whole inquiry. Owner may veto back to a fractional
+investigation price.
+
+**The Assets tab is a ledger, and every number on it is the player's own.**
+Five registers — Ledger (hero figures, debt and back pay in crimson, this
+week's engine lines beside the player's own dealings with their reasons,
+next week's projection and a runway — "at this rate your treasury lasts IV
+weeks", ceremony Roman and arithmetic Arabic per D44), Holdings (men in
+your pay, property, things held, each with its wage or yield and "since
+Week VII" read from the campaign's own record), Standing, Leverage and the
+Exchequer. No NPC's purse, no credibility figure, no GM note is reachable
+from its props (D5, D25). Zero states name the cause (D45). The adjudicator
+gets the same books as a `PLAYER HOLDINGS & LEDGER` block — the flow, the
+runway, CREDITORS PRESS and BACK PAY OWED pressures, last week's lines —
+under a RESOURCE ECONOMY contract (every act has a price; under-funded acts
+fall short; gains cite their source; narrative resources are not coin).
+
+**Save compatibility (D17).** `ledger` is optional on the history entry;
+legacy entries render "nothing was booked". A legacy bag is read exactly as
+written and folded lazily — on the next committed turn's ledger pass, on an
+engine write, or when a roster addition is applied — never on load.
+
+*Tuning, with the rationale in the code:* wages 8 / 12 / 15 a head
+(troops / guards / agents), 25,000 a legion; yields 600 / 250 / 150
+(estate / ship / workshop); interest 5% a week, minimum 50; the presets are
+seeded so the Emperor's two estates nearly carry his household (−645 a
+week, a 77-week runway), the general bleeds toward an 11-week horizon, the
+senator runs a surplus and the broker runs nearly level (−120 a week) with
+the widest intelligence ceiling. A ledger that bankrupts every destiny by
+Week III is a bug, not a feature.
+
+*Owner decisions still open:* (1) the ledger is player-only — running wages
+and interest against NPC purses the model never finished writing would
+bankrupt them and produce truth the player cannot see (D5); extending it is
+a call, not an oversight. (2) The Divided army's one-point-a-week drift
+begins at Week I for every preset; if that reads as a tax on doing nothing,
+gate it on `major_ongoing_crisis`. (3) The warm refresh settled in denarii
+(above). (4) Mock Mode's canned 12,000-denarii gift is deliberately larger
+than a poor preset's allowance so a keyless QA pass sees a clamp note; it
+is a demonstration, not a balance figure. (5) The exchequer has no broker —
+B1's "who you know gates what you can trade" stays open.
+
+*Changes:* D6 (the registry is now a typed catalogue and standings are
+clamped), D14/D27 (graded refresh live, settled in coin), D44 (the unit
+lives in the registry, `resourceDescriptors.ts` is its adapter).
+*Refines:* D5 (a player's own ledger is knowable, no one else's is), D41
+(string resource values render through `asPromptData`), D42 (the guard
+runs after the last boundary, on committed deltas), D45 (three new zero
+states, each naming its cause).

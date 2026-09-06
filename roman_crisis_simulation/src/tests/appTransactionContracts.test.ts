@@ -1431,6 +1431,18 @@ describe('App in-flight transaction barrier', () => {
       const input = byAriaLabel<HTMLTextAreaElement>(container, 'Chat input');
       const before = localStorage.getItem('gloryOfRome:autosave');
       const beforeState = loadGame()!.state;
+      const beforeSeverus = beforeState.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources;
+      // The only legitimate movement of an intel balance inside a turn is
+      // the weekly ledger's booked line (D46: investigations regenerate on
+      // the agents-driven trickle). A debit by a barred handler is never
+      // booked, so a balance must equal before + what the ledger wrote - and
+      // a failed turn books nothing at all.
+      const bookedInTurn = (persisted: SaveGameState, key: string): number => {
+        if (persisted.turnHistory.length <= beforeState.turnHistory.length) return 0;
+        return (persisted.turnHistory[persisted.turnHistory.length - 1].ledger ?? [])
+          .filter(line => line.key === key)
+          .reduce((sum, line) => sum + line.amount, 0);
+      };
       let release!: () => void;
       const gate = new Promise<void>(resolve => { release = resolve; });
       mockRunNewTurn.mockImplementationOnce(async (...args) => {
@@ -1488,10 +1500,11 @@ describe('App in-flight transaction barrier', () => {
         expect(completedTurnSaves, 'exactly one durable save from the completed turn').toHaveLength(1);
         for (const persisted of capturedStates) {
           expect(persisted.gmInterventionText).toBe(beforeState.gmInterventionText);
-          expect(persisted.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources.deep_analyses)
-            .toBe(beforeState.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources.deep_analyses);
-          expect(persisted.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources.investigations)
-            .toBe(beforeState.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources.investigations);
+          const persistedSeverus = persisted.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources;
+          expect(persistedSeverus.deep_analyses)
+            .toBe((beforeSeverus.deep_analyses as number) + bookedInTurn(persisted, 'deep_analyses'));
+          expect(persistedSeverus.investigations)
+            .toBe((beforeSeverus.investigations as number) + bookedInTurn(persisted, 'investigations'));
           expect(JSON.stringify(persisted)).not.toContain(`Barrier ${outcome} directive`);
           expect(JSON.stringify(persisted)).not.toContain('(Mock Analysis)');
           expect(JSON.stringify(persisted)).not.toContain('(Mock) Is secretly illiterate.');
@@ -1511,11 +1524,11 @@ describe('App in-flight transaction barrier', () => {
       // A successful turn may legitimately ingest perception knowledge or
       // consume pre-existing fallout. This asserts only the barred concurrent
       // actions, while the failure branch above retains full-state equality.
-      expect(loadGame()!.state.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources.deep_analyses)
-        .toBe(beforeState.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources.deep_analyses);
-      expect(loadGame()!.state.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources.investigations)
-        .toBe(beforeState.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources.investigations);
-      expect(JSON.stringify(loadGame()!.state)).not.toContain(`Barrier ${outcome} directive`);
+      const settled = loadGame()!.state;
+      const settledSeverus = settled.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources;
+      expect(settledSeverus.deep_analyses).toBe((beforeSeverus.deep_analyses as number) + bookedInTurn(settled, 'deep_analyses'));
+      expect(settledSeverus.investigations).toBe((beforeSeverus.investigations as number) + bookedInTurn(settled, 'investigations'));
+      expect(JSON.stringify(settled)).not.toContain(`Barrier ${outcome} directive`);
       expect(container.textContent).not.toContain('(Mock Analysis)');
       expect(container.textContent).not.toContain('(Mock) Is secretly illiterate.');
       storageSpy.mockRestore();

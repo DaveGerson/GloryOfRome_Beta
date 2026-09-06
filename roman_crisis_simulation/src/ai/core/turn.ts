@@ -2,6 +2,8 @@ import { GoogleGenAI } from "@google/genai";
 import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent, TruthLedgerEntry, NpcIntent, NpcMindDecision, StoryRelevance, EntityAction, Memory, PacingPosture, EventFiringRecord, EventDelta, Scheme, SchemeStep, TurnSubmission } from '../../types';
 import { AdjudicationSchema, NarrationPayloadSchema } from './schemas';
 import { applyAdjudication } from './engine';
+import { guardEconomy } from './economyGuard';
+import { applyWeeklyLedger } from './ledger';
 import { mockRunNewTurn } from "../mocks";
 import { selectDurableIntents } from './directorIntents';
 import { getPlayerMonologue, getStoryRelevance, getUpdatedSimulationState } from '../tools/intelligence';
@@ -622,6 +624,9 @@ export async function runNewTurn(
         pacingPosture: options?.pacingPosture,
         historicalMaterial,
         privateSceneAdjudicatorProjection: options?.privateSceneAdjudicatorProjection,
+        // Last week's engine-booked lines (D46) - absent on a first turn or a
+        // legacy entry; the ledger block renders "nothing was booked".
+        playerLedger: turnHistory.slice(-1)[0]?.ledger,
     });
 
     // 2. Get adjudication from AI
@@ -749,6 +754,21 @@ export async function runNewTurn(
     );
     proseRedactions.push(...enforceNoAttemptBoundary(transformedAdjudication, playerEntity, narrationSubmission.hasObservableAttempt));
 
+    // *** STEP 2.8: THE CONSERVATION GUARD (DESIGN_DECISIONS.md D46, BACKLOG T1) ***
+    // After the LAST boundary run and before anything is applied: every
+    // 'resource' delta's key is folded onto its canonical spelling
+    // (ai/core/resourceRegistry.ts) and the PLAYER's mintable gains -
+    // an unsourced windfall, free intel, a reputation leaping by tens, men
+    // who appear unpaid - are clamped to what a week can honestly yield.
+    // Losses and NPC bags pass untouched. Each clamp is an `[Economy]`
+    // gm_private note (GM console only; gm_private is stripped before every
+    // player-bound prompt). Deliberately AFTER the boundary: folding a key
+    // never changes whose delta it is, and the guard must see the deltas
+    // mortality finalised, not the ones it started from.
+    const guarded = guardEconomy(transformedAdjudication.deltas, currentEntities, playerEntity.entity_id);
+    transformedAdjudication.deltas = guarded.deltas;
+    transformedAdjudication.gm_private.push(...guarded.notes);
+
     // 3. Apply the (mortality-transformed) adjudication to get new state.
     // Pure/synchronous (ai/core/engine.ts) - runs to completion before any
     // of the three parallel legs below are launched, so `updatedEntities`/
@@ -772,8 +792,29 @@ export async function runNewTurn(
             turnNumber,
         }
     );
-    const { updatedEntities } = appliedAdjudication;
-    const { updatedWorldState, updatedReports, updatedTruthLedger, perceivingNpcIds } = appliedAdjudication;
+    // *** STEP 3.5: THE WEEKLY LEDGER (DESIGN_DECISIONS.md D46) ***
+    // The engine closes the player's books for the week - wages, yields,
+    // interest, levies, desertions, intel regeneration, standing drift - as
+    // its OWN step, on the roster the adjudication just produced. These are
+    // engine-authored state changes, never adjudicator deltas: they run
+    // after every no-attempt boundary (ai/core/playerBoundary.ts would
+    // otherwise reject a player-keyed spend on a no-attempt turn as an
+    // invented act), and they are never smuggled into
+    // `adjudication.deltas`. The lines ride the history entry
+    // (`TurnHistoryEntry.ledger`) for the Dispatches digest, the Assets tab
+    // and the GM console; any Reports the week raised (unpaid men, creditors
+    // pressing) join the report log like the denarii floor's own notices
+    // (ai/core/resources.ts). Pure and player-only - see ledger.ts.
+    const weeklyLedger = applyWeeklyLedger({
+        entities: appliedAdjudication.updatedEntities,
+        playerId: playerEntity.entity_id,
+        turnNumber,
+        simulationState: currentSimulationState,
+    });
+    const updatedEntities = weeklyLedger.entities;
+    const { updatedWorldState, updatedTruthLedger, perceivingNpcIds } = appliedAdjudication;
+    const updatedReports = [...appliedAdjudication.updatedReports, ...weeklyLedger.reports];
+    transformedAdjudication.gm_private.push(...weeklyLedger.gmNotes);
     const updatedPlayerEntity = updatedEntities.find(e => e.entity_id === playerEntity.entity_id) || playerEntity;
     // Player-owned reflection context for the monologue (a player-owned
     // surface): every history entry is re-projected through
@@ -854,8 +895,16 @@ export async function runNewTurn(
         updatedEntities,
         updatedWorldState
     );
-    const playerNarrationEvents = playerPerceivedDigest
-        .map(({ text, source }) => ({ text, source }));
+    // The week's ledger lines join the narrator's event list as the player's
+    // OWN knowledge ('self', D5/D6: a steward's report of your own accounts)
+    // so the chronicle can mention the wages that came due or the estate
+    // that paid - without ever entering the perception digest proper, whose
+    // lines are knowledge-store claims (knowledge/commit.ts) and whose
+    // provenance metadata a ledger line does not carry.
+    const playerNarrationEvents = [
+        ...playerPerceivedDigest.map(({ text, source }) => ({ text, source })),
+        ...weeklyLedger.lines.map(line => ({ text: line.text, source: 'self' as const })),
+    ];
     // 4C.5: voice flavor is allowed only for identities explicitly rendered
     // in player-visible event text. PerceivedChange.subject/deltaKey remain
     // knowledge provenance and must not select hidden rumor subjects.
@@ -1012,6 +1061,9 @@ export async function runNewTurn(
         npcMindResults: npcMindResults.length > 0 ? npcMindResults : undefined,
         // Session-side only: stripped on serialize (persistence/saveGame.ts).
         proseRedactions: proseRedactions.length > 0 ? proseRedactions : undefined,
+        // Optional (save-compat, D46): omitted entirely on a week that moved
+        // nothing - absent and empty read alike everywhere.
+        ledger: weeklyLedger.lines.length > 0 ? weeklyLedger.lines : undefined,
     };
 
     const result = {

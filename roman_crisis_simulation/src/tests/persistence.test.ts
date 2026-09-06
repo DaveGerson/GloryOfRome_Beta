@@ -13,7 +13,7 @@ import {
   type SaveGameResult,
 } from '../persistence/saveGame';
 import { gameReducer, createInitialGameState } from '../state/gameReducer';
-import type { TurnHistoryEntry, RawCallRecord, Memory } from '../types';
+import type { TurnHistoryEntry, RawCallRecord, LedgerLine, Memory } from '../types';
 import type { KnowledgeClaim } from '../knowledge/store';
 import type { PrivateSceneRecord } from '../privateScene/model';
 import { serializeTurnSubmission } from '../playerInput/turnSubmission';
@@ -21,6 +21,7 @@ import {
   makeLegacySaveState as makeState,
   makeTurnHistoryEntry,
   makeAdjudication,
+  makeEntity,
   makeRawCall as baseMakeRawCall,
   makePrivateScene,
 } from './factories';
@@ -207,6 +208,34 @@ describe('persistence/saveGame', () => {
     // Everything else about the seedless entry is untouched.
     expect(loaded!.state.turnHistory[1].narration).toBe('Narration for turn 2');
     expect(loaded!.state.turnHistory[1].adjudication.headlines).toEqual(['Headline 2']);
+  });
+
+  it('round-trips the optional weekly ledger on history entries (D46), alongside entries that lack it', () => {
+    const lines: LedgerLine[] = [
+      { kind: 'income', key: 'denarii', amount: 1200, text: 'Your 2 estates return 1,200 denarii.', detail: 'estates 2 x 600' },
+      { kind: 'arrears', key: 'pay_arrears', amount: 645, text: 'The treasury could not meet 645 denarii of wages; your men are owed it.' },
+    ];
+    const booked: TurnHistoryEntry = { ...makeHistoryEntry(1, false), ledger: lines };
+    const legacy = makeHistoryEntry(2, false); // written before the ledger existed
+    saveGame(makeState({ turnNumber: 3, turnHistory: [booked, legacy] }));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.turnHistory[0].ledger).toEqual(lines);
+    expect(loaded!.state.turnHistory[1].ledger).toBeUndefined();
+    expect(loaded!.state.turnHistory[1].narration).toBe('Narration for turn 2');
+  });
+
+  it('loads a legacy bag with alias keys exactly as written - the fold is lazy, on the next committed turn (D46/D17)', () => {
+    const legacyPlayer = makeEntity({
+      entity_id: 'severus_alexander',
+      resources: { gold: 500, denarii: 100, spies: 2, dirt_on_maximinus_thrax: ['He forged the will.'] },
+    });
+    saveGame(makeState({ turnNumber: 2, entities: [legacyPlayer] }));
+
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state.entities[0].resources).toEqual(legacyPlayer.resources);
   });
 
   it('round-trips the optional GM-private truth ledger (D11), including origin/assumed markers', () => {

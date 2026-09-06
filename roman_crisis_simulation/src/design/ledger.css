@@ -1,0 +1,87 @@
+/* ── The Assets ledger (DESIGN_DECISIONS.md D46) ──
+   Every rule below reads only the marble/ink/gold tokens (design/tokens/*.css)
+   so the register re-lights under NOX without a night override of its own:
+   income is laurel, wages and interest crimson, debt bronze until the
+   creditors press, and every figure is tabular Arabic (D44). Loaded last,
+   after components.css, and adds classes only - nothing here restyles an
+   existing `gor-*` rule. */
+
+/* The tab lives in a panel that is clamp(360px,34vw,520px) wide on desktop and
+   a ~390px sheet on a phone. Inside the ledger only, the hero well's columns
+   start at 128px and its letter-spaced labels may wrap, so "INVESTIGATIONS"
+   and "DEEP ANALYSES" never overprint each other; the well itself keeps its
+   components.css look everywhere else. */
+.gor-ledger .gor-hero-well{grid-template-columns:repeat(auto-fit,minmax(128px,1fr))}
+.gor-ledger .gor-hero{min-width:0}
+.gor-ledger .gor-hero .gor-label{white-space:normal;line-height:1.3;overflow-wrap:anywhere}
+
+/* Section headings inside a register: a label, then a rule fading to the edge. */
+.gor-ledger-heading{display:flex;align-items:center;gap:10px;margin-top:2px}
+.gor-ledger-heading-rule{flex:1;height:1px;background:linear-gradient(90deg,var(--border-subtle),transparent)}
+.gor-ledger-section{display:flex;flex-direction:column;gap:8px}
+.gor-ledger-subhead{font-family:var(--font-display);font-size:10px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--parchment-400);margin-top:4px}
+.gor-ledger-fine{font-family:var(--font-body);font-size:12.5px;font-style:italic;color:var(--text-muted);font-variant-numeric:tabular-nums}
+
+/* Signed figures: arithmetic Arabic, tabular, coloured by direction. */
+.gor-ledger-amount{font-family:var(--font-body);font-size:var(--text-numeral);font-variant-numeric:tabular-nums;color:var(--text-heading);white-space:nowrap;text-align:right}
+.gor-ledger-amount-in{color:var(--laurel-500)}
+.gor-ledger-amount-out{color:var(--crimson-500)}
+
+/* The week's lines - engine bookings first, the player's own dealings under them. */
+.gor-ledger-lines{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.gor-ledger-line{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:baseline;padding:7px 2px;border-bottom:1px solid var(--border-faint);font-size:14px;color:var(--text-body)}
+.gor-ledger-line-text{min-width:0}
+.gor-ledger-line-key{font-family:var(--font-display);font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-heading)}
+/* A desertion or an arrears line carries its own edge so a bad week reads at a glance. */
+.gor-ledger-line-arrears,.gor-ledger-line-desertion{border-left:3px solid var(--crimson-500);padding-left:8px}
+.gor-ledger-line-income,.gor-ledger-line-levy{border-left:3px solid var(--laurel-400);padding-left:8px}
+
+/* A plain key/value row on the ledger - the illiquid fortune, the favours owed. */
+.gor-ledger-row{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:8px 2px;border-bottom:1px solid var(--border-faint)}
+
+/* Next week at this rate: label | amount pairs, then the projected balance and the runway sentence. */
+.gor-ledger-projection{display:grid;grid-template-columns:1fr auto;gap:5px 12px;align-items:baseline;padding:10px 12px;background:var(--surface-inset);box-shadow:var(--shadow-inset);border-radius:var(--radius-sm);font-size:14px;color:var(--text-body)}
+.gor-ledger-projection-label{min-width:0}
+.gor-ledger-runway{display:flex;flex-direction:column;gap:4px;padding:8px 2px 2px}
+.gor-ledger-runway-balance{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.gor-ledger-runway-line{font-size:14.5px;font-style:italic;color:var(--text-body)}
+
+/* Debt and back pay: bronze while it merely stands, crimson once it presses. */
+.gor-ledger-debt{display:flex;flex-direction:column;gap:3px;padding:9px 12px;border:1px solid rgba(199,123,43,.5);border-left:4px solid var(--bronze-500);background:rgba(162,96,31,.09);border-radius:var(--radius-sm)}
+.gor-ledger-debt-title{font-family:var(--font-display);font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--bronze-500)}
+.gor-ledger-debt-body{font-size:14px;color:var(--text-body)}
+.gor-ledger-debt-press{border-color:rgba(179,58,43,.5);border-left-color:var(--crimson-500);background:rgba(140,28,19,.08)}
+.gor-ledger-debt-press .gor-ledger-debt-title{color:var(--crimson-500)}
+
+/* The inventory register: men in your pay, property, things held. */
+.gor-ledger-inventory{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.gor-ledger-item{display:flex;flex-direction:column;gap:2px;padding:8px 2px;border-bottom:1px solid var(--border-faint)}
+.gor-ledger-item-main{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.gor-ledger-item-name{font-family:var(--font-display);font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-heading)}
+.gor-ledger-item-meta{display:flex;flex-wrap:wrap;gap:4px 14px;font-family:var(--font-display);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--parchment-400)}
+.gor-ledger-item-desc{font-size:13.5px;font-style:italic;color:var(--text-muted)}
+
+/* The exchequer: one bargain per row - the verb, the rate, the friction, the lots, the strike. */
+.gor-exchange-list{display:flex;flex-direction:column}
+.gor-exchange{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:8px 14px;padding:10px 2px;border-bottom:1px solid var(--border-faint)}
+.gor-exchange-body{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 220px}
+.gor-exchange-verb{font-family:var(--font-display);font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-heading)}
+.gor-exchange-rate{font-size:14px;color:var(--text-body);font-variant-numeric:tabular-nums}
+.gor-exchange-reason{font-size:13px;font-style:italic;color:var(--crimson-500)}
+.gor-exchange-controls{display:flex;align-items:center;gap:8px;flex:none}
+.gor-exchange-lots{display:inline-flex}
+.gor-exchange-input{width:72px;padding:5px 8px;font-size:15px;font-variant-numeric:tabular-nums;text-align:right}
+.gor-exchange-receipt{margin:0;padding:8px 11px;border-left:3px solid var(--laurel-400);background:rgba(90,107,59,.09);border-radius:var(--radius-sm);font-size:14px;color:var(--text-body)}
+
+/* The coffer at rest: three ruled lines and a blank sum, on the shared blanked-vellum ground. */
+.gor-sil-coffer{display:flex;flex-direction:column;gap:6px;width:150px}
+.gor-sil-coffer-line,.gor-sil-coffer-sum{height:9px;border:1px dashed var(--border-strong);border-radius:2px;background:repeating-linear-gradient(102deg,rgba(169,154,118,.09) 0 1px,transparent 1px 6px)}
+.gor-sil-coffer-sum{width:48%;align-self:flex-end;border-top:2px solid var(--gold-500);border-style:solid dashed dashed dashed}
+
+@media (max-width:480px){
+  .gor-exchange-controls{width:100%;justify-content:space-between}
+  /* Five registers on a 360px sheet: the sub-rail's buttons tighten their
+     tracking inside the ledger only, so "EXCHEQUER" still fits its fifth. */
+  .gor-ledger .gor-subrail-btn{letter-spacing:.08em;padding-left:3px;padding-right:3px}
+  .gor-ledger .gor-hero-well{grid-template-columns:1fr 1fr}
+}

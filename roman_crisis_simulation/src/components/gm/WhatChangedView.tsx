@@ -82,6 +82,23 @@ export const WhatChangedView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }
                         <span style={{ fontSize: 13, fontStyle: 'italic', color: DIM, gridColumn: '1 / -1' }}>“{delta.reason}”</span>
                     </div>
                 ))}
+                {/* The steward's ledger (D46): the engine's own weekly lines,
+                    booked AFTER the deltas above and never among them - so a
+                    GM can see the wages and interest the adjudicator did not
+                    author, with the itemisation behind each amount. */}
+                <span style={{ ...lbl, color: GOLD, marginTop: 6 }}>The steward's ledger</span>
+                {(entry.ledger ?? []).length === 0 ? (
+                    <GmNote>No weekly ledger lines were booked for this turn.</GmNote>
+                ) : (entry.ledger ?? []).map((line, index) => (
+                    <div key={`ledger-${index}`} style={{ ...well, display: 'grid', gridTemplateColumns: '1fr auto', gap: '2px 10px' }}>
+                        <span style={{ ...lbl, color: GOLD }}>{line.kind}</span>
+                        <span style={{ fontFamily: MONO, fontSize: 13, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: line.amount > 0 ? GREEN : line.amount < 0 ? RED : DIM }}>
+                            {line.amount > 0 ? `+${line.amount}` : line.amount}
+                        </span>
+                        <span style={{ fontFamily: MONO, fontSize: 12, color: PARCH, gridColumn: '1 / -1', wordBreak: 'break-word' }}>{line.key}{line.detail ? ` · ${line.detail}` : ''}</span>
+                        <span style={{ fontSize: 13, fontStyle: 'italic', color: DIM, gridColumn: '1 / -1' }}>“{line.text}”</span>
+                    </div>
+                ))}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <span style={{ ...lbl, color: GOLD }}>Who moved</span>

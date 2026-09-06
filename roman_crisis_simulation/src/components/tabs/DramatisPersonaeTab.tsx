@@ -8,7 +8,7 @@ import { InvestigationKind, KnowledgeClaim, SCHEME_CLUES_TO_REVEAL, deriveDossie
 import { DOSSIER_COLD_THRESHOLD } from '../../knowledge/dossierCost';
 import { knowledgeSourceLead } from '../../knowledge/credibilityFraming';
 import { isEntityKnownToPlayer, relationshipTimelineFor } from '../../knowledge/relationships';
-import { priceInvestigation, heldSinceTurn, schemeDiscoveryFor, DEEP_ANALYSIS_COST } from './dramatisPersonaeIntel';
+import { priceInvestigation, heldSinceTurn, schemeDiscoveryFor, DEEP_ANALYSIS_COST, type IntelPrice } from './dramatisPersonaeIntel';
 import { useIntelGathering } from './useIntelGathering';
 import { quiet, IntelSection, SchemeIntelSection, DeepAnalysisSection, type HeldDossierReading } from './dramatisPersonaeUi';
 import RelationshipObservations from './RelationshipObservations';
@@ -21,7 +21,7 @@ type Wiring = {
   knowledge: KnowledgeClaim[];
   turnNumber: number;
   onSpendDeepAnalysis: (cost: number, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
-  onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
+  onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: IntelPrice, result: InvestigationResult, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
   runDomainMutation: RunDomainMutation;
   interactionLocked?: boolean;
   ai: GoogleGenAI;
@@ -36,9 +36,11 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
   // 25) - open it and every gloss in this card appears inline as marginalia.
   const [glossaryOpen, setGlossaryOpen] = useState(false);
   const { uncoveredIntel, loadingState, requestError, handleRequest } = useIntelGathering({
-    entity, playerEntity, knowledge, ai, isMockMode, interactionLocked, runDomainMutation, onSpendDeepAnalysis, onInvestigationOutcome,
+    entity, playerEntity, knowledge, turnNumber, ai, isMockMode, interactionLocked, runDomainMutation, onSpendDeepAnalysis, onInvestigationOutcome,
   });
-  const price = (kind: InvestigationKind) => priceInvestigation(knowledge, entity.entity_id, kind);
+  // Graded (D27, live since D46): priced against the authoritative turn so
+  // a warm refresh quotes its coin fee and a cold one a fresh investigation.
+  const price = (kind: InvestigationKind) => priceInvestigation(knowledge, entity.entity_id, kind, turnNumber);
   const schemeDiscovery = schemeDiscoveryFor(knowledge, entity.entity_id);
   const observations = relationshipTimelineFor(knowledge, entity.entity_id);
   // B2: the durable dossier reading (D14). What the player HOLDS renders
@@ -61,6 +63,7 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
 
   const investigations = (playerEntity.resources.investigations as number) || 0;
   const deepAnalyses = (playerEntity.resources.deep_analyses as number) || 0;
+  const denarii = (playerEntity.resources.denarii as number) || 0;
   return (
     <Card
       title={entity.name}
@@ -85,9 +88,9 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
         {requestError && <Alert title="Your agents return empty-handed">{requestError}</Alert>}
         {isExpanded && <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 8, borderTop: '1px solid var(--border-faint)' }}>
           <span className="gor-label" style={{ color: 'var(--tyrian-500)' }}>Intelligence Briefing</span>
-          <IntelSection title="Beliefs" {...price('beliefs')} heldSinceTurn={heldSinceTurn(knowledge, entity.entity_id, 'beliefs')} heldReading={heldReadingFor('beliefs')} resourceName="Inv." resourceCount={investigations} uncoveredData={uncoveredIntel.beliefs} onUncover={() => handleRequest('beliefs')} isLoading={loadingState === 'beliefs'} interactionLocked={interactionLocked} showGloss={glossaryOpen} tooltip="Uncover the core ideologies and principles that drive this character's decisions." />
-          <SchemeIntelSection discovery={schemeDiscovery} threshold={SCHEME_CLUES_TO_REVEAL} cost={price('scheme').cost} resourceCount={investigations} onInvestigate={() => handleRequest('scheme')} isLoading={loadingState === 'scheme'} interactionLocked={interactionLocked} showGloss={glossaryOpen} tooltip="Piece together what this character is quietly plotting. Each investigation earns one clue toward its true nature." />
-          <IntelSection title="Secrets" {...price('secrets')} heldSinceTurn={heldSinceTurn(knowledge, entity.entity_id, 'secrets')} heldReading={heldReadingFor('secrets')} resourceName="Inv." resourceCount={investigations} uncoveredData={uncoveredIntel.secrets} onUncover={() => handleRequest('secrets')} isLoading={loadingState === 'secrets'} interactionLocked={interactionLocked} showGloss={glossaryOpen} tooltip="Use high-risk, high-reward investigation to uncover hidden fears, blackmail material, or secret plots." />
+          <IntelSection title="Beliefs" {...price('beliefs')} heldSinceTurn={heldSinceTurn(knowledge, entity.entity_id, 'beliefs')} heldReading={heldReadingFor('beliefs')} resourceName="Inv." resourceCount={investigations} denarii={denarii} uncoveredData={uncoveredIntel.beliefs} onUncover={() => handleRequest('beliefs')} isLoading={loadingState === 'beliefs'} interactionLocked={interactionLocked} showGloss={glossaryOpen} tooltip="Uncover the core ideologies and principles that drive this character's decisions." />
+          <SchemeIntelSection discovery={schemeDiscovery} threshold={SCHEME_CLUES_TO_REVEAL} cost={price('scheme').cost.investigations} resourceCount={investigations} onInvestigate={() => handleRequest('scheme')} isLoading={loadingState === 'scheme'} interactionLocked={interactionLocked} showGloss={glossaryOpen} tooltip="Piece together what this character is quietly plotting. Each investigation earns one clue toward its true nature." />
+          <IntelSection title="Secrets" {...price('secrets')} heldSinceTurn={heldSinceTurn(knowledge, entity.entity_id, 'secrets')} heldReading={heldReadingFor('secrets')} resourceName="Inv." resourceCount={investigations} denarii={denarii} uncoveredData={uncoveredIntel.secrets} onUncover={() => handleRequest('secrets')} isLoading={loadingState === 'secrets'} interactionLocked={interactionLocked} showGloss={glossaryOpen} tooltip="Use high-risk, high-reward investigation to uncover hidden fears, blackmail material, or secret plots." />
           <DeepAnalysisSection analysis={uncoveredIntel.deep_analysis} cost={DEEP_ANALYSIS_COST} resourceCount={deepAnalyses} onCommission={() => handleRequest('deep_analysis')} isLoading={loadingState === 'deep_analysis'} interactionLocked={interactionLocked} showGloss={glossaryOpen} />
         </div>}
       </div>

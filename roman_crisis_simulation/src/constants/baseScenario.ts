@@ -64,7 +64,13 @@ export const ROME_INITIAL_STATE: Entity[] = [
             "roman_senate": { entity_id: "roman_senate", relationship_type: "ally", trust_level: 6, respect_level: 7, perceived_threat: 1, ideological_alignment: 7, dependency_level: 6, recent_interactions: [] }
         },
         memories: [{ turn: 0, event_description: "Ascended to the throne under the regency of his mother, Julia Mamaea.", emotional_impact: "Hopeful but pressured", involved_entities: ["julia_mamaea"] }],
-        resources: { denarii: 50000, deep_analyses: 4, investigations: 1 },
+        // D46 starting holdings (ai/core/resourceRegistry.ts, ai/core/ledger.ts):
+        // a household guard of 150 (1,800 a week) and three agents (45) against
+        // two imperial estates (1,200) - net -645 a week, so a still hand keeps
+        // the 50,000 for over a year while one donative of 20,000 halves it.
+        // The Emperor's own standing with a divided army starts low; the
+        // legitimacy of the purple is his to keep.
+        resources: { denarii: 50000, deep_analyses: 4, investigations: 1, guards: 150, agents: 3, estates: 2, legion_support: 35, legitimacy: 62 },
         visibility_network: ["julia_mamaea", "maximinus_thrax", "praetorian_guard", "roman_senate", "senatorial_party", "military_cabal"]
     },
     {
@@ -93,7 +99,11 @@ export const ROME_INITIAL_STATE: Entity[] = [
             "roman_senate": { entity_id: "roman_senate", relationship_type: "antagonist", trust_level: -7, respect_level: -8, perceived_threat: 1, ideological_alignment: -9, dependency_level: 0, recent_interactions: [] }
         },
         memories: [{ turn: 0, event_description: "Was scorned by the Senate for his 'barbarian' origins despite his military victories.", emotional_impact: "Resentful", involved_entities: ["roman_senate"] }],
-        resources: { legion_support: 85, deep_analyses: 4, investigations: 1 },
+        // D46: the general holds the legions' love, not the state's purse. A
+        // war chest of 15,000 against 120 veterans (960), 30 guards (360) and
+        // two agents (30) - 1,350 a week, eleven weeks of runway and nothing
+        // coming in. He must take the treasury, or a donative, or bleed.
+        resources: { legion_support: 85, deep_analyses: 4, investigations: 1, denarii: 15000, troops: 120, guards: 30, agents: 2 },
         visibility_network: ["severus_alexander", "roman_senate", "senatorial_party"]
     },
     {
@@ -179,7 +189,10 @@ export const ROME_INITIAL_STATE: Entity[] = [
             "julia_mamaea": { entity_id: "julia_mamaea", relationship_type: "rival", trust_level: -3, respect_level: 2, perceived_threat: 6, ideological_alignment: 3, dependency_level: 0, recent_interactions: [] }
         },
         memories: [],
-        resources: { denarii: 250000, senatorial_support: 80, deep_analyses: 2, investigations: 2 },
+        // D46: old money. Six estates (3,600 a week) carry 60 guards (720) and
+        // four agents (60) with 2,820 to spare - his squeeze is never coin; it
+        // is the standing a bribe costs and the leverage he lacks.
+        resources: { denarii: 250000, senatorial_support: 80, deep_analyses: 2, investigations: 2, guards: 60, agents: 4, estates: 6 },
         visibility_network: ["severus_alexander", "maximinus_thrax", "praetorian_guard", "roman_senate", "julia_mamaea", "military_cabal"]
     },
     {
@@ -210,7 +223,12 @@ export const ROME_INITIAL_STATE: Entity[] = [
             "julia_mamaea": { entity_id: "julia_mamaea", relationship_type: "wary client", trust_level: -1, respect_level: 4, recent_interactions: [] }
         },
         memories: [],
-        resources: { denarii: 20000, deep_analyses: 6, investigations: 5 },
+        // D46: the intel specialist. Twelve agents (180 a week) lift her
+        // investigations ceiling to six and regenerate one every week; twenty
+        // guards (240) and two workshops (300) leave her 120 short each week,
+        // which is what selling information is for. Three favours owed are
+        // three inquiries waiting at the exchequer.
+        resources: { denarii: 20000, deep_analyses: 6, investigations: 5, agents: 12, guards: 20, workshops: 2, favors: 3 },
         visibility_network: ["severus_alexander", "maximinus_thrax", "praetorian_guard", "roman_senate", "julia_mamaea", "senatorial_party", "military_cabal"]
     }
 ];

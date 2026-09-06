@@ -14,6 +14,7 @@ import DramatisPersonaeTab from '../components/tabs/DramatisPersonaeTab';
 import type { KnowledgeClaim, KnowledgeSource } from '../knowledge/store';
 import type { Entity } from '../types';
 import type { DomainMutationContext, RunDomainMutation } from '../state/domainMutation';
+import type { IntelPrice } from '../components/tabs/dramatisPersonaeIntel';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -221,7 +222,7 @@ describe('components/tabs/DramatisPersonaeTab - player-safe Personae', () => {
       kind: 'beliefs' | 'scheme' | 'secrets',
       targetId: string,
       reportData: unknown,
-      cost: number,
+      cost: IntelPrice,
       result: import('../types').InvestigationResult,
       request: DomainMutationContext,
     ) => boolean | void | Promise<boolean | void> = () => {},
@@ -443,7 +444,7 @@ describe('components/tabs/DramatisPersonaeTab - player-safe Personae', () => {
       _kind: 'beliefs' | 'scheme' | 'secrets',
       _targetId: string,
       _reportData: unknown,
-      _cost: number,
+      _cost: IntelPrice,
       _result: import('../types').InvestigationResult,
       request: DomainMutationContext,
     ) => {

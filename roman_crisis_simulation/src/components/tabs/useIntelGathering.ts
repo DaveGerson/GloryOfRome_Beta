@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Entity, InvestigationResult } from '../../types';
 import { GoogleGenAI } from '@google/genai';
 import { KnowledgeClaim } from '../../knowledge/store';
-import { resolveIntelRequest } from './dramatisPersonaeIntel';
+import { resolveIntelRequest, type IntelPrice } from './dramatisPersonaeIntel';
 import type { DomainMutationContext, RunDomainMutation } from '../../state/domainMutation';
 
 export type UncoveredIntel = { secrets?: string[]; beliefs?: string[]; deep_analysis?: string };
@@ -11,6 +11,8 @@ export type IntelGatheringInput = {
   entity: Entity;
   playerEntity: Entity;
   knowledge: KnowledgeClaim[];
+  /** The App's authoritative turn counter - the D27 staleness clock a refresh is priced against. */
+  turnNumber: number;
   ai: GoogleGenAI;
   isMockMode: boolean;
   interactionLocked?: boolean;
@@ -20,7 +22,7 @@ export type IntelGatheringInput = {
     kind: 'beliefs' | 'scheme' | 'secrets',
     targetId: string,
     reportData: unknown,
-    cost: number,
+    cost: IntelPrice,
     result: InvestigationResult,
     request: DomainMutationContext,
   ) => boolean | void | Promise<boolean | void>;
@@ -44,6 +46,7 @@ export function useIntelGathering({
   entity,
   playerEntity,
   knowledge,
+  turnNumber,
   ai,
   isMockMode,
   interactionLocked,
@@ -77,7 +80,7 @@ export function useIntelGathering({
         setRequestError(null);
         setLoadingState(type);
         try {
-          const outcome = await resolveIntelRequest({ type, target: entity, playerEntity, knowledge, ai, isMockMode });
+          const outcome = await resolveIntelRequest({ type, target: entity, playerEntity, knowledge, turnNumber, ai, isMockMode });
           if (outcome.kind === 'deep_analysis') {
             if (outcome.charged) {
               const committed = await onSpendDeepAnalysis(outcome.cost, request);
