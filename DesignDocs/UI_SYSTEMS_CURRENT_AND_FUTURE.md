@@ -512,6 +512,11 @@ phone-shaped — this widens the audience considerably. *(= ROADMAP_3 P2.1)*
 *(Still not built — no responsive breakpoints/media queries found in `design/`; the layout is
 still the fixed flex-based 2:1 desktop split. Tailwind's `md:`/`w-2/3`/`w-1/3` are gone, replaced
 with inline `flex: 2`/`flex: 1` styles, but the fixed-split constraint itself is unchanged.)*
+*(PARTIALLY SHIPPED — UI refresh: `design/shell.css` section VIII. Below 768px chat and intel
+become two horizontally swipeable leaves (scroll-snap, the panel's edge showing as the
+affordance), the masthead drops to title + a 2×2 stat grid, and suggestion pills become one
+swipeable row; the side-panel tab row is a size container that settles into a 4 + 3 grid when
+narrow. Before/after evidence: `docs/ui-refresh/`. Still not built: modals going full-screen.)*
 
 **10.3 Inclusive meters [P2 / S]** — Add text/pattern redundancy to color-coded meters (trust,
 stability, credibility); respect `prefers-reduced-motion` for all entrance/typing animations;
