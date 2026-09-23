@@ -14,11 +14,15 @@ develop programatic rules for.
 - `roman_crisis_simulation/src` — the app (React + Vite + TypeScript, Gemini-backed).
 - `roadmaps/` — the phased master plan (`ROADMAP_0_MASTER_PLAN.md`), the six domain
   analyses it was built from, `DESIGN_DECISIONS.md` (binding owner rulings), the
-  Phase 4 audit/decision record (`PHASE_4_BRAINSTORM.md`), and the current plan
-  (`ROADMAP_PHASE_4.md`).
+  Phase 4 audit/decision record (`PHASE_4_BRAINSTORM.md`), the Phase 4 and Phase 6
+  plans, the open backlog (`BACKLOG.md`), and the tech-debt record
+  (`TECH_DEBT_QUESTIONNAIRE.md`).
+- `docs/superpowers/` — per-feature design specs and implementation plans.
 - `DesignDocs/` — UI specs, wireframes, and design notes. `DesignDocs/archive/` holds
   superseded pre-implementation design history (an abandoned Python/CLI design) — see
   `DesignDocs/archive/README.md`.
+
+The app's own architecture guide is `roman_crisis_simulation/src/README.md`.
 
 ## Running it
 
@@ -28,8 +32,13 @@ npm ci
 npm run dev
 ```
 
-Checks (same as CI):
+Paste your own Gemini API key in the in-app **⚙ Settings** menu, or play offline in Mock
+Mode (see the app README).
+
+Checks — exactly what CI runs (CI runs the three legs in parallel):
 
 ```
-npm run typecheck && npm test && npm run build
-``` 
+npm run verify   # = verify:static (typecheck, lint)
+                 # + verify:unit (vitest)
+                 # + verify:integration (journeys, deterministic eval, build)
+```
