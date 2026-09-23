@@ -67,7 +67,7 @@ turn routes there and renders `EpilogueScreen`, see 7.2)*
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ Header (title, aquila icon, year/week, world meters)         │
+│ Header (title, Italia medallion, year/week, world meters)    │
 ├──────────────────────────────────────────────────────────────┤
 │ CrisisBanner (only when a major crisis is active)            │
 ├─────────────────────────────────────┬────────────────────────┤
@@ -118,7 +118,7 @@ plaques.
 ## 3. Screen & Component Inventory
 
 ### 3.1 Header — `components/Header.tsx`
-- Inline-SVG **Aquila (eagle) icon**, game title in decorative type.
+- Gilt **Italia medallion** (Natural Earth silhouette of the peninsula), game title in decorative type.
 - World-state strip: **Year / Week / Economic Stability / Political Climate** (from `WorldState`).
   Note: the two meters currently never change — no delta type writes top-level `WorldState`
   (see `ROADMAP_4_FUNNESS.md` §2). *(STALE — a `'world'` delta type now writes

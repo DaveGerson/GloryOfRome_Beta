@@ -334,14 +334,14 @@
 @keyframes gorUnroll{from{transform:scaleY(.04)}to{transform:scaleY(1)}}
 
 /* ── Item 19 · the epilogue stele is struck, in sequence ──
-   600ms held silence → the aquila strikes in with a gold bloom → the stone
+   600ms held silence → gilt Italia strikes in with a gold bloom → the stone
    rises → the name cuts in → the chroniclers' verdicts arrive. ~4s total. */
-.gor-stele-aquila{animation:gorAquilaStrike 520ms cubic-bezier(.34,1.56,.64,1) 600ms both}
+.gor-stele-italia{animation:gorItaliaStrike 520ms cubic-bezier(.34,1.56,.64,1) 600ms both}
 .gor-stele-rise{animation:gorSteleRise 620ms var(--ease-standard) 1120ms both}
 .gor-stele-cut{animation:gorCutIn 520ms var(--ease-standard) 1740ms both}
 .gor-stele-cut+.gor-stele-cut{animation-delay:2000ms}
 .gor-stele-verdict{animation:gorFadeIn 600ms ease-out 2600ms both}
-@keyframes gorAquilaStrike{
+@keyframes gorItaliaStrike{
 0%{opacity:0;transform:scale(1.34);filter:drop-shadow(0 0 26px rgba(232,201,89,.85))}
 70%{opacity:1;filter:drop-shadow(0 0 18px rgba(232,201,89,.6))}
 100%{opacity:1;transform:scale(1);filter:none}
@@ -602,7 +602,7 @@
 /* Every WP-13 flourish keeps its FINAL state and drops the movement: the
    nib stops blinking but stays visible, the tablet is already unrolled, and
    the stele is already struck rather than blank. */
-.gor-nib,.gor-tablet,.gor-tablet-line,.gor-stele-aquila,.gor-stele-rise,.gor-stele-cut,.gor-stele-cut+.gor-stele-cut,.gor-stele-verdict,.gor-slip-progress{animation:none}
+.gor-nib,.gor-tablet,.gor-tablet-line,.gor-stele-italia,.gor-stele-rise,.gor-stele-cut,.gor-stele-cut+.gor-stele-cut,.gor-stele-verdict,.gor-slip-progress{animation:none}
 body{transition:none}
 }
 
