@@ -21,14 +21,13 @@ import { ALL_INITIAL_ENTITIES } from './constants/baseScenario';
 import { TurnStage } from './ai/core/turn';
 import { WorldState } from './types';
 import { useGame } from './state/GameContext';
-import type { GameAction } from './state/gameReducer';
 import type { DomainMutationContext, RunDomainMutation } from './state/domainMutation';
 import { createCharacter } from './ai/tools/characterCreator';
 import { checkForTriggeredEvent, applyEventChoiceDeltas, recordEventFiring } from './events/engine';
 import { initiateWorld } from './ai/core/initiator';
 import { runSmokeTest } from './tests/smokeTest';
 import { resetSessionCallLog } from './ai/core/geminiService';
-import { saveGame, loadGame, clearSave, hasSave, rawSaveBlob, importSaveBlob, SaveGameState, InferredAmbitionState } from './persistence/saveGame';
+import { saveGame, loadGame, clearSave, hasSave, importSaveBlob, SaveGameState, InferredAmbitionState } from './persistence/saveGame';
 import { hasSeenOnboarding, markOnboardingSeen } from './persistence/onboarding';
 import { getPacingPosture, setPacingPosture } from './persistence/settings';
 import { getApiKey, setApiKey, clearApiKey, resolveApiKey } from './persistence/apiKey';
@@ -61,152 +60,22 @@ import {
 } from './playerInput/turnSubmission';
 import { appendFallout, hasFallout } from './components/investigationLoop';
 import { Button } from './components/ui/Core';
-import { Alert, RECORD_REFUSES } from './components/ui/Alert';
 import {
-    HalfCommitNotice, OfflineStrip, SaveFailureNotice, TurnFailureNotice, useOnline, type TurnFailure,
+    OfflineStrip, TurnFailureNotice, useOnline, type TurnFailure,
 } from './components/ui/FailureNotices';
-
-/**
- * What a non-turn transaction has to say (WP-21). Three shapes, because
- * three different things happen: a write that would not land names the last
- * safe week AND offers "Take a copy of the reign" (restored 2026-08-05 —
- * the import route exists now; DESIGN_DECISIONS.md D45 as amended); a
- * half-commit is not a failure at all and takes `role="status"`; and the
- * delete path is neither.
- */
-type TransactionNote =
-    | { kind: 'save'; lead: string }
-    | { kind: 'half_commit' }
-    | { kind: 'plain'; message: string };
-
-/**
- * The reign as it sits on disk — what "Take a copy of the reign" hands over
- * (WP-21, restored 2026-08-05). Not a privacy boundary: D45 as amended rules
- * the blob's GM-side content spoiler material, not private material — see
- * `rawSaveBlob`'s own doc comment.
- */
-function downloadTheReign(): void {
-    const blob = rawSaveBlob();
-    if (!blob) return;
-    const parsed = JSON.parse(blob) as { state?: { turnNumber?: number } };
-    const url = URL.createObjectURL(new Blob([blob], { type: 'application/json' }));
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `gor-reign-week${parsed.state?.turnNumber ?? 0}.json`;
-    anchor.click();
-    // Same deferral as the eval-corpus export: revoking synchronously can
-    // abort the download in Firefox/Safari.
-    setTimeout(() => URL.revokeObjectURL(url), 10_000);
-}
-
-const TransactionNoteView: React.FC<{ note: TransactionNote; style?: React.CSSProperties }> = ({ note, style }) => {
-    if (note.kind === 'half_commit') return <HalfCommitNotice style={style} />;
-    if (note.kind === 'plain') return <Alert title={RECORD_REFUSES} style={style}>{note.message}</Alert>;
-    // Derived from whether a save actually loads, never defaulted to a
-    // week: with storage dead since boot, a corrupted blob or a version
-    // the loader rejects there IS no last safe week, and "safe up to
-    // Week I" would be the notice's one falsehood. `null` says so — and the
-    // copy action gates on the SAME read, so "there is no last safe week"
-    // and "no copy to take" can never disagree.
-    const lastSafe = loadGame()?.state.turnNumber ?? null;
-    return (
-        <SaveFailureNotice
-            lead={note.lead}
-            lastSafeTurn={lastSafe}
-            onTakeCopy={lastSafe === null ? undefined : downloadTheReign}
-            style={style}
-        />
-    );
-};
 import { Tooltip } from './components/ui/Feedback';
 import { shouldToggleGmConsole } from './components/ui/gmConsoleHotkey';
 import nocturneUrl from './design/nocturne.css?url';
 import { useExecuteTurn } from './hooks/useExecuteTurn';
+import {
+    type TransactionNote, type DomainCommit,
+    readDevApiKey, loadSavedGameSummary, newestInferredAmbition, isSameCampaignPrefix,
+    privateScenesFingerprint, pickSaveState,
+} from './app/transactions';
+import { TransactionNoteView, downloadTheReign } from './app/TransactionNoteView';
 
 
 // --- MAIN APP ---
-
-// DESIGN_DECISIONS.md D8 - how often the "cheap periodic model call" that
-// infers the player's apparent ambition fires, counted in COMMITTED turns
-// (the turn number just finished, not the upcoming one). Moved to
-// hooks/useExecuteTurn.ts (2026-08-05): this constant is read only inside
-// executeTurn.
-
-/**
- * DESIGN_DECISIONS.md D34 - the owner's local-dev convenience: read
- * `GEMINI_API_KEY` from `.env` exactly the way vite.config.ts's now
- * dev-server-only `define` block injects it, so the owner never has to
- * touch the configuration menu on their own machine. `import.meta.env.DEV`
- * is a build-time-known boolean literal ('DEV' is Vite's own static
- * constant, not this app's custom define) - a production build inlines it
- * to `false`, so this whole branch is unreachable at runtime and gets
- * dropped by the bundler, meaning `process` (which doesn't exist as a
- * browser global) is never referenced by shipped code. `typeof process`
- * is a second, purely defensive guard against the same failure mode were
- * that branch ever to survive into a build.
- */
-function readDevApiKey(): string | undefined {
-    if (!import.meta.env.DEV) return undefined;
-    return typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : undefined;
-}
-
-function loadSavedGameSummary(): SavedGameSummary | null {
-    if (!hasSave()) return null;
-    const save = loadGame();
-    if (!save) return null;
-    const savedCharacter = save.state.entities.find(entity => entity.entity_id === save.state.playerCharacterId);
-    // B7a 1a (spec: 2026-08-05-b7a-hardening-and-tablist-design.md): mirrors
-    // importSaveBlob's derive - a non-string name is malformed data, not a
-    // pretense to coerce ('Unknown' is honest, String(5) === '5' is not),
-    // and this closes the boot crash at `(characterName || 'R').charAt(0)`.
-    return {
-        characterName: typeof savedCharacter?.name === 'string' ? savedCharacter.name : 'Unknown',
-        turnNumber: save.state.turnNumber,
-        savedAt: save.savedAt,
-    };
-}
-
-function newestInferredAmbition(
-    ...candidates: Array<InferredAmbitionState | null | undefined>
-): InferredAmbitionState | null {
-    return candidates.reduce<InferredAmbitionState | null>(
-        (newest, candidate) => candidate && (!newest || candidate.asOfTurn >= newest.asOfTurn)
-            ? candidate
-            : newest,
-        null,
-    );
-}
-
-function isSameCampaignPrefix(candidate: SaveGameState, stored: SaveGameState): boolean {
-    return stored.playerCharacterId === candidate.playerCharacterId
-        && stored.metaNarrative === candidate.metaNarrative
-        && stored.turnNumber <= candidate.turnNumber
-        && stored.turnHistory.length <= candidate.turnHistory.length
-        && stored.turnHistory.every((entry, index) => {
-            const candidateEntry = candidate.turnHistory[index];
-            return candidateEntry?.turnNumber === entry.turnNumber
-                && candidateEntry.playerIntent === entry.playerIntent;
-        });
-}
-
-function privateScenesFingerprint(scenes: readonly PrivateSceneRecord[]): string {
-    return JSON.stringify(scenes);
-}
-
-// Task 7 (task-7-site-map.md): the shared shape for every save-then-dispatch
-// site below. The durable bytes must exist before the reducer dispatch;
-// `beforeDispatch` runs after save success and before dispatch, `onCommitted`
-// after. Per-site clear-ordering and failure channels differ (see the site
-// map) - the helper adapts to each site, never the reverse. Error CLEARS keep
-// each site's original position (some before dispatch, some after) -
-// preserved verbatim; do not normalize into onCommitted.
-interface DomainCommit {
-    candidate: SaveGameState;
-    action: GameAction;
-    onSaveFailure: () => void;      // set*Error(...) or throw AUTOSAVE_FAILED
-    beforeDispatch?: () => void;    // AFTER durable save, BEFORE dispatch
-    onCommitted?: () => void;       // post-dispatch work
-}
 
 /**
  * The beat between weeks (audit item 18) — how long the marble dims as the
@@ -595,30 +464,7 @@ const App: React.FC = () => {
     // the stale closure). See persistence/saveGame.ts for exactly which
     // game state this does (and doesn't) include, and why.
     const buildSaveState = useCallback((overrides: Partial<SaveGameState> = {}): SaveGameState => {
-        const candidate: SaveGameState = {
-            entities: state.entities,
-            worldState: state.worldState,
-            simulationState: state.simulationState,
-            reports: state.reports,
-            truthLedger: state.truthLedger,
-            knowledge: state.knowledge,
-            npcIntents: state.npcIntents,
-            privateScenes: state.privateScenes,
-            turnNumber: state.turnNumber,
-            playerCharacterId: state.playerCharacterId,
-            turnHistory: state.turnHistory,
-            eventHistory: state.eventHistory,
-            metaNarrative: state.metaNarrative,
-            messages: state.messages,
-            triggeredEventIds: state.triggeredEventIds,
-            eventFirings: state.eventFirings,
-            suggestedActions: state.suggestedActions,
-            currentEvents: state.currentEvents,
-            gmInterventionText: state.gmInterventionText,
-            inferredAmbition: state.inferredAmbition,
-            pendingIntelligenceFallout: state.pendingIntelligenceFallout,
-            ...overrides,
-        };
+        const candidate: SaveGameState = { ...pickSaveState(state), ...overrides };
         const stored = loadGame()?.state;
         const storedAmbition = stored && isSameCampaignPrefix(candidate, stored)
             ? stored.inferredAmbition
@@ -847,7 +693,6 @@ const App: React.FC = () => {
         turnNumber, playerCharacterId, turnHistory, pendingIntelligenceFallout, gmInterventionText,
         eventFirings, metaNarrative, messages,
         dispatch, getStateGeneration, runDomainMutation, commitDomainMutation, buildSaveState, strikeWeekBeat,
-        newestInferredAmbition, privateScenesFingerprint,
         preTurnSnapshotRef, campaignGenerationRef, privateScenesRef, appMountedRef, latestInferredAmbitionRef,
         setPendingPlayerMessage, setTurnFailure, setRetrySubmission, setRetryDraft,
         setChatDraft, setStructuredDraft, setTurnStage, setStreamingNarration,
