@@ -4,6 +4,7 @@ import { GoogleGenAI } from "@google/genai";
 import { getClarificationOnEvent } from '../../ai/tools/intelligence';
 import { WaxSeal, toRoman } from '../ui/Brand';
 import { Button } from '../ui/Core';
+import { Alert } from '../ui/Alert';
 import { SubRail } from '../ui/SubRail';
 import {
     KnowledgeClaim, OCCURRENCE_QUESTIONS, OccurrenceQuestion, occurrenceFindings,
@@ -76,6 +77,11 @@ const CurrentEventsTab: React.FC<{
     // Several occurrences may be open at once now.
     const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
     const [seeking, setSeeking] = useState<string | null>(null);
+    // The occurrence whose last question came back with nothing. A failed
+    // clarification (no key, the Fates unreachable, a refused reply) used to
+    // reject out of a `void`ed promise: an unhandled rejection in the console
+    // and, for the player, a "Seeking…" that simply vanished.
+    const [failedOccurrence, setFailedOccurrence] = useState<string | null>(null);
 
     const selectRegister = (next: EventRegister) => {
         setRegister(next);
@@ -92,6 +98,7 @@ const CurrentEventsTab: React.FC<{
     const ask = async (occurrence: string, question: OccurrenceQuestion) => {
         if (interactionLocked || !playerEntity || seeking) return;
         setSeeking(`${occurrence}:${question}`);
+        setFailedOccurrence(null);
         try {
             await runDomainMutation(async transaction => {
                 const request: DomainMutationContext = { isCurrent: () => transaction.isCurrent() };
@@ -101,6 +108,9 @@ const CurrentEventsTab: React.FC<{
                 if (!request.isCurrent()) return;
                 await onFinding(occurrence, question, text, request);
             });
+        } catch (error) {
+            console.error('Error seeking the causes of an occurrence:', error);
+            setFailedOccurrence(occurrence);
         } finally {
             setSeeking(null);
         }
@@ -131,6 +141,10 @@ const CurrentEventsTab: React.FC<{
                             <Finding key={finding.question} kicker={QUESTIONS[finding.question].kicker} text={finding.text} />
                         ))}
                         {inFlight && <span role="status" style={quiet}>Seeking…</span>}
+                        {/* Same words as the dossier's failed request (useIntelGathering). */}
+                        {failedOccurrence === occurrence && !inFlight && (
+                            <Alert title="Your agents return empty-handed">The intelligence request could not be completed. Please try again.</Alert>
+                        )}
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                             {OCCURRENCE_QUESTIONS.filter(question => !asked.has(question)).map(question => (
                                 <Button

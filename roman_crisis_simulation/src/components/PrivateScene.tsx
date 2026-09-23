@@ -6,10 +6,8 @@ import { Button, DraftGauge } from './ui/Core';
 import { Alert } from './ui/Alert';
 import { WaxSeal, toRoman } from './ui/Brand';
 import { radioGroupKeyDown, radioTabIndex } from './ui/rovingRadio';
-import { EmptyRegister, FoldedLetterSilhouette } from './tabs/EmptyRegister';
-
-const transcriptLineStyle: React.CSSProperties = { margin: '6px 0', paddingLeft: 10, borderLeft: '2px solid var(--border-subtle)' };
-const sectionHeadingStyle: React.CSSProperties = { margin: '14px 0 4px' };
+import { createFocusTrap } from './ui/focusTrap';
+import { PrivateSceneShelf, TranscriptLine } from './PrivateSceneShelf';
 
 export function replacePrivateSceneForCommit<T extends { sceneId: string }>(
   scenes: readonly T[], candidate: T,
@@ -36,56 +34,6 @@ export interface PrivateSceneProps {
   onEnd(sceneId: string): void;
   onLastWord(sceneId: string): void;
   onSkipLastWord(sceneId: string): void;
-}
-
-function describeClosure(scene: PrivateScenePlayerView): string {
-  switch (scene.closureReason) {
-    case 'refused': return `${scene.npcName} refused the invitation.`;
-    case 'player_ended': return 'You ended the scene.';
-    case 'npc_ended': return `${scene.npcName} ended the scene.`;
-    case 'response_limit': return 'The exchange reached its natural limit.';
-    default: return 'The scene ended.';
-  }
-}
-
-/**
- * How a closed scene ended, carried by the seal so the shelf is legible
- * without opening a letter (WP-16). Intact Tyrian: you ended it. Broken
- * Tyrian: they did. Broken crimson: the six replies ran out. Dashed and
- * unsealed: they never came at all.
- */
-type ClosureSeal = { className: string; tone: 'crimson' | 'tyrian'; refused: boolean };
-
-function closureSeal(scene: PrivateScenePlayerView): ClosureSeal {
-  switch (scene.closureReason) {
-    case 'player_ended': return { className: 'gor-scene-seal', tone: 'tyrian', refused: false };
-    case 'npc_ended': return { className: 'gor-scene-seal gor-scene-seal-broken', tone: 'tyrian', refused: false };
-    case 'response_limit': return { className: 'gor-scene-seal gor-scene-seal-broken', tone: 'crimson', refused: false };
-    case 'refused': return { className: 'gor-scene-seal gor-scene-seal-unsealed', tone: 'tyrian', refused: true };
-    default: return { className: 'gor-scene-seal', tone: 'tyrian', refused: false };
-  }
-}
-
-/** `unclassified` is a statement like any other; it just wasn't worth a name. */
-function describeSpeechActKind(kind: string): string {
-  return kind === 'unclassified' ? 'Statement' : kind.charAt(0).toUpperCase() + kind.slice(1);
-}
-
-/**
- * Two kinds carry a colour, and they are a pair: crimson where something was
- * PRESSED FOR (`request`, `threat` — the ask and the ask with menace), Tyrian
- * where it was DECLINED (`refusal`). Scanning the column tells you who asked
- * and who closed the door; everything else is an inset well.
- *
- * These are drawn from the closed `PrivateSceneSpeechActKind` set in
- * `privateScene/model.ts`. It shipped branching on `'demand'` and `'evasion'`,
- * neither of which is in that set, so the hard style fired only for `threat`
- * and `gor-said-kind-evasive` was unreachable.
- */
-function speechActClass(kind: string): string {
-  if (kind === 'request' || kind === 'threat') return 'gor-said-kind gor-said-kind-hard';
-  if (kind === 'refusal') return 'gor-said-kind gor-said-kind-refusal';
-  return 'gor-said-kind';
 }
 
 /** The one over-limit notice. Four sites wrote this sentence; only one composer ever mounts. */
@@ -160,6 +108,24 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
     first?.focus();
   }, [open]);
 
+  // Every exchange disables the whole dialog while the other party answers,
+  // which drops focus off the control that sent it. When the room is quiet
+  // again, hand focus to the next thing to write (reply, last word, or a new
+  // opening) - or failing that the first live control - instead of leaving a
+  // keyboard player on <body> behind the modal.
+  const activeStatus = active?.status;
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!open || loading || !dialog) return;
+    // Only reclaim focus that fell: anything a player (or another surface) put
+    // focus on stays put.
+    const focused = document.activeElement;
+    if (focused && focused !== document.body && focused !== dialog) return;
+    const next = dialog.querySelector<HTMLElement>('textarea:not(:disabled)')
+      ?? dialog.querySelector<HTMLElement>('button:not(:disabled),select:not(:disabled)');
+    next?.focus();
+  }, [open, loading, activeStatus]);
+
   const closePresentation = () => {
     setOpen(false);
     queueMicrotask(() => openerRef.current?.focus());
@@ -170,15 +136,10 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
       closePresentation();
       return;
     }
-    if (event.key !== 'Tab') return;
-    const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled),select:not(:disabled),textarea:not(:disabled)'));
-    if (controls.length === 0) return;
-    const first = controls[0]; const last = controls[controls.length - 1];
-    if (event.shiftKey && (document.activeElement === first || !event.currentTarget.contains(document.activeElement))) {
-      event.preventDefault(); last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault(); first.focus();
-    }
+    // The shared trap (components/ui/focusTrap.ts), not a local copy: it also
+    // skips the target cards' roving tabindex="-1" radios, which Tab never
+    // visits, and pulls a forward Tab from outside back to the first control.
+    createFocusTrap(event.currentTarget).handleKeyDown(event);
   };
 
   const heldThisWeek = scenes.find(scene => scene.macroTurn === currentMacroTurn);
@@ -271,8 +232,10 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
       {active && <>
         <p className="gor-label" style={{ margin: '10px 0 4px' }}><strong style={{ color: 'var(--text-heading)' }}>{active.npcName}</strong> · {active.npcResponseCount}/6 replies</p>
         {/* Awaiting the last word: the exchange is over, so it recedes. */}
-        <div aria-label="Private-scene transcript" className={active.status === 'awaiting_last_word' ? 'gor-scene-transcript-spent' : undefined}>
-          {active.transcript.map(line => <p key={line.sequence} style={transcriptLineStyle}><strong>{line.speaker === 'player' ? 'You' : active.npcName}:</strong> {line.text}</p>)}
+        {/* role="log": each reply is announced as it lands, and the label is
+            valid on a landmark-less div only once it has a role. */}
+        <div role="log" aria-label="Private-scene transcript" className={active.status === 'awaiting_last_word' ? 'gor-scene-transcript-spent' : undefined}>
+          {active.transcript.map(line => <TranscriptLine key={line.sequence} line={line} npcName={active.npcName} />)}
         </div>
         {active.status === 'active' && <>
           <textarea className="gor-textarea" rows={3} aria-label="Private-scene reply" maxLength={PRIVATE_SCENE_MAX_UTTERANCE_CHARS} value={replyDraft} disabled={disabled}
@@ -299,65 +262,7 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
           <Button type="button" variant="ghost" disabled={disabled} onClick={() => onSkipLastWord(active.sceneId)}>Let it stand</Button>
         </>}
       </>}
-      <section aria-label="Past private scenes">
-        <h3 className="gor-label" style={sectionHeadingStyle}>Past private scenes</h3>
-        {completed.length === 0 ? (
-          <EmptyRegister
-            silhouette={<FoldedLetterSilhouette />}
-            line="No door has closed behind you yet."
-            hint="What is said in private is kept here once the scene ends."
-          />
-        ) : <div className="gor-shelf">
-          <div className="gor-shelf-rail">
-            {completed.map(scene => {
-              const seal = closureSeal(scene);
-              return (
-                <button
-                  key={scene.sceneId}
-                  type="button"
-                  className={`gor-shelf-letter${scene.sceneId === reading?.sceneId ? ' gor-shelf-letter-open' : ''}`}
-                  aria-current={scene.sceneId === reading?.sceneId}
-                  onClick={() => setReadingSceneId(scene.sceneId)}
-                >
-                  <span className={seal.className} aria-hidden="true"><WaxSeal letter={scene.npcName.charAt(0).toUpperCase()} size={30} tone={seal.tone} /></span>
-                  <span className="gor-shelf-letter-body">
-                    <span className="gor-shelf-name">{scene.npcName}</span>
-                    <span className={`gor-shelf-closure${seal.refused ? ' gor-shelf-closure-refused' : ''}`}>{describeClosure(scene)}</span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          {reading && (
-            <div className="gor-shelf-pane">
-              <div aria-label={`Transcript with ${reading.npcName}`}>
-                {reading.transcript.map(line => <p key={line.sequence} style={transcriptLineStyle}><strong>{line.speaker === 'player' ? 'You' : reading.npcName}:</strong> {line.text}</p>)}
-              </div>
-              {reading.speechActs.length > 0 && (
-                <section aria-label={`Attributed speech acts with ${reading.npcName}`}>
-                  <h4 className="gor-label" style={{ margin: '10px 0 4px' }}>What was said, in kind</h4>
-                  <div className="gor-said">
-                    {reading.speechActs.map((act, index) => (
-                      <React.Fragment key={`${act.exchange}-${index}`}>
-                        <span className={speechActClass(act.kind)}>
-                          {act.speaker === 'player' ? 'You' : reading.npcName} — {describeSpeechActKind(act.kind)}
-                        </span>
-                        <span className="gor-said-quote">{act.text}</span>
-                      </React.Fragment>
-                    ))}
-                  </div>
-                </section>
-              )}
-              <p style={{ margin: '10px 0 0' }}><strong>Closure:</strong> {describeClosure(reading)}</p>
-              {/* Absence is a line, not a missing element — silence was a choice too. */}
-              <div className="gor-lastword">
-                <span className="gor-lastword-title">Your last word</span>
-                <span className="gor-lastword-body">{reading.lastWord ?? 'You let it stand.'}</span>
-              </div>
-            </div>
-          )}
-        </div>}
-      </section>
+      <PrivateSceneShelf completed={completed} reading={reading} onRead={setReadingSceneId} />
       <span className="gor-sr-only">Turn {currentMacroTurn}</span>
     </dialog>}
   </>;

@@ -9,7 +9,9 @@ import React from 'react';
 type ButtonProps = {
     variant?: 'primary' | 'secondary' | 'danger' | 'ghost';
     size?: 'sm' | 'md' | 'lg';
-} & Omit<React.ComponentPropsWithoutRef<'button'>, 'className'>;
+    // React 19: `ref` is an ordinary prop on function components, so taking
+    // the with-ref props lets callers focus a Button without a wrapper.
+} & Omit<React.ComponentPropsWithRef<'button'>, 'className'>;
 
 export const Button: React.FC<ButtonProps> = ({ variant = 'primary', size = 'md', children, ...rest }) => (
     <button className={`gor-btn gor-btn-${size} gor-btn-${variant}`} {...rest}>{children}</button>

@@ -109,7 +109,16 @@ const SidePanel: React.FC<{
      * coin pips for unspent investigations.
      */
     const unexamined = currentEvents.filter(occurrence => occurrenceFindings(knowledge, occurrence).length === 0).length;
-    const conflictedSubjects = [...new Map(reports.map(report => [report.about, reports.filter(r => r.about === report.about)])).values()]
+    // One pass to group by subject: this runs on every App render (each
+    // streamed narration chunk included), and the old per-report re-filter
+    // was quadratic in the report log.
+    const reportsBySubject = new Map<string, Report[]>();
+    for (const report of reports) {
+        const group = reportsBySubject.get(report.about);
+        if (group) group.push(report);
+        else reportsBySubject.set(report.about, [report]);
+    }
+    const conflictedSubjects = [...reportsBySubject.values()]
         .filter(group => corroboration(group).verdict === 'conflict').length;
     const knownRegions = playerEntity
         ? Object.keys(worldState.regions).filter(name => isRegionKnownToPlayer(name, playerEntity, entities)).length
@@ -143,7 +152,7 @@ const SidePanel: React.FC<{
             tab: 'locations',
             name: 'Empire',
             line: 'Places you have no eyes on.',
-            indicator: <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--parchment-400)' }}>{knownRegions} / {totalRegions}</span>,
+            indicator: <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-quiet)' }}>{knownRegions} / {totalRegions}</span>,
         });
     }
     if (investigations > 0) {

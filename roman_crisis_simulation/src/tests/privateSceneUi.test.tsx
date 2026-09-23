@@ -230,3 +230,48 @@ describe('private scene player UI', () => {
     expect(field.value).toHaveLength(2001);
   });
 });
+
+describe('private scene keyboard and screen-reader contract', () => {
+  const activeView = () => projectPrivateSceneForPlayer({ ...rawScene, status: 'active', closureReason: undefined, macroTurn: 3 });
+
+  function mountActive(loading: boolean, root?: Root, host?: HTMLDivElement) {
+    const container = host ?? document.createElement('div');
+    if (!host) document.body.appendChild(container);
+    const r = root ?? createRoot(container);
+    if (!root) mounted.push({ root: r, container });
+    act(() => r.render(<PrivateScene
+      scenes={[activeView()]} currentMacroTurn={3} canStartScene={false}
+      eligibleTargets={[]}
+      openingDraft="" replyDraft="And the Guard?" lastWordDraft="" loading={loading} error={null}
+      onOpeningDraftChange={() => {}} onReplyDraftChange={() => {}} onLastWordDraftChange={() => {}}
+      onInvite={() => {}} onReply={() => {}} onEnd={() => {}} onLastWord={() => {}} onSkipLastWord={() => {}}
+    />));
+    return { container, root: r };
+  }
+
+  it('announces the live exchange as a log', () => {
+    const { container } = mountActive(false);
+    act(() => Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'Private scene')!.click());
+    const transcript = container.querySelector('[aria-label="Private-scene transcript"]');
+    expect(transcript?.getAttribute('role')).toBe('log');
+  });
+
+  it('hands focus back to the reply field when the other party has answered', () => {
+    const { container, root } = mountActive(false);
+    act(() => Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'Private scene')!.click());
+    const reply = container.querySelector<HTMLTextAreaElement>('[aria-label="Private-scene reply"]')!;
+    reply.focus();
+
+    mountActive(true, root, container);
+    expect(reply.disabled).toBe(true);
+    // A browser drops focus off the now-disabled field; jsdom needs help.
+    const parking = document.createElement('button');
+    document.body.appendChild(parking);
+    parking.focus();
+    parking.remove();
+    expect(document.activeElement).toBe(document.body);
+
+    mountActive(false, root, container);
+    expect(document.activeElement).toBe(reply);
+  });
+});
