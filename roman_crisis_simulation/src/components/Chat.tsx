@@ -109,7 +109,12 @@ export const StreamingNarrationBubble: React.FC<{ text: string }> = ({ text }) =
     if (!text) return null;
 
     return (
-        <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 14 }} aria-live="polite">
+        // Hidden from assistive tech, not a live region: it sits inside the
+        // chat log (itself `role="log"`), so every chunk re-announced a
+        // half-written sentence. The committed ChatMessage that replaces it is
+        // what the log announces - once, whole - and the composer's stage
+        // line (TurnComposer, role="status") carries progress meanwhile.
+        <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 14 }} aria-hidden="true">
             <div className="gor-msg gor-msg-gm">
                 {text}
                 {/* Item 16: a nib laid against the vellum, not an 8x17px

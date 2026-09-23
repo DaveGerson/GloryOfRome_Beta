@@ -396,7 +396,9 @@ const GameMasterScreen: React.FC<{
                                 >
                                     Set Directive for Next Turn
                                 </button>
-                                {showConfirmation && <span style={{ color: GREEN, fontStyle: 'italic', fontSize: 14, animation: 'gorFadeIn .3s ease-out both' }}>The Fates have heard. It will be woven into the next turn.</span>}
+                                <span role="status">
+                                    {showConfirmation && <span style={{ color: GREEN, fontStyle: 'italic', fontSize: 14, animation: 'gorFadeIn .3s ease-out both' }}>The Fates have heard. It will be woven into the next turn.</span>}
+                                </span>
                             </div>
                         </>
                     ) : (
