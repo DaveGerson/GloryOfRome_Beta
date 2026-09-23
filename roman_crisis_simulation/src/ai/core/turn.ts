@@ -24,7 +24,7 @@ import type { PrivateSceneAdjudicatorProjection, PrivateSceneNpcMemoryProjection
 import { selectRipeEventMaterial } from '../../events/engine';
 import { buildNarrationPrompt, selectVoiceCast } from '../prompts/narration';
 import { processMortality, detectDeathClaims } from './mortality';
-import { createNarrationStreamGate, extractPayloadTextPrefix } from './streamSplit';
+import { createNarrationStreamGate, createPayloadTextExtractor } from './streamSplit';
 import { rollD20, resolveAction, derivePersonalityModifier, deriveOppositionModifier, createSeededRng, generateSeed } from './resolution';
 import { deserializeTurnSubmission, isReservedTurnSubmissionArtifact, normalizeTurnSubmissionInput, projectForAdjudication, projectForNarration, projectForNoAttemptResponse, projectForPlayerReflection, projectForResolution, serializeTurnSubmission } from '../../playerInput/turnSubmission';
 import {
@@ -890,12 +890,19 @@ export async function runNewTurn(
     // JSON-prefix vs. raw prose) changed. `\n` escapes decode to a real
     // newline before the gate's `\nSUGGESTION:` marker check, so the
     // suggestion split below is untouched.
+    //
+    // The extraction itself is the resumable `createPayloadTextExtractor`,
+    // fed only each chunk's NEW text (BACKLOG B7 item (a)): byte-identical
+    // to `extractPayloadTextPrefix(rawJsonSoFar)` - pinned in
+    // tests/streamSplit.test.ts - without rescanning the whole payload per
+    // chunk.
     const onNarrationChunk = options?.onNarrationChunk;
+    const payloadTextExtractor = createPayloadTextExtractor();
     const narrationPromise = noAttemptResponse
         ? Promise.resolve<NarrationPayloadInterchange>({ text: '', actors: [] })
         : onNarrationChunk
-            ? generateStructuredStream<NarrationPayloadInterchange>(ai, narrationRequest, (rawJsonSoFar) => {
-                const prosePrefix = extractPayloadTextPrefix(rawJsonSoFar);
+            ? generateStructuredStream<NarrationPayloadInterchange>(ai, narrationRequest, (_rawJsonSoFar, chunkText) => {
+                const prosePrefix = payloadTextExtractor.push(chunkText);
                 const displayText = narrationStreamGate(prosePrefix);
                 const completedText = playerVisibleStreamGate.push(displayText);
                 if (completedText !== null) onNarrationChunk(completedText);

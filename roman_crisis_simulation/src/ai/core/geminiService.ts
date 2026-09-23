@@ -693,7 +693,10 @@ export async function generateText(ai: GeminiClient, req: GenerateTextRequest): 
 export async function generateStructuredStream<T>(
   ai: GeminiClient,
   req: GenerateStructuredRequest<T>,
-  onChunk: (rawJsonSoFar: string) => void
+  // `chunkText` is just this chunk's own new text (the suffix `rawJsonSoFar`
+  // gained), for consumers that keep resumable state instead of rescanning
+  // the cumulative text - see streamSplit.ts's `createPayloadTextExtractor`.
+  onChunk: (rawJsonSoFar: string, chunkText: string) => void
 ): Promise<T> {
   const { callName, model, zodSchema } = req;
   const callLogOwner = currentCallLogOwner();
@@ -736,7 +739,7 @@ export async function generateStructuredStream<T>(
       if (chunk.text) {
         rawSoFar += chunk.text;
         streamChunks++;
-        onChunk(rawSoFar);
+        onChunk(rawSoFar, chunk.text);
       }
     }
   } catch (e) {
