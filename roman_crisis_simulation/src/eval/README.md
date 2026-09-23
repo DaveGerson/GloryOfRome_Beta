@@ -37,6 +37,12 @@ Without `GOR_EVAL_CORPUS` everything skips with a pointer; without
 `*.eval.ts` naming keeps it out of the default `*.test.ts` glob, so the
 normal `npm test` suite is unaffected either way.
 
+`npm run eval:ci` is the pinned, always-offline variant that CI and
+`npm run verify` run: `vitest.eval-ci.config.ts` sets `GOR_EVAL_CORPUS`
+to the committed `eval/fixtures/ci-corpus.json` and forces
+`GEMINI_API_KEY` empty, so it never makes a model call even on a machine
+with a key exported.
+
 ## What the deterministic checks report (`eval/harness.ts`)
 
 Per turn:
