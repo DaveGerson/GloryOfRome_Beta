@@ -1,2 +1,13 @@
-/* Webfonts — Google Fonts CDN (no local binaries provided) */
-@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Cinzel+Decorative:wght@700;900&family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&display=swap');
+/* Webfonts — self-hosted (design/fonts/, SIL OFL 1.1, licences alongside).
+   They were a Google Fonts CDN @import, which meant a player whose roads were
+   shut (the offline strip) or whose network blocks the CDN got Times New Roman
+   for the whole empire, and every first paint waited on a third-party round
+   trip. Latin subset only (~150KB total, woff2); the variable Cinzel and
+   EB Garamond files cover every weight the tokens ask for. Family names are
+   unchanged, so --font-display / --font-epic / --font-body resolve exactly as
+   before. */
+@font-face{font-family:'Cinzel';font-style:normal;font-display:swap;font-weight:400 900;src:url('../fonts/cinzel-latin-wght-normal.woff2') format('woff2-variations'),url('../fonts/cinzel-latin-wght-normal.woff2') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:'Cinzel Decorative';font-style:normal;font-display:swap;font-weight:700;src:url('../fonts/cinzel-decorative-latin-700-normal.woff2') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:'Cinzel Decorative';font-style:normal;font-display:swap;font-weight:900;src:url('../fonts/cinzel-decorative-latin-900-normal.woff2') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:'EB Garamond';font-style:normal;font-display:swap;font-weight:400 800;src:url('../fonts/eb-garamond-latin-wght-normal.woff2') format('woff2-variations'),url('../fonts/eb-garamond-latin-wght-normal.woff2') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:'EB Garamond';font-style:italic;font-display:swap;font-weight:400 800;src:url('../fonts/eb-garamond-latin-wght-italic.woff2') format('woff2-variations'),url('../fonts/eb-garamond-latin-wght-italic.woff2') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
