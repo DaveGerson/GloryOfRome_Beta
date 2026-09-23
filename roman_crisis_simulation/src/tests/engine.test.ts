@@ -102,6 +102,21 @@ describe('applyAdjudication', () => {
       expect(updatedEntities).toEqual(mockEntities);
     });
 
+    it('ignores a malformed key naming no resource instead of writing a resource called "undefined"', () => {
+      // Regression: 'severus_alexander' alone split to [id, undefined] and
+      // the delta was applied to entity.resources['undefined'].
+      const adjudication = deepCopy(baseAdjudication);
+      adjudication.deltas.push({ type: 'resource', key: 'severus_alexander', delta: 500, reason: 'Malformed' });
+      adjudication.deltas.push({ type: 'resource', key: 'severus_alexander:', delta: 500, reason: 'Malformed' });
+
+      const { updatedEntities } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+      const before = mockEntities.find(e => e.entity_id === 'severus_alexander');
+      const after = updatedEntities.find(e => e.entity_id === 'severus_alexander');
+
+      expect(after?.resources).toEqual(before?.resources);
+      expect(Object.keys(after?.resources ?? {})).not.toContain('undefined');
+    });
+
     // --- Systemic Resource Registry (DESIGN_DECISIONS.md D6) ---
     describe('Systemic resources: denarii (D6)', () => {
       it('should allow a non-systemic resource to go negative freely (regression)', () => {
