@@ -11,9 +11,11 @@
  *
  * `ExecuteTurnDeps` names everything the callback closes over: the reactive
  * state slices App.tsx's own 25-entry dependency array already tracked,
- * plus the setters/refs/App-local helpers that array never needed to list.
- * React guarantees `useState` setters and `useRef` objects are stable, and
- * a module-scope function is stable by construction - `react-hooks/
+ * plus the setters/refs that array never needed to list. (The two pure
+ * helpers it once also carried - newestInferredAmbition and
+ * privateScenesFingerprint - are module imports from app/transactions.ts
+ * since 2026-09-23.) React guarantees `useState` setters and `useRef`
+ * objects are stable - `react-hooks/
  * exhaustive-deps` only recognizes those patterns when they're declared in
  * the SAME component, so once they cross this file boundary as plain
  * object fields they have to be named explicitly, both here and in the
@@ -77,6 +79,11 @@ import { buildInterventionTextWithFallout } from '../components/investigationLoo
 import { toRoman } from '../components/ui/Brand';
 import type { TurnFailure } from '../components/ui/FailureNotices';
 import { buildPlayerPerceivedDigest } from '../perception/visibility';
+// The two pure helpers executeTurn shares with the other commit sites
+// (commitPrivateScene, buildSaveState, the ambition-tracking effect) - once
+// App.tsx-local values passed through `deps`, now one module-scope import.
+import { newestInferredAmbition, privateScenesFingerprint } from '../app/transactions';
+import type { DomainCommit, TransactionNote } from '../app/transactions';
 
 // DESIGN_DECISIONS.md D8 - how often the "cheap periodic model call" that
 // infers the player's apparent ambition fires, counted in COMMITTED turns
@@ -115,30 +122,16 @@ export interface ExecuteTurnDeps {
     metaNarrative: string;
     messages: Message[];
 
-    // --- Dispatch and transaction helpers (App.tsx's composition-root
-    // wiring over GameContext; see runDomainMutation/commitDomainMutation's
-    // own doc comments there). commitDomainMutation's parameter mirrors
-    // App.tsx's local (unexported) `DomainCommit` interface shape. ---
+    // --- Dispatch and transaction helpers (the composition root's wiring
+    // over GameContext; see hooks/useCampaignTransactions.ts for
+    // runDomainMutation/commitDomainMutation's own doc comments). The commit
+    // shape is app/transactions.ts's shared `DomainCommit`. ---
     dispatch: Dispatch<GameAction>;
     getStateGeneration: () => number;
     runDomainMutation: RunDomainMutation;
-    commitDomainMutation: (commit: {
-        candidate: SaveGameState;
-        action: GameAction;
-        onSaveFailure: () => void;
-        beforeDispatch?: () => void;
-        onCommitted?: () => void;
-    }) => boolean;
+    commitDomainMutation: (commit: DomainCommit) => boolean;
     buildSaveState: (overrides?: Partial<SaveGameState>) => SaveGameState;
     strikeWeekBeat: () => void;
-
-    // --- App-local pure helpers. Both stay defined in App.tsx (each is also
-    // used by handlers outside executeTurn - commitPrivateScene and the
-    // private-scene handlers, plus the ambition-tracking effect and
-    // buildSaveState), so they cross the boundary as ordinary values rather
-    // than being duplicated here. ---
-    newestInferredAmbition: (...candidates: Array<InferredAmbitionState | null | undefined>) => InferredAmbitionState | null;
-    privateScenesFingerprint: (scenes: readonly PrivateSceneRecord[]) => string;
 
     // --- Refs App.tsx owns across the whole component; executeTurn reads
     // and writes them exactly as it did as an inline useCallback. ---
@@ -159,10 +152,8 @@ export interface ExecuteTurnDeps {
     setTurnStage: (value: TurnStage | null) => void;
     setStreamingNarration: (value: string) => void;
     setIsCheckingEvents: (value: boolean) => void;
-    // Mirrors App.tsx's local (unexported) `TransactionNote` union.
-    setTransactionNote: (
-        note: { kind: 'save'; lead: string } | { kind: 'half_commit' } | { kind: 'plain'; message: string } | null
-    ) => void;
+    // app/transactions.ts's shared `TransactionNote` union.
+    setTransactionNote: (note: TransactionNote | null) => void;
 }
 
 export function useExecuteTurn(deps: ExecuteTurnDeps) {
@@ -172,7 +163,6 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
         turnNumber, playerCharacterId, turnHistory, pendingIntelligenceFallout, gmInterventionText,
         eventFirings, metaNarrative, messages,
         dispatch, getStateGeneration, runDomainMutation, commitDomainMutation, buildSaveState, strikeWeekBeat,
-        newestInferredAmbition, privateScenesFingerprint,
         preTurnSnapshotRef, campaignGenerationRef, privateScenesRef, appMountedRef, latestInferredAmbitionRef,
         setPendingPlayerMessage, setTurnFailure, setRetrySubmission, setRetryDraft,
         setChatDraft, setStructuredDraft, setTurnStage, setStreamingNarration,
@@ -702,5 +692,5 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
         }
         });
         return mutation.acquired;
-    }, [ai, buildSaveState, commitDomainMutation, dispatch, entities, eventFirings, getStateGeneration, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, online, pendingIntelligenceFallout, playerCharacterId, reports, resolvedApiKey, runDomainMutation, simulationState, strikeWeekBeat, truthLedger, turnHistory, turnNumber, worldState, newestInferredAmbition, privateScenesFingerprint, preTurnSnapshotRef, campaignGenerationRef, privateScenesRef, appMountedRef, latestInferredAmbitionRef, setPendingPlayerMessage, setTurnFailure, setRetrySubmission, setRetryDraft, setChatDraft, setStructuredDraft, setTurnStage, setStreamingNarration, setIsCheckingEvents, setTransactionNote]);
+    }, [ai, buildSaveState, commitDomainMutation, dispatch, entities, eventFirings, getStateGeneration, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, online, pendingIntelligenceFallout, playerCharacterId, reports, resolvedApiKey, runDomainMutation, simulationState, strikeWeekBeat, truthLedger, turnHistory, turnNumber, worldState, preTurnSnapshotRef, campaignGenerationRef, privateScenesRef, appMountedRef, latestInferredAmbitionRef, setPendingPlayerMessage, setTurnFailure, setRetrySubmission, setRetryDraft, setChatDraft, setStructuredDraft, setTurnStage, setStreamingNarration, setIsCheckingEvents, setTransactionNote]);
 }
