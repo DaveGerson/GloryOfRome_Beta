@@ -111,8 +111,26 @@ merge.
 
 ### Track F · Visual design pass
 A full visual pass over `design/**` in an "imperial Rome after dark"
-direction. Before and after screenshots are in `docs/ui-refresh/`. See that
-track's commits for details.
+direction. Before and after screenshots are in `docs/ui-refresh/`, numbered
+01–03 for before and 04–10 for after.
+- **Fonts ship with the app.** Cinzel, Cinzel Decorative and EB Garamond are
+  a Latin subset of about 150 KB, licences included. Before, a blocked CDN
+  fell back to Times New Roman everywhere.
+- **Layout and chrome.** New layers in `design/shell.css` and
+  `design/tokens/depth.css`; no existing token was renamed.
+  - A slimmer masthead with a gold-leaf title.
+  - The chat is a centred manuscript column, with narration leaves the desk
+    fades into.
+  - The side panel is a recessed register, and all seven tabs fit on one
+    row.
+  - Dialogs fade in over a blurred backdrop.
+  - Every animation turns off under reduced motion.
+- **NOX (night) is the default** for devices that never chose a theme. An
+  explicit LVX (day) choice is still honoured.
+- **Phone layout (< 768 px).** Chat and intel sit side by side as swipeable
+  panes (UI doc §10.2).
+- **Visible focus.** The selected tab now shows a keyboard focus ring, and
+  the seven 9–9.5 px labels that failed contrast now use `--text-quiet`.
 
 ---
 
@@ -183,5 +201,7 @@ already there rather than replacing it.
   composer's stage line. Which surface keeps the announcement?
 - **The Events tab refusal copy** reuses the dossier's line word for word.
   It is new on this screen, so it goes in the veto queue.
+- **NOX as the default theme.** Is the night skin the right first
+  impression? To revert, delete the one small script block in `index.html`.
 - **CI check names changed** from `ci` to `verify:static`, `verify:unit`
   and `verify:integration`. Update branch protection if it requires `ci`.
