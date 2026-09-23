@@ -4,9 +4,37 @@ on:
   push:
   pull_request:
 
+# Read-only token: CI only checks out and runs checks.
+permissions:
+  contents: read
+
+# A newer push to the same branch/PR supersedes the running check. Runs on
+# master are never cancelled, so every mainline commit keeps a result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
 jobs:
-  ci:
+  # The three legs are exactly `npm run verify`'s three stages
+  # (package.json: verify = verify:static && verify:unit &&
+  # verify:integration), run in parallel. CI and local verify therefore
+  # cannot drift: add a check to a verify:* script and CI picks it up.
+  #
+  # Rough local timings: static ~40s, unit ~50s, integration ~15s. Serial
+  # that is ~105s after install; in parallel the wall time is the slowest
+  # leg, at the cost of two extra (cached) `npm ci` runs.
+  #
+  # The integration leg includes `npm run eval:ci` (vitest.eval-ci.config.ts):
+  # the deterministic offline eval over the committed fixture corpus, with
+  # the LLM judge forced off. The paid, judged `npm run eval` stays local.
+  verify:
+    name: verify:${{ matrix.leg }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        leg: [static, unit, integration]
     defaults:
       run:
         working-directory: roman_crisis_simulation/src
@@ -21,24 +49,4 @@ jobs:
 
       - run: npm ci
 
-      - run: npm run typecheck
-
-      - run: npm run lint
-
-      - run: npm test
-
-      # Deterministic eval leg: GOR_EVAL_CORPUS points at the committed
-      # fixture corpus, so eval/harness.ts's offline checks (schema
-      # validity, capture completeness, seeded roll replay) actually
-      # execute here. No GEMINI_API_KEY is set in this job, so the LLM
-      # judge self-skips (eval/runEval.eval.ts). `npm run eval` is
-      # intentionally NOT a full-eval CI gate: with a key present it makes
-      # one real model call per corpus turn (see vitest.eval.config.ts) —
-      # that paid, non-deterministic leg stays local-only.
-      - run: npm run eval
-        env:
-          GOR_EVAL_CORPUS: eval/fixtures/ci-corpus.json
-
-      - run: npm run test:journeys
-
-      - run: npm run build
+      - run: npm run verify:${{ matrix.leg }}

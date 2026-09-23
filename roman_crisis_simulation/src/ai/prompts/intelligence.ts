@@ -14,7 +14,7 @@
 
 import { Adjudication, Entity, WorldState, SimulationState, NpcIntent } from '../../types';
 import type { ActionResolutionTier } from '../core/resolution';
-import { REDACTED_SCHEME_REASON } from './fragments';
+import { REDACTED_SCHEME_REASON, asPromptData } from './fragments';
 import { ACTORS_DESCRIPTION } from '../core/schemas';
 
 /**
@@ -40,8 +40,11 @@ export function buildClarificationPrompt(
     - If they are not visible, provide a vague, rumor-based answer reflecting your limited intelligence.
     `;
 
-  const prompt = `**Event:** "${event}"
-    **Question:** "${question}"`;
+  // D41: both values are JSON-quoted via asPromptData (escaping quotes,
+  // newlines, and U+2028/U+2029/U+0085) so a future player-text caller
+  // cannot forge a second **Question:** line or break out of the quoting.
+  const prompt = `**Event:** ${asPromptData(event)}
+    **Question:** ${asPromptData(question)}`;
 
   return { systemInstruction, prompt };
 }

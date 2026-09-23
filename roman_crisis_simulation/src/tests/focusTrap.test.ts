@@ -212,6 +212,34 @@ describe('components/ui/focusTrap', () => {
     expect(document.activeElement).toBe(second);
   });
 
+  it('never wraps onto an element Tab itself skips (tabindex="-1" roving items, hidden file inputs)', () => {
+    const first = document.createElement('button');
+    const last = document.createElement('button');
+    // A roving group's inactive item and the "Restore from a copy" file input
+    // both sit AFTER the real last stop in DOM order.
+    const inactiveRadio = document.createElement('button');
+    inactiveRadio.tabIndex = -1;
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.tabIndex = -1;
+    const hidden = document.createElement('input');
+    hidden.type = 'hidden';
+    container.append(first, last, inactiveRadio, fileInput, hidden);
+
+    const trap = createFocusTrap(container);
+
+    last.focus();
+    const tab = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: false, cancelable: true });
+    const tabSpy = vi.spyOn(tab, 'preventDefault');
+    trap.handleKeyDown(tab);
+    expect(tabSpy).toHaveBeenCalled();
+    expect(document.activeElement).toBe(first);
+
+    const shiftTab = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, cancelable: true });
+    trap.handleKeyDown(shiftTab);
+    expect(document.activeElement).toBe(last);
+  });
+
   it('does not throw on release when the previously-focused element was removed from the DOM', () => {
     const invoker = addOutsideButton('vanishing-invoker');
     invoker.focus();

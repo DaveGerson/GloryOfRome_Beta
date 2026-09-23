@@ -722,7 +722,7 @@ describe('persistence/saveGame', () => {
       throw new DOMException('storage unavailable', 'SecurityError');
     });
 
-    expect(clearSave()).toEqual({ ok: false });
+    expect(clearSave()).toEqual({ ok: false, reason: 'storage_unavailable' });
 
     expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
     expect(loadGame()).not.toBeNull();
@@ -771,7 +771,7 @@ describe('persistence/saveGame', () => {
       throw err;
     });
 
-    expect(saveGame(makeState())).toEqual({ ok: false });
+    expect(saveGame(makeState())).toEqual({ ok: false, reason: 'quota_exceeded' });
     // Both the initial attempt and the stripped retry failed, so nothing
     // should have been persisted.
     expect(warnSpy).toHaveBeenCalledTimes(2);
@@ -871,7 +871,7 @@ describe('persistence/saveGame', () => {
         result = saveGame(makeState({ turnNumber: 4, privateScenes: [scene] }));
       }).not.toThrow();
 
-      expect(result).toEqual({ ok: false });
+      expect(result).toEqual({ ok: false, reason: 'build_failed' });
       expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
       expect(warnSpy).toHaveBeenCalledOnce();
     }

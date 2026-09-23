@@ -124,10 +124,29 @@ actor in its own right.
   released saves are affected pre-merge, so migration is deferred.
 - Fork-key collision under 300+ claims with eviction (theoretical; a monotonic
   fork counter closes it).
+  **CLOSED 2026-09-23** - not theoretical: fork numbering COUNTED surviving
+  `#c{n}` forks, so once eviction dropped an early fork the next
+  contradiction re-used a live fork's key. `knowledge/store.ts`'s
+  `nextForkIndex` now issues one past the HIGHEST surviving fork index - a
+  monotonic counter derived from the store itself, so no new save field and
+  legacy saves need no migration. Pinned in `tests/knowledgeStore.test.ts`
+  (direct eviction, the real 300-claim cap path, and a legacy gapped-fork
+  store).
 - The modal-weave same-turn double-hit (D12) has no suppression gate.
 - `economic_stability` free-string triggers can go dormant when the model
   writes a synonym ("Collapsing" vs "Failing") — no canonical vocabulary
   enforced, so some authored events may never fire.
+  **CLOSED 2026-09-23** - `events/stabilityVocabulary.ts` defines the
+  canonical grades (Prosperous / Stable / Strained / Failing / Crisis) plus a
+  synonym normalizer tolerant of case, whitespace, punctuation, and modifiers
+  ("Collapsing", "In Crisis", "Near Collapse", "Recovering from famine");
+  both economy-keyed authored triggers (`grain_shortage`,
+  `praetorian_pay_crisis`) now read the field via `isEconomyAtOrWorseThan`
+  instead of raw `===`, and the adjudicator's WORLD DELTAS rule advertises
+  the canonical grades. `tests/stabilityVocabulary.test.ts` fails if
+  `constants/events.ts` ever compares `economic_stability` directly or passes
+  a non-canonical grade threshold. The stored string is never rewritten -
+  the Header still shows what the fiction said.
 - A presumed-dead NPC keeps its `active_scheme` as GM ground truth (never
   leaked to the player; pinned by the `mortalityFates` journey). Kept as-is;
   if a future fix clears it on revival, update that journey's expectation.
@@ -146,6 +165,12 @@ actor in its own right.
   live player-typed text on the same CharacterSelection screen as
   worldGen.ts's `playerCharacterDescription`.) Closing the remainder needs the same
   `asPromptData` swap already applied everywhere else.
+  **CLOSED 2026-09-23** - `buildClarificationPrompt` now interpolates both
+  `event` and `question` through `asPromptData`; the two entries were
+  deleted from `KNOWN_DEFERRED_GAPS` (now empty), so the directory-walking
+  guard enforces them, and two new behavioral cases in
+  `tests/promptDataBoundary.test.ts` pin that a U+2028 / quote-and-newline
+  payload cannot forge a second `**Question:**` / `**Event:**` line.
 - `playerBoundary.test.ts` "DECLARED GAP 1" is now CLOSED - a third-person
   pronoun under a second-person possessive (`Your grip weakens because he
   burned the granary.`) no longer needs real antecedent resolution: the
@@ -174,7 +199,18 @@ actor in its own right.
   negligible at realistic narration sizes (~3-5ms at a ≤8KB payload) but
   grows to ~267ms at 128KB, so if narration payloads ever grow past typical
   provider caps, an incremental-state extractor (resuming from where the
-  last chunk left off instead of re-scanning) would be worth building. (b) A
+  last chunk left off instead of re-scanning) would be worth building.
+  **CLOSED 2026-09-23** - `createPayloadTextExtractor` (same file) is that
+  extractor: `generateStructuredStream` now also hands `onChunk` each
+  chunk's own text, and `turn.ts` feeds only that to the extractor, which
+  carries the scanner state across chunks and never revisits a byte.
+  `extractPayloadTextPrefix` stays as the executable specification;
+  `tests/streamSplit.test.ts` pins the two byte-identical after every chunk
+  across every split point and seeded random chunkings of sample payloads
+  (escapes, `\u` escapes, surrogate pairs split across chunks, decoys,
+  fences) plus a fuzz over the scanner's alphabet, and a 128KB timing case
+  rules out quadratic growth (measured: 128KB in 32-char chunks, ~4s
+  rescanning vs ~1ms incremental). (b) A
   provider response with a DUPLICATE top-level `"text"` key could in theory
   let the streamed (incremental) value diverge from the committed (final
   parse) value if the two occurrences disagree - implausible under

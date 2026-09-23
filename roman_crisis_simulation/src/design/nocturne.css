@@ -8,10 +8,10 @@
 /* ── Layer 1 · Tokens: marble→basalt, ink→candlelight; metals, wax, and Tyrian chrome untouched ── */
 :root{color-scheme:dark;
 --surface-page:#130F0B;--surface-card:#1E1812;--surface-raised:#261E15;--surface-inset:#0C0907;--surface-hover:#2A2117;
---text-heading:#F2E3BE;--text-body:#D9C89E;--text-muted:#A18A5C;--text-inverse:#17110A;
+--text-heading:#F2E3BE;--text-body:#D9C89E;--text-muted:#A18A5C;--text-quiet:#A99A76;--text-inverse:#17110A;
 --accent:#D4AF37;--accent-strong:#E3C766;--accent-quiet:rgba(227,199,102,.13);
 --gold-600:#D4AF37;--gold-700:#E8C959;/* text-grade gold brightens by torchlight */
---crimson-400:#E07563;--crimson-500:#DC6452;--crimson-600:#A63325;/* ember, not dried blood — 500 is text-grade (≥4.5:1 on every NOX surface) */
+--crimson-400:#D2604E;--crimson-500:#D36A5D;--crimson-600:#A63325;/* ember, not dried blood; 500 is text-grade (>=4.5:1 on basalt) */
 --tyrian-400:#A76487;--tyrian-500:#B87A99;--tyrian-600:#C88BAB;--intrigue:#9C5578;
 --laurel-400:#93A55F;--laurel-500:#7E9150;--bronze-400:#D28A3C;--bronze-500:#C77B2B;
 --ink-800:#2E2415;/* tooltips/glossary become raised smoke */

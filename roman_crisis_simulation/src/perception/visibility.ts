@@ -129,7 +129,19 @@ export const QUIET_DIGEST_MESSAGE = 'Little reaches your ears this week.';
  */
 export function isRegionKnownToPlayer(regionName: string, player: Entity, entities: Entity[]): boolean {
   if (player.location === regionName) return true;
-  return player.visibility_network.some(id => entities.find(e => e.entity_id === id)?.location === regionName);
+  return player.visibility_network.some(id => stationedContactLocation(id, entities) === regionName);
+}
+
+/**
+ * Where a network contact can act as the viewer's EYES: their location,
+ * but only while they are alive. A dead (or exiled/missing) contact stays in
+ * `visibility_network` - nothing prunes it on death - yet can no longer
+ * report on the region they were last placed in; counting them let a slain
+ * spy keep feeding the viewer region news (D5 locality leak).
+ */
+function stationedContactLocation(id: string, entities: Entity[]): string | undefined {
+  const contact = entities.find(e => e.entity_id === id);
+  return contact && contact.status === 'alive' ? contact.location : undefined;
 }
 
 const RELATION_ATTR_LABELS: Record<string, string> = {
@@ -234,8 +246,9 @@ function involvedOtherEntityIds(delta: EventDelta, viewer: Entity): string[] {
  *
  * 4. 'network' when an involved entity is one of the viewer's
  *    visibility_network contacts, or (for 'region' deltas) one of those
- *    contacts is currently located in the targeted region - i.e. you have
- *    eyes there even if you aren't.
+ *    contacts is currently located - and alive - in the targeted region -
+ *    i.e. you have eyes there even if you aren't. A dead/exiled/missing
+ *    contact is no one's eyes.
  *
  * Otherwise the delta is invisible to the viewer.
  */
@@ -297,7 +310,7 @@ export function classifyDelta(
     // have a network contact "in" them.
     if (worldState.regions[regionName]) {
       const networkPresent = viewer.visibility_network.some(
-        id => entityLocation(id, entities) === regionName
+        id => stationedContactLocation(id, entities) === regionName
       );
       if (networkPresent) return { visible: true, source: 'network' };
     }

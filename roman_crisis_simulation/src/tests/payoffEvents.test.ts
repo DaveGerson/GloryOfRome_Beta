@@ -214,6 +214,23 @@ describe('constants/events: role-agnostic triggers (4D.2)', () => {
     expect(event.trigger(makeWorld(), [merelyCourted, broker], broker)).toBe(false);
   });
 
+  it('whispers_of_mutiny ignores lingering trust toward a rival the roster knows is no longer alive', () => {
+    const broker = makeEntity();
+    const event = eventById('whispers_of_mutiny');
+    const guard = makeEntity({
+      entity_id: 'praetorian_guard', name: 'Praetorian Guard', entity_type: 'group', position: undefined,
+      relationships: {
+        [broker.entity_id]: { entity_id: broker.entity_id, relationship_type: 'client', trust_level: -3, recent_interactions: [] },
+        slain_general: { entity_id: 'slain_general', relationship_type: 'patron', trust_level: 8, recent_interactions: [] },
+      },
+    });
+    const rival = (status: Entity['status']) => makeEntity({ entity_id: 'slain_general', name: 'Slain General', status });
+
+    expect(event.trigger(makeWorld(), [guard, broker, rival('alive')], broker)).toBe(true);
+    expect(event.trigger(makeWorld(), [guard, broker, rival('dead')], broker)).toBe(false);
+    expect(event.trigger(makeWorld(), [guard, broker, rival('exiled')], broker)).toBe(false);
+  });
+
   it('rhine_acclamation keys off military_status (Rebellious, or Divided under a major crisis)', () => {
     const player = makeEntity();
     const event = eventById('rhine_acclamation');

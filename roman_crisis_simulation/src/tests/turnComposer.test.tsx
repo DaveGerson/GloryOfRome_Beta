@@ -695,3 +695,50 @@ describe('components/TurnComposer', () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 });
+
+describe('focus after a sent week', () => {
+  it('returns focus to the chat tablet once the turn unlocks, when the send left from inside the composer', async () => {
+    const onSubmit = vi.fn();
+    const { container, rerender } = await mount(<TurnComposer {...defaultProps({ chatDraft: 'I march on Aquileia.', onSubmit })} />);
+    const chat = byAriaLabel<HTMLTextAreaElement>(container, 'Chat input');
+    chat.focus();
+    await keyDown(chat, { key: 'Enter' });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+
+    await rerender(<TurnComposer {...defaultProps({ chatDraft: '', onSubmit, isProcessing: true })} />);
+    expect(chat.disabled).toBe(true);
+    // Browsers drop focus off a control that becomes disabled; jsdom does not
+    // (and will not blur a disabled control), so park focus on a throwaway
+    // element and remove it - the same "focus fell to <body>" end state.
+    const parking = document.createElement('button');
+    document.body.appendChild(parking);
+    parking.focus();
+    parking.remove();
+    expect(document.activeElement).toBe(document.body);
+
+    await rerender(<TurnComposer {...defaultProps({ chatDraft: '', onSubmit })} />);
+    expect(document.activeElement).toBe(chat);
+  });
+
+  it("does not steal focus from whatever took it while the week was written (e.g. a fate's dialog)", async () => {
+    const onSubmit = vi.fn();
+    const { container, rerender } = await mount(<TurnComposer {...defaultProps({ chatDraft: 'I wait.', onSubmit })} />);
+    const chat = byAriaLabel<HTMLTextAreaElement>(container, 'Chat input');
+    chat.focus();
+    await keyDown(chat, { key: 'Enter' });
+    await rerender(<TurnComposer {...defaultProps({ onSubmit, isProcessing: true })} />);
+
+    const dialogButton = document.createElement('button');
+    document.body.appendChild(dialogButton);
+    dialogButton.focus();
+    await rerender(<TurnComposer {...defaultProps({ onSubmit })} />);
+    expect(document.activeElement).toBe(dialogButton);
+    dialogButton.remove();
+  });
+
+  it('leaves focus alone after an unlock the composer did not cause', async () => {
+    const { container, rerender } = await mount(<TurnComposer {...defaultProps({ disabled: true })} />);
+    await rerender(<TurnComposer {...defaultProps()} />);
+    expect(document.activeElement).not.toBe(byAriaLabel(container, 'Chat input'));
+  });
+});

@@ -558,6 +558,57 @@ describe('knowledge/store', () => {
       expect(fork.edges).toEqual([{ to: original.id, type: 'contradicts' }]);
     });
 
+    // BACKLOG B7: fork numbering used to COUNT surviving forks, so once an
+    // early fork was evicted the next fork re-used a live fork's key.
+    describe('fork-key uniqueness under eviction (B7)', () => {
+      const BASE = 'report:maximinus_thrax:health:rumor';
+      const contradiction = (turn: number, n: number) => makeReport({
+        id: `report_${turn}_${n}`, turn, topic: 'health', stance: 'contradicts', claim: `Refutation ${n}`,
+      });
+
+      it('numbers a new fork past the highest surviving fork index, never re-using a live key', () => {
+        let store = ingestReports([], [makeReport({ topic: 'health' })]);
+        store = ingestReports(store, [contradiction(4, 0), contradiction(5, 1), contradiction(6, 2)]);
+        expect(store.map(c => c.claimKey)).toEqual([BASE, `${BASE}#c0`, `${BASE}#c1`, `${BASE}#c2`]);
+        // #c0 has been evicted; #c1 and #c2 survive.
+        const afterEviction = store.filter(c => c.claimKey !== `${BASE}#c0`);
+
+        const next = ingestReports(afterEviction, [contradiction(9, 3)]);
+        const keys = next.map(c => c.claimKey);
+        expect(new Set(keys).size).toBe(keys.length);
+        expect(keys[keys.length - 1]).toBe(`${BASE}#c3`);
+        const ids = next.map(c => c.id);
+        expect(new Set(ids).size).toBe(ids.length);
+      });
+
+      it(`stays collision-free through the real ${MAX_KNOWLEDGE_CLAIMS}-claim cap eviction path`, () => {
+        let store = ingestReports([], [contradiction(1, 0)]); // #c0, the ONLY turn-1 claim
+        store = ingestReports(store, [makeReport({ topic: 'health', turn: 3 })]);
+        store = ingestReports(store, [contradiction(3, 1)]); // #c1
+        // Fill to the cap with unrelated, newer claims so #c0 is the first
+        // (and only) claim evicted once the cap is exceeded.
+        for (let i = 0; store.length < MAX_KNOWLEDGE_CLAIMS; i++) {
+          store = ingestReports(store, [makeReport({ id: `filler_${i}`, turn: 3, about: `filler_${i}`, topic: 'general' })]);
+        }
+        store = ingestReports(store, [contradiction(4, 2)]);
+        store = ingestReports(store, [contradiction(4, 3)]);
+        expect(store.some(c => c.claimKey === `${BASE}#c0`)).toBe(false); // evicted
+        const keys = store.map(c => c.claimKey);
+        expect(new Set(keys).size).toBe(keys.length);
+        const ids = store.map(c => c.id);
+        expect(new Set(ids).size).toBe(ids.length);
+      });
+
+      it('derives the next index from legacy saves whose forks carry no counter (no save-format change)', () => {
+        const legacy: KnowledgeClaim[] = [5, 7].map(n => ({
+          id: `claim_2_${BASE}#c${n}`, subject: 'maximinus_thrax', claim: `Legacy fork ${n}`, topic: 'health',
+          claimKey: `${BASE}#c${n}`, firstLearnedTurn: 2, updates: [{ turn: 2, source: 'rumor' as const, text: `Legacy fork ${n}` }],
+        }));
+        const next = ingestReports(legacy, [contradiction(3, 9)]);
+        expect(next[next.length - 1].claimKey).toBe(`${BASE}#c8`);
+      });
+    });
+
     it("records a 'derives-from' edge from a bought investigation reveal to a prior rumor about the same subject", () => {
       const afterRumor = ingestReports([], [makeReport({ topic: 'health' })]);
       const withReveal = ingestInvestigationReveal(afterRumor, {

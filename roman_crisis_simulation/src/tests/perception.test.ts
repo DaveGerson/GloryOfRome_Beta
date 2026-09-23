@@ -6,7 +6,7 @@
 // suite stays a pure unit test of perception/visibility.ts with no
 // dependency on ai/** or the rest of the mock data graph.
 import { describe, it, expect } from 'vitest';
-import { classifyDelta, buildPerceivedDigest, tabsForDelta } from '../perception/visibility';
+import { classifyDelta, buildPerceivedDigest, tabsForDelta, isRegionKnownToPlayer } from '../perception/visibility';
 import { Entity, EventDelta, WorldState } from '../types';
 import { makeEntity as baseMakeEntity } from './factories';
 
@@ -188,6 +188,16 @@ describe('classifyDelta', () => {
       visible: true,
       source: 'network',
     });
+  });
+
+  it('a dead or exiled network contact is no longer eyes in their last region', () => {
+    const delta: EventDelta = { type: 'region', key: 'The Suburra:stability', delta: 0, reason: 'Riots grip the streets' };
+    for (const status of ['dead', 'exiled', 'missing'] as const) {
+      const fallen = entities.map(e => (e.entity_id === 'ally_npc' ? { ...e, status } : e));
+      expect(classifyDelta(delta, player, fallen, worldState)).toEqual({ visible: false, source: null });
+      expect(isRegionKnownToPlayer('The Suburra', player, fallen)).toBe(false);
+    }
+    expect(isRegionKnownToPlayer('The Suburra', player, entities)).toBe(true);
   });
 
   it('always marks add_region/remove_region as public', () => {

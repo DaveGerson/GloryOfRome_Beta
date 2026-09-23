@@ -12,10 +12,14 @@
     "preview": "vite preview",
     "test": "vitest run",
     "eval": "vitest run --config vitest.eval.config.ts",
+    "eval:ci": "vitest run --config vitest.eval-ci.config.ts",
     "test:journeys": "vitest run --config vitest.journeys.config.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "verify": "npm run typecheck && npm run lint && npm test && npm run test:journeys && npm run build"
+    "verify:static": "npm run typecheck && npm run lint",
+    "verify:unit": "npm test",
+    "verify:integration": "npm run test:journeys && npm run eval:ci && npm run build",
+    "verify": "npm run verify:static && npm run verify:unit && npm run verify:integration"
   },
   "dependencies": {
     "@google/genai": "^1.22.0",

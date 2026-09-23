@@ -19,62 +19,65 @@ DESIGN_DECISIONS.md D34: bring-your-own-key is the default, preferred way to pla
 
 ## **Current Structure of Game Files**
 
-The project is structured as a modern React application using TypeScript and Vite. The file organization separates the UI (components), game logic (ai, events, constants), centralized state (state), and core application setup.
+A React 19 + TypeScript + Vite single-page app with no server: every Gemini call is made from the browser with the player's own key (D34), and all persistence is `localStorage`. The load-bearing idea is **information asymmetry enforced in code**: the adjudicator's output is ground truth, and dedicated layers decide what each viewer (the player, each NPC, the GM console) is allowed to see.
 
-* **/ (Root)**: Contains the main entry point (index.html), React app setup (App.tsx, index.tsx), and project configurations (package.json, vite.config.ts, tsconfig.json).  
-* **/ai**: The brain of the simulation. It's responsible for processing turns, making AI-driven decisions, and managing game logic.  
-  * **/ai/core**: Contains the essential engine for running the simulation, including the single Gemini service wrapper (`ai/core/geminiService.ts`) that every AI call goes through.
-  * **/ai/tools**: Holds specialized functions that use the AI for specific tasks like intelligence gathering or character generation.  
-* **/components**: Houses all the reusable React components that form the user interface.  
-  * **/components/tabs**: Contains the components for each tab in the side panel (e.g., Events, Reports).  
-* **/constants**: Stores static, read-only data that defines the starting conditions of the game.  
-* **/events**: Manages the logic for scripted, triggerable in-game events.  
-* **/state**: Owns the centralized game-domain state. `state/GameContext.tsx` is the React context/provider; `state/gameReducer.ts` is the reducer, action types, and initial-state factory. `App.tsx` is the sole consumer of the context and stays the composition root for persistence.
-* **/knowledge**: Manages what the player has learned — report commitment, credibility framing, and dossier costing for intelligence gathering.
-* **/perception**: Filters simulation state down to what a given viewer (player or NPC) is allowed to see, so raw deltas and GM-private detail never reach the UI.
-* **/persistence**: Handles everything saved to or read from the browser — save games, settings, the API key, onboarding state, and the eval-corpus export.
-* **/eval**: Houses the offline evaluation harness and judge used to score AI output quality outside of normal gameplay.
-* **/tests**: Contains unit tests to ensure the core game logic functions correctly.
+* **/ (this folder)**: entry points (`index.html`, `index.tsx`), the composition root (`App.tsx`), the shared domain types (`types.ts`), and tooling config (`package.json`, `tsconfig.json`, `eslint.config.js`, `vite.config.ts`, and one `vitest.*.config.ts` per test leg).
+* **/state**: the single game-domain reducer and its React context (D17). Every slice the autosave reads lives here; `App.tsx` is the only consumer of the context and passes plain props down.
+* **/hooks**: stateful orchestration extracted out of `App.tsx` — chiefly `useExecuteTurn.ts`, the turn transaction (submit → `runNewTurn` → knowledge/relationship follow-ups → commit or roll back).
+* **/ai**: everything that talks to the model.
+  * **/ai/core**: the turn pipeline (`turn.ts`), the pure state applier (`engine.ts`), the single Gemini gateway (`geminiService.ts`: model tiers, retries, zod validation, call capture), deterministic resolution and mortality (`resolution.ts`, `mortality.ts`), response schemas (`schemas.ts` for Gemini, `zodSchemas.ts` for runtime validation), and the player-visibility boundaries (`playerBoundary.ts`, `actorsBoundary.ts`).
+  * **/ai/tools**: single-purpose model calls outside the main turn — action assessment, NPC minds, intelligence/investigation, ambition inference, private scenes, relationship observations, character creation.
+  * **/ai/prompts**: every prompt builder, one file per call family; `ai/prompts/README.md` is the inventory (call → builder → model → schema → pipeline stage).
+  * **ai/mocks.ts**: offline stand-ins for every call, powering Mock Mode and the test suites.
+* **/perception**: the viewer filter. `visibility.ts` decides which ground-truth deltas a given viewer could plausibly perceive (D5); `npcPerception.ts` applies the same rules to each NPC (D10).
+* **/knowledge**: the player's side of the asymmetry — the claim store (`store.ts`, D21), commit-time ingestion (`commit.ts`), relationship observations, credibility framing that never shows numbers (D25/D26), and dossier refresh pricing (D27).
+* **/playerInput**: the structured turn submission — its versioned wire format and validation (`turnSubmission.ts`) and the composer's draft state (`composerState.ts`).
+* **/playerView**: player-facing answers built only from what the player already knows (e.g. `noAttemptResponse.ts` for question-only / private-intent turns).
+* **/privateScene**: the pure model of one-on-one audiences with an NPC (lifecycle, speech acts, closure rules). NPC-private fields stay GM-only.
+* **/events**: evaluation of scripted events against the current state (`engine.ts`), including repeatable-event cooldowns.
+* **/constants**: static starting data — the 235 CE scenario and the scripted event definitions.
+* **/persistence**: everything read from or written to the browser. `saveGame.ts` is the single autosave slot (versioned envelope, never throws, typed failure reasons); `saveMigrations.ts` is its upgrade registry; `crossTab.ts` detects another tab writing the same slot; `apiKey.ts`, `settings.ts`, `uiPrefs.ts`, `onboarding.ts` are device preferences kept out of the save; `evalCorpus.ts` builds the GM console's eval export.
+* **/components**: the UI. Top-level screens and panels live directly here; `tabs/` holds the side-panel tabs, `gm/` the GM console views, `ui/` shared primitives (forms, alerts, focus trapping, failure notices).
+* **/design**: CSS design tokens and component styles.
+* **/eval**: the offline eval harness over an exported corpus — deterministic checks (`harness.ts`) plus an optional LLM judge (`judge.ts`). Never imported by app code; see `eval/README.md`.
+* **/tests**: the vitest suites (`*.test.ts[x]`), shared factories, and `tests/journeys/` — end-to-end campaign journeys driven through the real `App` with mocked AI.
 
-## **Description of Each File**
+## **Key Files**
 
-* App.tsx: The main React component. It manages the overall game state, handles the main game loop, and orchestrates interactions between the UI and the game logic.  
-* index.html: The HTML entry point for the application. It includes basic metadata, fonts, and styles.  
-* index.tsx: The file that renders the main App component into the DOM.  
-* types.ts: A critical file that defines all the TypeScript types and interfaces for the core data structures used throughout the simulation, such as Entity, WorldState, and Adjudication.  
-* ai/core/engine.ts: Contains the core functions for applying changes to the game state. It takes the output from the AI (Adjudication) and updates the entities and world accordingly.  
-* ai/core/initiator.ts: Contains the `initiateWorld` function. This uses a powerful Gemini prompt to generate a complete, new starting scenario (entities, world state, etc.) based on a player-provided "Meta-Narrative" theme and character concept.  
-* ai/core/schemas.ts: Defines the JSON schemas that the AI's responses must adhere to. This ensures that the data received from the AI is structured and predictable.  
-* ai/core/turn.ts: Orchestrates the entire turn-processing sequence. It compiles the context for the AI, sends the request, receives the adjudication, and generates the narrative summary.  
-* ai/core/turn_logic.md: A detailed document explaining the sophisticated, multi-stage process of how a game turn is simulated by the AI.  
-* ai/tools/characterCreator.ts: A tool that uses the AI to dynamically generate a new player character based on a user's text description.  
-* ai/tools/intelligence.ts: Contains functions for various intelligence-gathering actions, such as getting a character's thoughts, investigating secrets, or asking for clarification on events.  
-* ai/mocks.ts: Provides mock data and functions for development and testing. This allows the game to be run without making live calls to the AI, ensuring predictable and fast testing cycles.  
-* components/CharacterSelection.tsx: The UI component for the initial character selection screen.  
-* components/Chat.tsx: Contains the components for the chat interface, including message bubbles and the input area.  
-* components/EventModal.tsx: A modal component that displays triggered in-game events and presents the player with choices.  
-* components/GameMasterScreen.tsx: A debug/developer tool that allows for viewing the detailed history of each turn, including the raw AI output.  
-* components/Header.tsx: The header component, which displays the game title and the current world state.  
-* components/SidePanel.tsx: The main container for the right-hand panel, which houses the various informational tabs.  
-* constants/baseScenario.ts: Defines the initial state of the simulation, including all starting characters, factions, relationships, and world conditions for the 235 CE scenario.  
-* constants/events.ts: Contains an array of predefined GameEvent objects that can be triggered during gameplay.  
-* events/engine.ts: Contains the logic to check if any of the predefined GameEvents should be triggered based on the current game state.  
-* tests/engine.test.ts: Unit tests for the applyAdjudication function in the core engine, ensuring that state changes are applied correctly.
+* `App.tsx`: the composition root — screens, handlers, and all persistence calls. Game state lives in `state/`, the turn transaction in `hooks/useExecuteTurn.ts`.
+* `types.ts`: the domain model (`Entity`, `WorldState`, `Adjudication`, `EventDelta`, `Report`, turn history, …).
+* `ai/core/turn.ts`: `runNewTurn`, the per-turn pipeline (see below); `ai/core/turn_logic.md` is the long-form explanation.
+* `ai/core/engine.ts`: applies an `Adjudication`'s deltas to entities and world state, and maintains the GM-private truth ledger.
+* `ai/core/geminiService.ts`: the one chokepoint for model calls.
+* `ai/core/initiator.ts`: generates a fresh scenario from a player-supplied meta-narrative.
+* `perception/visibility.ts`: the ground-truth → player-visible filter.
+* `knowledge/store.ts`: the player's belief graph.
+* `persistence/saveGame.ts`: save/load/import/export of the campaign.
+* `components/GameMasterScreen.tsx`: the GM console (Ctrl+Shift+G) — raw calls, ground truth, perception, fixtures and the eval-corpus export.
+
+## **Checks**
+
+Run from this folder. `npm run verify` is exactly what CI runs, as three legs (CI runs them in parallel):
+
+* `npm run verify:static` — `typecheck` + `lint`.
+* `npm run verify:unit` — the vitest suite.
+* `npm run verify:integration` — `test:journeys`, `eval:ci` (the deterministic eval over `eval/fixtures/ci-corpus.json`, judge forced off), and `build`.
+
+`npm run eval` with `GOR_EVAL_CORPUS` (and optionally `GEMINI_API_KEY`) runs the eval against your own exported corpus.
 
 # **Game Logic and Execution Structure**
 
 ## **Turn Structure and Mechanics**
 
-The game operates on a turn-based system where each turn represents one week of in-game time. The process for each turn is a sophisticated, multi-stage AI simulation designed to create a dynamic and emergent narrative. For a detailed breakdown of the logic, **please see the `ai/core/turn_logic.md` document.** The high-level process is:
+The game operates on a turn-based system where each turn represents one week of in-game time. For the full breakdown, **see `ai/core/turn_logic.md`** and the stage inventory in `ai/prompts/README.md`. The high-level pipeline in `runNewTurn` (its `TurnStage`s in brackets):
 
-1.  **Story Relevance Analysis**: Before simulating the turn, a preliminary AI call determines which 1-3 NPCs are the most critical to the story at this moment. These become "spotlight" characters.  
-2.  **Context Compilation**: A detailed prompt is built for the AI Game Master, including the full world state, all character profiles (with "spotlight" characters specially marked), recent history, and the player's intended action for the turn.  
-3.  **Proactive NPC Simulation**: In the first phase of the main simulation, the AI determines the actions that the "spotlight" NPCs take on their own initiative to advance their secret plans and schemes.  
-4.  **Player Action Adjudication & Reactions**: In the second phase, the AI adjudicates the outcome of the player's action and simulates how all other characters in the world react to both the player's move and the NPCs' proactive moves.  
-5.  **State Adjudication**: The AI returns a single, structured `Adjudication` JSON object. This object contains a list of all actions taken, the resulting atomic state changes (`EventDelta` array), public headlines, and private GM notes.  
-6.  **State Application**: This `Adjudication` object is then used to mechanically update the game's state, changing character resources, relationships, locations, etc.  
-7.  **Narrative Generation**: Separate AI calls are made to generate a narrative summary of the turn's events (written from a perspective closer to the player's knowledge) and a private "inner monologue" for the player character.  
-8.  **Event Check**: Finally, the new game state is checked to see if it has met the trigger conditions for any major, pre-scripted `GameEvent`.
+1.  **Director and assessment** [`story_relevance`]: the Director picks the spotlight NPCs for this turn and carries their persistent intents forward; concurrently, a cheap assessment call decides whether the player's action is consequential enough to warrant a hidden roll, and what to roll against.
+2.  **NPC minds** [`npc_minds`]: each spotlight NPC decides its own move in character, from its *bounded* knowledge only.
+3.  **Adjudication** [`adjudication`]: the Game Master receives the world, the NPC decisions, and the player's action with its code-decided outcome (the roll is resolved deterministically in `ai/core/resolution.ts`; the model narrates a pre-decided result) and returns one structured `Adjudication`: actions, atomic `EventDelta`s, headlines, and GM-private notes.
+4.  **Mortality** [`mortality`, only when a death is claimed]: every claimed death passes code-side gates before it sticks.
+5.  **State application**: `engine.ts` applies the deltas; the perception layer decides what the player and each NPC actually learned.
+6.  **Simulation state, monologue, narration** [`simulation_state`, `monologue`, `narration`, in parallel]: the hidden simulation state is updated, and the player-facing narration (streamed) and inner monologue are written from the player's knowledge.
+7.  **Commit**: `hooks/useExecuteTurn.ts` folds the result into knowledge and relationships and commits it atomically with the autosave — or rolls the whole turn back. `App.tsx` then checks whether the new state triggers a scripted `GameEvent` (`events/engine.ts`).
 
 ## **Dynamic World Generation (Initiate)**
 
