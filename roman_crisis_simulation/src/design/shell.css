@@ -102,6 +102,11 @@ section[data-screen-label="Chat"]>[role="log"]+div::before{content:"";position:a
 .gor-destiny-name{transition:color 200ms var(--ease-standard)}
 
 /* ── VI · Primitives, refined ──────────────────────────────────────────── */
+/* Form controls take the page's serif unless a class says otherwise - the
+   private scene's contact cards and letters are bare <button>s and were
+   falling back to the UA's sans-serif. Element specificity, so every gor-*
+   control keeps its own face. */
+button,input,select,textarea{font-family:inherit}
 /* Disabled reads as "not now" — desaturated metal — rather than a 40% ghost
    of itself that smears into the ground. */
 .gor-btn:disabled{opacity:.55;filter:saturate(.3)}

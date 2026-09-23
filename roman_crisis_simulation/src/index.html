@@ -18,6 +18,24 @@
       component classes (gor-*), and the Nox Romae night skin
       (design/nocturne.css, lazy-loaded by the LVX/NOX switch).
     -->
+    <!--
+      Rome after dark is the house lighting: a device that has never chosen
+      between LVX and NOX opens on Nox Romae. This only seeds the same
+      `gor-theme` preference the configuration menu writes (App.tsx reads it
+      on mount), so an explicit LVX choice is never overridden; delete this
+      block to make marble day the default again. Until the night stylesheet
+      arrives the ground is painted basalt, so the first frame is not a
+      flash of daylight.
+    -->
+    <script>
+      try {
+        if (localStorage.getItem('gor-theme') === null) localStorage.setItem('gor-theme', 'nox');
+        if (localStorage.getItem('gor-theme') === 'nox') document.documentElement.setAttribute('data-gor-dusk', '');
+      } catch (e) { /* private mode: the day skin stands */ }
+    </script>
+    <style>
+      html[data-gor-dusk], html[data-gor-dusk] body:has(#root:empty) { background: #130F0B; }
+    </style>
   </head>
   <body>
     <div id="root"></div>
