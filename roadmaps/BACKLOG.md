@@ -199,7 +199,18 @@ actor in its own right.
   negligible at realistic narration sizes (~3-5ms at a ≤8KB payload) but
   grows to ~267ms at 128KB, so if narration payloads ever grow past typical
   provider caps, an incremental-state extractor (resuming from where the
-  last chunk left off instead of re-scanning) would be worth building. (b) A
+  last chunk left off instead of re-scanning) would be worth building.
+  **CLOSED 2026-09-23** - `createPayloadTextExtractor` (same file) is that
+  extractor: `generateStructuredStream` now also hands `onChunk` each
+  chunk's own text, and `turn.ts` feeds only that to the extractor, which
+  carries the scanner state across chunks and never revisits a byte.
+  `extractPayloadTextPrefix` stays as the executable specification;
+  `tests/streamSplit.test.ts` pins the two byte-identical after every chunk
+  across every split point and seeded random chunkings of sample payloads
+  (escapes, `\u` escapes, surrogate pairs split across chunks, decoys,
+  fences) plus a fuzz over the scanner's alphabet, and a 128KB timing case
+  rules out quadratic growth (measured: 128KB in 32-char chunks, ~4s
+  rescanning vs ~1ms incremental). (b) A
   provider response with a DUPLICATE top-level `"text"` key could in theory
   let the streamed (incremental) value diverge from the committed (final
   parse) value if the two occurrences disagree - implausible under

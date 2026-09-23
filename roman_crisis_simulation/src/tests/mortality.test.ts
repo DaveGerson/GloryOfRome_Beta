@@ -228,6 +228,65 @@ describe('ai/core/mortality.ts processMortality', () => {
     expect(updatedEntities.find(e => e.entity_id === npcId)?.status).toBe('exiled');
   });
 
+  it('never rolls against an entity ALREADY dead - a re-declared death cannot revive a corpse or out a presumed-dead NPC', async () => {
+    // Regression: the dead NPC was a claim like any other, so a validated
+    // re-declaration rolled the fate table and a survival band (13-15, 19-20)
+    // rewrote the delta to new_status 'alive' - publicly reviving the dead,
+    // including a presumed-dead NPC hiding with secret_truth.
+    npc.status = 'dead';
+    npc.secret_truth = { actually_alive: true, hidden_since_turn: 3, motive: 'Waiting.' };
+    const adjudication = makeAdjudication([
+      { type: 'status', key: npcId, delta: 0, reason: 'His body is found in the Tiber.', new_status: 'dead' },
+    ]);
+    const { ai, generateContent } = makeMockAi(); // any call would throw
+    mockRoll(14); // gravely_wounded - would have meant 'alive'
+
+    const { transformedAdjudication, mortalityEvents } = await processMortality(
+      ai, adjudication, entities, playerId, 5, false
+    );
+
+    expect(generateContent).not.toHaveBeenCalled();
+    expect(mortalityEvents).toEqual([]);
+    const { updatedEntities } = applyDeltas(transformedAdjudication.deltas, entities, { year: 1, week: 1, economic_stability: '', political_climate: '', regions: {} }, 5);
+    const after = updatedEntities.find(e => e.entity_id === npcId);
+    expect(after?.status).toBe('dead');
+    expect(after?.secret_truth?.actually_alive).toBe(true);
+  });
+
+  it('rolls ONCE per entity: a repeated death claim is dropped, so a second roll can never overturn the first', async () => {
+    // Regression: each duplicate claim got its own validation entry and roll,
+    // and applyDeltas let the LAST rewritten delta win - here a failed death
+    // save (roll 3, 'dies') would have been overturned by the second claim's
+    // roll, and a survived one could be undone by a raw leftover 'dead'.
+    const adjudication = makeAdjudication([
+      { type: 'status', key: playerId, delta: 0, reason: 'Stabbed on the Senate steps.', new_status: 'dead' },
+      { type: 'resource', key: `${playerId}:denarii`, delta: -5, reason: 'Funeral costs.' },
+      { type: 'status', key: playerId, delta: 0, reason: 'Succumbs to his wounds.', new_status: 'dead' },
+    ]);
+    const { ai, generateContent } = makeMockAi(
+      JSON.stringify({ dispositions: [{ entity_id: playerId, valid: true, reasoning: 'The assassination was set up over two turns.' }] })
+    );
+    const rolls = [12, 3]; // first claim survives clean; a second roll would have killed
+    vi.spyOn(Math, 'random').mockImplementation(() => ((rolls.shift() ?? 12) - 1) / 20);
+
+    const { transformedAdjudication, mortalityEvents } = await processMortality(
+      ai, adjudication, entities, playerId, 5, false
+    );
+
+    expect(generateContent).toHaveBeenCalledTimes(1); // one validation, 'survive' needs no outcome call
+    expect(mortalityEvents).toHaveLength(1);
+    expect(mortalityEvents[0]).toMatchObject({ entity_id: playerId, valid: true, roll: 12, band: 'survive' });
+    const playerStatusDeltas = transformedAdjudication.deltas.filter(d => d.type === 'status' && d.key === playerId);
+    expect(playerStatusDeltas).toHaveLength(1);
+    expect(playerStatusDeltas[0].new_status).toBe('alive');
+    // Non-status deltas are untouched.
+    expect(transformedAdjudication.deltas.some(d => d.type === 'resource')).toBe(true);
+    expect(transformedAdjudication.gm_private.some(note => note.includes('dropped a repeated death claim'))).toBe(true);
+
+    const { updatedEntities } = applyDeltas(transformedAdjudication.deltas, entities, { year: 1, week: 1, economic_stability: '', political_climate: '', regions: {} }, 5);
+    expect(updatedEntities.find(e => e.entity_id === playerId)?.status).toBe('alive');
+  });
+
   it('a forged secret_truth on the claim delta never survives an invalidated claim', async () => {
     const adjudication = makeAdjudication([
       {

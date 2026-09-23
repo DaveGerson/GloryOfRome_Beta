@@ -100,7 +100,12 @@ export function applyDeltas(
                 case 'resource': {
                     const [entityId, resourceName] = delta.key.split(':');
                     const entity = updatedEntities.find(e => e.entity_id === entityId);
-                    if (entity) {
+                    // A key with no ':resource' half names no resource: without
+                    // this guard `resourceName` is undefined and the delta
+                    // wrote a resource literally named "undefined" into the
+                    // entity's persisted bag (the 'relation' case below has
+                    // the same malformed-key guard).
+                    if (entity && resourceName) {
                         const currentVal = (entity.resources[resourceName] as number) || 0;
                         const rawNewVal = currentVal + delta.delta;
 

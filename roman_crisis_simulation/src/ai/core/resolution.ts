@@ -312,7 +312,15 @@ export const ACTION_DIFFICULTY_RANGE = {
     MAX: 25,
 } as const;
 
-function clampDifficulty(value: number): number {
+/**
+ * Clamps a difficulty onto `ACTION_DIFFICULTY_RANGE`. `resolveAction` itself
+ * stays pure margin arithmetic over whatever difficulty it is handed; every
+ * PRODUCER is responsible for landing on the scale - the derived helper
+ * below clamps its own output, and ai/core/turn.ts clamps the assessment
+ * call's model-authored value (zod checks only that it is a number) before
+ * it meets the roll.
+ */
+export function clampDifficulty(value: number): number {
     return Math.min(ACTION_DIFFICULTY_RANGE.MAX, Math.max(ACTION_DIFFICULTY_RANGE.MIN, value));
 }
 
