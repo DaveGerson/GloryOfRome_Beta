@@ -14,6 +14,7 @@ import { Tooltip } from '../components/ui/Feedback';
 import InfoTooltip from '../components/InfoTooltip';
 import GlossaryTooltip from '../components/GlossaryTooltip';
 import GameMasterScreen from '../components/GameMasterScreen';
+import { Textarea } from '../components/ui/Forms';
 import { makeWorldState } from './factories';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -89,5 +90,15 @@ describe('live and described regions', () => {
     const set = Array.from(container.querySelectorAll('button')).find(button => button.textContent?.includes('Set Directive'))!;
     await act(async () => set.click());
     expect(status!.textContent).toContain('The Fates have heard.');
+  });
+
+  it('describes a Textarea by its hint, alongside any description the caller passed', async () => {
+    const container = await mount(
+      <Textarea id="persona" hint="Name, position, and motivations." aria-describedby="elsewhere" aria-label="Persona" />,
+    );
+    const field = container.querySelector('textarea')!;
+    const hint = container.querySelector('.gor-hint')!;
+    expect(hint.id).toBe('persona-hint');
+    expect(field.getAttribute('aria-describedby')).toBe('elsewhere persona-hint');
   });
 });
