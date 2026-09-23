@@ -37,8 +37,15 @@ import type {
 import type { AmbitionInference } from '../ai/tools/ambition';
 import type { KnowledgeClaim } from '../knowledge/store';
 import type { PrivateSceneRecord } from '../privateScene/model';
+import { migrateSaveEnvelope } from './saveMigrations';
 
-/** Bump this whenever `SaveGameState`'s shape changes in a backwards-incompatible way. */
+/**
+ * Bump this whenever `SaveGameState`'s shape changes in a backwards-
+ * incompatible way - and register the matching upgrade step in
+ * `persistence/saveMigrations.ts` (`SAVE_MIGRATIONS[old]`), or every older
+ * save is refused as `version_mismatch`. Additive optional fields do not
+ * need a bump.
+ */
 export const SAVE_VERSION = 1 as const;
 
 /**
@@ -313,7 +320,9 @@ function looksLikeSaveGame(value: unknown): value is SaveGame {
  * quietly drift apart (docs/superpowers/specs/2026-08-05-reign-export-import
  * -design.md). Never throws.
  */
-function validateSaveBlob(raw: string): { ok: true; save: SaveGame } | { ok: false; reason: 'unreadable' | 'not_a_reign' | 'version_mismatch' } {
+function validateSaveBlob(
+  raw: string,
+): { ok: true; save: SaveGame; migratedFrom: number | null } | { ok: false; reason: 'unreadable' | 'not_a_reign' | 'version_mismatch' } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -327,14 +336,28 @@ function validateSaveBlob(raw: string): { ok: true; save: SaveGame } | { ok: fal
     return { ok: false, reason: 'not_a_reign' };
   }
 
-  if (parsed.version !== SAVE_VERSION) {
-    console.warn(
-      `validateSaveBlob: save version mismatch (found ${parsed.version}, expected ${SAVE_VERSION}), discarding`
-    );
-    return { ok: false, reason: 'version_mismatch' };
+  // Current-version saves pass through untouched (same object); older ones
+  // walk the explicit migration chain (persistence/saveMigrations.ts). A
+  // newer build's save, or a version with no registered path, is refused.
+  const migrated = migrateSaveEnvelope(parsed, SAVE_VERSION);
+  if (!migrated.ok) {
+    if (migrated.reason === 'version_mismatch') {
+      console.warn(
+        `validateSaveBlob: save version mismatch (found ${parsed.version}, expected ${SAVE_VERSION}), discarding`
+      );
+      return { ok: false, reason: 'version_mismatch' };
+    }
+    console.warn(`validateSaveBlob: migrating a v${parsed.version} save failed, discarding`);
+    return { ok: false, reason: 'not_a_reign' };
   }
 
-  return { ok: true, save: parsed };
+  // A migration's output must clear the same structural gate its input did.
+  if (migrated.migratedFrom !== null && !looksLikeSaveGame(migrated.envelope)) {
+    console.warn(`validateSaveBlob: a migrated v${parsed.version} save has an unrecognized shape, discarding`);
+    return { ok: false, reason: 'not_a_reign' };
+  }
+
+  return { ok: true, save: migrated.envelope, migratedFrom: migrated.migratedFrom };
 }
 
 function isNonNegativeInteger(value: unknown): value is number {
@@ -464,9 +487,35 @@ export function normalizeLoadedPrivateScenes(value: unknown): PrivateSceneRecord
  * most likely cause of an oversize save on a long campaign). If envelope
  * construction or both write attempts fail, the autosave is skipped and
  * `{ ok: false }` tells the caller whether that operation may safely commit
- * its accompanying in-memory state.
+ * its accompanying in-memory state; its `reason` says why, so a caller can
+ * tell "the browser's storage is full" (actionable: export the reign, clear
+ * other site data) apart from "storage is unavailable" (private mode,
+ * disabled storage) and "this state could not be serialized" (a bug).
  */
-export type SaveGameResult = { ok: true } | { ok: false };
+export type SaveFailureReason = 'quota_exceeded' | 'storage_unavailable' | 'build_failed';
+export type SaveGameResult = { ok: true } | { ok: false; reason: SaveFailureReason };
+
+/**
+ * True for every browser's spelling of "localStorage is full": the standard
+ * `QuotaExceededError` (legacy code 22), and Firefox's historical
+ * `NS_ERROR_DOM_QUOTA_REACHED` (code 1014). Duck-typed rather than
+ * `instanceof DOMException` so it holds across realms (iframes, jsdom).
+ */
+export function isQuotaExceededError(error: unknown): boolean {
+  if (!isRecord(error)) return false;
+  const name = error['name'];
+  const code = error['code'];
+  return (
+    name === 'QuotaExceededError' ||
+    name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+    code === 22 ||
+    code === 1014
+  );
+}
+
+function storageFailureReason(error: unknown): SaveFailureReason {
+  return isQuotaExceededError(error) ? 'quota_exceeded' : 'storage_unavailable';
+}
 
 /**
  * Builds the persistable envelope from live game state, or `null` if that
@@ -496,10 +545,18 @@ function buildSaveEnvelope(state: SaveGameState): SaveGame | null {
 
 export function saveGame(state: SaveGameState): SaveGameResult {
   const envelope = buildSaveEnvelope(state);
-  if (!envelope) return { ok: false };
+  if (!envelope) return { ok: false, reason: 'build_failed' };
+
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(envelope);
+  } catch (e) {
+    console.warn('saveGame: failed to serialize the save state; autosave skipped', e);
+    return { ok: false, reason: 'build_failed' };
+  }
 
   try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify(envelope));
+    localStorage.setItem(SAVE_KEY, serialized);
     return { ok: true };
   } catch (e) {
     console.warn('saveGame: initial write failed, retrying with older rawCalls stripped', e);
@@ -514,7 +571,7 @@ export function saveGame(state: SaveGameState): SaveGameResult {
     return { ok: true };
   } catch (e) {
     console.warn('saveGame: retry after stripping rawCalls also failed; autosave skipped', e);
-    return { ok: false };
+    return { ok: false, reason: storageFailureReason(e) };
   }
 }
 
@@ -589,7 +646,7 @@ export function clearSave(): SaveGameResult {
     return { ok: true };
   } catch (e) {
     console.warn('clearSave: localStorage.removeItem failed', e);
-    return { ok: false };
+    return { ok: false, reason: 'storage_unavailable' };
   }
 }
 
@@ -654,7 +711,9 @@ export function importSaveBlob(text: string): ImportResult {
   }
 
   try {
-    localStorage.setItem(SAVE_KEY, text);
+    // A current-version file is stored verbatim; an older one is stored in
+    // its migrated form, so the slot always holds a current envelope.
+    localStorage.setItem(SAVE_KEY, validated.migratedFrom === null ? text : JSON.stringify(validated.save));
   } catch (e) {
     console.warn('importSaveBlob: write failed, the existing reign is untouched', e);
     return { ok: false, reason: 'storage_failed' };
