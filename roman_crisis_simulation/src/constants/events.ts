@@ -82,9 +82,16 @@ export const ALL_EVENTS: GameEvent[] = [
             const guard = entities.find(e => e.entity_id === 'praetorian_guard');
             if (!guard || guard.status !== 'alive') return false;
             const trustInPlayer = guard.relationships[player.entity_id]?.trust_level ?? 0;
-            const favorsRival = Object.values(guard.relationships).some(
-                r => r && r.entity_id !== player.entity_id && r.trust_level > 5
-            );
+            // A rival the roster knows to be dead, exiled, or missing cannot
+            // be the Guard's next master - lingering trust toward a slain
+            // patron must not keep the mutiny current alive forever. (Ids the
+            // roster doesn't carry still count: an off-roster general can
+            // still court the barracks.)
+            const favorsRival = Object.values(guard.relationships).some(r => {
+                if (!r || r.entity_id === player.entity_id || r.entity_id === guard.entity_id || r.trust_level <= 5) return false;
+                const rival = entities.find(e => e.entity_id === r.entity_id);
+                return !rival || rival.status === 'alive';
+            });
             return trustInPlayer < 0 && favorsRival;
         },
         // The Guard's loyalty is never settled for long; bought or cowed,
