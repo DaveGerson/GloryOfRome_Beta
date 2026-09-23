@@ -1,4 +1,5 @@
 import { GameEvent, Entity, WorldState, SimulationState } from '../types';
+import { isEconomyAtOrWorseThan } from '../events/stabilityVocabulary';
 
 /**
  * The authored-event library (ROADMAP_PHASE_4.md 4D item 2, D12/D24):
@@ -18,6 +19,11 @@ import { GameEvent, Entity, WorldState, SimulationState } from '../types';
  *    (events/engine.ts::applyEventChoiceDeltas) and only delta types that
  *    mint no Reports/ledger entries - see the DISCARD CONSTRAINT note
  *    there before adding 'rumor' deltas to any authored choice.
+ *  - `worldState.economic_stability` is a free string the adjudicator
+ *    writes; triggers MUST read it through events/stabilityVocabulary.ts
+ *    (canonical grades + synonym normalizer), never by raw `===`, so a
+ *    synonym ("Collapsing" for "Failing") cannot leave an event dormant
+ *    (BACKLOG B7; pinned by tests/stabilityVocabulary.test.ts).
  */
 export const ALL_EVENTS: GameEvent[] = [
     {
@@ -28,7 +34,7 @@ export const ALL_EVENTS: GameEvent[] = [
         // Role-agnostic (4D.2): a starving capital confronts ANY player -
         // emperor, senator, or broker - the moment the economy fails.
         trigger: (worldState: WorldState, entities: Entity[], player: Entity | null) => {
-            return player !== null && (worldState.economic_stability === 'Failing' || worldState.economic_stability === 'Crisis');
+            return player !== null && isEconomyAtOrWorseThan(worldState.economic_stability, 'Failing');
         },
         // Famine recurs while the economy stays broken; a season's relief
         // buys roughly ten weeks before the granaries empty again.
@@ -213,7 +219,7 @@ export const ALL_EVENTS: GameEvent[] = [
         // whoever holds visible power or wealth.
         trigger: (worldState: WorldState, entities: Entity[], player: Entity | null, simulationState?: SimulationState) => {
             if (!player || !simulationState) return false;
-            return (worldState.economic_stability === 'Failing' || worldState.economic_stability === 'Crisis')
+            return isEconomyAtOrWorseThan(worldState.economic_stability, 'Failing')
                 && simulationState.military_status !== 'Loyal';
         },
         // Arrears accumulate again in about two months of a broken economy.

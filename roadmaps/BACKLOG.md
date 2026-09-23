@@ -128,6 +128,17 @@ actor in its own right.
 - `economic_stability` free-string triggers can go dormant when the model
   writes a synonym ("Collapsing" vs "Failing") — no canonical vocabulary
   enforced, so some authored events may never fire.
+  **CLOSED 2026-09-23** - `events/stabilityVocabulary.ts` defines the
+  canonical grades (Prosperous / Stable / Strained / Failing / Crisis) plus a
+  synonym normalizer tolerant of case, whitespace, punctuation, and modifiers
+  ("Collapsing", "In Crisis", "Near Collapse", "Recovering from famine");
+  both economy-keyed authored triggers (`grain_shortage`,
+  `praetorian_pay_crisis`) now read the field via `isEconomyAtOrWorseThan`
+  instead of raw `===`, and the adjudicator's WORLD DELTAS rule advertises
+  the canonical grades. `tests/stabilityVocabulary.test.ts` fails if
+  `constants/events.ts` ever compares `economic_stability` directly or passes
+  a non-canonical grade threshold. The stored string is never rewritten -
+  the Header still shows what the fiction said.
 - A presumed-dead NPC keeps its `active_scheme` as GM ground truth (never
   leaked to the player; pinned by the `mortalityFates` journey). Kept as-is;
   if a future fix clears it on revival, update that journey's expectation.
