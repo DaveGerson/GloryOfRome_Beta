@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
-import { GameState, Entity, PlayerCharacterOption, Message, InvestigationResult, PlayerEventChoice, EventHistoryEntry, PacingPosture, StructuredTurnDraft, TurnSubmission } from './types';
-import { GoogleGenAI } from "@google/genai";
+import { GameState, Entity, PlayerCharacterOption, Message, InvestigationResult, PlayerEventChoice, EventHistoryEntry, StructuredTurnDraft, TurnSubmission } from './types';
 
 import Header from './components/Header';
 import CharacterSelection, { SavedGameSummary } from './components/CharacterSelection';
@@ -25,16 +24,9 @@ import type { DomainMutationContext, RunDomainMutation } from './state/domainMut
 import { createCharacter } from './ai/tools/characterCreator';
 import { checkForTriggeredEvent, applyEventChoiceDeltas, recordEventFiring } from './events/engine';
 import { initiateWorld } from './ai/core/initiator';
-import { runSmokeTest } from './tests/smokeTest';
 import { resetSessionCallLog } from './ai/core/geminiService';
 import { saveGame, loadGame, clearSave, hasSave, importSaveBlob, SaveGameState, InferredAmbitionState } from './persistence/saveGame';
 import { hasSeenOnboarding, markOnboardingSeen } from './persistence/onboarding';
-import { getPacingPosture, setPacingPosture } from './persistence/settings';
-import { getApiKey, setApiKey, clearApiKey, resolveApiKey } from './persistence/apiKey';
-import {
-    getGmConsoleEnabled, setGmConsoleEnabled,
-    getGmInterventionEnabled, setGmInterventionEnabled,
-} from './persistence/uiPrefs';
 import { buildPlayerPerceivedDigest, projectPrivateSceneForPlayer, TabId } from './perception/visibility';
 import {
     PRIVATE_SCENE_MAX_UTTERANCE_CHARS,
@@ -64,25 +56,20 @@ import {
     OfflineStrip, TurnFailureNotice, useOnline, type TurnFailure,
 } from './components/ui/FailureNotices';
 import { Tooltip } from './components/ui/Feedback';
-import { shouldToggleGmConsole } from './components/ui/gmConsoleHotkey';
-import nocturneUrl from './design/nocturne.css?url';
 import { useExecuteTurn } from './hooks/useExecuteTurn';
+import { useSettings } from './hooks/useSettings';
+import { useGmConsole } from './hooks/useGmConsole';
+import { useWeekBeat } from './hooks/useWeekBeat';
+import { useDevSmokeTest, useScrollToLatest, useUnloadGuardWhileProcessing } from './hooks/useShellEffects';
 import {
     type TransactionNote, type DomainCommit,
-    readDevApiKey, loadSavedGameSummary, newestInferredAmbition, isSameCampaignPrefix,
+    loadSavedGameSummary, newestInferredAmbition, isSameCampaignPrefix,
     privateScenesFingerprint, pickSaveState,
 } from './app/transactions';
 import { TransactionNoteView, downloadTheReign } from './app/TransactionNoteView';
 
 
 // --- MAIN APP ---
-
-/**
- * The beat between weeks (audit item 18) — how long the marble dims as the
- * new week's vexillum drops in. Matches `gorWeekBeat`/`gorRibbonDrop` in
- * design/components.css; decorative only, never awaited by the turn.
- */
-const WEEK_BEAT_MS = 320;
 
 const App: React.FC = () => {
     // Every game-domain slice lives in the reducer behind GameContext
@@ -131,62 +118,21 @@ const App: React.FC = () => {
     // navigator.onLine plus its two events — no network call, no polling.
     const online = useOnline();
     const [domainMutationInFlight, setDomainMutationInFlight] = useState(false);
-    // The beat between weeks (audit item 18): a 320ms wash over the marble as
-    // the vexillum drops in. Purely decorative and never awaited - it is set
-    // from the TURN_COMMITTED onCommitted callback, after the turn is durable.
-    const [weekBeat, setWeekBeat] = useState(false);
-    const weekBeatTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const strikeWeekBeat = useCallback(() => {
-        if (weekBeatTimer.current !== null) clearTimeout(weekBeatTimer.current);
-        setWeekBeat(true);
-        weekBeatTimer.current = setTimeout(() => {
-            weekBeatTimer.current = null;
-            setWeekBeat(false);
-        }, WEEK_BEAT_MS);
-    }, []);
-    useEffect(() => () => {
-        if (weekBeatTimer.current !== null) clearTimeout(weekBeatTimer.current);
-    }, []);
-    const [isGmScreenVisible, setIsGmScreenVisible] = useState(false);
-    // D7 - the GM console (log/debugger) stays in the codebase permanently
-    // but is hidden by default for a clean player view. This is the runtime
-    // toggle that governs whether the GM LOG button even appears; Ctrl+Shift+G
-    // (see the effect below) and, in dev builds, the configuration menu's
-    // Developer-card switch both flip it. Deliberately not persisted - every
-    // fresh session starts hidden.
-    const [isGmConsoleEnabled, setIsGmConsoleEnabled] = useState(false);
-    const updateGmConsoleEnabled = useCallback((enabled: boolean) => {
-        if (!enabled) setIsGmScreenVisible(false);
-        setIsGmConsoleEnabled(enabled);
-    }, []);
-    // DESIGN_DECISIONS.md D33 - whether the GM console is available AT ALL,
-    // a device preference (persistence/uiPrefs.ts) distinct from
-    // `isGmConsoleEnabled` above (whether it's currently toggled ON for
-    // this session). Defaults true ("available"), so out of the box
-    // nothing about the Ctrl+Shift+G/dev-switch behavior above changes.
-    // When false, the effect below turns the hotkey into a no-op and this
-    // also forces `isGmConsoleEnabled` off (see handleSetGmConsoleAvailable).
-    const [gmConsoleAvailable, setGmConsoleAvailableState] = useState<boolean>(() => getGmConsoleEnabled());
-    const handleSetGmConsoleAvailable = useCallback((enabled: boolean) => {
-        setGmConsoleAvailableState(enabled);
-        setGmConsoleEnabled(enabled);
-        if (!enabled) {
-            updateGmConsoleEnabled(false);
-        }
-    }, [updateGmConsoleEnabled]);
-    // DESIGN_DECISIONS.md D32 - whether GM Intervention's free-text input is
-    // available at all (persistence/uiPrefs.ts), same device-preference
-    // mold as above. Defaults true; passed straight through to
-    // GameMasterScreen, which does the actual UI gating.
-    const [gmInterventionAvailable, setGmInterventionAvailableState] = useState<boolean>(() => getGmInterventionEnabled());
-    const handleSetGmInterventionAvailable = useCallback((enabled: boolean) => {
-        setGmInterventionAvailableState(enabled);
-        setGmInterventionEnabled(enabled);
-    }, []);
-    // D31 - the configuration menu's own open/closed flag. Purely transient
-    // UI state, never part of the save bundle.
-    const [isSettingsMenuOpen, setIsSettingsMenuOpen] = useState(false);
-    const [isMockMode, setIsMockMode] = useState(false);
+    const { weekBeat, strikeWeekBeat } = useWeekBeat();
+    const {
+        isSettingsMenuOpen, openSettings, closeSettings,
+        isMockMode, setIsMockMode,
+        isNox, setIsNox,
+        pacingPosture, handleSetPacingPosture,
+        userApiKey, resolvedApiKey, handleSaveApiKey, handleClearApiKey,
+        ai,
+    } = useSettings();
+    const {
+        isGmScreenVisible, openGmScreen, closeGmScreen,
+        isGmConsoleEnabled, handleSetGmConsoleOpen,
+        gmConsoleAvailable, handleSetGmConsoleAvailable,
+        gmInterventionAvailable, handleSetGmInterventionAvailable,
+    } = useGmConsole();
     // Set when a turn commits with the player still alive; an effect below
     // then runs the authored-event trigger check against the freshly
     // committed state and resolves the phase to AWAITING_EVENT_CHOICE or
@@ -206,41 +152,6 @@ const App: React.FC = () => {
     // ROADMAP_3_UX_INTERACTIONS.md and ROADMAP_5_TECH_PERFORMANCE.md). Never
     // part of the save bundle - see persistence/saveGame.ts.
     const [savedGameInfo, setSavedGameInfo] = useState<SavedGameSummary | null>(loadSavedGameSummary);
-
-    // LVX/NOX lighting. Nox Romae (design/nocturne.css) is an override
-    // stylesheet loaded after styles.css; toggling swaps the whole client
-    // between marble day and the torchlit night skin. Persisted so the
-    // choice survives reloads. Presentation-only - never part of the save.
-    const [isNox, setIsNox] = useState<boolean>(() => {
-        try { return localStorage.getItem('gor-theme') === 'nox'; } catch { return false; }
-    });
-
-    useEffect(() => {
-        let link = document.getElementById('nox-css') as HTMLLinkElement | null;
-        if (!link && isNox) {
-            link = document.createElement('link');
-            link.id = 'nox-css';
-            link.rel = 'stylesheet';
-            link.href = nocturneUrl;
-            document.head.appendChild(link);
-        } else if (link) {
-            link.disabled = !isNox;
-        }
-        try { localStorage.setItem('gor-theme', isNox ? 'nox' : 'lux'); } catch { /* private mode */ }
-    }, [isNox]);
-
-    // The Fates pacing posture (ROADMAP_PHASE_4.md 4D item 1, D23) - a
-    // device-level USER PREFERENCE beside the theme/onboarding keys
-    // (persistence/settings.ts), never part of the save bundle. This local
-    // state only mirrors localStorage for the selector's rendering:
-    // executeTurn re-reads the STORED value fresh at each turn's start, so
-    // a change takes effect on the next turn without touching executeTurn's
-    // dependency array.
-    const [pacingPosture, setPacingPostureState] = useState<PacingPosture>(() => getPacingPosture());
-    const handleSetPacingPosture = useCallback((posture: PacingPosture) => {
-        setPacingPostureState(posture);
-        setPacingPosture(posture);
-    }, []);
 
     // ROADMAP_0_MASTER_PLAN.md Phase 3 items 1-2 - the "thinking theater" and
     // streaming narration. Both are purely transient, in-flight-turn UI
@@ -263,38 +174,6 @@ const App: React.FC = () => {
     // `handleContinue`, so resuming an existing save never shows it.
     const [showOnboarding, setShowOnboarding] = useState(false);
 
-    const messagesEndRef = useRef<HTMLDivElement>(null);
-    // DESIGN_DECISIONS.md D34 - bring-your-own-key. The player's own key
-    // (persistence/apiKey.ts, entered via SettingsMenu) takes priority over
-    // the dev-mode `.env` convenience (readDevApiKey, above); resolveApiKey
-    // returns null when neither is set. Mirrors localStorage in local state
-    // exactly like `pacingPosture` above, so saving/clearing a key in the
-    // menu re-renders with the fresh value.
-    const [userApiKey, setUserApiKeyState] = useState<string | null>(() => getApiKey());
-    const resolvedApiKey = useMemo(() => resolveApiKey(userApiKey, readDevApiKey()), [userApiKey]);
-    const handleSaveApiKey = useCallback((key: string) => {
-        setApiKey(key);
-        setUserApiKeyState(key);
-    }, []);
-    const handleClearApiKey = useCallback(() => {
-        clearApiKey();
-        setUserApiKeyState(null);
-    }, []);
-    // A real key is required only for REAL turns. The SDK constructor throws
-    // in a browser when the key is unset, which would crash the app before
-    // character select even in Mock Mode (which exists precisely to run
-    // keyless). Fall back to a sentinel so the app always boots; Mock Mode
-    // never calls the API, and executeTurn below short-circuits a real turn
-    // with no key at all before ever reaching the network (see its
-    // resolvedApiKey guard) rather than letting the sentinel hit an auth
-    // error. Rebuilt (not a stable ref) whenever the resolved key changes,
-    // so saving a new key in the configuration menu takes effect on the
-    // very next AI call - an in-flight turn already holds the OLD client in
-    // its own closure and simply finishes on it, which is fine.
-    const ai = useMemo(
-        () => new GoogleGenAI({ apiKey: resolvedApiKey || 'NO_API_KEY_SET' }),
-        [resolvedApiKey]
-    );
     // Snapshot of the committed game state taken right before a turn's AI
     // calls kick off, so a mid-turn failure can be rolled back to explicitly
     // rather than relying on "we just never committed" (P0.2/P0.4 - a
@@ -349,26 +228,7 @@ const App: React.FC = () => {
         resetSessionCallLog();
     }, []);
 
-    useEffect(() => {
-        // Run a "smoke test" on startup to validate that all mock functions
-        // are working as expected after any system changes.
-        // Dev-only scaffolding: never runs (and never alerts) in a production
-        // build — players should never see a blocking alert() on load.
-        if (!import.meta.env.DEV) return;
-
-        const performSmokeTest = async () => {
-            try {
-                await runSmokeTest();
-            } catch (error) {
-                // Display the error prominently to the developer.
-                console.error(error);
-                alert((error as Error).message);
-            }
-        };
-
-        // This test runs on every startup (in dev only) to ensure build validity.
-        performSmokeTest();
-    }, []); // Empty dependency array ensures this runs only once on mount.
+    useDevSmokeTest();
 
     const playerEntity = entities.find(e => e.entity_id === playerCharacterId) || null;
     const recipientOptions = useMemo(
@@ -478,44 +338,8 @@ const App: React.FC = () => {
         return candidate;
     }, [state]);
 
-    useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages, gameState]);
-
-    // Now that every turn/event-choice/resource-spend autosaves (see
-    // executeTurn/handleEventChoice/handleSpendResource below), the only
-    // window with genuinely unsaved changes is while a turn is in flight
-    // (PROCESSING) - the pre-turn snapshot was already saved, but this
-    // turn's outcome hasn't committed yet. A committed-and-saved state
-    // doesn't need the scare dialog.
-    useEffect(() => {
-        if (gameState !== GameState.PROCESSING) return;
-
-        const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-            event.preventDefault();
-            event.returnValue = '';
-        };
-
-        window.addEventListener('beforeunload', handleBeforeUnload);
-        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-    }, [gameState]);
-
-    // D7 - Ctrl+Shift+G is the primary runtime toggle for the GM console's
-    // availability (separate from whether the screen is currently open -
-    // see isGmScreenVisible). Works in every build, not just dev, since the
-    // console itself is meant to stay reachable for tuning, just hidden by
-    // default. D33 - a no-op entirely when `gmConsoleAvailable` (the
-    // configuration menu's toggle) is false - including not preventing the
-    // browser's default handling of the chord (see shouldToggleGmConsole).
-    useEffect(() => {
-        const handleKeyDown = (event: KeyboardEvent) => {
-            if (!shouldToggleGmConsole(event, gmConsoleAvailable)) return;
-            event.preventDefault();
-            updateGmConsoleEnabled(!isGmConsoleEnabled);
-        };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [gmConsoleAvailable, isGmConsoleEnabled, updateGmConsoleEnabled]);
+    const messagesEndRef = useScrollToLatest(messages, gameState);
+    useUnloadGuardWhileProcessing(gameState);
 
     const addMessage = useCallback((message: Message) => {
         dispatch({ type: 'MESSAGE_ADDED', message });
@@ -1077,7 +901,7 @@ const App: React.FC = () => {
             {weekBeat && <div className="gor-week-beat" aria-hidden="true" />}
             <Header
                 worldState={worldState}
-                onOpenSettings={() => setIsSettingsMenuOpen(true)}
+                onOpenSettings={openSettings}
             />
             {gameState !== GameState.GAME_OVER && (
                 <CrisisBanner
@@ -1182,9 +1006,9 @@ const App: React.FC = () => {
                                                         // used to dismiss the notice and focus nothing.
                                                         document.querySelector<HTMLElement>('#chat-input, #structured-input')?.focus();
                                                     }}
-                                                    onOpenSettings={() => setIsSettingsMenuOpen(true)}
+                                                    onOpenSettings={openSettings}
                                                     onEnableMockMode={() => { setIsMockMode(true); setTurnFailure(null); }}
-                                                    onOpenLedger={isGmConsoleEnabled ? () => setIsGmScreenVisible(true) : undefined}
+                                                    onOpenLedger={isGmConsoleEnabled ? openGmScreen : undefined}
                                                 />
                                             </div>
                                         )}
@@ -1219,7 +1043,7 @@ const App: React.FC = () => {
                                                 playerInitial={playerEntity?.name}
                                                 canReachTheFates={isMockMode || Boolean(resolvedApiKey)}
                                                 online={online}
-                                                onOpenSettings={() => setIsSettingsMenuOpen(true)}
+                                                onOpenSettings={openSettings}
                                                 onEnableMockMode={() => setIsMockMode(true)}
                                             />
                                             {gameState === GameState.AWAITING_PLAYER_INPUT && (
@@ -1247,7 +1071,7 @@ const App: React.FC = () => {
                                                 <Tooltip wide label={turnHistory.length > 0 ? "The Fates' ledger — every thread and die of the simulation, recorded." : 'The ledger opens once a turn has been played.'}>
                                                     <Button
                                                         variant="secondary"
-                                                        onClick={() => setIsGmScreenVisible(true)}
+                                                        onClick={openGmScreen}
                                                         aria-label="Open Game Master Screen"
                                                         disabled={turnHistory.length === 0}
                                                     >
@@ -1287,7 +1111,7 @@ const App: React.FC = () => {
             </main>
             {isGmConsoleEnabled && isGmScreenVisible && <GameMasterScreen
                 history={turnHistory}
-                onClose={() => setIsGmScreenVisible(false)}
+                onClose={closeGmScreen}
                 interventionText={gmInterventionText}
                 onSetIntervention={async (text) => {
                     const result = await runDomainMutation(() => handleSetIntervention(text));
@@ -1319,7 +1143,7 @@ const App: React.FC = () => {
             )}
             {isSettingsMenuOpen && (
                 <SettingsMenu
-                    onClose={() => setIsSettingsMenuOpen(false)}
+                    onClose={closeSettings}
                     apiKey={userApiKey}
                     onSaveApiKey={handleSaveApiKey}
                     onClearApiKey={handleClearApiKey}
@@ -1334,11 +1158,7 @@ const App: React.FC = () => {
                     isMockMode={isMockMode}
                     onSetIsMockMode={setIsMockMode}
                     gmConsoleOpen={isGmConsoleEnabled}
-                    onSetGmConsoleOpen={(enabled) => {
-                        if (gmConsoleAvailable) {
-                            updateGmConsoleEnabled(enabled);
-                        }
-                    }}
+                    onSetGmConsoleOpen={handleSetGmConsoleOpen}
                     hasSavedReign={hasSave()}
                     onExportReign={downloadTheReign}
                     onImportReign={handleImportReign}
