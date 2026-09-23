@@ -146,6 +146,12 @@ actor in its own right.
   live player-typed text on the same CharacterSelection screen as
   worldGen.ts's `playerCharacterDescription`.) Closing the remainder needs the same
   `asPromptData` swap already applied everywhere else.
+  **CLOSED 2026-09-23** - `buildClarificationPrompt` now interpolates both
+  `event` and `question` through `asPromptData`; the two entries were
+  deleted from `KNOWN_DEFERRED_GAPS` (now empty), so the directory-walking
+  guard enforces them, and two new behavioral cases in
+  `tests/promptDataBoundary.test.ts` pin that a U+2028 / quote-and-newline
+  payload cannot forge a second `**Question:**` / `**Event:**` line.
 - `playerBoundary.test.ts` "DECLARED GAP 1" is now CLOSED - a third-person
   pronoun under a second-person possessive (`Your grip weakens because he
   burned the granary.`) no longer needs real antecedent resolution: the
