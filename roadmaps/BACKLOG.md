@@ -124,6 +124,14 @@ actor in its own right.
   released saves are affected pre-merge, so migration is deferred.
 - Fork-key collision under 300+ claims with eviction (theoretical; a monotonic
   fork counter closes it).
+  **CLOSED 2026-09-23** - not theoretical: fork numbering COUNTED surviving
+  `#c{n}` forks, so once eviction dropped an early fork the next
+  contradiction re-used a live fork's key. `knowledge/store.ts`'s
+  `nextForkIndex` now issues one past the HIGHEST surviving fork index - a
+  monotonic counter derived from the store itself, so no new save field and
+  legacy saves need no migration. Pinned in `tests/knowledgeStore.test.ts`
+  (direct eviction, the real 300-claim cap path, and a legacy gapped-fork
+  store).
 - The modal-weave same-turn double-hit (D12) has no suppression gate.
 - `economic_stability` free-string triggers can go dormant when the model
   writes a synonym ("Collapsing" vs "Failing") — no canonical vocabulary
