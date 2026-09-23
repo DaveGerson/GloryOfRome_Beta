@@ -1,11 +1,11 @@
 import { GoogleGenAI } from "@google/genai";
-import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent, TruthLedgerEntry, NpcIntent, NpcMindDecision, StoryRelevance, EntityAction, Memory, PacingPosture, EventFiringRecord, EventDelta, Scheme, SchemeStep, TurnSubmission } from '../../types';
+import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent, TruthLedgerEntry, NpcIntent, NpcMindDecision, StoryRelevance, EntityAction, Memory, PacingPosture, EventFiringRecord, EventDelta, Scheme, SchemeStep, TurnSubmission, MortalityEvent } from '../../types';
 import { AdjudicationSchema, NarrationPayloadSchema } from './schemas';
 import { applyAdjudication } from './engine';
 import { mockRunNewTurn } from "../mocks";
 import { selectDurableIntents } from './directorIntents';
 import { getPlayerMonologue, getStoryRelevance, getUpdatedSimulationState } from '../tools/intelligence';
-import { getActionAssessment } from '../tools/assessment';
+import { getActionAssessment, type ActionAssessment } from '../tools/assessment';
 import { getNpcMindDecision } from '../tools/npcMind';
 import { MAX_MINDS_PER_TURN } from '../prompts/npcMind';
 import { buildWorldSummary } from '../prompts/fragments';
@@ -25,7 +25,7 @@ import { selectRipeEventMaterial } from '../../events/engine';
 import { buildNarrationPrompt, selectVoiceCast } from '../prompts/narration';
 import { processMortality, detectDeathClaims } from './mortality';
 import { createNarrationStreamGate, createPayloadTextExtractor } from './streamSplit';
-import { rollD20, resolveAction, clampDifficulty,derivePersonalityModifier, deriveOppositionModifier, createSeededRng, generateSeed } from './resolution';
+import { rollD20, resolveAction, clampDifficulty, derivePersonalityModifier, deriveOppositionModifier, createSeededRng, generateSeed, type Rng } from './resolution';
 import { deserializeTurnSubmission, isReservedTurnSubmissionArtifact, normalizeTurnSubmissionInput, projectForAdjudication, projectForNarration, projectForNoAttemptResponse, projectForPlayerReflection, projectForResolution, serializeTurnSubmission } from '../../playerInput/turnSubmission';
 import {
     assertNoInventedPlayerAction,
@@ -380,6 +380,90 @@ export interface RunNewTurnOptions {
     privateSceneNpcMemoriesByNpcId?: Readonly<Record<string, readonly PrivateSceneNpcMemoryProjection[]>>;
 }
 
+/** What `runNewTurn` commits: the post-turn state slices plus the turn's player-facing output and history entry. */
+export interface RunNewTurnResult {
+    updatedEntities: Entity[],
+    updatedWorldState: WorldState,
+    updatedSimulationState: SimulationState,
+    updatedReports: Report[],
+    updatedTruthLedger: TruthLedgerEntry[],
+    updatedNpcIntents: NpcIntent[],
+    narration: string,
+    headlines: string[],
+    suggestedActions: string[],
+    playerMonologue: string,
+    newHistoryEntry: TurnHistoryEntry,
+}
+
+/**
+ * The turn submission projected once, up front, into every audience-specific
+ * view the stages below consume - each stage sees only the projection its
+ * call is allowed to see (playerInput/turnSubmission.ts).
+ */
+interface SubmissionProjections {
+    normalizedSubmission: TurnSubmission;
+    noAttemptResponse: ReturnType<typeof projectForNoAttemptResponse>;
+    playerIntent: string;
+    resolutionAttempt: string | null;
+    adjudicationSubmission: ReturnType<typeof projectForAdjudication>;
+    narrationSubmission: ReturnType<typeof projectForNarration>;
+}
+
+function projectSubmission(submission: TurnSubmission | string): SubmissionProjections {
+    const normalizedSubmission = normalizeTurnSubmissionInput(submission);
+    const resolutionAttempt = projectForResolution(normalizedSubmission);
+    return {
+        normalizedSubmission,
+        noAttemptResponse: projectForNoAttemptResponse(normalizedSubmission),
+        playerIntent: serializeTurnSubmission(normalizedSubmission),
+        resolutionAttempt,
+        // Question/Context remains non-canonical context on mixed observable
+        // submissions. With no observable attempt, the adjudicator still runs so
+        // independent NPC/world events can advance, but receives no player prose
+        // from which it could fabricate an avatar action.
+        adjudicationSubmission: resolutionAttempt === null
+            ? { observableAttempt: null, questionOrContext: null }
+            : projectForAdjudication(normalizedSubmission),
+        narrationSubmission: projectForNarration(normalizedSubmission),
+    };
+}
+
+/**
+ * Everything a stage may read about the turn being run: `runNewTurn`'s
+ * pre-turn inputs, the submission projections, and the turn's single
+ * seeded random source. Read-only by convention - stages hand their
+ * results forward as return values, never by writing here.
+ */
+interface TurnContext extends SubmissionProjections {
+    ai: GoogleGenAI;
+    playerEntity: Entity;
+    turnNumber: number;
+    currentEntities: Entity[];
+    currentWorldState: WorldState;
+    currentSimulationState: SimulationState;
+    turnHistory: TurnHistoryEntry[];
+    currentReports: Report[];
+    currentTruthLedger: TruthLedgerEntry[];
+    currentNpcIntents: NpcIntent[];
+    gmInterventionText: string;
+    isMockMode: boolean;
+    metaNarrative: string;
+    options: RunNewTurnOptions | undefined;
+    /** Every NPC on the pre-turn roster (the player excluded). */
+    npcEntities: Entity[];
+    /**
+     * One seed per turn: every hidden roll this pipeline makes draws from
+     * this single seeded generator, in a fixed order - the player action's
+     * resolution roll first (when consequential), then each mortality roll
+     * in claim order - so recording `turnSeed` on the history entry replays
+     * the turn's dice exactly (see createSeededRng in
+     * ai/core/resolution.ts). Per DESIGN_DECISIONS.md D4 the seed is
+     * GM-console data, never player-facing.
+     */
+    turnSeed: number;
+    turnRng: Rng;
+}
+
 export async function runNewTurn(
     ai: GoogleGenAI,
     submission: TurnSubmission | string,
@@ -403,36 +487,13 @@ export async function runNewTurn(
     isMockMode: boolean,
     metaNarrative: string,
     options?: RunNewTurnOptions
-): Promise<{
-    updatedEntities: Entity[],
-    updatedWorldState: WorldState,
-    updatedSimulationState: SimulationState,
-    updatedReports: Report[],
-    updatedTruthLedger: TruthLedgerEntry[],
-    updatedNpcIntents: NpcIntent[],
-    narration: string,
-    headlines: string[],
-    suggestedActions: string[],
-    playerMonologue: string,
-    newHistoryEntry: TurnHistoryEntry,
-}> {
-    const normalizedSubmission = normalizeTurnSubmissionInput(submission);
-    const noAttemptResponse = projectForNoAttemptResponse(normalizedSubmission);
-    const playerIntent = serializeTurnSubmission(normalizedSubmission);
-    const resolutionAttempt = projectForResolution(normalizedSubmission);
-    // Question/Context remains non-canonical context on mixed observable
-    // submissions. With no observable attempt, the adjudicator still runs so
-    // independent NPC/world events can advance, but receives no player prose
-    // from which it could fabricate an avatar action.
-    const adjudicationSubmission = resolutionAttempt === null
-        ? { observableAttempt: null, questionOrContext: null }
-        : projectForAdjudication(normalizedSubmission);
-    const narrationSubmission = projectForNarration(normalizedSubmission);
+): Promise<RunNewTurnResult> {
+    const projections = projectSubmission(submission);
     if (isMockMode) {
         if(!mockRunNewTurn) throw new Error("Mock function 'mockRunNewTurn' is not implemented.");
         // FIX: Pass currentSimulationState to the mock function to align with its updated signature.
         return mockRunNewTurn(
-            normalizedSubmission,
+            projections.normalizedSubmission,
             playerEntity,
             turnNumber,
             currentEntities,
@@ -453,147 +514,251 @@ export async function runNewTurn(
     // raw-call log. See ai/core/geminiService.ts.
     beginTurnCapture();
 
-    // One seed per turn: every hidden roll this pipeline makes draws from
-    // this single seeded generator, in a fixed order - the player action's
-    // resolution roll first (when consequential), then each mortality roll
-    // in claim order - so recording `turnSeed` on the history entry below
-    // replays the turn's dice exactly (see createSeededRng in
-    // ai/core/resolution.ts). Per DESIGN_DECISIONS.md D4 the seed is
-    // GM-console data, never player-facing.
     const turnSeed = generateSeed();
-    const turnRng = createSeededRng(turnSeed);
+    const ctx: TurnContext = {
+        ...projections,
+        ai, playerEntity, turnNumber, currentEntities, currentWorldState, currentSimulationState,
+        turnHistory, currentReports, currentTruthLedger, currentNpcIntents,
+        gmInterventionText, isMockMode, metaNarrative, options,
+        npcEntities: currentEntities.filter(e => e.entity_id !== playerEntity.entity_id),
+        turnSeed,
+        turnRng: createSeededRng(turnSeed),
+    };
 
     try {
-    // 0. Determine story relevance (Director spotlight-picking) AND assess
-    // whether the player's action is consequential enough to warrant a
-    // hidden dice resolution (ROADMAP_0_MASTER_PLAN.md Phase 3 item 4's
-    // resolution layer) - launched CONCURRENTLY via `Promise.all`. Both
-    // calls only read PRE-TURN state (currentWorldState/currentEntities/
-    // playerEntity/turnHistory) and are otherwise fully independent of one
-    // another, so this costs zero additional wall-clock over story_relevance
-    // alone (see the TurnStage doc comment above for why both share the
-    // single 'story_relevance' notification instead of a new stage).
-    options?.onStage?.('story_relevance');
-    const npcEntities = currentEntities.filter(e => e.entity_id !== playerEntity.entity_id);
-    const storyRelevancePromise = getStoryRelevance(ai, turnNumber, turnHistory.slice(-1)[0]?.adjudication.headlines || [], currentWorldState, npcEntities, currentNpcIntents, isMockMode);
-    const actionAssessmentPromise = resolutionAttempt === null
+        // THE PIPELINE, in the order it runs. Each stage's own doc comment
+        // carries the rulings that govern it; `TurnStage` above lists the
+        // onStage notifications they fire.
+        const director = await runDirectorStage(ctx);
+        const playerAction = resolvePlayerAction(ctx, director.actionAssessment);
+        const minds = await runNpcMindsStage(ctx, director.storyRelevance, director.npcIntents);
+        const adjudicated = await runAdjudicationStage(ctx, director, playerAction, minds);
+        const mortality = await runMortalityStage(ctx, adjudicated);
+        const applied = applyTurnState(ctx, director.storyRelevance, mortality.transformedAdjudication);
+        const surfaces = await runPlayerSurfacesStage(ctx, mortality.transformedAdjudication, applied);
+        return assembleTurnResult(ctx, {
+            npcIntents: director.npcIntents,
+            resolutionTrace: playerAction.resolutionTrace,
+            npcMindResults: minds.npcMindResults,
+            transformedAdjudication: mortality.transformedAdjudication,
+            mortalityEvents: mortality.mortalityEvents,
+            applied,
+            surfaces,
+            proseRedactions: [
+                ...adjudicated.proseRedactions,
+                ...mortality.proseRedactions,
+                ...surfaces.proseRedactions,
+            ],
+        });
+    } catch (e) {
+        // Drain the in-flight capture buffer so a failed turn's partial raw
+        // calls don't leak into whatever unrelated AI call happens next
+        // (e.g. a player-triggered investigation action while the error is
+        // being surfaced to the user).
+        endTurnCapture();
+        throw e;
+    }
+}
+
+// --- Stage 0: the Director (story relevance) + action assessment ----------
+
+interface DirectorStageResult {
+    storyRelevance: StoryRelevance;
+    actionAssessment: ActionAssessment | undefined;
+    /**
+     * *** THE DIRECTOR'S DURABLE INTENTS (4C.3) ***
+     * The single filtered/capped intent list every downstream consumer sees:
+     * the adjudication prompt's SPOTLIGHT NPC INTENTS block, the post-hoc
+     * consistency check, the history entry, and (via the result) the
+     * reducer's persisted npcIntents slice that feeds NEXT turn's Director.
+     */
+    npcIntents: NpcIntent[];
+}
+
+/**
+ * Determines story relevance (Director spotlight-picking) AND assesses
+ * whether the player's action is consequential enough to warrant a hidden
+ * dice resolution (ROADMAP_0_MASTER_PLAN.md Phase 3 item 4's resolution
+ * layer) - launched CONCURRENTLY via `Promise.all`. Both calls only read
+ * PRE-TURN state (currentWorldState/currentEntities/playerEntity/
+ * turnHistory) and are otherwise fully independent of one another, so this
+ * costs zero additional wall-clock over story_relevance alone (see the
+ * TurnStage doc comment above for why both share the single
+ * 'story_relevance' notification instead of a new stage).
+ */
+async function runDirectorStage(ctx: TurnContext): Promise<DirectorStageResult> {
+    ctx.options?.onStage?.('story_relevance');
+    const storyRelevancePromise = getStoryRelevance(ctx.ai, ctx.turnNumber, ctx.turnHistory.slice(-1)[0]?.adjudication.headlines || [], ctx.currentWorldState, ctx.npcEntities, ctx.currentNpcIntents, ctx.isMockMode);
+    const actionAssessmentPromise = ctx.resolutionAttempt === null
         ? Promise.resolve(undefined)
-        : getActionAssessment(ai, playerEntity, resolutionAttempt, currentWorldState, npcEntities, isMockMode);
+        : getActionAssessment(ctx.ai, ctx.playerEntity, ctx.resolutionAttempt, ctx.currentWorldState, ctx.npcEntities, ctx.isMockMode);
     const [storyRelevance, actionAssessment] = await Promise.all([storyRelevancePromise, actionAssessmentPromise]);
+    return {
+        storyRelevance,
+        actionAssessment,
+        npcIntents: selectDurableIntents(storyRelevance, ctx.currentEntities),
+    };
+}
 
-    // *** THE DIRECTOR'S DURABLE INTENTS (4C.3) ***
-    // The single filtered/capped intent list every downstream consumer sees:
-    // the adjudication prompt's SPOTLIGHT NPC INTENTS block, the post-hoc
-    // consistency check below, the history entry, and (via the result) the
-    // reducer's persisted npcIntents slice that feeds NEXT turn's Director.
-    const npcIntents = selectDurableIntents(storyRelevance, currentEntities);
+// --- Stage 0.5: the resolution layer's hidden roll -------------------------
 
-    // *** RESOLUTION LAYER (ROADMAP_0_MASTER_PLAN.md Phase 3 item 4) ***
-    // The model NEVER decides whether the player's action succeeds - it only
-    // narrates a pre-decided outcome, mirroring the mortality pipeline's own
-    // contract (DESIGN_DECISIONS.md D2/D3/D4). Non-consequential actions
-    // (questions, idle conversation, pure information requests) skip rolling
-    // entirely: no PLAYER ACTION OUTCOME block is injected into the
-    // adjudication prompt below, no `resolutionTrace` is recorded, and the
-    // adjudicator behaves exactly as it did before this feature existed.
-    let playerActionOutcome: PlayerActionOutcomeContext | undefined;
-    let resolutionTrace: ActionResolutionEvent | undefined;
-    if (actionAssessment?.is_consequential) {
-        const opposingEntity = actionAssessment.opposing_entity_id
-            ? currentEntities.find(e => e.entity_id === actionAssessment.opposing_entity_id)
-            : undefined;
-        // Directional per this codebase's relationship convention (see
-        // ai/prompts/adjudication.ts's RELATIONSHIP DELTAS rule): a
-        // relationship keyed under entity A describes A's perception of the
-        // OTHER entity ONLY. `opposingEntity.relationships[playerEntity.entity_id]`
-        // is therefore the opposing entity's perception of the PLAYER - "the
-        // opposing entity's directional stats toward the actor" this
-        // feature's spec calls for.
-        const relationshipTowardActor = opposingEntity?.relationships[playerEntity.entity_id];
+interface PlayerActionResolution {
+    playerActionOutcome: PlayerActionOutcomeContext | undefined;
+    resolutionTrace: ActionResolutionEvent | undefined;
+}
 
-        const relevantSkillValue = actionAssessment.relevant_skill
-            ? playerEntity.skills?.[actionAssessment.relevant_skill] ?? null
-            : null;
-        const personalityModifier = derivePersonalityModifier({
-            personality: playerEntity.personality,
-            relevantSkill: actionAssessment.relevant_skill,
-            actionCategory: actionAssessment.action_category,
-        });
-        const oppositionModifier = deriveOppositionModifier({ relationshipTowardActor });
+/**
+ * *** RESOLUTION LAYER (ROADMAP_0_MASTER_PLAN.md Phase 3 item 4) ***
+ * The model NEVER decides whether the player's action succeeds - it only
+ * narrates a pre-decided outcome, mirroring the mortality pipeline's own
+ * contract (DESIGN_DECISIONS.md D2/D3/D4). Non-consequential actions
+ * (questions, idle conversation, pure information requests) skip rolling
+ * entirely: no PLAYER ACTION OUTCOME block is injected into the
+ * adjudication prompt, no `resolutionTrace` is recorded, and the
+ * adjudicator behaves exactly as it did before this feature existed. The
+ * roll is the turn generator's FIRST draw (see TurnContext.turnRng).
+ */
+function resolvePlayerAction(ctx: TurnContext, actionAssessment: ActionAssessment | undefined): PlayerActionResolution {
+    if (!actionAssessment?.is_consequential) {
+        return { playerActionOutcome: undefined, resolutionTrace: undefined };
+    }
+    const { playerEntity } = ctx;
+    const opposingEntity = actionAssessment.opposing_entity_id
+        ? ctx.currentEntities.find(e => e.entity_id === actionAssessment.opposing_entity_id)
+        : undefined;
+    // Directional per this codebase's relationship convention (see
+    // ai/prompts/adjudication.ts's RELATIONSHIP DELTAS rule): a
+    // relationship keyed under entity A describes A's perception of the
+    // OTHER entity ONLY. `opposingEntity.relationships[playerEntity.entity_id]`
+    // is therefore the opposing entity's perception of the PLAYER - "the
+    // opposing entity's directional stats toward the actor" this
+    // feature's spec calls for.
+    const relationshipTowardActor = opposingEntity?.relationships[playerEntity.entity_id];
 
-        const resolution = resolveAction({
-            roll: rollD20(turnRng),
-            relevantSkillValue,
-            personalityModifier,
-            oppositionModifier,
-            // Model-authored and only type-checked by zod: an off-scale
-            // value would pre-decide the tier (a 40 always critically
-            // fails), so it is clamped onto the documented 5-25 scale here.
-            difficulty: clampDifficulty(actionAssessment.difficulty),
-        });
+    const relevantSkillValue = actionAssessment.relevant_skill
+        ? playerEntity.skills?.[actionAssessment.relevant_skill] ?? null
+        : null;
+    const personalityModifier = derivePersonalityModifier({
+        personality: playerEntity.personality,
+        relevantSkill: actionAssessment.relevant_skill,
+        actionCategory: actionAssessment.action_category,
+    });
+    const oppositionModifier = deriveOppositionModifier({ relationshipTowardActor });
 
-        playerActionOutcome = { tier: resolution.tier, actionCategory: actionAssessment.action_category };
-        resolutionTrace = {
+    const resolution = resolveAction({
+        roll: rollD20(ctx.turnRng),
+        relevantSkillValue,
+        personalityModifier,
+        oppositionModifier,
+        // Model-authored and only type-checked by zod: an off-scale
+        // value would pre-decide the tier (a 40 always critically
+        // fails), so it is clamped onto the documented 5-25 scale here.
+        difficulty: clampDifficulty(actionAssessment.difficulty),
+    });
+
+    return {
+        playerActionOutcome: { tier: resolution.tier, actionCategory: actionAssessment.action_category },
+        resolutionTrace: {
             assessment: actionAssessment,
             roll: resolution.roll,
             total: resolution.total,
             margin: resolution.margin,
             tier: resolution.tier,
-        };
-    }
+        },
+    };
+}
 
-    // *** STEP 1.5: NPC MINDS (4C.4, D10/D22) ***
-    // One flash-tier mind call per mind-eligible spotlight character (see
-    // selectMindEntities - alive, non-player, capped at MAX_MINDS_PER_TURN),
-    // all launched in a single Promise.all: the ONE added latency leg
-    // between the Director and adjudication that D16 sanctions. Each mind's
-    // prompt carries ONLY that character's bounded knowledge (its own brief/
-    // memories, its own perceived digest of the PREVIOUS turn's events from
-    // the pre-turn roster, its Director intent, and public headlines/macro
-    // state - see ai/prompts/npcMind.ts's asymmetry contract). SOFT
-    // DEGRADATION: a mind-call failure never fails the turn - it is caught
-    // per-mind, recorded as a [Mind] gm_private note (pushed onto the
-    // adjudication below, once it exists), and that spotlight simply falls
-    // back to its Director intent alone in the adjudication prompt.
-    const mindNpcs = selectMindEntities(storyRelevance, currentEntities, playerEntity.entity_id);
+// --- Stage 1: NPC minds ----------------------------------------------------
+
+interface NpcMindsStageResult {
+    npcMindResults: NpcMindDecision[];
+    /** One [Mind] gm_private note per failed mind call, attached once the adjudication exists. */
+    mindFailureNotes: string[];
+}
+
+/**
+ * *** STEP 1.5: NPC MINDS (4C.4, D10/D22) ***
+ * One flash-tier mind call per mind-eligible spotlight character (see
+ * selectMindEntities - alive, non-player, capped at MAX_MINDS_PER_TURN),
+ * all launched in a single Promise.all: the ONE added latency leg
+ * between the Director and adjudication that D16 sanctions. Each mind's
+ * prompt carries ONLY that character's bounded knowledge (its own brief/
+ * memories, its own perceived digest of the PREVIOUS turn's events from
+ * the pre-turn roster, its Director intent, and public headlines/macro
+ * state - see ai/prompts/npcMind.ts's asymmetry contract). SOFT
+ * DEGRADATION: a mind-call failure never fails the turn - it is caught
+ * per-mind, recorded as a [Mind] gm_private note (pushed onto the
+ * adjudication once it exists), and that spotlight simply falls back to
+ * its Director intent alone in the adjudication prompt.
+ */
+async function runNpcMindsStage(ctx: TurnContext, storyRelevance: StoryRelevance, npcIntents: NpcIntent[]): Promise<NpcMindsStageResult> {
+    const mindNpcs = selectMindEntities(storyRelevance, ctx.currentEntities, ctx.playerEntity.entity_id);
     const npcMindResults: NpcMindDecision[] = [];
     const mindFailureNotes: string[] = [];
-    if (mindNpcs.length > 0) {
-        options?.onStage?.('npc_minds');
-        const previousEntry = turnHistory.slice(-1)[0];
-        const previousDeltas = previousEntry?.adjudication.deltas ?? [];
-        const publicHeadlines = previousEntry?.adjudication.headlines ?? [];
-        const worldSummary = buildWorldSummary(currentWorldState);
-        const intentByEntity = new Map(npcIntents.map(intent => [intent.entity_id, intent]));
-        const settled = await Promise.all(mindNpcs.map(async (npc): Promise<NpcMindDecision | null> => {
-            try {
-                return await getNpcMindDecision(ai, {
-                    self: npc,
-                    directorIntent: intentByEntity.get(npc.entity_id),
-                    // The character's own vantage on last week's ground truth
-                    // - the same viewer-agnostic filter the memory stamp and
-                    // the player digest use (perception/visibility.ts) -
-                    // minus the lines the previous turn's memory stamp
-                    // already put in this character's memories, which the
-                    // mind prompt renders separately (see
-                    // selectUnrememberedChanges above).
-                    perceivedChanges: selectUnrememberedChanges(
-                        buildPerceivedDigest(previousDeltas, npc, currentEntities, currentWorldState),
-                        npc.memories,
-                        previousEntry?.turnNumber
-                    ),
-                    publicHeadlines,
-                    worldSummary,
-                    turnNumber,
-                    privateSceneMemories: options?.privateSceneNpcMemoriesByNpcId?.[npc.entity_id],
-                }, isMockMode);
-            } catch (e) {
-                mindFailureNotes.push(`[Mind] ${npc.entity_id}'s mind call failed (${e instanceof Error ? e.message : String(e)}) - proceeding without it; the adjudicator falls back to this spotlight's Director intent alone.`);
-                return null;
-            }
-        }));
-        npcMindResults.push(...settled.filter((decision): decision is NpcMindDecision => decision !== null));
-    }
+    if (mindNpcs.length === 0) return { npcMindResults, mindFailureNotes };
+
+    ctx.options?.onStage?.('npc_minds');
+    const { currentEntities, currentWorldState } = ctx;
+    const previousEntry = ctx.turnHistory.slice(-1)[0];
+    const previousDeltas = previousEntry?.adjudication.deltas ?? [];
+    const publicHeadlines = previousEntry?.adjudication.headlines ?? [];
+    const worldSummary = buildWorldSummary(currentWorldState);
+    const intentByEntity = new Map(npcIntents.map(intent => [intent.entity_id, intent]));
+    const settled = await Promise.all(mindNpcs.map(async (npc): Promise<NpcMindDecision | null> => {
+        try {
+            return await getNpcMindDecision(ctx.ai, {
+                self: npc,
+                directorIntent: intentByEntity.get(npc.entity_id),
+                // The character's own vantage on last week's ground truth
+                // - the same viewer-agnostic filter the memory stamp and
+                // the player digest use (perception/visibility.ts) -
+                // minus the lines the previous turn's memory stamp
+                // already put in this character's memories, which the
+                // mind prompt renders separately (see
+                // selectUnrememberedChanges above).
+                perceivedChanges: selectUnrememberedChanges(
+                    buildPerceivedDigest(previousDeltas, npc, currentEntities, currentWorldState),
+                    npc.memories,
+                    previousEntry?.turnNumber
+                ),
+                publicHeadlines,
+                worldSummary,
+                turnNumber: ctx.turnNumber,
+                privateSceneMemories: ctx.options?.privateSceneNpcMemoriesByNpcId?.[npc.entity_id],
+            }, ctx.isMockMode);
+        } catch (e) {
+            mindFailureNotes.push(`[Mind] ${npc.entity_id}'s mind call failed (${e instanceof Error ? e.message : String(e)}) - proceeding without it; the adjudicator falls back to this spotlight's Director intent alone.`);
+            return null;
+        }
+    }));
+    npcMindResults.push(...settled.filter((decision): decision is NpcMindDecision => decision !== null));
+    return { npcMindResults, mindFailureNotes };
+}
+
+// --- Stage 2: adjudication -------------------------------------------------
+
+interface AdjudicationStageResult {
+    /** The committed (actors-stripped) adjudication, with every post-hoc note and the minds' scheme deltas folded in. */
+    adjudication: Adjudication;
+    /** The resolution note, handed to the mortality validator as its only trusted non-adjudication context. */
+    trustedResolutionContext: string | undefined;
+    proseRedactions: PlayerProseRedaction[];
+}
+
+/**
+ * Builds the adjudication prompt, makes the adjudication call, and brings
+ * its answer to the commit shape: the declaration-aware no-attempt gate on
+ * the raw interchange, the actors strip, the GM-private notes, the minds'
+ * own scheme evolutions, then the gate again over what folding added.
+ */
+async function runAdjudicationStage(
+    ctx: TurnContext,
+    director: DirectorStageResult,
+    playerAction: PlayerActionResolution,
+    minds: NpcMindsStageResult,
+): Promise<AdjudicationStageResult> {
+    const { playerEntity, narrationSubmission } = ctx;
+    const { storyRelevance, npcIntents } = director;
 
     // *** HISTORICAL MATERIAL (4D.2, D12/D24) ***
     // Authored events whose triggers are ripe or nearly due against the
@@ -602,34 +767,34 @@ export async function runNewTurn(
     // event bookkeeping (options.eventFirings) - legacy call sites see no
     // block. Pure derivation, no model call; the modal event system in
     // App.tsx remains the only thing that ever fires an event verbatim.
-    const historicalMaterial: HistoricalMaterialEntry[] | undefined = options?.eventFirings
-        ? selectRipeEventMaterial(currentWorldState, currentSimulationState, currentEntities, playerEntity, options.eventFirings, turnNumber)
+    const historicalMaterial: HistoricalMaterialEntry[] | undefined = ctx.options?.eventFirings
+        ? selectRipeEventMaterial(ctx.currentWorldState, ctx.currentSimulationState, ctx.currentEntities, playerEntity, ctx.options.eventFirings, ctx.turnNumber)
             .map(m => ({ id: m.event.id, title: m.event.title, premise: m.premise, status: m.status }))
         : undefined;
 
     // 1. Compile context
-    const recentHistory = turnHistory.slice(-6).map(h => `Turn ${h.turnNumber}: ${h.narration || h.adjudication.headlines.join('. ')}`);
+    const recentHistory = ctx.turnHistory.slice(-6).map(h => `Turn ${h.turnNumber}: ${h.narration || h.adjudication.headlines.join('. ')}`);
     const { systemInstruction, prompt } = buildAdjudicationPrompt({
-        worldState: currentWorldState,
-        simulationState: currentSimulationState,
+        worldState: ctx.currentWorldState,
+        simulationState: ctx.currentSimulationState,
         playerEntity,
-        npcEntities,
+        npcEntities: ctx.npcEntities,
         history: recentHistory,
-        submission: adjudicationSubmission,
-        gmInterventionText,
+        submission: ctx.adjudicationSubmission,
+        gmInterventionText: ctx.gmInterventionText,
         storyRelevance,
-        metaNarrative,
-        playerActionOutcome,
+        metaNarrative: ctx.metaNarrative,
+        playerActionOutcome: playerAction.playerActionOutcome,
         npcIntents,
-        npcMindDecisions: npcMindResults,
-        pacingPosture: options?.pacingPosture,
+        npcMindDecisions: minds.npcMindResults,
+        pacingPosture: ctx.options?.pacingPosture,
         historicalMaterial,
-        privateSceneAdjudicatorProjection: options?.privateSceneAdjudicatorProjection,
+        privateSceneAdjudicatorProjection: ctx.options?.privateSceneAdjudicatorProjection,
     });
 
     // 2. Get adjudication from AI
-    options?.onStage?.('adjudication');
-    const rawAdjudication = await generateStructured<AdjudicationInterchange>(ai, {
+    ctx.options?.onStage?.('adjudication');
+    const rawAdjudication = await generateStructured<AdjudicationInterchange>(ctx.ai, {
         callName: 'adjudication',
         model: GEMINI_PRO,
         systemInstruction,
@@ -655,23 +820,7 @@ export async function runNewTurn(
     proseRedactions.push(...enforceNoAttemptBoundary(rawAdjudication, playerEntity, narrationSubmission.hasObservableAttempt));
     const adjudication = stripActorsFromAdjudication(rawAdjudication);
 
-    // Record the resolution layer's trace as a GM-private note (mirrors the
-    // mortality pipeline's own gm_private notes) BEFORE processMortality
-    // deep-clones the adjudication below, so the note is carried through
-    // into `transformedAdjudication` automatically. Mechanics (roll/total/
-    // margin/tier) are fine here - gm_private is stripped entirely before
-    // the player-facing narration call (see narration.ts's
-    // sanitizeAdjudicationForNarration).
-    let trustedResolutionContext: string | undefined;
-    if (resolutionTrace) {
-        const assessedDifficulty = resolutionTrace.assessment.difficulty;
-        const effectiveDifficulty = clampDifficulty(assessedDifficulty);
-        const difficultyText = effectiveDifficulty === assessedDifficulty
-            ? `${assessedDifficulty}`
-            : `${effectiveDifficulty} (assessed ${assessedDifficulty}, clamped to the 5-25 scale)`;
-        trustedResolutionContext = `[Resolution] Player action ("${resolutionAttempt ?? '(no observable attempt)'}", ${resolutionTrace.assessment.action_category}) - roll ${resolutionTrace.roll} + modifiers vs difficulty ${difficultyText} -> margin ${resolutionTrace.margin.toFixed(1)} -> ${resolutionTrace.tier}.`;
-        adjudication.gm_private.push(trustedResolutionContext);
-    }
+    const trustedResolutionContext = recordResolutionNote(adjudication, playerAction.resolutionTrace, ctx.resolutionAttempt);
 
     // *** ENTITY-ACTIONS-VS-INTENT CONSISTENCY (4C.3, soft contract) ***
     // Validated post-hoc in code, against the adjudicator's OWN
@@ -686,102 +835,223 @@ export async function runNewTurn(
     adjudication.gm_private.push(...buildIntentDiscardNotes(storyRelevance, npcIntents));
 
     // Mind-call soft-degradation notes (4C.4): recorded per failed mind in
-    // step 1.5 above, attached here once the adjudication object exists -
+    // the minds stage, attached here once the adjudication object exists -
     // gm_private is GM-console-only (stripped before narration), so the
     // failure is visible for tuning without ever reaching the player.
-    adjudication.gm_private.push(...mindFailureNotes);
+    adjudication.gm_private.push(...minds.mindFailureNotes);
 
-    // *** D30: MINDS CONTINUOUSLY EVOLVE THEIR OWN SCHEMES ***
-    // A spotlight NPC's mind DRIVES its own active_scheme's evolution
-    // (DESIGN_DECISIONS.md D30): where its decision returned a
-    // scheme_adjustment, that is the CHARACTER'S own evolving intent - applied
-    // as its own 'scheme' delta, not left as a hint the adjudicator may
-    // discard (the pre-D30 wiring). DIRECTION PRECEDENCE, extended to scheme
-    // OWNERSHIP: for a MINDED entity its own mind-driven scheme evolution WINS
-    // over ANY competing 'scheme' delta from the adjudicator for that SAME
-    // entity this turn. This dedup strips every 'scheme' delta whose key is a
-    // mind-evolved entity, then appends the mind's own, so the entity's scheme
-    // is never double-applied or overwritten. The adjudicator still OWNS
-    // 'scheme' deltas for every NON-minded entity (the DYNAMIC SCHEMES rule)
-    // and owns action OUTCOMES in the shared world for everyone. These deltas
-    // are folded into adjudication.deltas HERE - before processMortality (a
-    // deep clone that preserves non-death deltas) and before applyAdjudication
-    // (step 3) - so they are committed and applied exactly ONCE, flowing
-    // through D28 perception like any other 'scheme' delta: a witness senses
-    // only 'something afoot', never the scheme's name
-    // (perception/visibility.ts::describeDelta).
-    const mindSchemeDeltas = buildMindSchemeDeltas(npcMindResults, currentEntities);
-    if (mindSchemeDeltas.length > 0) {
-        const mindEvolvedIds = new Set(mindSchemeDeltas.map(d => d.key));
-        const supersededIds = adjudication.deltas
-            .filter(d => d.type === 'scheme' && mindEvolvedIds.has(d.key))
-            .map(d => d.key);
-        adjudication.deltas = adjudication.deltas.filter(d => !(d.type === 'scheme' && mindEvolvedIds.has(d.key)));
-        adjudication.deltas.push(...mindSchemeDeltas);
-        for (const id of mindEvolvedIds) {
-            adjudication.gm_private.push(`[Mind] ${id} evolved its own active_scheme this turn - applied as the character's own scheme (DIRECTION PRECEDENCE: a minded entity's interior plan is owned by its mind, not the adjudicator).`);
-        }
-        if (supersededIds.length > 0) {
-            adjudication.gm_private.push(`[Mind] Superseded ${supersededIds.length} competing 'scheme' delta(s) for mind-evolved entities (${supersededIds.join(', ')}) - the entity's own mind owns its scheme evolution this turn; no double-application or overwrite.`);
-        }
-    }
+    foldMindSchemeDeltas(adjudication, minds.npcMindResults, ctx.currentEntities);
     proseRedactions.push(...enforceNoAttemptBoundary(adjudication, playerEntity, narrationSubmission.hasObservableAttempt));
 
-    // *** NEW STEP 2.6: MORTALITY PIPELINE (DESIGN_DECISIONS.md D2/D3/D4) ***
-    // Runs BEFORE applyAdjudication and BEFORE narration: any death claim in
-    // `adjudication.deltas` is validated by a second, independent model
-    // call, then resolved by a hidden code-side roll. The model never
-    // decides death - it only narrates the pre-decided outcome (via
-    // `mortalityEvents`' directives, fed into the narration prompt below).
-    // In mock mode this is a no-op (see ai/core/mortality.ts's doc comment).
-    //
-    // `onStage('mortality')` only fires when there's actually at least one
-    // death claim to run the pipeline against - checked here via the SAME
-    // detection `processMortality` uses internally for its own fast-path
-    // (see `detectDeathClaims`'s doc comment in mortality.ts for why this
-    // is a cheap re-scan rather than a second AI call or a param threaded
-    // into `processMortality` itself).
-    if (detectDeathClaims(adjudication.deltas, currentEntities, playerEntity.entity_id).length > 0) {
-        options?.onStage?.('mortality');
+    return { adjudication, trustedResolutionContext, proseRedactions };
+}
+
+/**
+ * Records the resolution layer's trace as a GM-private note (mirrors the
+ * mortality pipeline's own gm_private notes) BEFORE processMortality
+ * deep-clones the adjudication, so the note is carried through into
+ * `transformedAdjudication` automatically. Mechanics (roll/total/
+ * margin/tier) are fine here - gm_private is stripped entirely before
+ * the player-facing narration call (see narration.ts's
+ * sanitizeAdjudicationForNarration). Returns the note (or undefined when
+ * nothing was rolled) - it doubles as the mortality validator's trusted
+ * resolution context.
+ */
+function recordResolutionNote(
+    adjudication: Adjudication,
+    resolutionTrace: ActionResolutionEvent | undefined,
+    resolutionAttempt: string | null,
+): string | undefined {
+    if (!resolutionTrace) return undefined;
+    const assessedDifficulty = resolutionTrace.assessment.difficulty;
+    const effectiveDifficulty = clampDifficulty(assessedDifficulty);
+    const difficultyText = effectiveDifficulty === assessedDifficulty
+        ? `${assessedDifficulty}`
+        : `${effectiveDifficulty} (assessed ${assessedDifficulty}, clamped to the 5-25 scale)`;
+    const note = `[Resolution] Player action ("${resolutionAttempt ?? '(no observable attempt)'}", ${resolutionTrace.assessment.action_category}) - roll ${resolutionTrace.roll} + modifiers vs difficulty ${difficultyText} -> margin ${resolutionTrace.margin.toFixed(1)} -> ${resolutionTrace.tier}.`;
+    adjudication.gm_private.push(note);
+    return note;
+}
+
+/**
+ * *** D30: MINDS CONTINUOUSLY EVOLVE THEIR OWN SCHEMES ***
+ * A spotlight NPC's mind DRIVES its own active_scheme's evolution
+ * (DESIGN_DECISIONS.md D30): where its decision returned a
+ * scheme_adjustment, that is the CHARACTER'S own evolving intent - applied
+ * as its own 'scheme' delta, not left as a hint the adjudicator may
+ * discard (the pre-D30 wiring). DIRECTION PRECEDENCE, extended to scheme
+ * OWNERSHIP: for a MINDED entity its own mind-driven scheme evolution WINS
+ * over ANY competing 'scheme' delta from the adjudicator for that SAME
+ * entity this turn. This dedup strips every 'scheme' delta whose key is a
+ * mind-evolved entity, then appends the mind's own, so the entity's scheme
+ * is never double-applied or overwritten. The adjudicator still OWNS
+ * 'scheme' deltas for every NON-minded entity (the DYNAMIC SCHEMES rule)
+ * and owns action OUTCOMES in the shared world for everyone. These deltas
+ * are folded into adjudication.deltas HERE - before processMortality (a
+ * deep clone that preserves non-death deltas) and before applyAdjudication
+ * - so they are committed and applied exactly ONCE, flowing
+ * through D28 perception like any other 'scheme' delta: a witness senses
+ * only 'something afoot', never the scheme's name
+ * (perception/visibility.ts::describeDelta). Mutates `adjudication`.
+ */
+function foldMindSchemeDeltas(adjudication: Adjudication, npcMindResults: NpcMindDecision[], currentEntities: Entity[]): void {
+    const mindSchemeDeltas = buildMindSchemeDeltas(npcMindResults, currentEntities);
+    if (mindSchemeDeltas.length === 0) return;
+    const mindEvolvedIds = new Set(mindSchemeDeltas.map(d => d.key));
+    const supersededIds = adjudication.deltas
+        .filter(d => d.type === 'scheme' && mindEvolvedIds.has(d.key))
+        .map(d => d.key);
+    adjudication.deltas = adjudication.deltas.filter(d => !(d.type === 'scheme' && mindEvolvedIds.has(d.key)));
+    adjudication.deltas.push(...mindSchemeDeltas);
+    for (const id of mindEvolvedIds) {
+        adjudication.gm_private.push(`[Mind] ${id} evolved its own active_scheme this turn - applied as the character's own scheme (DIRECTION PRECEDENCE: a minded entity's interior plan is owned by its mind, not the adjudicator).`);
+    }
+    if (supersededIds.length > 0) {
+        adjudication.gm_private.push(`[Mind] Superseded ${supersededIds.length} competing 'scheme' delta(s) for mind-evolved entities (${supersededIds.join(', ')}) - the entity's own mind owns its scheme evolution this turn; no double-application or overwrite.`);
+    }
+}
+
+// --- Stage 3: mortality ----------------------------------------------------
+
+interface MortalityStageResult {
+    transformedAdjudication: Adjudication;
+    mortalityEvents: MortalityEvent[];
+    proseRedactions: PlayerProseRedaction[];
+}
+
+/**
+ * *** NEW STEP 2.6: MORTALITY PIPELINE (DESIGN_DECISIONS.md D2/D3/D4) ***
+ * Runs BEFORE applyAdjudication and BEFORE narration: any death claim in
+ * `adjudication.deltas` is validated by a second, independent model
+ * call, then resolved by a hidden code-side roll. The model never
+ * decides death - it only narrates the pre-decided outcome (via
+ * `mortalityEvents`' directives, fed into the narration prompt).
+ * In mock mode this is a no-op (see ai/core/mortality.ts's doc comment).
+ *
+ * `onStage('mortality')` only fires when there's actually at least one
+ * death claim to run the pipeline against - checked here via the SAME
+ * detection `processMortality` uses internally for its own fast-path
+ * (see `detectDeathClaims`'s doc comment in mortality.ts for why this
+ * is a cheap re-scan rather than a second AI call or a param threaded
+ * into `processMortality` itself).
+ */
+async function runMortalityStage(ctx: TurnContext, adjudicated: AdjudicationStageResult): Promise<MortalityStageResult> {
+    const { playerEntity } = ctx;
+    const { adjudication } = adjudicated;
+    if (detectDeathClaims(adjudication.deltas, ctx.currentEntities, playerEntity.entity_id).length > 0) {
+        ctx.options?.onStage?.('mortality');
     }
     const { transformedAdjudication, mortalityEvents } = await processMortality(
-        ai,
+        ctx.ai,
         adjudication,
-        currentEntities,
+        ctx.currentEntities,
         playerEntity.entity_id,
-        turnNumber,
-        isMockMode,
-        turnRng,
-        { trustedResolutionContext }
+        ctx.turnNumber,
+        ctx.isMockMode,
+        ctx.turnRng,
+        { trustedResolutionContext: adjudicated.trustedResolutionContext }
     );
-    proseRedactions.push(...enforceNoAttemptBoundary(transformedAdjudication, playerEntity, narrationSubmission.hasObservableAttempt));
+    const proseRedactions = enforceNoAttemptBoundary(transformedAdjudication, playerEntity, ctx.narrationSubmission.hasObservableAttempt);
+    return { transformedAdjudication, mortalityEvents, proseRedactions };
+}
 
-    // 3. Apply the (mortality-transformed) adjudication to get new state.
-    // Pure/synchronous (ai/core/engine.ts) - runs to completion before any
-    // of the three parallel legs below are launched, so `updatedEntities`/
-    // `updatedWorldState`/`updatedReports` are fully settled, ordinary
-    // (non-shared-with-anything-concurrent) values by the time they're read.
-    // The perception context bounds the NPC-side memory stamp inside
-    // applyAdjudication (D5/D10): the player's entity stays out of that
-    // loop (player knowledge lives in the knowledge store), and the
-    // spotlight cast is first in line for the capped perceiving set. The
-    // per-NPC digests are derived and discarded there; `perceivingNpcIds`
-    // (recorded on the history entry below) is what lets the GM console
-    // re-derive them for display.
-    const appliedAdjudication = applyAdjudication(
-        transformedAdjudication, currentEntities, currentWorldState, currentReports, currentTruthLedger,
+// --- Stage 4: apply ---------------------------------------------------------
+
+type AppliedTurnState = ReturnType<typeof applyAdjudication> & {
+    /** The player's entity as it stands after this turn's deltas. */
+    updatedPlayerEntity: Entity;
+};
+
+/**
+ * 3. Apply the (mortality-transformed) adjudication to get new state.
+ * Pure/synchronous (ai/core/engine.ts) - runs to completion before any
+ * of the three parallel legs of the player-surfaces stage are launched,
+ * so `updatedEntities`/`updatedWorldState`/`updatedReports` are fully
+ * settled, ordinary (non-shared-with-anything-concurrent) values by the
+ * time they're read. The perception context bounds the NPC-side memory
+ * stamp inside applyAdjudication (D5/D10): the player's entity stays out
+ * of that loop (player knowledge lives in the knowledge store), and the
+ * spotlight cast is first in line for the capped perceiving set. The
+ * per-NPC digests are derived and discarded there; `perceivingNpcIds`
+ * (recorded on the history entry) is what lets the GM console re-derive
+ * them for display.
+ */
+function applyTurnState(ctx: TurnContext, storyRelevance: StoryRelevance, transformedAdjudication: Adjudication): AppliedTurnState {
+    const { playerEntity } = ctx;
+    const applied = applyAdjudication(
+        transformedAdjudication, ctx.currentEntities, ctx.currentWorldState, ctx.currentReports, ctx.currentTruthLedger,
         {
             playerEntityId: playerEntity.entity_id,
             spotlightIds: storyRelevance.spotlight_entities.map(s => s.entity_id),
             // The App's authoritative counter - the memory stamp's `turn`
             // provenance, never the model-echoed adjudication.turn (see
             // PerceptionStampContext in ai/core/engine.ts).
-            turnNumber,
+            turnNumber: ctx.turnNumber,
         }
     );
-    const { updatedEntities } = appliedAdjudication;
-    const { updatedWorldState, updatedReports, updatedTruthLedger, perceivingNpcIds } = appliedAdjudication;
-    const updatedPlayerEntity = updatedEntities.find(e => e.entity_id === playerEntity.entity_id) || playerEntity;
+    return {
+        ...applied,
+        updatedPlayerEntity: applied.updatedEntities.find(e => e.entity_id === playerEntity.entity_id) || playerEntity,
+    };
+}
+
+// --- Stage 5: player surfaces (simulation state, monologue, narration) ----
+
+interface PlayerSurfacesStageResult {
+    updatedSimulationState: SimulationState;
+    narration: string;
+    suggestedActions: string[];
+    playerMonologue: string;
+    proseRedactions: PlayerProseRedaction[];
+}
+
+/**
+ * *** NEW STEPS 2.7/4/5, PARALLELIZED (ROADMAP_0_MASTER_PLAN.md Phase 3
+ * item 3) ***
+ *
+ * Three remaining legs of the turn are launched CONCURRENTLY via
+ * `Promise.all`, because none of them depends on either of the other
+ * two's output - only on the mortality-transformed adjudication and/or
+ * the now-applied entity state:
+ *   (a) getUpdatedSimulationState - reads `transformedAdjudication` +
+ *       the OLD `currentSimulationState` (never the entities) to derive
+ *       empire-level meta-narrative status. Previously ran BEFORE
+ *       `applyAdjudication` (step 2.7); reordering it to run alongside
+ *       the other two is behaviorally identical since it never read
+ *       anything `applyAdjudication` produces.
+ *   (b) getPlayerMonologue - reads only the already-applied
+ *       `updatedPlayerEntity` + this turn's headlines/recent intents.
+ *   (c) narration - reads `transformedAdjudication` + `updatedPlayerEntity`
+ *       (both sanitized internally - see ai/prompts/narration.ts);
+ *       streams via `onNarrationChunk`/the stream gate exactly as before
+ *       this refactor, just launched inside the parallel block instead
+ *       of sequentially after the monologue call.
+ * For a structured no-attempt submission, (b) and (c) remain present as
+ * already-resolved empty promises so the join and TurnStage sequence stay
+ * unchanged, but neither player-prose provider call is issued.
+ * RACE AUDIT (read every function's body - ai/tools/intelligence.ts,
+ * ai/prompts/narration.ts, ai/prompts/intelligence.ts - before landing
+ * this): none of (a)/(b)/(c) mutates any argument it's given.
+ *  - `getUpdatedSimulationState`/`getPlayerMonologue` only pass their
+ *    Entity/Adjudication/SimulationState params into pure `buildX`
+ *    prompt-string builders (template literals / JSON.stringify) and
+ *    return a freshly-parsed value from `generateStructured`/
+ *    `generateStructuredStream` - no assignment back onto any input.
+ *  - The narration path's `buildNarrationPrompt` runs
+ *    `sanitizeAdjudicationForNarration`/`sanitizeEntityForNarration`
+ *    first, which build BRAND NEW objects via spread/`.map()` (they
+ *    never assign onto `adjudication`/`updatedPlayerEntity`).
+ *
+ * Once joined, the three generated surfaces cross the player boundary
+ * (see the gate comments below) before anything is committed.
+ */
+async function runPlayerSurfacesStage(
+    ctx: TurnContext,
+    transformedAdjudication: Adjudication,
+    applied: AppliedTurnState,
+): Promise<PlayerSurfacesStageResult> {
+    const { ai, playerEntity, narrationSubmission, noAttemptResponse, isMockMode, options } = ctx;
+    const { updatedEntities, updatedWorldState, updatedPlayerEntity } = applied;
     // Player-owned reflection context for the monologue (a player-owned
     // surface): every history entry is re-projected through
     // projectForPlayerReflection so the raw canonical serialization
@@ -790,55 +1060,20 @@ export async function runNewTurn(
     // canonical-only and is dropped, never echoed (same rule as
     // ai/tools/ambition.ts); legacy plain freeform strings pass through.
     const recentPlayerIntents = [
-        ...turnHistory.slice(-6).flatMap(entry => {
+        ...ctx.turnHistory.slice(-6).flatMap(entry => {
             const parsed = deserializeTurnSubmission(entry.playerIntent);
             if (parsed) return [projectForPlayerReflection(parsed)];
             return isReservedTurnSubmissionArtifact(entry.playerIntent) ? [] : [entry.playerIntent];
         }),
-        projectForPlayerReflection(normalizedSubmission),
+        projectForPlayerReflection(ctx.normalizedSubmission),
     ];
 
-    // *** NEW STEPS 2.7/4/5, PARALLELIZED (ROADMAP_0_MASTER_PLAN.md Phase 3
-    // item 3) ***
-    //
-    // Three remaining legs of the turn are launched CONCURRENTLY via
-    // `Promise.all`, because none of them depends on either of the other
-    // two's output - only on the mortality-transformed adjudication and/or
-    // the now-applied entity state:
-    //   (a) getUpdatedSimulationState - reads `transformedAdjudication` +
-    //       the OLD `currentSimulationState` (never the entities) to derive
-    //       empire-level meta-narrative status. Previously ran BEFORE
-    //       `applyAdjudication` (step 2.7); reordering it to run alongside
-    //       the other two is behaviorally identical since it never read
-    //       anything `applyAdjudication` produces.
-    //   (b) getPlayerMonologue - reads only the already-applied
-    //       `updatedPlayerEntity` + this turn's headlines/recent intents.
-    //   (c) narration - reads `transformedAdjudication` + `updatedPlayerEntity`
-    //       (both sanitized internally - see ai/prompts/narration.ts);
-    //       streams via `onNarrationChunk`/the stream gate exactly as before
-    //       this refactor, just launched inside the parallel block instead
-    //       of sequentially after the monologue call.
-    // For a structured no-attempt submission, (b) and (c) remain present as
-    // already-resolved empty promises so the join and TurnStage sequence stay
-    // unchanged, but neither player-prose provider call is issued.
-    // RACE AUDIT (read every function's body - ai/tools/intelligence.ts,
-    // ai/prompts/narration.ts, ai/prompts/intelligence.ts - before landing
-    // this): none of (a)/(b)/(c) mutates any argument it's given.
-    //  - `getUpdatedSimulationState`/`getPlayerMonologue` only pass their
-    //    Entity/Adjudication/SimulationState params into pure `buildX`
-    //    prompt-string builders (template literals / JSON.stringify) and
-    //    return a freshly-parsed value from `generateStructured`/
-    //    `generateStructuredStream` - no assignment back onto any input.
-    //  - The narration path's `buildNarrationPrompt` runs
-    //    `sanitizeAdjudicationForNarration`/`sanitizeEntityForNarration`
-    //    first, which build BRAND NEW objects via spread/`.map()` (they
-    //    never assign onto `adjudication`/`updatedPlayerEntity`).
     options?.onStage?.('simulation_state');
     // Task 4: the strip no longer happens inside getUpdatedSimulationState -
     // it returns the raw SimulationStateInterchange (still carrying
     // `actors`) so the crisis text can be gated against its declaration
     // below, before the commit-boundary strip.
-    const simulationStatePromise = getUpdatedSimulationState(ai, transformedAdjudication, currentSimulationState, narrationSubmission.hasObservableAttempt, isMockMode);
+    const simulationStatePromise = getUpdatedSimulationState(ai, transformedAdjudication, ctx.currentSimulationState, narrationSubmission.hasObservableAttempt, isMockMode);
 
     options?.onStage?.('monologue');
     // Task 4: getPlayerMonologue now returns the structured { text, actors }
@@ -875,7 +1110,7 @@ export async function runNewTurn(
         explicitlyVisibleEntityIds,
         updatedEntities
     );
-    const narrationPrompt = buildNarrationPrompt(metaNarrative, updatedPlayerEntity, narrationSubmission, playerNarrationEvents, voiceCast);
+    const narrationPrompt = buildNarrationPrompt(ctx.metaNarrative, updatedPlayerEntity, narrationSubmission, playerNarrationEvents, voiceCast);
     const narrationRequest = {
         callName: 'narration',
         model: GEMINI_PRO,
@@ -923,7 +1158,7 @@ export async function runNewTurn(
     // `Promise.all` already attached a handler to every promise in its
     // array (synchronously, as part of the call above), a later
     // resolve/reject from a "losing" leg is never reported as an unhandled
-    // rejection. The outer try/catch below (`endTurnCapture(); throw e;`)
+    // rejection. runNewTurn's try/catch (`endTurnCapture(); throw e;`)
     // is what actually surfaces the failure to the caller.
     const [rawSimulationState, rawMonologuePayload, rawNarrationPayload] = await Promise.all([
         simulationStatePromise,
@@ -985,13 +1220,12 @@ export async function runNewTurn(
     });
     const fullText = narrationRedaction.value;
     const playerMonologue = monologueRedaction.value;
-    const proseSurfaceRedactions = [
+    const proseRedactions = [
         ...simulationCrisisRedaction.redactions,
         ...narrationRedaction.redactions,
         ...monologueRedaction.redactions,
     ];
-    transformedAdjudication.gm_private.push(...playerProseRedactionNotes(proseSurfaceRedactions));
-    proseRedactions.push(...proseSurfaceRedactions);
+    transformedAdjudication.gm_private.push(...playerProseRedactionNotes(proseRedactions));
     const narrationParts = fullText.split('SUGGESTION:');
     const narration = narrationParts[0].trim();
     const suggestedActions = narrationParts.slice(1).map(s => s.trim()).filter(s => s.length > 0);
@@ -999,23 +1233,42 @@ export async function runNewTurn(
         const finalNarration = playerVisibleStreamGate.finish(narration);
         if (finalNarration !== null) onNarrationChunk(finalNarration);
     }
+    return { updatedSimulationState, narration, suggestedActions, playerMonologue, proseRedactions };
+}
 
-    // 6. Create history entry
+// --- Stage 6: the history entry and the committed result -------------------
+
+/**
+ * 6. Creates the history entry and assembles the result. Closes the turn's
+ * raw-call capture bracket (`endTurnCapture`) - the entry owns the calls.
+ */
+function assembleTurnResult(ctx: TurnContext, turn: {
+    npcIntents: NpcIntent[];
+    resolutionTrace: ActionResolutionEvent | undefined;
+    npcMindResults: NpcMindDecision[];
+    transformedAdjudication: Adjudication;
+    mortalityEvents: MortalityEvent[];
+    applied: AppliedTurnState;
+    surfaces: PlayerSurfacesStageResult;
+    proseRedactions: PlayerProseRedaction[];
+}): RunNewTurnResult {
+    const { npcIntents, npcMindResults, transformedAdjudication, mortalityEvents, applied, surfaces, proseRedactions } = turn;
+    const { narration, playerMonologue, suggestedActions } = surfaces;
     const newHistoryEntry: TurnHistoryEntry = {
-        turnNumber,
-        playerIntent,
+        turnNumber: ctx.turnNumber,
+        playerIntent: ctx.playerIntent,
         adjudication: transformedAdjudication,
         narration,
         // Always set, `''` included: the entry owns this turn's copy of the
         // monologue so the GM console never has to infer a chat message's
         // turn from array position (D44).
         playerMonologue,
-        postTurnEntities: updatedEntities, // Store final state
+        postTurnEntities: applied.updatedEntities, // Store final state
         rawCalls: endTurnCapture(),
         mortalityTrace: mortalityEvents.length > 0 ? mortalityEvents : undefined,
-        resolutionTrace,
-        turnSeed,
-        perceivingNpcIds,
+        resolutionTrace: turn.resolutionTrace,
+        turnSeed: ctx.turnSeed,
+        perceivingNpcIds: applied.perceivingNpcIds,
         // Optional on the entry (save-compat): omitted entirely when the
         // Director committed no spotlight intents this turn.
         npcIntents: npcIntents.length > 0 ? npcIntents : undefined,
@@ -1028,12 +1281,16 @@ export async function runNewTurn(
         proseRedactions: proseRedactions.length > 0 ? proseRedactions : undefined,
     };
 
-    const result = {
-        updatedEntities,
-        updatedWorldState,
-        updatedSimulationState, // Return the new state
-        updatedReports,
-        updatedTruthLedger,
+    // Never dump the result to the console: it carries the turn's full raw-call
+    // capture (prompts/system instructions), gm_private notes, and the turn
+    // seed - GM-only data (DESIGN_DECISIONS.md D4/D5) whose sanctioned
+    // channels are the GM console and the eval-corpus export.
+    return {
+        updatedEntities: applied.updatedEntities,
+        updatedWorldState: applied.updatedWorldState,
+        updatedSimulationState: surfaces.updatedSimulationState, // Return the new state
+        updatedReports: applied.updatedReports,
+        updatedTruthLedger: applied.updatedTruthLedger,
         // Replaces the persisted slice wholesale each commit - the Director's
         // output IS the durable intent state (4C.3 continuity loop).
         updatedNpcIntents: npcIntents,
@@ -1043,18 +1300,4 @@ export async function runNewTurn(
         playerMonologue,
         newHistoryEntry,
     };
-
-    // Never dump `result` to the console: it carries the turn's full raw-call
-    // capture (prompts/system instructions), gm_private notes, and the turn
-    // seed - GM-only data (DESIGN_DECISIONS.md D4/D5) whose sanctioned
-    // channels are the GM console and the eval-corpus export.
-    return result;
-    } catch (e) {
-        // Drain the in-flight capture buffer so a failed turn's partial raw
-        // calls don't leak into whatever unrelated AI call happens next
-        // (e.g. a player-triggered investigation action while the error is
-        // being surfaced to the user).
-        endTurnCapture();
-        throw e;
-    }
 }
