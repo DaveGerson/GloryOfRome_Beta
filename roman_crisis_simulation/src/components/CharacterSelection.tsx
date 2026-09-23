@@ -134,11 +134,11 @@ const CharacterSelection: React.FC<{
     }
 
     return (
-        <div style={{ flex: 1, overflowY: 'auto', padding: '38px 32px 56px' }}>
+        <div className="gor-destinies" style={{ flex: 1, overflowY: 'auto', padding: '38px 32px 56px' }}>
             <div style={{ maxWidth: 1080, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 22 }}>
                 <div style={{ textAlign: 'center' }}>
                     <Medallion size={96} />
-                    <h2 style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 44, color: 'var(--tyrian-600)', marginTop: 8 }}>Choose Your Destiny</h2>
+                    <h2 className="gor-destinies-title" style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 44, color: 'var(--tyrian-600)', marginTop: 8 }}>Choose Your Destiny</h2>
                     <p style={{ margin: '8px auto 0', maxWidth: '52ch' }}>The year is 235 CE. The Empire teeters on the brink of chaos. Who will you be?</p>
                     <div className="gor-mosaic" style={{ width: 260, margin: '18px auto 0' }}></div>
                 </div>

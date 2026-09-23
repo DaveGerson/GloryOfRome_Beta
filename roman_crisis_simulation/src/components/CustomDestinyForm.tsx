@@ -50,7 +50,7 @@ function appendPersonaScaffold(current: string, scaffold: string): string {
 export const ForgingScreen: React.FC<{ useCustomGamestate: boolean }> = ({ useCustomGamestate }) => (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18, padding: 32, textAlign: 'center' }}>
         <Medallion size={110} />
-        <h2 style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 38, color: 'var(--tyrian-600)' }}>Consulting the Fates…</h2>
+        <h2 className="gor-destinies-title" style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 38, color: 'var(--tyrian-600)' }}>Consulting the Fates…</h2>
         <p style={{ maxWidth: '46ch', margin: 0 }}>
             {useCustomGamestate
                 ? 'A world is being woven to your design — its people, its factions, its knives.'
@@ -81,11 +81,11 @@ export const CustomDestinyForm: React.FC<{
     // top of the persona field you are typing into. `scrollPaddingBottom`
     // covers the other half: a field focused by keyboard scrolls to above
     // the bar rather than under it.
-    <div style={{ flex: 1, overflowY: 'auto', padding: '40px 32px 132px', scrollPaddingBottom: 96 }}>
+    <div className="gor-destinies gor-destinies-forge" style={{ flex: 1, overflowY: 'auto', padding: '40px 32px 132px', scrollPaddingBottom: 96 }}>
         <div style={{ maxWidth: 660, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 18 }}>
             <div style={{ textAlign: 'center' }}>
                 <WaxSeal letter="V" size={54} />
-                <h2 style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 36, color: 'var(--tyrian-600)', marginTop: 8 }}>Forge a New Destiny</h2>
+                <h2 className="gor-destinies-title" style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 36, color: 'var(--tyrian-600)', marginTop: 8 }}>Forge a New Destiny</h2>
                 <p style={{ margin: '8px auto 0', maxWidth: '52ch' }}>Describe who you wish to become. The Game Master will write you into the world — or write a world around you.</p>
             </div>
             <form onSubmit={onSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>

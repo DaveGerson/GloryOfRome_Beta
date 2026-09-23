@@ -185,7 +185,7 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
         />
       )}
       {suggestedActions.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8 }}>
+        <div className="gor-composer-pills" style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8 }}>
           {suggestedActions.map((action, index) => (
             <ActionPill key={action} aria-label={action} delay={index * 80} disabled={locked} onClick={() => {
               if (mode === 'structured') onStructuredDraftChange(appendSuggestedAction(structuredDraft, action));
