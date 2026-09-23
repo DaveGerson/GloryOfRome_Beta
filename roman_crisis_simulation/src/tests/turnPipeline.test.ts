@@ -1039,6 +1039,47 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     expect(rollD20(createSeededRng(turnSeed!))).toBe(20);
   });
 
+  it('clamps an off-scale model-authored difficulty onto 5-25 before it meets the roll (a natural 20 is not a guaranteed critical failure)', async () => {
+    // Regression: the assessment's difficulty went to resolveAction as-is -
+    // zod only checks it is a number - so a 60 made even a natural 20 a
+    // critical failure: the model pre-deciding the outcome through the
+    // back door of an off-scale number.
+    mockRoll(20);
+    const h = createHarness(false);
+    const player = makeEntity();
+
+    const turnPromise = runNewTurn(
+      h.ai, freeform('Give a rousing speech to the Senate'), player, 2, [player], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller'
+    );
+    turnPromise.catch(() => {});
+
+    await Promise.all([h.issued.storyRelevance.promise, h.issued.assessment.promise]);
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(JSON.stringify({
+      is_consequential: true,
+      action_category: 'oratory persuasion',
+      relevant_skill: 'oratory',
+      difficulty: 60,
+      opposing_entity_id: null,
+      rationale: 'Off the documented scale.',
+    }));
+    await h.issued.adjudication.promise;
+    h.response.adjudication.resolve(adjudicationJson);
+    await Promise.all([h.issued.simulationState.promise, h.issued.monologue.promise, h.issued.narration.promise]);
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologuePayloadJson);
+    h.response.narration.resolve(narrationPayloadJson);
+
+    const result = await turnPromise;
+    // total 20 vs the clamped ceiling 25 -> margin -5 -> 'failure', not
+    // margin -40 -> 'critical_failure'.
+    expect(result.newHistoryEntry.resolutionTrace).toMatchObject({ roll: 20, total: 20, margin: -5, tier: 'failure' });
+    // The trace keeps the model's own number; the GM note names both.
+    expect(result.newHistoryEntry.resolutionTrace?.assessment.difficulty).toBe(60);
+    expect(result.newHistoryEntry.adjudication.gm_private.some(note =>
+      note.includes('vs difficulty 25 (assessed 60, clamped to the 5-25 scale)'))).toBe(true);
+  });
+
   it('non-consequential action: no roll, no PLAYER ACTION OUTCOME block, no resolutionTrace - story_relevance and assessment still run concurrently', async () => {
     const h = createHarness(false);
     const player = makeEntity();

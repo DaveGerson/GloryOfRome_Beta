@@ -25,7 +25,7 @@ import { selectRipeEventMaterial } from '../../events/engine';
 import { buildNarrationPrompt, selectVoiceCast } from '../prompts/narration';
 import { processMortality, detectDeathClaims } from './mortality';
 import { createNarrationStreamGate, createPayloadTextExtractor } from './streamSplit';
-import { rollD20, resolveAction, derivePersonalityModifier, deriveOppositionModifier, createSeededRng, generateSeed } from './resolution';
+import { rollD20, resolveAction, clampDifficulty,derivePersonalityModifier, deriveOppositionModifier, createSeededRng, generateSeed } from './resolution';
 import { deserializeTurnSubmission, isReservedTurnSubmissionArtifact, normalizeTurnSubmissionInput, projectForAdjudication, projectForNarration, projectForNoAttemptResponse, projectForPlayerReflection, projectForResolution, serializeTurnSubmission } from '../../playerInput/turnSubmission';
 import {
     assertNoInventedPlayerAction,
@@ -526,7 +526,10 @@ export async function runNewTurn(
             relevantSkillValue,
             personalityModifier,
             oppositionModifier,
-            difficulty: actionAssessment.difficulty,
+            // Model-authored and only type-checked by zod: an off-scale
+            // value would pre-decide the tier (a 40 always critically
+            // fails), so it is clamped onto the documented 5-25 scale here.
+            difficulty: clampDifficulty(actionAssessment.difficulty),
         });
 
         playerActionOutcome = { tier: resolution.tier, actionCategory: actionAssessment.action_category };
@@ -661,7 +664,12 @@ export async function runNewTurn(
     // sanitizeAdjudicationForNarration).
     let trustedResolutionContext: string | undefined;
     if (resolutionTrace) {
-        trustedResolutionContext = `[Resolution] Player action ("${resolutionAttempt ?? '(no observable attempt)'}", ${resolutionTrace.assessment.action_category}) - roll ${resolutionTrace.roll} + modifiers vs difficulty ${resolutionTrace.assessment.difficulty} -> margin ${resolutionTrace.margin.toFixed(1)} -> ${resolutionTrace.tier}.`;
+        const assessedDifficulty = resolutionTrace.assessment.difficulty;
+        const effectiveDifficulty = clampDifficulty(assessedDifficulty);
+        const difficultyText = effectiveDifficulty === assessedDifficulty
+            ? `${assessedDifficulty}`
+            : `${effectiveDifficulty} (assessed ${assessedDifficulty}, clamped to the 5-25 scale)`;
+        trustedResolutionContext = `[Resolution] Player action ("${resolutionAttempt ?? '(no observable attempt)'}", ${resolutionTrace.assessment.action_category}) - roll ${resolutionTrace.roll} + modifiers vs difficulty ${difficultyText} -> margin ${resolutionTrace.margin.toFixed(1)} -> ${resolutionTrace.tier}.`;
         adjudication.gm_private.push(trustedResolutionContext);
     }
 
