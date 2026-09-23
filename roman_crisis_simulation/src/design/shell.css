@@ -43,10 +43,22 @@
 .gor-panel-waiting-mark{font-size:22px;line-height:1;color:var(--gold-600);opacity:.7}
 .gor-panel-waiting-line{margin:0;font-style:italic;color:var(--text-muted)}
 /* One row of seven tabs. The pennant still hangs below the rule. */
-.gor-panel-tabs{position:relative;z-index:1;flex:none;display:flex;flex-wrap:nowrap;padding:0 6px;border-bottom:1px solid var(--border-subtle)}
-.gor-panel-tabs .gor-tab{flex:1 1 auto;min-width:0;padding:11px 4px 10px;font-size:10.5px;letter-spacing:.07em;text-align:center;position:relative;transition:color var(--duration-fast) var(--ease-standard),background-color var(--duration-fast) var(--ease-standard)}
+.gor-panel-tabs{position:relative;z-index:1;flex:none;display:flex;flex-wrap:wrap;padding:0 6px;border-bottom:1px solid var(--border-subtle);container-type:inline-size}
+.gor-panel-tabs .gor-tab{box-sizing:border-box;flex:1 1 auto;min-width:0;padding:11px 3px 10px;font-size:10.5px;letter-spacing:.06em;text-align:center;position:relative;transition:color var(--duration-fast) var(--ease-standard),background-color var(--duration-fast) var(--ease-standard)}
 .gor-panel-tabs .gor-tab:hover:not([aria-selected="true"]){background:linear-gradient(180deg,transparent,var(--accent-quiet))}
 .gor-panel-tabs .gor-tab[aria-selected="true"]{padding:11px 6px 19px;margin-bottom:-9px}
+/* The selected tab is where roving focus always lands, and its pennant is a
+   clip-path - so the outset --focus-ring was cut away and focus on it was
+   invisible (in NOX the selected tab's glow also out-ranked the ring). An
+   inset double ring survives the clip on every tab bar. */
+.gor-tab[aria-selected="true"]:focus-visible{box-shadow:inset 0 0 0 2px #F2D98C,inset 0 0 0 4px rgba(20,8,16,.55)}
+/* Where seven tabs no longer fit one row (the tab row below ~405px: tablets,
+   phones, narrow windows), they settle into a 4 + 3 grid and the selected
+   tab stops hanging a pennant into the row beneath it. */
+@container (max-width:405px){
+.gor-panel-tabs .gor-tab{flex:1 0 22%;min-width:auto;padding:11px 2px}
+.gor-panel-tabs .gor-tab[aria-selected="true"]{padding:11px 2px;margin-bottom:0;clip-path:none}
+}
 .gor-tab-dot{position:absolute;top:4px;right:3px;width:6px;height:6px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#E8C959,#9E7E1B 70%);box-shadow:0 0 5px rgba(232,201,89,.85)}
 .gor-panel-body{flex:1;overflow-y:auto;padding:18px 16px 28px;scrollbar-gutter:stable}
 
@@ -110,9 +122,11 @@ button,input,select,textarea{font-family:inherit}
 /* Disabled reads as "not now" — desaturated metal — rather than a 40% ghost
    of itself that smears into the ground. */
 .gor-btn:disabled{opacity:.55;filter:saturate(.3)}
+/* Primary, unlit: gold that has not caught the light yet. */
+.gor-btn-primary:disabled{opacity:1;filter:none;background:linear-gradient(180deg,#E4D8B4,#CFC095);color:rgba(36,28,17,.55);border-color:rgba(138,109,20,.35);text-shadow:none}
+.gor-btn-primary:disabled::after{content:none}
 .gor-btn-secondary:hover:not(:disabled),.gor-btn-danger:hover:not(:disabled){transform:translateY(-1px)}
 .gor-btn-secondary:active:not(:disabled){transform:translateY(0);filter:brightness(.96)}
-.gor-btn-ghost:focus-visible{box-shadow:var(--focus-ring)}
 /* Fields: the focused well gets a ring, not only a gold hairline. */
 .gor-input,.gor-select,.gor-textarea{transition:border-color var(--duration-fast) var(--ease-standard),box-shadow var(--duration-fast) var(--ease-standard),background-color var(--duration-fast) var(--ease-standard)}
 .gor-input:focus,.gor-select:focus,.gor-textarea:focus{box-shadow:var(--shadow-inset),0 0 0 3px rgba(201,162,39,.32)}
@@ -148,7 +162,16 @@ button,input,select,textarea{font-family:inherit}
 .gor-destiny:hover:not(:disabled),.gor-destiny:hover:not(:disabled) .gor-destiny-seal,.gor-pill:hover:not(:disabled),.gor-btn-secondary:hover:not(:disabled),.gor-btn-danger:hover:not(:disabled){transform:none}
 }
 
-/* ── VII · Narrow viewports ────────────────────────────────────────────────
+/* ── VII · Mid widths (tablet, split screen) ──────────────────────────────
+   The flanking medallions and the absolutely-placed Settings button would
+   otherwise collide with the title. */
+@media (max-width:1100px) and (min-width:769px){
+.gor-masthead-medallion{display:none}
+.gor-masthead-crest{padding:0 112px}
+.gor-masthead-title{font-size:25px}
+}
+
+/* ── VIII · Narrow viewports ────────────────────────────────────────────────
    Below 768 the two columns become two LEAVES side by side in a horizontal
    scroll-snap strip: the chat fills the screen, and the intelligence panel
    waits one swipe to the right, its gilt edge showing along the margin as
@@ -166,9 +189,7 @@ main{overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;overscroll-b
 main::-webkit-scrollbar{display:none}
 section[data-screen-label="Chat"]{flex:0 0 calc(100% - 18px)!important;min-height:0;scroll-snap-align:start}
 .gor-panel{flex:0 0 100%;max-width:none;scroll-snap-align:end;box-shadow:inset 14px 0 18px -14px rgba(58,44,16,.4)}
-.gor-panel-tabs{display:grid;grid-template-columns:repeat(4,1fr);padding:0}
-.gor-panel-tabs .gor-tab{padding:11px 2px;font-size:10.5px}
-.gor-panel-tabs .gor-tab[aria-selected="true"]{padding:11px 2px;margin-bottom:0;clip-path:none}
+.gor-panel-tabs{padding:0}
 .gor-panel-body{padding:14px 14px 24px}
 section[data-screen-label="Chat"]>[role="log"]{padding:18px 12px 20px 14px!important}
 section[data-screen-label="Chat"]>[role="log"]+div{padding:10px 10px 12px 12px!important}
