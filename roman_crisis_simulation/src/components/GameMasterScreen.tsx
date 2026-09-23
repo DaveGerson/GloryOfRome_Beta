@@ -8,12 +8,14 @@ import { toRoman } from './ui/Brand';
 import { createFocusTrap, FocusTrap } from './ui/focusTrap';
 import type { PrivateSceneRecord } from '../privateScene/model';
 import { radioGroupKeyDown } from './ui/rovingRadio';
-import { GOLD, DIM, PARCH, RED, GREEN, MONO, lbl, well } from './gm/shared';
+import { GOLD, DIM, PARCH, RED, MONO, lbl } from './gm/shared';
 import { SummaryView } from './gm/SummaryView';
 import { ActionsView } from './gm/ActionsView';
 import { WhatChangedView } from './gm/WhatChangedView';
 import { PrivateView } from './gm/PrivateView';
 import { LatencyStrip } from './gm/LatencyStrip';
+import { CampaignWells } from './gm/CampaignWells';
+import { InterventionDock } from './gm/InterventionDock';
 import { PrivateSceneGmView } from './gm/PrivateSceneGmView';
 import { NarrationView } from './gm/NarrationView';
 import { RawView } from './gm/RawView';
@@ -121,16 +123,8 @@ const GameMasterScreen: React.FC<{
     // new turn arriving while the console is open does not strand the view on
     // an older one the GM never chose.
     const [selectedTurnNumber, setSelectedTurnNumber] = useState<number | null>(null);
-    const [interventionInput, setInterventionInput] = useState(interventionText);
-    const [showConfirmation, setShowConfirmation] = useState(false);
     const dialogRef = useRef<HTMLDivElement>(null);
     const trapRef = useRef<FocusTrap | null>(null);
-
-    useEffect(() => {
-        if (!showConfirmation) return;
-        const t = setTimeout(() => setShowConfirmation(false), 3000);
-        return () => clearTimeout(t);
-    }, [showConfirmation]);
 
     // Focus the dialog on open, restore to the invoker (the "GM Log"
     // button) on close - same components/ui/focusTrap.ts contract as every
@@ -153,10 +147,6 @@ const GameMasterScreen: React.FC<{
             return;
         }
         trapRef.current?.handleKeyDown(event);
-    };
-
-    const handleSetIntervention = async () => {
-        if (await onSetIntervention(interventionInput) !== false) setShowConfirmation(true);
     };
 
     // DESIGN_DECISIONS.md D18 - downloads the session's captured turns
@@ -226,58 +216,11 @@ const GameMasterScreen: React.FC<{
                     </div>
                 </div>
 
-                {/* DESIGN_DECISIONS.md D8 - the sole rendered owner of inferred ambition, for GM inspection and tuning only. It never feeds the player epilogue, NPC reactions, or any player-facing view. */}
-                {inferredAmbition && (
-                    <div style={{ flex: 'none', ...well, fontSize: 14 }}>
-                        <span style={lbl}>Apparent Ambition</span>{' '}
-                        <span style={{ color: '#E3C766', fontStyle: 'italic' }}>“{inferredAmbition.apparent_ambition}”</span>{' '}
-                        <span style={{ color: DIM, fontSize: 13 }}>
-                            (confidence: {inferredAmbition.confidence}, as of turn {inferredAmbition.asOfTurn})
-                        </span>
-                    </div>
-                )}
-
-                {/*
-                  ROADMAP_PHASE_4.md 4C item 3 (D7) - what each spotlight NPC
-                  is durably trying to do RIGHT NOW: the Director's committed
-                  intents from the latest turn, fed into the next turn's
-                  Director for its continuity ruling. GM-private (D4/D5);
-                  per-turn intent history lives in the 'actions' tab below.
-                */}
-                {npcIntents && npcIntents.length > 0 && (
-                    <div style={{ flex: 'none', ...well, fontSize: 14 }}>
-                        <span style={lbl}>Director Intents (current)</span>
-                        {npcIntents.map((intent, index) => (
-                            <div key={index} style={{ marginTop: 4 }}>
-                                <span style={{ color: RED, fontFamily: MONO, fontSize: 13 }}>{intent.entity_id}</span>
-                                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: intent.continuity === 'continue' ? GREEN : GOLD, marginLeft: 10 }}>{intent.continuity}</span>
-                                {' '}<span style={{ color: '#E3C766', fontStyle: 'italic' }}>“{intent.intent}”</span>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                {/*
-                  ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - the raw, mechanical
-                  consequence text queued by a risky investigation (see
-                  components/investigationLoop.ts) that hasn't yet been fed
-                  into a turn's GM Intervention text (App.tsx's executeTurn).
-                  This is the ONLY player-adjacent-but-not-player-facing
-                  surface where the literal string is shown - the player
-                  themselves only ever gets the subtle chat notice at the
-                  moment of investigation, then the reinterpreted fallout via
-                  next turn's narration (D5).
-                */}
-                {pendingIntelligenceFallout && pendingIntelligenceFallout.length > 0 && (
-                    <div style={{ flex: 'none', ...well, fontSize: 14 }}>
-                        <span style={lbl}>Pending Intelligence Fallout</span>
-                        <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
-                            {pendingIntelligenceFallout.map((consequence, index) => (
-                                <li key={index} style={{ color: '#E3C766', fontStyle: 'italic' }}>“{consequence}”</li>
-                            ))}
-                        </ul>
-                    </div>
-                )}
+                <CampaignWells
+                    inferredAmbition={inferredAmbition}
+                    npcIntents={npcIntents}
+                    pendingIntelligenceFallout={pendingIntelligenceFallout}
+                />
 
                 <div
                     style={{ flex: 'none', display: 'flex', gap: 2, borderBottom: '1px solid rgba(201,162,39,.25)', flexWrap: 'wrap' }}
@@ -371,44 +314,13 @@ const GameMasterScreen: React.FC<{
                     </div>
                 </div>
 
-                {/* GM Intervention docks to the foot (WP-12) and names the turn
-                    it lands in. Its button is GOLD, not crimson metal — crimson
-                    reads as delete, and this creates rather than destroys. */}
-                <div style={{ flex: 'none', ...well, border: '1px solid rgba(201,162,39,.35)' }}>
-                    <span style={{ ...lbl, color: GOLD }}>GM Intervention — lands in turn {toRoman(turnNumber + 1)}</span>
-                    {gmInterventionEnabled ? (
-                        <>
-                            <p style={{ margin: '4px 0 8px', fontSize: 14, color: DIM }}>A directive the Fates will weave into the next turn's adjudication — an outside event, or a thumb on an entity's scale.</p>
-                            <textarea
-                                value={interventionInput}
-                                onChange={(e) => setInterventionInput(e.target.value)}
-                                aria-label="Game Master Intervention Input"
-                                placeholder={'E.g. "A plague breaks out in the Suburra" — or "Maximinus Thrax should become more aggressive."'}
-                                rows={2}
-                                style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', background: '#1B1610', color: PARCH, border: '1px solid rgba(201,162,39,.3)', borderRadius: 'var(--radius-sm)', padding: '8px 10px', fontFamily: 'var(--font-body)', fontSize: 15, boxShadow: 'inset 0 1px 3px rgba(0,0,0,.5)' }}
-                            ></textarea>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 8 }}>
-                                <button
-                                    type="button"
-                                    onClick={handleSetIntervention}
-                                    disabled={interactionLocked}
-                                    style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, letterSpacing: '.08em', textTransform: 'uppercase', color: '#241C11', background: 'var(--metal-gold)', border: '1px solid #8A6D14', clipPath: 'var(--chamfer-sm)', padding: '9px 16px', cursor: 'pointer', boxShadow: 'var(--bevel)' }}
-                                >
-                                    Set Directive for Next Turn
-                                </button>
-                                <span role="status">
-                                    {showConfirmation && <span style={{ color: GREEN, fontStyle: 'italic', fontSize: 14, animation: 'gorFadeIn .3s ease-out both' }}>The Fates have heard. It will be woven into the next turn.</span>}
-                                </span>
-                            </div>
-                        </>
-                    ) : (
-                        // D32 - disabled via the configuration menu. UI gating
-                        // only: the input/button are hidden, but any directive
-                        // already set from before disabling is left alone
-                        // (this is not a mechanism for clearing it).
-                        <p style={{ margin: '4px 0 0', fontSize: 14, color: DIM, fontStyle: 'italic' }}>Disabled in the configuration menu.</p>
-                    )}
-                </div>
+                <InterventionDock
+                    turnNumber={turnNumber}
+                    interventionText={interventionText}
+                    onSetIntervention={onSetIntervention}
+                    interactionLocked={interactionLocked}
+                    enabled={gmInterventionEnabled}
+                />
             </div>
         </div>
     );

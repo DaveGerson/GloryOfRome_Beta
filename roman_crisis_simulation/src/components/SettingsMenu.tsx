@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { PacingPosture } from '../types';
-import { Card, Button, Badge, RegisterHeading } from './ui/Core';
+import { Button, Badge, RegisterHeading } from './ui/Core';
 import { Switch, SegmentedControl } from './ui/Forms';
 import { createFocusTrap, FocusTrap } from './ui/focusTrap';
 import { ImportFailureNotice } from './ui/FailureNotices';
 import type { ImportResult } from '../persistence/saveGame';
 import { useReignImport } from './ui/useReignImport';
+import { ApiKeyCard } from './ApiKeyCard';
 
 /**
  * ROADMAP_0_MASTER_PLAN.md Phase 5 (DESIGN_DECISIONS.md D31) - the FATES
@@ -26,20 +27,7 @@ const LIGHTING_OPTIONS = [
     { value: 'nox', label: '☾ NOX', title: 'Nox Romae — torchlit' },
 ] as const;
 
-const cardBodyStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 8 };
-const descriptionStyle: React.CSSProperties = { margin: 0, fontSize: 14, color: 'var(--text-muted)' };
 const registerStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 10 };
-
-/**
- * How a stored key is shown back to the player: enough to recognise which key
- * is on this device, never enough to read it. The value itself is only ever
- * in the (password-typed) input beside it (D34).
- */
-export function maskApiKey(key: string): string {
-    const trimmed = key.trim();
-    if (!trimmed) return '';
-    return `${'•'.repeat(16)}${trimmed.slice(-4)}`;
-}
 
 /**
  * The configuration menu (D31) - a marble gor-dialog (player-facing, unlike
@@ -115,21 +103,12 @@ const SettingsMenu: React.FC<{
     onImportReign,
     interactionLocked = false,
 }) => {
-    const [keyInput, setKeyInput] = useState(apiKey ?? '');
-    const [showKey, setShowKey] = useState(false);
-    const [savedFlash, setSavedFlash] = useState(false);
     const dialogRef = useRef<HTMLDivElement>(null);
     const trapRef = useRef<FocusTrap | null>(null);
     const {
         pendingImportText, importFailure, importInputRef, keepReignRef, restoreButtonRef,
         handleImportFileChange, confirmImport, cancelImport, openFilePicker,
     } = useReignImport({ hasSavedReign, onImportReign });
-
-    useEffect(() => {
-        if (!savedFlash) return;
-        const t = setTimeout(() => setSavedFlash(false), 2200);
-        return () => clearTimeout(t);
-    }, [savedFlash]);
 
     // Focus the dialog on open, restore to the invoker on close - same
     // components/ui/focusTrap.ts contract as every other gor-dialog.
@@ -153,20 +132,7 @@ const SettingsMenu: React.FC<{
         trapRef.current?.handleKeyDown(event);
     };
 
-    const handleSaveKey = () => {
-        const trimmed = keyInput.trim();
-        if (!trimmed) return;
-        onSaveApiKey(trimmed);
-        setSavedFlash(true);
-    };
-
     const selectedPacing = FATES_OPTIONS.find(option => option.posture === pacingPosture) ?? FATES_OPTIONS[1];
-
-    const handleClearKey = () => {
-        setKeyInput('');
-        setSavedFlash(false);
-        onClearApiKey();
-    };
 
     return (
         <div className="gor-dialog-backdrop">
@@ -196,40 +162,7 @@ const SettingsMenu: React.FC<{
                     and a one-time API key weighed the same as a lighting whim.
                     Everything below the key is a hairline-ruled register. */}
                 <div className="gor-dialog-body" style={{ display: 'flex', flexDirection: 'column', gap: 18, maxHeight: '78vh', overflowY: 'auto' }}>
-                    <Card gilt title="Gemini API Key" action={<Badge tone="laurel">On this device</Badge>}>
-                        <div style={cardBodyStyle}>
-                            <p style={descriptionStyle}>
-                                Play with your own Gemini API key — it is stored on this device only, never saved into your game, and never bundled into this build.
-                            </p>
-                            {apiKey && !showKey && (
-                                <span className="gor-key-mask">{maskApiKey(apiKey)}</span>
-                            )}
-                            <div style={{ display: 'flex', gap: 8 }}>
-                                <input
-                                    type={showKey ? 'text' : 'password'}
-                                    className="gor-input"
-                                    value={keyInput}
-                                    onChange={(e) => setKeyInput(e.target.value)}
-                                    placeholder="AIza..."
-                                    aria-label="Gemini API key"
-                                    autoComplete="off"
-                                    style={{ flex: 1, minWidth: 0 }}
-                                />
-                                <Button type="button" variant="ghost" onClick={() => setShowKey(v => !v)} aria-label={showKey ? 'Hide API key' : 'Show API key'}>
-                                    {showKey ? 'Hide' : 'Show'}
-                                </Button>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                <Button type="button" onClick={handleSaveKey}>Save</Button>
-                                <Button type="button" variant="secondary" onClick={handleClearKey}>Clear</Button>
-                                {/* Always mounted: a live region must exist before its
-                                    text changes or the confirmation is never announced. */}
-                                <span role="status">
-                                    {savedFlash && <span style={{ color: 'var(--success)', fontStyle: 'italic', fontSize: 14 }}>Saved to this device.</span>}
-                                </span>
-                            </div>
-                        </div>
-                    </Card>
+                    <ApiKeyCard apiKey={apiKey} onSaveApiKey={onSaveApiKey} onClearApiKey={onClearApiKey} />
 
                     <section aria-labelledby="settings-play" style={registerStyle}>
                         <RegisterHeading headingId="settings-play" title="Play" />
