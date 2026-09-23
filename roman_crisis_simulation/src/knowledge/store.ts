@@ -365,6 +365,30 @@ function computeEdges(
 }
 
 /**
+ * The next fork index for `baseKey`: one past the HIGHEST surviving
+ * `#c{n}` fork of that base key (forks number #c0, #c1, ...; the base-keyed
+ * original keeps its plain key). A monotonic counter derived from the store
+ * itself rather than persisted: it used to COUNT surviving forks, so once
+ * cap eviction dropped an early fork the next fork re-used a still-live
+ * fork's key (BACKLOG B7). Deriving from the max keeps every live key unique
+ * with no new save field - legacy saves need no migration. An index can only
+ * be re-issued once every higher fork is ALSO gone (evicted as oldest-
+ * updated), so it never names a live claim, and in practice lands on a later
+ * turn than the evicted claim - the turn-stamped id differs too.
+ */
+function nextForkIndex(store: KnowledgeClaim[], baseKey: string): number {
+  const prefix = `${baseKey}#c`;
+  let highest = -1;
+  for (const claim of store) {
+    if (!claim.claimKey.startsWith(prefix)) continue;
+    const suffix = claim.claimKey.slice(prefix.length);
+    if (!/^\d+$/.test(suffix)) continue;
+    highest = Math.max(highest, Number(suffix));
+  }
+  return highest + 1;
+}
+
+/**
  * The single write path: appends an update to the claim whose claimKey
  * matches, or opens a new claim (see the MATCHING RULE in the module doc).
  * Builds the stored objects field by field from the artifact - the
@@ -400,10 +424,7 @@ function upsertClaim(store: KnowledgeClaim[], artifact: IngestArtifact): Knowled
   // restatement of the ORIGINAL still continues the original, not the fork.
   let claimKey = artifact.claimKey;
   if (forceNew) {
-    // Count only prior forks of this base key (the base-keyed original keeps
-    // its plain key), so forks number #c0, #c1, ... and never collide.
-    const forkCount = store.filter(c => c.claimKey.startsWith(`${artifact.claimKey}#c`)).length;
-    claimKey = `${artifact.claimKey}#c${forkCount}`;
+    claimKey = `${artifact.claimKey}#c${nextForkIndex(store, artifact.claimKey)}`;
   }
 
   const edges = computeEdges(store, {
