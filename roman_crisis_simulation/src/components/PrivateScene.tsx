@@ -6,6 +6,7 @@ import { Button, DraftGauge } from './ui/Core';
 import { Alert } from './ui/Alert';
 import { WaxSeal, toRoman } from './ui/Brand';
 import { radioGroupKeyDown, radioTabIndex } from './ui/rovingRadio';
+import { createFocusTrap } from './ui/focusTrap';
 import { EmptyRegister, FoldedLetterSilhouette } from './tabs/EmptyRegister';
 
 const transcriptLineStyle: React.CSSProperties = { margin: '6px 0', paddingLeft: 10, borderLeft: '2px solid var(--border-subtle)' };
@@ -160,6 +161,24 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
     first?.focus();
   }, [open]);
 
+  // Every exchange disables the whole dialog while the other party answers,
+  // which drops focus off the control that sent it. When the room is quiet
+  // again, hand focus to the next thing to write (reply, last word, or a new
+  // opening) - or failing that the first live control - instead of leaving a
+  // keyboard player on <body> behind the modal.
+  const activeStatus = active?.status;
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!open || loading || !dialog) return;
+    // Only reclaim focus that fell: anything a player (or another surface) put
+    // focus on stays put.
+    const focused = document.activeElement;
+    if (focused && focused !== document.body && focused !== dialog) return;
+    const next = dialog.querySelector<HTMLElement>('textarea:not(:disabled)')
+      ?? dialog.querySelector<HTMLElement>('button:not(:disabled),select:not(:disabled)');
+    next?.focus();
+  }, [open, loading, activeStatus]);
+
   const closePresentation = () => {
     setOpen(false);
     queueMicrotask(() => openerRef.current?.focus());
@@ -170,15 +189,10 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
       closePresentation();
       return;
     }
-    if (event.key !== 'Tab') return;
-    const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled),select:not(:disabled),textarea:not(:disabled)'));
-    if (controls.length === 0) return;
-    const first = controls[0]; const last = controls[controls.length - 1];
-    if (event.shiftKey && (document.activeElement === first || !event.currentTarget.contains(document.activeElement))) {
-      event.preventDefault(); last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault(); first.focus();
-    }
+    // The shared trap (components/ui/focusTrap.ts), not a local copy: it also
+    // skips the target cards' roving tabindex="-1" radios, which Tab never
+    // visits, and pulls a forward Tab from outside back to the first control.
+    createFocusTrap(event.currentTarget).handleKeyDown(event);
   };
 
   const heldThisWeek = scenes.find(scene => scene.macroTurn === currentMacroTurn);
@@ -271,7 +285,9 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
       {active && <>
         <p className="gor-label" style={{ margin: '10px 0 4px' }}><strong style={{ color: 'var(--text-heading)' }}>{active.npcName}</strong> · {active.npcResponseCount}/6 replies</p>
         {/* Awaiting the last word: the exchange is over, so it recedes. */}
-        <div aria-label="Private-scene transcript" className={active.status === 'awaiting_last_word' ? 'gor-scene-transcript-spent' : undefined}>
+        {/* role="log": each reply is announced as it lands, and the label is
+            valid on a landmark-less div only once it has a role. */}
+        <div role="log" aria-label="Private-scene transcript" className={active.status === 'awaiting_last_word' ? 'gor-scene-transcript-spent' : undefined}>
           {active.transcript.map(line => <p key={line.sequence} style={transcriptLineStyle}><strong>{line.speaker === 'player' ? 'You' : active.npcName}:</strong> {line.text}</p>)}
         </div>
         {active.status === 'active' && <>
@@ -330,7 +346,7 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
           </div>
           {reading && (
             <div className="gor-shelf-pane">
-              <div aria-label={`Transcript with ${reading.npcName}`}>
+              <div role="region" aria-label={`Transcript with ${reading.npcName}`}>
                 {reading.transcript.map(line => <p key={line.sequence} style={transcriptLineStyle}><strong>{line.speaker === 'player' ? 'You' : reading.npcName}:</strong> {line.text}</p>)}
               </div>
               {reading.speechActs.length > 0 && (
