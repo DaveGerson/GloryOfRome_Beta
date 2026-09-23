@@ -123,6 +123,17 @@ export function privateScenesFingerprint(scenes: readonly PrivateSceneRecord[]):
 }
 
 /**
+ * Whether a private scene currently holds the table: one is open, or is
+ * waiting on the player's last word. While true, ordinary domain mutations
+ * are refused (runDomainMutation's allowDuringPrivateScene) and the
+ * composer, side panel and event modal lock. The ONE predicate both the
+ * render-time lock and commitPrivateScene's pre-dispatch ref write use.
+ */
+export function isPrivateSceneInteractionLocked(scenes: readonly PrivateSceneRecord[]): boolean {
+    return scenes.some(scene => scene.status === 'active' || scene.status === 'awaiting_last_word');
+}
+
+/**
  * The persistable slice of the reducer state, field for field - the half of
  * buildSaveState that is pure. Every slice buildSaveState persists MUST come
  * from the reducer (D17), which is why this takes GameDomainState and
