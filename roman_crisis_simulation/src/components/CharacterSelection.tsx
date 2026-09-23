@@ -218,11 +218,11 @@ const CharacterSelection: React.FC<{
         // covers the other half: a field focused by keyboard scrolls to above
         // the bar rather than under it.
         return (
-            <div style={{ flex: 1, overflowY: 'auto', padding: '40px 32px 132px', scrollPaddingBottom: 96 }}>
+            <div className="gor-destinies gor-destinies-forge" style={{ flex: 1, overflowY: 'auto', padding: '40px 32px 132px', scrollPaddingBottom: 96 }}>
                 <div style={{ maxWidth: 660, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 18 }}>
                     <div style={{ textAlign: 'center' }}>
                         <WaxSeal letter="V" size={54} />
-                        <h2 style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 36, color: 'var(--tyrian-600)', marginTop: 8 }}>Forge a New Destiny</h2>
+                        <h2 className="gor-destinies-title" style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 36, color: 'var(--tyrian-600)', marginTop: 8 }}>Forge a New Destiny</h2>
                         <p style={{ margin: '8px auto 0', maxWidth: '52ch' }}>Describe who you wish to become. The Game Master will write you into the world — or write a world around you.</p>
                     </div>
                     <form onSubmit={handleCustomSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
@@ -328,11 +328,11 @@ const CharacterSelection: React.FC<{
     }
 
     return (
-        <div style={{ flex: 1, overflowY: 'auto', padding: '38px 32px 56px' }}>
+        <div className="gor-destinies" style={{ flex: 1, overflowY: 'auto', padding: '38px 32px 56px' }}>
             <div style={{ maxWidth: 1080, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 22 }}>
                 <div style={{ textAlign: 'center' }}>
                     <Medallion size={96} />
-                    <h2 style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 44, color: 'var(--tyrian-600)', marginTop: 8 }}>Choose Your Destiny</h2>
+                    <h2 className="gor-destinies-title" style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 44, color: 'var(--tyrian-600)', marginTop: 8 }}>Choose Your Destiny</h2>
                     <p style={{ margin: '8px auto 0', maxWidth: '52ch' }}>The year is 235 CE. The Empire teeters on the brink of chaos. Who will you be?</p>
                     <div className="gor-mosaic" style={{ width: 260, margin: '18px auto 0' }}></div>
                 </div>

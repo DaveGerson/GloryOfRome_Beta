@@ -618,20 +618,8 @@ body{transition:none}
    (no class of their own to hang a selector on) - see the comments below
    each rule for exactly which element that reaches. */
 @media (max-width:768px){
-main{flex-direction:column}
-section[data-screen-label="Chat"]{flex:1 1 auto!important;min-height:0}
-aside[data-screen-label="Side Panel"]{flex:0 0 34vh!important;min-height:0;border-left:none!important;border-top:1px solid var(--border-strong)}
-/* Header.tsx's masthead is tall enough (two 68px medallions, a Latin
-   kicker, the title, an AUC line, then the world-stats row) that simply
-   letting it wrap leaves too little height for the stacked chat below -
-   trim it to the title + world stats, which is what a player actually
-   reads turn to turn. */
-header{padding-top:44px!important}
-header>div:first-of-type{flex-wrap:wrap;gap:10px!important}
-header>div:first-of-type>span{display:none!important} /* the two flanking Medallions - Medallion sets `display:inline-block` inline */
-header>div:first-of-type>div{min-width:0}
-header>div:first-of-type>div>div:first-child{display:none} /* the "SENATVS · POPVLVSQUE · ROMANVS" kicker */
-header h1{font-size:20px!important}
+/* The shell itself (main, the two columns, the masthead) stacks in
+   shell.css, by class - see its section VII. */
 .gor-dialog{width:calc(100% - 24px)}
 [aria-labelledby="gm-screen-title"]{width:calc(100% - 16px)!important;height:calc(100% - 16px)!important;padding:14px 14px 12px!important}
 /* App.tsx's chat-input row sits the TurnComposer beside the Private

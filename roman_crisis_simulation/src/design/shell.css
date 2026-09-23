@@ -1,0 +1,200 @@
+/* ═══ The shell — masthead, the two columns, the manuscript, the desk ═══
+   (UI refresh.) Loaded after components.css and before nocturne.css, so the
+   night skin still has the last word. App.tsx lays the shell out with inline
+   styles this file may not edit; where it has to reach them it does so by the
+   same stable hooks nocturne.css already relies on (`data-screen-label`,
+   `role="log"`), and says so beside the rule. */
+
+/* ── I · The masthead (components/Header.tsx) ──────────────────────────── */
+.gor-masthead{position:relative;z-index:3;flex:none;display:flex;flex-direction:column;align-items:center;padding:11px 24px 0;text-align:center;background:var(--dentil) left bottom/100% 3px no-repeat,var(--masthead-sheen),var(--banner-grad);border-bottom:1px solid var(--banner-edge);box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 2px 6px rgba(74,56,20,.35),0 14px 30px -18px rgba(30,8,20,.55)}
+.gor-masthead-cornice{position:absolute;left:0;right:0;top:0;height:3px;background:var(--banner-cornice)}
+.gor-masthead-crest{display:flex;align-items:center;justify-content:center;gap:22px}
+.gor-masthead-medallion{display:inline-flex;line-height:0;filter:drop-shadow(0 0 12px rgba(232,201,89,.16))}
+.gor-masthead-titles{min-width:0}
+.gor-masthead-kicker{font-family:var(--font-display);font-weight:600;font-size:10.5px;letter-spacing:.42em;color:var(--banner-label);text-shadow:0 1px 1px rgba(0,0,0,.4)}
+/* Gold leaf, not gold paint: a metal gradient clipped to the letters. The
+   fill never drops below #C9A33A, which holds ≥4.5:1 on both banner grounds;
+   forced-colours mode (where background images vanish) gets plain text. */
+.gor-masthead-title{margin:1px 0 2px;font-family:var(--font-epic);font-weight:700;font-size:30px;line-height:1.12;letter-spacing:.035em;color:var(--banner-title);text-shadow:none;background:var(--masthead-title-fill);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;filter:drop-shadow(0 2px 2px rgba(0,0,0,.5))}
+@media (forced-colors:active){.gor-masthead-title{-webkit-text-fill-color:currentColor;background:none;filter:none}}
+.gor-masthead-auc{color:var(--masthead-auc);font-size:10.5px}
+.gor-masthead-settings{position:absolute;top:13px;left:14px;display:inline-flex;align-items:center;gap:6px;padding:6px 11px;background:rgba(0,0,0,.28);border:1px solid rgba(232,201,89,.3);border-radius:var(--radius-sm);color:var(--banner-label);font-family:var(--font-display);font-weight:600;font-size:11px;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;transition:background var(--duration-fast) var(--ease-standard),border-color var(--duration-fast) var(--ease-standard),color var(--duration-fast) var(--ease-standard)}
+.gor-masthead-settings:hover{background:rgba(0,0,0,.4);border-color:rgba(232,201,89,.6);color:#F0D089}
+.gor-masthead-settings:focus-visible{outline:2px solid #F0D089;outline-offset:2px}
+.gor-masthead-settings-glyph{font-size:13px;line-height:1}
+/* The world stats sit in a recessed band, full-bleed, over the dentil. */
+.gor-masthead-stats{align-self:stretch;display:flex;justify-content:center;align-items:baseline;flex-wrap:wrap;margin:9px -24px 0;padding:6px 16px 10px;background:var(--masthead-band);border-top:1px solid rgba(232,201,89,.16)}
+.gor-masthead-stat{display:inline-flex;align-items:baseline;gap:8px;padding:0 15px}
+.gor-masthead-stat-key{color:var(--banner-label);font-size:11px}
+.gor-masthead-stat-value{color:var(--banner-value);font-size:15px;font-variant-numeric:tabular-nums}
+.gor-masthead-gem{align-self:center;color:rgba(232,201,89,.55);font-size:8px;line-height:1}
+
+/* ── II · The crisis banner, refined (components/CrisisBanner.tsx) ─────── */
+.gor-crisis{z-index:2}
+.gor-crisis-text{letter-spacing:.05em}
+/* Lacquer, not flat paint: a soft sheen pooled at the centre of the metal. */
+.gor-crisis:not(.gor-crisis-murmur){background:radial-gradient(50% 120% at 50% 0%,rgba(255,226,196,.16),rgba(255,226,196,0) 70%),var(--metal-crimson)}
+
+/* ── III · The two columns ─────────────────────────────────────────────── */
+/* The side panel (components/SidePanel.tsx). Recessed a step behind the
+   manuscript: its own ground, and the column edge casts a shadow into it. */
+.gor-panel{position:relative;flex:1;min-width:0;max-width:600px;display:flex;flex-direction:column;background:var(--surface-panel);border-left:1px solid var(--border-strong);box-shadow:var(--panel-edge-shadow)}
+.gor-panel-waiting{align-items:center;justify-content:center;gap:4px;padding:16px;text-align:center}
+.gor-panel-waiting-mark{font-size:22px;line-height:1;color:var(--gold-600);opacity:.7}
+.gor-panel-waiting-line{margin:0;font-style:italic;color:var(--text-muted)}
+/* One row of seven tabs. The pennant still hangs below the rule. */
+.gor-panel-tabs{position:relative;z-index:1;flex:none;display:flex;flex-wrap:nowrap;padding:0 6px;border-bottom:1px solid var(--border-subtle)}
+.gor-panel-tabs .gor-tab{flex:1 1 auto;min-width:0;padding:11px 4px 10px;font-size:10.5px;letter-spacing:.07em;text-align:center;position:relative;transition:color var(--duration-fast) var(--ease-standard),background-color var(--duration-fast) var(--ease-standard)}
+.gor-panel-tabs .gor-tab:hover:not([aria-selected="true"]){background:linear-gradient(180deg,transparent,var(--accent-quiet))}
+.gor-panel-tabs .gor-tab[aria-selected="true"]{padding:11px 6px 19px;margin-bottom:-9px}
+.gor-tab-dot{position:absolute;top:4px;right:3px;width:6px;height:6px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#E8C959,#9E7E1B 70%);box-shadow:0 0 5px rgba(232,201,89,.85)}
+.gor-panel-body{flex:1;overflow-y:auto;padding:18px 16px 28px;scrollbar-gutter:stable}
+
+/* The player's own dossier atop the panel (components/PlayerStatus.tsx). */
+.gor-dossier-head{flex:none;padding:15px 16px 13px;border-bottom:1px solid var(--border-subtle);background:var(--dentil) left bottom/100% 3px no-repeat,linear-gradient(180deg,rgba(201,162,39,.12),rgba(201,162,39,0))}
+.gor-dossier-head-row{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.gor-dossier-name{font-family:var(--font-epic);font-weight:700;font-size:20px;line-height:1.2;color:var(--tyrian-600)}
+.gor-dossier-post{margin-top:2px;font-size:14.5px;font-style:italic;color:var(--text-muted)}
+.gor-dossier-field{display:flex;flex-direction:column;gap:3px;margin-top:10px}
+.gor-dossier-field+.gor-dossier-field{margin-top:8px}
+.gor-dossier-goal{font-size:15.5px;font-style:italic;color:var(--text-heading)}
+.gor-dossier-state{font-size:14.5px;line-height:1.5}
+
+/* ── IV · The manuscript: the chat log as a reading column ─────────────────
+   App.tsx's log (`role="log"`, inline padding) spans the whole column; the
+   inline padding is widened here so its contents sit in a centred measure.
+   The desk under it (the log's next sibling) aligns to the same column. */
+section[data-screen-label="Chat"]{position:relative}
+section[data-screen-label="Chat"]>[role="log"]{padding:28px max(24px,calc((100% - var(--manuscript-width))/2)) 28px!important;scroll-padding-bottom:24px}
+section[data-screen-label="Chat"]>[role="log"]+div{position:relative;z-index:1;background:var(--surface-desk)!important;box-shadow:var(--desk-shadow);padding:14px max(24px,calc((100% - var(--manuscript-width))/2)) 16px!important}
+/* Where there is room, the column is ruled like a codex: a hairline margin
+   either side, 12px outside the text block. Painted on the log's own box,
+   so it stays put while the leaves scroll past it. */
+@media (min-width:1100px){
+section[data-screen-label="Chat"]>[role="log"]{background:linear-gradient(90deg,transparent calc(50% - var(--manuscript-width)/2 - 13px),var(--manuscript-margin) calc(50% - var(--manuscript-width)/2 - 13px),var(--manuscript-margin) calc(50% - var(--manuscript-width)/2 - 12px),transparent calc(50% - var(--manuscript-width)/2 - 12px),transparent calc(50% + var(--manuscript-width)/2 + 12px),var(--manuscript-margin) calc(50% + var(--manuscript-width)/2 + 12px),var(--manuscript-margin) calc(50% + var(--manuscript-width)/2 + 13px),transparent calc(50% + var(--manuscript-width)/2 + 13px))}
+}
+/* The log fades into the desk rather than being cut by it. */
+section[data-screen-label="Chat"]>[role="log"]+div::before{content:"";position:absolute;left:0;right:0;bottom:100%;height:26px;background:linear-gradient(180deg,transparent,var(--surface-desk-fade));pointer-events:none}
+
+/* The leaves themselves. */
+.gor-msg{max-width:min(100%,560px);font-size:17.5px;line-height:1.62}
+.gor-msg-gm{position:relative;max-width:min(100%,var(--measure-narration));padding:16px 22px 17px 20px;background:var(--surface-folio-rule) left top/100% 1px no-repeat,var(--surface-folio);border-left-width:3px;box-shadow:var(--elev-2)}
+.gor-msg-player{max-width:min(92%,520px);padding:11px 16px 12px;border-radius:var(--radius-md) var(--radius-md) 1px var(--radius-md)}
+.gor-msg-monologue{padding:14px 20px;line-height:1.6}
+.gor-msg-kicker{letter-spacing:.3em}
+.gor-dropcap::first-letter{font-size:3.3em;padding:5px 10px 0 0}
+/* Entrances: a leaf rises into place, it does not merely appear. */
+.gor-msg,.gor-typing{animation:gorLeafIn var(--duration-enter) var(--ease-out-soft) both}
+@keyframes gorLeafIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* ── V · Choose Your Destiny (components/CharacterSelection.tsx) ───────── */
+.gor-destinies-title{letter-spacing:.02em}
+.gor-destiny{overflow:hidden;background:radial-gradient(120% 55% at 50% 0%,rgba(201,162,39,.10),rgba(201,162,39,0) 62%),var(--surface-card);box-shadow:var(--elev-1);transition:transform 260ms var(--ease-out-soft),box-shadow 260ms var(--ease-out-soft),border-color 200ms var(--ease-standard)}
+/* An inner gilt frame, set 5px in — the card as a mounted plaque. */
+.gor-destiny::after{content:"";position:absolute;inset:5px;border:1px solid var(--border-faint);pointer-events:none;transition:border-color 200ms var(--ease-standard)}
+.gor-destiny:hover:not(:disabled){transform:translateY(-4px);box-shadow:var(--elev-3),var(--glow-gold-soft);border-color:var(--gold-600)}
+.gor-destiny:hover:not(:disabled)::after{border-color:var(--border-subtle)}
+.gor-destiny:active:not(:disabled){transform:translateY(-1px)}
+.gor-destiny:focus-visible{box-shadow:var(--focus-ring),var(--elev-2)}
+.gor-destiny:disabled{cursor:not-allowed;opacity:.6}
+.gor-destiny-seal{transition:transform 320ms var(--ease-out-soft),box-shadow 320ms var(--ease-out-soft)}
+.gor-destiny:hover:not(:disabled) .gor-destiny-seal{transform:scale(1.07) rotate(-5deg)}
+.gor-destiny-name{transition:color 200ms var(--ease-standard)}
+
+/* ── VI · Primitives, refined ──────────────────────────────────────────── */
+/* Disabled reads as "not now" — desaturated metal — rather than a 40% ghost
+   of itself that smears into the ground. */
+.gor-btn:disabled{opacity:.55;filter:saturate(.3)}
+.gor-btn-secondary:hover:not(:disabled),.gor-btn-danger:hover:not(:disabled){transform:translateY(-1px)}
+.gor-btn-secondary:active:not(:disabled){transform:translateY(0);filter:brightness(.96)}
+.gor-btn-ghost:focus-visible{box-shadow:var(--focus-ring)}
+/* Fields: the focused well gets a ring, not only a gold hairline. */
+.gor-input,.gor-select,.gor-textarea{transition:border-color var(--duration-fast) var(--ease-standard),box-shadow var(--duration-fast) var(--ease-standard),background-color var(--duration-fast) var(--ease-standard)}
+.gor-input:focus,.gor-select:focus,.gor-textarea:focus{box-shadow:var(--shadow-inset),0 0 0 3px rgba(201,162,39,.32)}
+.gor-textarea{line-height:1.5}
+.gor-pill{transition:color var(--duration-fast) var(--ease-standard),border-color var(--duration-fast) var(--ease-standard),filter var(--duration-fast) var(--ease-standard),transform var(--duration-fast) var(--ease-standard)}
+.gor-pill{padding:8px 15px;font-size:12.5px}
+.gor-pill:hover:not(:disabled){transform:translateY(-1px)}
+.gor-pill:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--surface-page),inset 0 0 0 4px var(--gold-500)}
+.gor-card{box-shadow:var(--elev-1)}
+.gor-card-gilt{box-shadow:var(--elev-2)}
+.gor-seg-btn{transition:background var(--duration-fast) var(--ease-standard),color var(--duration-fast) var(--ease-standard),box-shadow var(--duration-fast) var(--ease-standard)}
+.gor-seg-btn[aria-pressed="true"]{box-shadow:inset 0 1px 0 rgba(255,255,255,.3),inset 0 -1px 0 rgba(0,0,0,.18)}
+/* Dialogs arrive: the backdrop dims and softens the room, the tablet settles. */
+.gor-dialog-backdrop{-webkit-backdrop-filter:blur(3px) saturate(.85);backdrop-filter:blur(3px) saturate(.85);animation:gorFadeIn 220ms var(--ease-standard) both}
+.gor-dialog{animation:gorDialogIn 300ms var(--ease-out-soft) both}
+@keyframes gorDialogIn{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
+.gor-private-scene[open]{animation:gorSceneIn 300ms var(--ease-out-soft) both}
+/* The scene is centred by translateX(-50%) (components.css), so its entrance
+   must carry that transform through rather than end at `none`. */
+@keyframes gorSceneIn{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%)}}
+.gor-private-scene{box-shadow:var(--elev-3)}
+.gor-private-scene::backdrop{-webkit-backdrop-filter:blur(3px) saturate(.85);backdrop-filter:blur(3px) saturate(.85)}
+/* Its textareas were width:100% on a content box - 18px past the scene's
+   right edge at every width, not only the narrow ones. */
+.gor-private-scene textarea,.gor-private-scene select{box-sizing:border-box}
+.gor-toast{box-shadow:var(--elev-3)}
+/* Thin, gilt scrollbars in engines that only take the standard properties. */
+@supports not selector(::-webkit-scrollbar){*{scrollbar-width:thin;scrollbar-color:var(--gold-600) transparent}}
+
+@media (prefers-reduced-motion:reduce){
+.gor-msg,.gor-typing,.gor-dialog,.gor-dialog-backdrop,.gor-private-scene[open]{animation:none}
+.gor-destiny,.gor-destiny-seal,.gor-destiny::after{transition:none}
+.gor-destiny:hover:not(:disabled),.gor-destiny:hover:not(:disabled) .gor-destiny-seal,.gor-pill:hover:not(:disabled),.gor-btn-secondary:hover:not(:disabled),.gor-btn-danger:hover:not(:disabled){transform:none}
+}
+
+/* ── VII · Narrow viewports ────────────────────────────────────────────────
+   Below 768 the two columns become two LEAVES side by side in a horizontal
+   scroll-snap strip: the chat fills the screen, and the intelligence panel
+   waits one swipe to the right, its gilt edge showing along the margin as
+   the affordance (UI_SYSTEMS 10.2's "Chat ↔ Intel" switcher, without a line
+   of markup). Stacking them vertically instead made <main> a second vertical
+   scroller around the log, and App.tsx's `scrollIntoView()` on each new
+   message then scrolled <main> too, shoving the chat half off the screen.
+   Horizontally, that call's default `inline:'nearest'` leaves <main> where
+   it is while the chat is in view. Focus moving into the panel (Tab, or a
+   screen reader) scrolls it into view as any focused element would.
+   `!important` only where App.tsx sets the value inline. */
+@media (max-width:768px){
+#root>div{height:100dvh!important}
+main{overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;overscroll-behavior-x:contain;scrollbar-width:none}
+main::-webkit-scrollbar{display:none}
+section[data-screen-label="Chat"]{flex:0 0 calc(100% - 18px)!important;min-height:0;scroll-snap-align:start}
+.gor-panel{flex:0 0 100%;max-width:none;scroll-snap-align:end;box-shadow:inset 14px 0 18px -14px rgba(58,44,16,.4)}
+.gor-panel-tabs{display:grid;grid-template-columns:repeat(4,1fr);padding:0}
+.gor-panel-tabs .gor-tab{padding:11px 2px;font-size:10.5px}
+.gor-panel-tabs .gor-tab[aria-selected="true"]{padding:11px 2px;margin-bottom:0;clip-path:none}
+.gor-panel-body{padding:14px 14px 24px}
+section[data-screen-label="Chat"]>[role="log"]{padding:18px 12px 20px 14px!important}
+section[data-screen-label="Chat"]>[role="log"]+div{padding:10px 10px 12px 12px!important}
+/* The desk's last row sits the composer beside Private scene / GM Log. On a
+   phone the composer takes the whole row and the two buttons drop beneath. */
+section[data-screen-label="Chat"]>[role="log"]+div>div:last-child{flex-wrap:wrap;justify-content:flex-end}
+section[data-screen-label="Chat"]>[role="log"]+div>div:last-child>div:first-child{flex-basis:100%!important}
+.gor-msg{font-size:17px}
+.gor-msg-gm{padding:13px 15px 14px 14px}
+
+/* The masthead, re-cut: the title and the world, nothing ceremonial. */
+.gor-masthead{padding:8px 12px 0}
+.gor-masthead-medallion,.gor-masthead-kicker,.gor-masthead-auc{display:none}
+.gor-masthead-crest{padding:0 40px}
+.gor-masthead-title{font-size:16.5px;letter-spacing:.01em;white-space:nowrap}
+.gor-masthead-settings{top:7px;left:8px;padding:6px 8px}
+.gor-masthead-settings-word{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+.gor-masthead-stats{display:grid;grid-template-columns:auto auto;justify-content:center;column-gap:18px;row-gap:1px;margin:6px -12px 0;padding:5px 10px 9px}
+.gor-masthead-gem{display:none}
+.gor-masthead-stat{padding:0;gap:6px}
+.gor-masthead-stat-key{font-size:9.5px;letter-spacing:.12em}
+.gor-masthead-stat-value{font-size:13.5px}
+
+/* The destinies: less air around the hero on a phone. */
+.gor-destinies{padding:22px 16px 40px!important}
+.gor-destinies-title{font-size:30px!important;line-height:1.15}
+.gor-destinies-forge{padding:22px 16px 120px!important}
+
+/* The suggestion pills: one swipeable row instead of a stack of three
+   wrapped slabs that pushes the tablet off the screen. */
+.gor-composer-pills{flex-wrap:nowrap!important;justify-content:flex-start!important;overflow-x:auto;margin:0 -12px;padding:2px 12px 4px;scroll-snap-type:x proximity;scrollbar-width:none}
+.gor-composer-pills::-webkit-scrollbar{display:none}
+.gor-composer-pills .gor-pill{flex:none;max-width:78vw;white-space:normal;text-align:left;scroll-snap-align:start}
+}
