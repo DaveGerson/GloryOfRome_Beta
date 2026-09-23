@@ -5,6 +5,7 @@ import { Switch, SegmentedControl } from './ui/Forms';
 import { createFocusTrap, FocusTrap } from './ui/focusTrap';
 import { ImportFailureNotice } from './ui/FailureNotices';
 import type { ImportResult } from '../persistence/saveGame';
+import { useReignImport } from './ui/useReignImport';
 
 /**
  * ROADMAP_0_MASTER_PLAN.md Phase 5 (DESIGN_DECISIONS.md D31) - the FATES
@@ -119,13 +120,10 @@ const SettingsMenu: React.FC<{
     const [savedFlash, setSavedFlash] = useState(false);
     const dialogRef = useRef<HTMLDivElement>(null);
     const trapRef = useRef<FocusTrap | null>(null);
-    // "Restore from a copy": the chosen file's text while it awaits the
-    // Abandon-style overwrite confirm (staged only when hasSavedReign - with
-    // no reign at stake a chosen file applies at once), and the reason of
-    // the last refused import, if any. Same shape as CharacterSelection's.
-    const [pendingImportText, setPendingImportText] = useState<string | null>(null);
-    const [importFailure, setImportFailure] = useState<Exclude<ImportResult, { ok: true }>['reason'] | null>(null);
-    const importInputRef = useRef<HTMLInputElement>(null);
+    const {
+        pendingImportText, importFailure, importInputRef, keepReignRef, restoreButtonRef,
+        handleImportFileChange, confirmImport, cancelImport, openFilePicker,
+    } = useReignImport({ hasSavedReign, onImportReign });
 
     useEffect(() => {
         if (!savedFlash) return;
@@ -169,63 +167,6 @@ const SettingsMenu: React.FC<{
         setSavedFlash(false);
         onClearApiKey();
     };
-
-    // jsdom's File does not implement Blob.text() - FileReader does, and it
-    // is what every browser this ships to actually supports too.
-    const readChosenFileAsText = (file: File): Promise<string> => new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
-        reader.onerror = () => reject(reader.error);
-        reader.readAsText(file);
-    });
-
-    // Runs an already-consented import: the confirm (if any) has already
-    // been answered by the time this is called. `onImportReign` writes the
-    // slot itself; this only reacts to what it reports.
-    const applyImport = (text: string) => {
-        if (!onImportReign) return;
-        const result = onImportReign(text);
-        if (result.ok) {
-            window.location.reload();
-        } else {
-            setImportFailure(result.reason);
-        }
-    };
-
-    const handleImportFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        // Reset now, not after the read - choosing the SAME file twice in a
-        // row must still fire a change event.
-        event.target.value = '';
-        if (!file) return;
-        setImportFailure(null);
-        let text: string;
-        try {
-            text = await readChosenFileAsText(file);
-        } catch {
-            // The device refusing to read the file is, to a player, the same
-            // refusal as a file that will not parse - one notice, one reason,
-            // never an unhandled rejection.
-            setImportFailure('unreadable');
-            return;
-        }
-        // A reign is at stake only when hasSavedReign - the confirm gates
-        // the overwrite; with nothing to lose the copy applies at once.
-        if (hasSavedReign) {
-            setPendingImportText(text);
-        } else {
-            applyImport(text);
-        }
-    };
-
-    const confirmImport = () => {
-        if (pendingImportText === null) return;
-        const text = pendingImportText;
-        setPendingImportText(null);
-        applyImport(text);
-    };
-
-    const cancelImport = () => setPendingImportText(null);
 
     return (
         <div className="gor-dialog-backdrop">
@@ -281,7 +222,11 @@ const SettingsMenu: React.FC<{
                             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                                 <Button type="button" onClick={handleSaveKey}>Save</Button>
                                 <Button type="button" variant="secondary" onClick={handleClearKey}>Clear</Button>
-                                {savedFlash && <span style={{ color: 'var(--success)', fontStyle: 'italic', fontSize: 14 }}>Saved to this device.</span>}
+                                {/* Always mounted: a live region must exist before its
+                                    text changes or the confirmation is never announced. */}
+                                <span role="status">
+                                    {savedFlash && <span style={{ color: 'var(--success)', fontStyle: 'italic', fontSize: 14 }}>Saved to this device.</span>}
+                                </span>
                             </div>
                         </div>
                     </Card>
@@ -348,14 +293,14 @@ const SettingsMenu: React.FC<{
                             <span style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                                 <span style={{ color: 'var(--crimson-500)', fontStyle: 'italic', fontSize: 15 }}>Replace your saved reign with this copy? It cannot be undone.</span>
                                 <Button type="button" variant="danger" disabled={interactionLocked} onClick={confirmImport}>Replace</Button>
-                                <Button type="button" variant="ghost" onClick={cancelImport}>Keep my reign</Button>
+                                <Button ref={keepReignRef} type="button" variant="ghost" onClick={cancelImport}>Keep my reign</Button>
                             </span>
                         ) : (
                             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                                 {hasSavedReign && (
                                     <Button type="button" variant="ghost" onClick={onExportReign}>Take a copy of the reign</Button>
                                 )}
-                                <Button type="button" variant="ghost" disabled={interactionLocked} onClick={() => importInputRef.current?.click()}>Restore from a copy</Button>
+                                <Button ref={restoreButtonRef} type="button" variant="ghost" disabled={interactionLocked} onClick={openFilePicker}>Restore from a copy</Button>
                             </div>
                         )}
                         <p className="gor-config-note">A raw copy of the save file — spoilers if you open it, nothing private (D45).</p>
