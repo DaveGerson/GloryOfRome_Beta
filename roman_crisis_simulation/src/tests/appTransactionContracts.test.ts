@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import App from '../App';
+import { whenLazyScreensReady } from '../app/lazyScreens';
 import { GameProvider } from '../state/GameContext';
 import * as aiMocks from '../ai/mocks';
 import * as ambitionTool from '../ai/tools/ambition';
@@ -245,6 +246,9 @@ async function renderApp(continueSave: boolean, mockMode = true): Promise<HTMLDi
   await act(async () => {
     root.render(React.createElement(GameProvider, null, React.createElement(App)));
   });
+  // App warms its lazy screens (app/lazyScreens.tsx) right after mount;
+  // wait for that warm-up so opening one renders it synchronously.
+  await act(() => whenLazyScreensReady());
   await waitFor(() => expect(container.textContent).toContain('Choose Your Destiny'));
   if (!continueSave) return container;
   await click(buttonNamed(container, 'Continue Your Reign'));

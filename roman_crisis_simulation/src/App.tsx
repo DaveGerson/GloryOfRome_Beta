@@ -10,11 +10,7 @@ import CrisisBanner from './components/CrisisBanner';
 import { crisisGrade } from './components/crisisGrade';
 import DispatchesDigest from './components/DispatchesDigest';
 import SidePanel from './components/SidePanel';
-import GameMasterScreen from './components/GameMasterScreen';
 import EventModal from './components/EventModal';
-import EpilogueScreen from './components/EpilogueScreen';
-import OnboardingOverlay from './components/OnboardingOverlay';
-import SettingsMenu from './components/SettingsMenu';
 import { useGame } from './state/GameContext';
 import { hasSave } from './persistence/saveGame';
 import { knownRecipientOptionsForPlayer } from './knowledge/relationships';
@@ -35,6 +31,9 @@ import { useWeekBeat } from './hooks/useWeekBeat';
 import { useDevSmokeTest, useScrollToLatest, useUnloadGuardWhileProcessing } from './hooks/useShellEffects';
 import type { TransactionNote } from './app/transactions';
 import { TransactionNoteView, downloadTheReign } from './app/TransactionNoteView';
+import {
+    GameMasterScreen, EpilogueScreen, SettingsMenu, OnboardingOverlay, usePreloadLazyScreens,
+} from './app/lazyScreens';
 
 
 // --- MAIN APP ---
@@ -95,6 +94,7 @@ const App: React.FC = () => {
     } = useGmConsole();
     const { showOnboarding, offerOnboarding, handleCloseOnboarding } = useOnboarding();
     useDevSmokeTest();
+    usePreloadLazyScreens();
     const messagesEndRef = useScrollToLatest(messages, gameState);
     useUnloadGuardWhileProcessing(gameState);
 
