@@ -143,7 +143,7 @@ const SidePanel: React.FC<{
             tab: 'locations',
             name: 'Empire',
             line: 'Places you have no eyes on.',
-            indicator: <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--parchment-400)' }}>{knownRegions} / {totalRegions}</span>,
+            indicator: <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-quiet)' }}>{knownRegions} / {totalRegions}</span>,
         });
     }
     if (investigations > 0) {
