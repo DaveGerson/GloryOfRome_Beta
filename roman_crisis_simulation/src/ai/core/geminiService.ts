@@ -441,6 +441,55 @@ async function retryTransient<T>(callName: string, invoke: () => Promise<T>): Pr
   throw new AiServiceError('transient', callName, `Gemini call '${callName}' failed unexpectedly`, lastError);
 }
 
+/**
+ * Phase 2 of both streaming entry points: drains an acquired stream,
+ * handing each text-bearing chunk to `onText` (with the cumulative text
+ * and the chunk's own text), and returns the full text plus how many
+ * text-bearing chunks arrived.
+ *
+ * ERROR ATTRIBUTION: only a failure of the STREAM itself (the provider/
+ * network dropping mid-response) becomes the `transient` AiServiceError the
+ * "no mid-stream retry" ruling describes. An exception thrown by the
+ * CONSUMER's `onText` - in practice turn.ts's player-visible stream gate
+ * refusing a leaked mechanic - is not a provider failure and propagates
+ * UNCHANGED, so it is classified exactly as the same gate's verdict on the
+ * completed text would be (fatal), never dressed up as a dropped
+ * connection the player is invited to retry. Breaking out of the
+ * `for await` on such a throw still closes the stream (the iterator's
+ * `return()` runs), so nothing keeps downloading behind the failure.
+ */
+async function consumeStream(
+  callName: string,
+  stream: AsyncIterable<{ text?: string }>,
+  onText: (textSoFar: string, chunkText: string) => void
+): Promise<{ text: string; chunks: number }> {
+  let textSoFar = '';
+  let chunks = 0;
+  let consumerFailure: { error: unknown } | null = null;
+  try {
+    for await (const chunk of stream) {
+      if (!chunk.text) continue;
+      textSoFar += chunk.text;
+      chunks++;
+      try {
+        onText(textSoFar, chunk.text);
+      } catch (e) {
+        consumerFailure = { error: e };
+        break;
+      }
+    }
+  } catch (e) {
+    throw new AiServiceError(
+      'transient',
+      callName,
+      `Gemini call '${callName}' failed mid-stream: ${e instanceof Error ? e.message : String(e)}`,
+      e
+    );
+  }
+  if (consumerFailure) throw consumerFailure.error;
+  return { text: textSoFar, chunks };
+}
+
 async function callWithRetry(
   callName: string,
   model: string,
@@ -726,30 +775,14 @@ export async function generateStructuredStream<T>(
   );
 
   // Phase 2: consume it. No retry here by design (see doc comment above) -
-  // any error at this point is surfaced as transient, since the stream was
-  // already successfully acquired.
-  let rawSoFar = '';
-  // How many text-bearing chunks arrived - one increment per chunk actually
+  // a stream failure at this point is surfaced as transient, since the
+  // stream was already successfully acquired (an `onChunk` throw is the
+  // consumer's own verdict and propagates unchanged - see consumeStream).
+  // `streamChunks` counts text-bearing chunks only - one per chunk actually
   // fed to `onChunk`, so an empty chunk counts for nothing. Round-trip
   // metadata of the same class as `latencyMs`, recorded on every branch
   // below via `baseRecord`.
-  let streamChunks = 0;
-  try {
-    for await (const chunk of stream) {
-      if (chunk.text) {
-        rawSoFar += chunk.text;
-        streamChunks++;
-        onChunk(rawSoFar, chunk.text);
-      }
-    }
-  } catch (e) {
-    throw new AiServiceError(
-      'transient',
-      callName,
-      `Gemini call '${callName}' failed mid-stream: ${e instanceof Error ? e.message : String(e)}`,
-      e
-    );
-  }
+  const { text: rawSoFar, chunks: streamChunks } = await consumeStream(callName, stream, onChunk);
 
   const baseRecord = {
     callName,
@@ -863,24 +896,10 @@ export async function generateTextStream(
   );
 
   // Phase 2: consume it. No retry here by design (see doc comment above) -
-  // any error at this point (including on the very first chunk) is surfaced
-  // as transient, since the stream was already successfully acquired.
-  let textSoFar = '';
-  try {
-    for await (const chunk of stream) {
-      if (chunk.text) {
-        textSoFar += chunk.text;
-        onChunk(textSoFar);
-      }
-    }
-  } catch (e) {
-    throw new AiServiceError(
-      'transient',
-      callName,
-      `Gemini call '${callName}' failed mid-stream: ${e instanceof Error ? e.message : String(e)}`,
-      e
-    );
-  }
+  // a stream failure at this point (including on the very first chunk) is
+  // surfaced as transient, since the stream was already successfully
+  // acquired. An `onChunk` throw propagates unchanged (see consumeStream).
+  const { text: textSoFar } = await consumeStream(callName, stream, (soFar) => onChunk(soFar));
 
   recordCall({
     callName,

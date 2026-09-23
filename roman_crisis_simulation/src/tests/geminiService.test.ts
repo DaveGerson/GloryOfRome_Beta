@@ -5,6 +5,7 @@ import {
   generateStructured,
   generateText,
   generateTextStream,
+  generateStructuredStream,
   AiServiceError,
   GeminiClient,
   beginTurnCapture,
@@ -421,6 +422,60 @@ describe('geminiService', () => {
       expect(onChunk).toHaveBeenCalledTimes(2);
       // No retry of the stream itself - acquiring it only happened once.
       expect(generateContentStream).toHaveBeenCalledTimes(1);
+    });
+
+    it("propagates the CONSUMER's own onChunk throw unchanged - never as a transient mid-stream failure - and closes the stream", async () => {
+      // Regression: the onChunk call sat inside the same try as the stream
+      // iteration, so turn.ts's player-visible stream gate refusing a leaked
+      // mechanic surfaced as "failed mid-stream" (kind 'transient'), and the
+      // player was told the connection dropped and invited to retry.
+      let closed = false;
+      async function* stream(): AsyncGenerator<{ text?: string }> {
+        try {
+          yield { text: 'Safe prose. ' };
+          yield { text: 'Leaked mechanic.' };
+          yield { text: ' Never read.' };
+        } finally {
+          closed = true;
+        }
+      }
+      const ai = makeStreamMockAi(vi.fn(async () => stream()));
+      const gateVerdict = new Error('player-visible text failed the boundary');
+      const onChunk = vi.fn((textSoFar: string) => {
+        if (textSoFar.includes('Leaked')) throw gateVerdict;
+      });
+
+      const failure = await generateTextStream(
+        ai,
+        { callName: 'test-stream-consumer-throw', model: 'test-model', prompt: 'narrate' },
+        onChunk
+      ).catch((e: unknown) => e);
+
+      expect(failure).toBe(gateVerdict);
+      expect(failure).not.toBeInstanceOf(AiServiceError);
+      expect(onChunk).toHaveBeenCalledTimes(2);
+      expect(closed).toBe(true);
+    });
+
+    it('generateStructuredStream: an onChunk throw propagates unchanged too, and each chunk also arrives on its own', async () => {
+      const ai = makeStreamMockAi(vi.fn(async () => chunksOf(['{"text": "A', 'B"}'])));
+      const seen: Array<[string, string]> = [];
+      const payload = await generateStructuredStream<{ text: string }>(
+        ai,
+        { callName: 'test-structured-stream-chunks', model: 'test-model', prompt: 'narrate' },
+        (soFar, chunk) => { seen.push([soFar, chunk]); }
+      );
+      expect(payload).toEqual({ text: 'AB' });
+      expect(seen).toEqual([['{"text": "A', '{"text": "A'], ['{"text": "AB"}', 'B"}']]);
+
+      const gateVerdict = new Error('boundary');
+      const failing = makeStreamMockAi(vi.fn(async () => chunksOf(['{"text": "A', 'B"}'])));
+      const failure = await generateStructuredStream(
+        failing,
+        { callName: 'test-structured-stream-consumer-throw', model: 'test-model', prompt: 'narrate' },
+        () => { throw gateVerdict; }
+      ).catch((e: unknown) => e);
+      expect(failure).toBe(gateVerdict);
     });
 
     it('throws a fatal AiServiceError if the client has no generateContentStream implementation', async () => {
