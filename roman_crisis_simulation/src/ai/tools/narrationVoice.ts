@@ -4,14 +4,15 @@
  * "Hear it performed": one committed, player-visible GM narration in, one
  * playable WAV out. Two model calls, both through ai/core/geminiService.ts:
  *
- *  1. `narrationPerformance` (flash, prose) - the director inserts `<...>`
- *     delivery directions. Its output is validated by
+ *  1. `narrationPerformance` (flash, prose) - the dramatic Roman bard/narrator
+ *     recounts and acts out the scene in 1-2 powerful paragraphs full of fervor,
+ *     tension, and pizzazz. Its output is validated by
  *     narration/performanceScript.ts; a refused script, or a failed call,
- *     falls back to the plain narration under one generic direction. The
- *     voice never fails for want of a director.
- *  2. `narrationVoice` (GEMINI_TTS, audio) - the transcript is performed in
- *     the `DEFAULT_NARRATOR_VOICE`; the returned PCM is wrapped in a WAV
- *     header (narration/wav.ts).
+ *     falls back to the plain narration. The voice never fails for want
+ *     of a narrator.
+ *  2. `narrationVoice` (GEMINI_TTS, audio) - the clean transcript is voiced
+ *     directly in the `DEFAULT_NARRATOR_VOICE`; the returned PCM is wrapped
+ *     in a WAV header (narration/wav.ts).
  *
  * The caller may only pass text that is already committed to the player's
  * chat (DESIGN_DECISIONS.md D4/D5) - in practice a `messages[]` entry with
@@ -20,7 +21,7 @@
  *
  * Mock Mode: like every ai/tools call site, `isMockMode` is checked here,
  * before the service is reached. Both network calls are skipped: the
- * fallback-directed transcript and a short synthesized tone stand in, so
+ * fallback plain narration transcript and a short synthesized tone stand in, so
  * offline play and tests still run the whole decode -> WAV -> playback
  * path.
  */
