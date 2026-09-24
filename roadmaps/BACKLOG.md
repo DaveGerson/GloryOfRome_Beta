@@ -358,6 +358,42 @@ capture intermittently timed out (>30s) during heavy transitions while
 in-page JS stayed instant throughout — an automation-pipeline artifact, and
 worth knowing before blaming the app in a future browser pass.
 
+### B13 — The narration voice ("hear it performed")  *(proposed ruling — owner veto pending)*
+Landed 2026-09-24 as an opt-in device preference (Settings → Play →
+Narrator's voice: SILENT / ON REQUEST / EVERY WEEK, default SILENT because
+every clip is a paid call on the player's key). A GM narration bubble gets a
+play/stop control. The voice is two calls: a flash "director" that inserts
+`<...>` delivery directions, then `gemini-3.8-flash-tts` in the prebuilt
+voice Brio at temperature 1, mirroring the owner's Python reference.
+
+**Proposed ruling (a D46 candidate): the voice may perform only text already
+committed to the player's chat, and its director may change delivery, never
+content.** This is enforced in code by `narration/performanceScript.ts`. With
+every direction removed, the director's script must equal the committed
+narration token for token. Each direction must be short (≤160 chars) and free
+of digits, quote marks, brackets, capitalized words the text lacks, and
+mechanics labels. Any failure voices the plain narration under one generic
+direction instead. Audio is never persisted: not in the save, not in the
+eval corpus, and only a `[audio: N bytes, mime]` placeholder in the call log.
+
+Open follow-ups:
+- **Real-endpoint pass.** The TTS model id, the `Brio` voice and the
+  response shape were built to the owner's reference, but they have not been
+  called with a real key. Only Mock Mode and mocked clients have run this
+  code. A first real-key session should confirm the audio plays and how
+  often the director's scripts survive validation (refusals are logged with
+  their reason via `console.warn`).
+- **Proper-noun heuristic.** A capitalized word in a direction must appear
+  in the text. The prompt asks for lowercase directions. If the model often
+  capitalizes a direction's first word ("<Grave>"), scripts will fall back
+  more than they should, and a small allowlist of delivery words would help.
+- **Turn-bracket attribution.** A clip requested while the next turn is
+  processing lands in that turn's `rawCalls` (the same bracket-timing
+  caveat `evalCorpus.ts` already documents). It is harmless, because only
+  the placeholder is recorded.
+- **Epilogue and private scenes** carry no control yet. Both are
+  player-visible and could take one under the same guard.
+
 ---
 
 ## Veto queue (authored content awaiting owner review)
@@ -368,6 +404,16 @@ Nothing here blocks; all are one edit from rewording.
 - **FATES posture wording** — PATIENT / MEASURED / EAGER.
 - **D27 decay numbers** (floor 0.2×, cold threshold 6 turns) — moot while
   dormant; revisit alongside B1.
+- **Narration voice copy (B13)** — setting "Narrator's voice" with options
+  SILENT / ON REQUEST / EVERY WEEK and their notes ("The narration is read,
+  not heard." / "A play control on each narration. Every performance is a
+  paid call on your key." / "Each new narration is performed as the week
+  turns. Every performance is a paid call on your key."). Control: "Hear it
+  performed", title "Stop the performance", status lines "The narrator draws
+  breath…" and "The voice faltered — press again." (It also reuses "No token
+  on this device".) The generic fallback direction "grave, measured,
+  theatrical Roman storyteller" and the TTS style note are model-facing, not
+  player-facing, but they shape how the voice sounds.
 
 ---
 
