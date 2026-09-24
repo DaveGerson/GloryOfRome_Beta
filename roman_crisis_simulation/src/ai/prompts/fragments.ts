@@ -89,7 +89,11 @@ export function getEntityBrief(entity: Entity): string {
   const skills = entity.skills ? `Skills: ${Object.entries(entity.skills).map(([name, value]) => `${name}:${value}`).join(', ')}` : '';
   const beliefs = entity.beliefs ? `Beliefs: ${entity.beliefs.join('; ')}` : '';
   const scheme = entity.active_scheme ? `Active Scheme: ${JSON.stringify(entity.active_scheme)}` : '';
-  return `${entity.name}${entity.epithet ? ` "${entity.epithet}"` : ''} (${entity.position || entity.entity_type}) [Status: ${entity.status}, Location: ${entity.location}] Goals: ${entity.short_term_goals.join(', ')}. ${scheme}. ${personality}. ${skills}. ${beliefs}. Relationships: ${relationships}`;
+  const resources = entity.resources && Object.keys(entity.resources).length > 0
+    ? `Resources: ${Object.entries(entity.resources).map(([name, value]) => `${name}:${value}`).join(', ')}`
+    : '';
+  const middle = [scheme, personality, skills, beliefs, resources].filter(Boolean).join('. ');
+  return `${entity.name}${entity.epithet ? ` "${entity.epithet}"` : ''} (${entity.position || entity.entity_type}) [Status: ${entity.status}, Location: ${entity.location}] Goals: ${entity.short_term_goals.join(', ')}.${middle ? ` ${middle}.` : ''} Relationships: ${relationships}`;
 }
 
 /** One-line world summary (year/week/political climate/economic stability). */
