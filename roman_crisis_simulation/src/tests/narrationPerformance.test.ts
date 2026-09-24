@@ -22,7 +22,7 @@ import {
 } from '../narration/performanceScript';
 import { buildNarrationPerformancePrompt, buildNarrationTtsPrompt } from '../ai/prompts/narrationPerformance';
 import { directNarrationPerformance, performNarration } from '../ai/tools/narrationVoice';
-import { GEMINI_FLASH, GEMINI_TTS, type GeminiClient } from '../ai/core/geminiService';
+import { GEMINI_NARRATION_PREP, GEMINI_TTS, type GeminiClient } from '../ai/core/geminiService';
 
 const NARRATION = 'The Praetorians mutter in their camp. Maximinus raises a cup: "To the legions, and to 235 more victories!" The Senate waits.';
 
@@ -250,7 +250,8 @@ describe('ai/tools/narrationVoice', () => {
     const { ai, generateContent } = makeAi(script);
     const result = await performNarration(ai, NARRATION, false);
     expect(result).toMatchObject({ transcript: script, usedFallback: false });
-    expect(generateContent.mock.calls[0][0].model).toBe(GEMINI_FLASH);
+    expect(generateContent.mock.calls[0][0].model).toBe(GEMINI_NARRATION_PREP);
+    expect(generateContent.mock.calls[0][0].config?.thinkingConfig).toEqual({ thinkingLevel: 'LOW' });
     const ttsCall = generateContent.mock.calls[1][0];
     expect(ttsCall.model).toBe(GEMINI_TTS);
     expect(ttsCall.contents).toBe(buildNarrationTtsPrompt(script));

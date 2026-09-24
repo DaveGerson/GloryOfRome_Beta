@@ -5,7 +5,8 @@
  * narration/narrationPlayer.ts instance for the App's lifetime and wires
  * it to the same `ai` client and `isMockMode` flag every other AI surface
  * receives from hooks/useSettings.ts, plus the device preference in
- * persistence/uiPrefs.ts (`'off' | 'on_demand' | 'auto'`, default off).
+ * persistence/uiPrefs.ts (`'off' | 'on_demand' | 'auto'`, default off) and
+ * the chosen narrator profile (narration/narrators.ts).
  *
  * The privacy line (D4/D5): the only text this hook ever hands to the
  * voice is a COMMITTED `messages[]` entry with `sender === 'gm'` - the
@@ -31,7 +32,11 @@ import { GameState, type Message } from '../types';
 import type { GeminiClient } from '../ai/core/geminiService';
 import { performNarration } from '../ai/tools/narrationVoice';
 import { NarrationPlayer, type NarrationVoiceStatus } from '../narration/narrationPlayer';
-import { getNarrationVoiceMode, setNarrationVoiceMode, type NarrationVoiceMode } from '../persistence/uiPrefs';
+import { NARRATORS, narratorById, type NarratorProfile } from '../narration/narrators';
+import {
+    getNarrationVoiceMode, setNarrationVoiceMode, type NarrationVoiceMode,
+    getNarratorProfileId, setNarratorProfileId,
+} from '../persistence/uiPrefs';
 
 /**
  * What one chat bubble's control shows. `undefined` (no control at all) is
@@ -45,9 +50,11 @@ export interface UseNarrationVoiceArgs {
     resolvedApiKey: string | null | undefined;
     messages: readonly Message[];
     gameState: GameState;
+    /** The narrators this build offers; tests inject their own. */
+    narrators?: readonly NarratorProfile[];
 }
 
-export function useNarrationVoice({ ai, isMockMode, resolvedApiKey, messages, gameState }: UseNarrationVoiceArgs) {
+export function useNarrationVoice({ ai, isMockMode, resolvedApiKey, messages, gameState, narrators = NARRATORS }: UseNarrationVoiceArgs) {
     const [player] = useState(() => new NarrationPlayer());
     const playback = useSyncExternalStore(player.subscribe, player.getSnapshot, player.getSnapshot);
 
@@ -57,23 +64,39 @@ export function useNarrationVoice({ ai, isMockMode, resolvedApiKey, messages, ga
         setNarrationVoiceMode(next);
     }, []);
 
+    // The narrator profile (narration/narrators.ts). A stored id no longer
+    // deployed falls back to the built-in, and the fallback is what shows.
+    const [narratorId, setNarratorIdState] = useState<string>(() => narratorById(getNarratorProfileId(), narrators).id);
+    const narrator = narratorById(narratorId, narrators);
+    const handleSetNarrator = useCallback((id: string) => {
+        const next = narratorById(id, narrators);
+        setNarratorIdState(next.id);
+        setNarratorProfileId(next.id);
+    }, [narrators]);
+
     const canReachVoice = isMockMode || Boolean(resolvedApiKey);
     const canReachVoiceRef = useRef(canReachVoice);
     useEffect(() => {
         canReachVoiceRef.current = canReachVoice;
     }, [canReachVoice]);
 
-    // The renderer follows the current client and mode. The variant keeps a
-    // Mock Mode tone from answering for a real performance in the cache.
+    // The renderer follows the current client, mode and narrator. The
+    // variant keeps a Mock Mode tone - or another narrator's performance -
+    // from answering for this one in the cache.
     useEffect(() => {
         player.setRenderer(
             async text => {
-                const { wav } = await performNarration(ai, text, isMockMode);
+                const { wav } = await performNarration(ai, text, isMockMode, narrator);
                 return new Blob([wav], { type: 'audio/wav' });
             },
-            isMockMode ? 'mock' : 'live',
+            `${isMockMode ? 'mock' : 'live'}:${narrator.id}`,
         );
-    }, [player, ai, isMockMode]);
+    }, [player, ai, isMockMode, narrator]);
+
+    // A different narrator was chosen: the old one's performance stops.
+    useEffect(() => {
+        player.stop();
+    }, [player, narrator.id]);
 
     // Unmount: stop, and revoke every object URL. The player is reusable, so
     // StrictMode's mount/unmount/mount leaves a working instance behind.
@@ -128,6 +151,9 @@ export function useNarrationVoice({ ai, isMockMode, resolvedApiKey, messages, ga
     return {
         narrationVoiceMode: mode,
         handleSetNarrationVoiceMode,
+        narrators,
+        narratorId: narrator.id,
+        handleSetNarrator,
         toggleNarrationVoice,
         narrationVoiceStateFor,
         narrationPlayback: playback,

@@ -1,0 +1,13 @@
+{
+  "about": "Sample player-visible narrations for tuning a narrator profile (npm run narrator:tune). Written in the game's narration voice; none is drawn from a real save. Cover the registers a narrator must handle: quiet dread, quoted speech, violence, crowds, numbers and names, and a short line.",
+  "narrations": [
+    "The Curia is colder than the season warrants. Senators who greeted you warmly a week ago now find urgent business with their scribes as you pass, and the silence follows you to your seat like a hound.",
+    "Your freedman returns after dark, dust on his sandals. \"The Prefect received your letter,\" he says, keeping his voice low. \"He read it twice. Then he burned it.\"",
+    "Steel rings in the Subura before dawn. By the time the vigiles arrive, three of Maximinus Thrax's men lie in the gutter, and the fourth is nowhere to be found.",
+    "The crowd in the Forum Romanum swells as the grain carts fail to arrive. First a murmur, then a chant, then stones against the shutters of the granary on the Vicus Tuscus.",
+    "Julia Mamaea does not raise her voice. She sets down her cup, looks at you for a long moment, and says only: \"My son trusts you. Do not make me regret that I allowed it.\"",
+    "Word reaches you from the Rhine: 50,000 denarii promised to the legions have not arrived, and the camp prefect has stopped pretending not to hear the soldiers' complaints.",
+    "Nothing stirs on the Palatine tonight. That, more than any rumor, should frighten you.",
+    "A letter sealed in purple wax waits on your desk. It is unsigned. It says: \"The Guard has chosen. Choose faster.\""
+  ]
+}

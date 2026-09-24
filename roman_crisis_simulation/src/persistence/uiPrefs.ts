@@ -156,3 +156,30 @@ export function setNarrationVoiceMode(mode: NarrationVoiceMode): void {
     console.warn('setNarrationVoiceMode: localStorage.setItem failed', e);
   }
 }
+
+/**
+ * Which narrator profile performs the narration (narration/narrators.ts) -
+ * a device preference like the mode above. Stored as the profile id; an
+ * unknown or retired id (a deployed narrator later withdrawn) resolves to
+ * the built-in at the call site via `narratorById`, so this getter only
+ * guards shape, never membership.
+ */
+const NARRATOR_PROFILE_KEY = 'gloryOfRome:narratorProfile';
+
+export function getNarratorProfileId(): string | null {
+  try {
+    const stored = localStorage.getItem(NARRATOR_PROFILE_KEY);
+    return stored && /^[a-z0-9][a-z0-9-]{1,47}$/.test(stored) ? stored : null;
+  } catch (e) {
+    console.warn('getNarratorProfileId: localStorage.getItem failed', e);
+    return null;
+  }
+}
+
+export function setNarratorProfileId(id: string): void {
+  try {
+    localStorage.setItem(NARRATOR_PROFILE_KEY, id);
+  } catch (e) {
+    console.warn('setNarratorProfileId: localStorage.setItem failed', e);
+  }
+}

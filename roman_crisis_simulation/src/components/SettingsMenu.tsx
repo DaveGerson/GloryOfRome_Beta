@@ -9,6 +9,13 @@ import { useReignImport } from './ui/useReignImport';
 import { ApiKeyCard } from './ApiKeyCard';
 import type { NarrationVoiceMode } from '../persistence/uiPrefs';
 
+/** The slice of a narrator profile (narration/narrators.ts) the picker shows. */
+export interface NarratorChoice {
+    id: string;
+    name: string;
+    description: string;
+}
+
 /**
  * ROADMAP_0_MASTER_PLAN.md Phase 5 (DESIGN_DECISIONS.md D31) - the FATES
  * pacing options (persistence/settings.ts posture, via App.tsx's
@@ -73,6 +80,14 @@ const SettingsMenu: React.FC<{
     /** The narration voice's mode - a device preference, never save state. */
     narrationVoiceMode: NarrationVoiceMode;
     onSetNarrationVoiceMode: (mode: NarrationVoiceMode) => void;
+    /**
+     * The narrators this build offers (the built-in plus each deployed
+     * profile). The picker only appears when there is more than one to
+     * choose between, and only while the voice is on.
+     */
+    narrators?: readonly NarratorChoice[];
+    narratorId?: string;
+    onSetNarrator?: (id: string) => void;
     /** Dev-only (rendered under import.meta.env.DEV): Mock Mode + the GM console's runtime switch. */
     isMockMode: boolean;
     onSetIsMockMode: (isMock: boolean) => void;
@@ -112,6 +127,9 @@ const SettingsMenu: React.FC<{
     onSetGmInterventionEnabled,
     narrationVoiceMode,
     onSetNarrationVoiceMode,
+    narrators = [],
+    narratorId,
+    onSetNarrator,
     isMockMode,
     onSetIsMockMode,
     gmConsoleOpen,
@@ -152,6 +170,8 @@ const SettingsMenu: React.FC<{
 
     const selectedPacing = FATES_OPTIONS.find(option => option.posture === pacingPosture) ?? FATES_OPTIONS[1];
     const selectedNarrator = NARRATOR_OPTIONS.find(option => option.value === narrationVoiceMode) ?? NARRATOR_OPTIONS[0];
+    const showNarratorPicker = narrationVoiceMode !== 'off' && narrators.length > 1 && onSetNarrator !== undefined;
+    const chosenNarrator = narrators.find(n => n.id === narratorId) ?? narrators[0];
 
     return (
         <div className="gor-dialog-backdrop">
@@ -221,6 +241,22 @@ const SettingsMenu: React.FC<{
                                 />
                                 <p className="gor-config-note" id="settings-narrator-note">{selectedNarrator.description}</p>
                             </div>
+                            {showNarratorPicker && chosenNarrator && (
+                                <>
+                                    <span className="gor-label gor-config-label">Narrator</span>
+                                    <div>
+                                        <SegmentedControl
+                                            radio
+                                            ariaLabel="Narrator"
+                                            describedBy="settings-narrator-profile-note"
+                                            options={narrators.map(({ id, name, description }) => ({ value: id, label: name, title: description }))}
+                                            value={chosenNarrator.id}
+                                            onChange={onSetNarrator}
+                                        />
+                                        <p className="gor-config-note" id="settings-narrator-profile-note">{chosenNarrator.description}</p>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     </section>
 

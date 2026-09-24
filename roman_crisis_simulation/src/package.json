@@ -13,6 +13,7 @@
     "test": "vitest run",
     "eval": "vitest run --config vitest.eval.config.ts",
     "eval:ci": "vitest run --config vitest.eval-ci.config.ts",
+    "narrator:tune": "vitest run --config vitest.narrator.config.ts",
     "test:journeys": "vitest run --config vitest.journeys.config.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",

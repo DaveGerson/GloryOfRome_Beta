@@ -15,7 +15,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { GameState, type Message } from '../types';
 import { ChatMessage, NARRATION_VOICE_COPY, StreamingNarrationBubble } from '../components/Chat';
 import { useNarrationVoice, type UseNarrationVoiceArgs } from '../hooks/useNarrationVoice';
-import { GEMINI_FLASH, GEMINI_TTS, type GeminiClient } from '../ai/core/geminiService';
+import { GEMINI_NARRATION_PREP, GEMINI_TTS, type GeminiClient } from '../ai/core/geminiService';
 import { buildNarrationTtsPrompt } from '../ai/prompts/narrationPerformance';
 import { fallbackTranscript } from '../narration/performanceScript';
 import { NarrationPlayer } from '../narration/narrationPlayer';
@@ -268,7 +268,8 @@ describe('playback', () => {
     const view = mount({ ai });
     click(buttonIn(GM_A));
     await settle();
-    expect(generateContent.mock.calls[0][0].model).toBe(GEMINI_FLASH);
+    expect(generateContent.mock.calls[0][0].model).toBe(GEMINI_NARRATION_PREP);
+    expect(generateContent.mock.calls[0][0].config?.thinkingConfig).toEqual({ thinkingLevel: 'LOW' });
     const ttsCall = generateContent.mock.calls[1][0];
     expect(ttsCall.model).toBe(GEMINI_TTS);
     expect(ttsCall.contents).toBe(buildNarrationTtsPrompt(fallbackTranscript(GM_A)));

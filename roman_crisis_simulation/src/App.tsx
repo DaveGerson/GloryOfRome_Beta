@@ -200,6 +200,7 @@ const App: React.FC = () => {
     // hook's header.
     const {
         narrationVoiceMode, handleSetNarrationVoiceMode, toggleNarrationVoice, narrationVoiceStateFor,
+        narrators, narratorId, handleSetNarrator,
     } = useNarrationVoice({ ai, isMockMode, resolvedApiKey, messages, gameState });
 
     const {
@@ -479,6 +480,9 @@ const App: React.FC = () => {
                     onSetGmInterventionEnabled={handleSetGmInterventionAvailable}
                     narrationVoiceMode={narrationVoiceMode}
                     onSetNarrationVoiceMode={handleSetNarrationVoiceMode}
+                    narrators={narrators}
+                    narratorId={narratorId}
+                    onSetNarrator={handleSetNarrator}
                     isMockMode={isMockMode}
                     onSetIsMockMode={setIsMockMode}
                     gmConsoleOpen={isGmConsoleEnabled}
