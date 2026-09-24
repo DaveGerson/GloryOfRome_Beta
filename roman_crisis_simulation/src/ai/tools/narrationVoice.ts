@@ -37,10 +37,17 @@ import {
 import {
   buildNarrationPerformancePrompt,
   buildNarrationTtsPrompt,
+  buildImperialDispatchPrompt,
   NARRATION_PERFORMANCE_TEMPERATURE,
 } from '../prompts/narrationPerformance';
-import { performedTranscriptFor, speakableText, type PerformedTranscript } from '../../narration/performanceScript';
+import {
+  cleanSpokenTranscript,
+  performedTranscriptFor,
+  speakableText,
+  type PerformedTranscript,
+} from '../../narration/performanceScript';
 import { MOCK_TONE_MIME_TYPE, ensureWav, pcmToWav, synthesizeMockTone } from '../../narration/wav';
+import { getNarratorVoice } from '../../persistence/uiPrefs';
 
 /** The owner's reference: temperature 1 for the voice itself. */
 export const NARRATION_VOICE_TEMPERATURE = 1;
@@ -89,17 +96,76 @@ export async function performNarration(
   ai: GeminiClient,
   narration: string,
   isMockMode: boolean,
+  voiceName?: string,
 ): Promise<NarrationPerformance> {
   const performed = await directNarrationPerformance(ai, narration, isMockMode);
   if (isMockMode) {
     return { ...performed, wav: pcmToWav(synthesizeMockTone(), MOCK_TONE_MIME_TYPE) };
   }
+  const resolvedVoice = voiceName || getNarratorVoice() || DEFAULT_NARRATOR_VOICE;
   const speech = await generateSpeech(ai, {
     callName: 'narrationVoice',
     model: GEMINI_TTS,
     prompt: buildNarrationTtsPrompt(performed.transcript),
-    voiceName: DEFAULT_NARRATOR_VOICE,
+    voiceName: resolvedVoice,
     temperature: NARRATION_VOICE_TEMPERATURE,
+  });
+  return { ...performed, wav: ensureWav(speech.pcm, speech.mimeType) };
+}
+
+/**
+ * Generates a fact-based Imperial Intelligence Dispatch summarizing the state
+ * of all tabs in crisp High English or Mid-Atlantic broadcast style.
+ */
+export async function directImperialDispatch(
+  ai: GeminiClient,
+  factsSummary: string,
+  isMockMode: boolean,
+): Promise<PerformedTranscript> {
+  if (isMockMode) {
+    const fallback = cleanSpokenTranscript(factsSummary.slice(0, 300));
+    return { transcript: fallback, usedFallback: true };
+  }
+
+  const { systemInstruction, prompt } = buildImperialDispatchPrompt(factsSummary);
+  let rawDispatch: string | null = null;
+  try {
+    rawDispatch = await generateText(ai, {
+      callName: 'imperialDispatch',
+      model: GEMINI_FLASH,
+      systemInstruction,
+      prompt,
+      temperature: 0.5,
+    });
+  } catch (error) {
+    console.warn('imperialDispatch: dispatch generation failed; using fallback summary', error);
+  }
+
+  const clean = cleanSpokenTranscript(rawDispatch || factsSummary);
+  return { transcript: clean, usedFallback: !rawDispatch };
+}
+
+/**
+ * Voicing step for the Imperial Dispatch. Uses Sadaltager (or the configured voice)
+ * for a crisp, knowledgeable intelligence briefing.
+ */
+export async function performImperialDispatch(
+  ai: GeminiClient,
+  factsSummary: string,
+  isMockMode: boolean,
+  voiceName?: string,
+): Promise<NarrationPerformance> {
+  const performed = await directImperialDispatch(ai, factsSummary, isMockMode);
+  if (isMockMode) {
+    return { ...performed, wav: pcmToWav(synthesizeMockTone(), MOCK_TONE_MIME_TYPE) };
+  }
+  const resolvedVoice = voiceName || 'Sadaltager';
+  const speech = await generateSpeech(ai, {
+    callName: 'imperialDispatchVoice',
+    model: GEMINI_TTS,
+    prompt: buildNarrationTtsPrompt(performed.transcript),
+    voiceName: resolvedVoice,
+    temperature: 0.8,
   });
   return { ...performed, wav: ensureWav(speech.pcm, speech.mimeType) };
 }

@@ -59,8 +59,8 @@ export const GEMINI_PRO_FALLBACK = 'gemini-pro-latest';
  * called through `generateSpeech` below, never `generateText`/`generateStructured`.
  */
 export const GEMINI_TTS = 'gemini-3.8-flash-tts';
-/** The prebuilt voice the narrator performs in - the owner's reference choice. */
-export const DEFAULT_NARRATOR_VOICE = 'Brio';
+/** The prebuilt voice the narrator performs in: Enceladus, a deep, calm, authoritative senatorial baritone. */
+export const DEFAULT_NARRATOR_VOICE = 'Enceladus';
 
 /**
  * One inline-data part of a model response, as the SDK's `Part.inlineData`

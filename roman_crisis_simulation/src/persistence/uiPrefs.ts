@@ -26,9 +26,25 @@ const COMPOSER_MODE_KEY = 'gloryOfRome:composerMode';
 /** Default for both toggles below - "available", i.e. today's behavior. */
 const DEFAULT_ENABLED = true;
 
+function getStorage(): Storage | null {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      return window.localStorage;
+    }
+    if (typeof localStorage !== 'undefined') {
+      return localStorage;
+    }
+  } catch {
+    // blocked or unavailable
+  }
+  return null;
+}
+
 function getBoolPref(key: string): boolean {
   try {
-    const stored = localStorage.getItem(key);
+    const storage = getStorage();
+    if (!storage) return DEFAULT_ENABLED;
+    const stored = storage.getItem(key);
     if (stored === '1') return true;
     if (stored === '0') return false;
     // Unset, or a corrupted/future-version value outside '0'/'1' - fall
@@ -42,7 +58,9 @@ function getBoolPref(key: string): boolean {
 
 function setBoolPref(key: string, value: boolean): void {
   try {
-    localStorage.setItem(key, value ? '1' : '0');
+    const storage = getStorage();
+    if (!storage) return;
+    storage.setItem(key, value ? '1' : '0');
   } catch (e) {
     console.warn(`setBoolPref(${key}): localStorage.setItem failed`, e);
   }
@@ -141,7 +159,9 @@ const DEFAULT_NARRATION_VOICE_MODE: NarrationVoiceMode = 'off';
 
 export function getNarrationVoiceMode(): NarrationVoiceMode {
   try {
-    const stored = localStorage.getItem(NARRATION_VOICE_MODE_KEY);
+    const storage = getStorage();
+    if (!storage) return DEFAULT_NARRATION_VOICE_MODE;
+    const stored = storage.getItem(NARRATION_VOICE_MODE_KEY);
     return NARRATION_VOICE_MODES.includes(stored as NarrationVoiceMode) ? (stored as NarrationVoiceMode) : DEFAULT_NARRATION_VOICE_MODE;
   } catch (e) {
     console.warn('getNarrationVoiceMode: localStorage.getItem failed', e);
@@ -151,8 +171,48 @@ export function getNarrationVoiceMode(): NarrationVoiceMode {
 
 export function setNarrationVoiceMode(mode: NarrationVoiceMode): void {
   try {
-    localStorage.setItem(NARRATION_VOICE_MODE_KEY, mode);
+    const storage = getStorage();
+    if (!storage) return;
+    storage.setItem(NARRATION_VOICE_MODE_KEY, mode);
   } catch (e) {
     console.warn('setNarrationVoiceMode: localStorage.setItem failed', e);
+  }
+}
+
+/**
+ * Curated senatorial and Roman narrator voice personas available from Gemini TTS.
+ */
+export const NARRATOR_VOICES = [
+  { id: 'Enceladus', label: 'Enceladus', role: 'Senatorial Baritone — calm, grave, dignified' },
+  { id: 'Orus', label: 'Orus', role: 'Consular Orator — firm, commanding, traditional' },
+  { id: 'Gacrux', label: 'Gacrux', role: 'Elder Statesman — mature, resonant, measured' },
+  { id: 'Charon', label: 'Charon', role: 'Grave Chronicler — deep, resonant, somber' },
+  { id: 'Sadaltager', label: 'Sadaltager', role: 'Imperial Legate — clear, knowledgeable, precise' },
+  { id: 'Iapetus', label: 'Iapetus', role: 'Patrician Scholar — clean, articulate, patrician' },
+] as const;
+
+export type NarratorVoiceId = typeof NARRATOR_VOICES[number]['id'];
+export const DEFAULT_NARRATOR_VOICE_ID: NarratorVoiceId = 'Enceladus';
+const NARRATOR_VOICE_KEY = 'gloryOfRome:narratorVoice';
+
+export function getNarratorVoice(): NarratorVoiceId {
+  try {
+    const storage = getStorage();
+    if (!storage) return DEFAULT_NARRATOR_VOICE_ID;
+    const stored = storage.getItem(NARRATOR_VOICE_KEY);
+    return NARRATOR_VOICES.some(v => v.id === stored) ? (stored as NarratorVoiceId) : DEFAULT_NARRATOR_VOICE_ID;
+  } catch (e) {
+    console.warn('getNarratorVoice: localStorage.getItem failed', e);
+    return DEFAULT_NARRATOR_VOICE_ID;
+  }
+}
+
+export function setNarratorVoice(voiceId: string): void {
+  try {
+    const storage = getStorage();
+    if (!storage) return;
+    storage.setItem(NARRATOR_VOICE_KEY, voiceId);
+  } catch (e) {
+    console.warn('setNarratorVoice: localStorage.setItem failed', e);
   }
 }

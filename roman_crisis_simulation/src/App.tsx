@@ -427,6 +427,7 @@ const App: React.FC = () => {
                             turnHistory={turnHistory}
                             pulsingTabs={pulsingTabs}
                             onOccurrenceFinding={handleOccurrenceFinding}
+                            resolvedApiKey={resolvedApiKey}
                         />
                     </>
                 )}

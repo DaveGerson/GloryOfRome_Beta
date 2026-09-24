@@ -40,7 +40,7 @@ describe('generateSpeech', () => {
 
   it('exports the owner\'s reference model and voice', () => {
     expect(GEMINI_TTS).toBe('gemini-3.8-flash-tts');
-    expect(DEFAULT_NARRATOR_VOICE).toBe('Brio');
+    expect(DEFAULT_NARRATOR_VOICE).toBe('Enceladus');
   });
 
   it('sends AUDIO modality with the prebuilt voice and temperature', async () => {
@@ -51,7 +51,7 @@ describe('generateSpeech', () => {
       contents: request.prompt,
       config: {
         responseModalities: ['AUDIO'],
-        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Brio' } } },
+        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Enceladus' } } },
         temperature: 1,
       },
     });

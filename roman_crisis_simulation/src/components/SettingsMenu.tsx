@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { PacingPosture } from '../types';
 import { Button, Badge, RegisterHeading } from './ui/Core';
 import { Switch, SegmentedControl } from './ui/Forms';
@@ -7,7 +7,13 @@ import { ImportFailureNotice } from './ui/FailureNotices';
 import type { ImportResult } from '../persistence/saveGame';
 import { useReignImport } from './ui/useReignImport';
 import { ApiKeyCard } from './ApiKeyCard';
-import type { NarrationVoiceMode } from '../persistence/uiPrefs';
+import {
+    type NarrationVoiceMode,
+    NARRATOR_VOICES,
+    getNarratorVoice,
+    setNarratorVoice,
+    type NarratorVoiceId,
+} from '../persistence/uiPrefs';
 
 /**
  * ROADMAP_0_MASTER_PLAN.md Phase 5 (DESIGN_DECISIONS.md D31) - the FATES
@@ -152,6 +158,7 @@ const SettingsMenu: React.FC<{
 
     const selectedPacing = FATES_OPTIONS.find(option => option.posture === pacingPosture) ?? FATES_OPTIONS[1];
     const selectedNarrator = NARRATOR_OPTIONS.find(option => option.value === narrationVoiceMode) ?? NARRATOR_OPTIONS[0];
+    const [selectedVoice, setSelectedVoice] = useState<NarratorVoiceId>(() => getNarratorVoice());
 
     return (
         <div className="gor-dialog-backdrop">
@@ -220,6 +227,37 @@ const SettingsMenu: React.FC<{
                                     onChange={onSetNarrationVoiceMode}
                                 />
                                 <p className="gor-config-note" id="settings-narrator-note">{selectedNarrator.description}</p>
+                            </div>
+                            <span className="gor-label gor-config-label">Narrator persona</span>
+                            <div>
+                                <select
+                                    aria-label="Narrator persona"
+                                    value={selectedVoice}
+                                    onChange={(e) => {
+                                        const next = e.target.value as NarratorVoiceId;
+                                        setSelectedVoice(next);
+                                        setNarratorVoice(next);
+                                    }}
+                                    style={{
+                                        width: '100%',
+                                        padding: '6px 10px',
+                                        background: 'var(--surface-sunken, #111)',
+                                        color: 'var(--text-normal)',
+                                        border: '1px solid var(--border-subtle, rgba(201,162,39,.3))',
+                                        borderRadius: '4px',
+                                        fontFamily: 'inherit',
+                                        fontSize: '13px',
+                                    }}
+                                >
+                                    {NARRATOR_VOICES.map((v) => (
+                                        <option key={v.id} value={v.id}>
+                                            {v.label} — {v.role}
+                                        </option>
+                                    ))}
+                                </select>
+                                <p className="gor-config-note" style={{ marginTop: '4px' }}>
+                                    {NARRATOR_VOICES.find((v) => v.id === selectedVoice)?.role}
+                                </p>
                             </div>
                         </div>
                     </section>
