@@ -93,7 +93,7 @@ export const ROME_INITIAL_STATE: Entity[] = [
             "roman_senate": { entity_id: "roman_senate", relationship_type: "antagonist", trust_level: -7, respect_level: -8, perceived_threat: 1, ideological_alignment: -9, dependency_level: 0, recent_interactions: [] }
         },
         memories: [{ turn: 0, event_description: "Was scorned by the Senate for his 'barbarian' origins despite his military victories.", emotional_impact: "Resentful", involved_entities: ["roman_senate"] }],
-        resources: { legion_support: 85, deep_analyses: 4, investigations: 1 },
+        resources: { denarii: 0, legion_support: 85, deep_analyses: 4, investigations: 1 },
         visibility_network: ["severus_alexander", "roman_senate", "senatorial_party"]
     },
     {

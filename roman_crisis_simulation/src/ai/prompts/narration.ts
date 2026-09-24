@@ -186,6 +186,7 @@ Task:
     f.  **Actors Attribution:** ${ACTORS_DESCRIPTION}
 
 2.  **Suggest Next Actions:** After the narration, on new lines, suggest exactly 3 brief, interesting, actionable next steps for the player, each prefixed with "SUGGESTION:". The suggestions should be tailored to the player's character, goals, and the new situation.
+    - **Resource Feasibility:** Suggestions MUST respect the player's available resources shown in PLAYER CHARACTER PROFILE. If the player lacks denarii (0 or missing denarii), NEVER suggest bribes, cash payouts, buying loyalty, or financial expenditures. Instead, suggest actions leveraging their actual assets (e.g. military command, intimidation, political alliances, prestige, or espionage).
 
     `;
 

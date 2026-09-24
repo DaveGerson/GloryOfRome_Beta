@@ -519,12 +519,21 @@ export const mockRunNewTurn = async (
     // is non-null), where the gate is inert regardless - attribution
     // faithful either way (task-4-design.md's mock-mirror design): this
     // narrates the player's own submitted action and Thrax's stirring.
+    const isThrax = playerEntity.entity_id === 'maximinus_thrax';
+    const denarii = typeof playerEntity.resources?.denarii === 'number' ? playerEntity.resources.denarii : 0;
+    const isBroke = denarii <= 0;
+
     const narrationPayload = noAttemptResponse
         ? { text: '', actors: [] as string[] }
-        : {
-            text: `(Mock Mode) Your action to "${observableAttempt}" has been noted. In the city, Maximinus Thrax continues to stir up trouble, spreading rumors about the Emperor's weakness. The mood in the Praetorian Camp grows darker.`,
-            actors: [playerEntity.entity_id, 'maximinus_thrax'],
-        };
+        : isThrax
+            ? {
+                text: `(Mock Mode) Your action to "${observableAttempt}" has been noted. Across Rome, your frontier legions hold their ground as whisperers carry word of the boy emperor's panic. The Senate trembles at your advance.`,
+                actors: [playerEntity.entity_id, 'severus_alexander', 'roman_senate'],
+            }
+            : {
+                text: `(Mock Mode) Your action to "${observableAttempt}" has been noted. In the city, Maximinus Thrax continues to stir up trouble, spreading rumors about the Emperor's weakness. The mood in the Praetorian Camp grows darker.`,
+                actors: [playerEntity.entity_id, 'maximinus_thrax'],
+            };
 
     const suggestedActions = noAttemptResponse
         ? [
@@ -532,11 +541,23 @@ export const mockRunNewTurn = async (
             'Consolidate your power.',
             'Seek new allies.',
         ]
-        : [
-            "Mock: Investigate Thrax's rumors",
-            'Mock: Send a message to the Senate',
-            'Mock: Try to bribe the Praetorians',
-        ];
+        : isThrax
+            ? [
+                'Mock: Rally the frontier legions',
+                'Mock: Demand concessions from the Senate',
+                'Mock: Intimidate the Praetorian envoys',
+            ]
+            : isBroke
+                ? [
+                    'Mock: Rally loyal followers',
+                    'Mock: Send a message to the Senate',
+                    'Mock: Assert political authority',
+                ]
+                : [
+                    "Mock: Investigate Thrax's rumors",
+                    'Mock: Send a message to the Senate',
+                    'Mock: Try to bribe the Praetorians',
+                ];
 
     const monologuePayload = noAttemptResponse
         ? { text: '', actors: [] as string[] }
