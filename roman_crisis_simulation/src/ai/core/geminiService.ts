@@ -41,8 +41,8 @@ import { base64ToBytes, concatBytes } from '../../narration/wav';
  * ROADMAP_2_AI_ARCHITECTURE.md's dependency notes) - now a one-line change
  * if either model is retired or swapped.
  */
-export const GEMINI_PRO = 'gemini-3-pro-preview';
-export const GEMINI_FLASH = 'gemini-2.5-flash';
+export const GEMINI_PRO = 'gemini-3.8-flash';
+export const GEMINI_FLASH = 'models/gemini-3.8-flash';
 /**
  * GA (non-preview) pro-tier model, used as an automatic fallback if
  * `GEMINI_PRO` (a preview id) is retired out from under us. Google gives no
@@ -51,7 +51,7 @@ export const GEMINI_FLASH = 'gemini-2.5-flash';
  * code path to recover, bricking the game. See Phase 5.5c. `GEMINI_FLASH` is
  * already GA, so it needs no fallback of its own.
  */
-export const GEMINI_PRO_FALLBACK = 'gemini-2.5-pro';
+export const GEMINI_PRO_FALLBACK = 'gemini-pro-latest';
 /**
  * Text-to-speech tier for the optional "hear it performed" narration voice
  * (narration/, ai/tools/narrationVoice.ts). Audio-only: it is only ever

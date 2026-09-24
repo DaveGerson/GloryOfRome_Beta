@@ -3,7 +3,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { inferAmbition, zAmbitionInference } from '../ai/tools/ambition';
-import { AiServiceError } from '../ai/core/geminiService';
+import { AiServiceError, GEMINI_FLASH } from '../ai/core/geminiService';
 import { projectForExternalInference, serializeTurnSubmission } from '../playerInput/turnSubmission';
 import { makeEntity, makeQueuedTextAi as makeMockAi } from './factories';
 import type { Entity, TurnSubmission } from '../types';
@@ -125,7 +125,7 @@ describe('ai/tools/ambition.ts', () => {
       expect(generateContent).toHaveBeenCalledTimes(1);
 
       const call = generateContent.mock.calls[0][0];
-      expect(call.model).toBe('gemini-2.5-flash');
+      expect(call.model).toBe(GEMINI_FLASH);
       expect(call.contents).toContain(JSON.stringify({
         entityId: 'severus_alexander',
         name: 'Severus Alexander',
