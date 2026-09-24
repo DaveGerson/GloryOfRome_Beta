@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { PacingPosture } from '../types';
 import { Button, Badge, RegisterHeading } from './ui/Core';
 import { Switch, SegmentedControl } from './ui/Forms';
@@ -7,13 +7,22 @@ import { ImportFailureNotice } from './ui/FailureNotices';
 import type { ImportResult } from '../persistence/saveGame';
 import { useReignImport } from './ui/useReignImport';
 import { ApiKeyCard } from './ApiKeyCard';
-import type { NarrationVoiceMode } from '../persistence/uiPrefs';
+import {
+    type NarrationVoiceMode,
+    NARRATOR_VOICES,
+    DEFAULT_NARRATOR_VOICE_ID,
+    getNarratorVoiceChoice,
+    setNarratorVoice,
+    type NarratorVoiceId,
+} from '../persistence/uiPrefs';
 
 /** The slice of a narrator profile (narration/narrators.ts) the picker shows. */
 export interface NarratorChoice {
     id: string;
     name: string;
     description: string;
+    /** The narrator's own voice, shown when no explicit voice is chosen. */
+    voiceName?: string;
 }
 
 /**
@@ -88,6 +97,14 @@ const SettingsMenu: React.FC<{
     narrators?: readonly NarratorChoice[];
     narratorId?: string;
     onSetNarrator?: (id: string) => void;
+    /**
+     * The player's explicit voice (persistence/uiPrefs.ts), null for "the
+     * narrator's own". Omitted, the menu manages the preference itself.
+     */
+    narratorVoiceChoice?: NarratorVoiceId | null;
+    /** The chosen narrator's own voice, named in the "own voice" option. */
+    narratorOwnVoice?: string;
+    onSetNarratorVoice?: (voice: NarratorVoiceId | null) => void;
     /** Dev-only (rendered under import.meta.env.DEV): Mock Mode + the GM console's runtime switch. */
     isMockMode: boolean;
     onSetIsMockMode: (isMock: boolean) => void;
@@ -130,6 +147,9 @@ const SettingsMenu: React.FC<{
     narrators = [],
     narratorId,
     onSetNarrator,
+    narratorVoiceChoice,
+    narratorOwnVoice,
+    onSetNarratorVoice,
     isMockMode,
     onSetIsMockMode,
     gmConsoleOpen,
@@ -172,6 +192,16 @@ const SettingsMenu: React.FC<{
     const selectedNarrator = NARRATOR_OPTIONS.find(option => option.value === narrationVoiceMode) ?? NARRATOR_OPTIONS[0];
     const showNarratorPicker = narrationVoiceMode !== 'off' && narrators.length > 1 && onSetNarrator !== undefined;
     const chosenNarrator = narrators.find(n => n.id === narratorId) ?? narrators[0];
+    // The voice: controlled by the App's narration hook when it passes one;
+    // otherwise this menu reads and writes the device preference itself.
+    const [localVoiceChoice, setLocalVoiceChoice] = useState<NarratorVoiceId | null>(() => getNarratorVoiceChoice());
+    const voiceChoice = narratorVoiceChoice !== undefined ? narratorVoiceChoice : localVoiceChoice;
+    const ownVoice = narratorOwnVoice ?? chosenNarrator?.voiceName ?? DEFAULT_NARRATOR_VOICE_ID;
+    const handleVoiceChange = (value: string) => {
+        const next = NARRATOR_VOICES.find(v => v.id === value)?.id ?? null;
+        setLocalVoiceChoice(next);
+        (onSetNarratorVoice ?? setNarratorVoice)(next);
+    };
 
     return (
         <div className="gor-dialog-backdrop">
@@ -257,6 +287,37 @@ const SettingsMenu: React.FC<{
                                     </div>
                                 </>
                             )}
+                            <span className="gor-label gor-config-label">Voice</span>
+                            <div>
+                                <select
+                                    aria-label="Voice"
+                                    aria-describedby="settings-voice-note"
+                                    value={voiceChoice ?? ''}
+                                    onChange={(e) => handleVoiceChange(e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '6px 10px',
+                                        background: 'var(--surface-sunken, #111)',
+                                        color: 'var(--text-normal)',
+                                        border: '1px solid var(--border-subtle, rgba(201,162,39,.3))',
+                                        borderRadius: '4px',
+                                        fontFamily: 'inherit',
+                                        fontSize: '13px',
+                                    }}
+                                >
+                                    <option value="">The narrator's own — {ownVoice}</option>
+                                    {NARRATOR_VOICES.map((v) => (
+                                        <option key={v.id} value={v.id}>
+                                            {v.label} — {v.role}
+                                        </option>
+                                    ))}
+                                </select>
+                                <p className="gor-config-note" id="settings-voice-note" style={{ marginTop: '4px' }}>
+                                    {voiceChoice
+                                        ? NARRATOR_VOICES.find((v) => v.id === voiceChoice)?.role
+                                        : 'The voice each narrator was tuned with.'}
+                                </p>
+                            </div>
                         </div>
                     </section>
 

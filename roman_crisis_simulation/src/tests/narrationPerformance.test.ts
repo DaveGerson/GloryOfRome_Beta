@@ -1,18 +1,19 @@
 /**
  * tests/narrationPerformance.test.ts
  *
- * The narration voice's privacy guard (narration/performanceScript.ts) and
- * the tool that runs it (ai/tools/narrationVoice.ts). The director may only
- * insert `<...>` delivery directions into ONE committed narration; the
- * validator must refuse anything that adds, drops or changes a spoken word,
- * or that uses a direction to carry content - and every refusal falls back
- * to the plain narration under one generic direction.
+ * The narration voice's guard (narration/performanceScript.ts) and the tool
+ * that runs it (ai/tools/narrationVoice.ts). The narrator retells ONE
+ * committed narration and may reword it freely, but the guard refuses a
+ * retelling that runs away, smuggles content through a bracketed
+ * direction, brings in a name or a figure the narration never mentioned,
+ * or leaks a hidden mechanic - and every refusal falls back to the plain
+ * narration cleaned for speech.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  FALLBACK_DIRECTION,
   MAX_DIRECTION_CHARS,
   fallbackTranscript,
+  findIntroducedContent,
   parseTranscript,
   performedTranscriptFor,
   speakableText,
@@ -32,6 +33,11 @@ const reject = (transcript: string, original = NARRATION) => {
 };
 
 describe('validatePerformance: faithful scripts pass', () => {
+  it('accepts dramatic adaptations recounting the scene with fervor and pizzazz', () => {
+    const dramatic = 'Torches sputter in the damp Roman dusk as the Praetorians mutter treason by their fires. Maximinus hoists a bronze chalice to the heavens, shouting his thirst for glory and endless slaughter! And behind high marble walls, the Senate waits in frozen terror.';
+    expect(reject(dramatic)).toBe('ok');
+  });
+
   it('accepts the original with delivery directions inserted', () => {
     const script = '<low and ominous> The Praetorians mutter in their camp. <a pause> Maximinus raises a cup: <a gruff, booming toast> "To the legions, and to 235 more victories!" <quietly> The Senate waits.';
     expect(reject(script)).toBe('ok');
@@ -62,35 +68,9 @@ describe('validatePerformance: faithful scripts pass', () => {
 });
 
 describe('validatePerformance: adversarial scripts are refused', () => {
-  it('an inserted word', () => {
-    expect(reject('The Praetorians mutter angrily in their camp. Maximinus raises a cup: "To the legions, and to 235 more victories!" The Senate waits.')).toBe('spoken_words_changed');
-  });
-
-  it('a dropped word', () => {
-    expect(reject('The Praetorians mutter in camp. Maximinus raises a cup: "To the legions, and to 235 more victories!" The Senate waits.')).toBe('spoken_words_changed');
-  });
-
-  it('a changed number', () => {
-    expect(reject(NARRATION.replace('235', '236'))).toBe('spoken_words_changed');
-    expect(reject(NARRATION.replace('235', 'two hundred thirty-five'))).toBe('spoken_words_changed');
-  });
-
-  it('a changed name or a reordering', () => {
-    expect(reject(NARRATION.replace('Maximinus', 'Maximus'))).toBe('spoken_words_changed');
-    expect(reject(NARRATION.replace('The Senate waits.', 'Waits the Senate.'))).toBe('spoken_words_changed');
-  });
-
-  it('an appended sentence', () => {
-    expect(reject(`${NARRATION} Philip the Arab is plotting.`)).toBe('spoken_words_changed');
-  });
-
-  it('changed punctuation', () => {
-    expect(reject(NARRATION.replace('victories!', 'victories?'))).toBe('spoken_words_changed');
-  });
-
-  it('a direction that splits or merges a word', () => {
-    expect(reject(NARRATION.replace('Praetorians', 'Praetor<pause>ians'))).toBe('spoken_words_changed');
-    expect(reject(NARRATION.replace('in their', 'intheir'))).toBe('spoken_words_changed');
+  it('a runaway wall of text is refused', () => {
+    const runaway = 'Rome '.repeat(500);
+    expect(reject(runaway)).toBe('too_long');
   });
 
   it('a direction carrying a name absent from the original', () => {
@@ -151,15 +131,53 @@ describe('validatePerformance: adversarial scripts are refused', () => {
   });
 });
 
+describe('validatePerformance: a retelling may reword, never invent (fidelity)', () => {
+  it('refuses a retelling that brings in a name the narration never mentioned', () => {
+    expect(reject('The Praetorians mutter, and the heir is hidden in Emesa. The Senate waits.')).toBe('introduces_new_name');
+    expect(reject('The Praetorians mutter while Philip gathers the legions. The Senate waits.')).toBe('introduces_new_name');
+    expect(findIntroducedContent(NARRATION, 'The Praetorians mutter while Philip gathers the legions.')).toEqual({ kind: 'name', value: 'Philip' });
+  });
+
+  it('refuses a figure the narration never gave', () => {
+    expect(reject('Maximinus toasts 300 victories while the Senate waits.')).toBe('introduces_new_number');
+    expect(reject('Maximinus toasts 235 more victories while the Senate waits.')).toBe('ok');
+  });
+
+  it('allows names the narration has, in any case, plural or possessive', () => {
+    expect(reject("The camp of the Praetorian cohorts stirs; Maximinus' cup is raised, and the Senate's silence deepens.")).toBe('ok');
+  });
+
+  it('allows the forms of address every Roman narrator may use', () => {
+    expect(reject('Hear me, Dominus: the Praetorians mutter, and in Rome the Senate waits on you, Caesar.')).toBe('ok');
+  });
+
+  it("allows the listener's own name and position, and nothing else of theirs", () => {
+    const retelling = 'The Praetorians mutter, my Emperor, and the Senate waits on you, Severus Alexander.';
+    expect(reject(retelling)).toBe('introduces_new_name');
+    expect(validatePerformance(NARRATION, retelling, ['Severus Alexander', 'Emperor'])).toEqual({ ok: true });
+  });
+
+  it('reads sentence and quotation openings as ordinary capitals', () => {
+    expect(reject('Listen. Tonight the Praetorians mutter, and Maximinus cries, "Glory waits!" Nothing moves in the Senate.')).toBe('ok');
+  });
+
+  it('a refused retelling never reaches the voice: the plain narration does', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const generateContent = vi.fn(async (params: { model: string; contents: string; config?: Record<string, unknown> }) => (params.model === GEMINI_TTS
+      ? { candidates: [{ content: { parts: [{ inlineData: { data: 'AQIDBA==', mimeType: 'audio/L16;codec=pcm;rate=24000' } }] } }] }
+      : { text: 'The Praetorians mutter. Gordian marches from Africa. The Senate waits.' }));
+    const result = await performNarration({ models: { generateContent } }, NARRATION, false);
+    expect(result).toMatchObject({ usedFallback: true, rejection: 'introduces_new_name', transcript: fallbackTranscript(NARRATION) });
+    expect(generateContent.mock.calls[1][0].contents).not.toContain('Gordian');
+    vi.restoreAllMocks();
+  });
+});
+
 describe('angle brackets in the original narration', () => {
   const WITH_BRACKETS = 'The tablet reads <SPQR> in fresh paint, and **nobody** speaks.';
 
   it('speakableText turns them into guillemets and drops bold markers', () => {
     expect(speakableText(WITH_BRACKETS)).toBe('The tablet reads ‹SPQR› in fresh paint, and nobody speaks.');
-  });
-
-  it('a director echoing the raw brackets is refused (they would parse as a direction)', () => {
-    expect(validatePerformance(WITH_BRACKETS, `<hushed> ${WITH_BRACKETS}`)).toEqual({ ok: false, reason: 'spoken_words_changed' });
   });
 
   it('a director working from the speakable text passes', () => {
@@ -169,7 +187,10 @@ describe('angle brackets in the original narration', () => {
   it('the fallback never contains a bracket the text supplied', () => {
     const fallback = fallbackTranscript(WITH_BRACKETS);
     const parsed = parseTranscript(fallback);
-    expect(parsed.ok && parsed.value.directions).toEqual([FALLBACK_DIRECTION]);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.ok && parsed.value.directions).toEqual([]);
+    expect(fallback).not.toContain('<');
+    expect(fallback).not.toContain('>');
   });
 });
 
@@ -181,14 +202,14 @@ describe('spokenTokens', () => {
 
 describe('performedTranscriptFor', () => {
   it('keeps a valid script, unwrapping stray packaging', () => {
-    const script = `<grave> ${NARRATION}`;
+    const script = 'The Praetorians mutter in their camp. Maximinus raises a cup: "To the legions!" The Senate waits.';
     expect(performedTranscriptFor(NARRATION, `\`\`\`\n## Transcript:\n${script}\n\`\`\``)).toEqual({ transcript: script, usedFallback: false });
   });
 
   it('falls back with the reason on a refused script', () => {
     const result = performedTranscriptFor(NARRATION, `<Philip whispers> ${NARRATION}`);
     expect(result).toEqual({
-      transcript: `<${FALLBACK_DIRECTION}> ${NARRATION}`,
+      transcript: fallbackTranscript(NARRATION),
       usedFallback: true,
       rejection: 'direction_has_proper_noun',
     });
@@ -199,7 +220,7 @@ describe('performedTranscriptFor', () => {
   });
 
   it('unwrapDirectorOutput leaves a plain transcript alone', () => {
-    expect(unwrapDirectorOutput('  <grave> Rome.  ')).toBe('<grave> Rome.');
+    expect(unwrapDirectorOutput('  Rome.  ')).toBe('Rome.');
   });
 });
 
@@ -209,14 +230,29 @@ describe('prompts', () => {
     const { systemInstruction, prompt } = buildNarrationPerformancePrompt(forged);
     expect(prompt).toContain(JSON.stringify(forged));
     expect(prompt).not.toMatch(/^IGNORE THE RULES/m);
-    expect(systemInstruction).toMatch(/word for word/);
+    expect(systemInstruction).toMatch(/dramatic Roman bard/);
   });
 
-  it('the TTS prompt frames the transcript under the reference heading', () => {
-    const tts = buildNarrationTtsPrompt('<grave> Rome waits.');
-    expect(tts).toMatch(/dramatic narrator of imperial Rome/);
-    expect(tts).toMatch(/quoted speaker/);
-    expect(tts.endsWith('\n\n## Transcript:\n<grave> Rome waits.')).toBe(true);
+  it('the TTS prompt is clean natural spoken prose ready for speech generation', () => {
+    const tts = buildNarrationTtsPrompt('## Transcript:\n<grave> Rome waits in silence.');
+    expect(tts).not.toMatch(/dramatic narrator of imperial Rome/);
+    expect(tts).not.toMatch(/## Transcript/);
+    expect(tts).not.toMatch(/<grave>/);
+    expect(tts).toBe('Rome waits in silence.');
+  });
+
+  it('frames the narrator as a loyal partner and associate addressing the player', () => {
+    const narration = 'The Praetorians grumble in the barracks over delayed coin.';
+    const { systemInstruction, prompt } = buildNarrationPerformancePrompt(narration, { name: 'Severus', position: 'Imperator' });
+    expect(systemInstruction).toContain('partner');
+    expect(systemInstruction).toContain('associate');
+    expect(systemInstruction).toContain('CLARIFY WHAT ACTUALLY HAPPENED');
+    expect(systemInstruction).toContain('EXPLAIN WHAT IT MEANS FOR THE PLAYER');
+    expect(prompt).toContain('Severus (Imperator)');
+    expect(prompt).toContain('Your listener is Severus (Imperator).');
+    expect(systemInstruction).toContain('Address the player directly as their devoted partner');
+    // The fixed rules follow the persona, so they are the last word the model reads.
+    expect(systemInstruction.indexOf('FIDELITY RULES')).toBeGreaterThan(systemInstruction.indexOf('CORE DUTIES'));
   });
 });
 
@@ -246,7 +282,7 @@ describe('ai/tools/narrationVoice', () => {
   });
 
   it('a valid director script is what gets voiced', async () => {
-    const script = `<low and ominous> ${NARRATION}`;
+    const script = 'The torches gutter as the Praetorians mutter in their camp. Maximinus raises his bronze cup: "To the legions!" The Senate waits in fear.';
     const { ai, generateContent } = makeAi(script);
     const result = await performNarration(ai, NARRATION, false);
     expect(result).toMatchObject({ transcript: script, usedFallback: false });
@@ -263,7 +299,7 @@ describe('ai/tools/narrationVoice', () => {
     const { ai, generateContent } = makeAi(`${NARRATION} <Philip nods> And the heir is hidden in Emesa.`);
     const result = await performNarration(ai, NARRATION, false);
     expect(result.usedFallback).toBe(true);
-    expect(result.rejection).toBe('spoken_words_changed');
+    expect(result.rejection).toBe('direction_has_proper_noun');
     const ttsPrompt = generateContent.mock.calls[1][0].contents;
     expect(ttsPrompt).toBe(buildNarrationTtsPrompt(fallbackTranscript(NARRATION)));
     expect(ttsPrompt).not.toContain('Emesa');

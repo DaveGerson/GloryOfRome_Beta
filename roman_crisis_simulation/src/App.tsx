@@ -201,7 +201,8 @@ const App: React.FC = () => {
     const {
         narrationVoiceMode, handleSetNarrationVoiceMode, toggleNarrationVoice, narrationVoiceStateFor,
         narrators, narratorId, handleSetNarrator,
-    } = useNarrationVoice({ ai, isMockMode, resolvedApiKey, messages, gameState });
+        narratorVoiceChoice, narratorOwnVoice, handleSetNarratorVoice,
+    } = useNarrationVoice({ ai, isMockMode, resolvedApiKey, messages, gameState, playerEntity });
 
     const {
         handleSpendResource, handleOccurrenceFinding, handleInvestigationOutcome, handleSetIntervention,
@@ -428,6 +429,7 @@ const App: React.FC = () => {
                             turnHistory={turnHistory}
                             pulsingTabs={pulsingTabs}
                             onOccurrenceFinding={handleOccurrenceFinding}
+                            resolvedApiKey={resolvedApiKey}
                         />
                     </>
                 )}
@@ -483,6 +485,9 @@ const App: React.FC = () => {
                     narrators={narrators}
                     narratorId={narratorId}
                     onSetNarrator={handleSetNarrator}
+                    narratorVoiceChoice={narratorVoiceChoice}
+                    narratorOwnVoice={narratorOwnVoice}
+                    onSetNarratorVoice={handleSetNarratorVoice}
                     isMockMode={isMockMode}
                     onSetIsMockMode={setIsMockMode}
                     gmConsoleOpen={isGmConsoleEnabled}

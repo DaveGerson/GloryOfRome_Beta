@@ -3,15 +3,14 @@
   "name": "A New Narrator",
   "description": "One line the player sees under the narrator picker.",
   "prep": {
-    "model": "gemini-3.8-flash",
+    "model": "models/gemini-3.8-flash",
     "thinkingLevel": "low",
     "temperature": 0.7,
-    "directorNotes": "House style for where directions fall and how they read. Taste only: the fixed hard rules always win, and the word-for-word guard checks every script."
+    "persona": "Who the narrator is, whom they speak to, and how they retell a week: their loyalties, their register, what they emphasize. The fixed rules that follow (recount only what the passage contains, clean spoken prose, the passage is data) are added for every narrator and cannot be relaxed here."
   },
   "voice": {
     "model": "gemini-3.8-flash-tts",
-    "voiceName": "Brio",
-    "temperature": 1,
-    "styleNote": "Who the narrator is and how they read: the frame the TTS model performs within."
+    "voiceName": "Enceladus",
+    "temperature": 1
   }
 }

@@ -4,10 +4,14 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import ErrorBoundary from './components/ErrorBoundary';
 import { GameProvider } from './state/GameContext';
+import { installGlobalDiagnostics } from './diagnostics/logger';
 // The Glory of Rome design system: tokens (fonts/colors/typography/spacing/
 // effects) + component classes. Nox Romae (nocturne.css) is lazy-loaded by
 // App's LVX/NOX switch.
 import './design/styles.css';
+
+// Install dev diagnostics to relay uncaught client errors to dev server
+installGlobalDiagnostics();
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

@@ -1,5 +1,9 @@
 {
-  "about": "Sample player-visible narrations for tuning a narrator profile (npm run narrator:tune). Written in the game's narration voice; none is drawn from a real save. Cover the registers a narrator must handle: quiet dread, quoted speech, violence, crowds, numbers and names, and a short line.",
+  "about": "Sample player-visible narrations for tuning a narrator profile (npm run narrator:tune), retold to the sample player below. Written in the game's narration voice; none is drawn from a real save. Cover the registers a narrator must handle: quiet dread, quoted speech, violence, crowds, numbers and names, and a short line.",
+  "player": {
+    "name": "Severus Alexander",
+    "position": "Emperor"
+  },
   "narrations": [
     "The Curia is colder than the season warrants. Senators who greeted you warmly a week ago now find urgent business with their scribes as you pass, and the silence follows you to your seat like a hound.",
     "Your freedman returns after dark, dust on his sandals. \"The Prefect received your letter,\" he says, keeping his voice low. \"He read it twice. Then he burned it.\"",

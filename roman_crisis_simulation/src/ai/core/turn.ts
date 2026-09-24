@@ -39,6 +39,21 @@ import {
     redactInventedPlayerProseFromValue,
 } from './playerBoundary';
 import type { PlayerProseRedaction } from './playerBoundary';
+import {
+    filterFeasibleSuggestedActions,
+    isActivityFeasible,
+    getActivityResourceRequirement,
+    FINANCIAL_ACTION_REGEX,
+    RESOURCE_REQUIREMENT_RULES,
+} from './actionFeasibility';
+
+export {
+    filterFeasibleSuggestedActions,
+    isActivityFeasible,
+    getActivityResourceRequirement,
+    FINANCIAL_ACTION_REGEX,
+    RESOURCE_REQUIREMENT_RULES,
+};
 
 /**
  * The no-attempt boundary, applied to an adjudication. SPLIT BY CONSEQUENCE:
@@ -1228,7 +1243,8 @@ async function runPlayerSurfacesStage(
     transformedAdjudication.gm_private.push(...playerProseRedactionNotes(proseRedactions));
     const narrationParts = fullText.split('SUGGESTION:');
     const narration = narrationParts[0].trim();
-    const suggestedActions = narrationParts.slice(1).map(s => s.trim()).filter(s => s.length > 0);
+    const rawSuggestedActions = narrationParts.slice(1).map(s => s.trim()).filter(s => s.length > 0);
+    const suggestedActions = filterFeasibleSuggestedActions(rawSuggestedActions, updatedPlayerEntity);
     if (onNarrationChunk) {
         const finalNarration = playerVisibleStreamGate.finish(narration);
         if (finalNarration !== null) onNarrationChunk(finalNarration);

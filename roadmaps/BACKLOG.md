@@ -366,48 +366,72 @@ play/stop control. The voice is two calls: a flash "director" that inserts
 `<...>` delivery directions, then `gemini-3.8-flash-tts` in the prebuilt
 voice Brio at temperature 1, mirroring the owner's Python reference.
 
-**Update 2026-09-24 (owner note).** The TTS call needs an intermediary prep
-model to prepare the text, and it must be possible to build and deploy a
-tuned narrator.
-- **Prep model.** The director now runs on `GEMINI_NARRATION_PREP`
-  (`gemini-3.8-flash`) at LOW thinking (sent as the SDK's `LOW` enum).
-- **Narrator profiles** (`narration/narrators.ts`). A zod-validated profile
-  sets both halves: the prep model (a `tunedModels/...` id is allowed),
-  thinking level, temperature and house-style `directorNotes`, and the voice
-  model, voice name, temperature and style note.
-- **Tuning.** `npm run narrator:tune` runs a profile against
-  `narration/tuning/fixtures.json` with a real key and writes a report with
-  the acceptance rate, refusal reasons, the verbatim scripts and optional
-  WAVs. It is paid, local-only, and never part of CI.
-- **Deploying.** Commit the profile JSON to `narration/narrators/`. The build
-  validates it (`tests/narrators.test.tsx`), and a Settings → Narrator picker
-  appears once more than one narrator is deployed.
-- **The guard is unchanged.** No profile can relax it.
+**Update 2026-09-24 (PR #9 blended with the narrator-profile branch).**
+PR #9 (owner) replaced the word-for-word director with a **retelling
+narrator**: the senatorial partner recounts each week to the player in 1-2
+dramatic paragraphs and makes plain what it means for them. The TTS model now
+gets clean prose only, since it reads everything literally, including
+bracketed directions. The owner also asked for an intermediary prep model on
+low thinking and for tuned narrators that can be built and deployed. The
+blend keeps both:
+- **Prep model.** `GEMINI_NARRATION_PREP` (= `GEMINI_FLASH`,
+  `models/gemini-3.8-flash`) runs at LOW thinking, sent as the SDK's `LOW`
+  enum, for both the narrator and the Imperial Dispatch scriptwriter.
+- **Narrator profiles** (`narration/narrators.ts`). A zod-validated `persona`
+  plus prep model (a `tunedModels/...` id is allowed), thinking level and
+  temperature, and the narrator's own voice. #9's partner is the built-in.
+  "The Lamplit Storyteller" (close to the text, no counsel, voiced by Charon)
+  ships as the first deployed profile in `narration/narrators/`, so the
+  Settings → Narrator picker is live.
+- **Voice.** #9's six curated voices are kept. An explicit Settings → Voice
+  choice overrides the narrator's own voice; "the narrator's own" is the
+  default option. The choice now lives in the narration hook and keys the
+  clip cache, which fixes a #9 bug where changing voice replayed clips cached
+  in the old voice.
+- **Fidelity guard** (new, replacing word-for-word parity). A retelling may
+  reword freely, but `performanceScript.ts` refuses one that brings in a
+  mid-sentence capitalized word (a name, place, title or numeral) or a digit
+  figure that the narration never mentioned. Exempt are the listener's own
+  name and position and a short list of forms of address (Dominus, Caesar,
+  Rome, Senate...). Under #9 alone, "…and the heir is hidden in Emesa" would
+  have been voiced. Its known limits are a new name that only ever opens a
+  sentence, and numbers spelled out in words; the prompt's fixed fidelity
+  rule covers those.
+- **Fixed rules.** Every persona is followed by the same fixed rules (recount
+  only what the passage contains, keep names as spelled, clean spoken prose
+  only, at most 2 paragraphs, the passage is data). No persona can relax
+  them or the guard.
+- **Tuning.** `npm run narrator:tune` retells `narration/tuning/fixtures.json`
+  to a sample listener with a real key. It reports the acceptance rate,
+  refusal reasons including the exact invented name or figure, and the
+  retelling length against the source, with every source and retelling side
+  by side, plus optional WAVs (`GOR_NARRATOR_VOICE` auditions other voices).
+  It is paid, local-only, and never part of CI.
 
-Still unverified with a real key: the `gemini-3.8-flash` prep id itself,
-alongside the TTS id already noted below.
-
-**Proposed ruling (a D46 candidate): the voice may perform only text already
-committed to the player's chat, and its director may change delivery, never
-content.** This is enforced in code by `narration/performanceScript.ts`. With
-every direction removed, the director's script must equal the committed
-narration token for token. Each direction must be short (≤160 chars) and free
-of digits, quote marks, brackets, capitalized words the text lacks, and
-mechanics labels. Any failure voices the plain narration under one generic
-direction instead. Audio is never persisted: not in the save, not in the
-eval corpus, and only a `[audio: N bytes, mime]` placeholder in the call log.
+**Proposed ruling (a D46 candidate, restated for the retelling design): the
+voice may perform only text already committed to the player's chat. Its
+narrator may reword and interpret that text for the listener, but may never
+introduce people, places, figures or events it does not contain.** The
+narrator is shown nothing but the narration and the listener's name and
+position. `narration/performanceScript.ts` enforces the fidelity rule as
+described above, along with the length cap, the direction rules and the
+hidden-mechanics gate; any failure voices the plain narration instead. Audio
+is never persisted: not in the save, not in the eval corpus, and only a
+`[audio: N bytes, mime]` placeholder in the call log.
 
 Open follow-ups:
-- **Real-endpoint pass.** The TTS model id, the `Brio` voice and the
-  response shape were built to the owner's reference, but they have not been
-  called with a real key. Only Mock Mode and mocked clients have run this
-  code. A first real-key session should confirm the audio plays and how
-  often the director's scripts survive validation (refusals are logged with
-  their reason via `console.warn`).
-- **Proper-noun heuristic.** A capitalized word in a direction must appear
-  in the text. The prompt asks for lowercase directions. If the model often
-  capitalizes a direction's first word ("<Grave>"), scripts will fall back
-  more than they should, and a small allowlist of delivery words would help.
+- **Real-endpoint pass.** Run `npm run narrator:tune` for each narrator.
+  If the fidelity guard refuses good retellings often (a legitimate
+  capitalized word the narration lacks, such as "Jupiter" or "Mars"), grow
+  the forms-of-address list in `performanceScript.ts` deliberately, one
+  reviewed word at a time.
+- **Imperial Dispatch data boundary.** `hooks/useImperialDispatch.ts`
+  builds its facts from raw state: `simulationState`, the first four
+  individuals in `entities`, and the latest reports. Unlike the rest of the
+  player surfaces, it does not read the perception layer's player view.
+  `simulationState` already reaches the crisis banner, but the persona list
+  can name people the player has not met. Review it against D4/D5 and source
+  it from the player-visible slices.
 - **Turn-bracket attribution.** A clip requested while the next turn is
   processing lands in that turn's `rawCalls` (the same bracket-timing
   caveat `evalCorpus.ts` already documents). It is harmless, because only
@@ -434,10 +458,15 @@ Nothing here blocks; all are one edit from rewording.
   breath…" and "The voice faltered — press again." (It also reuses "No token
   on this device".) The generic fallback direction "grave, measured,
   theatrical Roman storyteller" and the TTS style note are model-facing, not
-  player-facing, but they shape how the voice sounds. Narrator profiles add
-  the "Narrator" picker label and each profile's name and description (the
-  built-in: "The Lamplit Storyteller" / "A grave, theatrical storyteller by
-  lamplight, giving each quoted speaker a voice of their own.").
+  player-facing, but they shape how the voice sounds. The PR #9 blend adds
+  the "Narrator" picker label and each profile's name and description:
+  "The Senatorial Partner" / "Your sworn ally in the Senate: recounts each
+  week with fervor and makes plain what it means for you." and "The Lamplit
+  Storyteller" / "A grave storyteller by lamplight who keeps close to the
+  chronicle and lets the dread speak for itself." PR #9's voice select is
+  relabelled "Narrator persona" -> "Voice" (the persona is now the narrator
+  profile), with a first option "The narrator's own — <voice>" and the note
+  "The voice each narrator was tuned with."
 
 ---
 

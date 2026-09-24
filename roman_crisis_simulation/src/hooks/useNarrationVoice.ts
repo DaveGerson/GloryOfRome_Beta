@@ -6,12 +6,15 @@
  * it to the same `ai` client and `isMockMode` flag every other AI surface
  * receives from hooks/useSettings.ts, plus the device preference in
  * persistence/uiPrefs.ts (`'off' | 'on_demand' | 'auto'`, default off) and
- * the chosen narrator profile (narration/narrators.ts).
+ * the chosen narrator profile (narration/narrators.ts) and voice (an
+ * explicit Settings choice, or else the narrator's own).
  *
  * The privacy line (D4/D5): the only text this hook ever hands to the
  * voice is a COMMITTED `messages[]` entry with `sender === 'gm'` - the
  * streaming bubble, the pending player message, monologues and ribbons
- * never get a control, and nothing else from the game state is passed.
+ * never get a control, and nothing else from the game state is passed
+ * beyond the player's own name and position, which the narrator uses to
+ * address them.
  *
  * Auto mode: the newest GM narration a turn committed plays by itself once
  * the game leaves PROCESSING - never mid-stream (the streaming bubble is
@@ -28,7 +31,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { GameState, type Message } from '../types';
+import { GameState, type Message, type Entity } from '../types';
 import type { GeminiClient } from '../ai/core/geminiService';
 import { performNarration } from '../ai/tools/narrationVoice';
 import { NarrationPlayer, type NarrationVoiceStatus } from '../narration/narrationPlayer';
@@ -36,6 +39,7 @@ import { NARRATORS, narratorById, type NarratorProfile } from '../narration/narr
 import {
     getNarrationVoiceMode, setNarrationVoiceMode, type NarrationVoiceMode,
     getNarratorProfileId, setNarratorProfileId,
+    getNarratorVoiceChoice, setNarratorVoice, type NarratorVoiceId,
 } from '../persistence/uiPrefs';
 
 /**
@@ -50,11 +54,13 @@ export interface UseNarrationVoiceArgs {
     resolvedApiKey: string | null | undefined;
     messages: readonly Message[];
     gameState: GameState;
+    /** The player's entity: only its name and position reach the narrator, for address. */
+    playerEntity?: Entity | null;
     /** The narrators this build offers; tests inject their own. */
     narrators?: readonly NarratorProfile[];
 }
 
-export function useNarrationVoice({ ai, isMockMode, resolvedApiKey, messages, gameState, narrators = NARRATORS }: UseNarrationVoiceArgs) {
+export function useNarrationVoice({ ai, isMockMode, resolvedApiKey, messages, gameState, playerEntity, narrators = NARRATORS }: UseNarrationVoiceArgs) {
     const [player] = useState(() => new NarrationPlayer());
     const playback = useSyncExternalStore(player.subscribe, player.getSnapshot, player.getSnapshot);
 
@@ -74,29 +80,47 @@ export function useNarrationVoice({ ai, isMockMode, resolvedApiKey, messages, ga
         setNarratorProfileId(next.id);
     }, [narrators]);
 
+    // The voice: the player's explicit Settings choice, or - when they never
+    // chose one - the narrator's own. Held here, not read inside the
+    // renderer, so a change re-keys the cache instead of replaying a clip
+    // cached in the old voice.
+    const [voiceChoice, setVoiceChoiceState] = useState<NarratorVoiceId | null>(() => getNarratorVoiceChoice());
+    const voice = voiceChoice ?? narrator.voice.voiceName;
+    const handleSetNarratorVoice = useCallback((next: NarratorVoiceId | null) => {
+        setVoiceChoiceState(next);
+        setNarratorVoice(next);
+    }, []);
+
+    const playerName = playerEntity?.name;
+    const playerPosition = playerEntity?.position || playerEntity?.epithet;
+
     const canReachVoice = isMockMode || Boolean(resolvedApiKey);
     const canReachVoiceRef = useRef(canReachVoice);
     useEffect(() => {
         canReachVoiceRef.current = canReachVoice;
     }, [canReachVoice]);
 
-    // The renderer follows the current client, mode and narrator. The
-    // variant keeps a Mock Mode tone - or another narrator's performance -
-    // from answering for this one in the cache.
+    // The renderer follows the current client, mode, narrator and voice. The
+    // variant keeps a Mock Mode tone - or another narrator's or voice's
+    // performance - from answering for this one in the cache.
     useEffect(() => {
         player.setRenderer(
             async text => {
-                const { wav } = await performNarration(ai, text, isMockMode, narrator);
+                const { wav } = await performNarration(ai, text, isMockMode, {
+                    narrator,
+                    voiceName: voice,
+                    playerContext: playerName ? { name: playerName, position: playerPosition } : null,
+                });
                 return new Blob([wav], { type: 'audio/wav' });
             },
-            `${isMockMode ? 'mock' : 'live'}:${narrator.id}`,
+            `${isMockMode ? 'mock' : 'live'}:${narrator.id}:${voice}`,
         );
-    }, [player, ai, isMockMode, narrator]);
+    }, [player, ai, isMockMode, narrator, voice, playerName, playerPosition]);
 
-    // A different narrator was chosen: the old one's performance stops.
+    // A different narrator or voice was chosen: the old performance stops.
     useEffect(() => {
         player.stop();
-    }, [player, narrator.id]);
+    }, [player, narrator.id, voice]);
 
     // Unmount: stop, and revoke every object URL. The player is reusable, so
     // StrictMode's mount/unmount/mount leaves a working instance behind.
@@ -154,6 +178,9 @@ export function useNarrationVoice({ ai, isMockMode, resolvedApiKey, messages, ga
         narrators,
         narratorId: narrator.id,
         handleSetNarrator,
+        narratorVoiceChoice: voiceChoice,
+        narratorOwnVoice: narrator.voice.voiceName,
+        handleSetNarratorVoice,
         toggleNarrationVoice,
         narrationVoiceStateFor,
         narrationPlayback: playback,

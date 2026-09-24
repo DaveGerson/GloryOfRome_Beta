@@ -12,6 +12,7 @@
  *  - GOR_NARRATOR            a deployed narrator id, or a path to a profile
  *                            JSON being tuned (default: the built-in).
  *  - GOR_NARRATOR_AUDIO=1    also perform each passage and write .wav files.
+ *  - GOR_NARRATOR_VOICE      voice for the audio (default: the narrator's own).
  *  - GOR_NARRATOR_FIXTURES   an alternative fixtures JSON path.
  *
  * Output: narration/tuning/out/<narrator-id>/<timestamp>/ (git-ignored):
@@ -46,11 +47,16 @@ describe('narrator tuning', () => {
   it.skipIf(!apiKey)('runs the profile over the sample narrations and writes a report', async () => {
     const narrator = resolveNarrator(process.env.GOR_NARRATOR);
     const fixturesPath = process.env.GOR_NARRATOR_FIXTURES ?? path.join(HERE, 'fixtures.json');
-    const { narrations } = JSON.parse(readFileSync(fixturesPath, 'utf8')) as { narrations: string[] };
+    const { narrations, player } = JSON.parse(readFileSync(fixturesPath, 'utf8')) as {
+      narrations: string[];
+      player?: { name?: string; position?: string };
+    };
     const withAudio = process.env.GOR_NARRATOR_AUDIO === '1';
 
     const ai = new GoogleGenAI({ apiKey: apiKey! });
-    const results = await runNarratorTuning({ ai, narrator, narrations, withAudio });
+    const results = await runNarratorTuning({
+      ai, narrator, narrations, playerContext: player ?? null, withAudio, voiceName: process.env.GOR_NARRATOR_VOICE,
+    });
     const summary = summarizeTuning(narrator, results);
 
     const outDir = path.join(HERE, 'out', narrator.id, new Date().toISOString().replace(/[:.]/g, '-'));

@@ -33,6 +33,7 @@ import { ApiError } from '@google/genai';
 import type { RawCallRecord } from '../../types';
 import { parseModelJson } from './json';
 import { base64ToBytes, concatBytes } from '../../narration/wav';
+import { logAiFailure } from '../../diagnostics/logger';
 
 /**
  * Centralized model ids. `gemini-3-pro-preview` is a preview id Google can
@@ -41,8 +42,8 @@ import { base64ToBytes, concatBytes } from '../../narration/wav';
  * ROADMAP_2_AI_ARCHITECTURE.md's dependency notes) - now a one-line change
  * if either model is retired or swapped.
  */
-export const GEMINI_PRO = 'gemini-3-pro-preview';
-export const GEMINI_FLASH = 'gemini-2.5-flash';
+export const GEMINI_PRO = 'gemini-3.8-flash';
+export const GEMINI_FLASH = 'models/gemini-3.8-flash';
 /**
  * GA (non-preview) pro-tier model, used as an automatic fallback if
  * `GEMINI_PRO` (a preview id) is retired out from under us. Google gives no
@@ -51,25 +52,26 @@ export const GEMINI_FLASH = 'gemini-2.5-flash';
  * code path to recover, bricking the game. See Phase 5.5c. `GEMINI_FLASH` is
  * already GA, so it needs no fallback of its own.
  */
-export const GEMINI_PRO_FALLBACK = 'gemini-2.5-pro';
+export const GEMINI_PRO_FALLBACK = 'gemini-pro-latest';
 /**
  * Text-to-speech tier for the optional "hear it performed" narration voice
  * (narration/, ai/tools/narrationVoice.ts). Audio-only: it is only ever
  * called through `generateSpeech` below, never `generateText`/`generateStructured`.
  */
 export const GEMINI_TTS = 'gemini-3.8-flash-tts';
-/** The prebuilt voice the narrator performs in - the owner's reference choice. */
-export const DEFAULT_NARRATOR_VOICE = 'Brio';
+/** The prebuilt voice the narrator performs in: Enceladus, a deep, calm, authoritative senatorial baritone. */
+export const DEFAULT_NARRATOR_VOICE = 'Enceladus';
 /**
- * The narration voice's intermediary prep model: the "director" that turns
- * one committed narration into a performable transcript before the TTS call
- * (ai/tools/narrationVoice.ts). A flash-tier text model run with LOW
- * thinking - the job is a careful copy with stage directions, not
- * reasoning, so the budget stays small and the latency short. A deployed
- * narrator profile (narration/narrators.ts) may swap in its own prep model,
- * including a tuned one (`tunedModels/...`).
+ * The narration voice's intermediary prep model: the narrator that turns
+ * one committed narration (or, for the Imperial Dispatch, the tabs' fact
+ * summary) into clean spoken prose before the TTS call
+ * (ai/tools/narrationVoice.ts). It tracks the flash tier, run at LOW
+ * thinking - a spoken retelling wants a short think, not deep reasoning,
+ * so latency stays close to the voice's own. A deployed narrator profile
+ * (narration/narrators.ts) may name its own prep model, including a tuned
+ * one (`tunedModels/...`).
  */
-export const GEMINI_NARRATION_PREP = 'gemini-3.8-flash';
+export const GEMINI_NARRATION_PREP = GEMINI_FLASH;
 /** The thinking level the prep model runs at unless a narrator profile says otherwise. */
 export const NARRATION_PREP_THINKING_LEVEL = 'low';
 
@@ -305,13 +307,18 @@ async function invokeWithProFallback<T>(
     const { value, attempts } = await retryTransient(callName, () => invoke(resolvedModel));
     return { value, attempts, latencyMs: Date.now() - start, model: resolvedModel };
   } catch (e) {
-    if (!canAttemptProFallback(resolvedModel, e)) throw e;
+    if (!canAttemptProFallback(resolvedModel, e)) {
+      logAiFailure(callName, resolvedModel, e);
+      throw e;
+    }
     proFallbackActive = true;
     try {
       const value = await invoke(GEMINI_PRO_FALLBACK);
       return { value, attempts: 2, latencyMs: Date.now() - start, model: GEMINI_PRO_FALLBACK };
     } catch (fallbackError) {
-      throw wrapFallbackFailure(callName, fallbackError, 2);
+      const wrapped = wrapFallbackFailure(callName, fallbackError, 2);
+      logAiFailure(callName, GEMINI_PRO_FALLBACK, wrapped);
+      throw wrapped;
     }
   }
 }
@@ -521,12 +528,14 @@ async function consumeStream(
       }
     }
   } catch (e) {
-    throw new AiServiceError(
+    const streamErr = new AiServiceError(
       'transient',
       callName,
       `Gemini call '${callName}' failed mid-stream: ${e instanceof Error ? e.message : String(e)}`,
       e
     );
+    logAiFailure(callName, 'stream', streamErr);
+    throw streamErr;
   }
   if (consumerFailure) throw consumerFailure.error;
   return { text: textSoFar, chunks };
@@ -641,6 +650,7 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
       // (ai/core/json.ts::parseModelJson) - console + debugSnippet only,
       // never the thrown message (see AiServiceError's doc).
       const parseDetail = e instanceof Error ? e.message : String(e);
+      logAiFailure(callName, network.model, new Error(`Unparseable JSON: ${parseDetail}`));
       console.error(`Gemini call '${callName}' returned unparseable JSON even after a repair retry:`, parseDetail);
       throw new AiServiceError(
         'fatal',
@@ -703,6 +713,7 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
     // Schema paths are safe to surface; the raw output itself is console +
     // debugSnippet only, never the thrown message (see AiServiceError's doc).
     const offendingSnippet = truncateForCapture(network.text).slice(0, 300);
+    logAiFailure(callName, network.model, new Error(`Schema violation at [${issuePaths.join(', ')}]. Offending snippet: ${offendingSnippet}`));
     console.error(`Gemini call '${callName}' violated its schema at [${issuePaths.join(', ')}] even after a repair retry. Offending output:`, offendingSnippet);
     throw new AiServiceError(
       'fatal',
