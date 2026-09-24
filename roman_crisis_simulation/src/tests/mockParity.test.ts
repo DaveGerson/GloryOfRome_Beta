@@ -7,12 +7,15 @@
  * absent from the roster). This file pins both real-path behaviors onto the
  * mock so the two never diverge again.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { mockRunNewTurn } from '../ai/mocks';
 import { getMockInitialState } from './mockData';
 import { INITIAL_SIMULATION_STATE, ALL_INITIAL_ENTITIES } from '../constants/baseScenario';
 import { playerOwnsDelta, samePlayerIdentity } from '../ai/core/playerBoundary';
 import { Entity, TurnSubmission } from '../types';
+import { performNarration } from '../ai/tools/narrationVoice';
+import { parseTranscript, speakableText, spokenTokens } from '../narration/performanceScript';
+import { GEMINI_TTS, type GeminiClient } from '../ai/core/geminiService';
 
 const freeform = (text: string): TurnSubmission => ({ version: 1, kind: 'freeform', text });
 const questionOnly = (q: string): TurnSubmission => ({ version: 1, kind: 'structured', questionOrContext: q });
@@ -152,5 +155,40 @@ describe('mockRunNewTurn / real-pipeline boundary parity (E2)', () => {
     const result = await run(freeform('Hold court'), player, entities);
 
     expect(result.updatedNpcIntents.map(i => i.entity_id)).toEqual(['praetorian_guard']);
+  });
+});
+
+// The narration voice (ai/tools/narrationVoice.ts): Mock Mode skips both the
+// director and the TTS call, but what it hands the player must obey the same
+// invariants as the real path - the spoken words are exactly the committed
+// narration's, and the audio is a playable WAV.
+describe('narration voice: mock / real parity', () => {
+  const NARRATION = 'The Senate waits. "Not this time," mutters Maximinus, and the torches gutter.';
+
+  const spokenWordsOf = (transcript: string) => {
+    const parsed = parseTranscript(transcript);
+    if (!parsed.ok) throw new Error(`unparseable transcript: ${parsed.reason}`);
+    return spokenTokens(parsed.value.spoken);
+  };
+
+  it('both paths voice exactly the committed words, as a RIFF/WAVE file', async () => {
+    const script = `<low> ${NARRATION.replace('"Not', '<a growl> "Not')}`;
+    const ai: GeminiClient = {
+      models: {
+        generateContent: vi.fn(async (params: { model: string }) => params.model === GEMINI_TTS
+          ? { candidates: [{ content: { parts: [{ inlineData: { data: 'AAAAAA==', mimeType: 'audio/L16;codec=pcm;rate=24000' } }] } }] }
+          : { text: script }),
+      },
+    };
+    const mock = await performNarration(ai, NARRATION, true);
+    expect(ai.models.generateContent).not.toHaveBeenCalled();
+    const real = await performNarration(ai, NARRATION, false);
+
+    for (const result of [mock, real]) {
+      expect(spokenWordsOf(result.transcript)).toEqual(spokenTokens(speakableText(NARRATION)));
+      expect(String.fromCharCode(...result.wav.slice(0, 4), ...result.wav.slice(8, 12))).toBe('RIFFWAVE');
+    }
+    expect(real.usedFallback).toBe(false);
+    expect(mock.usedFallback).toBe(true);
   });
 });
