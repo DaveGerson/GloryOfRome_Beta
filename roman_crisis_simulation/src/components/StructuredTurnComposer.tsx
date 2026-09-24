@@ -30,7 +30,7 @@ const RecipientSeal: React.FC<{ initial: string | null }> = ({ initial }) => (
  * `#chat-input` does not exist here. App.tsx focuses `#chat-input,
  * #structured-input`; exactly one of the two is ever in the document.
  */
-const STRUCTURED_INPUT_ELEMENT_ID = 'structured-input';
+export const STRUCTURED_INPUT_ELEMENT_ID = 'structured-input';
 
 interface StructuredTurnComposerProps {
   draft: StructuredTurnDraft;

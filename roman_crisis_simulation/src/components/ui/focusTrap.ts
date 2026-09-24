@@ -33,10 +33,22 @@ export interface FocusTrap {
 const FOCUSABLE_SELECTOR =
   'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
+/**
+ * The Tab-reachable subset of the selector's matches. `button`/`input`
+ * match regardless of tabindex, so an explicit `tabindex="-1"` must be
+ * filtered here too: the inactive tabs/radios of a roving group (GM console
+ * tablist, private-scene target cards) and the hidden `type="file"` inputs
+ * behind "Restore from a copy" are all out of the Tab sequence, and wrapping
+ * focus onto one of them would strand the user on an element Tab itself
+ * never visits.
+ */
 function getFocusable(container: HTMLElement): HTMLElement[] {
   const focusable: HTMLElement[] = [];
   container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR).forEach(el => {
-    if (!el.hasAttribute('disabled')) focusable.push(el);
+    if (el.hasAttribute('disabled')) return;
+    if (el.getAttribute('tabindex') === '-1') return;
+    if (el instanceof HTMLInputElement && el.type === 'hidden') return;
+    focusable.push(el);
   });
   return focusable;
 }

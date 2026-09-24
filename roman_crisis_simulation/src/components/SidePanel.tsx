@@ -86,8 +86,9 @@ const SidePanel: React.FC<{
 
     if (gameState === GameState.SETUP) {
         return (
-            <aside data-screen-label="Side Panel" style={{ flex: 1, minWidth: 0, borderLeft: '1px solid var(--border-strong)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,254,249,.45)', padding: 16 }}>
-                <p style={{ fontStyle: 'italic', color: 'var(--text-muted)', textAlign: 'center' }}>Awaiting the choice of a destiny…</p>
+            <aside data-screen-label="Side Panel" className="gor-panel gor-panel-waiting">
+                <span aria-hidden="true" className="gor-panel-waiting-mark">❦</span>
+                <p className="gor-panel-waiting-line">Awaiting the choice of a destiny…</p>
             </aside>
         );
     }
@@ -109,7 +110,16 @@ const SidePanel: React.FC<{
      * coin pips for unspent investigations.
      */
     const unexamined = currentEvents.filter(occurrence => occurrenceFindings(knowledge, occurrence).length === 0).length;
-    const conflictedSubjects = [...new Map(reports.map(report => [report.about, reports.filter(r => r.about === report.about)])).values()]
+    // One pass to group by subject: this runs on every App render (each
+    // streamed narration chunk included), and the old per-report re-filter
+    // was quadratic in the report log.
+    const reportsBySubject = new Map<string, Report[]>();
+    for (const report of reports) {
+        const group = reportsBySubject.get(report.about);
+        if (group) group.push(report);
+        else reportsBySubject.set(report.about, [report]);
+    }
+    const conflictedSubjects = [...reportsBySubject.values()]
         .filter(group => corroboration(group).verdict === 'conflict').length;
     const knownRegions = playerEntity
         ? Object.keys(worldState.regions).filter(name => isRegionKnownToPlayer(name, playerEntity, entities)).length
@@ -143,7 +153,7 @@ const SidePanel: React.FC<{
             tab: 'locations',
             name: 'Empire',
             line: 'Places you have no eyes on.',
-            indicator: <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--parchment-400)' }}>{knownRegions} / {totalRegions}</span>,
+            indicator: <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-quiet)' }}>{knownRegions} / {totalRegions}</span>,
         });
     }
     if (investigations > 0) {
@@ -156,7 +166,7 @@ const SidePanel: React.FC<{
     }
 
     return (
-        <aside data-screen-label="Side Panel" style={{ flex: 1, minWidth: 0, borderLeft: '1px solid var(--border-strong)', display: 'flex', flexDirection: 'column', background: 'rgba(255,254,249,.45)' }}>
+        <aside data-screen-label="Side Panel" className="gor-panel">
             <style>{`
                 @keyframes gorTabPulse {
                     0%, 100% { box-shadow: inset 0 0 0 rgba(158,126,27,0); }
@@ -167,7 +177,7 @@ const SidePanel: React.FC<{
             `}</style>
             <PlayerStatus playerEntity={playerEntity} />
             <div
-                style={{ flex: 'none', display: 'flex', flexWrap: 'wrap', borderBottom: '1px solid var(--border-subtle)' }}
+                className="gor-panel-tabs"
                 role="tablist"
                 aria-label="Intelligence dashboard"
                 onKeyDown={radioGroupKeyDown(TABS.map(tab => tab.id), activeTab, handleTabClick, { role: 'tab' })}
@@ -185,10 +195,9 @@ const SidePanel: React.FC<{
                             tabIndex={activeTab === tab.id ? 0 : -1}
                             onClick={() => handleTabClick(tab.id)}
                             aria-label={shouldPulse ? `${tab.fullLabel} (new intelligence)` : tab.fullLabel}
-                            style={{ padding: '9px 7px', fontSize: 11, flex: '1 0 auto', textAlign: 'center', position: 'relative' }}
                         >
                             {tab.label}
-                            {shouldPulse && <span aria-hidden="true" style={{ position: 'absolute', top: 4, right: 4, width: 7, height: 7, borderRadius: '50%', background: 'radial-gradient(circle at 35% 30%, #E8C959, #9E7E1B 70%)', boxShadow: '0 0 4px rgba(232,201,89,.8)' }} />}
+                            {shouldPulse && <span aria-hidden="true" className="gor-tab-dot" />}
                         </button>
                     );
                 })}
@@ -197,7 +206,7 @@ const SidePanel: React.FC<{
                 role="tabpanel"
                 id={SIDEPANEL_TABPANEL_ID}
                 aria-labelledby={sidePanelTabDomId(activeTab)}
-                style={{ flex: 1, overflowY: 'auto', padding: 16 }}
+                className="gor-panel-body"
             >
                 {activeTab === 'world_state' && <WorldStateTab
                     simulationState={simulationState}

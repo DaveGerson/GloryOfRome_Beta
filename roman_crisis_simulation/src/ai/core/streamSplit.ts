@@ -84,7 +84,9 @@ export function createNarrationStreamGate(): (cumulativeText: string) => string 
  * escaped quotes, split `\uXXXX` escapes, a trailing lone backslash, "text"
  * appearing as a value/nested-key/array-entry decoy, leading fence junk).
  * Pure and stateless like `createNarrationStreamGate`: it recomputes its
- * answer from scratch from the full cumulative text every call.
+ * answer from scratch from the full cumulative text every call. That makes
+ * it the executable SPECIFICATION; the live stream feeds the resumable
+ * `createPayloadTextExtractor` below, which is pinned byte-identical to it.
  */
 
 /**
@@ -175,4 +177,172 @@ export function extractPayloadTextPrefix(cumulativeRawJson: string): string {
     i++; // ':', whitespace, numbers, literals
   }
   return '';
+}
+
+/**
+ * One streaming narration call's resumable "text" extractor (BACKLOG B7
+ * item (a), closed 2026-09-23). `extractPayloadTextPrefix` above rescans the
+ * WHOLE cumulative raw JSON on every chunk - quadratic in the response
+ * length (measured: ~0.5s of scanning for a 128KB payload in 256-char
+ * chunks, ~4s in 32-char chunks; this extractor ~1ms either way). This is
+ * the same state machine,
+ * made resumable: `push` takes only the NEW chunk, carries the scanner's
+ * state (depth, key/value position, open-string/escape status, a pending
+ * half-arrived `\uXXXX`) across calls, and never revisits a byte. Total work
+ * over a stream is linear.
+ *
+ * CONTRACT: `push(chunk)` returns EXACTLY what
+ * `extractPayloadTextPrefix(allChunksSoFar)` would - byte-identical,
+ * whatever the chunking (pinned property-style in
+ * tests/streamSplit.test.ts against the reference function, which stays
+ * exported as the executable specification). So the downstream
+ * `createNarrationStreamGate` -> `createPlayerVisibleStreamGate` chain sees
+ * no difference at all. Unlike the reference function it is NOT stateless:
+ * one extractor per stream, fed every chunk exactly once, in order.
+ */
+export interface PayloadTextExtractor {
+  /** Feeds the next raw-JSON chunk; returns the decoded "text" prefix so far. */
+  push(chunk: string): string;
+}
+
+const HEX4 = /^[0-9a-fA-F]{4}$/;
+
+export function createPayloadTextExtractor(): PayloadTextExtractor {
+  // Scanner phase: before the first `{`, between tokens inside the object,
+  // inside a string, or finished (the payload string closed - frozen).
+  let phase: 'junk' | 'object' | 'string' | 'done' = 'junk';
+  let depth = 0;
+  let expectKey = true;
+  let captureNext = false;
+  // Open-string state.
+  let escaped = false;      // the scanner's own close-quote bookkeeping
+  let capturing = false;    // this string IS the depth-1 "text" value
+  let keyRaw: string | null = null; // raw body of a depth-1 KEY, capped (only "text" matters)
+  // Decoder state for the captured string (mirrors decodeJsonStringPrefix).
+  let out = '';
+  let pending = '';         // an escape still arriving: '\\', or '\\u' + <4 chars
+
+  const decodeChar = (c: string): void => {
+    if (pending === '') {
+      if (c === '\\') pending = '\\';
+      else out += c;
+      return;
+    }
+    if (pending === '\\') {
+      switch (c) {
+        case '"': out += '"'; break;
+        case '\\': out += '\\'; break;
+        case '/': out += '/'; break;
+        case 'b': out += '\b'; break;
+        case 'f': out += '\f'; break;
+        case 'n': out += '\n'; break;
+        case 'r': out += '\r'; break;
+        case 't': out += '\t'; break;
+        case 'u': pending = '\\u'; return;
+        default: out += c; break; // lenient on unknown escapes
+      }
+      pending = '';
+      return;
+    }
+    // Collecting a \uXXXX: complete it once four characters are in hand.
+    pending += c;
+    if (pending.length < 6) return;
+    const hex = pending.slice(2);
+    pending = '';
+    if (HEX4.test(hex)) {
+      out += String.fromCharCode(parseInt(hex, 16));
+    } else {
+      // Not hex: the reference drops the `\u` and decodes the four
+      // characters that followed as ordinary string content (which may
+      // themselves open an escape) - replay them through the decoder.
+      for (let k = 0; k < hex.length; k++) decodeChar(hex[k]);
+    }
+  };
+
+  return {
+    push(chunk: string): string {
+      const n = chunk.length;
+      let i = 0;
+      while (i < n && phase !== 'done') {
+        if (phase === 'junk') {
+          const brace = chunk.indexOf('{', i);
+          if (brace === -1) return '';
+          phase = 'object';
+          depth = 1;
+          i = brace + 1;
+          continue;
+        }
+
+        if (phase === 'string') {
+          if (capturing) {
+            // Hot path: the payload string. Hand whole runs of ordinary
+            // characters to the output in one slice when no escape is
+            // pending, instead of character by character.
+            while (i < n) {
+              const c = chunk[i];
+              if (escaped) { escaped = false; decodeChar(c); i++; continue; }
+              if (c === '\\') { escaped = true; decodeChar(c); i++; continue; }
+              if (c === '"') {
+                // Closed: an escape still pending is withheld forever, as
+                // the reference withholds a trailing incomplete one.
+                phase = 'done';
+                break;
+              }
+              if (pending === '') {
+                let j = i + 1;
+                while (j < n) {
+                  const d = chunk[j];
+                  if (d === '\\' || d === '"') break;
+                  j++;
+                }
+                out += chunk.slice(i, j);
+                i = j;
+              } else {
+                decodeChar(c);
+                i++;
+              }
+            }
+            continue;
+          }
+          // Any other string: find its close; remember a depth-1 key's body.
+          while (i < n) {
+            const c = chunk[i];
+            if (escaped) escaped = false;
+            else if (c === '\\') escaped = true;
+            else if (c === '"') break;
+            // Five characters already rule out "text"; stop collecting.
+            if (keyRaw !== null && keyRaw.length < 5) keyRaw += c;
+            i++;
+          }
+          if (i >= n) return ''; // some other string still open at prefix end
+          if (keyRaw !== null) {
+            captureNext = keyRaw === 'text';
+            expectKey = false;
+          }
+          keyRaw = null;
+          phase = 'object';
+          i++;
+          continue;
+        }
+
+        // phase === 'object': structural characters between tokens.
+        const c = chunk[i];
+        if (c === '"') {
+          phase = 'string';
+          escaped = false;
+          capturing = depth === 1 && captureNext && !expectKey;
+          keyRaw = !capturing && depth === 1 && expectKey ? '' : null;
+        } else if (c === '{' || c === '[') {
+          depth++;
+        } else if (c === '}' || c === ']') {
+          depth--;
+        } else if (c === ',' && depth === 1) {
+          expectKey = true;
+          captureNext = false;
+        }
+        i++;
+      }
+      return phase === 'done' || (phase === 'string' && capturing) ? out : '';
+    },
+  };
 }

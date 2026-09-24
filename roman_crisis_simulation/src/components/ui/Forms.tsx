@@ -55,13 +55,17 @@ type TextareaProps = {
     rows?: number;
 } & Omit<React.ComponentPropsWithoutRef<'textarea'>, 'id' | 'rows' | 'style'>;
 
-export const Textarea: React.FC<TextareaProps> = ({ label, hint, error, id, style, rows = 4, ...rest }) => {
+export const Textarea: React.FC<TextareaProps> = ({ label, hint, error, id, style, rows = 4, 'aria-describedby': describedBy, ...rest }) => {
     const uid = id || (label ? 'ta-' + String(label).toLowerCase().replace(/\W+/g, '-') : undefined);
+    // The hint (or error) under the field is its description, not stray text
+    // after it: tie it to the textarea so it is read when the field is.
+    const hintId = uid && (error || hint) ? `${uid}-hint` : undefined;
+    const describedByIds = [describedBy, hintId].filter(Boolean).join(' ') || undefined;
     return (
         <div className="gor-field" style={style}>
             {label && <label className="gor-label" htmlFor={uid}>{label}</label>}
-            <textarea className="gor-textarea" id={uid} rows={rows} aria-invalid={error ? 'true' : undefined} {...rest} />
-            {(error || hint) && <span className={`gor-hint ${error ? 'gor-hint-error' : ''}`}>{error || hint}</span>}
+            <textarea className="gor-textarea" id={uid} rows={rows} aria-invalid={error ? 'true' : undefined} aria-describedby={describedByIds} {...rest} />
+            {(error || hint) && <span id={hintId} className={`gor-hint ${error ? 'gor-hint-error' : ''}`}>{error || hint}</span>}
         </div>
     );
 };

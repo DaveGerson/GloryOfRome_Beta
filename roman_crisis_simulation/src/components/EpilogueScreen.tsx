@@ -3,7 +3,7 @@ import { Entity, TurnHistoryEntry, EventHistoryEntry } from '../types';
 import { generateText, GEMINI_PRO, GeminiClient } from '../ai/core/geminiService';
 import { buildEpiloguePrompt, EpilogueTurnHeadlines, EpilogueEventChoice } from '../ai/prompts/epilogue';
 import { clearSave } from '../persistence/saveGame';
-import { GildedAquila, toRoman } from './ui/Brand';
+import { GildedItalia, toRoman } from './ui/Brand';
 import { Alert, RECORD_REFUSES } from './ui/Alert';
 import { assertPlayerVisibleTextSafe } from '../ai/core/playerBoundary';
 
@@ -162,14 +162,14 @@ const EpilogueScreen: React.FC<{
 
   return (
     // Item 19: the stele is STRUCK. Six hundred milliseconds of held silence,
-    // then the gilt aquila strikes in with a gold bloom, the stone rises from
+    // then gilt Italia strikes in with a gold bloom, the stone rises from
     // below, the name cuts in, and the chroniclers' verdicts arrive last —
     // about four seconds in all, every step reduced-motion guarded (the
     // reduced path shows the finished stone with no movement).
     <div className="gor-stele" style={{ width: '100%', flex: 1, minHeight: 0, overflowY: 'auto', background: 'var(--stele-grad)', color: STELE_TEXT }}>
       <div style={{ maxWidth: 720, margin: '0 auto', padding: '56px 24px 64px' }}>
-        <div className="gor-stele-aquila" style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
-          <GildedAquila size={64} />
+        <div className="gor-stele-italia" style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+          <GildedItalia size={80} />
         </div>
         <p className="gor-stele-rise" style={{ ...steleLabel, textAlign: 'center', letterSpacing: '.3em', marginBottom: 8 }}>
           The Story Has Ended

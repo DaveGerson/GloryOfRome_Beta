@@ -17,6 +17,7 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import GameMasterScreen from '../components/GameMasterScreen';
 import App from '../App';
+import { whenLazyScreensReady } from '../app/lazyScreens';
 import { GameProvider } from '../state/GameContext';
 import { AiServiceError } from '../ai/core/geminiService';
 import * as aiMocks from '../ai/mocks';
@@ -184,6 +185,9 @@ async function mountAppFromSave(state = makeAppSave()): Promise<HTMLDivElement> 
   await act(async () => {
     root.render(React.createElement(GameProvider, null, React.createElement(App)));
   });
+  // App warms its lazy screens (app/lazyScreens.tsx) right after mount;
+  // wait for that warm-up so opening one renders it synchronously.
+  await act(() => whenLazyScreensReady());
   await waitFor(() => expect(buttonNamed(container, 'Continue Your Reign')).not.toBeNull());
   await click(buttonNamed(container, 'Continue Your Reign'));
   await waitFor(() => expect(container.querySelector('[aria-label="Chat input"]')).not.toBeNull());

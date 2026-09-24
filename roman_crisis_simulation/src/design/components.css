@@ -117,7 +117,7 @@
 .gor-offline-tick{flex:none;width:26px;height:3px;background:var(--dentil)}
 .gor-offline-title{font-family:var(--font-display);font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#7A4A16}
 .gor-offline-body{flex:1;font-size:15px;color:var(--text-body)}
-.gor-offline-watch{flex:none;font-family:var(--font-display);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--parchment-400)}
+.gor-offline-watch{flex:none;font-family:var(--font-display);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-quiet)}
 @media (prefers-reduced-motion:reduce){.gor-offline{animation:none}}
 .gor-alert-dark{border-color:rgba(192,68,52,.55);background:rgba(140,28,19,.22)}
 .gor-alert-dark .gor-alert-title{color:#E89A8C}
@@ -226,7 +226,7 @@
 
 /* The week's one hour, worn on the header. */
 .gor-scene-hour{display:flex;align-items:center;gap:7px;margin-left:auto}
-.gor-scene-hour-label{font-family:var(--font-display);font-size:9px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--parchment-400)}
+.gor-scene-hour-label{font-family:var(--font-display);font-size:9px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--text-quiet)}
 
 /* Intact: you ended it. Broken: they did, or the replies ran out.
    Unsealed: they never came at all. */
@@ -252,7 +252,7 @@
 .gor-contact-body{display:flex;flex-direction:column;gap:1px;min-width:0}
 .gor-contact-name{font-family:var(--font-display);font-size:14px;font-weight:700;color:var(--text-heading)}
 .gor-contact-position{font-size:13px;color:var(--text-muted)}
-.gor-contact-meta{font-family:var(--font-display);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--parchment-400)}
+.gor-contact-meta{font-family:var(--font-display);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-quiet)}
 .gor-contact-meta-met{color:var(--tyrian-500)}
 
 /* One gauge for the 2,000-character rule — four sites wrote it before. */
@@ -306,7 +306,7 @@
    Four numbered registers rather than four identical wells: what you do,
    whom you address, what you intend, what you ask. */
 .gor-register-head{display:flex;align-items:center;gap:10px}
-.gor-register-numeral{flex:none;font-family:var(--font-display);font-size:13px;letter-spacing:.16em;color:var(--parchment-400)}
+.gor-register-numeral{flex:none;font-family:var(--font-display);font-size:13px;letter-spacing:.16em;color:var(--text-quiet)}
 .gor-register-title{margin:0;color:var(--crimson-500);flex:none}
 .gor-register-rule{flex:1;height:1px;background:linear-gradient(90deg,var(--border-subtle),transparent)}
 .gor-register-letter{display:grid;grid-template-columns:38px 1fr;gap:10px;align-items:start}
@@ -334,14 +334,14 @@
 @keyframes gorUnroll{from{transform:scaleY(.04)}to{transform:scaleY(1)}}
 
 /* ── Item 19 · the epilogue stele is struck, in sequence ──
-   600ms held silence → the aquila strikes in with a gold bloom → the stone
+   600ms held silence → gilt Italia strikes in with a gold bloom → the stone
    rises → the name cuts in → the chroniclers' verdicts arrive. ~4s total. */
-.gor-stele-aquila{animation:gorAquilaStrike 520ms cubic-bezier(.34,1.56,.64,1) 600ms both}
+.gor-stele-italia{animation:gorItaliaStrike 520ms cubic-bezier(.34,1.56,.64,1) 600ms both}
 .gor-stele-rise{animation:gorSteleRise 620ms var(--ease-standard) 1120ms both}
 .gor-stele-cut{animation:gorCutIn 520ms var(--ease-standard) 1740ms both}
 .gor-stele-cut+.gor-stele-cut{animation-delay:2000ms}
 .gor-stele-verdict{animation:gorFadeIn 600ms ease-out 2600ms both}
-@keyframes gorAquilaStrike{
+@keyframes gorItaliaStrike{
 0%{opacity:0;transform:scale(1.34);filter:drop-shadow(0 0 26px rgba(232,201,89,.85))}
 70%{opacity:1;filter:drop-shadow(0 0 18px rgba(232,201,89,.6))}
 100%{opacity:1;transform:scale(1);filter:none}
@@ -376,7 +376,7 @@
 
 /* ── Events: what you paid to learn must not look like what the criers
    shouted (audit item 40) ── */
-.gor-slip-date{display:block;margin-top:4px;font-family:var(--font-display);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--parchment-400)}
+.gor-slip-date{display:block;margin-top:4px;font-family:var(--font-display);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--text-quiet)}
 .gor-slip-progress{display:block;height:2px;margin-top:6px;background:var(--tyrian-400);animation:gorSeeking 1.4s ease-in-out infinite}
 @keyframes gorSeeking{0%,100%{opacity:.35}50%{opacity:1}}
 .gor-slip-open{display:flex;flex-direction:column;gap:8px;margin-top:8px;padding-top:8px;border-top:3px solid transparent;border-image:var(--dentil) 3;animation:gorFadeIn .4s ease-out both}
@@ -393,7 +393,7 @@
 .gor-subrail-btn:hover{color:var(--text-heading)}
 .gor-subrail-btn-on{color:var(--gold-700);border-bottom-color:var(--gold-600)}
 .gor-subrail-btn:focus-visible{box-shadow:var(--focus-ring)}
-.gor-subrail-count{margin-left:6px;color:var(--parchment-400);font-variant-numeric:tabular-nums}
+.gor-subrail-count{margin-left:6px;color:var(--text-quiet);font-variant-numeric:tabular-nums}
 .gor-subrail-count-leverage{color:var(--crimson-500)}
 
 /* ── Assets (audit items 21–23, 34) ── */
@@ -415,7 +415,7 @@
 .gor-verdict-conflict{color:#7A1810;background:rgba(140,28,19,.09)}
 .gor-report{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-top:1px solid var(--border-faint)}
 .gor-report-source{font-family:var(--font-display);font-size:13px;font-weight:700;letter-spacing:.06em;color:var(--text-heading)}
-.gor-report-week{flex:none;font-family:var(--font-display);font-size:9.5px;letter-spacing:.12em;color:var(--parchment-400)}
+.gor-report-week{flex:none;font-family:var(--font-display);font-size:9.5px;letter-spacing:.12em;color:var(--text-quiet)}
 /* The rumour mill carries no wax at all. */
 .gor-seal-unsealed{width:30px;height:30px;flex:none;display:inline-grid;place-items:center;border:1px dashed var(--border-strong);border-radius:46% 54% 52% 48%/52% 46% 54% 48%;color:var(--parchment-400);font-size:13px}
 
@@ -528,7 +528,7 @@
 
 /* Numerals, matching the seals. */
 .gor-rite-steps{display:flex;gap:14px}
-.gor-rite-step{font-family:var(--font-display);font-size:11px;font-weight:700;letter-spacing:.16em;color:var(--parchment-400);padding-bottom:3px;border-bottom:2px solid transparent;transition:color var(--duration-slow) var(--ease-standard)}
+.gor-rite-step{font-family:var(--font-display);font-size:11px;font-weight:700;letter-spacing:.16em;color:var(--text-quiet);padding-bottom:3px;border-bottom:2px solid transparent;transition:color var(--duration-slow) var(--ease-standard)}
 .gor-rite-step-now{color:var(--gold-700);border-bottom-color:var(--gold-600)}
 
 @media (prefers-reduced-motion:reduce){.gor-rite-step{transition:none}}
@@ -602,7 +602,7 @@
 /* Every WP-13 flourish keeps its FINAL state and drops the movement: the
    nib stops blinking but stays visible, the tablet is already unrolled, and
    the stele is already struck rather than blank. */
-.gor-nib,.gor-tablet,.gor-tablet-line,.gor-stele-aquila,.gor-stele-rise,.gor-stele-cut,.gor-stele-cut+.gor-stele-cut,.gor-stele-verdict,.gor-slip-progress{animation:none}
+.gor-nib,.gor-tablet,.gor-tablet-line,.gor-stele-italia,.gor-stele-rise,.gor-stele-cut,.gor-stele-cut+.gor-stele-cut,.gor-stele-verdict,.gor-slip-progress{animation:none}
 body{transition:none}
 }
 
@@ -618,20 +618,8 @@ body{transition:none}
    (no class of their own to hang a selector on) - see the comments below
    each rule for exactly which element that reaches. */
 @media (max-width:768px){
-main{flex-direction:column}
-section[data-screen-label="Chat"]{flex:1 1 auto!important;min-height:0}
-aside[data-screen-label="Side Panel"]{flex:0 0 34vh!important;min-height:0;border-left:none!important;border-top:1px solid var(--border-strong)}
-/* Header.tsx's masthead is tall enough (two 68px medallions, a Latin
-   kicker, the title, an AUC line, then the world-stats row) that simply
-   letting it wrap leaves too little height for the stacked chat below -
-   trim it to the title + world stats, which is what a player actually
-   reads turn to turn. */
-header{padding-top:44px!important}
-header>div:first-of-type{flex-wrap:wrap;gap:10px!important}
-header>div:first-of-type>span{display:none!important} /* the two flanking Medallions - Medallion sets `display:inline-block` inline */
-header>div:first-of-type>div{min-width:0}
-header>div:first-of-type>div>div:first-child{display:none} /* the "SENATVS · POPVLVSQUE · ROMANVS" kicker */
-header h1{font-size:20px!important}
+/* The shell itself (main, the two columns, the masthead) stacks in
+   shell.css, by class - see its section VII. */
 .gor-dialog{width:calc(100% - 24px)}
 [aria-labelledby="gm-screen-title"]{width:calc(100% - 16px)!important;height:calc(100% - 16px)!important;padding:14px 14px 12px!important}
 /* App.tsx's chat-input row sits the TurnComposer beside the Private

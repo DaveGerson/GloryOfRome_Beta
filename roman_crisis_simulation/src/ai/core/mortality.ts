@@ -74,13 +74,31 @@ export interface MortalityValidationContext {
  * still calls this again internally for its own fast-path; that's one cheap
  * array scan repeated, not a second AI call, so there's no real cost to
  * keeping the two call sites independent.
+ *
+ * ONE CLAIM PER LIVING ENTITY. Two exclusions keep the fate roll the single
+ * authority D2/D3 make it:
+ *  - An entity ALREADY dead is not a claim. Its death was decided (and, if
+ *    it was a presumed death, its secret survival recorded) on the turn it
+ *    happened; a later delta re-declaring it is a no-op for the engine
+ *    (dead -> dead). Rolling it again would let a survival band publicly
+ *    REVIVE a corpse - or out a presumed-dead NPC in hiding - on a delta
+ *    that only ever said "dead".
+ *  - A SECOND death-claim delta for the same entity is not a second claim:
+ *    only its first is validated and rolled. Otherwise each got its own
+ *    roll and applyDeltas let whichever came LAST win, so a failed death
+ *    save could be overturned by a lucky second roll (or a survived one
+ *    undone) - a different survival chance than D2's table. processMortality
+ *    drops the duplicates from the committed deltas (see there).
  */
 export function detectDeathClaims(deltas: EventDelta[], entities: Entity[], playerId: string): DeathClaim[] {
   const claims: DeathClaim[] = [];
+  const claimedIds = new Set<string>();
   for (const delta of deltas) {
     if (!isDeathClaimDelta(delta)) continue;
     const entity = entities.find(e => e.entity_id === delta.key);
     if (!entity) continue; // Unknown entity (e.g. a same-turn add_entities death) - nothing to validate/roll against.
+    if (entity.status === 'dead' || claimedIds.has(entity.entity_id)) continue;
+    claimedIds.add(entity.entity_id);
     claims.push({ delta, entity, isPlayer: entity.entity_id === playerId });
   }
   return claims;
@@ -291,6 +309,19 @@ export async function processMortality(
 
   // --- Apply the transformation ------------------------------------------
   const gmPrivateNotes: string[] = [];
+
+  // A repeated death claim for an entity already claimed above is dropped
+  // from the committed deltas (see detectDeathClaims): left in, it would
+  // apply AFTER the claim's rewritten delta and re-kill - or, rewritten on
+  // its own roll, re-decide - an entity the one authoritative roll settled.
+  const claimDeltas = new Set(claims.map(c => c.delta));
+  const claimByEntity = new Map(claims.map(c => [c.entity.entity_id, c]));
+  transformed.deltas = transformed.deltas.filter(delta => {
+    const claim = claimByEntity.get(delta.key);
+    if (!claim || claimDeltas.has(delta) || !isDeathClaimDelta(delta)) return true;
+    gmPrivateNotes.push(`[Mortality] ${claim.entity.name} (${claim.entity.entity_id}): dropped a repeated death claim ("${delta.reason}") - one claim, one roll per entity per turn.`);
+    return false;
+  });
   const mortalityEvents: MortalityEvent[] = [];
   const extraDeltas: EventDelta[] = [];
   const knownEntityIds = new Set(entities.map(entity => entity.entity_id));

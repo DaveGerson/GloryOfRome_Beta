@@ -4,7 +4,7 @@ import type { KnownRecipientOption, StructuredTurnDraft } from '../types';
 import { appendSuggestedAction, canonicalArtifactStatus } from '../playerInput/composerState';
 import { MAX_TURN_SUBMISSION_CHARACTERS } from '../playerInput/turnSubmission';
 import { getComposerMode, setComposerMode } from '../persistence/uiPrefs';
-import { StructuredTurnComposer } from './StructuredTurnComposer';
+import { StructuredTurnComposer, STRUCTURED_INPUT_ELEMENT_ID } from './StructuredTurnComposer';
 import { TURN_STAGE_STATUS_COPY } from './Chat';
 import { ActionPill } from './ui/Game';
 import { Button } from './ui/Core';
@@ -76,6 +76,12 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
   const [sealing, setSealing] = useState(false);
   const sealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const chatTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
+  // Set when a send leaves from inside the composer. Locking disables the very
+  // control that held focus, so the browser drops focus to <body>; once the
+  // week is written, the writing surface takes it back rather than leaving a
+  // keyboard player to Tab in from the top of the page.
+  const restoreFocusOnUnlockRef = useRef(false);
   const locked = disabled || isProcessing;
   const artifactStatus = canonicalArtifactStatus(mode === 'chat' ? chatDraft : structuredDraft, recipientOptions);
   const blankChat = mode === 'chat' && !chatDraft.trim();
@@ -97,6 +103,19 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
     textarea.style.height = 'auto';
     textarea.style.height = `${textarea.scrollHeight}px`;
   }, [chatDraft, mode]);
+
+  useEffect(() => {
+    if (locked || !restoreFocusOnUnlockRef.current) return;
+    restoreFocusOnUnlockRef.current = false;
+    // Only reclaim focus nobody else holds: a fate's EventModal (or any other
+    // dialog) that opened with the new week keeps what it took.
+    const active = document.activeElement;
+    if (active && active !== document.body && active !== document.documentElement) return;
+    const target = mode === 'chat'
+      ? chatTextareaRef.current
+      : composerRef.current?.querySelector<HTMLElement>(`#${STRUCTURED_INPUT_ELEMENT_ID}`);
+    target?.focus();
+  }, [locked, mode]);
 
   // Clear any seal still on the tablet if the composer unmounts mid-press.
   useEffect(() => () => {
@@ -127,14 +146,17 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
    * these two functions and each one used to walk straight past an offline
    * gate that was only ever painted on one button.
    */
+  const composerHoldsFocus = () => Boolean(composerRef.current?.contains(document.activeElement));
   const submitChat = () => {
     if (online && !locked && artifactStatus.ok && !overLimit && chatDraft.trim()) {
+      restoreFocusOnUnlockRef.current = composerHoldsFocus();
       onSubmit(chatDraft);
       stampSeal();
     }
   };
   const submitStructured = () => {
     if (online && !locked && artifactStatus.ok && !overLimit) {
+      restoreFocusOnUnlockRef.current = composerHoldsFocus();
       onSubmit(structuredDraft);
       stampSeal();
     }
@@ -152,7 +174,7 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
     : 'Enter your action... (Shift+Enter for new line)';
 
   return (
-    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div ref={composerRef} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
       {/* Item 46: said before the week is written, not after it is lost. */}
       {!canReachTheFates && onOpenSettings && onEnableMockMode && (
         <TurnFailureNotice
@@ -163,7 +185,7 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
         />
       )}
       {suggestedActions.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8 }}>
+        <div className="gor-composer-pills" style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8 }}>
           {suggestedActions.map((action, index) => (
             <ActionPill key={action} aria-label={action} delay={index * 80} disabled={locked} onClick={() => {
               if (mode === 'structured') onStructuredDraftChange(appendSuggestedAction(structuredDraft, action));

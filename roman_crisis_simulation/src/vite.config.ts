@@ -137,6 +137,8 @@ export default defineConfig(({ mode, command }) => {
                 }
                 return 'vendor-other';
               }
+              // First-party code: let Rollup choose its chunk.
+              return undefined;
             },
           },
         },

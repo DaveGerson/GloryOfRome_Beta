@@ -20,7 +20,7 @@ const GlossaryTooltip: React.FC<{
     }, [open]);
     return (
         <span ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
-            <button type="button" onClick={() => setOpen(o => !o)} style={{ all: 'unset', cursor: 'help', borderBottom: '1px dotted var(--gold-600)', font: 'inherit', color: 'inherit' }}>{children}</button>
+            <button type="button" aria-expanded={open} onClick={() => setOpen(o => !o)} onKeyDown={event => { if (event.key === 'Escape' && open) { event.preventDefault(); setOpen(false); } }} style={{ all: 'unset', cursor: 'help', borderBottom: '1px dotted var(--gold-600)', font: 'inherit', color: 'inherit' }}>{children}</button>
             {open && (
                 <span style={{ position: 'absolute', bottom: 'calc(100% + 9px)', left: 0, zIndex: 60, width: 250, display: 'block', background: 'var(--ink-800)', border: '1px solid var(--border-subtle)', color: '#F4ECD8', fontFamily: 'var(--font-body)', fontSize: 14, fontStyle: 'normal', fontWeight: 400, letterSpacing: 0, textTransform: 'none', lineHeight: 1.45, padding: '10px 12px', borderRadius: 'var(--radius-sm)', boxShadow: 'var(--shadow-raised)' }}>
                     {description}

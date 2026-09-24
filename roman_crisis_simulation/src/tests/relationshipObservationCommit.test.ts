@@ -8,6 +8,7 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../App';
+import { whenLazyScreensReady } from '../app/lazyScreens';
 import { GameProvider } from '../state/GameContext';
 import { loadGame, saveGame } from '../persistence/saveGame';
 import { projectForExternalInference } from '../playerInput/turnSubmission';
@@ -179,6 +180,9 @@ async function mountApp(state = makeAppSave()): Promise<HTMLDivElement> {
   const root = createRoot(container);
   mounted.push({ root, container });
   await act(async () => root.render(React.createElement(GameProvider, null, React.createElement(App))));
+  // App warms its lazy screens (app/lazyScreens.tsx) right after mount;
+  // wait for that warm-up so opening one renders it synchronously.
+  await act(() => whenLazyScreensReady());
   await waitFor(() => expect(container.textContent).toContain('Choose Your Destiny'));
   await click(buttonNamed(container, 'Continue Your Reign'));
   await waitFor(() => expect(container.querySelector('[aria-label="Chat input"]')).not.toBeNull());

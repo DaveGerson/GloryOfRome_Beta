@@ -12,9 +12,10 @@
  *    on this file. It runs only via `npm run eval`
  *    (vitest.eval.config.ts). Do not rename it to `*.test.ts`.
  *  - The corpus path comes from the GOR_EVAL_CORPUS env var; without it,
- *    everything here skips with a pointer instead of failing. CI pins it
- *    to the committed fixture corpus (eval/fixtures/ci-corpus.json,
- *    .github/workflows/ci.yml) so the deterministic leg actually runs
+ *    everything here skips with a pointer instead of failing. `npm run
+ *    eval:ci` (vitest.eval-ci.config.ts - run by CI and `npm run verify`)
+ *    pins it to the committed fixture corpus (eval/fixtures/ci-corpus.json)
+ *    and forces the judge off, so the deterministic leg actually runs
  *    there.
  *  - The judge runs ONLY when GEMINI_API_KEY is set - a bare
  *    `npm run eval` must stay fully offline.

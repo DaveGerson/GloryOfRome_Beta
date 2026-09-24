@@ -7,11 +7,11 @@
 
 /* ── Layer 1 · Tokens: marble→basalt, ink→candlelight; metals, wax, and Tyrian chrome untouched ── */
 :root{color-scheme:dark;
---surface-page:#17110A;--surface-card:#231A0E;--surface-raised:#2B2113;--surface-inset:#100B06;--surface-hover:#2F2515;
---text-heading:#F2E3BE;--text-body:#D9C89E;--text-muted:#A18A5C;--text-inverse:#17110A;
+--surface-page:#130F0B;--surface-card:#1E1812;--surface-raised:#261E15;--surface-inset:#0C0907;--surface-hover:#2A2117;
+--text-heading:#F2E3BE;--text-body:#D9C89E;--text-muted:#A18A5C;--text-quiet:#A99A76;--text-inverse:#17110A;
 --accent:#D4AF37;--accent-strong:#E3C766;--accent-quiet:rgba(227,199,102,.13);
 --gold-600:#D4AF37;--gold-700:#E8C959;/* text-grade gold brightens by torchlight */
---crimson-400:#D2604E;--crimson-500:#C04434;--crimson-600:#A63325;/* ember, not dried blood */
+--crimson-400:#D2604E;--crimson-500:#D36A5D;--crimson-600:#A63325;/* ember, not dried blood; 500 is text-grade (>=4.5:1 on basalt) */
 --tyrian-400:#A76487;--tyrian-500:#B87A99;--tyrian-600:#C88BAB;--intrigue:#9C5578;
 --laurel-400:#93A55F;--laurel-500:#7E9150;--bronze-400:#D28A3C;--bronze-500:#C77B2B;
 --ink-800:#2E2415;/* tooltips/glossary become raised smoke */
@@ -41,10 +41,33 @@
 /* Item 30: gold that GLOWS by torchlight — used by focus rings and the
    active pennant so the eye finds them in the dark. */
 --glow-gold:0 0 12px rgba(232,201,89,.55);
---focus-ring:0 0 0 2px var(--surface-page),0 0 0 4px var(--gold-300),var(--glow-gold)}
+--focus-ring:0 0 0 2px var(--surface-page),0 0 0 4px var(--gold-300),var(--glow-gold);
+/* The shell's layers by night (tokens/depth.css). The side panel and the
+   desk are pools of shadow either side of the lit manuscript. */
+--surface-panel:rgba(6,4,3,.38);
+--surface-desk:linear-gradient(180deg,rgba(10,7,5,.62),rgba(6,4,3,.72));
+--surface-desk-fade:rgba(12,9,6,.9);
+--surface-folio:linear-gradient(180deg,#231B13,#1C160F);
+--surface-folio-rule:linear-gradient(90deg,rgba(227,199,102,.42),rgba(227,199,102,0) 70%);
+--panel-edge-shadow:inset 16px 0 22px -18px rgba(0,0,0,.85);
+--desk-shadow:0 -14px 28px -18px rgba(0,0,0,.9);
+--elev-1:0 1px 2px rgba(0,0,0,.5),0 0 0 1px var(--border-faint);
+--elev-2:0 2px 4px rgba(0,0,0,.45),0 14px 28px -12px rgba(0,0,0,.75),0 0 0 1px var(--border-faint),inset 0 1px 0 rgba(255,236,190,.045);
+--elev-3:0 4px 10px rgba(0,0,0,.5),0 24px 46px -16px rgba(0,0,0,.88),0 0 0 1px var(--border-subtle),inset 0 1px 0 rgba(255,236,190,.06);
+--glow-gold-soft:0 0 0 1px rgba(227,199,102,.42),0 12px 34px -10px rgba(232,180,89,.32);
+--masthead-band:linear-gradient(180deg,rgba(0,0,0,.4),rgba(0,0,0,.22));
+--masthead-auc:#D4AF37;
+--manuscript-margin:rgba(227,199,102,.07);
+/* Tyrian by night is lacquer in shadow, not orchid under a lamp: the metal
+   drops a step so the faction bars, the week ribbon and the player's slips
+   stop glowing pink against basalt. Its lettering (#F2EBDC / #E8C959) holds
+   ≥7:1 on the lightest stop. */
+--metal-tyrian:linear-gradient(180deg,#6E2E52 0%,#4A1A38 55%,#33122A 100%)}
 
 /* ── Layer 2 · Atmosphere: charred basalt, torch sheen from the cornice, ember pools, deep vignette ── */
-body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;background-color:var(--surface-page);background-attachment:fixed;background-image:radial-gradient(120% 80% at 50% 0%,rgba(232,201,89,.10),rgba(232,201,89,0) 55%),url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><filter id="n" x="0" y="0"><feTurbulence type="fractalNoise" baseFrequency="0.7" numOctaves="5" stitchTiles="stitch"/></filter><rect width="100" height="100" filter="url%28%23n%29" opacity="0.08"/></svg>'),radial-gradient(60% 42% at 12% 100%,rgba(140,28,19,.16),transparent 70%),radial-gradient(55% 40% at 88% 96%,rgba(94,34,70,.14),transparent 70%),repeating-linear-gradient(105deg,rgba(0,0,0,.22) 0 1px,transparent 1px 26px),repeating-linear-gradient(118deg,rgba(255,244,214,.02) 0 1px,transparent 1px 43px),radial-gradient(150% 120% at 50% 115%,rgba(0,0,0,.5),transparent 55%)}
+/* Moonlight at the far edges, torchlight at the centre: the room is cold
+   where the lamps do not reach. */
+body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;background-color:var(--surface-page);background-attachment:fixed;background-image:radial-gradient(120% 80% at 50% 0%,rgba(232,201,89,.09),rgba(232,201,89,0) 55%),url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><filter id="n" x="0" y="0"><feTurbulence type="fractalNoise" baseFrequency="0.7" numOctaves="5" stitchTiles="stitch"/></filter><rect width="100" height="100" filter="url%28%23n%29" opacity="0.08"/></svg>'),radial-gradient(60% 42% at 12% 100%,rgba(140,28,19,.15),transparent 70%),radial-gradient(55% 40% at 88% 96%,rgba(94,34,70,.16),transparent 70%),radial-gradient(70% 55% at 100% 0%,rgba(70,82,120,.07),transparent 70%),radial-gradient(70% 55% at 0% 0%,rgba(70,82,120,.05),transparent 70%),repeating-linear-gradient(105deg,rgba(0,0,0,.22) 0 1px,transparent 1px 26px),repeating-linear-gradient(118deg,rgba(255,244,214,.018) 0 1px,transparent 1px 43px),radial-gradient(150% 120% at 50% 115%,rgba(0,0,0,.55),transparent 55%)}
 /* Item 30: one warm radial torch anchored top-centre, over the vignette. */
 body::before{box-shadow:inset 0 0 130px rgba(0,0,0,.62);background:radial-gradient(58% 34% at 50% 0%,rgba(232,180,89,.13),rgba(232,180,89,.05) 45%,transparent 72%)}
 h1,h2,h3,h4{text-shadow:0 1px 2px rgba(0,0,0,.7)}
@@ -103,8 +126,11 @@ a:hover{color:#F2D98C}
 .gor-mosaic{background:repeating-linear-gradient(90deg,var(--gold-500) 0 10px,transparent 10px 20px) top/20px 5px repeat-x,repeating-linear-gradient(90deg,transparent 0 10px,var(--tyrian-300) 10px 20px) bottom/20px 5px repeat-x}
 
 /* ── Layer 4 · Inline-wash surgery: the two light washes the JSX paints inline (values only — markup untouched) ── */
-aside[data-screen-label="Side Panel"]{background:rgba(0,0,0,.32)!important}
-section[data-screen-label="Chat"]>div:nth-child(2){background:rgba(0,0,0,.4)!important}
+/* Retired: both washes are tokens now (--surface-panel, --surface-desk in
+   Layer 1), painted by design/shell.css — SidePanel.tsx no longer sets its
+   ground inline, and the desk is reached by `[role="log"]+div` rather than
+   by position (`:nth-child(2)` missed it whenever a transaction note was
+   drawn above the log). */
 
 /* ── Layer 5 · Motion: one sanctioned theatrical addition — the Crisis Banner smolders ── */
 .gor-crisis{animation:noxSmolder 3.4s ease-in-out infinite}
@@ -116,3 +142,30 @@ section[data-screen-label="Chat"]>div:nth-child(2){background:rgba(0,0,0,.4)!imp
 @keyframes noxSmolder{0%,100%{box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 0 18px rgba(140,28,19,.38),0 3px 10px rgba(0,0,0,.5)}50%{box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 0 34px rgba(192,68,52,.6),0 3px 10px rgba(0,0,0,.5)}}
 @keyframes noxSmolderAtDoor{0%,100%{box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 0 30px rgba(192,68,52,.42),0 10px 26px -8px rgba(140,28,19,.6)}50%{box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 0 52px rgba(210,86,68,.7),0 10px 26px -8px rgba(140,28,19,.75)}}
 @media (prefers-reduced-motion:reduce){.gor-crisis,.gor-crisis-atdoor{animation:none}}
+
+/* ── Layer 6 · The refresh, by night ──
+   Gold is the light source in this room, so the ceremonial headings are cut
+   in gold leaf rather than set in Tyrian ink (which reads lilac on basalt);
+   Tyrian stays where it is METAL — the masthead, the pennant, the player's
+   slips. Every text pair here is ≥4.5:1, or ≥3:1 at display size. */
+.gor-destinies-title,.gor-dialog-head h2{color:#EBCB6E!important;background:linear-gradient(180deg,#FBEBB6 0%,#E8C959 50%,#C9A33A 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;text-shadow:none;filter:drop-shadow(0 2px 6px rgba(0,0,0,.6))}
+@media (forced-colors:active){.gor-destinies-title,.gor-dialog-head h2{-webkit-text-fill-color:currentColor;background:none;filter:none}}
+.gor-destiny-name,.gor-dossier-name,.gor-briefing-title{color:#EBD6A8}
+.gor-private-scene header h2{color:#EBD6A8!important}
+.gor-destiny{background:radial-gradient(120% 55% at 50% 0%,rgba(232,201,89,.09),rgba(232,201,89,0) 62%),linear-gradient(180deg,#221B13,#1A140E)}
+.gor-destiny::after{border-color:rgba(227,199,102,.12)}
+.gor-destiny:hover:not(:disabled) .gor-destiny-name{color:#F6DF95}
+.gor-destiny-seal{box-shadow:inset 0 2px 3px rgba(255,255,255,.28),inset 0 -3px 5px rgba(0,0,0,.35),0 0 18px rgba(210,86,68,.35),0 2px 5px rgba(0,0,0,.6)!important}
+/* The manuscript by lamplight. */
+.gor-msg-gm{color:var(--text-body);border-color:rgba(227,199,102,.14);border-left-color:var(--crimson-500)}
+.gor-msg-player{box-shadow:var(--bevel),0 6px 16px -6px rgba(0,0,0,.7),0 0 0 1px rgba(200,139,171,.18)}
+.gor-msg-monologue{border-color:rgba(227,199,102,.28)}
+.gor-dropcap::first-letter{color:#E8C959;text-shadow:0 0 16px rgba(232,180,89,.35)}
+/* Wells are cut into the stone. */
+.gor-input,.gor-select,.gor-textarea{background-color:#0B0806;border-color:rgba(227,199,102,.2)}
+.gor-input:hover,.gor-select:hover,.gor-textarea:hover{border-color:rgba(227,199,102,.36)}
+.gor-input:focus,.gor-select:focus,.gor-textarea:focus{border-color:var(--gold-300);box-shadow:var(--shadow-inset),0 0 0 3px rgba(232,201,89,.26),0 0 18px -4px rgba(232,201,89,.35)}
+.gor-panel-tabs{background:linear-gradient(180deg,rgba(0,0,0,.18),rgba(0,0,0,0))}
+.gor-panel-tabs .gor-tab:hover:not([aria-selected="true"]){color:#F2D98C}
+.gor-btn-primary:disabled{filter:none;background:linear-gradient(180deg,#3E321A,#2C2312);color:rgba(232,201,89,.5);border-color:rgba(227,199,102,.22)}
+.gor-panel-waiting-mark{color:var(--gold-400);text-shadow:0 0 14px rgba(232,180,89,.4)}

@@ -73,7 +73,7 @@ const MacroCell: React.FC<{ label: string; value: string; severity: Severity; fe
         <span className="gor-label" style={{ fontSize: 9.5 }}>{label}</span>
         <span className="gor-macro-value" style={{ color: SEVERITY_COLOR[severity] }}>
             {value}
-            {fell && <span aria-label="fell this week" className="gor-macro-fell">▾</span>}
+            {fell && <span role="img" aria-label="fell this week" className="gor-macro-fell">▾</span>}
         </span>
     </div>
 );
