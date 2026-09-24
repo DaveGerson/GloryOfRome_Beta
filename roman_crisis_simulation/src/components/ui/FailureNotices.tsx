@@ -27,8 +27,8 @@ import type { ImportResult } from '../../persistence/saveGame';
 
 /** How a turn failed. The copy lives here, not at the call site. */
 export type TurnFailure =
-  | { kind: 'transient'; attempts?: number }
-  | { kind: 'fatal' }
+  | { kind: 'transient'; attempts?: number; error?: string }
+  | { kind: 'fatal'; error?: string }
   | { kind: 'no_key' }
   | { kind: 'offline' };
 
@@ -59,7 +59,7 @@ const Pips: React.FC<{ spent: number }> = ({ spent }) => (
  * construction: `retryTransient` only throws transient once every attempt
  * is spent.
  */
-const TransientNotice: React.FC<{ attempts: number }> = ({ attempts }) => (
+const TransientNotice: React.FC<{ attempts: number; error?: string }> = ({ attempts, error }) => (
   <Alert
     tone="bronze"
     title="The couriers were turned back"
@@ -72,10 +72,15 @@ const TransientNotice: React.FC<{ attempts: number }> = ({ attempts }) => (
   >
     The roads to the Fates would not carry your week. Your draft is kept exactly as you wrote it,
     and the week has not turned — send it again when you are ready.
+    {import.meta.env.DEV && error && (
+      <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', opacity: 0.8, fontFamily: 'monospace', wordBreak: 'break-all' }}>
+        [Dev Diagnostics: {error}]
+      </div>
+    )}
   </Alert>
 );
 
-const FatalNotice: React.FC<{ onEditTheWeek: () => void; onOpenLedger?: () => void }> = ({ onEditTheWeek, onOpenLedger }) => (
+const FatalNotice: React.FC<{ error?: string; onEditTheWeek: () => void; onOpenLedger?: () => void }> = ({ error, onEditTheWeek, onOpenLedger }) => (
   <Alert
     tone="crimson"
     title="The Fates could not read the omens"
@@ -90,6 +95,11 @@ const FatalNotice: React.FC<{ onEditTheWeek: () => void; onOpenLedger?: () => vo
   >
     They will not read these same words differently. Your draft is kept and the week has not turned —
     change what you asked for, and send it again.
+    {import.meta.env.DEV && error && (
+      <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', opacity: 0.8, fontFamily: 'monospace', wordBreak: 'break-all' }}>
+        [Dev Diagnostics: {error}]
+      </div>
+    )}
   </Alert>
 );
 
@@ -125,9 +135,9 @@ export const TurnFailureNotice: React.FC<{
 }> = ({ failure, onEditTheWeek, onOpenSettings, onEnableMockMode, onOpenLedger }) => {
   switch (failure.kind) {
     case 'transient':
-      return <TransientNotice attempts={failure.attempts ?? TRANSIENT_ATTEMPT_BUDGET} />;
+      return <TransientNotice attempts={failure.attempts ?? TRANSIENT_ATTEMPT_BUDGET} error={failure.error} />;
     case 'fatal':
-      return <FatalNotice onEditTheWeek={onEditTheWeek} onOpenLedger={onOpenLedger} />;
+      return <FatalNotice error={failure.error} onEditTheWeek={onEditTheWeek} onOpenLedger={onOpenLedger} />;
     case 'no_key':
       return <NoKeyNotice onOpenSettings={onOpenSettings} onEnableMockMode={onEnableMockMode} />;
     case 'offline':

@@ -46,6 +46,7 @@ import type { RunDomainMutation } from '../state/domainMutation';
 import { runNewTurn } from '../ai/core/turn';
 import type { TurnStage } from '../ai/core/turn';
 import { AiServiceError } from '../ai/core/geminiService';
+import { logDevError } from '../diagnostics/logger';
 import { inferAmbition } from '../ai/tools/ambition';
 import { updateSavedAmbition } from '../persistence/saveGame';
 import type { SaveGameState, InferredAmbitionState } from '../persistence/saveGame';
@@ -628,6 +629,7 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
                 // on top of the N+1 autosave.
                 if (transaction.isCurrent()) {
                     console.error('Turn committed; post-commit work failed:', error);
+                    logDevError('turn-commit', 'Turn committed; post-commit work failed', error);
                     setTurnStage(null);
                     setStreamingNarration('');
                     setPendingPlayerMessage(null);
@@ -643,6 +645,8 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
             // the player's game over this — no "please refresh" (persistence
             // now exists, and nothing was committed mid-turn anyway).
             console.error("Error running turn:", error);
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            logDevError('turn-error', `Turn execution failed: ${errorMsg}`, error);
 
             // On ANY error, the transient streaming bubble and stage state
             // are cleared - they're pure in-flight-turn UI, and this turn's
@@ -672,8 +676,9 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
             } else {
                 setTurnFailure(
                     !online ? { kind: 'offline' }
-                        : error instanceof AiServiceError && error.kind === 'transient' ? { kind: 'transient' }
-                            : { kind: 'fatal' },
+                        : error instanceof AiServiceError && error.kind === 'transient'
+                            ? { kind: 'transient', error: error.message }
+                            : { kind: 'fatal', error: errorMsg },
                 );
             }
 

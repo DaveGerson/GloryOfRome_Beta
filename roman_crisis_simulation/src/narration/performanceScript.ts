@@ -43,8 +43,8 @@ import { assertPlayerVisibleTextSafe } from '../ai/core/playerBoundary';
 /** Longest single direction accepted, in characters (brackets excluded). */
 export const MAX_DIRECTION_CHARS = 160;
 
-/** The one direction every fallback transcript carries. */
-export const FALLBACK_DIRECTION = 'grave, measured, theatrical Roman storyteller';
+/** The one direction label associated with default narrator styling. */
+export const FALLBACK_DIRECTION = 'dramatic Roman storyteller';
 
 export type PerformanceRejection =
   | 'empty'
@@ -57,9 +57,31 @@ export type PerformanceRejection =
   | 'direction_has_proper_noun'
   | 'too_many_directions'
   | 'spoken_words_changed'
-  | 'mechanics_leak';
+  | 'mechanics_leak'
+  | 'too_long';
 
 export type PerformanceValidation = { ok: true } | { ok: false; reason: PerformanceRejection };
+
+/**
+ * Strips code fences, markdown headings, speaker prefixes, delivery directions
+ * in angle brackets or square brackets, bold markers, and excess whitespace,
+ * returning pure natural spoken prose ready for TTS.
+ */
+export function cleanSpokenTranscript(transcript: string): string {
+  return transcript
+    .replace(/^```[a-z]*\s*\n?/gim, '')
+    .replace(/\n?```\s*$/gim, '')
+    .replace(/^#+\s*(?:Transcript:?|[^\n]*)\n+/gim, '')
+    .replace(/^#+\s*/gm, '')
+    .replace(/^(?:Narrator|Storyteller|Bard|Speaker)\s*:\s*/gim, '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/\*\*/g, '')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/ ?\n ?/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
 
 /**
  * The narration as the voice may speak it: `**bold**` markers dropped,
@@ -70,9 +92,9 @@ export function speakableText(text: string): string {
   return text.replace(/\*\*/g, '').replace(/</g, '‹').replace(/>/g, '›').trim();
 }
 
-/** The plain narration under one generic direction. Never validated - it is ours. */
+/** The plain narration cleaned for speech. Never validated - it is ours. */
 export function fallbackTranscript(text: string): string {
-  return `<${FALLBACK_DIRECTION}> ${speakableText(text)}`;
+  return cleanSpokenTranscript(speakableText(text));
 }
 
 /** Curly, low and prime quote marks fold to their straight forms. */
@@ -142,9 +164,11 @@ function maxDirectionsFor(wordCount: number): number {
 }
 
 /**
- * Whether `transcript` is a faithful performance of `original` (the
- * committed narration, as written): same spoken tokens, and directions
- * that carry delivery and nothing else. Pure and deterministic.
+ * Validates a dramatic narrator's transcript. Ensures non-empty content,
+ * safe player boundaries (no hidden mechanics leaked), balanced brackets,
+ * no smuggled proper nouns/digits in directions, and reasonable length.
+ * Does not require word-for-word parity with original, allowing dramatic
+ * adaptation in 1-2 powerful paragraphs.
  */
 export function validatePerformance(original: string, transcript: string): PerformanceValidation {
   if (!transcript.trim()) return { ok: false, reason: 'empty' };
@@ -152,24 +176,27 @@ export function validatePerformance(original: string, transcript: string): Perfo
   if (!parsed.ok) return parsed;
   const { spoken, directions } = parsed.value;
 
-  const expected = spokenTokens(speakableText(original));
-  const actual = spokenTokens(spoken);
-  if (expected.length !== actual.length || expected.some((token, i) => token !== actual[i])) {
-    return { ok: false, reason: 'spoken_words_changed' };
+  if (!spoken.trim()) return { ok: false, reason: 'empty' };
+
+  const wordCount = spokenTokens(spoken).filter(token => /[\p{L}\p{N}]/u.test(token)).length;
+  // Maximum length for 1-2 paragraphs of dramatic audio (~400 words / 3000 chars)
+  if (wordCount > 400 || spoken.length > 3000) {
+    return { ok: false, reason: 'too_long' };
   }
 
-  const wordCount = expected.filter(token => /[\p{L}\p{N}]/u.test(token)).length;
-  if (directions.length > maxDirectionsFor(wordCount)) return { ok: false, reason: 'too_many_directions' };
+  if (directions.length > 0) {
+    if (directions.length > maxDirectionsFor(wordCount)) return { ok: false, reason: 'too_many_directions' };
 
-  const originalWords = new Set(expected);
-  for (const direction of directions) {
-    if (direction.length > MAX_DIRECTION_CHARS) return { ok: false, reason: 'direction_too_long' };
-    if (/\p{N}/u.test(direction)) return { ok: false, reason: 'direction_has_digits' };
-    if (!DIRECTION_CHARACTERS.test(direction)) return { ok: false, reason: 'direction_has_forbidden_characters' };
-    const smuggled = capitalizedWords(direction).some(word =>
-      !originalWords.has(word) && !originalWords.has(word.replace(/'s$/, ''))
-    );
-    if (smuggled) return { ok: false, reason: 'direction_has_proper_noun' };
+    const originalWords = new Set(spokenTokens(speakableText(original)));
+    for (const direction of directions) {
+      if (direction.length > MAX_DIRECTION_CHARS) return { ok: false, reason: 'direction_too_long' };
+      if (/\p{N}/u.test(direction)) return { ok: false, reason: 'direction_has_digits' };
+      if (!DIRECTION_CHARACTERS.test(direction)) return { ok: false, reason: 'direction_has_forbidden_characters' };
+      const smuggled = capitalizedWords(direction).some(word =>
+        !originalWords.has(word) && !originalWords.has(word.replace(/'s$/, ''))
+      );
+      if (smuggled) return { ok: false, reason: 'direction_has_proper_noun' };
+    }
   }
 
   // The whole transcript, and each direction on its own (a bare "partial
@@ -191,25 +218,27 @@ export interface PerformedTranscript {
 }
 
 /**
- * The director's raw output, lightly unwrapped (a stray code fence or an
- * echoed "## Transcript:" heading is packaging, not performance).
+ * The narrator's raw output, lightly unwrapped (stripping code fences,
+ * markdown headings, or speaker prefixes).
  */
 export function unwrapDirectorOutput(raw: string): string {
   return raw
     .trim()
     .replace(/^```[a-z]*\s*\n?/i, '')
     .replace(/\n?```\s*$/, '')
-    .replace(/^#+\s*Transcript:\s*/i, '')
+    .replace(/^#+\s*(?:Transcript:?|[^\n]*)\n+/i, '')
+    .replace(/^#+\s*/gm, '')
+    .replace(/^(?:Narrator|Storyteller|Bard|Speaker)\s*:\s*/i, '')
     .trim();
 }
 
-/** The director's script if it validates, otherwise the fallback. */
+/** The dramatic narrator's script if it validates, otherwise the fallback. */
 export function performedTranscriptFor(original: string, directorOutput: string | null): PerformedTranscript {
   if (directorOutput === null) {
     return { transcript: fallbackTranscript(original), usedFallback: true };
   }
   const candidate = unwrapDirectorOutput(directorOutput);
   const verdict = validatePerformance(original, candidate);
-  if (verdict.ok) return { transcript: candidate, usedFallback: false };
+  if (verdict.ok) return { transcript: cleanSpokenTranscript(candidate), usedFallback: false };
   return { transcript: fallbackTranscript(original), usedFallback: true, rejection: verdict.reason };
 }

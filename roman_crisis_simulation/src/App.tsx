@@ -200,7 +200,7 @@ const App: React.FC = () => {
     // hook's header.
     const {
         narrationVoiceMode, handleSetNarrationVoiceMode, toggleNarrationVoice, narrationVoiceStateFor,
-    } = useNarrationVoice({ ai, isMockMode, resolvedApiKey, messages, gameState });
+    } = useNarrationVoice({ ai, isMockMode, resolvedApiKey, messages, gameState, playerEntity });
 
     const {
         handleSpendResource, handleOccurrenceFinding, handleInvestigationOutcome, handleSetIntervention,
@@ -427,6 +427,7 @@ const App: React.FC = () => {
                             turnHistory={turnHistory}
                             pulsingTabs={pulsingTabs}
                             onOccurrenceFinding={handleOccurrenceFinding}
+                            resolvedApiKey={resolvedApiKey}
                         />
                     </>
                 )}

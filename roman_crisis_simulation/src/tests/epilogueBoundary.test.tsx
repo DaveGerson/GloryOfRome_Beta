@@ -5,7 +5,7 @@ import React, { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import EpilogueScreen from '../components/EpilogueScreen';
-import type { GeminiClient } from '../ai/core/geminiService';
+import { GEMINI_PRO, type GeminiClient } from '../ai/core/geminiService';
 import type { Entity, TurnHistoryEntry } from '../types';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -125,7 +125,7 @@ describe('EpilogueScreen player-visible mechanics boundary', () => {
     });
     expect(container!.textContent).not.toContain(poison);
     expect(generateContent).toHaveBeenCalledTimes(1);
-    expect(generateContent.mock.calls[0][0]).toMatchObject({ model: 'gemini-3-pro-preview' });
+    expect(generateContent.mock.calls[0][0]).toMatchObject({ model: GEMINI_PRO });
   });
 
   it('never sends or renders the GM-only inferred ambition while preserving public epilogue context', async () => {
@@ -169,6 +169,6 @@ describe('EpilogueScreen player-visible mechanics boundary', () => {
     expect(request).not.toContain(mortalityPoison);
     expect(container!.textContent).not.toContain(mortalityPoison);
     expect(generateContent).toHaveBeenCalledTimes(1);
-    expect(generateContent.mock.calls[0][0]).toMatchObject({ model: 'gemini-3-pro-preview' });
+    expect(generateContent.mock.calls[0][0]).toMatchObject({ model: GEMINI_PRO });
   });
 });

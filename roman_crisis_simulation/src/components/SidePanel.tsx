@@ -18,6 +18,7 @@ import type { KnowledgeClaim, OccurrenceQuestion } from '../knowledge/store';
 import { occurrenceFindings } from '../knowledge/store';
 import type { DomainMutationContext, RunDomainMutation } from '../state/domainMutation';
 import { radioGroupKeyDown } from './ui/rovingRadio';
+import { useImperialDispatch } from '../hooks/useImperialDispatch';
 
 /**
  * The intelligence dashboard — player dossier header, Tyrian-pennant tab bar,
@@ -75,8 +76,22 @@ const SidePanel: React.FC<{
     pulsingTabs: Set<TabId>;
     /** Commits one occurrence finding to the knowledge store (audit item 40). */
     onOccurrenceFinding: (occurrence: string, question: OccurrenceQuestion, text: string, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
-}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, turnHistory, pulsingTabs, onOccurrenceFinding }) => {
+    resolvedApiKey?: string | null;
+}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, turnHistory, pulsingTabs, onOccurrenceFinding, resolvedApiKey }) => {
     const [activeTab, setActiveTab] = useState<TabId>('world_state');
+    const { dispatchStatus, toggleDispatch } = useImperialDispatch({
+        ai,
+        isMockMode,
+        resolvedApiKey,
+        worldState,
+        simulationState,
+        entities,
+        reports,
+        knowledge,
+        currentEvents,
+        playerEntity,
+        turnNumber,
+    });
     // Tabs the player has already looked at since the current pulsingTabs
     // set arrived - clicking a pulsing tab dismisses its own pulse
     // immediately rather than waiting for the next turn to clear it.
@@ -176,6 +191,43 @@ const SidePanel: React.FC<{
                 @media (prefers-reduced-motion: reduce) { .gor-tab-pulse { animation: none; } }
             `}</style>
             <PlayerStatus playerEntity={playerEntity} />
+            <div className="gor-dispatch-bar" style={{
+                margin: '8px 12px 6px 12px',
+                padding: '6px 10px',
+                background: 'var(--surface-hover, rgba(201,162,39,.06))',
+                border: '1px solid var(--border-subtle, rgba(201,162,39,.2))',
+                borderRadius: '4px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '8px',
+            }}>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--gold-500)' }}>
+                        📜 Imperial Dispatch
+                    </span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-quiet)', fontStyle: 'italic' }}>
+                        {dispatchStatus === 'preparing'
+                            ? 'Drafting situation report…'
+                            : dispatchStatus === 'playing'
+                                ? 'Reading all tabs aloud…'
+                                : 'High English tab report'}
+                    </span>
+                </div>
+                <button
+                    type="button"
+                    className="gor-voice-btn"
+                    aria-label={dispatchStatus === 'playing' ? 'Stop Imperial Dispatch' : 'Hear Imperial Dispatch'}
+                    disabled={dispatchStatus === 'unavailable'}
+                    onClick={toggleDispatch}
+                    style={{ fontSize: '11px', padding: '3px 8px', height: '24px' }}
+                >
+                    <span className="gor-voice-glyph" aria-hidden="true">
+                        {dispatchStatus === 'preparing' ? <span className="gor-voice-spinner" /> : dispatchStatus === 'playing' ? '■' : '▶'}
+                    </span>
+                    {dispatchStatus === 'playing' ? 'Stop' : 'Hear Report'}
+                </button>
+            </div>
             <div
                 className="gor-panel-tabs"
                 role="tablist"
