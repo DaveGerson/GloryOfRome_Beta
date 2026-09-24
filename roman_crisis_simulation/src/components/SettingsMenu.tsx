@@ -7,6 +7,7 @@ import { ImportFailureNotice } from './ui/FailureNotices';
 import type { ImportResult } from '../persistence/saveGame';
 import { useReignImport } from './ui/useReignImport';
 import { ApiKeyCard } from './ApiKeyCard';
+import type { NarrationVoiceMode } from '../persistence/uiPrefs';
 
 /**
  * ROADMAP_0_MASTER_PLAN.md Phase 5 (DESIGN_DECISIONS.md D31) - the FATES
@@ -26,6 +27,18 @@ const LIGHTING_OPTIONS = [
     { value: 'lux', label: '☼ LVX', title: 'Marble — day' },
     { value: 'nox', label: '☾ NOX', title: 'Nox Romae — torchlit' },
 ] as const;
+
+/**
+ * The narration voice ("hear it performed", hooks/useNarrationVoice.ts) -
+ * a device preference (persistence/uiPrefs.ts), default SILENT because
+ * every performance is a paid call on the player's own key. Copy is
+ * veto-queue (roadmaps/BACKLOG.md B13).
+ */
+const NARRATOR_OPTIONS: { value: NarrationVoiceMode; label: string; title: string; description: string }[] = [
+    { value: 'off', label: 'SILENT', title: 'The narration is read, not heard', description: 'The narration is read, not heard.' },
+    { value: 'on_demand', label: 'ON REQUEST', title: 'A play control on each narration', description: 'A play control on each narration. Every performance is a paid call on your key.' },
+    { value: 'auto', label: 'EVERY WEEK', title: 'Each new narration is performed as the week turns', description: 'Each new narration is performed as the week turns. Every performance is a paid call on your key.' },
+];
 
 const registerStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 10 };
 
@@ -57,6 +70,9 @@ const SettingsMenu: React.FC<{
     onSetGmConsoleEnabled: (enabled: boolean) => void;
     gmInterventionEnabled: boolean;
     onSetGmInterventionEnabled: (enabled: boolean) => void;
+    /** The narration voice's mode - a device preference, never save state. */
+    narrationVoiceMode: NarrationVoiceMode;
+    onSetNarrationVoiceMode: (mode: NarrationVoiceMode) => void;
     /** Dev-only (rendered under import.meta.env.DEV): Mock Mode + the GM console's runtime switch. */
     isMockMode: boolean;
     onSetIsMockMode: (isMock: boolean) => void;
@@ -94,6 +110,8 @@ const SettingsMenu: React.FC<{
     onSetGmConsoleEnabled,
     gmInterventionEnabled,
     onSetGmInterventionEnabled,
+    narrationVoiceMode,
+    onSetNarrationVoiceMode,
     isMockMode,
     onSetIsMockMode,
     gmConsoleOpen,
@@ -133,6 +151,7 @@ const SettingsMenu: React.FC<{
     };
 
     const selectedPacing = FATES_OPTIONS.find(option => option.posture === pacingPosture) ?? FATES_OPTIONS[1];
+    const selectedNarrator = NARRATOR_OPTIONS.find(option => option.value === narrationVoiceMode) ?? NARRATOR_OPTIONS[0];
 
     return (
         <div className="gor-dialog-backdrop">
@@ -189,6 +208,18 @@ const SettingsMenu: React.FC<{
                                     style={{ width: 172 }}
                                 />
                                 <p className="gor-config-note">A device preference, never part of your save.</p>
+                            </div>
+                            <span className="gor-label gor-config-label">Narrator's voice</span>
+                            <div>
+                                <SegmentedControl
+                                    radio
+                                    ariaLabel="Narrator's voice"
+                                    describedBy="settings-narrator-note"
+                                    options={NARRATOR_OPTIONS.map(({ value, label, title }) => ({ value, label, title }))}
+                                    value={narrationVoiceMode}
+                                    onChange={onSetNarrationVoiceMode}
+                                />
+                                <p className="gor-config-note" id="settings-narrator-note">{selectedNarrator.description}</p>
                             </div>
                         </div>
                     </section>

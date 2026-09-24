@@ -6,6 +6,7 @@ import { deserializeTurnSubmission } from '../playerInput/turnSubmission';
 import { TurnRibbon } from './ui/Brand';
 import { romanDate } from './ui/romanDate';
 import { toSegments } from './textFormat';
+import type { NarrationVoiceControlState } from '../hooks/useNarrationVoice';
 
 // Themed status copy for the "thinking" theater (ROADMAP_0_MASTER_PLAN.md
 // Phase 3 item 1) - one line per real `runNewTurn` pipeline step (see
@@ -167,6 +168,56 @@ export function illuminatedNarrationIndices(messages: readonly Message[]): Reado
     return illuminated;
 }
 
+/** Player-visible copy for the narration voice (veto-queue: roadmaps/BACKLOG.md B13). */
+export const NARRATION_VOICE_COPY = {
+    button: 'Hear it performed',
+    stop: 'Stop the performance',
+    preparing: 'The narrator draws breath…',
+    error: 'The voice faltered — press again.',
+    unavailable: 'No token on this device',
+} as const;
+
+/**
+ * "Hear it performed" (hooks/useNarrationVoice.ts): one toggle button with a
+ * constant accessible name. `aria-pressed` is true while this passage is
+ * being prepared or performed - pressing it again stops it - and
+ * `aria-busy` marks the preparation. The quiet line beside it carries the
+ * states the button cannot: preparing, a failure, or no key (the same
+ * words as the composer's standing no-key notice, which explains it).
+ */
+export const NarrationVoiceControl: React.FC<{
+    state: NarrationVoiceControlState;
+    onToggle: () => void;
+}> = ({ state, onToggle }) => {
+    const engaged = state === 'preparing' || state === 'playing';
+    const status = state === 'preparing'
+        ? NARRATION_VOICE_COPY.preparing
+        : state === 'error'
+            ? NARRATION_VOICE_COPY.error
+            : state === 'unavailable'
+                ? NARRATION_VOICE_COPY.unavailable
+                : null;
+    return (
+        <div className={`gor-voice gor-voice-${state}`}>
+            <button
+                type="button"
+                className="gor-voice-btn"
+                aria-pressed={engaged}
+                aria-busy={state === 'preparing' || undefined}
+                disabled={state === 'unavailable'}
+                title={engaged ? NARRATION_VOICE_COPY.stop : undefined}
+                onClick={onToggle}
+            >
+                <span className="gor-voice-glyph" aria-hidden="true">
+                    {state === 'preparing' ? <span className="gor-voice-spinner" /> : state === 'playing' ? '■' : '▶'}
+                </span>
+                {NARRATION_VOICE_COPY.button}
+            </button>
+            {status && <span className="gor-voice-status">{status}</span>}
+        </div>
+    );
+};
+
 /**
  * Memoised: App re-renders on every streamed narration chunk and every
  * pipeline stage, and the committed transcript only ever grows. Committed
@@ -175,7 +226,20 @@ export function illuminatedNarrationIndices(messages: readonly Message[]): Reado
  * `toSegments`) while only the live bubble changes - measured at ~15ms per
  * chunk for a 60-week (240-message) transcript in jsdom before, ~2ms after.
  */
-const ChatMessageView: React.FC<{ message: Message; illuminated?: boolean }> = ({ message, illuminated = false }) => {
+const ChatMessageView: React.FC<{
+    message: Message;
+    illuminated?: boolean;
+    /** This message's index in the committed transcript - the voice's cache key. */
+    index?: number;
+    /**
+     * The narration voice's control state. Undefined means no control: the
+     * voice is off, or this is not a committed GM narration. App.tsx only
+     * ever passes it for `sender === 'gm'` messages from `messages[]`.
+     */
+    voiceState?: NarrationVoiceControlState;
+    /** Stable for the App's lifetime (hooks/useNarrationVoice.ts), so the memo holds. */
+    onToggleVoice?: (index: number, text: string) => void;
+}> = ({ message, illuminated = false, index, voiceState, onToggleVoice }) => {
     if (message.sender === 'ribbon') {
         const date = message.ribbonDate
             ? romanDate(message.ribbonDate.week, message.ribbonDate.year)
@@ -197,12 +261,16 @@ const ChatMessageView: React.FC<{ message: Message; illuminated?: boolean }> = (
     const parsedPlayerSubmission = isPlayer ? deserializeTurnSubmission(message.text) : null;
     const playerText = parsedPlayerSubmission?.kind === 'freeform' ? parsedPlayerSubmission.text : message.text;
     const illuminate = illuminated && !isPlayer;
+    const showVoice = message.sender === 'gm' && voiceState !== undefined && onToggleVoice !== undefined && index !== undefined;
     return (
         <div style={{ display: 'flex', justifyContent: isPlayer ? 'flex-end' : 'flex-start', marginBottom: 14 }}>
             <div className={`gor-msg ${isPlayer ? 'gor-msg-player' : 'gor-msg-gm'}${illuminate ? ' gor-dropcap' : ''}`}>
                 {historySubmission && historySubmission.kind !== 'freeform'
                     ? <TurnSubmissionHistory submission={historySubmission} audience="player" />
                     : <FormattedText text={playerText} />}
+                {showVoice && (
+                    <NarrationVoiceControl state={voiceState} onToggle={() => onToggleVoice(index, message.text)} />
+                )}
             </div>
         </div>
     );

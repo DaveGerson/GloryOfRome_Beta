@@ -71,7 +71,7 @@
 .gor-seg-btn{border:none;cursor:pointer;font-family:inherit;font-size:inherit;font-weight:inherit;letter-spacing:inherit;text-transform:uppercase;padding:7px 12px;background:var(--surface-card);color:var(--text-muted);transition:background var(--duration-fast) var(--ease-standard),color var(--duration-fast) var(--ease-standard)}
 .gor-seg-btn+.gor-seg-btn,.gor-seg-lead+.gor-seg-btn{border-left:1px solid var(--border-subtle)}
 .gor-seg-btn:hover:not(:disabled){color:var(--text-heading)}
-.gor-seg-btn[aria-pressed="true"]{background:var(--gold-600);color:#241C11}
+.gor-seg-btn[aria-pressed="true"],.gor-seg-btn[aria-checked="true"]{background:var(--gold-600);color:#241C11}
 .gor-seg-btn:focus-visible{outline:none;box-shadow:var(--focus-ring)}
 .gor-seg-btn:disabled{cursor:not-allowed;opacity:.55}
 .gor-meter{display:flex;flex-direction:column;gap:5px}
@@ -149,6 +149,22 @@
 .gor-msg-player{background:var(--metal-tyrian);color:#F2EBDC;border:1px solid #38122A;border-radius:var(--radius-md);box-shadow:var(--bevel),0 2px 4px rgba(58,44,16,.25);text-shadow:0 1px 1px rgba(0,0,0,.25)}
 .gor-msg-monologue{background:rgba(255,254,249,.5);border:1px dashed var(--border-strong);color:var(--text-muted);font-style:italic;border-radius:var(--radius-md);text-align:center}
 .gor-msg-kicker{font-family:var(--font-epic);font-weight:700;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--text-muted);text-align:center;margin-bottom:5px}
+/* "Hear it performed" (Chat.tsx NarrationVoiceControl) — a quiet engraved
+   toggle under a GM narration, never louder than the prose it serves.
+   Pressed = this passage is being prepared or performed. Tokens only, so the
+   night skin re-cuts it with no rule of its own. */
+.gor-voice{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;margin-top:10px;white-space:normal}
+.gor-voice-btn{display:inline-flex;align-items:center;gap:7px;padding:4px 10px 4px 8px;background:transparent;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);color:var(--text-muted);font-family:var(--font-display);font-size:10.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;cursor:pointer;transition:color var(--duration-fast) var(--ease-standard),border-color var(--duration-fast) var(--ease-standard),background var(--duration-fast) var(--ease-standard)}
+.gor-voice-btn:hover:not(:disabled){color:var(--text-heading);border-color:var(--border-strong)}
+.gor-voice-btn:focus-visible{outline:none;box-shadow:var(--focus-ring)}
+.gor-voice-btn[aria-pressed="true"]{color:var(--text-heading);background:var(--accent-quiet);border-color:var(--border-strong)}
+.gor-voice-btn:disabled{cursor:not-allowed;opacity:.55}
+.gor-voice-glyph{display:inline-flex;align-items:center;justify-content:center;width:10px;height:10px;font-size:9px;line-height:1;color:var(--accent-strong)}
+.gor-voice-spinner{display:block;width:9px;height:9px;border:1.5px solid var(--border-strong);border-top-color:transparent;border-radius:50%;animation:gorVoiceSpin .9s linear infinite}
+.gor-voice-status{font-size:13.5px;font-style:italic;color:var(--text-muted)}
+.gor-voice-error .gor-voice-status{color:var(--text-body)}
+@keyframes gorVoiceSpin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.gor-voice-btn{transition:none}.gor-voice-spinner{animation:none;border-style:dotted;border-top-color:var(--border-strong)}}
 .gor-pill{display:inline-flex;align-items:center;gap:8px;font-family:var(--font-display);font-weight:600;font-size:13px;letter-spacing:.05em;padding:9px 16px;background:linear-gradient(180deg,#FFFEF9,#EFEBDC);border:1px solid var(--border-strong);clip-path:var(--chamfer-sm);cursor:pointer;color:var(--gold-700);transition:color var(--duration-fast) var(--ease-standard),border-color var(--duration-fast) var(--ease-standard),filter var(--duration-fast) var(--ease-standard);animation:gorRise .4s ease-out both}
 .gor-pill:hover:not(:disabled){color:var(--tyrian-500);border-color:var(--tyrian-400);filter:brightness(1.03)}
 .gor-pill:active:not(:disabled){transform:translateY(1px)}

@@ -83,6 +83,7 @@ function settingsProps(overrides: Record<string, unknown> = {}) {
     isNox: false, onSetIsNox: vi.fn(),
     gmConsoleEnabled: false, onSetGmConsoleEnabled: vi.fn(),
     gmInterventionEnabled: false, onSetGmInterventionEnabled: vi.fn(),
+    narrationVoiceMode: 'off' as const, onSetNarrationVoiceMode: vi.fn(),
     isMockMode: false, onSetIsMockMode: vi.fn(), gmConsoleOpen: false, onSetGmConsoleOpen: vi.fn(),
     hasSavedReign: true, onExportReign: vi.fn(), onImportReign: vi.fn(() => ({ ok: true as const, turnNumber: 4, characterName: 'Severus' })),
     ...overrides,

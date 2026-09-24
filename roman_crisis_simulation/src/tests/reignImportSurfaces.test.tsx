@@ -324,6 +324,8 @@ function settingsProps(overrides: Record<string, unknown> = {}) {
     onSetGmConsoleEnabled: vi.fn(),
     gmInterventionEnabled: false,
     onSetGmInterventionEnabled: vi.fn(),
+    narrationVoiceMode: 'off' as const,
+    onSetNarrationVoiceMode: vi.fn(),
     isMockMode: false,
     onSetIsMockMode: vi.fn(),
     gmConsoleOpen: false,
