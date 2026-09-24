@@ -1,7 +1,7 @@
 /// <reference types="vitest/config" />
 import path from 'path';
 import { execFileSync } from 'node:child_process';
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 
 /**
@@ -69,6 +69,59 @@ if ([GorCredRead]::CredReadW('${target}', 1, 0, [ref]$ptr)) {
   }
 }
 
+/**
+ * Dev-only server middleware plugin: receives client-side error/diagnostic
+ * events at `POST /__gor_log` and prints them formatted in the terminal running
+ * `npm run dev`. Completely inactive in tests and production builds.
+ */
+function gorDevLoggerPlugin(): Plugin {
+  return {
+    name: 'gor-dev-logger',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use('/__gor_log', (req, res) => {
+        if (req.method === 'POST') {
+          let body = '';
+          req.on('data', (chunk: Buffer | string) => {
+            body += chunk;
+          });
+          req.on('end', () => {
+            try {
+              const data = JSON.parse(body);
+              const time = new Date().toLocaleTimeString();
+              const tag = data.tag ? `[gor:${data.tag}]` : '[gor:client]';
+              const color = data.level === 'warn' ? '\x1b[33m' : '\x1b[31m';
+              const reset = '\x1b[0m';
+              const dim = '\x1b[2m';
+              console.error(`${color}${tag} [${time}] ${data.message || ''}${reset}`);
+              if (data.details && typeof data.details === 'object') {
+                console.error(`  ${dim}Details:${reset}`, data.details);
+              }
+              if (data.stack) {
+                const indented = String(data.stack)
+                  .split('\n')
+                  .slice(1, 4)
+                  .map((l) => `    ${l.trim()}`)
+                  .join('\n');
+                if (indented) {
+                  console.error(`  ${dim}Stack:${reset}\n${indented}`);
+                }
+              }
+            } catch {
+              console.error('[gor:client] Malformed log payload:', body);
+            }
+            res.statusCode = 200;
+            res.end('ok');
+          });
+        } else {
+          res.statusCode = 404;
+          res.end();
+        }
+      });
+    },
+  };
+}
+
 export default defineConfig(({ mode, command }) => {
     const env = loadEnv(mode, '.', '');
     // Owner dev-key priority: an explicit .env beats the machine-global
@@ -90,7 +143,10 @@ export default defineConfig(({ mode, command }) => {
         port: 3000,
         host: '0.0.0.0',
       },
-      plugins: [react()],
+      plugins: [
+        react(),
+        ...(isDevServer ? [gorDevLoggerPlugin()] : []),
+      ],
       // DESIGN_DECISIONS.md D34 - bring-your-own-key is the default path;
       // no server component, no build-time key injection into a
       // production bundle (that was the deploy blocker/billing leak this

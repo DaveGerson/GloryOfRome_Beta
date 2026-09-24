@@ -33,6 +33,7 @@ import { ApiError } from '@google/genai';
 import type { RawCallRecord } from '../../types';
 import { parseModelJson } from './json';
 import { base64ToBytes, concatBytes } from '../../narration/wav';
+import { logAiFailure } from '../../diagnostics/logger';
 
 /**
  * Centralized model ids. `gemini-3-pro-preview` is a preview id Google can
@@ -293,13 +294,18 @@ async function invokeWithProFallback<T>(
     const { value, attempts } = await retryTransient(callName, () => invoke(resolvedModel));
     return { value, attempts, latencyMs: Date.now() - start, model: resolvedModel };
   } catch (e) {
-    if (!canAttemptProFallback(resolvedModel, e)) throw e;
+    if (!canAttemptProFallback(resolvedModel, e)) {
+      logAiFailure(callName, resolvedModel, e);
+      throw e;
+    }
     proFallbackActive = true;
     try {
       const value = await invoke(GEMINI_PRO_FALLBACK);
       return { value, attempts: 2, latencyMs: Date.now() - start, model: GEMINI_PRO_FALLBACK };
     } catch (fallbackError) {
-      throw wrapFallbackFailure(callName, fallbackError, 2);
+      const wrapped = wrapFallbackFailure(callName, fallbackError, 2);
+      logAiFailure(callName, GEMINI_PRO_FALLBACK, wrapped);
+      throw wrapped;
     }
   }
 }
@@ -509,12 +515,14 @@ async function consumeStream(
       }
     }
   } catch (e) {
-    throw new AiServiceError(
+    const streamErr = new AiServiceError(
       'transient',
       callName,
       `Gemini call '${callName}' failed mid-stream: ${e instanceof Error ? e.message : String(e)}`,
       e
     );
+    logAiFailure(callName, 'stream', streamErr);
+    throw streamErr;
   }
   if (consumerFailure) throw consumerFailure.error;
   return { text: textSoFar, chunks };
@@ -629,6 +637,7 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
       // (ai/core/json.ts::parseModelJson) - console + debugSnippet only,
       // never the thrown message (see AiServiceError's doc).
       const parseDetail = e instanceof Error ? e.message : String(e);
+      logAiFailure(callName, network.model, new Error(`Unparseable JSON: ${parseDetail}`));
       console.error(`Gemini call '${callName}' returned unparseable JSON even after a repair retry:`, parseDetail);
       throw new AiServiceError(
         'fatal',
@@ -691,6 +700,7 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
     // Schema paths are safe to surface; the raw output itself is console +
     // debugSnippet only, never the thrown message (see AiServiceError's doc).
     const offendingSnippet = truncateForCapture(network.text).slice(0, 300);
+    logAiFailure(callName, network.model, new Error(`Schema violation at [${issuePaths.join(', ')}]. Offending snippet: ${offendingSnippet}`));
     console.error(`Gemini call '${callName}' violated its schema at [${issuePaths.join(', ')}] even after a repair retry. Offending output:`, offendingSnippet);
     throw new AiServiceError(
       'fatal',
