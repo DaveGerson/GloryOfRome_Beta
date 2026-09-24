@@ -27,7 +27,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { GameState, type Message } from '../types';
+import { GameState, type Message, type Entity } from '../types';
 import type { GeminiClient } from '../ai/core/geminiService';
 import { performNarration } from '../ai/tools/narrationVoice';
 import { NarrationPlayer, type NarrationVoiceStatus } from '../narration/narrationPlayer';
@@ -45,9 +45,10 @@ export interface UseNarrationVoiceArgs {
     resolvedApiKey: string | null | undefined;
     messages: readonly Message[];
     gameState: GameState;
+    playerEntity?: Entity | null;
 }
 
-export function useNarrationVoice({ ai, isMockMode, resolvedApiKey, messages, gameState }: UseNarrationVoiceArgs) {
+export function useNarrationVoice({ ai, isMockMode, resolvedApiKey, messages, gameState, playerEntity }: UseNarrationVoiceArgs) {
     const [player] = useState(() => new NarrationPlayer());
     const playback = useSyncExternalStore(player.subscribe, player.getSnapshot, player.getSnapshot);
 
@@ -68,12 +69,13 @@ export function useNarrationVoice({ ai, isMockMode, resolvedApiKey, messages, ga
     useEffect(() => {
         player.setRenderer(
             async text => {
-                const { wav } = await performNarration(ai, text, isMockMode);
+                const playerContext = playerEntity ? { name: playerEntity.name, position: playerEntity.position || playerEntity.epithet } : null;
+                const { wav } = await performNarration(ai, text, isMockMode, undefined, playerContext);
                 return new Blob([wav], { type: 'audio/wav' });
             },
             isMockMode ? 'mock' : 'live',
         );
-    }, [player, ai, isMockMode]);
+    }, [player, ai, isMockMode, playerEntity]);
 
     // Unmount: stop, and revoke every object URL. The player is reusable, so
     // StrictMode's mount/unmount/mount leaves a working instance behind.

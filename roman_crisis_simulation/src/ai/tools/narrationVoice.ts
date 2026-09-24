@@ -65,10 +65,11 @@ export async function directNarrationPerformance(
   ai: GeminiClient,
   narration: string,
   isMockMode: boolean,
+  playerContext?: { name?: string; position?: string } | string | null,
 ): Promise<PerformedTranscript> {
   if (isMockMode) return performedTranscriptFor(narration, null);
 
-  const { systemInstruction, prompt } = buildNarrationPerformancePrompt(speakableText(narration));
+  const { systemInstruction, prompt } = buildNarrationPerformancePrompt(speakableText(narration), playerContext);
   let directorOutput: string | null = null;
   try {
     directorOutput = await generateText(ai, {
@@ -97,8 +98,9 @@ export async function performNarration(
   narration: string,
   isMockMode: boolean,
   voiceName?: string,
+  playerContext?: { name?: string; position?: string } | string | null,
 ): Promise<NarrationPerformance> {
-  const performed = await directNarrationPerformance(ai, narration, isMockMode);
+  const performed = await directNarrationPerformance(ai, narration, isMockMode, playerContext);
   if (isMockMode) {
     return { ...performed, wav: pcmToWav(synthesizeMockTone(), MOCK_TONE_MIME_TYPE) };
   }

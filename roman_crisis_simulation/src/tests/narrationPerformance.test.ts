@@ -196,6 +196,17 @@ describe('prompts', () => {
     expect(tts).not.toMatch(/<grave>/);
     expect(tts).toBe('Rome waits in silence.');
   });
+
+  it('frames the narrator as a loyal partner and associate addressing the player', () => {
+    const narration = 'The Praetorians grumble in the barracks over delayed coin.';
+    const { systemInstruction, prompt } = buildNarrationPerformancePrompt(narration, { name: 'Severus', position: 'Imperator' });
+    expect(systemInstruction).toContain('partner');
+    expect(systemInstruction).toContain('associate');
+    expect(systemInstruction).toContain('CLARIFY WHAT ACTUALLY HAPPENED');
+    expect(systemInstruction).toContain('EXPLAIN WHAT IT MEANS FOR THE PLAYER');
+    expect(prompt).toContain('Severus (Imperator)');
+    expect(prompt).toContain('directly to your partner');
+  });
 });
 
 describe('ai/tools/narrationVoice', () => {
