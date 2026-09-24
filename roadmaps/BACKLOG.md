@@ -366,6 +366,27 @@ play/stop control. The voice is two calls: a flash "director" that inserts
 `<...>` delivery directions, then `gemini-3.8-flash-tts` in the prebuilt
 voice Brio at temperature 1, mirroring the owner's Python reference.
 
+**Update 2026-09-24 (owner note).** The TTS call needs an intermediary prep
+model to prepare the text, and it must be possible to build and deploy a
+tuned narrator.
+- **Prep model.** The director now runs on `GEMINI_NARRATION_PREP`
+  (`gemini-3.8-flash`) at LOW thinking (sent as the SDK's `LOW` enum).
+- **Narrator profiles** (`narration/narrators.ts`). A zod-validated profile
+  sets both halves: the prep model (a `tunedModels/...` id is allowed),
+  thinking level, temperature and house-style `directorNotes`, and the voice
+  model, voice name, temperature and style note.
+- **Tuning.** `npm run narrator:tune` runs a profile against
+  `narration/tuning/fixtures.json` with a real key and writes a report with
+  the acceptance rate, refusal reasons, the verbatim scripts and optional
+  WAVs. It is paid, local-only, and never part of CI.
+- **Deploying.** Commit the profile JSON to `narration/narrators/`. The build
+  validates it (`tests/narrators.test.tsx`), and a Settings → Narrator picker
+  appears once more than one narrator is deployed.
+- **The guard is unchanged.** No profile can relax it.
+
+Still unverified with a real key: the `gemini-3.8-flash` prep id itself,
+alongside the TTS id already noted below.
+
 **Proposed ruling (a D46 candidate): the voice may perform only text already
 committed to the player's chat, and its director may change delivery, never
 content.** This is enforced in code by `narration/performanceScript.ts`. With
@@ -413,7 +434,10 @@ Nothing here blocks; all are one edit from rewording.
   breath…" and "The voice faltered — press again." (It also reuses "No token
   on this device".) The generic fallback direction "grave, measured,
   theatrical Roman storyteller" and the TTS style note are model-facing, not
-  player-facing, but they shape how the voice sounds.
+  player-facing, but they shape how the voice sounds. Narrator profiles add
+  the "Narrator" picker label and each profile's name and description (the
+  built-in: "The Lamplit Storyteller" / "A grave, theatrical storyteller by
+  lamplight, giving each quoted speaker a voice of their own.").
 
 ---
 
