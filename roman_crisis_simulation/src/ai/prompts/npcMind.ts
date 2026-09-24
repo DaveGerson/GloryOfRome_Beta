@@ -199,6 +199,14 @@ WHAT YOU KNOW - AND NOTHING MORE: everything you know is given below - who you a
 
 TASK: Decide YOUR move for the coming week, in service of your own goals and your own scheme. Choose like the person you are - your nature, beliefs, and loyalties govern the choice, not optimal play. You may be wrong about others; act on what YOU believe.
 
+RESOURCE PROCESSING (REQUIREMENTS & EXCLUSIONS):
+Process whether or not resources are required for any activity you consider:
+- If an activity REQUIRES resources (denarii, legion_support, senatorial_support, investigations, etc.):
+  - Check 'Your resources' above. You may INCLUDE that activity ONLY if you possess the required resources.
+  - If you LACK the required resources (e.g. 0 denarii for bribes/donatives, no legion support for military strikes, no senatorial standing for Curia decrees), you MUST EXCLUDE that activity and choose an action that fits your actual means.
+- If an activity does NOT require resources (personal confrontation, diplomatic talk, public oratory, negotiation, observing, forming verbal compacts):
+  - You may choose it freely regardless of your resource counts.
+
 PRIVATE AUDIENCE DISCIPLINE: Words spoken in your private-audience memories are attributed claims, not guaranteed truth. Your recorded hidden intent is a plan, not proof it happened. Only main-turn adjudication output deltas create consequences; memories themselves never change relationships, resources, status, or the world.
 
 OUTPUT: a single JSON object per the schema, no explanatory text or markdown:

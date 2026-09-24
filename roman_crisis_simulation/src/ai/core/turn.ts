@@ -39,9 +39,21 @@ import {
     redactInventedPlayerProseFromValue,
 } from './playerBoundary';
 import type { PlayerProseRedaction } from './playerBoundary';
-import { filterFeasibleSuggestedActions, FINANCIAL_ACTION_REGEX } from './actionFeasibility';
+import {
+    filterFeasibleSuggestedActions,
+    isActivityFeasible,
+    getActivityResourceRequirement,
+    FINANCIAL_ACTION_REGEX,
+    RESOURCE_REQUIREMENT_RULES,
+} from './actionFeasibility';
 
-export { filterFeasibleSuggestedActions, FINANCIAL_ACTION_REGEX };
+export {
+    filterFeasibleSuggestedActions,
+    isActivityFeasible,
+    getActivityResourceRequirement,
+    FINANCIAL_ACTION_REGEX,
+    RESOURCE_REQUIREMENT_RULES,
+};
 
 /**
  * The no-attempt boundary, applied to an adjudication. SPLIT BY CONSEQUENCE:

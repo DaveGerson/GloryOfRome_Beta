@@ -1,53 +1,160 @@
 /**
  * tests/actionFeasibility.test.ts
  *
- * Tests for resource feasibility enforcement:
- * - Filtering suggestions when a player has 0 or insufficient denarii
- * - Ensuring characters like Maximinus Thrax receive military/intimidation suggestions
- *   rather than bribe options
+ * Tests for generalized resource feasibility enforcement:
+ * - Processing whether or not resources are required for an activity
+ * - Including activities when agents possess required resources (or when resource-free)
+ * - Excluding activities when agents lack required resources
+ * - Replacing infeasible suggestions with tailored or resource-free alternatives
+ * - Ensuring characters like Maximinus Thrax and Lycinia Stolo receive appropriate actions
  * - Mock mode parity for Maximinus Thrax and broke players
  */
 
 import { describe, it, expect } from 'vitest';
-import { filterFeasibleSuggestedActions, FINANCIAL_ACTION_REGEX } from '../ai/core/actionFeasibility';
+import {
+  filterFeasibleSuggestedActions,
+  isActivityFeasible,
+  getActivityResourceRequirement,
+  FINANCIAL_ACTION_REGEX,
+  MILITARY_ACTION_REGEX,
+  ESPIONAGE_ACTION_REGEX,
+  SENATORIAL_ACTION_REGEX,
+} from '../ai/core/actionFeasibility';
 import { makeEntity } from './factories';
 import { mockRunNewTurn } from '../ai/mocks';
 import { ALL_INITIAL_ENTITIES, INITIAL_SIMULATION_STATE } from '../constants/baseScenario';
 import { getMockInitialState } from './mockData';
 import { TurnSubmission } from '../types';
 
+describe('actionFeasibility: getActivityResourceRequirement', () => {
+  it('identifies financial activities and their required keys', () => {
+    const req = getActivityResourceRequirement('Try to bribe the Praetorians');
+    expect(req).not.toBeNull();
+    expect(req?.category).toBe('financial');
+    expect(req?.requiredResourceKeys).toContain('denarii');
+  });
+
+  it('identifies military command activities and their required keys', () => {
+    const req = getActivityResourceRequirement('Order the legions to march on Rome');
+    expect(req).not.toBeNull();
+    expect(req?.category).toBe('military');
+    expect(req?.requiredResourceKeys).toContain('legion_support');
+  });
+
+  it('identifies espionage activities and their required keys', () => {
+    const req = getActivityResourceRequirement('Deploy an informant network in the Palatine');
+    expect(req).not.toBeNull();
+    expect(req?.category).toBe('espionage');
+    expect(req?.requiredResourceKeys).toContain('investigations');
+  });
+
+  it('identifies senatorial decree activities and their required keys', () => {
+    const req = getActivityResourceRequirement('Convene the Senate to pass a senatorial decree declaring Thrax an enemy');
+    expect(req).not.toBeNull();
+    expect(req?.category).toBe('senatorial');
+    expect(req?.requiredResourceKeys).toContain('senatorial_support');
+  });
+
+  it('detects espionage and senatorial patterns via regex constants', () => {
+    expect(ESPIONAGE_ACTION_REGEX.test('Deploy an informant network')).toBe(true);
+    expect(ESPIONAGE_ACTION_REGEX.test('Commission a deep analysis of the Senate')).toBe(true);
+    expect(SENATORIAL_ACTION_REGEX.test('Pass a senatorial decree against Thrax')).toBe(true);
+    expect(SENATORIAL_ACTION_REGEX.test('Declare someone a hostis publicus')).toBe(true);
+  });
+
+  it('returns null for activities that do not require systemic resources', () => {
+    expect(getActivityResourceRequirement('Address the crowds in the Forum')).toBeNull();
+    expect(getActivityResourceRequirement('Speak privately with Severus Alexander')).toBeNull();
+    expect(getActivityResourceRequirement('Pray at the Temple of Jupiter')).toBeNull();
+    expect(getActivityResourceRequirement('Quietly observe the mood of the Suburra')).toBeNull();
+    expect(getActivityResourceRequirement('Send a private letter to an old ally')).toBeNull();
+  });
+});
+
+describe('actionFeasibility: isActivityFeasible', () => {
+  it('returns true for resource-free activities regardless of entity resources', () => {
+    const destitute = makeEntity({
+      entity_id: 'pauper',
+      resources: { denarii: 0, legion_support: 0, investigations: 0 },
+    });
+    expect(isActivityFeasible('Deliver a speech to the citizens', destitute)).toBe(true);
+    expect(isActivityFeasible('Quietly watch the palace gates', destitute)).toBe(true);
+  });
+
+  it('includes activities when the agent possesses the required resources', () => {
+    const general = makeEntity({
+      entity_id: 'general',
+      resources: { legion_support: 80, denarii: 0 },
+    });
+    expect(isActivityFeasible('Order the legions to attack', general)).toBe(true);
+
+    const wealthy = makeEntity({
+      entity_id: 'wealthy',
+      resources: { denarii: 50000 },
+    });
+    expect(isActivityFeasible('Bribe the city watch', wealthy)).toBe(true);
+
+    const broker = makeEntity({
+      entity_id: 'broker',
+      resources: { investigations: 5, legion_support: 0 },
+    });
+    expect(isActivityFeasible('Deploy an informant network in the Curia', broker)).toBe(true);
+  });
+
+  it('excludes activities when the agent lacks the required resources', () => {
+    const brokeGeneral = makeEntity({
+      entity_id: 'general',
+      resources: { legion_support: 80, denarii: 0 },
+    });
+    expect(isActivityFeasible('Bribe the Praetorian Guard', brokeGeneral)).toBe(false);
+
+    const civilianBroker = makeEntity({
+      entity_id: 'broker',
+      resources: { investigations: 5, legion_support: 0 },
+    });
+    expect(isActivityFeasible('Order the legions to march on Rome', civilianBroker)).toBe(false);
+
+    const nonSenator = makeEntity({
+      entity_id: 'rebel',
+      resources: { legion_support: 90, senatorial_support: 0 },
+    });
+    expect(isActivityFeasible('Convene the Senate to pass a senatorial decree', nonSenator)).toBe(false);
+  });
+});
+
 describe('actionFeasibility: filterFeasibleSuggestedActions', () => {
-  it('leaves suggested actions untouched when the player has positive denarii', () => {
-    const wealthyPlayer = makeEntity({
+  it('leaves suggested actions untouched when the player has required resources', () => {
+    const wealthySenator = makeEntity({
       entity_id: 'wealthy_senator',
       name: 'Wealthy Senator',
-      resources: { denarii: 50000 },
+      resources: { denarii: 50000, senatorial_support: 70 },
     });
 
     const suggestions = [
       'Bribe a senator to secure their vote',
-      'Pay the Praetorians a donative',
-      'Fortify the palace walls',
+      'Address the Senate',
+      'Deliver an impassioned speech to the people in the Forum',
     ];
 
-    const filtered = filterFeasibleSuggestedActions(suggestions, wealthyPlayer);
+    const filtered = filterFeasibleSuggestedActions(suggestions, wealthySenator);
     expect(filtered).toEqual(suggestions);
   });
 
-  it('detects diverse financial spending phrases via FINANCIAL_ACTION_REGEX', () => {
-    expect(FINANCIAL_ACTION_REGEX.test('Try to bribe the Praetorians')).toBe(true);
-    expect(FINANCIAL_ACTION_REGEX.test('Bribe a senator')).toBe(true);
-    expect(FINANCIAL_ACTION_REGEX.test('Offer a bribe to the cupbearer')).toBe(true);
-    expect(FINANCIAL_ACTION_REGEX.test('Pay the Praetorian Guard a donative')).toBe(true);
-    expect(FINANCIAL_ACTION_REGEX.test('Buy the loyalty of the city cohorts')).toBe(true);
-    expect(FINANCIAL_ACTION_REGEX.test('Hire mercenaries in the forum')).toBe(true);
-    expect(FINANCIAL_ACTION_REGEX.test('Hire informants in the Suburra')).toBe(true);
+  it('excludes military marches for characters with no legion support and replaces them', () => {
+    const civilian = makeEntity({
+      entity_id: 'civilian_broker',
+      resources: { denarii: 20000, investigations: 5, legion_support: 0 },
+    });
 
-    // Non-financial actions should not match
-    expect(FINANCIAL_ACTION_REGEX.test('Rally the frontier legions')).toBe(false);
-    expect(FINANCIAL_ACTION_REGEX.test('Address the Senate')).toBe(false);
-    expect(FINANCIAL_ACTION_REGEX.test('Fortify the walls')).toBe(false);
-    expect(FINANCIAL_ACTION_REGEX.test('Pay respects to the fallen soldiers')).toBe(false);
+    const suggestions = [
+      'Order the legions to march on Rome',
+      'Address the people assembled in the Forum',
+    ];
+
+    const filtered = filterFeasibleSuggestedActions(suggestions, civilian);
+    expect(filtered.some(a => MILITARY_ACTION_REGEX.test(a))).toBe(false);
+    expect(filtered).toContain('Address the people assembled in the Forum');
+    expect(filtered).toHaveLength(2);
   });
 
   it('replaces financial actions with military leverage for Maximinus Thrax (denarii: 0, high legion_support)', () => {

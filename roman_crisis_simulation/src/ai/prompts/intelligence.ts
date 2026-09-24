@@ -238,6 +238,7 @@ export function buildStoryRelevancePrompt(
         - 'new': the character has no previous intent on record.
         Ground each intent in the character's active scheme and its recent memories - what the character itself witnessed or heard, not what you as narrator know. Intents are GM-private direction and never reach the player.
         INTENT KNOWLEDGE BOUND (hard rule): each intent's text is later handed VERBATIM to that character's own simulated mind as the character's own carried thought. Phrase every intent strictly from that character's own knowledge - their scheme, their memories and perceptions as provided below - and NEVER reference another NPC's scheme, secret, or any act this character did not witness or hear of. You see the whole cast; the character does not, and your wording must not smuggle your omniscience into their head.
+        RESOURCE FEASIBILITY (hard rule): Process whether or not resources are required for an entity's intent. If an activity requires resources (denarii, legion support, senatorial backing), the character MUST possess them. Do not assign intents that require resources the character lacks (e.g. do not direct a general with 0 denarii to bribe officials, or an isolated politician with no legion support to stage a military coup). If an activity requires no resources (rhetoric, personal appeals, defiance), it may be directed freely.
     3.  **Evolve The World (Optional):** To keep the story fresh, consider if the cast or setting should change.
         - **Add Entity?** Is there a new character archetype missing that would create compelling conflict? (e.g., a populist tribune, a foreign envoy, a ruthless crime boss). If so, suggest adding ONE.
         - **Remove Entity?** Has an existing character become irrelevant or served their purpose? If so, suggest removing ONE to streamline the story.
@@ -251,7 +252,12 @@ export function buildStoryRelevancePrompt(
 
   const castLines = npcEntities
     .filter(e => e.status === 'alive')
-    .map(e => `- ${e.entity_id} — ${e.name} (${e.position || e.entity_type}). Active scheme: ${schemeLine(e)}`);
+    .map(e => {
+      const res = e.resources && Object.keys(e.resources).length > 0
+        ? ` Resources: ${Object.entries(e.resources).map(([k, v]) => `${k}:${v}`).join(', ')}.`
+        : '';
+      return `- ${e.entity_id} — ${e.name} (${e.position || e.entity_type}).${res} Active scheme: ${schemeLine(e)}`;
+    });
 
   const prompt = `
     It is currently Turn ${turnNumber}. The political climate is ${worldState.political_climate}.
