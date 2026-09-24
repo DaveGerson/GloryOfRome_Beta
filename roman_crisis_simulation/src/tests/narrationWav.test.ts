@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import {
   base64ToBytes,
   concatBytes,
+  ensureWav,
   MOCK_TONE_MIME_TYPE,
   parseAudioMimeType,
   pcmToWav,
@@ -94,6 +95,24 @@ describe('pcmToWav', () => {
   it('falls back to 24000 Hz / 16-bit on an unknown mime type', () => {
     const wav = pcmToWav(new Uint8Array(0), 'application/octet-stream');
     expect([...wav]).toEqual(expectedHeader(0, 24000, 16));
+  });
+});
+
+describe('ensureWav', () => {
+  it('wraps raw L16 PCM in a header, as the reference does for an unknown extension', () => {
+    const out = ensureWav(new Uint8Array([1, 2, 3, 4]), 'audio/L16;codec=pcm;rate=24000');
+    expect(out.length).toBe(WAV_HEADER_BYTES + 4);
+    expect([...out.slice(WAV_HEADER_BYTES)]).toEqual([1, 2, 3, 4]);
+  });
+
+  it('passes an existing RIFF/WAVE container through without a second header', () => {
+    const wav = pcmToWav(new Uint8Array([9, 9]), 'audio/L16;rate=24000');
+    expect([...ensureWav(wav, 'audio/L16;rate=24000')]).toEqual([...wav]);
+  });
+
+  it('trusts a WAV MIME label even when the header sniff cannot run', () => {
+    expect([...ensureWav(new Uint8Array([7]), 'audio/wav')]).toEqual([7]);
+    expect([...ensureWav(new Uint8Array([7]), 'audio/x-wav')]).toEqual([7]);
   });
 });
 

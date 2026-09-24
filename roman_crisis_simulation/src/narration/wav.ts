@@ -93,6 +93,22 @@ export function pcmToWav(pcm: Uint8Array, mimeType: string): Uint8Array<ArrayBuf
   return wav;
 }
 
+/**
+ * The reference only builds a header when the returned MIME type has no
+ * known file extension (raw `audio/L16` PCM); a response that is already a
+ * WAV container is saved as-is. Mirrors that: bytes already carrying a
+ * RIFF/WAVE header, or labelled as WAV, pass through untouched instead of
+ * gaining a second header that would make them unplayable.
+ */
+export function ensureWav(audio: Uint8Array, mimeType: string): Uint8Array<ArrayBuffer> {
+  const isRiffWave = audio.length >= 12
+    && String.fromCharCode(...audio.subarray(0, 4)) === 'RIFF'
+    && String.fromCharCode(...audio.subarray(8, 12)) === 'WAVE';
+  const labelledWav = /^audio\/(x-)?wav(e)?\b/i.test(mimeType.trim());
+  if (isRiffWave || labelledWav) return new Uint8Array(audio);
+  return pcmToWav(audio, mimeType);
+}
+
 /** Decodes standard base64 (as the SDK returns `inlineData.data`) to bytes. */
 export function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
   const binary = atob(base64.replace(/\s+/g, ''));

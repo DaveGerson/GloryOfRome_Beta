@@ -39,7 +39,7 @@ import {
   NARRATION_PERFORMANCE_TEMPERATURE,
 } from '../prompts/narrationPerformance';
 import { performedTranscriptFor, speakableText, type PerformedTranscript } from '../../narration/performanceScript';
-import { MOCK_TONE_MIME_TYPE, pcmToWav, synthesizeMockTone } from '../../narration/wav';
+import { MOCK_TONE_MIME_TYPE, ensureWav, pcmToWav, synthesizeMockTone } from '../../narration/wav';
 
 /** The owner's reference: temperature 1 for the voice itself. */
 export const NARRATION_VOICE_TEMPERATURE = 1;
@@ -100,5 +100,5 @@ export async function performNarration(
     voiceName: DEFAULT_NARRATOR_VOICE,
     temperature: NARRATION_VOICE_TEMPERATURE,
   });
-  return { ...performed, wav: pcmToWav(speech.pcm, speech.mimeType) };
+  return { ...performed, wav: ensureWav(speech.pcm, speech.mimeType) };
 }
