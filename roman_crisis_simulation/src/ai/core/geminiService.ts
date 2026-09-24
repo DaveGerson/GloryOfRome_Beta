@@ -10,9 +10,11 @@
  * ROADMAP_6_MAINTAINABILITY.md P0.3.
  *
  * Responsibilities:
- *  - Centralize the model id constants (GEMINI_PRO / GEMINI_FLASH).
- *  - One structured-output entry point (`generateStructured`) and one
- *    plain-prose entry point (`generateText`).
+ *  - Centralize the model id constants (GEMINI_PRO / GEMINI_FLASH /
+ *    GEMINI_TTS).
+ *  - One structured-output entry point (`generateStructured`), one
+ *    plain-prose entry point (`generateText`), and one audio entry point
+ *    (`generateSpeech`, the optional narration voice).
  *  - Jittered exponential backoff on transient failures (429/5xx/network).
  *  - Zod validation with a single automatic repair-retry on schema
  *    violations, so a malformed response doesn't silently corrupt game
@@ -30,6 +32,7 @@ import type { ZodType } from 'zod';
 import { ApiError } from '@google/genai';
 import type { RawCallRecord } from '../../types';
 import { parseModelJson } from './json';
+import { base64ToBytes, concatBytes } from '../../narration/wav';
 
 /**
  * Centralized model ids. `gemini-3-pro-preview` is a preview id Google can
@@ -49,6 +52,33 @@ export const GEMINI_FLASH = 'gemini-2.5-flash';
  * already GA, so it needs no fallback of its own.
  */
 export const GEMINI_PRO_FALLBACK = 'gemini-2.5-pro';
+/**
+ * Text-to-speech tier for the optional "hear it performed" narration voice
+ * (narration/, ai/tools/narrationVoice.ts). Audio-only: it is only ever
+ * called through `generateSpeech` below, never `generateText`/`generateStructured`.
+ */
+export const GEMINI_TTS = 'gemini-3.8-flash-tts';
+/** The prebuilt voice the narrator performs in - the owner's reference choice. */
+export const DEFAULT_NARRATOR_VOICE = 'Brio';
+
+/**
+ * One inline-data part of a model response, as the SDK's `Part.inlineData`
+ * (a `Blob`: base64 `data` plus its `mimeType`). Only `generateSpeech`
+ * reads it.
+ */
+export interface InlineDataPartLike {
+  inlineData?: { data?: string; mimeType?: string };
+}
+
+/**
+ * The slice of a `GenerateContentResponse` this service reads. `candidates`
+ * is optional and additive, so every existing plain `{ text }` test mock
+ * still satisfies it; a real SDK response satisfies it structurally.
+ */
+export interface GeminiResponseLike {
+  text?: string;
+  candidates?: Array<{ content?: { parts?: InlineDataPartLike[] } }>;
+}
 
 /**
  * The minimal structural shape this service needs from a Gemini client.
@@ -64,7 +94,7 @@ export interface GeminiClient {
       model: string;
       contents: string;
       config?: Record<string, unknown>;
-    }) => Promise<{ text?: string }>;
+    }) => Promise<GeminiResponseLike>;
     /**
      * Streaming counterpart of `generateContent`, used by `generateTextStream`
      * below. Optional so existing plain-object test mocks (e.g.
@@ -718,6 +748,87 @@ export async function generateText(ai: GeminiClient, req: GenerateTextRequest): 
   }, callLogOwner);
 
   return network.text;
+}
+
+// --- Audio (text-to-speech) calls ----------------------------------------
+
+export interface GenerateSpeechRequest {
+  callName: string;
+  model: string;
+  /** The full TTS prompt: style note plus the performed transcript. */
+  prompt: string;
+  /** A prebuilt voice name, e.g. `DEFAULT_NARRATOR_VOICE`. */
+  voiceName: string;
+  temperature?: number;
+}
+
+export interface SpeechResult {
+  /** Raw PCM, every returned audio part decoded and concatenated in order. */
+  pcm: Uint8Array<ArrayBuffer>;
+  /** The first audio part's mime type, e.g. `audio/L16;codec=pcm;rate=24000`. */
+  mimeType: string;
+}
+
+/** What the TTS endpoint reports when a part omits its mime type. */
+export const DEFAULT_SPEECH_MIME_TYPE = 'audio/L16;codec=pcm;rate=24000';
+
+/**
+ * Runs a text-to-speech call (the optional narration voice; see
+ * ai/tools/narrationVoice.ts). Non-streaming `generateContent` in AUDIO
+ * modality with a single prebuilt voice, through the same transient
+ * retry/backoff as every other call. The response's inline-data parts are
+ * base64 PCM; they are decoded and concatenated here and handed back raw -
+ * wrapping them in a WAV header is narration/wav.ts's job, not the
+ * network layer's.
+ *
+ * The call log gets a short `[audio: N bytes, mime]` placeholder as its
+ * `rawResponse`, never the base64 itself: the session log rides into the
+ * GM console and the eval-corpus export (D18), and neither has any use for
+ * megabytes of audio.
+ *
+ * No audio at all in a successful response is a `fatal` AiServiceError -
+ * the same request is unlikely to do better on a retry.
+ */
+export async function generateSpeech(ai: GeminiClient, req: GenerateSpeechRequest): Promise<SpeechResult> {
+  const { callName, model } = req;
+  const callLogOwner = currentCallLogOwner();
+  const config: Record<string, unknown> = {
+    responseModalities: ['AUDIO'],
+    speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: req.voiceName } } },
+  };
+  if (req.temperature !== undefined) config.temperature = req.temperature;
+
+  const { value: response, attempts, latencyMs, model: usedModel } = await invokeWithProFallback(callName, model, (resolvedModel) =>
+    ai.models.generateContent({ model: resolvedModel, contents: req.prompt, config })
+  );
+
+  const parts = response.candidates?.[0]?.content?.parts ?? [];
+  const chunks: Uint8Array[] = [];
+  let mimeType: string | undefined;
+  for (const part of parts) {
+    const data = part.inlineData?.data;
+    if (!data) continue;
+    chunks.push(base64ToBytes(data));
+    mimeType ??= part.inlineData?.mimeType;
+  }
+  const pcm = concatBytes(chunks);
+  const resolvedMime = mimeType || DEFAULT_SPEECH_MIME_TYPE;
+
+  recordCall({
+    callName,
+    model: usedModel,
+    latencyMs,
+    attempts,
+    promptChars: req.prompt.length,
+    promptText: req.prompt,
+    rawResponse: pcm.length > 0 ? `[audio: ${pcm.length} bytes, ${resolvedMime}]` : '[audio: none]',
+    validated: pcm.length > 0,
+  }, callLogOwner);
+
+  if (pcm.length === 0) {
+    throw new AiServiceError('fatal', callName, `Gemini call '${callName}' returned no audio.`);
+  }
+  return { pcm, mimeType: resolvedMime };
 }
 
 /**
