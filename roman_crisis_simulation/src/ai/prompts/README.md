@@ -31,6 +31,8 @@ one of the builders below.
 | `characterCreation` | `characterCreation.ts::buildCharacterCreationPrompt` | pro | `zEntity` | `CharacterCreationEntitySchema` | Player character creation |
 | `ambitionInference` | `ambition.ts::buildAmbitionInferencePrompt` | flash | `zAmbitionInference` (local to `ai/tools/ambition.ts`) | `AmbitionInferenceSchema` (local to `ai/tools/ambition.ts`) | `App.tsx` `executeTurn`, every 3rd committed turn (D8, fire-and-forget) |
 | `epilogue` | `epilogue.ts::buildEpiloguePrompt` | pro | - (prose) | - | `components/EpilogueScreen.tsx`, once per run on `GameState.GAME_OVER` |
+| `narrationPerformance` | `narrationPerformance.ts::buildNarrationPerformancePrompt` | flash | - (prose; checked by `narration/performanceScript.ts::validatePerformance`, falls back on any failure) | - | `ai/tools/narrationVoice.ts`, on demand (or `auto` mode after a turn commits) for ONE committed GM narration; inserts `<...>` delivery directions only |
+| `narrationVoice` | `narrationPerformance.ts::buildNarrationTtsPrompt` | tts (`GEMINI_TTS`, via `generateSpeech`) | - (audio) | - | `ai/tools/narrationVoice.ts`, right after `narrationPerformance`; the call log keeps an `[audio: N bytes, mime]` placeholder, never the audio |
 | `evalJudge` | `evalJudge.ts::buildEvalJudgePrompt` | flash | `zEvalJudgeVerdict` | `EvalJudgeVerdictSchema` | Offline eval runner ONLY (`eval/judge.ts::judgeTurn` via `npm run eval`, D18) - never called from app code, and only invoked when a real API key is present |
 
 `ambitionInference`'s zod/Gemini schemas are deliberately NOT in

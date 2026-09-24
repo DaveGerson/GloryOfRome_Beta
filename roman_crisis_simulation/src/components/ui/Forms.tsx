@@ -1,4 +1,5 @@
 import React from 'react';
+import { radioGroupKeyDown, radioTabIndex } from './rovingRadio';
 
 /** Form primitives from the Glory of Rome design system (components/forms). */
 
@@ -25,18 +26,37 @@ type SegmentedControlProps<T extends string> = {
     leading?: React.ReactNode;
     disabled?: boolean;
     style?: React.CSSProperties;
+    /**
+     * Render as an ARIA radiogroup (role="radio" + aria-checked, one roving
+     * tab stop, arrow keys move the choice - ui/rovingRadio.ts) instead of
+     * a group of aria-pressed toggles. Same look either way.
+     */
+    radio?: boolean;
+    /** Ties the group to a visible description (radio mode). */
+    describedBy?: string;
 };
 
-export function SegmentedControl<T extends string>({ options, value, onChange, ariaLabel, leading, disabled, style }: SegmentedControlProps<T>) {
+export function SegmentedControl<T extends string>({ options, value, onChange, ariaLabel, leading, disabled, style, radio = false, describedBy }: SegmentedControlProps<T>) {
+    const values = options.map(option => option.value);
+    const anyChosen = values.includes(value);
     return (
-        <div role="group" aria-label={ariaLabel} className="gor-seg" style={style}>
+        <div
+            role={radio ? 'radiogroup' : 'group'}
+            aria-label={ariaLabel}
+            aria-describedby={describedBy}
+            className="gor-seg"
+            style={style}
+            onKeyDown={radio && !disabled ? radioGroupKeyDown(values, value, onChange) : undefined}
+        >
             {leading && <span aria-hidden="true" className="gor-seg-lead">{leading}</span>}
-            {options.map(({ value: optionValue, label, title }) => (
+            {options.map(({ value: optionValue, label, title }, index) => (
                 <button
                     key={optionValue}
                     type="button"
                     className="gor-seg-btn"
-                    aria-pressed={value === optionValue}
+                    {...(radio
+                        ? { role: 'radio', 'aria-checked': value === optionValue, tabIndex: radioTabIndex(value === optionValue, index === 0, anyChosen) }
+                        : { 'aria-pressed': value === optionValue })}
                     title={title}
                     disabled={disabled}
                     onClick={() => onChange(optionValue)}

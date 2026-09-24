@@ -28,6 +28,7 @@ import { usePrivateSceneController } from './hooks/usePrivateSceneController';
 import { useSettings } from './hooks/useSettings';
 import { useTurnFlow } from './hooks/useTurnFlow';
 import { useWeekBeat } from './hooks/useWeekBeat';
+import { useNarrationVoice } from './hooks/useNarrationVoice';
 import { useDevSmokeTest, useScrollToLatest, useUnloadGuardWhileProcessing } from './hooks/useShellEffects';
 import type { TransactionNote } from './app/transactions';
 import { TransactionNoteView, downloadTheReign } from './app/TransactionNoteView';
@@ -194,6 +195,13 @@ const App: React.FC = () => {
         setTransactionNote, offerOnboarding,
     });
 
+    // "Hear it performed" - voices committed GM narration only (D4/D5); a
+    // device preference, default off (every clip is a paid call). See the
+    // hook's header.
+    const {
+        narrationVoiceMode, handleSetNarrationVoiceMode, toggleNarrationVoice, narrationVoiceStateFor,
+    } = useNarrationVoice({ ai, isMockMode, resolvedApiKey, messages, gameState });
+
     const {
         handleSpendResource, handleOccurrenceFinding, handleInvestigationOutcome, handleSetIntervention,
     } = useIntelCommits({
@@ -275,7 +283,16 @@ const App: React.FC = () => {
                             ) : (
                                 <>
                                     <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }} role="log" aria-live="polite" aria-label="Chat log">
-                                        {messages.map((msg, index) => <ChatMessage key={index} message={msg} illuminated={illuminatedNarrations.has(index)} />)}
+                                        {messages.map((msg, index) => (
+                                            <ChatMessage
+                                                key={index}
+                                                message={msg}
+                                                illuminated={illuminatedNarrations.has(index)}
+                                                index={index}
+                                                voiceState={narrationVoiceStateFor(msg, index)}
+                                                onToggleVoice={toggleNarrationVoice}
+                                            />
+                                        ))}
                                         {pendingPlayerMessage && <ChatMessage message={pendingPlayerMessage} />}
                                         {gameState === GameState.PROCESSING && (
                                             streamingNarration
@@ -460,6 +477,8 @@ const App: React.FC = () => {
                     onSetGmConsoleEnabled={handleSetGmConsoleAvailable}
                     gmInterventionEnabled={gmInterventionAvailable}
                     onSetGmInterventionEnabled={handleSetGmInterventionAvailable}
+                    narrationVoiceMode={narrationVoiceMode}
+                    onSetNarrationVoiceMode={handleSetNarrationVoiceMode}
                     isMockMode={isMockMode}
                     onSetIsMockMode={setIsMockMode}
                     gmConsoleOpen={isGmConsoleEnabled}

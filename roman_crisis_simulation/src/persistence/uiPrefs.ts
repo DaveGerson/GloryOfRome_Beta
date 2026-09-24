@@ -119,3 +119,40 @@ export function setTabRegister(tabId: string, register: string): void {
     console.warn(`setTabRegister(${tabId}): localStorage.setItem failed`, e);
   }
 }
+
+/**
+ * The narration voice ("hear it performed", hooks/useNarrationVoice.ts): a
+ * device preference in the same mold as the composer mode above, never
+ * save state. `'off'` is the default and the fallback for anything stored
+ * that is not one of the three modes, because every clip is a paid API
+ * call on the player's own key (D34) - nobody should start paying for audio
+ * without having chosen to.
+ *
+ *  - `'off'`       - no control on any narration.
+ *  - `'on_demand'` - a play/stop control on each committed GM narration.
+ *  - `'auto'`      - that control, plus the newest narration plays by itself
+ *                    once a turn commits (never mid-stream, never a
+ *                    narration restored from a save).
+ */
+export type NarrationVoiceMode = 'off' | 'on_demand' | 'auto';
+export const NARRATION_VOICE_MODES: readonly NarrationVoiceMode[] = ['off', 'on_demand', 'auto'];
+const NARRATION_VOICE_MODE_KEY = 'gloryOfRome:narrationVoiceMode';
+const DEFAULT_NARRATION_VOICE_MODE: NarrationVoiceMode = 'off';
+
+export function getNarrationVoiceMode(): NarrationVoiceMode {
+  try {
+    const stored = localStorage.getItem(NARRATION_VOICE_MODE_KEY);
+    return NARRATION_VOICE_MODES.includes(stored as NarrationVoiceMode) ? (stored as NarrationVoiceMode) : DEFAULT_NARRATION_VOICE_MODE;
+  } catch (e) {
+    console.warn('getNarrationVoiceMode: localStorage.getItem failed', e);
+    return DEFAULT_NARRATION_VOICE_MODE;
+  }
+}
+
+export function setNarrationVoiceMode(mode: NarrationVoiceMode): void {
+  try {
+    localStorage.setItem(NARRATION_VOICE_MODE_KEY, mode);
+  } catch (e) {
+    console.warn('setNarrationVoiceMode: localStorage.setItem failed', e);
+  }
+}
