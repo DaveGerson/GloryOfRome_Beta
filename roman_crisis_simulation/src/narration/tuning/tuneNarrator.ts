@@ -23,6 +23,7 @@ import { listenerNames, runNarrationDirector } from '../../ai/tools/narrationVoi
 import type { NarratorProfile } from '../narrators';
 import { findIntroducedContent, performedTranscriptFor, spokenTokens, type PerformanceRejection } from '../performanceScript';
 import { ensureWav } from '../wav';
+import type { VoiceStyle } from '../voiceStyle';
 
 export interface TuningPassageResult {
   index: number;
@@ -78,10 +79,12 @@ export async function runNarratorTuning(params: {
   /** Also perform each transcript - in `voiceName`, or the profile's own voice. */
   withAudio?: boolean;
   voiceName?: string;
+  /** A delivery style to audition on the TTS input (narration/voiceStyle.ts); none by default. */
+  style?: VoiceStyle | null;
   /** Injectable clock for tests. */
   now?: () => number;
 }): Promise<TuningPassageResult[]> {
-  const { ai, narrator, narrations, playerContext, withAudio = false, voiceName, now = () => performance.now() } = params;
+  const { ai, narrator, narrations, playerContext, withAudio = false, voiceName, style = null, now = () => performance.now() } = params;
   const allowed = listenerNames(playerContext);
   const results: TuningPassageResult[] = [];
   // Sequential on purpose: tuning is a quality read, and one call at a time
@@ -120,7 +123,7 @@ export async function runNarratorTuning(params: {
         const speech = await generateSpeech(ai, {
           callName: 'narratorTuning',
           model: narrator.voice.model,
-          prompt: buildNarrationTtsPrompt(performed.transcript),
+          prompt: buildNarrationTtsPrompt(performed.transcript, style),
           voiceName: voiceName || narrator.voice.voiceName,
           temperature: narrator.voice.temperature,
         });

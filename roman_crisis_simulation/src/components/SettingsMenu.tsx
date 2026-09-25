@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { PacingPosture } from '../types';
 import { Button, Badge, RegisterHeading } from './ui/Core';
 import { Switch, SegmentedControl } from './ui/Forms';
@@ -7,23 +7,9 @@ import { ImportFailureNotice } from './ui/FailureNotices';
 import type { ImportResult } from '../persistence/saveGame';
 import { useReignImport } from './ui/useReignImport';
 import { ApiKeyCard } from './ApiKeyCard';
-import {
-    type NarrationVoiceMode,
-    NARRATOR_VOICES,
-    DEFAULT_NARRATOR_VOICE_ID,
-    getNarratorVoiceChoice,
-    setNarratorVoice,
-    type NarratorVoiceId,
-} from '../persistence/uiPrefs';
+import { NarrationSettings, type NarrationSettingsProps } from './NarrationSettings';
 
-/** The slice of a narrator profile (narration/narrators.ts) the picker shows. */
-export interface NarratorChoice {
-    id: string;
-    name: string;
-    description: string;
-    /** The narrator's own voice, shown when no explicit voice is chosen. */
-    voiceName?: string;
-}
+export type { NarratorChoice } from './NarrationSettings';
 
 /**
  * ROADMAP_0_MASTER_PLAN.md Phase 5 (DESIGN_DECISIONS.md D31) - the FATES
@@ -44,18 +30,6 @@ const LIGHTING_OPTIONS = [
     { value: 'nox', label: '☾ NOX', title: 'Nox Romae — torchlit' },
 ] as const;
 
-/**
- * The narration voice ("hear it performed", hooks/useNarrationVoice.ts) -
- * a device preference (persistence/uiPrefs.ts), default SILENT because
- * every performance is a paid call on the player's own key. Copy is
- * veto-queue (roadmaps/BACKLOG.md B13).
- */
-const NARRATOR_OPTIONS: { value: NarrationVoiceMode; label: string; title: string; description: string }[] = [
-    { value: 'off', label: 'SILENT', title: 'The narration is read, not heard', description: 'The narration is read, not heard.' },
-    { value: 'on_demand', label: 'ON REQUEST', title: 'A play control on each narration', description: 'A play control on each narration. Every performance is a paid call on your key.' },
-    { value: 'auto', label: 'EVERY WEEK', title: 'Each new narration is performed as the week turns', description: 'Each new narration is performed as the week turns. Every performance is a paid call on your key.' },
-];
-
 const registerStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 10 };
 
 /**
@@ -67,7 +41,7 @@ const registerStyle: React.CSSProperties = { display: 'flex', flexDirection: 'co
  * D32/D33 GM availability toggles, and - dev builds only - the Mock Mode
  * and GM-console runtime switches that used to sit in the Header.
  */
-const SettingsMenu: React.FC<{
+const SettingsMenu: React.FC<NarrationSettingsProps & {
     onClose: () => void;
     /**
      * The device's currently stored key (persistence/apiKey.ts), or null -
@@ -86,25 +60,6 @@ const SettingsMenu: React.FC<{
     onSetGmConsoleEnabled: (enabled: boolean) => void;
     gmInterventionEnabled: boolean;
     onSetGmInterventionEnabled: (enabled: boolean) => void;
-    /** The narration voice's mode - a device preference, never save state. */
-    narrationVoiceMode: NarrationVoiceMode;
-    onSetNarrationVoiceMode: (mode: NarrationVoiceMode) => void;
-    /**
-     * The narrators this build offers (the built-in plus each deployed
-     * profile). The picker only appears when there is more than one to
-     * choose between, and only while the voice is on.
-     */
-    narrators?: readonly NarratorChoice[];
-    narratorId?: string;
-    onSetNarrator?: (id: string) => void;
-    /**
-     * The player's explicit voice (persistence/uiPrefs.ts), null for "the
-     * narrator's own". Omitted, the menu manages the preference itself.
-     */
-    narratorVoiceChoice?: NarratorVoiceId | null;
-    /** The chosen narrator's own voice, named in the "own voice" option. */
-    narratorOwnVoice?: string;
-    onSetNarratorVoice?: (voice: NarratorVoiceId | null) => void;
     /** Dev-only (rendered under import.meta.env.DEV): Mock Mode + the GM console's runtime switch. */
     isMockMode: boolean;
     onSetIsMockMode: (isMock: boolean) => void;
@@ -142,14 +97,6 @@ const SettingsMenu: React.FC<{
     onSetGmConsoleEnabled,
     gmInterventionEnabled,
     onSetGmInterventionEnabled,
-    narrationVoiceMode,
-    onSetNarrationVoiceMode,
-    narrators = [],
-    narratorId,
-    onSetNarrator,
-    narratorVoiceChoice,
-    narratorOwnVoice,
-    onSetNarratorVoice,
     isMockMode,
     onSetIsMockMode,
     gmConsoleOpen,
@@ -158,6 +105,7 @@ const SettingsMenu: React.FC<{
     onExportReign,
     onImportReign,
     interactionLocked = false,
+    ...narration
 }) => {
     const dialogRef = useRef<HTMLDivElement>(null);
     const trapRef = useRef<FocusTrap | null>(null);
@@ -189,20 +137,6 @@ const SettingsMenu: React.FC<{
     };
 
     const selectedPacing = FATES_OPTIONS.find(option => option.posture === pacingPosture) ?? FATES_OPTIONS[1];
-    const selectedNarrator = NARRATOR_OPTIONS.find(option => option.value === narrationVoiceMode) ?? NARRATOR_OPTIONS[0];
-    const showNarratorPicker = narrationVoiceMode !== 'off' && narrators.length > 1 && onSetNarrator !== undefined;
-    const chosenNarrator = narrators.find(n => n.id === narratorId) ?? narrators[0];
-    // The voice: controlled by the App's narration hook when it passes one;
-    // otherwise this menu reads and writes the device preference itself.
-    const [localVoiceChoice, setLocalVoiceChoice] = useState<NarratorVoiceId | null>(() => getNarratorVoiceChoice());
-    const voiceChoice = narratorVoiceChoice !== undefined ? narratorVoiceChoice : localVoiceChoice;
-    const ownVoice = narratorOwnVoice ?? chosenNarrator?.voiceName ?? DEFAULT_NARRATOR_VOICE_ID;
-    const handleVoiceChange = (value: string) => {
-        const next = NARRATOR_VOICES.find(v => v.id === value)?.id ?? null;
-        setLocalVoiceChoice(next);
-        (onSetNarratorVoice ?? setNarratorVoice)(next);
-    };
-
     return (
         <div className="gor-dialog-backdrop">
             <div
@@ -259,65 +193,7 @@ const SettingsMenu: React.FC<{
                                 />
                                 <p className="gor-config-note">A device preference, never part of your save.</p>
                             </div>
-                            <span className="gor-label gor-config-label">Narrator's voice</span>
-                            <div>
-                                <SegmentedControl
-                                    radio
-                                    ariaLabel="Narrator's voice"
-                                    describedBy="settings-narrator-note"
-                                    options={NARRATOR_OPTIONS.map(({ value, label, title }) => ({ value, label, title }))}
-                                    value={narrationVoiceMode}
-                                    onChange={onSetNarrationVoiceMode}
-                                />
-                                <p className="gor-config-note" id="settings-narrator-note">{selectedNarrator.description}</p>
-                            </div>
-                            {showNarratorPicker && chosenNarrator && (
-                                <>
-                                    <span className="gor-label gor-config-label">Narrator</span>
-                                    <div>
-                                        <SegmentedControl
-                                            radio
-                                            ariaLabel="Narrator"
-                                            describedBy="settings-narrator-profile-note"
-                                            options={narrators.map(({ id, name, description }) => ({ value: id, label: name, title: description }))}
-                                            value={chosenNarrator.id}
-                                            onChange={onSetNarrator}
-                                        />
-                                        <p className="gor-config-note" id="settings-narrator-profile-note">{chosenNarrator.description}</p>
-                                    </div>
-                                </>
-                            )}
-                            <span className="gor-label gor-config-label">Voice</span>
-                            <div>
-                                <select
-                                    aria-label="Voice"
-                                    aria-describedby="settings-voice-note"
-                                    value={voiceChoice ?? ''}
-                                    onChange={(e) => handleVoiceChange(e.target.value)}
-                                    style={{
-                                        width: '100%',
-                                        padding: '6px 10px',
-                                        background: 'var(--surface-sunken, #111)',
-                                        color: 'var(--text-normal)',
-                                        border: '1px solid var(--border-subtle, rgba(201,162,39,.3))',
-                                        borderRadius: '4px',
-                                        fontFamily: 'inherit',
-                                        fontSize: '13px',
-                                    }}
-                                >
-                                    <option value="">The narrator's own — {ownVoice}</option>
-                                    {NARRATOR_VOICES.map((v) => (
-                                        <option key={v.id} value={v.id}>
-                                            {v.label} — {v.role}
-                                        </option>
-                                    ))}
-                                </select>
-                                <p className="gor-config-note" id="settings-voice-note" style={{ marginTop: '4px' }}>
-                                    {voiceChoice
-                                        ? NARRATOR_VOICES.find((v) => v.id === voiceChoice)?.role
-                                        : 'The voice each narrator was tuned with.'}
-                                </p>
-                            </div>
+                            <NarrationSettings {...narration} />
                         </div>
                     </section>
 

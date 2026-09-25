@@ -598,6 +598,20 @@
 .gor-config-label{padding-top:9px}
 .gor-config-note{margin:5px 0 0;font-size:14px;font-style:italic;color:var(--text-muted)}
 .gor-config-well{display:flex;flex-direction:column;gap:10px;padding:12px 14px;background:var(--surface-inset);box-shadow:var(--shadow-inset);border-radius:var(--radius-sm)}
+/* The player's own narrators (components/CustomNarratorEditor.tsx): a quiet
+   disclosure under the narration selects, never a second menu. */
+.gor-narrator-editor{border-top:1px solid var(--border-faint);padding-top:10px}
+.gor-narrator-editor-toggle{all:unset;cursor:pointer;font-family:var(--font-display);font-size:10.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--gold-700)}
+.gor-narrator-editor-toggle:hover{color:var(--gold-600)}
+.gor-narrator-editor-toggle:focus-visible{box-shadow:var(--focus-ring)}
+.gor-narrator-editor-panel{margin-top:8px;padding:10px 12px;background:var(--surface-inset);box-shadow:var(--shadow-inset);border-radius:var(--radius-sm)}
+.gor-narrator-editor-list{list-style:none;margin:6px 0 8px;padding:0;display:flex;flex-direction:column;gap:6px}
+.gor-narrator-editor-list li{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;padding-bottom:6px;border-bottom:1px solid var(--border-faint)}
+.gor-narrator-editor-name{font-weight:600;color:var(--text-heading)}
+.gor-narrator-editor-meta{font-size:13px;font-style:italic;color:var(--text-muted)}
+.gor-narrator-editor-actions{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;margin-left:auto}
+.gor-narrator-editor-confirm{font-size:14px;font-style:italic;color:var(--text-body)}
+.gor-narrator-editor-issue{margin:4px 0 0;font-size:14px;color:var(--danger)}
 /* Enough to recognise which key is on this device, never enough to read it. */
 .gor-key-mask{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;letter-spacing:.04em;color:var(--text-body)}
 

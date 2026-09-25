@@ -372,28 +372,28 @@ describe('Settings: narrator and voice', () => {
     ));
     return { host, cleanup: () => { act(() => root.unmount()); host.remove(); } };
   }
-  const picker = (host: HTMLElement) => host.querySelector<HTMLElement>('[role="radiogroup"][aria-label="Narrator"]');
+  const styleSelect = (host: HTMLElement) => host.querySelector<HTMLSelectElement>('select[aria-label="Narration style"]');
   const voiceSelect = (host: HTMLElement) => host.querySelector<HTMLSelectElement>('select[aria-label="Voice"]')!;
   const choices = (narrators: NarratorProfile[]) => narrators.map(({ id, name, description, voice }) => ({ id, name, description, voiceName: voice.voiceName }));
 
-  it('the narrator picker stays hidden with only one narrator, or while the voice is silent', () => {
-    const single = renderSettings({ narrators: choices([DRAMATIC_READER_NARRATOR]), narratorId: 'senatorial-partner', onSetNarrator: vi.fn() });
-    expect(picker(single.host)).toBeNull();
-    single.cleanup();
+  it('the narration selections stay hidden while the voice is silent', () => {
     const silent = renderSettings({ narrationVoiceMode: 'off', narrators: choices([DRAMATIC_READER_NARRATOR, HERALD]), narratorId: 'senatorial-partner', onSetNarrator: vi.fn() });
-    expect(picker(silent.host)).toBeNull();
+    expect(styleSelect(silent.host)).toBeNull();
+    expect(silent.host.querySelector('select[aria-label="Voice"]')).toBeNull();
     silent.cleanup();
   });
 
-  it('offers each deployed narrator, describes the chosen one, and reports a choice', () => {
+  it('offers each deployed narrator in the style select, describes the chosen one, and reports a choice', () => {
     const onSetNarrator = vi.fn();
     const view = renderSettings({ narrators: choices([DRAMATIC_READER_NARRATOR, HERALD]), narratorId: 'forum-herald', onSetNarrator });
-    const group = picker(view.host)!;
-    const radios = [...group.querySelectorAll<HTMLButtonElement>('[role="radio"]')];
-    expect(radios.map(r => r.textContent)).toEqual(['The Dramatic Reader', 'The Forum Herald']);
-    expect(radios.map(r => r.getAttribute('aria-checked'))).toEqual(['false', 'true']);
-    expect(document.getElementById(group.getAttribute('aria-describedby')!)?.textContent).toBe(HERALD.description);
-    act(() => radios[0].click());
+    const select = styleSelect(view.host)!;
+    expect([...select.options].map(o => o.textContent)).toEqual(['The Dramatic Reader', 'The Forum Herald']);
+    expect(select.value).toBe('forum-herald');
+    expect(document.getElementById(select.getAttribute('aria-describedby')!)?.textContent).toBe(HERALD.description);
+    act(() => {
+      select.value = 'senatorial-partner';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
     expect(onSetNarrator).toHaveBeenLastCalledWith('senatorial-partner');
     view.cleanup();
   });

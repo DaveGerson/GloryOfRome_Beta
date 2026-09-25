@@ -5,16 +5,27 @@
  * narration/narrationPlayer.ts instance for the App's lifetime and wires
  * it to the same `ai` client and `isMockMode` flag every other AI surface
  * receives from hooks/useSettings.ts, plus the device preference in
- * persistence/uiPrefs.ts (`'off' | 'on_demand' | 'auto'`, default off) and
- * the chosen narrator profile (narration/narrators.ts) and voice (an
- * explicit Settings choice, or else the narrator's own).
+ * persistence/uiPrefs.ts (`'off' | 'on_demand' | 'auto'`, default off), and
+ * the three Settings selections the performance follows:
+ *
+ *  - the narration style (narration/narratorChoice.ts): a preset narrator,
+ *    a character the player knows narrating in character, or one of the
+ *    player's own custom narrators (narration/customNarrators.ts, created,
+ *    edited and deleted through this hook);
+ *  - the voice: an explicit choice, or else the narrator's own;
+ *  - the voice style (narration/voiceStyle.ts): an explicit choice, or else
+ *    the narrator's own, which for every preset is "As written".
+ *
+ * Each is a device preference, never save state, and together they key the
+ * clip cache - a change is a new performance, never an old clip replayed.
  *
  * The privacy line (D4/D5): the only text this hook ever hands to the
  * voice is a COMMITTED `messages[]` entry with `sender === 'gm'` - the
  * streaming bubble, the pending player message, monologues and ribbons
  * never get a control, and nothing else from the game state is passed
  * beyond the player's own name and position, which the narrator uses to
- * address them.
+ * address them, and - for a narrator in character - the player-visible face
+ * (name, public standing) of a character the player knows.
  *
  * Auto mode: the newest GM narration a turn committed plays by itself once
  * the game leaves PROCESSING - never mid-stream (the streaming bubble is
@@ -30,16 +41,26 @@
  * and every object URL is revoked on eviction and on unmount.
  */
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { GameState, type Message, type Entity } from '../types';
 import type { GeminiClient } from '../ai/core/geminiService';
 import { performNarration } from '../ai/tools/narrationVoice';
 import { NarrationPlayer, type NarrationVoiceStatus } from '../narration/narrationPlayer';
-import { NARRATORS, narratorById, type NarratorProfile } from '../narration/narrators';
+import { NARRATORS, type NarratorProfile } from '../narration/narrators';
+import {
+    IN_CHARACTER_NARRATOR_ID, chosenCharacter, resolveNarrator, type NarratorCharacter,
+} from '../narration/narratorChoice';
+import {
+    deleteCustomNarrator, loadCustomNarrators, saveCustomNarrator,
+    type CustomNarrator, type CustomNarratorDraft, type CustomNarratorSaveResult,
+} from '../narration/customNarrators';
+import { parseVoiceStyle, voiceStyleKey, type VoiceStyle } from '../narration/voiceStyle';
 import {
     getNarrationVoiceMode, setNarrationVoiceMode, type NarrationVoiceMode,
     getNarratorProfileId, setNarratorProfileId,
+    getNarratorCharacterId, setNarratorCharacterId,
     getNarratorVoiceChoice, setNarratorVoice, type NarratorVoiceId,
+    getJsonPref, setJsonPref, NARRATOR_VOICE_STYLE_KEY,
 } from '../persistence/uiPrefs';
 
 /**
@@ -58,9 +79,20 @@ export interface UseNarrationVoiceArgs {
     playerEntity?: Entity | null;
     /** The narrators this build offers; tests inject their own. */
     narrators?: readonly NarratorProfile[];
+    /**
+     * The characters the player may choose to narrate in character - ONLY
+     * the player-visible list (`narratorCharactersFor`, built on
+     * `knownRecipientOptionsForPlayer`), never raw entities.
+     */
+    narratorCharacters?: readonly NarratorCharacter[];
 }
 
-export function useNarrationVoice({ ai, isMockMode, resolvedApiKey, messages, gameState, playerEntity, narrators = NARRATORS }: UseNarrationVoiceArgs) {
+const NO_CHARACTERS: readonly NarratorCharacter[] = [];
+
+export function useNarrationVoice({
+    ai, isMockMode, resolvedApiKey, messages, gameState, playerEntity,
+    narrators = NARRATORS, narratorCharacters = NO_CHARACTERS,
+}: UseNarrationVoiceArgs) {
     const [player] = useState(() => new NarrationPlayer());
     const playback = useSyncExternalStore(player.subscribe, player.getSnapshot, player.getSnapshot);
 
@@ -70,15 +102,39 @@ export function useNarrationVoice({ ai, isMockMode, resolvedApiKey, messages, ga
         setNarrationVoiceMode(next);
     }, []);
 
-    // The narrator profile (narration/narrators.ts). A stored id no longer
-    // deployed falls back to the built-in, and the fallback is what shows.
-    const [narratorId, setNarratorIdState] = useState<string>(() => narratorById(getNarratorProfileId(), narrators).id);
-    const narrator = narratorById(narratorId, narrators);
+    // The narration style: a preset id, `in-character`, or a custom id. The
+    // stored value is kept as chosen; `resolveNarrator` decides what it means
+    // now (a retired preset, a deleted custom narrator or "in character" with
+    // nobody known all fall back to the built-in, and the fallback is what
+    // the menu shows).
+    const [customNarrators, setCustomNarrators] = useState<CustomNarrator[]>(() => loadCustomNarrators());
+    const [storedNarratorId, setStoredNarratorId] = useState<string | null>(() => getNarratorProfileId());
+    const [characterId, setCharacterIdState] = useState<string | null>(() => getNarratorCharacterId());
+    const resolved = useMemo(() => resolveNarrator({
+        narratorId: storedNarratorId, characterId, presets: narrators, customs: customNarrators, characters: narratorCharacters,
+    }), [storedNarratorId, characterId, narrators, customNarrators, narratorCharacters]);
+    const narrator = resolved.profile;
+    // What the "Narration style" select shows: "In character…" stays chosen
+    // even before anyone is known, so the character list can explain itself.
+    const narratorId = storedNarratorId === IN_CHARACTER_NARRATOR_ID ? IN_CHARACTER_NARRATOR_ID : narrator.id;
+
     const handleSetNarrator = useCallback((id: string) => {
-        const next = narratorById(id, narrators);
-        setNarratorIdState(next.id);
-        setNarratorProfileId(next.id);
-    }, [narrators]);
+        setStoredNarratorId(id);
+        setNarratorProfileId(id);
+    }, []);
+    const handleSetNarratorCharacter = useCallback((entityId: string) => {
+        setCharacterIdState(entityId);
+        setNarratorCharacterId(entityId);
+    }, []);
+
+    const handleSaveCustomNarrator = useCallback((draft: CustomNarratorDraft): CustomNarratorSaveResult => {
+        const result = saveCustomNarrator(customNarrators, draft);
+        if (result.ok) setCustomNarrators(result.narrators);
+        return result;
+    }, [customNarrators]);
+    const handleDeleteCustomNarrator = useCallback((id: string) => {
+        setCustomNarrators(deleteCustomNarrator(customNarrators, id));
+    }, [customNarrators]);
 
     // The voice: the player's explicit Settings choice, or - when they never
     // chose one - the narrator's own. Held here, not read inside the
@@ -91,6 +147,15 @@ export function useNarrationVoice({ ai, isMockMode, resolvedApiKey, messages, ga
         setNarratorVoice(next);
     }, []);
 
+    // The voice style: explicit, or the narrator's own (none, for a preset).
+    const [styleChoice, setStyleChoiceState] = useState<VoiceStyle | null>(() => parseVoiceStyle(getJsonPref(NARRATOR_VOICE_STYLE_KEY)));
+    const style = styleChoice ?? resolved.ownStyle;
+    const handleSetVoiceStyle = useCallback((next: VoiceStyle | null) => {
+        const valid = next === null ? null : parseVoiceStyle(next);
+        setStyleChoiceState(valid);
+        setJsonPref(NARRATOR_VOICE_STYLE_KEY, valid);
+    }, []);
+
     const playerName = playerEntity?.name;
     const playerPosition = playerEntity?.position || playerEntity?.epithet;
 
@@ -100,27 +165,33 @@ export function useNarrationVoice({ ai, isMockMode, resolvedApiKey, messages, ga
         canReachVoiceRef.current = canReachVoice;
     }, [canReachVoice]);
 
-    // The renderer follows the current client, mode, narrator and voice. The
-    // variant keeps a Mock Mode tone - or another narrator's or voice's
-    // performance - from answering for this one in the cache.
+    // The renderer follows the current client, narrator, voice and style.
+    // The variant keeps a Mock Mode tone - or another narrator's, voice's or
+    // style's performance - from answering for this one in the cache. The
+    // narrator's key covers an edited custom narrator and a different
+    // character, too.
+    const allowedNames = resolved.allowedNames;
+    const variant = `${isMockMode ? 'mock' : 'live'}:${resolved.key}:${voice}:${voiceStyleKey(style)}`;
     useEffect(() => {
         player.setRenderer(
             async text => {
                 const { wav } = await performNarration(ai, text, isMockMode, {
                     narrator,
                     voiceName: voice,
+                    style,
+                    allowedNames,
                     playerContext: playerName ? { name: playerName, position: playerPosition } : null,
                 });
                 return new Blob([wav], { type: 'audio/wav' });
             },
-            `${isMockMode ? 'mock' : 'live'}:${narrator.id}:${voice}`,
+            variant,
         );
-    }, [player, ai, isMockMode, narrator, voice, playerName, playerPosition]);
+    }, [player, ai, isMockMode, narrator, voice, style, allowedNames, playerName, playerPosition, variant]);
 
-    // A different narrator or voice was chosen: the old performance stops.
+    // A different narrator, voice or style was chosen: the old performance stops.
     useEffect(() => {
         player.stop();
-    }, [player, narrator.id, voice]);
+    }, [player, resolved.key, voice, style]);
 
     // Unmount: stop, and revoke every object URL. The player is reusable, so
     // StrictMode's mount/unmount/mount leaves a working instance behind.
@@ -176,11 +247,24 @@ export function useNarrationVoice({ ai, isMockMode, resolvedApiKey, messages, ga
         narrationVoiceMode: mode,
         handleSetNarrationVoiceMode,
         narrators,
-        narratorId: narrator.id,
+        narratorId,
         handleSetNarrator,
+        narratorCharacters,
+        narratorCharacterId: chosenCharacter(characterId, narratorCharacters)?.entityId ?? null,
+        handleSetNarratorCharacter,
+        customNarrators,
+        handleSaveCustomNarrator,
+        handleDeleteCustomNarrator,
         narratorVoiceChoice: voiceChoice,
         narratorOwnVoice: narrator.voice.voiceName,
         handleSetNarratorVoice,
+        voiceStyleChoice: styleChoice,
+        narratorOwnStyle: resolved.ownStyle,
+        handleSetVoiceStyle,
+        /** What performs now: the resolved narrator, voice and style. */
+        activeNarrator: resolved,
+        activeVoice: voice,
+        activeStyle: style,
         toggleNarrationVoice,
         narrationVoiceStateFor,
         narrationPlayback: playback,

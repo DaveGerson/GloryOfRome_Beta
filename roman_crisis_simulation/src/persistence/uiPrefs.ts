@@ -264,3 +264,73 @@ export function setNarratorProfileId(id: string): void {
     console.warn('setNarratorProfileId: localStorage.setItem failed', e);
   }
 }
+
+/**
+ * Structured device preferences - the narration voice's custom narrators,
+ * delivery style, private-scene voices and narration log - stored as JSON.
+ * Guarded like everything above: a blocked or full storage, or a corrupted
+ * value, reads back as `null` and a failed write is dropped with a warning,
+ * never a crash. These getters guard only the JSON; each caller validates
+ * the shape it expects (narration/customNarrators.ts, narration/voiceStyle.ts,
+ * narration/narrationLog.ts). None of this is ever part of a save.
+ */
+export function getJsonPref(key: string): unknown {
+  try {
+    const storage = getStorage();
+    if (!storage) return null;
+    const stored = storage.getItem(key);
+    return stored === null ? null : JSON.parse(stored);
+  } catch (e) {
+    console.warn(`getJsonPref(${key}): could not read the stored value`, e);
+    return null;
+  }
+}
+
+/** Stores `value` as JSON, or removes the key for `null`. Returns whether it stuck. */
+export function setJsonPref(key: string, value: unknown): boolean {
+  try {
+    const storage = getStorage();
+    if (!storage) return false;
+    if (value === null || value === undefined) storage.removeItem(key);
+    else storage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch (e) {
+    console.warn(`setJsonPref(${key}): localStorage.setItem failed`, e);
+    return false;
+  }
+}
+
+export const CUSTOM_NARRATORS_KEY = 'gloryOfRome:customNarrators';
+export const NARRATOR_VOICE_STYLE_KEY = 'gloryOfRome:narratorVoiceStyle';
+export const NARRATION_LOG_KEY = 'gloryOfRome:narrationLog';
+
+/**
+ * The character who narrates when the narrator is "In character…"
+ * (narration/narratorChoice.ts): an entity id, guarded for shape only.
+ * Whether the player still knows them is decided at the call site, from
+ * the player-visible list, every time.
+ */
+const NARRATOR_CHARACTER_KEY = 'gloryOfRome:narratorCharacter';
+
+export function getNarratorCharacterId(): string | null {
+  try {
+    const storage = getStorage();
+    if (!storage) return null;
+    const stored = storage.getItem(NARRATOR_CHARACTER_KEY);
+    return stored && /^[\w.:-]{1,80}$/.test(stored) ? stored : null;
+  } catch (e) {
+    console.warn('getNarratorCharacterId: localStorage.getItem failed', e);
+    return null;
+  }
+}
+
+export function setNarratorCharacterId(entityId: string | null): void {
+  try {
+    const storage = getStorage();
+    if (!storage) return;
+    if (entityId) storage.setItem(NARRATOR_CHARACTER_KEY, entityId);
+    else storage.removeItem(NARRATOR_CHARACTER_KEY);
+  } catch (e) {
+    console.warn('setNarratorCharacterId: localStorage.setItem failed', e);
+  }
+}

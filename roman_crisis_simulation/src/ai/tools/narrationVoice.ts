@@ -59,6 +59,7 @@ import {
 import { MOCK_TONE_MIME_TYPE, ensureWav, pcmToWav, synthesizeMockTone } from '../../narration/wav';
 import { DRAMATIC_READER_NARRATOR, type NarratorProfile } from '../../narration/narrators';
 import { getNarratorVoiceChoice } from '../../persistence/uiPrefs';
+import type { VoiceStyle } from '../../narration/voiceStyle';
 
 /** The owner's reference: temperature 1 for the voice itself. */
 export const NARRATION_VOICE_TEMPERATURE = DRAMATIC_READER_NARRATOR.voice.temperature;
@@ -75,6 +76,10 @@ export interface NarrationOptions {
   voiceName?: string;
   /** The listener's name and position, for address - never game state. */
   playerContext?: NarrationPlayerContext;
+  /** Further names the fidelity patch allows (a narrator in character's own name and standing). */
+  allowedNames?: readonly string[];
+  /** The delivery style prefixed on the TTS input (narration/voiceStyle.ts); none by default. */
+  style?: VoiceStyle | null;
 }
 
 /** The SDK's ThinkingLevel enum is upper-case ('LOW'); profiles are authored lower-case. */
@@ -129,6 +134,7 @@ export async function directNarrationPerformance(
   isMockMode: boolean,
   playerContext?: NarrationPlayerContext,
   narrator: NarratorProfile = DRAMATIC_READER_NARRATOR,
+  allowedNames: readonly string[] = [],
 ): Promise<PerformedTranscript> {
   if (isMockMode) return performedTranscriptFor(narration, null);
 
@@ -136,7 +142,7 @@ export async function directNarrationPerformance(
   if (error !== undefined) {
     console.warn('narrationVoice: the narrator call failed; performing the plain narration instead', error);
   }
-  const performed = performedTranscriptFor(narration, output, listenerNames(playerContext));
+  const performed = performedTranscriptFor(narration, output, [...listenerNames(playerContext), ...allowedNames]);
   if (performed.rejection) {
     console.warn(`narrationVoice: the narrator's script was refused (${performed.rejection}); performing the plain narration instead`);
   } else if (performed.patchedOut.length > 0) {
@@ -161,18 +167,46 @@ export async function performNarration(
   options: NarrationOptions = {},
 ): Promise<NarrationPerformance> {
   const narrator = options.narrator ?? DRAMATIC_READER_NARRATOR;
-  const performed = await directNarrationPerformance(ai, narration, isMockMode, options.playerContext, narrator);
-  if (isMockMode) {
-    return { ...performed, wav: pcmToWav(synthesizeMockTone(), MOCK_TONE_MIME_TYPE) };
-  }
-  const speech = await generateSpeech(ai, {
-    callName: 'narrationVoice',
+  const performed = await directNarrationPerformance(ai, narration, isMockMode, options.playerContext, narrator, options.allowedNames);
+  const wav = await speakTranscript(ai, performed.transcript, isMockMode, {
     model: narrator.voice.model,
-    prompt: buildNarrationTtsPrompt(performed.transcript),
     voiceName: resolveNarrationVoice(narrator, options.voiceName),
     temperature: narrator.voice.temperature,
+    style: options.style,
   });
-  return { ...performed, wav: ensureWav(speech.pcm, speech.mimeType) };
+  return { ...performed, wav };
+}
+
+export interface SpeakOptions {
+  voiceName: string;
+  model?: string;
+  temperature?: number;
+  style?: VoiceStyle | null;
+  callName?: string;
+}
+
+/**
+ * The voice alone: an already-vetted spoken transcript to a WAV, with no
+ * prep call. Used by `performNarration`, by replay from the narration log
+ * (a transcript the guard already passed), and by a private-scene NPC's
+ * committed line (their words are already theirs). Mock Mode: no call, the
+ * synthesized tone. Throws only when the TTS call itself fails.
+ */
+export async function speakTranscript(
+  ai: GeminiClient,
+  transcript: string,
+  isMockMode: boolean,
+  options: SpeakOptions,
+): Promise<Uint8Array<ArrayBuffer>> {
+  if (isMockMode) return pcmToWav(synthesizeMockTone(), MOCK_TONE_MIME_TYPE);
+  const speech = await generateSpeech(ai, {
+    callName: options.callName ?? 'narrationVoice',
+    model: options.model ?? GEMINI_TTS,
+    prompt: buildNarrationTtsPrompt(transcript, options.style),
+    voiceName: options.voiceName,
+    temperature: options.temperature ?? NARRATION_VOICE_TEMPERATURE,
+  });
+  return ensureWav(speech.pcm, speech.mimeType);
 }
 
 /**

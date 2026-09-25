@@ -29,6 +29,7 @@ import { useSettings } from './hooks/useSettings';
 import { useTurnFlow } from './hooks/useTurnFlow';
 import { useWeekBeat } from './hooks/useWeekBeat';
 import { useNarrationVoice } from './hooks/useNarrationVoice';
+import { narratorCharactersFor } from './narration/narratorChoice';
 import { useDevSmokeTest, useScrollToLatest, useUnloadGuardWhileProcessing } from './hooks/useShellEffects';
 import type { TransactionNote } from './app/transactions';
 import { TransactionNoteView, downloadTheReign } from './app/TransactionNoteView';
@@ -198,11 +199,20 @@ const App: React.FC = () => {
     // "Hear it performed" - voices committed GM narration only (D4/D5); a
     // device preference, default off (every clip is a paid call). See the
     // hook's header.
+    // "In character…" offers ONLY characters the player knows, as name and
+    // public standing (narration/narratorChoice.ts) - never raw entities.
+    const narratorCharacters = useMemo(
+        () => narratorCharactersFor(playerEntity, entities, knowledge),
+        [playerEntity, entities, knowledge],
+    );
     const {
         narrationVoiceMode, handleSetNarrationVoiceMode, toggleNarrationVoice, narrationVoiceStateFor,
         narrators, narratorId, handleSetNarrator,
+        narratorCharacterId, handleSetNarratorCharacter,
+        customNarrators, handleSaveCustomNarrator, handleDeleteCustomNarrator,
         narratorVoiceChoice, narratorOwnVoice, handleSetNarratorVoice,
-    } = useNarrationVoice({ ai, isMockMode, resolvedApiKey, messages, gameState, playerEntity });
+        voiceStyleChoice, narratorOwnStyle, handleSetVoiceStyle,
+    } = useNarrationVoice({ ai, isMockMode, resolvedApiKey, messages, gameState, playerEntity, narratorCharacters });
 
     const {
         handleSpendResource, handleOccurrenceFinding, handleInvestigationOutcome, handleSetIntervention,
@@ -485,9 +495,18 @@ const App: React.FC = () => {
                     narrators={narrators}
                     narratorId={narratorId}
                     onSetNarrator={handleSetNarrator}
+                    narratorCharacters={narratorCharacters}
+                    narratorCharacterId={narratorCharacterId}
+                    onSetNarratorCharacter={handleSetNarratorCharacter}
+                    customNarrators={customNarrators}
+                    onSaveCustomNarrator={handleSaveCustomNarrator}
+                    onDeleteCustomNarrator={handleDeleteCustomNarrator}
                     narratorVoiceChoice={narratorVoiceChoice}
                     narratorOwnVoice={narratorOwnVoice}
                     onSetNarratorVoice={handleSetNarratorVoice}
+                    voiceStyleChoice={voiceStyleChoice}
+                    narratorOwnStyle={narratorOwnStyle}
+                    onSetVoiceStyle={handleSetVoiceStyle}
                     isMockMode={isMockMode}
                     onSetIsMockMode={setIsMockMode}
                     gmConsoleOpen={isGmConsoleEnabled}
