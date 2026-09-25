@@ -31,6 +31,7 @@ import { useWeekBeat } from './hooks/useWeekBeat';
 import { useNarrationVoice } from './hooks/useNarrationVoice';
 import { narratorCharactersFor } from './narration/narratorChoice';
 import { useNarrationLog } from './hooks/useNarrationLog';
+import { usePrivateSceneVoice } from './hooks/usePrivateSceneVoice';
 import { NarrationLog } from './components/NarrationLog';
 import { useDevSmokeTest, useScrollToLatest, useUnloadGuardWhileProcessing } from './hooks/useShellEffects';
 import type { TransactionNote } from './app/transactions';
@@ -214,6 +215,7 @@ const App: React.FC = () => {
         customNarrators, handleSaveCustomNarrator, handleDeleteCustomNarrator,
         narratorVoiceChoice, narratorOwnVoice, handleSetNarratorVoice,
         voiceStyleChoice, narratorOwnStyle, handleSetVoiceStyle,
+        activeVoice: activeNarrationVoice,
     } = useNarrationVoice({
         ai, isMockMode, resolvedApiKey, messages, gameState, playerEntity, narratorCharacters,
         week: worldState.week, turnNumber,
@@ -221,6 +223,11 @@ const App: React.FC = () => {
     // The narration log: every performance kept as text on this device, with
     // replay that never re-runs the narrator (narration/narrationLog.ts).
     const { narrationLogEntries, toggleReplay, replayStateFor, stopReplay, clearLog } = useNarrationLog({ ai, isMockMode, resolvedApiKey });
+    // "Hear them speak": a private-scene NPC's committed lines in their own
+    // voice - offered only while the narration voice is on, off by default.
+    const privateSceneNpcVoice = usePrivateSceneVoice({
+        ai, isMockMode, resolvedApiKey, narrationVoiceMode, narratorVoice: activeNarrationVoice, week: worldState.week,
+    });
 
     const {
         handleSpendResource, handleOccurrenceFinding, handleInvestigationOutcome, handleSetIntervention,
@@ -407,6 +414,7 @@ const App: React.FC = () => {
                                                     onEnd={handlePrivateSceneEnd}
                                                     onLastWord={handlePrivateSceneLastWord}
                                                     onSkipLastWord={handlePrivateSceneSkipLastWord}
+                                                    npcVoice={privateSceneNpcVoice}
                                                 />
                                             )}
                                             {(narrationVoiceMode !== 'off' || narrationLogEntries.length > 0) && (

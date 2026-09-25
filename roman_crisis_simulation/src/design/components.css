@@ -626,6 +626,8 @@
 .gor-narration-log-note,.gor-narration-log-empty{margin:6px 0 0;font-size:14px;font-style:italic;color:var(--text-muted)}
 .gor-narration-log-actions{margin-top:8px}
 .gor-narration-log-footer{display:flex;justify-content:flex-end}
+/* "Hear them speak" in a private scene (hooks/usePrivateSceneVoice.ts). */
+.gor-scene-voice{margin:8px 0 2px}
 /* Enough to recognise which key is on this device, never enough to read it. */
 .gor-key-mask{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;letter-spacing:.04em;color:var(--text-body)}
 

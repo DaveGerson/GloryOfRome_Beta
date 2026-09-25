@@ -2,6 +2,8 @@ import React from 'react';
 import type { PrivateScenePlayerView } from '../perception/visibility';
 import { WaxSeal } from './ui/Brand';
 import { EmptyRegister, FoldedLetterSilhouette } from './tabs/EmptyRegister';
+import { NarrationVoiceControl } from './Chat';
+import type { PrivateSceneNpcVoice } from '../hooks/usePrivateSceneVoice';
 
 /**
  * The shelf of closed private scenes (WP-16), split out of PrivateScene.tsx:
@@ -15,10 +17,33 @@ import { EmptyRegister, FoldedLetterSilhouette } from './tabs/EmptyRegister';
 const transcriptLineStyle: React.CSSProperties = { margin: '6px 0', paddingLeft: 10, borderLeft: '2px solid var(--border-subtle)' };
 const sectionHeadingStyle: React.CSSProperties = { margin: '14px 0 4px' };
 
-/** One line of a scene's transcript, attributed "You" or by the NPC's name. */
-export const TranscriptLine: React.FC<{ line: PrivateScenePlayerView['transcript'][number]; npcName: string }> = ({ line, npcName }) => (
-  <p style={transcriptLineStyle}><strong>{line.speaker === 'player' ? 'You' : npcName}:</strong> {line.text}</p>
-);
+/** Player-visible copy for an NPC's spoken line (veto-queue: roadmaps/BACKLOG.md B13). */
+export const SCENE_VOICE_COPY = {
+  toggle: 'Hear them speak',
+  toggleNote: 'Each of their lines gets a play control, in a voice of their own. Every line is a paid call on your key.',
+  line: 'Hear them say it',
+} as const;
+
+/**
+ * One line of a scene's transcript, attributed "You" or by the NPC's name.
+ * With the scene voice on (hooks/usePrivateSceneVoice.ts), an NPC's
+ * committed line carries a play control that speaks it in their own voice.
+ */
+export const TranscriptLine: React.FC<{
+  line: PrivateScenePlayerView['transcript'][number];
+  npcName: string;
+  voice?: { scene: PrivateScenePlayerView; npcVoice: PrivateSceneNpcVoice };
+}> = ({ line, npcName, voice }) => {
+  const state = voice?.npcVoice.stateFor(voice.scene, line);
+  return (
+    <div style={transcriptLineStyle}>
+      <p style={{ margin: 0 }}><strong>{line.speaker === 'player' ? 'You' : npcName}:</strong> {line.text}</p>
+      {voice && state !== undefined && (
+        <NarrationVoiceControl state={state} label={SCENE_VOICE_COPY.line} onToggle={() => voice.npcVoice.onToggle(voice.scene, line)} />
+      )}
+    </div>
+  );
+};
 
 function describeClosure(scene: PrivateScenePlayerView): string {
   switch (scene.closureReason) {
@@ -74,7 +99,8 @@ export const PrivateSceneShelf: React.FC<{
   completed: readonly PrivateScenePlayerView[];
   reading: PrivateScenePlayerView | undefined;
   onRead: (sceneId: string) => void;
-}> = ({ completed, reading, onRead }) => (
+  npcVoice?: PrivateSceneNpcVoice;
+}> = ({ completed, reading, onRead, npcVoice }) => (
   <section aria-label="Past private scenes">
     <h3 className="gor-label" style={sectionHeadingStyle}>Past private scenes</h3>
     {completed.length === 0 ? (
@@ -107,7 +133,9 @@ export const PrivateSceneShelf: React.FC<{
       {reading && (
         <div className="gor-shelf-pane">
           <div role="region" aria-label={`Transcript with ${reading.npcName}`}>
-            {reading.transcript.map(line => <TranscriptLine key={line.sequence} line={line} npcName={reading.npcName} />)}
+            {reading.transcript.map(line => (
+              <TranscriptLine key={line.sequence} line={line} npcName={reading.npcName} voice={npcVoice ? { scene: reading, npcVoice } : undefined} />
+            ))}
           </div>
           {reading.speechActs.length > 0 && (
             <section aria-label={`Attributed speech acts with ${reading.npcName}`}>

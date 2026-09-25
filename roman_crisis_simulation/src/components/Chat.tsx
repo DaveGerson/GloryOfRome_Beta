@@ -188,7 +188,9 @@ export const NARRATION_VOICE_COPY = {
 export const NarrationVoiceControl: React.FC<{
     state: NarrationVoiceControlState;
     onToggle: () => void;
-}> = ({ state, onToggle }) => {
+    /** The button's constant accessible name; the chronicle's by default. */
+    label?: string;
+}> = ({ state, onToggle, label = NARRATION_VOICE_COPY.button }) => {
     const engaged = state === 'preparing' || state === 'playing';
     const status = state === 'preparing'
         ? NARRATION_VOICE_COPY.preparing
@@ -211,7 +213,7 @@ export const NarrationVoiceControl: React.FC<{
                 <span className="gor-voice-glyph" aria-hidden="true">
                     {state === 'preparing' ? <span className="gor-voice-spinner" /> : state === 'playing' ? '■' : '▶'}
                 </span>
-                {NARRATION_VOICE_COPY.button}
+                {label}
             </button>
             {status && <span className="gor-voice-status">{status}</span>}
         </div>

@@ -334,3 +334,32 @@ export function setNarratorCharacterId(entityId: string | null): void {
     console.warn('setNarratorCharacterId: localStorage.setItem failed', e);
   }
 }
+
+/**
+ * Whether a private-scene NPC's committed lines get a play control that
+ * speaks them in the NPC's own voice (hooks/usePrivateSceneVoice.ts). Off by
+ * default - every line is a paid TTS call on the player's key - and only
+ * offered while the narration voice itself is not SILENT.
+ */
+const SCENE_VOICES_KEY = 'gloryOfRome:sceneVoices';
+
+export function getSceneVoicesEnabled(): boolean {
+  try {
+    const storage = getStorage();
+    return storage?.getItem(SCENE_VOICES_KEY) === '1';
+  } catch (e) {
+    console.warn('getSceneVoicesEnabled: localStorage.getItem failed', e);
+    return false;
+  }
+}
+
+export function setSceneVoicesEnabled(enabled: boolean): void {
+  try {
+    const storage = getStorage();
+    if (!storage) return;
+    if (enabled) storage.setItem(SCENE_VOICES_KEY, '1');
+    else storage.removeItem(SCENE_VOICES_KEY);
+  } catch (e) {
+    console.warn('setSceneVoicesEnabled: localStorage.setItem failed', e);
+  }
+}
