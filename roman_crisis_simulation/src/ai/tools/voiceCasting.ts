@@ -78,7 +78,7 @@ const castEntrySchema = {
   properties: {
     entityId: { type: Type.STRING },
     voiceName: { type: Type.STRING, enum: VOICE_IDS },
-    style: { type: Type.STRING, description: 'How they speak: at most 80 characters of delivery language.' },
+    style: { type: Type.STRING, description: 'Their manner of speech, for a writer: at most 80 characters (word choice, sentence length, rhythm).' },
     rationale: { type: Type.STRING, description: 'One short line, shown to the player, on why this voice fits.' },
   },
   required: ['entityId', 'voiceName', 'style', 'rationale'],

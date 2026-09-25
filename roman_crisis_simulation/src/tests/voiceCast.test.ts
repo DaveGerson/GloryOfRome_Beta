@@ -91,7 +91,7 @@ describe('deterministic, register-aware casting', () => {
     const cast = deterministicCast(candidates, DEFAULTS);
     const by = (id: string) => cast.members[id];
     expect(by('julia_mamaea')).toMatchObject({ voiceName: 'Gacrux', style: 'cool, imperious and measured', source: 'fallback' });
-    expect(by('maximinus_thrax')).toMatchObject({ voiceName: 'Algenib', style: "a soldier's rough growl, few words" });
+    expect(by('maximinus_thrax')).toMatchObject({ voiceName: 'Algenib', style: "clipped soldier's sentences, few words" });
     expect(by('lycinia_stolo')).toMatchObject({ voiceName: 'Despina', style: 'low, sly and knowing' });
     expect(by('gaius_pontius_magnus')).toMatchObject({ voiceName: 'Charon', style: "an orator's rolling, measured cadence" });
     expect(catalogVoice(by('julia_mamaea').voiceName)?.register).toBe('feminine');
@@ -181,21 +181,20 @@ describe('ensureUniqueCast', () => {
 describe('reading and editing a cast', () => {
   const cast = deterministicCast([person('julia', 'Julia Mamaea', 'Regent'), person('thrax', 'Maximinus Thrax', 'General')], DEFAULTS);
 
-  it('a member performs in their override over their casting; bespoke off drops every note', () => {
-    expect(memberVoice(cast, 'julia', true)).toEqual({ voiceName: 'Gacrux', style: { preset: 'custom', text: 'cool, imperious and measured' } });
-    expect(memberVoice(cast, 'julia', false)).toEqual({ voiceName: 'Gacrux', style: null });
-    expect(memberVoice(cast, 'nobody', true)).toBeNull();
+  it('a member performs in their override over their casting', () => {
+    expect(memberVoice(cast, 'julia')).toEqual({ voiceName: 'Gacrux', style: { preset: 'custom', text: 'cool, imperious and measured' } });
+    expect(memberVoice(cast, 'nobody')).toBeNull();
     const overridden = withMemberOverride(cast, 'julia', { voiceName: 'Kore', style: 'quiet, "cold" [now]: 5' });
     expect(overridden.revision).toBe(cast.revision + 1);
     expect(overridden.members.julia.override).toEqual({ voiceName: 'Kore', style: 'quiet, cold now' });
-    expect(memberVoice(overridden, 'julia', true)).toEqual({ voiceName: 'Kore', style: { preset: 'custom', text: 'quiet, cold now' } });
+    expect(memberVoice(overridden, 'julia')).toEqual({ voiceName: 'Kore', style: { preset: 'custom', text: 'quiet, cold now' } });
     const reset = withoutMemberOverride(overridden, 'julia');
     expect(reset.members.julia.override).toBeUndefined();
-    expect(memberVoice(reset, 'julia', true)?.voiceName).toBe('Gacrux');
+    expect(memberVoice(reset, 'julia')?.voiceName).toBe('Gacrux');
     // Overriding back to the casting clears the override; an unknown voice is ignored.
     expect(withMemberOverride(cast, 'julia', { voiceName: 'Gacrux' }).members.julia.override).toBeUndefined();
     expect(withMemberOverride(cast, 'julia', { voiceName: 'Nobody' }).members.julia.override).toBeUndefined();
-    expect(castStyle('', true)).toBeNull();
+    expect(castStyle('')).toBeNull();
   });
 
   it('completes a stored cast with the uncast by rule, leaving the stored members as they are', () => {

@@ -14,7 +14,9 @@
  *    edited and deleted through this hook);
  *  - the voice: an explicit choice, or else the narrator's own;
  *  - the voice style (narration/voiceStyle.ts): an explicit choice, or else
- *    the narrator's own, which for every preset is "As written".
+ *    the narrator's own, which for every preset is "As written". It shapes
+ *    the prep model's WRITING (its delivery brief); the TTS input is only
+ *    the words to be spoken, always.
  *
  * Under all three sits the campaign's voice cast (narration/voiceCast.ts,
  * hooks/useVoiceCast.ts): with no explicit narration style, the reader the
@@ -102,8 +104,6 @@ export interface UseNarrationVoiceArgs {
     log?: NarrationLogStore;
     /** The campaign's voice cast, complete for everyone the player knows (hooks/useVoiceCast.ts). */
     voiceCast?: VoiceCast | null;
-    /** "Bespoke character voices": false drops every cast delivery note. Default true. */
-    bespokeVoices?: boolean;
 }
 
 /** The week a message belongs to: the last week ribbon before it, else `fallback`. */
@@ -125,7 +125,7 @@ const NO_CHARACTERS: readonly NarratorCharacter[] = [];
 export function useNarrationVoice({
     ai, isMockMode, resolvedApiKey, messages, gameState, playerEntity,
     narrators = NARRATORS, narratorCharacters = NO_CHARACTERS,
-    week, turnNumber, log = sharedNarrationLog, voiceCast = null, bespokeVoices = true,
+    week, turnNumber, log = sharedNarrationLog, voiceCast = null,
 }: UseNarrationVoiceArgs) {
     const [player] = useState(() => new NarrationPlayer());
     const playback = useSyncExternalStore(player.subscribe, player.getSnapshot, player.getSnapshot);
@@ -146,8 +146,8 @@ export function useNarrationVoice({
     const [characterId, setCharacterIdState] = useState<string | null>(() => getNarratorCharacterId());
     const resolved = useMemo(() => resolveNarrator({
         narratorId: storedNarratorId, characterId, presets: narrators, customs: customNarrators, characters: narratorCharacters,
-        cast: voiceCast, bespoke: bespokeVoices,
-    }), [storedNarratorId, characterId, narrators, customNarrators, narratorCharacters, voiceCast, bespokeVoices]);
+        cast: voiceCast,
+    }), [storedNarratorId, characterId, narrators, customNarrators, narratorCharacters, voiceCast]);
     const narrator = resolved.profile;
     // What the "Narration style" select shows: "In character…" stays chosen
     // even before anyone is known, so the character list can explain itself.
@@ -210,11 +210,13 @@ export function useNarrationVoice({
     //
     // Every new performance is written to the narration log, and a transcript
     // the log already holds for this source and narrator is voiced again
-    // without a second prep call (narration/narrationLog.ts, "Reuse").
+    // without a second prep call (narration/narrationLog.ts, "Reuse"). The
+    // style keys the reuse too: it shaped the words, so a transcript written
+    // for one manner is not reused for another.
     const allowedNames = resolved.allowedNames;
     const variant = `${isMockMode ? 'mock' : 'live'}:${resolved.key}:${voice}:${styleKey}`;
     const listener = useMemo(() => (playerName ? { name: playerName, position: playerPosition } : null), [playerName, playerPosition]);
-    const reuseKey = `${resolved.key}|${describeListener(listener) ?? ''}`;
+    const reuseKey = `${resolved.key}|${describeListener(listener) ?? ''}${styleKey === 'as-written' ? '' : `|${styleKey}`}`;
     const messagesRef = useRef(messages);
     const weekRef = useRef({ week, turnNumber });
     useEffect(() => {
@@ -227,7 +229,7 @@ export function useNarrationVoice({
                 const reusable = isMockMode ? undefined : log.findReusable(text, reuseKey);
                 if (reusable) {
                     const wav = await speakTranscript(ai, reusable.transcript, isMockMode, {
-                        model: narrator.voice.model, voiceName: voice, temperature: narrator.voice.temperature, style,
+                        model: narrator.voice.model, voiceName: voice, temperature: narrator.voice.temperature,
                     });
                     return new Blob([wav], { type: 'audio/wav' });
                 }

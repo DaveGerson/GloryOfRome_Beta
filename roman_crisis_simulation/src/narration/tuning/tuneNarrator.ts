@@ -79,7 +79,7 @@ export async function runNarratorTuning(params: {
   /** Also perform each transcript - in `voiceName`, or the profile's own voice. */
   withAudio?: boolean;
   voiceName?: string;
-  /** A delivery style to audition on the TTS input (narration/voiceStyle.ts); none by default. */
+  /** A delivery style to audition: it feeds the prep prompt's delivery brief (narration/voiceStyle.ts), never the TTS input. None by default. */
   style?: VoiceStyle | null;
   /** Injectable clock for tests. */
   now?: () => number;
@@ -91,7 +91,7 @@ export async function runNarratorTuning(params: {
   // keeps the run inside a free-tier rate limit.
   for (const [index, narration] of narrations.entries()) {
     const started = now();
-    const { output } = await runNarrationDirector(ai, narration, narrator, playerContext);
+    const { output } = await runNarrationDirector(ai, narration, narrator, playerContext, style);
     const prepLatencyMs = now() - started;
     const performed = performedTranscriptFor(narration, output, allowed);
     const result: TuningPassageResult = {
@@ -123,7 +123,7 @@ export async function runNarratorTuning(params: {
         const speech = await generateSpeech(ai, {
           callName: 'narratorTuning',
           model: narrator.voice.model,
-          prompt: buildNarrationTtsPrompt(performed.transcript, style),
+          prompt: buildNarrationTtsPrompt(performed.transcript),
           voiceName: voiceName || narrator.voice.voiceName,
           temperature: narrator.voice.temperature,
         });

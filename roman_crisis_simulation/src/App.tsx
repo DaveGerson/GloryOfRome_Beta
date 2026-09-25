@@ -212,7 +212,7 @@ const App: React.FC = () => {
     // The campaign's voice cast (narration/voiceCast.ts): every character
     // the player knows gets a voice of their own - player-visible data only.
     const castBasis = useCastBasis({ voiceCast: state.voiceCast, playerEntity, entities, knowledge });
-    const { effectiveCast, bespokeVoices, handleSetBespokeVoices } = castBasis;
+    const { effectiveCast } = castBasis;
     const {
         narrationVoiceMode, handleSetNarrationVoiceMode, toggleNarrationVoice, narrationVoiceStateFor,
         narrators, narratorId, narratorChosenExplicitly, castNarratorId, narratorVoiceFromCast, handleSetNarrator,
@@ -222,7 +222,7 @@ const App: React.FC = () => {
         voiceStyleChoice, narratorOwnStyle, handleSetVoiceStyle,
     } = useNarrationVoice({
         ai, isMockMode, resolvedApiKey, messages, gameState, playerEntity, narratorCharacters,
-        week: worldState.week, turnNumber, voiceCast: effectiveCast, bespokeVoices,
+        week: worldState.week, turnNumber, voiceCast: effectiveCast,
     });
     // The casting director: runs when the voice is first needed, then for newcomers (see the hook).
     const {
@@ -237,7 +237,7 @@ const App: React.FC = () => {
     // "Hear them speak": a private-scene NPC's committed lines in their own
     // voice - offered only while the narration voice is on, off by default.
     const privateSceneNpcVoice = usePrivateSceneVoice({
-        ai, isMockMode, resolvedApiKey, narrationVoiceMode, voiceCast: effectiveCast, bespokeVoices, week: worldState.week,
+        ai, isMockMode, resolvedApiKey, narrationVoiceMode, voiceCast: effectiveCast, week: worldState.week,
     });
 
     const {
@@ -548,8 +548,6 @@ const App: React.FC = () => {
                     narratorVoiceFromCast={narratorVoiceFromCast}
                     voiceCast={effectiveCast}
                     castCharacters={castBasis.candidates}
-                    bespokeVoices={bespokeVoices}
-                    onSetBespokeVoices={handleSetBespokeVoices}
                     canRecast={canRecast}
                     recastStatus={recastStatus}
                     onRecast={handleRecast}

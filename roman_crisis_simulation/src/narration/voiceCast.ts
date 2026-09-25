@@ -33,10 +33,15 @@
  * campaign (persistence/saveGame.ts, the optional `voiceCast` field), so it
  * travels with an exported reign.
  *
- * Styles are sanitized exactly like a player's custom voice style
- * (narration/voiceStyle.ts `sanitizeVoiceStyleText`), capped at 80
- * characters, and reach the TTS input only through `voiceStylePrefix` - and
- * only while "Bespoke character voices" is on (`castStyle`).
+ * Styles (delivery notes) are sanitized exactly like a player's custom voice
+ * style (narration/voiceStyle.ts `sanitizeVoiceStyleText`), capped at 80
+ * characters. A note is a MANNER for a writer ("clipped soldier's
+ * sentences, few words"); the voice carries the sound. It NEVER reaches the
+ * TTS input - the TTS model speaks every word it is given. Where a prep call
+ * exists (the cast narrator, a character narrating "In character…") the note
+ * feeds that call's delivery brief (`castStyle`,
+ * ai/prompts/narrationPerformance.ts `buildDeliveryBrief`); where none does
+ * (a private-scene NPC's committed line) it is shown, and sent nowhere.
  */
 
 import { z } from 'zod';
@@ -105,7 +110,7 @@ export type CastOverride = z.infer<typeof castOverrideSchema>;
 /**
  * A persisted cast, validated - or null. Used on load (GAME_LOADED) so a
  * hand-edited or corrupted save can never put an unknown voice or an
- * unsanitized delivery note on the TTS input.
+ * unsanitized delivery note into a prep prompt.
  */
 export function normalizeVoiceCast(value: unknown): VoiceCast | null {
   const parsed = voiceCastSchema.safeParse(value);
@@ -219,7 +224,7 @@ interface Station {
 const STATIONS: readonly Station[] = [
   { test: /\b(?:empress|augusta|regent|regina|queen|mother)\b/i, style: 'cool, imperious and measured', voices: { feminine: ['Gacrux', 'Kore', 'Despina'], masculine: ['Orus', 'Schedar'] } },
   { test: /\b(?:emperor|augustus|caesar|king|prince|princeps)\b/i, style: 'measured and courtly, weighing every word', voices: { feminine: ['Kore', 'Erinome'], masculine: ['Iapetus', 'Orus', 'Schedar'] } },
-  { test: /\b(?:general|legions?|legate|centurion|soldier|tribune|prefect|commander|legionary|veteran|guard|praetorian)\b/i, style: "a soldier's rough growl, few words", voices: { feminine: ['Kore', 'Pulcherrima'], masculine: ['Algenib', 'Alnilam', 'Orus'] } },
+  { test: /\b(?:general|legions?|legate|centurion|soldier|tribune|prefect|commander|legionary|veteran|guard|praetorian)\b/i, style: "clipped soldier's sentences, few words", voices: { feminine: ['Kore', 'Pulcherrima'], masculine: ['Algenib', 'Alnilam', 'Orus'] } },
   { test: /\b(?:senator|consul|orator|magistrate|curia|conscript)\b/i, style: "an orator's rolling, measured cadence", voices: { feminine: ['Erinome', 'Gacrux'], masculine: ['Charon', 'Rasalgethi', 'Sadaltager'] } },
   { test: /\b(?:informant|broker|spy|agent|vulture|whisperer|smuggler)\b/i, style: 'low, sly and knowing', voices: { feminine: ['Despina', 'Achernar'], masculine: ['Algieba', 'Umbriel'] } },
   { test: /\b(?:priest|priestess|vestal|augur|pontifex|oracle|haruspex)\b/i, style: 'solemn and hushed', voices: { feminine: ['Vindemiatrix', 'Achernar'], masculine: ['Schedar', 'Enceladus'] } },
@@ -454,16 +459,12 @@ export function newestVoiceCast(...casts: Array<VoiceCast | null | undefined>): 
 // Reading the cast.
 
 /**
- * A cast delivery note as a voice style - or none, when bespoke voices are off.
- *
- * THE ONE PLACE a cast note becomes a TTS prefix ("Say, <note>: ...", built by
- * voiceStylePrefix). PR #9 found the TTS model may read such instructions
- * aloud; "Bespoke character voices" off (`bespoke === false`) returns null
- * here, so no cast note reaches any voice - the narrator's, a character's in
- * character, or a private-scene NPC's.
+ * A cast delivery note as a voice style (sanitized), or null when it is empty.
+ * It shapes the WRITING only: a prep call's delivery brief
+ * (ai/prompts/narrationPerformance.ts `buildDeliveryBrief`). Nothing turns
+ * it into TTS input.
  */
-export function castStyle(text: string | null | undefined, bespoke: boolean): VoiceStyle | null {
-  if (!bespoke) return null;
+export function castStyle(text: string | null | undefined): VoiceStyle | null {
   const clean = sanitizeCastStyle(text);
   return clean ? { preset: 'custom', text: clean } : null;
 }
@@ -482,11 +483,11 @@ export function effectiveMember(m: CastMember): { voiceName: string; style: stri
 }
 
 /** A character's voice and delivery, or null when they are not in the cast. */
-export function memberVoice(cast: VoiceCast | null | undefined, entityId: string, bespoke: boolean): CastVoice | null {
+export function memberVoice(cast: VoiceCast | null | undefined, entityId: string): CastVoice | null {
   const m = cast?.members[entityId];
   if (!m) return null;
   const { voiceName, style } = effectiveMember(m);
-  return { voiceName, style: castStyle(style, bespoke) };
+  return { voiceName, style: castStyle(style) };
 }
 
 /** Sets (or, when it matches the casting, clears) a member's override. Returns a new cast. */

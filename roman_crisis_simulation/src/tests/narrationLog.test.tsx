@@ -188,12 +188,19 @@ describe('recording from the voices', () => {
     expect(second.tts()[0][0].contents).toBe('The Praetorians mutter in their camp, restless. Maximinus raises a cup, and the Senate waits.');
     expect(log.getSnapshot()).toHaveLength(1);
 
+    // Another style is another retelling: the style shaped the words.
+    act(() => again.current.handleSetVoiceStyle({ preset: 'newsreader' }));
+    act(() => again.current.toggleNarrationVoice(1, NARRATION));
+    await settle();
+    expect(second.prep()).toHaveLength(1);
+    act(() => again.current.handleSetVoiceStyle(null));
+
     // Another narrator is another retelling.
     act(() => again.current.handleSaveCustomNarrator({ name: 'Herald', description: '', brief: 'A crier.', voiceName: 'Orus', voiceStyle: null }));
     act(() => again.current.handleSetNarrator(again.current.customNarrators[0].id));
     act(() => again.current.toggleNarrationVoice(1, NARRATION));
     await settle();
-    expect(second.prep()).toHaveLength(1);
+    expect(second.prep()).toHaveLength(2);
     again.unmount();
   });
 
@@ -272,7 +279,7 @@ describe('the log panel', () => {
     view.cleanup();
   });
 
-  it('replays the logged words through the voice alone, in their logged style; pressing again stops', async () => {
+  it('replays the logged words through the voice alone - the words and nothing else, whatever style wrote them; pressing again stops', async () => {
     mockAudio();
     const { ai, prep, tts } = makeAi();
     const view = mount(seeded(), ai);
@@ -282,7 +289,7 @@ describe('the log panel', () => {
     await settle();
     expect(prep()).toHaveLength(0);
     expect(tts()).toHaveLength(1);
-    expect(tts()[0][0].contents).toBe('Say in the grand, resonant voice of an epic stage tragedian: Newer words.');
+    expect(tts()[0][0].contents).toBe('Newer words.');
     expect(play.getAttribute('aria-pressed')).toBe('true');
     act(() => play.click());
     expect(play.getAttribute('aria-pressed')).toBe('false');

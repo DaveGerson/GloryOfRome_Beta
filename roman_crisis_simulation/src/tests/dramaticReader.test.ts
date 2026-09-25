@@ -10,7 +10,7 @@
  * reader: third person, no side, no counsel, no "we".
  */
 import { describe, expect, it } from 'vitest';
-import { buildNarrationPerformancePrompt, buildNarratorSystemInstruction, carriesFixedRules } from '../ai/prompts/narrationPerformance';
+import { buildDeliveryBrief, buildNarrationPerformancePrompt, buildNarratorSystemInstruction, carriesFixedRules } from '../ai/prompts/narrationPerformance';
 import { DRAMATIC_READER_NARRATOR, NARRATORS, narratorById, narratorProfileSchema } from '../narration/narrators';
 import { NARRATOR_VOICES } from '../persistence/uiPrefs';
 import { asPromptData } from '../ai/prompts/fragments';
@@ -74,6 +74,21 @@ describe('the Dramatic Reader is the owner\'s narrator, word for word', () => {
     expect(buildNarrationPerformancePrompt(NARRATION, 'Julia Mamaea').prompt).toBe(ownerPrompt(NARRATION, 'Julia Mamaea'));
     expect(buildNarrationPerformancePrompt(NARRATION, null).prompt).toBe(ownerPrompt(NARRATION, 'the player'));
     expect(buildNarrationPerformancePrompt(NARRATION).prompt).toContain('directly to your partner');
+  });
+
+  it('with "As written" and no cast note, the prompt is byte-identical to the owner\'s: no brief at all', () => {
+    for (const noBrief of [undefined, null, { preset: 'as-written' as const }, { preset: 'custom' as const, text: '   ' }]) {
+      const built = buildNarrationPerformancePrompt(NARRATION, { name: 'Severus', position: 'Imperator' }, DRAMATIC_READER_NARRATOR, noBrief);
+      expect(built.prompt).toBe(ownerPrompt(NARRATION, 'Severus (Imperator)'));
+      expect(built.systemInstruction).toBe(`${OWNER_SYSTEM_INSTRUCTION}\n${FIDELITY_LINE}`);
+    }
+  });
+
+  it('a chosen style is a separate block AFTER the owner\'s text, which stays word for word', () => {
+    const built = buildNarrationPerformancePrompt(NARRATION, { name: 'Severus', position: 'Imperator' }, DRAMATIC_READER_NARRATOR, { preset: 'custom', text: 'hushed, few words' });
+    expect(built.systemInstruction).toBe(`${OWNER_SYSTEM_INSTRUCTION}\n${FIDELITY_LINE}`);
+    expect(built.prompt).toBe(`${ownerPrompt(NARRATION, 'Severus (Imperator)')}\n\n${buildDeliveryBrief({ preset: 'custom', text: 'hushed, few words' })}`);
+    expect(built.prompt).toContain(asPromptData('hushed, few words'));
   });
 
   it('the narration is still D41 data: asPromptData, not a raw interpolation', () => {

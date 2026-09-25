@@ -13,11 +13,12 @@
  *                            JSON being tuned (default: the built-in).
  *  - GOR_NARRATOR_AUDIO=1    also perform each passage and write .wav files.
  *  - GOR_NARRATOR_VOICE      voice for the audio (default: the narrator's own).
- *  - GOR_NARRATOR_STYLE      a delivery style to audition with the audio: a
- *                            preset id (tragedian, newsreader, conspiratorial,
+ *  - GOR_NARRATOR_STYLE      a delivery style to audition: a preset id
+ *                            (tragedian, newsreader, conspiratorial,
  *                            old-soldier) or free text, sanitized as a player's
- *                            custom style is. Listen for the prefix being read
- *                            aloud (narration/voiceStyle.ts has the caveat).
+ *                            custom style is. It feeds the prep prompt's
+ *                            delivery brief, so it shapes the retelling's
+ *                            words; the TTS input stays the words alone.
  *  - GOR_NARRATOR_FIXTURES   an alternative fixtures JSON path.
  *
  * Output: narration/tuning/out/<narrator-id>/<timestamp>/ (git-ignored):

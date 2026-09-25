@@ -21,9 +21,12 @@
  *    Someone not (yet) in the cast is voiced by the deterministic casting
  *    from their name alone.
  *
- * Delivery style: the NPC's cast note, through `voiceStylePrefix` - and none
- * at all while "Bespoke character voices" is off. Never the narrator's style:
- * a style is a speaker's own manner.
+ * Delivery style: none reaches the voice. The line is the NPC's committed
+ * words and there is no prep call to write them in a manner, and the TTS
+ * model speaks every word it is given - so the NPC's character comes
+ * entirely from their cast VOICE. Their cast note is returned for display
+ * (the narration log shows it) and sent nowhere. Never the narrator's style
+ * either: a style is a speaker's own manner.
  */
 
 import { castStyle, deterministicMember, memberVoice, type CastVoice, type VoiceCast } from './voiceCast';
@@ -43,9 +46,9 @@ export function cleanSceneLineForSpeech(text: string): string {
 }
 
 /** The NPC's own voice and delivery: their cast member, else the rule from their name. */
-export function npcCastVoice(cast: VoiceCast | null | undefined, npc: { npcId: string; npcName: string }, bespoke: boolean): CastVoice {
-  const member = memberVoice(cast, npc.npcId, bespoke);
+export function npcCastVoice(cast: VoiceCast | null | undefined, npc: { npcId: string; npcName: string }): CastVoice {
+  const member = memberVoice(cast, npc.npcId);
   if (member) return member;
   const byRule = deterministicMember({ entityId: npc.npcId, name: npc.npcName, entityType: 'individual' });
-  return { voiceName: byRule.voiceName, style: castStyle(byRule.style, bespoke) };
+  return { voiceName: byRule.voiceName, style: castStyle(byRule.style) };
 }

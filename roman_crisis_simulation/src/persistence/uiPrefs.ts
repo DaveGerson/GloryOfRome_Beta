@@ -372,20 +372,10 @@ export function setSceneVoicesEnabled(enabled: boolean): void {
   }
 }
 
-/**
- * "Bespoke character voices" (narration/voiceCast.ts): whether the voice
- * cast's delivery notes are sent as "Say …:" prefixes on the TTS input. ON by
- * default. OFF is the plain behavior: every character and the narrator keep
- * their distinct cast voices, and no cast style is ever prefixed - the one
- * switch that turns the cast's prefixes off everywhere, should the TTS model
- * read them aloud (PR #9, narration/voiceStyle.ts).
+/*
+ * 'gloryOfRome:bespokeVoices' was the "Bespoke character voices" switch. It
+ * existed only to stop cast delivery notes from being prefixed on the TTS
+ * input, where the voice would read them aloud; notes never reach the TTS
+ * input now (narration/voiceStyle.ts), so the switch is gone. A stored value
+ * from an older build is simply never read - harmless, and left in place.
  */
-const BESPOKE_VOICES_KEY = 'gloryOfRome:bespokeVoices';
-
-export function getBespokeVoicesEnabled(): boolean {
-  return getBoolPref(BESPOKE_VOICES_KEY);
-}
-
-export function setBespokeVoicesEnabled(enabled: boolean): void {
-  setBoolPref(BESPOKE_VOICES_KEY, enabled);
-}

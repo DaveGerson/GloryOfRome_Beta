@@ -51,7 +51,7 @@ import {
 } from '../narration/voiceCast';
 import { updateSavedVoiceCast } from '../persistence/saveGame';
 import { DRAMATIC_READER_NARRATOR, NARRATORS } from '../narration/narrators';
-import { getBespokeVoicesEnabled, setBespokeVoicesEnabled, type NarrationVoiceMode } from '../persistence/uiPrefs';
+import type { NarrationVoiceMode } from '../persistence/uiPrefs';
 
 /** The cast's fallback narrator: the built-in Dramatic Reader in its own voice. */
 export const DEFAULT_CAST_NARRATOR: DefaultNarrator = {
@@ -72,19 +72,13 @@ export interface CastBasisArgs {
 
 /**
  * What every voice reads, before any casting call: the candidates (the
- * player-visible projection), the effective cast, and the "Bespoke
- * character voices" switch. Split from `useVoiceCast` so the narration hook
+ * player-visible projection) and the effective cast. Split from `useVoiceCast` so the narration hook
  * can take the cast while the casting itself follows the narration mode.
  */
 export function useCastBasis({ voiceCast, playerEntity, entities, knowledge, defaultNarrator = DEFAULT_CAST_NARRATOR }: CastBasisArgs) {
-  const [bespokeVoices, setBespokeState] = useState(() => getBespokeVoicesEnabled());
-  const handleSetBespokeVoices = useCallback((next: boolean) => {
-    setBespokeState(next);
-    setBespokeVoicesEnabled(next);
-  }, []);
   const candidates = useMemo(() => castingCandidatesFor(playerEntity, entities, knowledge), [playerEntity, entities, knowledge]);
   const effectiveCast = useMemo(() => completeCast(voiceCast, candidates, defaultNarrator), [voiceCast, candidates, defaultNarrator]);
-  return { candidates, effectiveCast, bespokeVoices, handleSetBespokeVoices };
+  return { candidates, effectiveCast };
 }
 
 export type CastBasis = ReturnType<typeof useCastBasis>;

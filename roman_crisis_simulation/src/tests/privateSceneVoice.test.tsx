@@ -71,10 +71,10 @@ afterEach(() => {
 describe('the NPC voice', () => {
   it('is the NPC\'s own cast voice and delivery; someone uncast is voiced by rule from their name', () => {
     const cast = deterministicCast([{ entityId: 'julia', name: 'Julia Mamaea', position: 'Regent', entityType: 'individual' }], { narratorId: 'senatorial-partner', voiceName: 'Enceladus' });
-    expect(npcCastVoice(cast, { npcId: 'julia', npcName: 'Julia Mamaea' }, true)).toEqual({ voiceName: 'Gacrux', style: { preset: 'custom', text: 'cool, imperious and measured' } });
-    const uncast = npcCastVoice(null, { npcId: 'x', npcName: 'Aurelia' }, true);
+    expect(npcCastVoice(cast, { npcId: 'julia', npcName: 'Julia Mamaea' })).toEqual({ voiceName: 'Gacrux', style: { preset: 'custom', text: 'cool, imperious and measured' } });
+    const uncast = npcCastVoice(null, { npcId: 'x', npcName: 'Aurelia' });
     expect(isCatalogVoice(uncast.voiceName)).toBe(true);
-    expect(npcCastVoice(null, { npcId: 'x', npcName: 'Aurelia' }, true)).toEqual(uncast);
+    expect(npcCastVoice(null, { npcId: 'x', npcName: 'Aurelia' })).toEqual(uncast);
   });
 
   it('cleans a committed line for speech: stage business, bold and bracketed asides go; the words stay', () => {
@@ -114,9 +114,11 @@ describe('the hook', () => {
     const call = generateContent.mock.calls[0][0];
     expect(call.config?.responseModalities).toBeTruthy();
     const voice = (call.config?.speechConfig as { voiceConfig: { prebuiltVoiceConfig: { voiceName: string } } }).voiceConfig.prebuiltVoiceConfig.voiceName;
-    // Her cast voice (Gacrux, a woman's) with her cast delivery note, not the narrator's Enceladus.
+    // Her cast voice (Gacrux, a woman's), not the narrator's Enceladus. The
+    // voice speaks her committed words and nothing else: with no prep call,
+    // her cast note is shown on the log entry and sent nowhere.
     expect(voice).toBe('Gacrux');
-    expect(call.contents).toBe('Say, cool, imperious and measured: My son trusts you. Do not make me regret it.');
+    expect(call.contents).toBe('My son trusts you. Do not make me regret it.');
     expect(hook.current!.stateFor(view, view.transcript[1])).toBe('playing');
     expect(log.getSnapshot()[0]).toMatchObject({
       kind: 'private_scene', sourceLabel: 'Private scene with Julia Mamaea', narratorName: 'Julia Mamaea', voice,
@@ -132,16 +134,17 @@ describe('the hook', () => {
     hook.unmount();
   });
 
-  it('speaks in the player\'s override of the NPC\'s casting, and with no note at all while bespoke voices are off', async () => {
+  it('speaks in the player\'s override of the NPC\'s casting; the overridden note is shown, never spoken', async () => {
     const overridden = withMemberOverride(CAST, 'julia', { voiceName: 'Kore', style: 'quiet and cold' });
-    const { hook, generateContent, log } = mount({ voiceCast: overridden, bespokeVoices: false });
+    const { hook, generateContent, log } = mount({ voiceCast: overridden });
     act(() => hook.current!.onSetEnabled(true));
     act(() => hook.current!.onToggle(view, view.transcript[1]));
     await settle();
     const call = generateContent.mock.calls[0][0];
     expect((call.config?.speechConfig as { voiceConfig: { prebuiltVoiceConfig: { voiceName: string } } }).voiceConfig.prebuiltVoiceConfig.voiceName).toBe('Kore');
     expect(call.contents).toBe('My son trusts you. Do not make me regret it.');
-    expect(log.getSnapshot()[0]).toMatchObject({ voice: 'Kore', voiceStyle: null });
+    expect(call.contents).not.toContain('quiet and cold');
+    expect(log.getSnapshot()[0]).toMatchObject({ voice: 'Kore', voiceStyle: { preset: 'custom', text: 'quiet and cold' } });
     hook.unmount();
   });
 

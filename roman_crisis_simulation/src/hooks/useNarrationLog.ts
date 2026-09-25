@@ -5,8 +5,10 @@
  * newest first, and replay. Replay voices the LOGGED transcript - words the
  * guard already passed and the player already heard - so it never makes a
  * prep call; the TTS call runs unless this player's in-memory audio cache
- * already holds the clip. Each entry replays in the voice and delivery style
- * it was logged with. Mock Mode: the synthesized tone, no call.
+ * already holds the clip. Each entry replays in the voice it was logged with;
+ * its logged delivery style already shaped the words (or, for a private-scene
+ * line, was never sent), so the TTS input is the transcript alone. Mock
+ * Mode: the synthesized tone, no call.
  */
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
@@ -45,7 +47,6 @@ export function useNarrationLog({ ai, isMockMode, resolvedApiKey, log = sharedNa
                 const wav = await speakTranscript(ai, transcript, isMockMode, {
                     callName: 'narrationReplay',
                     voiceName: entry?.voice ?? 'Enceladus',
-                    style: entry?.voiceStyle ?? null,
                     temperature: entry ? REPLAY_TEMPERATURE[entry.kind] : 1,
                 });
                 return new Blob([wav], { type: 'audio/wav' });

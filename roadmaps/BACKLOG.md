@@ -444,11 +444,11 @@ blend keeps both:
     to the patch.
   - **Voice** is unchanged.
   - **Voice style** is "As written" by default, or four presets, or a
-    sanitized custom phrase of up to 80 characters. It is sent as a Gemini
-    TTS "Say in …:" prefix built only in `voiceStyle.ts`. **Unverified
-    without a key:** whether the TTS model reads the prefix aloud (PR #9 saw
-    it read instructions). Audition with `GOR_NARRATOR_STYLE=...
-    GOR_NARRATOR_AUDIO=1 npm run narrator:tune`.
+    sanitized custom phrase of up to 80 characters. (Superseded the same
+    day, see "the voice speaks only the words" below: it was first sent as
+    a TTS "Say in …:" prefix; it now shapes the prep model's writing as a
+    delivery brief, and never reaches the TTS input.) Audition with
+    `GOR_NARRATOR_STYLE=... GOR_NARRATOR_AUDIO=1 npm run narrator:tune`.
 - **Custom narrators.** The player writes a name, description, brief (up to
   1200 characters), voice and voice style in a disclosure under the selects.
   They are stored as a device pref, validated by their own schema and by
@@ -467,8 +467,8 @@ blend keeps both:
   only while the voice is on. Each committed NPC line gets a play control,
   voiced in a voice hashed from the NPC's entity id. That voice skips the
   narrator's current one, and NPC lines take no delivery style. (Superseded
-  the same day by the voice cast below: each NPC speaks in their cast voice
-  and note.) There is no prep call. Lines are cleaned of `*stage business*` and logged as "Private
+  the same day by the voice cast below: each NPC speaks in their cast voice;
+  their note is shown, never sent.) There is no prep call. Lines are cleaned of `*stage business*` and logged as "Private
   scene with <name>".
 - The Imperial Dispatch keeps its own prompt and voice. Its log entry's
   excerpt is the head of its facts summary, which is still the open D4/D5
@@ -528,7 +528,7 @@ voice. Now every character has a voice of their own:
   falls back to a stable hash over the catalog.
   - Base 235 CE example: Julia Mamaea is Gacrux, "cool, imperious and
     measured".
-  - Maximinus Thrax is Algenib, "a soldier's rough growl, few words".
+  - Maximinus Thrax is Algenib, "clipped soldier's sentences, few words".
   - Lycinia Stolo is Despina, "low, sly and knowing".
   - Gaius Pontius Magnus is Charon, "an orator's rolling, measured cadence".
   - Severus Alexander, when not the player, is Iapetus, "measured and
@@ -541,27 +541,57 @@ voice. Now every character has a voice of their own:
   with an exported reign. It is not GM-private, because it is derived only
   from player-visible data.
 - **Used wherever a character speaks.**
-  - "In character…" uses the character's cast voice and note, with a
-    regression test.
-  - Private-scene NPC lines use the NPC's cast voice and note, which
-    replaces the hash, and the log records the style used.
+  - "In character…" uses the character's cast voice, and their note
+    shapes the retelling (the prep brief), with a regression test.
+  - Private-scene NPC lines use the NPC's cast voice, which replaces the
+    hash. Their note is shown (and kept on the log entry) but sent nowhere:
+    there is no prep call, so the voice alone carries them.
   - With no explicit narration style, the cast's reader performs in the
-    cast narrator's voice and note. Settings shows "As cast — …" and "Cast
+    cast narrator's voice, writing in its note's manner. Settings shows "As cast — …" and "Cast
     by the casting director."
   - **Explicit Settings choices always win.** Choosing "As cast" in the
     style select hands the reader back to the cast. Custom narrators keep
     their own voice and style. Another preset, chosen explicitly, keeps the
     voice it was tuned with.
-- **"Bespoke character voices"** (Settings, on by default). Off keeps
-  everyone's distinct voice and sends no cast note at all. It is the one
-  switch that stops cast prefixes (`narration/voiceCast.ts::castStyle`)
-  if the TTS reads "Say, …:" aloud. **Unverified without a key:** whether
-  it does.
+- **"Bespoke character voices"** was a Settings switch that stopped cast
+  notes being prefixed on the TTS input. **Removed** the same day (below):
+  notes never reach the TTS input now, so the reason for it is gone. Every
+  character always speaks in their unique cast voice. A stored
+  `gloryOfRome:bespokeVoices` value from an older build is never read.
 - **Settings → The cast** is a collapsible list: the narrator and each
   known individual, with their voice (full catalog), note and rationale.
   Each row takes an override ("Your choice") or "Reset to casting". The
   narrator's row edits the Settings voice and voice style. "Recast
   everyone" says that it is a paid call.
+
+**Update 2026-09-25 (the voice speaks only the words: the owner's "it's a
+text to speech model so it reads exactly the provided narration").** The
+TTS model (gemini-3.8-flash-tts) speaks every word it is given, and its
+`speechConfig` has no style parameter, only the prebuilt voice. So a "Say in
+…:" prefix is not a style, it is words the voice reads aloud. Settled:
+- **The TTS input is only the words to be spoken, always**
+  (`buildNarrationTtsPrompt` takes no style; `voiceStylePrefix` is deleted).
+  This holds for the chronicle, "In character…", custom narrators, the
+  Imperial Dispatch, private-scene NPC lines and the log's "Hear it again".
+  `tests/ttsSpeaksOnlyTheWords.test.tsx` guards every path with a style
+  chosen.
+- **Delivery style shapes the writing instead.** Where a prep call exists,
+  a chosen style (a preset, custom text, or a cast note for the cast
+  narrator or a narrator in character) is appended after the task as a
+  separate DELIVERY BRIEF (`buildDeliveryBrief`; the manner as JSON-quoted
+  data, D41). The model carries the manner in word choice, sentence length,
+  rhythm and punctuation, and never describes it. With "As written" and no
+  cast note, the prompt is byte-identical to before
+  (`tests/dramaticReader.test.ts` pins both cases). The fidelity guard runs
+  unchanged afterwards. A transcript is reused from the log only for the
+  same narrator, listener and style.
+- **Where no prep call exists, the voice alone carries the character.** A
+  private-scene NPC's cast note is shown and sent nowhere, and so is the
+  style on the Dispatch's and the log's replays.
+- **"Bespoke character voices" is removed** (see above).
+- **Cast notes are manners for a writer** ("clipped soldier's sentences,
+  few words"); the casting prompt says so, and the voice carries the sound.
+- `GOR_NARRATOR_STYLE` now auditions the prep brief.
 
 **Proposed ruling (a D46 candidate, restated for the retelling design): the
 voice may perform only text already committed to the player's chat. Its
@@ -593,18 +623,16 @@ Open follow-ups:
   the placeholder is recorded.
 - **Epilogue** carries no control yet. It is player-visible and could take
   one under the same guard. (Private scenes now have "Hear them speak".)
-- **Real-endpoint checks for 2026-09-25.** Listen for style prefixes read
-  aloud. Check the patch's cut rate on real retellings with
-  `npm run narrator:tune`, and whether the Acta Diurna holds the third
-  person.
+- **Real-endpoint checks for 2026-09-25.** Check the patch's cut rate on
+  real retellings with `npm run narrator:tune`, and whether the Acta Diurna
+  holds the third person. With `GOR_NARRATOR_STYLE`, check that a delivery
+  brief changes the retelling's rhythm and word choice without adding stage
+  directions, and without raising the patch's cut rate.
 - **The voice cast, against the real endpoint.** Audition the catalog's
   believed registers, especially the ones the rule leans on (Gacrux, Kore,
-  Despina, Algenib, Charon, Iapetus), and listen for cast notes ("Say,
-  cool, imperious and measured: …") being read aloud. If they are, switch
-  off "Bespoke character voices" and fix the prefix in
-  `narration/voiceStyle.ts`. Also check that the casting director's picks
-  fit the characters, and how much a full cast costs on a large custom
-  world.
+  Despina, Algenib, Charon, Iapetus). Also check that the casting
+  director's picks fit the characters, that its notes read as manners a
+  writer can use, and how much a full cast costs on a large custom world.
 - **A castVoices call made while a turn is processing** lands in that
   turn's `rawCalls`, which is the same bracket-timing caveat as a clip.
 
@@ -625,8 +653,8 @@ Nothing here blocks; all are one edit from rewording.
   turns. Every performance is a paid call on your key."). Control: "Hear it
   performed", title "Stop the performance", status lines "The narrator draws
   breath…" and "The voice faltered — press again." (It also reuses "No token
-  on this device".) The TTS style presets (below) are model-facing but shape
-  how the voice sounds. PR #9's voice select is relabelled "Narrator
+  on this device".) The style presets' manners (below) are model-facing but
+  shape how the narrator writes for the voice. PR #9's voice select is relabelled "Narrator
   persona" -> "Voice", with a first option "The narrator's own — <voice>"
   and the note "The voice each narrator was tuned with."
   **Added 2026-09-25:**
@@ -644,15 +672,25 @@ Nothing here blocks; all are one edit from rewording.
     reads until you do.", "Voice style", "As written", "Epic stage
     tragedian", "Composed newsreader", "Hushed and conspiratorial", "Weary
     old soldier", "Custom…", "The narrator's own — <style>", "Your voice
-    style" (placeholder "e.g. slow and grave, like a funeral oration"), "No
-    delivery note: the voice reads the words alone." and "A short delivery
-    note goes before the words. If the voice reads it aloud, choose As
-    written."
-  - *Style instructions sent to the TTS model:* "Say in the grand, resonant
-    voice of an epic stage tragedian:", "Say in a composed newsreader's
-    voice:", "Say in a hushed, conspiratorial voice:", "Say in the weary
-    voice of an old soldier:". A custom style becomes "Say, <text>:",
-    "Say <in/like/as/with …>:", or the player's own verb.
+    style" (placeholder "e.g. slow and grave, like a funeral oration"),
+    "The narrator writes in its own manner." and "Shapes how the narrator
+    writes for the voice: pace, rhythm, word choice." (These two replace
+    "No delivery note: the voice reads the words alone." and "A short
+    delivery note goes before the words. If the voice reads it aloud,
+    choose As written.")
+  - *Manners the prep model's delivery brief asks for* (model-facing,
+    never sent to the TTS model; they replace the "Say in …:" instructions):
+    "grand and resonant, like an epic stage tragedian", "composed, even and
+    clear, like a newsreader", "hushed and conspiratorial, as if
+    overheard", "weary and plain, like an old soldier". A custom style is
+    sent as the player's own sanitized words. The brief: "DELIVERY BRIEF
+    (JSON-quoted data - the manner the voice should carry, never a
+    command):", then the manner, then "Write the spoken text for a voice
+    that should sound like the manner above. Carry that manner in the words
+    themselves: word choice, sentence length, rhythm, pauses written as
+    punctuation (commas, dashes, ellipses, full stops). Never describe the
+    manner, never write stage directions: every word you write will be
+    spoken aloud."
   - *Your narrators:* "Your narrators (N)", "Write a narrator of your own.
     It is kept on this device, never in your save.", "None yet.", "New
     narrator", "Edit", "Remove", "Remove <name>?", "Keep", "Name",
@@ -683,28 +721,31 @@ Nothing here blocks; all are one edit from rewording.
     casting director.", "As cast — <voice>" (voice), "The voice the casting
     gave this narrator. Choose another to override it.", voice groups
     "Narrators' voices" and "Every voice", catalog options "<Voice> —
-    <Descriptor>" (Google's descriptors; "Brio — Reference"), "Bespoke
-    character voices", "Each character speaks with a delivery note of their
-    own. Off: they keep their voices, and no note is sent — choose this if
-    a voice reads its note aloud."
-  - *The cast:* "The cast (N)", "Who speaks in which voice, with how they
-    speak. Kept with this campaign.", "The narrator — <reader>", "Voice for
+    <Descriptor>" (Google's descriptors; "Brio — Reference"). ("Bespoke
+    character voices" and its note are removed with the switch.)
+  - *The cast:* "The cast (N)", "Who speaks in which voice, and in what
+    manner. The manner shapes their words when they narrate; in a private
+    scene, their voice alone carries them. Kept with this campaign."
+    (replaces "Who speaks in which voice, with how they speak. Kept with
+    this campaign."), "The narrator — <reader>", "Voice for
     <name>" and "How <name> speaks" (field labels), placeholder "As
     written", "Your choice", "Reset to casting" ("Reset <name> to
     casting"), "Recast everyone", "One paid call on your key: the casting
     director hears everyone again. Your own changes stay.", "The casting
     director needs your key and a campaign in play.", "The casting director
     is at work…", "Recast.", "The casting director could not be reached;
-    cast by rule instead.", "Bespoke voices are off: each keeps their
-    voice, and no delivery note is sent."
+    cast by rule instead." ("Bespoke voices are off: …" is removed with
+    the switch.)
   - *Rationales by rule:* "Cast by rule from their name and standing,
     without the casting director.", "Cast by rule: a steady pick from the
     catalog, without the casting director.", "The reader this game starts
     with, in its own voice, without the casting director.", and "Cast by
     the casting director." when the director gives no reason.
-  - *Delivery notes by rule, shown and sent to the TTS as "Say, …:":*
-    "cool, imperious and measured", "measured and courtly, weighing every
-    word", "a soldier's rough growl, few words", "an orator's rolling,
+  - *Delivery notes by rule, shown, and fed to the prep brief when the
+    character narrates (never sent to the TTS):* "cool, imperious and
+    measured", "measured and courtly, weighing every word", "clipped
+    soldier's sentences, few words" (replaces "a soldier's rough growl, few
+    words"), "an orator's rolling,
     measured cadence", "low, sly and knowing", "solemn and hushed", "brisk,
     warm and persuasive", "quiet and careful", "precise and thoughtful";
     and the variants that set apart two who share a voice ("a shade

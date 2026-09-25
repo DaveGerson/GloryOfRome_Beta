@@ -19,6 +19,11 @@
  *     transcript is voiced in the player's chosen voice, or else the
  *     narrator's own; raw PCM is wrapped in a WAV header (narration/wav.ts).
  *
+ * Delivery style (narration/voiceStyle.ts) goes to step 1 only, as the prep
+ * prompt's delivery brief. The TTS input is only the words to be spoken,
+ * always: the TTS model speaks every word it is given, and has no style
+ * parameter.
+ *
  * The caller may only pass text that is already committed to the player's
  * chat (DESIGN_DECISIONS.md D4/D5) - in practice a `messages[]` entry with
  * `sender === 'gm'` (hooks/useNarrationVoice.ts) - plus, optionally, the
@@ -78,7 +83,7 @@ export interface NarrationOptions {
   playerContext?: NarrationPlayerContext;
   /** Further names the fidelity patch allows (a narrator in character's own name and standing). */
   allowedNames?: readonly string[];
-  /** The delivery style prefixed on the TTS input (narration/voiceStyle.ts); none by default. */
+  /** The delivery style the prep model writes for (its delivery brief); none by default. Never sent to the TTS model. */
   style?: VoiceStyle | null;
 }
 
@@ -107,8 +112,9 @@ export async function runNarrationDirector(
   narration: string,
   narrator: NarratorProfile = DRAMATIC_READER_NARRATOR,
   playerContext?: NarrationPlayerContext,
+  style?: VoiceStyle | null,
 ): Promise<{ output: string | null; error?: unknown }> {
-  const { systemInstruction, prompt } = buildNarrationPerformancePrompt(speakableText(narration), playerContext, narrator);
+  const { systemInstruction, prompt } = buildNarrationPerformancePrompt(speakableText(narration), playerContext, narrator, style);
   try {
     const output = await generateText(ai, {
       callName: 'narrationPerformance',
@@ -135,10 +141,11 @@ export async function directNarrationPerformance(
   playerContext?: NarrationPlayerContext,
   narrator: NarratorProfile = DRAMATIC_READER_NARRATOR,
   allowedNames: readonly string[] = [],
+  style?: VoiceStyle | null,
 ): Promise<PerformedTranscript> {
   if (isMockMode) return performedTranscriptFor(narration, null);
 
-  const { output, error } = await runNarrationDirector(ai, narration, narrator, playerContext);
+  const { output, error } = await runNarrationDirector(ai, narration, narrator, playerContext, style);
   if (error !== undefined) {
     console.warn('narrationVoice: the narrator call failed; performing the plain narration instead', error);
   }
@@ -167,12 +174,11 @@ export async function performNarration(
   options: NarrationOptions = {},
 ): Promise<NarrationPerformance> {
   const narrator = options.narrator ?? DRAMATIC_READER_NARRATOR;
-  const performed = await directNarrationPerformance(ai, narration, isMockMode, options.playerContext, narrator, options.allowedNames);
+  const performed = await directNarrationPerformance(ai, narration, isMockMode, options.playerContext, narrator, options.allowedNames, options.style);
   const wav = await speakTranscript(ai, performed.transcript, isMockMode, {
     model: narrator.voice.model,
     voiceName: resolveNarrationVoice(narrator, options.voiceName),
     temperature: narrator.voice.temperature,
-    style: options.style,
   });
   return { ...performed, wav };
 }
@@ -181,7 +187,6 @@ export interface SpeakOptions {
   voiceName: string;
   model?: string;
   temperature?: number;
-  style?: VoiceStyle | null;
   callName?: string;
 }
 
@@ -189,8 +194,10 @@ export interface SpeakOptions {
  * The voice alone: an already-vetted spoken transcript to a WAV, with no
  * prep call. Used by `performNarration`, by replay from the narration log
  * (a transcript the guard already passed), and by a private-scene NPC's
- * committed line (their words are already theirs). Mock Mode: no call, the
- * synthesized tone. Throws only when the TTS call itself fails.
+ * committed line (their words are already theirs). There is no style here:
+ * the TTS input is the transcript alone, and with no prep call the voice
+ * carries the speaker's character. Mock Mode: no call, the synthesized tone.
+ * Throws only when the TTS call itself fails.
  */
 export async function speakTranscript(
   ai: GeminiClient,
@@ -202,7 +209,7 @@ export async function speakTranscript(
   const speech = await generateSpeech(ai, {
     callName: options.callName ?? 'narrationVoice',
     model: options.model ?? GEMINI_TTS,
-    prompt: buildNarrationTtsPrompt(transcript, options.style),
+    prompt: buildNarrationTtsPrompt(transcript),
     voiceName: options.voiceName,
     temperature: options.temperature ?? NARRATION_VOICE_TEMPERATURE,
   });

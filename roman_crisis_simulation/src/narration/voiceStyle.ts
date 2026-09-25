@@ -1,28 +1,35 @@
 /**
  * narration/voiceStyle.ts
  *
- * The narration voice's delivery style: an optional, natural-language
- * instruction set in front of the transcript on the text-to-speech input,
- * in the Gemini TTS convention of a short instruction ending in a colon -
- * `Say in a composed newsreader's voice: <transcript>`.
+ * The narration voice's delivery style: a MANNER the spoken text should
+ * carry ("hushed and conspiratorial"). It never reaches the text-to-speech
+ * model. gemini-3.8-flash-tts is a text-to-speech model: it speaks every
+ * word it is given, and its `speechConfig` has no style parameter - only the
+ * prebuilt voice (and language). So the TTS input is only the words to be
+ * spoken, always (ai/prompts/narrationPerformance.ts
+ * `buildNarrationTtsPrompt`).
  *
- * CAVEAT (why "As written" is the default and every style is opt-in): PR #9
- * found that the TTS model can read instructions aloud instead of following
- * them. The prefix is therefore built in exactly one place
- * (`voiceStylePrefix`), kept to a single short clause, and never sent unless
- * the player chose a style. Audition any style with a real key before
- * relying on it:
+ * Instead a style shapes the WRITING: where a prep call exists (the
+ * chronicle narrator, "In character…", the player's own narrators), the
+ * chosen style is handed to the prep model as a DELIVERY BRIEF
+ * (`buildDeliveryBrief` in ai/prompts/narrationPerformance.ts), which asks
+ * for the manner to be carried in word choice, sentence length, rhythm and
+ * punctuation-as-pause - never described, never staged. Where no prep call
+ * exists (a private-scene NPC's committed line, the Imperial Dispatch, a
+ * replay from the narration log), the voice alone carries the character.
+ *
+ * Audition a style's effect on the writing with a real key:
  *
  *   GEMINI_API_KEY=... GOR_NARRATOR_AUDIO=1 GOR_NARRATOR_STYLE=newsreader npm run narrator:tune
  *
  * (`GOR_NARRATOR_STYLE` takes a preset id or free text, which is sanitized
- * exactly as a player's custom style is.) If the voice speaks the prefix,
- * the fix is here, not in a narrator.
+ * exactly as a player's custom style is, and feeds the prep brief.)
  *
- * A custom style is player-typed text that reaches the TTS model, so it is
+ * A custom style is player-typed text that reaches the prep model, so it is
  * sanitized to delivery language only - letters, spaces and light
- * punctuation; no digits, quote marks, brackets or colons - and capped at
- * `MAX_CUSTOM_VOICE_STYLE_CHARS`. It carries no game content.
+ * punctuation; no digits, quote marks, brackets or colons - capped at
+ * `MAX_CUSTOM_VOICE_STYLE_CHARS`, and embedded as JSON-quoted data (D41,
+ * `asPromptData`). It carries no game content.
  */
 
 import { z } from 'zod';
@@ -37,12 +44,13 @@ export type VoiceStyle =
   | { preset: 'custom'; text: string };
 
 /** Player-visible labels are veto-queue copy (roadmaps/BACKLOG.md B13). */
-export const VOICE_STYLE_PRESETS: readonly { id: VoiceStylePresetId; label: string; instruction: string | null }[] = [
-  { id: 'as-written', label: 'As written', instruction: null },
-  { id: 'tragedian', label: 'Epic stage tragedian', instruction: 'Say in the grand, resonant voice of an epic stage tragedian' },
-  { id: 'newsreader', label: 'Composed newsreader', instruction: "Say in a composed newsreader's voice" },
-  { id: 'conspiratorial', label: 'Hushed and conspiratorial', instruction: 'Say in a hushed, conspiratorial voice' },
-  { id: 'old-soldier', label: 'Weary old soldier', instruction: 'Say in the weary voice of an old soldier' },
+/** `manner` is what the prep brief asks the words to carry (never sent to the TTS model). */
+export const VOICE_STYLE_PRESETS: readonly { id: VoiceStylePresetId; label: string; manner: string | null }[] = [
+  { id: 'as-written', label: 'As written', manner: null },
+  { id: 'tragedian', label: 'Epic stage tragedian', manner: 'grand and resonant, like an epic stage tragedian' },
+  { id: 'newsreader', label: 'Composed newsreader', manner: 'composed, even and clear, like a newsreader' },
+  { id: 'conspiratorial', label: 'Hushed and conspiratorial', manner: 'hushed and conspiratorial, as if overheard' },
+  { id: 'old-soldier', label: 'Weary old soldier', manner: 'weary and plain, like an old soldier' },
 ];
 
 export const CUSTOM_VOICE_STYLE_LABEL = 'Custom…';
@@ -85,27 +93,15 @@ export function sanitizeVoiceStyleText(raw: string): string {
     .trim();
 }
 
-const INSTRUCTION_VERB = /^(?:say|read|speak|whisper|tell|narrate|recite|declaim|deliver)\b/i;
-const MANNER_WORD = /^(?:in|like|as|with)\b/i;
-
-/** The instruction a style sends, without its colon - or null for none. */
-export function voiceStyleInstruction(style: VoiceStyle | null | undefined): string | null {
-  if (!style) return null;
-  if (style.preset !== 'custom') return VOICE_STYLE_PRESETS.find(p => p.id === style.preset)?.instruction ?? null;
-  const text = sanitizeVoiceStyleText(style.text);
-  if (!text) return null;
-  if (INSTRUCTION_VERB.test(text)) return text.charAt(0).toUpperCase() + text.slice(1);
-  if (MANNER_WORD.test(text)) return `Say ${text}`;
-  return `Say, ${text}`;
-}
-
 /**
- * The one place the TTS style prefix is built: `"<instruction>: "`, or the
- * empty string for "As written" / no style. See the caveat above.
+ * The manner a style asks the spoken text to carry - or null for "As
+ * written" / no style. The prep model's delivery brief is built from this;
+ * nothing here ever reaches the TTS input.
  */
-export function voiceStylePrefix(style: VoiceStyle | null | undefined): string {
-  const instruction = voiceStyleInstruction(style);
-  return instruction ? `${instruction}: ` : '';
+export function voiceStyleManner(style: VoiceStyle | null | undefined): string | null {
+  if (!style) return null;
+  if (style.preset !== 'custom') return VOICE_STYLE_PRESETS.find(p => p.id === style.preset)?.manner ?? null;
+  return sanitizeVoiceStyleText(style.text) || null;
 }
 
 /** The player-visible name of a style. */
@@ -115,9 +111,9 @@ export function voiceStyleLabel(style: VoiceStyle | null | undefined): string {
   return VOICE_STYLE_PRESETS.find(p => p.id === style.preset)?.label ?? VOICE_STYLE_PRESETS[0].label;
 }
 
-/** A cache key for a style: two styles that send the same prefix share it. */
+/** A cache key for a style: two styles that ask for the same manner share it. */
 export function voiceStyleKey(style: VoiceStyle | null | undefined): string {
-  return voiceStyleInstruction(style) ?? 'as-written';
+  return voiceStyleManner(style) ?? 'as-written';
 }
 
 /** Resolves a style id from the tuning runner's env: a preset id, or free text. */

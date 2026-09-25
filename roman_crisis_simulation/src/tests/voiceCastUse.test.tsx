@@ -9,7 +9,8 @@
  *    (a woman's), not the narrator's Enceladus;
  *  - the cast's reader, voice and note are the default narrator; explicit
  *    Settings choices always win;
- *  - "Bespoke character voices" off sends no cast note at all;
+ *  - a cast note shapes the prep model's writing (its delivery brief) and
+ *    never reaches the TTS input;
  *  - hooks/useVoiceCast.ts: casts when the voice is first needed (never while
  *    SILENT), casts newcomers incrementally, falls back without retrying,
  *    offline in Mock Mode, and keeps the cast in the save;
@@ -25,15 +26,17 @@ import { IN_CHARACTER_NARRATOR_ID, resolveNarrator } from '../narration/narrator
 import { deterministicCast, withMemberOverride, type VoiceCast } from '../narration/voiceCast';
 import { catalogVoice } from '../narration/voiceCatalog';
 import { narrationLog } from '../narration/narrationLog';
+import { voiceStyleManner } from '../narration/voiceStyle';
 import { useNarrationVoice, type UseNarrationVoiceArgs } from '../hooks/useNarrationVoice';
 import { useCastBasis, useVoiceCast } from '../hooks/useVoiceCast';
 import type { GameAction } from '../state/gameReducer';
-import { getBespokeVoicesEnabled, setNarratorVoice, NARRATOR_VOICE_STYLE_KEY, type NarrationVoiceMode } from '../persistence/uiPrefs';
+import { setNarratorVoice, NARRATOR_VOICE_STYLE_KEY, type NarrationVoiceMode } from '../persistence/uiPrefs';
 import { loadGame, saveGame } from '../persistence/saveGame';
 import SettingsMenu from '../components/SettingsMenu';
 import { VOICE_CAST_COPY } from '../components/VoiceCastList';
 import { NARRATION_SETTINGS_COPY } from '../components/NarrationSettings';
 import { makeAppSave, makeEntity } from './factories';
+import { asPromptData } from '../ai/prompts/fragments';
 import { renderHook } from './renderHook';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -89,7 +92,7 @@ describe('the narrator speaks in the cast', () => {
     expect(resolveNarrator({ ...base, narratorId: IN_CHARACTER_NARRATOR_ID, characterId: 'thrax' }).profile.voice.voiceName).toBe('Algenib');
   });
 
-  it('REGRESSION, end to end: the hook voices Julia\'s retelling in Gacrux with her note', async () => {
+  it('REGRESSION, end to end: the hook voices Julia\'s retelling in Gacrux, written in her manner', async () => {
     localStorage.setItem('gloryOfRome:narrationVoiceMode', 'on_demand');
     const { ai, generateContent } = makeAi();
     const args: UseNarrationVoiceArgs = {
@@ -107,7 +110,10 @@ describe('the narrator speaks in the cast', () => {
     const tts = generateContent.mock.calls.map(c => c[0]).filter(c => c.config?.responseModalities);
     expect(tts).toHaveLength(1);
     expect(voiceOf(tts[0])).toBe('Gacrux');
-    expect(tts[0].contents).toMatch(/^Say, cool, imperious and measured: /);
+    // Her note shaped the retelling (the prep brief); the voice speaks only the words.
+    const prep = generateContent.mock.calls.map(c => c[0]).filter(c => !c.config?.responseModalities);
+    expect(prep[0].contents).toContain(asPromptData('cool, imperious and measured'));
+    expect(tts[0].contents).toBe(`Hear it: ${NARRATION}`);
     // The log records the voice and style actually used.
     expect(narrationLog.getSnapshot()[0]).toMatchObject({ voice: 'Gacrux', voiceStyle: { preset: 'custom', text: 'cool, imperious and measured' }, narratorName: 'Julia Mamaea' });
     hook.unmount();
@@ -145,7 +151,9 @@ describe('the narrator speaks in the cast', () => {
     await settle();
     const tts = generateContent.mock.calls.map(c => c[0]).filter(c => c.config?.responseModalities);
     expect(voiceOf(tts[0])).toBe('Puck');
-    expect(tts[0].contents).toMatch(/^Say in a composed newsreader's voice: /);
+    expect(tts[0].contents).toBe(`Hear it: ${NARRATION}`);
+    const prep = generateContent.mock.calls.map(c => c[0]).filter(c => !c.config?.responseModalities);
+    expect(prep[0].contents).toContain(asPromptData(voiceStyleManner({ preset: 'newsreader' })));
     // Clearing the narration style hands the choice back to the cast.
     act(() => hook.current.handleSetNarrator(''));
     expect(hook.current.narratorId).toBe('acta-diurna');
@@ -153,12 +161,12 @@ describe('the narrator speaks in the cast', () => {
     hook.unmount();
   });
 
-  it('"Bespoke character voices" off: the same distinct voices, and no cast note ever prefixed', async () => {
+  it('every character keeps their cast voice; each cast note shapes the writing and never reaches the voice', async () => {
     localStorage.setItem('gloryOfRome:narrationVoiceMode', 'on_demand');
     const { ai, generateContent } = makeAi();
     const hook = renderHook(useNarrationVoice, {
       ai, isMockMode: false, resolvedApiKey: 'k', messages: [{ sender: 'gm', text: NARRATION }] as Message[], gameState: GameState.AWAITING_PLAYER_INPUT,
-      narrators: [DRAMATIC_READER_NARRATOR], narratorCharacters: characters, voiceCast: CAST, bespokeVoices: false,
+      narrators: [DRAMATIC_READER_NARRATOR], narratorCharacters: characters, voiceCast: CAST,
     });
     act(() => hook.current.toggleNarrationVoice(0, NARRATION));
     await settle();
@@ -166,10 +174,13 @@ describe('the narrator speaks in the cast', () => {
     act(() => hook.current.handleSetNarratorCharacter('julia'));
     act(() => hook.current.toggleNarrationVoice(0, NARRATION));
     await settle();
-    const tts = generateContent.mock.calls.map(c => c[0]).filter(c => c.config?.responseModalities);
+    const calls = generateContent.mock.calls.map(c => c[0]);
+    const tts = calls.filter(c => c.config?.responseModalities);
+    const prep = calls.filter(c => !c.config?.responseModalities);
     expect(tts.map(voiceOf)).toEqual(['Charon', 'Gacrux']);
     for (const call of tts) expect(call.contents).toBe(`Hear it: ${NARRATION}`);
-    expect(resolveNarrator({ ...base, narratorId: IN_CHARACTER_NARRATOR_ID, bespoke: false }).ownStyle).toBeNull();
+    expect(prep[0].contents).toContain(asPromptData('grave and warm'));
+    expect(prep[1].contents).toContain(asPromptData('cool, imperious and measured'));
     hook.unmount();
   });
 });
@@ -298,12 +309,15 @@ describe('useVoiceCast: when the casting director runs', () => {
     hook.unmount();
   });
 
-  it('the bespoke switch is a device preference, on by default', () => {
+  it('the retired "Bespoke character voices" switch: an old stored value is never read, and changes nothing', () => {
+    localStorage.setItem('gloryOfRome:bespokeVoices', '0');
     const { ai } = makeAi();
     const hook = renderHook(useHarness, { ai, mode: 'off', entities: [player, julia] });
-    expect(hook.current.basis.bespokeVoices).toBe(true);
-    act(() => hook.current.basis.handleSetBespokeVoices(false));
-    expect(getBespokeVoicesEnabled()).toBe(false);
+    expect(Object.keys(hook.current.basis).sort()).toEqual(['candidates', 'effectiveCast']);
+    expect(resolveNarrator({
+      narratorId: IN_CHARACTER_NARRATOR_ID, characterId: 'julia', presets: [DRAMATIC_READER_NARRATOR], customs: [],
+      characters: [{ entityId: 'julia', name: 'Julia Mamaea' }], cast: CAST,
+    }).ownStyle).toEqual({ preset: 'custom', text: 'cool, imperious and measured' });
     hook.unmount();
   });
 });
@@ -334,7 +348,7 @@ describe('Settings → The cast', () => {
     narratorVoiceChoice: null, narratorOwnVoice: 'Charon', onSetNarratorVoice: vi.fn(),
     voiceStyleChoice: null, narratorOwnStyle: { preset: 'custom' as const, text: 'grave and warm' }, onSetVoiceStyle: vi.fn(),
     narratorChosenExplicitly: false, castNarratorId: 'senatorial-partner', narratorVoiceFromCast: true,
-    voiceCast: overridden, castCharacters: [JULIA, THRAX], bespokeVoices: true, onSetBespokeVoices: vi.fn(),
+    voiceCast: overridden, castCharacters: [JULIA, THRAX],
     canRecast: true, recastStatus: 'idle' as const, onRecast: vi.fn(), onOverrideCastMember: vi.fn(), onResetCastMember: vi.fn(),
   });
   const open = (host: HTMLElement) => {
@@ -355,7 +369,8 @@ describe('Settings → The cast', () => {
     expect(view.host.textContent).toContain(NARRATION_SETTINGS_COPY.castHint);
     const voice = view.host.querySelector<HTMLSelectElement>('select[aria-label="Voice"]')!;
     expect(voice.options[0].textContent).toBe(NARRATION_SETTINGS_COPY.castVoice('Charon'));
-    expect(view.host.textContent).toContain(NARRATION_SETTINGS_COPY.bespokeLabel);
+    // The retired switch is gone: every character always speaks in their own cast voice.
+    expect(view.host.textContent).not.toContain('Bespoke');
     view.cleanup();
   });
 
@@ -405,11 +420,11 @@ describe('Settings → The cast', () => {
     view.cleanup();
   });
 
-  it('with bespoke voices off, the notes cannot be edited and the list says why', () => {
-    const view = renderSettings({ ...props(), bespokeVoices: false });
+  it('the notes are always editable, and the list says what a manner does', () => {
+    const view = renderSettings(props());
     open(view.host);
-    expect(view.host.textContent).toContain(VOICE_CAST_COPY.bespokeOff);
-    expect(view.host.querySelector<HTMLInputElement>('input[aria-label="How Julia Mamaea speaks"]')!.disabled).toBe(true);
+    expect(view.host.textContent).toContain(VOICE_CAST_COPY.intro);
+    expect(view.host.querySelector<HTMLInputElement>('input[aria-label="How Julia Mamaea speaks"]')!.disabled).toBe(false);
     view.cleanup();
   });
 });

@@ -1,5 +1,5 @@
 import React, { useId, useState } from 'react';
-import { SegmentedControl, Switch } from './ui/Forms';
+import { SegmentedControl } from './ui/Forms';
 import { CustomNarratorEditor } from './CustomNarratorEditor';
 import { VoiceCastList } from './VoiceCastList';
 import { VOICE_CATALOG, catalogVoiceLabel, isCatalogVoice } from '../narration/voiceCatalog';
@@ -52,14 +52,12 @@ export const NARRATION_SETTINGS_COPY = {
     ownVoice: (voice: string) => `The narrator's own — ${voice}`,
     ownVoiceNote: 'The voice each narrator was tuned with.',
     styleOfVoiceLabel: 'Voice style',
-    asWrittenNote: 'No delivery note: the voice reads the words alone.',
-    styledNote: 'A short delivery note goes before the words. If the voice reads it aloud, choose As written.',
+    asWrittenNote: 'The narrator writes in its own manner.',
+    styledNote: 'Shapes how the narrator writes for the voice: pace, rhythm, word choice.',
     asCast: (name: string) => `As cast — ${name}`,
     castHint: 'Cast by the casting director.',
     castVoice: (voice: string) => `As cast — ${voice}`,
     castVoiceNote: 'The voice the casting gave this narrator. Choose another to override it.',
-    bespokeLabel: 'Bespoke character voices',
-    bespokeNote: 'Each character speaks with a delivery note of their own. Off: they keep their voices, and no note is sent — choose this if a voice reads its note aloud.',
 } as const;
 
 export interface NarrationSettingsProps {
@@ -96,8 +94,6 @@ export interface NarrationSettingsProps {
     /** The campaign's voice cast (hooks/useVoiceCast.ts) and the known individuals it covers. */
     voiceCast?: VoiceCast | null;
     castCharacters?: readonly CastingCandidate[];
-    bespokeVoices?: boolean;
-    onSetBespokeVoices?: (enabled: boolean) => void;
     canRecast?: boolean;
     recastStatus?: RecastStatus;
     onRecast?: () => void;
@@ -121,7 +117,7 @@ export const NarrationSettings: React.FC<NarrationSettingsProps> = ({
     voiceStyleChoice = null, narratorOwnStyle = null, onSetVoiceStyle,
     customNarrators = [], onSaveCustomNarrator, onDeleteCustomNarrator,
     narratorChosenExplicitly = true, castNarratorId = null, narratorVoiceFromCast = false,
-    voiceCast = null, castCharacters = [], bespokeVoices = true, onSetBespokeVoices,
+    voiceCast = null, castCharacters = [],
     canRecast = false, recastStatus = 'idle', onRecast, onOverrideCastMember, onResetCastMember,
 }) => {
     const ids = useId();
@@ -265,18 +261,6 @@ export const NarrationSettings: React.FC<NarrationSettingsProps> = ({
                     </div>
                 </>
             )}
-            {voiceOn && onSetBespokeVoices && (
-                <div style={{ gridColumn: '1 / -1' }}>
-                    <Switch
-                        id={`${ids}-bespoke`}
-                        checked={bespokeVoices}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => onSetBespokeVoices(e.target.checked)}
-                        aria-describedby={`${ids}-bespoke-note`}
-                        label={NARRATION_SETTINGS_COPY.bespokeLabel}
-                    />
-                    <p className="gor-config-note" id={`${ids}-bespoke-note`} style={{ margin: '2px 0 0' }}>{NARRATION_SETTINGS_COPY.bespokeNote}</p>
-                </div>
-            )}
             {voiceOn && voiceCast && onOverrideCastMember && onResetCastMember && (
                 <div style={{ gridColumn: '1 / -1' }}>
                     <VoiceCastList
@@ -295,7 +279,6 @@ export const NarrationSettings: React.FC<NarrationSettingsProps> = ({
                             onStyle: text => onSetVoiceStyle?.(text ? { preset: 'custom', text } : { preset: 'as-written' }),
                             onReset: () => { handleVoiceChange(''); onSetVoiceStyle?.(null); },
                         }}
-                        bespokeVoices={bespokeVoices}
                         onOverride={onOverrideCastMember}
                         onReset={onResetCastMember}
                         canRecast={canRecast}

@@ -38,8 +38,11 @@ A profile tunes both calls behind the narration voice:
 | | `temperature` | `0`–`2` (the reference uses `1`). |
 
 Delivery style is not part of a profile. **Settings → Voice style** is the
-player's to choose. It defaults to "As written", which sends nothing but the
-words (see `../voiceStyle.ts`).
+player's to choose. It never reaches the TTS model, which speaks every word
+it is given: the TTS input is always the words alone. A chosen style is
+handed to the prep model as a delivery brief, so the narrator writes in that
+manner (word choice, sentence length, rhythm, pauses as punctuation). It
+defaults to "As written", which adds no brief (see `../voiceStyle.ts`).
 
 ## The voice cast
 
@@ -54,16 +57,19 @@ knows.
   and `description`, so write the description for it as well as for the
   player.
 - **The cast's reader performs by default.** When the player has not
-  chosen a narration style, the cast's reader performs, in the voice and
-  delivery note the cast gave it.
+  chosen a narration style, the cast's reader performs, in the voice the
+  cast gave it, writing in the manner of its delivery note.
 - **The player's choice wins.** A reader the player picks explicitly keeps
   the voice in its profile.
 - **In character.** A character narrating "In character…" speaks in their
-  own cast voice.
+  own cast voice, and their note shapes how they tell it.
+- **Notes shape writing, never sound.** A delivery note is a manner of
+  speech for a writer ("clipped soldier's sentences, few words"). Where a
+  prep call exists it becomes that call's delivery brief; where none does
+  (a private-scene NPC's committed line) the note is shown and sent
+  nowhere, and the voice alone carries the character.
 - **Uniqueness.** No two cast members, the narrator included, share voice
   and note.
-- **The switch.** "Bespoke character voices" (Settings, on by default)
-  turns every cast note off in one place.
 
 When the call fails, and in Mock Mode, a deterministic, register-aware rule
 casts everyone. A voice's register (feminine or masculine) is believed, not
@@ -116,7 +122,7 @@ Two things no profile can change:
    # GOR_NARRATOR_AUDIO=1 also renders every passage to .wav
    # GOR_NARRATOR_VOICE=Charon auditions another voice
    # GOR_NARRATOR_STYLE=newsreader auditions a delivery style (a preset id or
-   #   free text); listen for the "Say in …:" prefix being read aloud
+   #   free text): it feeds the prep brief and shapes the retellings' words
    ```
 
    Each run writes `../tuning/out/<id>/<timestamp>/`, which is git-ignored.

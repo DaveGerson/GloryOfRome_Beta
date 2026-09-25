@@ -9,7 +9,7 @@ import type { RecastStatus } from '../hooks/useVoiceCast';
 /** Player-visible copy for the cast list (veto-queue: roadmaps/BACKLOG.md B13). */
 export const VOICE_CAST_COPY = {
   disclosure: 'The cast',
-  intro: 'Who speaks in which voice, with how they speak. Kept with this campaign.',
+  intro: 'Who speaks in which voice, and in what manner. The manner shapes their words when they narrate; in a private scene, their voice alone carries them. Kept with this campaign.',
   narratorRow: (reader: string) => `The narrator — ${reader}`,
   voiceFor: (name: string) => `Voice for ${name}`,
   styleFor: (name: string) => `How ${name} speaks`,
@@ -26,7 +26,6 @@ export const VOICE_CAST_COPY = {
     done: 'Recast.',
     fell_back: 'The casting director could not be reached; cast by rule instead.',
   } as Record<RecastStatus, string>,
-  bespokeOff: 'Bespoke voices are off: each keeps their voice, and no delivery note is sent.',
 } as const;
 
 /** The narrator's row edits the Settings voice and voice style, so it takes its own handlers. */
@@ -46,7 +45,6 @@ export interface VoiceCastListProps {
   /** The individuals the player knows, in the order the list shows them. */
   characters: readonly CastingCandidate[];
   narrator: NarratorCastRow;
-  bespokeVoices: boolean;
   onOverride: (entityId: string, change: CastOverride) => void;
   onReset: (entityId: string) => void;
   canRecast: boolean;
@@ -55,7 +53,7 @@ export interface VoiceCastListProps {
 }
 
 /** A style field that commits on blur or Enter, so a keystroke is never a save. */
-const StyleField: React.FC<{ label: string; value: string; onCommit: (style: string) => void; disabled?: boolean }> = ({ label, value, onCommit, disabled }) => {
+const StyleField: React.FC<{ label: string; value: string; onCommit: (style: string) => void }> = ({ label, value, onCommit }) => {
   const [draft, setDraft] = useState(value);
   const commit = () => {
     const clean = sanitizeCastStyle(draft);
@@ -70,7 +68,6 @@ const StyleField: React.FC<{ label: string; value: string; onCommit: (style: str
       maxLength={MAX_CAST_STYLE_CHARS}
       placeholder={VOICE_CAST_COPY.stylePlaceholder}
       value={draft}
-      disabled={disabled}
       onChange={e => setDraft(filterVoiceStyleInput(e.target.value))}
       onBlur={commit}
       onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }}
@@ -91,13 +88,12 @@ interface RowProps {
   style: string;
   rationale: string;
   overridden: boolean;
-  bespokeVoices: boolean;
   onVoice: (voice: string) => void;
   onStyle: (style: string) => void;
   onReset: () => void;
 }
 
-const CastRow: React.FC<RowProps> = ({ name, standing, voiceName, style, rationale, overridden, bespokeVoices, onVoice, onStyle, onReset }) => (
+const CastRow: React.FC<RowProps> = ({ name, standing, voiceName, style, rationale, overridden, onVoice, onStyle, onReset }) => (
   <li className="gor-cast-row">
     <div className="gor-cast-head">
       <span className="gor-narrator-editor-name">{name}</span>
@@ -107,7 +103,7 @@ const CastRow: React.FC<RowProps> = ({ name, standing, voiceName, style, rationa
     <div className="gor-cast-controls">
       <VoiceSelect label={VOICE_CAST_COPY.voiceFor(name)} value={voiceName} onChange={onVoice} />
       {/* Keyed on the committed value, so a reset or a recast refreshes the draft. */}
-      <StyleField key={style} label={VOICE_CAST_COPY.styleFor(name)} value={style} onCommit={onStyle} disabled={!bespokeVoices} />
+      <StyleField key={style} label={VOICE_CAST_COPY.styleFor(name)} value={style} onCommit={onStyle} />
     </div>
     <p className="gor-cast-rationale">
       {rationale}
@@ -127,7 +123,7 @@ const CastRow: React.FC<RowProps> = ({ name, standing, voiceName, style, rationa
  * reports; the cast lives in hooks/useVoiceCast.ts.
  */
 export const VoiceCastList: React.FC<VoiceCastListProps> = ({
-  cast, characters, narrator, bespokeVoices, onOverride, onReset, canRecast, recastStatus, onRecast,
+  cast, characters, narrator, onOverride, onReset, canRecast, recastStatus, onRecast,
 }) => {
   const ids = useId();
   const [open, setOpen] = useState(false);
@@ -147,7 +143,6 @@ export const VoiceCastList: React.FC<VoiceCastListProps> = ({
       {open && (
         <div id={`${ids}-panel`} className="gor-narrator-editor-panel">
           <p className="gor-config-note" style={{ marginTop: 0 }}>{VOICE_CAST_COPY.intro}</p>
-          {!bespokeVoices && <p className="gor-config-note">{VOICE_CAST_COPY.bespokeOff}</p>}
           <ul className="gor-cast-list" aria-label={VOICE_CAST_COPY.disclosure}>
             <CastRow
               name={VOICE_CAST_COPY.narratorRow(narrator.readerName)}
@@ -155,7 +150,6 @@ export const VoiceCastList: React.FC<VoiceCastListProps> = ({
               style={narrator.style}
               rationale={narrator.rationale}
               overridden={narrator.overridden}
-              bespokeVoices={bespokeVoices}
               onVoice={narrator.onVoice}
               onStyle={narrator.onStyle}
               onReset={narrator.onReset}
@@ -172,7 +166,6 @@ export const VoiceCastList: React.FC<VoiceCastListProps> = ({
                   style={style}
                   rationale={m.rationale}
                   overridden={Boolean(m.override)}
-                  bespokeVoices={bespokeVoices}
                   onVoice={voice => onOverride(c.entityId, { voiceName: voice })}
                   onStyle={text => onOverride(c.entityId, { style: text })}
                   onReset={() => onReset(c.entityId)}
