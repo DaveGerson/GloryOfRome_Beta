@@ -5,7 +5,8 @@
  * (and, optionally, its voice) over a set of sample narrations, and report
  * how the narrator behaved - how often the guard accepted its retelling
  * (narration/performanceScript.ts: length, fidelity - no new names or
- * figures - and the mechanics gate), why it refused the rest, how long the
+ * figures - and the mechanics gate), which sentences the fidelity patch
+ * cut from the ones it accepted, why it refused the rest, how long the
  * retellings run against their source, and the retellings themselves - so
  * the profile's persona, temperature, thinking level or prep model can be
  * tuned before the profile is deployed (narration/narrators/README.md).
@@ -26,15 +27,17 @@ import { ensureWav } from '../wav';
 export interface TuningPassageResult {
   index: number;
   narration: string;
-  /** The guard accepted the director's script as written. */
+  /** The guard accepted the director's script: as written, or patched (see `patchedOut`). */
   accepted: boolean;
+  /** Sentences the fidelity patch cut from an accepted script, verbatim. */
+  patchedOut: string[];
   /** Why the guard refused it; `director_call_failed` when there was no script at all. */
   rejection?: PerformanceRejection | 'director_call_failed';
   /** The narrator's raw output, verbatim - what to read when tuning. */
   directorOutput: string | null;
   /** What would actually be voiced: the accepted retelling, or the fallback. */
   transcript: string;
-  /** For a fidelity refusal: the name or figure the retelling brought in. */
+  /** For a fidelity refusal or patch: the name(s) or figure(s) the retelling brought in. */
   introduced?: string;
   sourceWords: number;
   /** Words in the narrator's output (0 when there was none). */
@@ -50,6 +53,10 @@ export interface TuningSummary {
   thinkingLevel: string;
   passages: number;
   accepted: number;
+  /** Accepted only after the fidelity patch cut at least one sentence. */
+  patched: number;
+  /** Sentences cut across every accepted script. */
+  patchedSentences: number;
   acceptanceRate: number;
   rejections: Record<string, number>;
   /** Mean retelling length over its source's, for accepted retellings (1 = same length). */
@@ -88,6 +95,7 @@ export async function runNarratorTuning(params: {
       index,
       narration,
       accepted: output !== null && !performed.usedFallback,
+      patchedOut: performed.patchedOut,
       directorOutput: output,
       transcript: performed.transcript,
       sourceWords: countWords(narration),
@@ -98,6 +106,12 @@ export async function runNarratorTuning(params: {
     else if (performed.rejection) result.rejection = performed.rejection;
     if (output !== null && (performed.rejection === 'introduces_new_name' || performed.rejection === 'introduces_new_number')) {
       result.introduced = findIntroducedContent(narration, output, allowed)?.value;
+    }
+    if (performed.patchedOut.length > 0) {
+      result.introduced = performed.patchedOut
+        .map(sentence => findIntroducedContent(narration, sentence, allowed)?.value)
+        .filter(Boolean)
+        .join(', ');
     }
 
     if (withAudio) {
@@ -133,6 +147,8 @@ export function summarizeTuning(narrator: NarratorProfile, results: readonly Tun
     thinkingLevel: narrator.prep.thinkingLevel,
     passages: results.length,
     accepted: accepted.length,
+    patched: accepted.filter(r => r.patchedOut.length > 0).length,
+    patchedSentences: accepted.reduce((n, r) => n + r.patchedOut.length, 0),
     acceptanceRate: results.length ? accepted.length / results.length : 0,
     rejections,
     meanLengthRatio: mean(accepted.filter(r => r.sourceWords > 0).map(r => r.retellingWords / r.sourceWords)),
@@ -151,6 +167,7 @@ export function formatTuningReport(summary: TuningSummary, results: readonly Tun
     '',
     `Prep model: \`${summary.prepModel}\` (thinking: ${summary.thinkingLevel})`,
     `Accepted: ${summary.accepted}/${summary.passages} (${pct}%)`,
+    `Patched: ${summary.patched} (${summary.patchedSentences} sentence${summary.patchedSentences === 1 ? '' : 's'} cut for bringing in a name or figure)`,
     `Mean retelling length: ${summary.meanLengthRatio.toFixed(1)}× its source`,
     `Mean prep latency: ${Math.round(summary.meanPrepLatencyMs)} ms`,
     '',
@@ -160,9 +177,14 @@ export function formatTuningReport(summary: TuningSummary, results: readonly Tun
     '## Passages',
   ];
   for (const r of results) {
-    const verdict = r.accepted ? 'accepted' : `refused (${r.rejection}${r.introduced ? `: "${r.introduced}"` : ''})`;
+    const verdict = r.accepted
+      ? (r.patchedOut.length > 0 ? `accepted, patched (${r.patchedOut.length} cut: "${r.introduced}")` : 'accepted')
+      : `refused (${r.rejection}${r.introduced ? `: "${r.introduced}"` : ''})`;
     lines.push('', `### ${r.index + 1}. ${verdict} — ${r.retellingWords} words from ${r.sourceWords}`, '');
     lines.push('Source:', '', '```', r.narration, '```', '', 'Narrator output:', '', '```', r.directorOutput ?? '(no output)', '```');
+    if (r.patchedOut.length > 0) {
+      lines.push('', 'Patched out:', '', ...r.patchedOut.map(sentence => `- ${sentence}`), '', 'Voiced:', '', '```', r.transcript, '```');
+    }
     if (!r.accepted) lines.push('', 'Voiced instead:', '', '```', r.transcript, '```');
     if (r.audio) {
       lines.push('', 'error' in r.audio ? `Audio failed: ${r.audio.error}` : `Audio: ${r.audio.wav.length} bytes in ${Math.round(r.audio.latencyMs)} ms`);

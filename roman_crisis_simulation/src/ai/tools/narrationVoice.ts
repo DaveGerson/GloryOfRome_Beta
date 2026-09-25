@@ -10,9 +10,10 @@
  *     clean spoken prose. By default this is `GEMINI_NARRATION_PREP` at LOW
  *     thinking; a deployed profile may name its own, tuned, prep model. The
  *     output is validated by narration/performanceScript.ts - including the
- *     fidelity check that refuses a retelling bringing in names or figures
- *     the narration never mentioned; a refused script, or a failed call,
- *     falls back to the plain narration. The voice never fails for want of
+ *     fidelity check, which cuts every sentence that brings in a name or a
+ *     figure the narration never mentioned (and falls back when that would
+ *     cut most of it); a refused script, or a failed call, falls back to
+ *     the plain narration. The voice never fails for want of
  *     a narrator.
  *  2. `narrationVoice` (the profile's TTS model, audio) - the clean
  *     transcript is voiced in the player's chosen voice, or else the
@@ -138,6 +139,8 @@ export async function directNarrationPerformance(
   const performed = performedTranscriptFor(narration, output, listenerNames(playerContext));
   if (performed.rejection) {
     console.warn(`narrationVoice: the narrator's script was refused (${performed.rejection}); performing the plain narration instead`);
+  } else if (performed.patchedOut.length > 0) {
+    console.warn(`narrationVoice: cut ${performed.patchedOut.length} sentence(s) the narration did not support; performing the rest`);
   }
   return performed;
 }
@@ -183,7 +186,7 @@ export async function directImperialDispatch(
 ): Promise<PerformedTranscript> {
   if (isMockMode) {
     const fallback = cleanSpokenTranscript(factsSummary.slice(0, 300));
-    return { transcript: fallback, usedFallback: true };
+    return { transcript: fallback, usedFallback: true, patchedOut: [] };
   }
 
   const { systemInstruction, prompt } = buildImperialDispatchPrompt(factsSummary);
@@ -202,7 +205,7 @@ export async function directImperialDispatch(
   }
 
   const clean = cleanSpokenTranscript(rawDispatch || factsSummary);
-  return { transcript: clean, usedFallback: !rawDispatch };
+  return { transcript: clean, usedFallback: !rawDispatch, patchedOut: [] };
 }
 
 /**

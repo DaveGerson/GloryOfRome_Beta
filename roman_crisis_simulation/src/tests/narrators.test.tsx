@@ -405,10 +405,11 @@ describe('Settings: narrator and voice', () => {
 });
 
 describe('the tuning harness core', () => {
-  it('reports acceptance, fidelity refusals with what was invented, call failures and audio', async () => {
+  it('reports acceptance, patched sentences, fidelity refusals with what was invented, call failures and audio', async () => {
     const scripts = [
       (n: string) => `Mark this, Emperor: ${n}`, // accepted: the listener's position is theirs to hear
-      (n: string) => `${n} And Philip marches.`, // brings in a name: refused
+      (n: string) => `${n} Rome holds its breath, and the city is still. And Philip marches.`, // one invented sentence: patched
+      (n: string) => `${n} And Philip marches. Soon Gordian follows.`, // mostly invented: refused
       () => { throw new Error('rate limited'); }, // no script
     ];
     let call = 0;
@@ -418,7 +419,7 @@ describe('the tuning harness core', () => {
       return { text: scripts[call++](narration) };
     });
     const clock = { t: 0 };
-    const narrations = ['Rome waits.', 'The Senate is silent.', 'Night falls.'];
+    const narrations = ['Rome waits.', 'The Senate is silent.', 'Night falls.', 'Dawn.'];
     const results = await runNarratorTuning({
       ai: { models: { generateContent } },
       narrator: SENATORIAL_PARTNER_NARRATOR,
@@ -428,21 +429,24 @@ describe('the tuning harness core', () => {
       now: () => (clock.t += 10),
     });
 
-    expect(results.map(r => r.accepted)).toEqual([true, false, false]);
-    expect(results[0]).toMatchObject({ sourceWords: 2, retellingWords: 5 });
-    expect(results[1]).toMatchObject({ rejection: 'introduces_new_name', introduced: 'Philip', directorOutput: 'The Senate is silent. And Philip marches.' });
-    expect(results[1].transcript).toBe(fallbackTranscript('The Senate is silent.'));
-    expect(results[2]).toMatchObject({ rejection: 'director_call_failed', directorOutput: null, retellingWords: 0 });
+    expect(results.map(r => r.accepted)).toEqual([true, true, false, false]);
+    expect(results[0]).toMatchObject({ sourceWords: 2, retellingWords: 5, patchedOut: [] });
+    expect(results[1]).toMatchObject({ patchedOut: ['And Philip marches.'], introduced: 'Philip', transcript: 'The Senate is silent. Rome holds its breath, and the city is still.' });
+    expect(results[2]).toMatchObject({ rejection: 'introduces_new_name', introduced: 'Philip', directorOutput: 'Night falls. And Philip marches. Soon Gordian follows.' });
+    expect(results[2].transcript).toBe(fallbackTranscript('Night falls.'));
+    expect(results[3]).toMatchObject({ rejection: 'director_call_failed', directorOutput: null, retellingWords: 0 });
     for (const r of results) expect(r.audio && 'wav' in r.audio && r.audio.wav.length).toBe(44 + 4);
 
     const summary = summarizeTuning(SENATORIAL_PARTNER_NARRATOR, results);
-    expect(summary).toMatchObject({ narratorId: 'senatorial-partner', prepModel: GEMINI_NARRATION_PREP, thinkingLevel: 'low', passages: 3, accepted: 1, meanLengthRatio: 2.5 });
+    expect(summary).toMatchObject({ narratorId: 'senatorial-partner', prepModel: GEMINI_NARRATION_PREP, thinkingLevel: 'low', passages: 4, accepted: 2, patched: 1, patchedSentences: 1 });
     expect(summary.rejections).toEqual({ introduces_new_name: 1, director_call_failed: 1 });
 
     const report = formatTuningReport(summary, results);
-    expect(report).toContain('Accepted: 1/3 (33%)');
+    expect(report).toContain('Accepted: 2/4 (50%)');
+    expect(report).toContain('Patched: 1 (1 sentence cut for bringing in a name or figure)');
+    expect(report).toContain('accepted, patched (1 cut: "Philip")');
+    expect(report).toContain('Patched out:\n\n- And Philip marches.');
     expect(report).toContain('refused (introduces_new_name: "Philip")');
-    expect(report).toContain('Mean retelling length: 2.5× its source');
     expect(report).toContain('Audio: 48 bytes');
   });
 

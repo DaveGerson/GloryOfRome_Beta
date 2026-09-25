@@ -18,7 +18,8 @@
  *     short, carry no digits, quote marks or brackets, and name nobody the
  *     passage does not - the direction channel cannot smuggle content.
  *  3. FIDELITY: the retelling may not bring in a name or a figure the
- *     passage never mentioned. Every capitalized word mid-sentence (a
+ *     passage never mentioned (see "Patching" below for what happens when
+ *     it does). Every capitalized word mid-sentence (a
  *     proper-noun candidate: a person, place, title, numeral) must appear
  *     in the passage, in the listener's own name or position, or among a
  *     few forms of address every Roman narrator may use ("Dominus",
@@ -27,7 +28,8 @@
  *     the passage never spoke of Emesa - the narrator can interpret the
  *     week, never manufacture intelligence about it.
  *  4. The whole transcript passes the same hidden-mechanics gate every
- *     player-visible text passes (ai/core/playerBoundary.ts).
+ *     player-visible text passes (ai/core/playerBoundary.ts). Checked
+ *     before 3, so a fidelity verdict means every other rule held.
  *
  * Known limit of 3: a new name that only ever opens a sentence reads like
  * any sentence-initial word and is not caught, and numbers spelled out in
@@ -35,7 +37,17 @@
  * tuning harness (narration/tuning/) reports refusals verbatim so a
  * narrator can be tuned against them.
  *
- * Any failure falls back to the plain narration cleaned for speech
+ * Patching (rule 3 only, deterministic, zero tokens): a retelling that
+ * breaks the fidelity rule is not refused wholesale. It is split into
+ * sentences (`splitSpokenSentences`, which never splits inside a quotation),
+ * every sentence that brings in a name or a figure is cut, and the rest is
+ * voiced; `patchedOut` records each cut sentence verbatim. Only when nothing
+ * is left, or when more than half of the sentences - or of the words - had
+ * to go, does the retelling fall back (`MAX_PATCHED_SHARE`). Rules 1, 2 and
+ * 4 still refuse wholesale: a runaway, a smuggling direction or a mechanics
+ * leak says the whole script is untrustworthy, not one sentence of it.
+ *
+ * Any refusal falls back to the plain narration cleaned for speech
  * (`fallbackTranscript`) - the voice is a garnish, so a refused script
  * costs drama, never correctness.
  *
@@ -283,9 +295,6 @@ export function validatePerformance(
     }
   }
 
-  const introduced = findIntroducedContent(original, spoken, allowedNames);
-  if (introduced) return { ok: false, reason: introduced.kind === 'name' ? 'introduces_new_name' : 'introduces_new_number' };
-
   // The whole transcript, and each direction on its own (a bare "partial
   // success" is only a standalone verdict when read by itself).
   try {
@@ -294,7 +303,148 @@ export function validatePerformance(
   } catch {
     return { ok: false, reason: 'mechanics_leak' };
   }
+
+  // Fidelity last, so an `introduces_*` verdict means every other rule held -
+  // which is what lets `performedTranscriptFor` patch instead of refuse.
+  const introduced = findIntroducedContent(original, spoken, allowedNames);
+  if (introduced) return { ok: false, reason: introduced.kind === 'name' ? 'introduces_new_name' : 'introduces_new_number' };
   return { ok: true };
+}
+
+/**
+ * The most of a retelling the fidelity patch may cut, as a share of its
+ * sentences and, separately, of its words. Cutting more than this leaves a
+ * retelling that is mostly holes: the plain narration is the better reading.
+ */
+export const MAX_PATCHED_SHARE = 0.5;
+
+const SENTENCE_END = '.!?…';
+const CLOSERS = '"\'”’)]›»';
+
+/**
+ * Splits spoken text into sentences, each keeping the whitespace that
+ * follows it, so joining the pieces gives the text back exactly. A sentence
+ * ends at `.`, `!`, `?` or `…` (plus any closing quotes or brackets) before
+ * whitespace and a word that is not lower-case, and at every line break - but never inside a quotation: a
+ * quoted speech that holds several sentences stays with the sentence that
+ * quotes it. Straight double quotes toggle; curly ones open and close.
+ * Apostrophes are not quotes.
+ */
+export function splitSpokenSentences(text: string): string[] {
+  const pieces: string[] = [];
+  let start = 0;
+  let inQuote = false;
+  let i = 0;
+  const cut = (end: number) => {
+    let next = end;
+    while (next < text.length && /\s/.test(text[next])) next++;
+    if (text.slice(start, end).trim()) pieces.push(text.slice(start, next));
+    else if (pieces.length > 0) pieces[pieces.length - 1] += text.slice(start, next);
+    start = next;
+    return next;
+  };
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === '"') {
+      inQuote = !inQuote;
+    } else if (ch === '“') {
+      inQuote = true;
+    } else if (ch === '”') {
+      inQuote = false;
+    }
+    if (ch === '\n') {
+      inQuote = false;
+      i = cut(i);
+      continue;
+    }
+    if (!inQuote && SENTENCE_END.includes(ch)) {
+      let end = i + 1;
+      while (end < text.length && (SENTENCE_END.includes(text[end]) || CLOSERS.includes(text[end]))) {
+        if (text[end] === '"' || text[end] === '”') break;
+        end++;
+      }
+      // "Nothing stirs… yet." - a lower-case word after the stop carries on the sentence.
+      let after = end;
+      while (after < text.length && text[after] !== '\n' && /\s/.test(text[after])) after++;
+      if (end >= text.length || (/\s/.test(text[end]) && !/\p{Ll}/u.test(text[after] ?? ''))) {
+        i = cut(end);
+        continue;
+      }
+    }
+    // A closing quote after sentence punctuation ends the sentence when the
+    // next word opens a new one ('..."To the legions!" The Senate waits.').
+    if ((ch === '"' || ch === '”') && !inQuote && i > 0 && SENTENCE_END.includes(text[i - 1])) {
+      let next = i + 1;
+      while (next < text.length && text[next] !== '\n' && /\s/.test(text[next])) next++;
+      if (next >= text.length || (next > i + 1 && /\p{Lu}/u.test(text[next]))) {
+        i = cut(i + 1);
+        continue;
+      }
+    }
+    i++;
+  }
+  if (start < text.length) {
+    if (text.slice(start).trim()) pieces.push(text.slice(start));
+    else if (pieces.length > 0) pieces[pieces.length - 1] += text.slice(start);
+  }
+  return pieces;
+}
+
+function wordsIn(text: string): number {
+  return spokenTokens(text).filter(token => /[\p{L}\p{N}]/u.test(token)).length;
+}
+
+export interface FidelityPatch {
+  /** The spoken text with every unsupported sentence cut. */
+  kept: string;
+  /** Each cut sentence, trimmed, in order. */
+  patchedOut: string[];
+  /** The first name or figure that forced a cut, when any did. */
+  firstIntroduced: { kind: 'name' | 'number'; value: string } | null;
+  /** Whether the cut went too deep to voice what is left (see `MAX_PATCHED_SHARE`). */
+  tooMuchCut: boolean;
+}
+
+/**
+ * The fidelity patch (see the module header): cuts every sentence of
+ * `spoken` that brings in a name or a figure `original` never mentioned,
+ * checking each sentence exactly as `findIntroducedContent` checks a whole
+ * retelling. Allowed names (the listener, forms of address) are never cut.
+ */
+export function patchIntroducedContent(
+  original: string,
+  spoken: string,
+  allowedNames: readonly string[] = [],
+): FidelityPatch {
+  const sentences = splitSpokenSentences(spoken);
+  const keptPieces: string[] = [];
+  const patchedOut: string[] = [];
+  let firstIntroduced: FidelityPatch['firstIntroduced'] = null;
+  let cutWords = 0;
+  for (const sentence of sentences) {
+    const introduced = findIntroducedContent(original, sentence, allowedNames);
+    if (!introduced) {
+      keptPieces.push(sentence);
+      continue;
+    }
+    firstIntroduced ??= introduced;
+    patchedOut.push(sentence.trim());
+    cutWords += wordsIn(sentence);
+    // A cut sentence that closed a paragraph hands its break to the one before.
+    const gap = sentence.slice(sentence.trimEnd().length);
+    if (gap.includes('\n') && keptPieces.length > 0) {
+      const last = keptPieces[keptPieces.length - 1];
+      keptPieces[keptPieces.length - 1] = last.trimEnd() + gap;
+    }
+  }
+  const kept = keptPieces.join('').trim();
+  const totalWords = wordsIn(spoken);
+  const tooMuchCut = patchedOut.length > 0 && (
+    !kept
+    || patchedOut.length > sentences.length * MAX_PATCHED_SHARE
+    || cutWords > totalWords * MAX_PATCHED_SHARE
+  );
+  return { kept, patchedOut, firstIntroduced, tooMuchCut };
 }
 
 export interface PerformedTranscript {
@@ -302,6 +452,12 @@ export interface PerformedTranscript {
   usedFallback: boolean;
   /** Why the director's script was refused, when it was. */
   rejection?: PerformanceRejection;
+  /**
+   * Sentences of the retelling the fidelity patch cut before voicing it, one
+   * entry each, verbatim. Empty when nothing was cut - and when the whole
+   * retelling fell back, since then none of it is voiced.
+   */
+  patchedOut: string[];
 }
 
 /**
@@ -319,17 +475,34 @@ export function unwrapDirectorOutput(raw: string): string {
     .trim();
 }
 
-/** The narrator's script if it validates, otherwise the fallback. */
+/**
+ * The narrator's script if it validates - patched when it brought in a name
+ * or a figure, as long as the patch leaves most of it standing - otherwise
+ * the fallback.
+ */
 export function performedTranscriptFor(
   original: string,
   directorOutput: string | null,
   allowedNames: readonly string[] = [],
 ): PerformedTranscript {
-  if (directorOutput === null) {
-    return { transcript: fallbackTranscript(original), usedFallback: true };
-  }
+  const fallback = (rejection?: PerformanceRejection): PerformedTranscript => ({
+    transcript: fallbackTranscript(original),
+    usedFallback: true,
+    ...(rejection ? { rejection } : {}),
+    patchedOut: [],
+  });
+  if (directorOutput === null) return fallback();
   const candidate = unwrapDirectorOutput(directorOutput);
   const verdict = validatePerformance(original, candidate, allowedNames);
-  if (verdict.ok) return { transcript: cleanSpokenTranscript(candidate), usedFallback: false };
-  return { transcript: fallbackTranscript(original), usedFallback: true, rejection: verdict.reason };
+  if (verdict.ok) return { transcript: cleanSpokenTranscript(candidate), usedFallback: false, patchedOut: [] };
+  if (verdict.reason !== 'introduces_new_name' && verdict.reason !== 'introduces_new_number') return fallback(verdict.reason);
+
+  // Only fidelity failed (every other rule is checked first): patch it.
+  const parsed = parseTranscript(candidate);
+  if (!parsed.ok) return fallback(parsed.reason);
+  const patch = patchIntroducedContent(original, parsed.value.spoken, allowedNames);
+  if (patch.tooMuchCut || !patch.kept) return fallback(verdict.reason);
+  // The mechanics gate already passed on the whole script; the patched text
+  // is a subset of it, so it passes too.
+  return { transcript: cleanSpokenTranscript(patch.kept), usedFallback: false, patchedOut: patch.patchedOut };
 }

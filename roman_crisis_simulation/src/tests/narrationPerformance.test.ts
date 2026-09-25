@@ -5,9 +5,11 @@
  * that runs it (ai/tools/narrationVoice.ts). The narrator retells ONE
  * committed narration and may reword it freely, but the guard refuses a
  * retelling that runs away, smuggles content through a bracketed
- * direction, brings in a name or a figure the narration never mentioned,
- * or leaks a hidden mechanic - and every refusal falls back to the plain
- * narration cleaned for speech.
+ * direction, or leaks a hidden mechanic - and every refusal falls back to
+ * the plain narration cleaned for speech. A retelling that brings in a name
+ * or a figure the narration never mentioned is patched instead: the
+ * offending sentences are cut and the rest is voiced, unless that would cut
+ * most of it.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -15,7 +17,9 @@ import {
   fallbackTranscript,
   findIntroducedContent,
   parseTranscript,
+  patchIntroducedContent,
   performedTranscriptFor,
+  splitSpokenSentences,
   speakableText,
   spokenTokens,
   unwrapDirectorOutput,
@@ -161,15 +165,85 @@ describe('validatePerformance: a retelling may reword, never invent (fidelity)',
     expect(reject('Listen. Tonight the Praetorians mutter, and Maximinus cries, "Glory waits!" Nothing moves in the Senate.')).toBe('ok');
   });
 
-  it('a refused retelling never reaches the voice: the plain narration does', async () => {
+  it('an invented sentence never reaches the voice: it is cut, and the rest is performed', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const generateContent = vi.fn(async (params: { model: string; contents: string; config?: Record<string, unknown> }) => (params.model === GEMINI_TTS
       ? { candidates: [{ content: { parts: [{ inlineData: { data: 'AQIDBA==', mimeType: 'audio/L16;codec=pcm;rate=24000' } }] } }] }
       : { text: 'The Praetorians mutter. Gordian marches from Africa. The Senate waits.' }));
     const result = await performNarration({ models: { generateContent } }, NARRATION, false);
-    expect(result).toMatchObject({ usedFallback: true, rejection: 'introduces_new_name', transcript: fallbackTranscript(NARRATION) });
+    expect(result).toMatchObject({ usedFallback: false, transcript: 'The Praetorians mutter. The Senate waits.', patchedOut: ['Gordian marches from Africa.'] });
+    expect(result.rejection).toBeUndefined();
     expect(generateContent.mock.calls[1][0].contents).not.toContain('Gordian');
     vi.restoreAllMocks();
+  });
+});
+
+describe('the fidelity patch', () => {
+  const ORIGINAL = 'The Praetorians mutter in their camp. Maximinus raises a cup. The Senate waits.';
+
+  it('splits sentences without splitting a quotation, and gives the text back exactly when joined', () => {
+    const text = 'Hear me. Maximinus cries, "To the legions! To Rome!" The Senate waits?\n\nNothing stirs… yet.';
+    const pieces = splitSpokenSentences(text);
+    expect(pieces.map(p => p.trim())).toEqual(['Hear me.', 'Maximinus cries, "To the legions! To Rome!"', 'The Senate waits?', 'Nothing stirs… yet.']);
+    expect(pieces.join('')).toBe(text);
+    expect(splitSpokenSentences('He said, “Go.” and left.').map(p => p.trim())).toEqual(['He said, “Go.” and left.']);
+    expect(splitSpokenSentences('The sum is 3.5 talents. Rome pays.').map(p => p.trim())).toEqual(['The sum is 3.5 talents.', 'Rome pays.']);
+  });
+
+  it('plays the other sentences and drops the one that invents a name', () => {
+    const retelling = 'The Praetorians mutter in their camp, restless. At the gate, Philip gathers his cohorts. Maximinus raises a cup, and the Senate waits.';
+    const result = performedTranscriptFor(ORIGINAL, retelling);
+    expect(result).toEqual({
+      transcript: 'The Praetorians mutter in their camp, restless. Maximinus raises a cup, and the Senate waits.',
+      usedFallback: false,
+      patchedOut: ['At the gate, Philip gathers his cohorts.'],
+    });
+  });
+
+  it('figures work the same way', () => {
+    const retelling = 'The Praetorians mutter in their camp. They want 300 denarii apiece. Maximinus raises a cup while the Senate waits.';
+    const result = performedTranscriptFor(ORIGINAL, retelling);
+    expect(result.usedFallback).toBe(false);
+    expect(result.patchedOut).toEqual(['They want 300 denarii apiece.']);
+    expect(result.transcript).not.toContain('300');
+  });
+
+  it('a mostly invented retelling falls back to the plain narration', () => {
+    const bySentences = 'Tonight Philip marches. Now Gordian waits in Africa. The Senate waits.';
+    expect(performedTranscriptFor(ORIGINAL, bySentences)).toEqual({
+      transcript: fallbackTranscript(ORIGINAL), usedFallback: true, rejection: 'introduces_new_name', patchedOut: [],
+    });
+    // One sentence of three, but most of the words.
+    const byWords = 'The Senate waits. Tonight Philip, with every cohort of the Rhine and every tribune who ever doubted the throne, marches south. Rome sleeps.';
+    expect(patchIntroducedContent(ORIGINAL, byWords)).toMatchObject({ tooMuchCut: true, patchedOut: [expect.stringContaining('Philip')] });
+    expect(performedTranscriptFor(ORIGINAL, byWords).usedFallback).toBe(true);
+    // Nothing left at all.
+    expect(performedTranscriptFor(ORIGINAL, 'Tonight Philip marches with 5,000 men.')).toMatchObject({ usedFallback: true, rejection: 'introduces_new_name' });
+    expect(performedTranscriptFor(ORIGINAL, 'The Senate counts 900 votes.')).toMatchObject({ usedFallback: true, rejection: 'introduces_new_number' });
+  });
+
+  it('exactly half is not more than half: one of two sentences may go', () => {
+    const result = performedTranscriptFor(ORIGINAL, 'Maximinus raises a cup to the waiting Senate. And Philip smiles.');
+    expect(result).toMatchObject({ usedFallback: false, patchedOut: ['And Philip smiles.'] });
+  });
+
+  it('allowed names - the listener and the forms of address - are never cut', () => {
+    const retelling = 'Severus Alexander, my Emperor, the Praetorians mutter in their camp. Hear me, Dominus: Maximinus raises a cup. Caesar, the Senate waits in Rome.';
+    const result = performedTranscriptFor(ORIGINAL, retelling, ['Severus Alexander', 'Emperor']);
+    expect(result).toEqual({ transcript: retelling, usedFallback: false, patchedOut: [] });
+  });
+
+  it('keeps a paragraph break when the cut sentence closed a paragraph', () => {
+    const retelling = 'The Praetorians mutter in their camp. Maximinus raises a cup. And Philip smiles.\n\nThe Senate waits, and the camp mutters on.';
+    const result = performedTranscriptFor(ORIGINAL, retelling);
+    expect(result.transcript).toBe('The Praetorians mutter in their camp. Maximinus raises a cup.\n\nThe Senate waits, and the camp mutters on.');
+  });
+
+  it('every other rule still refuses wholesale, even beside an invented sentence', () => {
+    expect(performedTranscriptFor(ORIGINAL, `The Senate waits. And Philip smiles. <Philip whispers> Maximinus raises a cup.`))
+      .toMatchObject({ usedFallback: true, rejection: 'direction_has_proper_noun' });
+    expect(performedTranscriptFor(ORIGINAL, `The Senate waits. And Philip smiles. ${'Rome endures. '.repeat(200)}`))
+      .toMatchObject({ usedFallback: true, rejection: 'too_long' });
   });
 });
 
@@ -203,7 +277,7 @@ describe('spokenTokens', () => {
 describe('performedTranscriptFor', () => {
   it('keeps a valid script, unwrapping stray packaging', () => {
     const script = 'The Praetorians mutter in their camp. Maximinus raises a cup: "To the legions!" The Senate waits.';
-    expect(performedTranscriptFor(NARRATION, `\`\`\`\n## Transcript:\n${script}\n\`\`\``)).toEqual({ transcript: script, usedFallback: false });
+    expect(performedTranscriptFor(NARRATION, `\`\`\`\n## Transcript:\n${script}\n\`\`\``)).toEqual({ transcript: script, usedFallback: false, patchedOut: [] });
   });
 
   it('falls back with the reason on a refused script', () => {
@@ -212,11 +286,12 @@ describe('performedTranscriptFor', () => {
       transcript: fallbackTranscript(NARRATION),
       usedFallback: true,
       rejection: 'direction_has_proper_noun',
+      patchedOut: [],
     });
   });
 
   it('falls back with no reason when there was no director at all', () => {
-    expect(performedTranscriptFor(NARRATION, null)).toEqual({ transcript: fallbackTranscript(NARRATION), usedFallback: true });
+    expect(performedTranscriptFor(NARRATION, null)).toEqual({ transcript: fallbackTranscript(NARRATION), usedFallback: true, patchedOut: [] });
   });
 
   it('unwrapDirectorOutput leaves a plain transcript alone', () => {
@@ -310,6 +385,6 @@ describe('ai/tools/narrationVoice', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { ai } = makeAi(new Error('Bad Request'));
     const performed = await directNarrationPerformance(ai, NARRATION, false);
-    expect(performed).toEqual({ transcript: fallbackTranscript(NARRATION), usedFallback: true });
+    expect(performed).toEqual({ transcript: fallbackTranscript(NARRATION), usedFallback: true, patchedOut: [] });
   });
 });
