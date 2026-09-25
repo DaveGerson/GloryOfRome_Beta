@@ -466,12 +466,102 @@ blend keeps both:
 - **Private scenes: "Hear them speak".** It is off by default and offered
   only while the voice is on. Each committed NPC line gets a play control,
   voiced in a voice hashed from the NPC's entity id. That voice skips the
-  narrator's current one, and NPC lines take no delivery style. There is no
-  prep call. Lines are cleaned of `*stage business*` and logged as "Private
+  narrator's current one, and NPC lines take no delivery style. (Superseded
+  the same day by the voice cast below: each NPC speaks in their cast voice
+  and note.) There is no prep call. Lines are cleaned of `*stage business*` and logged as "Private
   scene with <name>".
 - The Imperial Dispatch keeps its own prompt and voice. Its log entry's
   excerpt is the head of its facts summary, which is still the open D4/D5
   follow-up below.
+
+**Update 2026-09-25 (the voice cast: the owner's "every unique individual
+should have a unique voice").** The bug: "In character…" used the
+narrator's default voice, so Julia Mamaea narrated in Enceladus, a man's
+voice. Now every character has a voice of their own:
+- **The full catalog** (`narration/voiceCatalog.ts`): all thirty Gemini TTS
+  prebuilt voices with Google's one-word descriptors, plus Brio (the owner's
+  reference voice, register unknown). Each carries a **believed register**
+  (feminine or masculine). That register is community-observed and
+  **unverified**, so audition any voice with
+  `GOR_NARRATOR_VOICE=<id> GOR_NARRATOR_AUDIO=1 npm run narrator:tune`.
+  `tests/voiceCast.test.ts` pins the list. The Settings voice pickers
+  offer the curated six first, then the rest. Any catalog voice is a valid
+  stored choice, a superset, so older prefs stay valid.
+- **The cast** (`narration/voiceCast.ts`) holds a narrator (a deployed
+  reader, a voice, a delivery note) and, for every living individual the
+  player knows, a voice and a delivery note of at most 80 characters,
+  sanitized like a custom voice style. Each member also has a one-line
+  rationale shown to the player, and the player's optional override.
+  `ensureUniqueCast` makes sure no two members, the narrator included,
+  share voice and note. While the thirty voices last, a duplicate is
+  re-voiced within its register. Past thirty members, a distinct note
+  separates two members who share a voice (tested with 75 and 200).
+- **The casting director** (`castVoices`, `ai/tools/voiceCasting.ts`) is
+  one structured call on the prep model at LOW thinking. It runs once per
+  campaign, the first time the narration voice is on (not SILENT) while a
+  campaign is in play and a key or Mock Mode is there: at setup if the
+  voice is already on, or else when it is first turned on. That includes an
+  old save with no cast. After that, whenever someone new becomes known,
+  it makes **one small newcomers call** for everyone uncast at that moment,
+  around the voices already taken. "Recast everyone" in Settings is the
+  only other trigger. It is explicit and paid, and it keeps the player's
+  overrides. Cost: a full cast sends roughly the catalog, the readers and
+  one short line per character, a few thousand tokens in and about 60 out
+  per character. A newcomers call is a fraction of that. Nothing runs
+  while the voice is SILENT, without a key, or on the selection screen.
+  - The call sees **only** the theme (JSON-quoted, D41), the player's name
+    and position, and each known individual's name, position, epithet and
+    entity type. It never sees personality, schemes, secrets, beliefs,
+    relationships, `secret_truth`, `gm_private`, memories or goals. A test
+    seeds all of those and asserts that none reaches the prompt.
+  - The answer is validated member by member. An unknown voice or a
+    missing member is cast by rule, a stranger's id is dropped, and notes
+    and rationales are sanitized and capped.
+  - Any failure casts by rule and is not retried by itself. It never blocks
+    play.
+- **The rule** (deterministic fallback, and Mock Mode) casts
+  register-aware where the name or standing is clear. It reads feminine or
+  masculine titles first (Augusta, Empress, Regent's "Mother of the Camp";
+  Emperor, General...), then, cautiously, a Latin first name in -a (not
+  Agrippa, Seneca...) or -us. It picks voices and a note from the public
+  station (soldier, ruler, regent, senator, informant, priest...), and
+  falls back to a stable hash over the catalog.
+  - Base 235 CE example: Julia Mamaea is Gacrux, "cool, imperious and
+    measured".
+  - Maximinus Thrax is Algenib, "a soldier's rough growl, few words".
+  - Lycinia Stolo is Despina, "low, sly and knowing".
+  - Gaius Pontius Magnus is Charon, "an orator's rolling, measured cadence".
+  - Severus Alexander, when not the player, is Iapetus, "measured and
+    courtly, weighing every word".
+  - The narrator is the Dramatic Reader in Enceladus.
+- **Kept with the campaign**: an optional, additive `voiceCast` save field
+  (SAVE_VERSION stays 1). An old save loads byte for byte, and a malformed
+  cast loads as none. It is patched into the stored autosave as soon as it
+  changes, and buildSaveState carries the newer one forward. It travels
+  with an exported reign. It is not GM-private, because it is derived only
+  from player-visible data.
+- **Used wherever a character speaks.**
+  - "In character…" uses the character's cast voice and note, with a
+    regression test.
+  - Private-scene NPC lines use the NPC's cast voice and note, which
+    replaces the hash, and the log records the style used.
+  - With no explicit narration style, the cast's reader performs in the
+    cast narrator's voice and note. Settings shows "As cast — …" and "Cast
+    by the casting director."
+  - **Explicit Settings choices always win.** Choosing "As cast" in the
+    style select hands the reader back to the cast. Custom narrators keep
+    their own voice and style. Another preset, chosen explicitly, keeps the
+    voice it was tuned with.
+- **"Bespoke character voices"** (Settings, on by default). Off keeps
+  everyone's distinct voice and sends no cast note at all. It is the one
+  switch that stops cast prefixes (`narration/voiceCast.ts::castStyle`)
+  if the TTS reads "Say, …:" aloud. **Unverified without a key:** whether
+  it does.
+- **Settings → The cast** is a collapsible list: the narrator and each
+  known individual, with their voice (full catalog), note and rationale.
+  Each row takes an override ("Your choice") or "Reset to casting". The
+  narrator's row edits the Settings voice and voice style. "Recast
+  everyone" says that it is a paid call.
 
 **Proposed ruling (a D46 candidate, restated for the retelling design): the
 voice may perform only text already committed to the player's chat. Its
@@ -507,6 +597,16 @@ Open follow-ups:
   aloud. Check the patch's cut rate on real retellings with
   `npm run narrator:tune`, and whether the Acta Diurna holds the third
   person.
+- **The voice cast, against the real endpoint.** Audition the catalog's
+  believed registers, especially the ones the rule leans on (Gacrux, Kore,
+  Despina, Algenib, Charon, Iapetus), and listen for cast notes ("Say,
+  cool, imperious and measured: …") being read aloud. If they are, switch
+  off "Bespoke character voices" and fix the prefix in
+  `narration/voiceStyle.ts`. Also check that the casting director's picks
+  fit the characters, and how much a full cast costs on a large custom
+  world.
+- **A castVoices call made while a turn is processing** lands in that
+  turn's `rawCalls`, which is the same bracket-timing caveat as a clip.
 
 ---
 
@@ -578,6 +678,43 @@ Nothing here blocks; all are one edit from rewording.
   - *Private scene:* "Hear them speak", "Each of their lines gets a play
     control, in a voice of their own. Every line is a paid call on your
     key.", "Hear them say it".
+  **Added 2026-09-25 (the voice cast):**
+  - *Settings:* "As cast — <reader>" (narration style), "Cast by the
+    casting director.", "As cast — <voice>" (voice), "The voice the casting
+    gave this narrator. Choose another to override it.", voice groups
+    "Narrators' voices" and "Every voice", catalog options "<Voice> —
+    <Descriptor>" (Google's descriptors; "Brio — Reference"), "Bespoke
+    character voices", "Each character speaks with a delivery note of their
+    own. Off: they keep their voices, and no note is sent — choose this if
+    a voice reads its note aloud."
+  - *The cast:* "The cast (N)", "Who speaks in which voice, with how they
+    speak. Kept with this campaign.", "The narrator — <reader>", "Voice for
+    <name>" and "How <name> speaks" (field labels), placeholder "As
+    written", "Your choice", "Reset to casting" ("Reset <name> to
+    casting"), "Recast everyone", "One paid call on your key: the casting
+    director hears everyone again. Your own changes stay.", "The casting
+    director needs your key and a campaign in play.", "The casting director
+    is at work…", "Recast.", "The casting director could not be reached;
+    cast by rule instead.", "Bespoke voices are off: each keeps their
+    voice, and no delivery note is sent."
+  - *Rationales by rule:* "Cast by rule from their name and standing,
+    without the casting director.", "Cast by rule: a steady pick from the
+    catalog, without the casting director.", "The reader this game starts
+    with, in its own voice, without the casting director.", and "Cast by
+    the casting director." when the director gives no reason.
+  - *Delivery notes by rule, shown and sent to the TTS as "Say, …:":*
+    "cool, imperious and measured", "measured and courtly, weighing every
+    word", "a soldier's rough growl, few words", "an orator's rolling,
+    measured cadence", "low, sly and knowing", "solemn and hushed", "brisk,
+    warm and persuasive", "quiet and careful", "precise and thoughtful";
+    and the variants that set apart two who share a voice ("a shade
+    slower", "a shade quicker", "lower and softer", "a little brighter",
+    "warmer", "drier", "more hushed", "more clipped", "with a slight rasp",
+    "gentler", "sterner", "wearier", "more lilting", "more deliberate",
+    "breathier", "crisper").
+  - *Model-written (not authored copy, but player-visible):* the casting
+    director's notes and one-line rationales, from the prompt in
+    `ai/prompts/voiceCasting.ts`.
 ---
 
 ## Residuals from the visual-enhancement pass (WP-1…WP-21 + adversarial review)

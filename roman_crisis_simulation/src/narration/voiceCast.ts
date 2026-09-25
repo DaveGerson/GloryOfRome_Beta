@@ -453,7 +453,15 @@ export function newestVoiceCast(...casts: Array<VoiceCast | null | undefined>): 
 // ---------------------------------------------------------------------------
 // Reading the cast.
 
-/** A cast delivery note as a voice style - or none, when bespoke voices are off. */
+/**
+ * A cast delivery note as a voice style - or none, when bespoke voices are off.
+ *
+ * THE ONE PLACE a cast note becomes a TTS prefix ("Say, <note>: ...", built by
+ * voiceStylePrefix). PR #9 found the TTS model may read such instructions
+ * aloud; "Bespoke character voices" off (`bespoke === false`) returns null
+ * here, so no cast note reaches any voice - the narrator's, a character's in
+ * character, or a private-scene NPC's.
+ */
 export function castStyle(text: string | null | undefined, bespoke: boolean): VoiceStyle | null {
   if (!bespoke) return null;
   const clean = sanitizeCastStyle(text);

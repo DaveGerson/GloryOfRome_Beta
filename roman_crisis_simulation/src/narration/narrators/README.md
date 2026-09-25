@@ -34,12 +34,41 @@ A profile tunes both calls behind the narration voice:
 | | `persona` | The system instruction: who the narrator is, whom they speak to, and how they retell a week. |
 | | `task` | Optional. The closing ask of the user prompt, after the narration. `{listener}` becomes the player's name and position ("the player" when unknown). Omit it for the neutral default ("Your listener is {listener}. Return the performed transcript: …"). |
 | `voice` | `model` | The TTS model (`gemini-3.8-flash-tts`). |
-| | `voiceName` | The narrator's own prebuilt voice, one of the curated six. A player's explicit choice under **Settings → Voice** overrides it. |
+| | `voiceName` | The narrator's own prebuilt voice: any voice in `../voiceCatalog.ts` (the thirty Gemini TTS voices, plus Brio). A player's explicit choice under **Settings → Voice** overrides it. |
 | | `temperature` | `0`–`2` (the reference uses `1`). |
 
 Delivery style is not part of a profile. **Settings → Voice style** is the
 player's to choose. It defaults to "As written", which sends nothing but the
 words (see `../voiceStyle.ts`).
+
+## The voice cast
+
+Each campaign also has a **voice cast** (`../voiceCast.ts`): a narrator,
+plus a voice and a short delivery note for every individual the player
+knows.
+
+- **Who casts it.** A casting director (`castVoices`,
+  `ai/tools/voiceCasting.ts`) makes one structured call when the voice is
+  first needed. It sees only player-visible fields, and chooses from the
+  profiles in this folder. The director reads each profile's `id`, `name`
+  and `description`, so write the description for it as well as for the
+  player.
+- **The cast's reader performs by default.** When the player has not
+  chosen a narration style, the cast's reader performs, in the voice and
+  delivery note the cast gave it.
+- **The player's choice wins.** A reader the player picks explicitly keeps
+  the voice in its profile.
+- **In character.** A character narrating "In character…" speaks in their
+  own cast voice.
+- **Uniqueness.** No two cast members, the narrator included, share voice
+  and note.
+- **The switch.** "Bespoke character voices" (Settings, on by default)
+  turns every cast note off in one place.
+
+When the call fails, and in Mock Mode, a deterministic, register-aware rule
+casts everyone. A voice's register (feminine or masculine) is believed, not
+verified: audition with `GOR_NARRATOR_VOICE=<id> GOR_NARRATOR_AUDIO=1 npm
+run narrator:tune`.
 
 Two things no profile can change:
 
