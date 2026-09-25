@@ -15,18 +15,18 @@
  *    scene's format is plain dialogue; the model is not asked for stage
  *    business, but a stray asterisked gesture should never be spoken as
  *    "asterisk sighs asterisk".
- *  - `npcVoiceFor`: each NPC's own voice, a stable hash of their entity id
- *    over the curated voices (persistence/uiPrefs.ts NARRATOR_VOICES),
- *    skipping the voice the chronicle narrator is using when it can, so the
- *    narrator and the person in the room never sound alike.
+ *  - `npcCastVoice`: the NPC's own voice and delivery note from the
+ *    campaign's voice cast (narration/voiceCast.ts) - the same voice they
+ *    narrate in "in character", unique in the cast, fitted to who they are.
+ *    Someone not (yet) in the cast is voiced by the deterministic casting
+ *    from their name alone.
  *
- * Delivery style: none. An NPC line is always voiced "as written", whatever
- * the narrator's style - a style is a narrator's manner, not theirs, and
- * deriving one per NPC would need something about them beyond their words.
+ * Delivery style: the NPC's cast note, through `voiceStylePrefix` - and none
+ * at all while "Bespoke character voices" is off. Never the narrator's style:
+ * a style is a speaker's own manner.
  */
 
-import { hashText } from './narrationPlayer';
-import { NARRATOR_VOICES } from '../persistence/uiPrefs';
+import { castStyle, deterministicMember, memberVoice, type CastVoice, type VoiceCast } from './voiceCast';
 
 /** The committed line, stripped of markup a voice would read aloud. */
 export function cleanSceneLineForSpeech(text: string): string {
@@ -42,13 +42,10 @@ export function cleanSceneLineForSpeech(text: string): string {
     .trim();
 }
 
-/**
- * The NPC's own voice: deterministic per entity, and - when the curated
- * list allows - never `avoidVoice` (the chronicle narrator's current voice).
- */
-export function npcVoiceFor(entityId: string, avoidVoice?: string | null): string {
-  const voices = NARRATOR_VOICES.map(v => v.id as string);
-  const pool = voices.filter(v => v !== avoidVoice);
-  const candidates = pool.length > 0 ? pool : voices;
-  return candidates[parseInt(hashText(entityId), 16) % candidates.length];
+/** The NPC's own voice and delivery: their cast member, else the rule from their name. */
+export function npcCastVoice(cast: VoiceCast | null | undefined, npc: { npcId: string; npcName: string }, bespoke: boolean): CastVoice {
+  const member = memberVoice(cast, npc.npcId, bespoke);
+  if (member) return member;
+  const byRule = deterministicMember({ entityId: npc.npcId, name: npc.npcName, entityType: 'individual' });
+  return { voiceName: byRule.voiceName, style: castStyle(byRule.style, bespoke) };
 }

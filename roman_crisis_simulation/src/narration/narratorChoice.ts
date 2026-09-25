@@ -22,6 +22,18 @@
  * the narrator's own delivery style, the extra names the guard allows, and
  * a `key` that separates one narrator's performances from another's - in
  * the clip cache and in the narration log's transcript reuse.
+ *
+ * The campaign's voice cast (narration/voiceCast.ts) supplies the defaults:
+ *  - with no explicit narration style, the reader the casting chose;
+ *  - a preset that IS the cast's reader performs in the cast narrator's
+ *    voice and delivery note (another preset keeps its own voice, tuned
+ *    with it);
+ *  - a narrator in character performs in THAT CHARACTER's cast voice and
+ *    delivery - never the narrator's (the bug where Julia Mamaea narrated in
+ *    Enceladus, a man's voice).
+ * The player's explicit Settings voice and voice style still win over all
+ * of it (hooks/useNarrationVoice.ts); a custom narrator keeps the voice and
+ * style its author gave it.
  */
 
 import type { Entity } from '../types';
@@ -33,6 +45,7 @@ import { DRAMATIC_READER_NARRATOR, narratorById, type NarratorProfile } from './
 import { customNarratorProfile, type CustomNarrator } from './customNarrators';
 import { hashText } from './narrationPlayer';
 import type { VoiceStyle } from './voiceStyle';
+import { castStyle, memberVoice, type VoiceCast } from './voiceCast';
 
 /** The Settings value for "In character…". */
 export const IN_CHARACTER_NARRATOR_ID = 'in-character';
@@ -93,6 +106,10 @@ export interface ResolvedNarrator {
   key: string;
   /** Set for a narrator in character. */
   character?: NarratorCharacter;
+  /** The reader was chosen by the voice cast, not by the player. */
+  castPick?: boolean;
+  /** The voice and delivery come from the voice cast (the cast narrator's, or the character's). */
+  castVoice?: boolean;
 }
 
 export interface NarratorSelection {
@@ -103,6 +120,10 @@ export interface NarratorSelection {
   presets: readonly NarratorProfile[];
   customs: readonly CustomNarrator[];
   characters: readonly NarratorCharacter[];
+  /** The campaign's voice cast, when there is one (narration/voiceCast.ts). */
+  cast?: VoiceCast | null;
+  /** "Bespoke character voices": false drops every cast delivery note. Default true. */
+  bespoke?: boolean;
 }
 
 function keyFor(profile: NarratorProfile, suffix = ''): string {
@@ -121,19 +142,23 @@ export function chosenCharacter(characterId: string | null, characters: readonly
  * a narrator.
  */
 export function resolveNarrator(selection: NarratorSelection): ResolvedNarrator {
-  const { narratorId, characterId, presets, customs, characters } = selection;
+  const { characterId, presets, customs, characters, cast = null, bespoke = true } = selection;
+  const castPick = !selection.narratorId && Boolean(cast);
+  const narratorId = selection.narratorId || cast?.narrator.narratorId || null;
   if (narratorId === IN_CHARACTER_NARRATOR_ID) {
     const character = chosenCharacter(characterId, characters);
     if (character) {
-      const profile = inCharacterNarratorProfile(character);
+      const own = memberVoice(cast, character.entityId, bespoke);
+      const profile = inCharacterNarratorProfile(character, own?.voiceName);
       return {
         kind: 'in_character',
         profile,
-        ownStyle: null,
+        ownStyle: own?.style ?? null,
         allowedNames: [character.name, ...(character.standing ? [character.standing] : [])],
         displayName: character.name,
         key: keyFor(profile, `:${character.entityId}`),
         character,
+        castVoice: Boolean(own),
       };
     }
   }
@@ -142,6 +167,13 @@ export function resolveNarrator(selection: NarratorSelection): ResolvedNarrator 
   if (custom && customProfile) {
     return { kind: 'custom', profile: customProfile, ownStyle: custom.voiceStyle, allowedNames: [], displayName: custom.name, key: keyFor(customProfile) };
   }
-  const profile = narratorById(narratorId === IN_CHARACTER_NARRATOR_ID ? null : narratorId, presets);
-  return { kind: 'preset', profile, ownStyle: null, allowedNames: [], displayName: profile.name, key: keyFor(profile) };
+  const preset = narratorById(narratorId === IN_CHARACTER_NARRATOR_ID ? null : narratorId, presets);
+  if (cast && preset.id === cast.narrator.narratorId) {
+    const profile: NarratorProfile = { ...preset, voice: { ...preset.voice, voiceName: cast.narrator.voiceName } };
+    return {
+      kind: 'preset', profile, ownStyle: castStyle(cast.narrator.style, bespoke), allowedNames: [], displayName: profile.name,
+      key: keyFor(profile), castPick, castVoice: true,
+    };
+  }
+  return { kind: 'preset', profile: preset, ownStyle: null, allowedNames: [], displayName: preset.name, key: keyFor(preset), castPick: castPick && preset.id === narratorId };
 }

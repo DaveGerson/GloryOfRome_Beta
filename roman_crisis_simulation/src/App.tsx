@@ -32,6 +32,7 @@ import { useNarrationVoice } from './hooks/useNarrationVoice';
 import { narratorCharactersFor } from './narration/narratorChoice';
 import { useNarrationLog } from './hooks/useNarrationLog';
 import { usePrivateSceneVoice } from './hooks/usePrivateSceneVoice';
+import { useCastBasis, useVoiceCast } from './hooks/useVoiceCast';
 import { NarrationLog } from './components/NarrationLog';
 import { useDevSmokeTest, useScrollToLatest, useUnloadGuardWhileProcessing } from './hooks/useShellEffects';
 import type { TransactionNote } from './app/transactions';
@@ -208,17 +209,27 @@ const App: React.FC = () => {
         () => narratorCharactersFor(playerEntity, entities, knowledge),
         [playerEntity, entities, knowledge],
     );
+    // The campaign's voice cast (narration/voiceCast.ts): every character
+    // the player knows gets a voice of their own - player-visible data only.
+    const castBasis = useCastBasis({ voiceCast: state.voiceCast, playerEntity, entities, knowledge });
+    const { effectiveCast, bespokeVoices, handleSetBespokeVoices } = castBasis;
     const {
         narrationVoiceMode, handleSetNarrationVoiceMode, toggleNarrationVoice, narrationVoiceStateFor,
-        narrators, narratorId, handleSetNarrator,
+        narrators, narratorId, narratorChosenExplicitly, castNarratorId, narratorVoiceFromCast, handleSetNarrator,
         narratorCharacterId, handleSetNarratorCharacter,
         customNarrators, handleSaveCustomNarrator, handleDeleteCustomNarrator,
         narratorVoiceChoice, narratorOwnVoice, handleSetNarratorVoice,
         voiceStyleChoice, narratorOwnStyle, handleSetVoiceStyle,
-        activeVoice: activeNarrationVoice,
     } = useNarrationVoice({
         ai, isMockMode, resolvedApiKey, messages, gameState, playerEntity, narratorCharacters,
-        week: worldState.week, turnNumber,
+        week: worldState.week, turnNumber, voiceCast: effectiveCast, bespokeVoices,
+    });
+    // The casting director: runs when the voice is first needed, then for newcomers (see the hook).
+    const {
+        recastStatus, canRecast, handleRecast, handleOverrideMember, handleResetMember,
+    } = useVoiceCast({
+        ai, isMockMode, resolvedApiKey, narrationVoiceMode, gameState, voiceCast: state.voiceCast, dispatch,
+        playerEntity, basis: castBasis, metaNarrative, campaignGenerationRef,
     });
     // The narration log: every performance kept as text on this device, with
     // replay that never re-runs the narrator (narration/narrationLog.ts).
@@ -226,7 +237,7 @@ const App: React.FC = () => {
     // "Hear them speak": a private-scene NPC's committed lines in their own
     // voice - offered only while the narration voice is on, off by default.
     const privateSceneNpcVoice = usePrivateSceneVoice({
-        ai, isMockMode, resolvedApiKey, narrationVoiceMode, narratorVoice: activeNarrationVoice, week: worldState.week,
+        ai, isMockMode, resolvedApiKey, narrationVoiceMode, voiceCast: effectiveCast, bespokeVoices, week: worldState.week,
     });
 
     const {
@@ -532,6 +543,18 @@ const App: React.FC = () => {
                     voiceStyleChoice={voiceStyleChoice}
                     narratorOwnStyle={narratorOwnStyle}
                     onSetVoiceStyle={handleSetVoiceStyle}
+                    narratorChosenExplicitly={narratorChosenExplicitly}
+                    castNarratorId={castNarratorId}
+                    narratorVoiceFromCast={narratorVoiceFromCast}
+                    voiceCast={effectiveCast}
+                    castCharacters={castBasis.candidates}
+                    bespokeVoices={bespokeVoices}
+                    onSetBespokeVoices={handleSetBespokeVoices}
+                    canRecast={canRecast}
+                    recastStatus={recastStatus}
+                    onRecast={handleRecast}
+                    onOverrideCastMember={handleOverrideMember}
+                    onResetCastMember={handleResetMember}
                     isMockMode={isMockMode}
                     onSetIsMockMode={setIsMockMode}
                     gmConsoleOpen={isGmConsoleEnabled}

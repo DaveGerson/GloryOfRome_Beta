@@ -16,6 +16,12 @@
  *  - the voice style (narration/voiceStyle.ts): an explicit choice, or else
  *    the narrator's own, which for every preset is "As written".
  *
+ * Under all three sits the campaign's voice cast (narration/voiceCast.ts,
+ * hooks/useVoiceCast.ts): with no explicit narration style, the reader the
+ * casting chose performs, in the cast narrator's voice and delivery note; a
+ * narrator in character performs in that character's cast voice and note.
+ * Explicit choices always win (narration/narratorChoice.ts).
+ *
  * Each is a device preference, never save state, and together they key the
  * clip cache - a change is a new performance, never an old clip replayed.
  *
@@ -58,6 +64,7 @@ import {
     type CustomNarrator, type CustomNarratorDraft, type CustomNarratorSaveResult,
 } from '../narration/customNarrators';
 import { parseVoiceStyle, voiceStyleKey, type VoiceStyle } from '../narration/voiceStyle';
+import type { VoiceCast } from '../narration/voiceCast';
 import {
     getNarrationVoiceMode, setNarrationVoiceMode, type NarrationVoiceMode,
     getNarratorProfileId, setNarratorProfileId,
@@ -93,6 +100,10 @@ export interface UseNarrationVoiceArgs {
     turnNumber?: number;
     /** The narration log (narration/narrationLog.ts); tests inject their own. */
     log?: NarrationLogStore;
+    /** The campaign's voice cast, complete for everyone the player knows (hooks/useVoiceCast.ts). */
+    voiceCast?: VoiceCast | null;
+    /** "Bespoke character voices": false drops every cast delivery note. Default true. */
+    bespokeVoices?: boolean;
 }
 
 /** The week a message belongs to: the last week ribbon before it, else `fallback`. */
@@ -114,7 +125,7 @@ const NO_CHARACTERS: readonly NarratorCharacter[] = [];
 export function useNarrationVoice({
     ai, isMockMode, resolvedApiKey, messages, gameState, playerEntity,
     narrators = NARRATORS, narratorCharacters = NO_CHARACTERS,
-    week, turnNumber, log = sharedNarrationLog,
+    week, turnNumber, log = sharedNarrationLog, voiceCast = null, bespokeVoices = true,
 }: UseNarrationVoiceArgs) {
     const [player] = useState(() => new NarrationPlayer());
     const playback = useSyncExternalStore(player.subscribe, player.getSnapshot, player.getSnapshot);
@@ -135,15 +146,17 @@ export function useNarrationVoice({
     const [characterId, setCharacterIdState] = useState<string | null>(() => getNarratorCharacterId());
     const resolved = useMemo(() => resolveNarrator({
         narratorId: storedNarratorId, characterId, presets: narrators, customs: customNarrators, characters: narratorCharacters,
-    }), [storedNarratorId, characterId, narrators, customNarrators, narratorCharacters]);
+        cast: voiceCast, bespoke: bespokeVoices,
+    }), [storedNarratorId, characterId, narrators, customNarrators, narratorCharacters, voiceCast, bespokeVoices]);
     const narrator = resolved.profile;
     // What the "Narration style" select shows: "In character…" stays chosen
     // even before anyone is known, so the character list can explain itself.
     const narratorId = storedNarratorId === IN_CHARACTER_NARRATOR_ID ? IN_CHARACTER_NARRATOR_ID : narrator.id;
 
+    // '' clears the explicit choice: the campaign's cast chooses the reader again.
     const handleSetNarrator = useCallback((id: string) => {
-        setStoredNarratorId(id);
-        setNarratorProfileId(id);
+        setStoredNarratorId(id || null);
+        setNarratorProfileId(id || null);
     }, []);
     const handleSetNarratorCharacter = useCallback((entityId: string) => {
         setCharacterIdState(entityId);
@@ -173,6 +186,7 @@ export function useNarrationVoice({
     // The voice style: explicit, or the narrator's own (none, for a preset).
     const [styleChoice, setStyleChoiceState] = useState<VoiceStyle | null>(() => parseVoiceStyle(getJsonPref(NARRATOR_VOICE_STYLE_KEY)));
     const style = styleChoice ?? resolved.ownStyle;
+    const styleKey = voiceStyleKey(style);
     const handleSetVoiceStyle = useCallback((next: VoiceStyle | null) => {
         const valid = next === null ? null : parseVoiceStyle(next);
         setStyleChoiceState(valid);
@@ -198,7 +212,7 @@ export function useNarrationVoice({
     // the log already holds for this source and narrator is voiced again
     // without a second prep call (narration/narrationLog.ts, "Reuse").
     const allowedNames = resolved.allowedNames;
-    const variant = `${isMockMode ? 'mock' : 'live'}:${resolved.key}:${voice}:${voiceStyleKey(style)}`;
+    const variant = `${isMockMode ? 'mock' : 'live'}:${resolved.key}:${voice}:${styleKey}`;
     const listener = useMemo(() => (playerName ? { name: playerName, position: playerPosition } : null), [playerName, playerPosition]);
     const reuseKey = `${resolved.key}|${describeListener(listener) ?? ''}`;
     const messagesRef = useRef(messages);
@@ -246,9 +260,11 @@ export function useNarrationVoice({
     }, [player, ai, isMockMode, narrator, voice, style, allowedNames, listener, variant, log, reuseKey, resolved.displayName]);
 
     // A different narrator, voice or style was chosen: the old performance stops.
+    // Keyed on the style's instruction, not its object: a recast that leaves
+    // this narrator's delivery as it was does not cut a performance short.
     useEffect(() => {
         player.stop();
-    }, [player, resolved.key, voice, style]);
+    }, [player, resolved.key, voice, styleKey]);
 
     // Unmount: stop, and revoke every object URL. The player is reusable, so
     // StrictMode's mount/unmount/mount leaves a working instance behind.
@@ -305,6 +321,10 @@ export function useNarrationVoice({
         handleSetNarrationVoiceMode,
         narrators,
         narratorId,
+        /** Whether the player chose the narration style (else the cast, or the built-in, did). */
+        narratorChosenExplicitly: storedNarratorId !== null,
+        /** The reader the voice cast chose for this campaign, if any. */
+        castNarratorId: voiceCast?.narrator.narratorId ?? null,
         handleSetNarrator,
         narratorCharacters,
         narratorCharacterId: chosenCharacter(characterId, narratorCharacters)?.entityId ?? null,
@@ -314,6 +334,8 @@ export function useNarrationVoice({
         handleDeleteCustomNarrator,
         narratorVoiceChoice: voiceChoice,
         narratorOwnVoice: narrator.voice.voiceName,
+        /** The narrator's own voice and style come from the voice cast. */
+        narratorVoiceFromCast: Boolean(resolved.castVoice),
         handleSetNarratorVoice,
         voiceStyleChoice: styleChoice,
         narratorOwnStyle: resolved.ownStyle,

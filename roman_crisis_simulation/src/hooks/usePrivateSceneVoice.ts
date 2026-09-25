@@ -9,9 +9,12 @@
  * (`PrivateScenePlayerView`) - gets a play control.
  *
  * No prep call: the words are already the NPC's. The TTS call runs unless
- * the in-memory audio cache holds the clip. No delivery style: NPC lines
- * are always "as written". Each performance is written to the narration
- * log as "Private scene with <name>". Mock Mode: the synthesized tone.
+ * the in-memory audio cache holds the clip. The voice and delivery note are
+ * the NPC's own, from the campaign's voice cast (narration/sceneVoice.ts
+ * `npcCastVoice`); the note is dropped while "Bespoke character voices" is
+ * off. Each performance is written to the narration log as "Private scene
+ * with <name>", with the voice and style it was spoken in. Mock Mode: the
+ * synthesized tone.
  */
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
@@ -19,7 +22,9 @@ import type { GeminiClient } from '../ai/core/geminiService';
 import { speakTranscript } from '../ai/tools/narrationVoice';
 import { NarrationPlayer } from '../narration/narrationPlayer';
 import { narrationLog as sharedNarrationLog, type NarrationLogStore } from '../narration/narrationLog';
-import { cleanSceneLineForSpeech, npcVoiceFor } from '../narration/sceneVoice';
+import { cleanSceneLineForSpeech, npcCastVoice } from '../narration/sceneVoice';
+import type { VoiceCast } from '../narration/voiceCast';
+import { voiceStyleKey } from '../narration/voiceStyle';
 import { getSceneVoicesEnabled, setSceneVoicesEnabled, type NarrationVoiceMode } from '../persistence/uiPrefs';
 import type { NarrationVoiceControlState } from './useNarrationVoice';
 
@@ -55,15 +60,17 @@ export interface UsePrivateSceneVoiceArgs {
     isMockMode: boolean;
     resolvedApiKey: string | null | undefined;
     narrationVoiceMode: NarrationVoiceMode;
-    /** The chronicle narrator's current voice, which the NPCs avoid. */
-    narratorVoice?: string;
+    /** The campaign's voice cast: each NPC speaks in their own cast voice. */
+    voiceCast?: VoiceCast | null;
+    /** "Bespoke character voices": false drops every cast delivery note. Default true. */
+    bespokeVoices?: boolean;
     /** The week now, for the log's entries. */
     week?: number;
     log?: NarrationLogStore;
 }
 
 export function usePrivateSceneVoice({
-    ai, isMockMode, resolvedApiKey, narrationVoiceMode, narratorVoice, week, log = sharedNarrationLog,
+    ai, isMockMode, resolvedApiKey, narrationVoiceMode, voiceCast = null, bespokeVoices = true, week, log = sharedNarrationLog,
 }: UsePrivateSceneVoiceArgs): PrivateSceneNpcVoice | undefined {
     const [player] = useState(() => new NarrationPlayer());
     const playback = useSyncExternalStore(player.subscribe, player.getSnapshot, player.getSnapshot);
@@ -85,6 +92,9 @@ export function usePrivateSceneVoice({
         return index;
     }, []);
 
+    const castKey = voiceCast
+        ? `${voiceCast.revision}:${bespokeVoices ? 'b' : 'p'}:${Object.entries(voiceCast.members).map(([id, m]) => `${id}=${m.override?.voiceName ?? m.voiceName}/${voiceStyleKey(bespokeVoices ? { preset: 'custom', text: m.override?.style ?? m.style } : null)}`).join(',')}`
+        : `none:${bespokeVoices ? 'b' : 'p'}`;
     const weekRef = useRef(week);
     useEffect(() => {
         weekRef.current = week;
@@ -95,8 +105,8 @@ export function usePrivateSceneVoice({
             async (spoken, index) => {
                 const source = lineFor.current.get(index);
                 if (!source) throw new Error('usePrivateSceneVoice: unknown line');
-                const voice = npcVoiceFor(source.scene.npcId, narratorVoice);
-                const wav = await speakTranscript(ai, spoken, isMockMode, { callName: 'privateSceneVoice', voiceName: voice, style: null });
+                const { voiceName: voice, style } = npcCastVoice(voiceCast, source.scene, bespokeVoices);
+                const wav = await speakTranscript(ai, spoken, isMockMode, { callName: 'privateSceneVoice', voiceName: voice, style });
                 log.record({
                     kind: 'private_scene',
                     sourceLabel: sceneSourceLabel(source.scene.npcName),
@@ -104,7 +114,7 @@ export function usePrivateSceneVoice({
                     narratorKey: `npc:${source.scene.npcId}`,
                     narratorName: source.scene.npcName,
                     voice,
-                    voiceStyle: null,
+                    voiceStyle: style,
                     transcript: spoken,
                     patchedOut: [],
                     usedFallback: false,
@@ -113,9 +123,10 @@ export function usePrivateSceneVoice({
                 });
                 return new Blob([wav], { type: 'audio/wav' });
             },
-            `${isMockMode ? 'mock' : 'live'}:scene:${narratorVoice ?? ''}`,
+            // The cast keys the clip cache: a recast or an override is a new clip.
+            `${isMockMode ? 'mock' : 'live'}:scene:${castKey}`,
         );
-    }, [player, ai, isMockMode, narratorVoice, log]);
+    }, [player, ai, isMockMode, voiceCast, bespokeVoices, castKey, log]);
 
     useEffect(() => () => player.dispose(), [player]);
 

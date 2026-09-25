@@ -9,7 +9,8 @@ import {
     type CustomNarratorSaveResult,
 } from '../narration/customNarrators';
 import { voiceStyleLabel, type VoiceStyle } from '../narration/voiceStyle';
-import { VoiceStylePicker, narrationSelectStyle } from './VoiceStylePicker';
+import { VOICE_CATALOG, catalogVoiceLabel } from '../narration/voiceCatalog';
+import { VoiceStylePicker, VOICE_GROUP_COPY, narrationSelectStyle } from './VoiceStylePicker';
 
 /** Player-visible copy for the custom-narrator editor (veto-queue: roadmaps/BACKLOG.md B13). */
 export const CUSTOM_NARRATOR_COPY = {
@@ -144,7 +145,12 @@ export const CustomNarratorEditor: React.FC<{
 
                             <label className="gor-label" style={fieldLabelStyle} htmlFor={`${ids}-voice`}>{CUSTOM_NARRATOR_COPY.voice}</label>
                             <select id={`${ids}-voice`} value={form.voiceName} onChange={e => set('voiceName', e.target.value)} style={narrationSelectStyle}>
-                                {NARRATOR_VOICES.map(v => <option key={v.id} value={v.id}>{v.label} — {v.role}</option>)}
+                                <optgroup label={VOICE_GROUP_COPY.curated}>
+                                    {NARRATOR_VOICES.map(v => <option key={v.id} value={v.id}>{v.label} — {v.role}</option>)}
+                                </optgroup>
+                                <optgroup label={VOICE_GROUP_COPY.every}>
+                                    {VOICE_CATALOG.filter(v => !NARRATOR_VOICES.some(c => c.id === v.id)).map(v => <option key={v.id} value={v.id}>{catalogVoiceLabel(v.id)}</option>)}
+                                </optgroup>
                             </select>
 
                             <label className="gor-label" style={fieldLabelStyle} htmlFor={`${ids}-voice-style`}>{CUSTOM_NARRATOR_COPY.voiceStyle}</label>

@@ -16,6 +16,12 @@ export const VOICE_STYLE_PICKER_COPY = {
     customStylePlaceholder: 'e.g. slow and grave, like a funeral oration',
 } as const;
 
+/** The voice pickers' two groups: the curated six, then the rest of the catalog (veto queue, B13). */
+export const VOICE_GROUP_COPY = {
+    curated: "Narrators' voices",
+    every: 'Every voice',
+} as const;
+
 /** Matches the voice select as it shipped (PR #9). */
 export const narrationSelectStyle: React.CSSProperties = {
     width: '100%',

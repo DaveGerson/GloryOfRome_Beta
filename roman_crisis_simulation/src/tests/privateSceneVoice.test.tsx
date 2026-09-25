@@ -13,8 +13,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { GeminiClient } from '../ai/core/geminiService';
-import { cleanSceneLineForSpeech, npcVoiceFor } from '../narration/sceneVoice';
-import { NARRATOR_VOICES, getSceneVoicesEnabled } from '../persistence/uiPrefs';
+import { cleanSceneLineForSpeech, npcCastVoice } from '../narration/sceneVoice';
+import { getSceneVoicesEnabled } from '../persistence/uiPrefs';
+import { deterministicCast, withMemberOverride, type VoiceCast } from '../narration/voiceCast';
+import { isCatalogVoice } from '../narration/voiceCatalog';
 import { NarrationLogStore } from '../narration/narrationLog';
 import { usePrivateSceneVoice, type UsePrivateSceneVoiceArgs, type PrivateSceneNpcVoice } from '../hooks/usePrivateSceneVoice';
 import { PrivateScene } from '../components/PrivateScene';
@@ -39,6 +41,10 @@ const rawScene: PrivateSceneRecord = {
   consequenceStatus: 'pending',
 };
 const view = projectPrivateSceneForPlayer(rawScene);
+const CAST: VoiceCast = deterministicCast(
+  [{ entityId: 'julia', name: 'Julia Mamaea', position: 'Regent', epithet: 'Mother of the Camp', entityType: 'individual' }],
+  { narratorId: 'senatorial-partner', voiceName: 'Enceladus' },
+);
 
 function makeAi() {
   const generateContent = vi.fn(async (params: ContentParams) => (params.config?.responseModalities ? AUDIO_RESPONSE : { text: 'never' }));
@@ -63,15 +69,12 @@ afterEach(() => {
 });
 
 describe('the NPC voice', () => {
-  it('is deterministic per entity, always a curated voice, and avoids the narrator\'s voice', () => {
-    const curated = NARRATOR_VOICES.map(v => v.id as string);
-    for (const id of ['julia', 'maximinus', 'npc_venena', 'x']) {
-      expect(npcVoiceFor(id)).toBe(npcVoiceFor(id));
-      expect(curated).toContain(npcVoiceFor(id));
-      for (const narrator of curated) expect(npcVoiceFor(id, narrator)).not.toBe(narrator);
-    }
-    const spread = new Set(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'].map(id => npcVoiceFor(id)));
-    expect(spread.size).toBeGreaterThan(1);
+  it('is the NPC\'s own cast voice and delivery; someone uncast is voiced by rule from their name', () => {
+    const cast = deterministicCast([{ entityId: 'julia', name: 'Julia Mamaea', position: 'Regent', entityType: 'individual' }], { narratorId: 'senatorial-partner', voiceName: 'Enceladus' });
+    expect(npcCastVoice(cast, { npcId: 'julia', npcName: 'Julia Mamaea' }, true)).toEqual({ voiceName: 'Gacrux', style: { preset: 'custom', text: 'cool, imperious and measured' } });
+    const uncast = npcCastVoice(null, { npcId: 'x', npcName: 'Aurelia' }, true);
+    expect(isCatalogVoice(uncast.voiceName)).toBe(true);
+    expect(npcCastVoice(null, { npcId: 'x', npcName: 'Aurelia' }, true)).toEqual(uncast);
   });
 
   it('cleans a committed line for speech: stage business, bold and bracketed asides go; the words stay', () => {
@@ -86,7 +89,7 @@ describe('the hook', () => {
   function mount(extra: Partial<UsePrivateSceneVoiceArgs> = {}) {
     const { ai, generateContent } = makeAi();
     const log = new NarrationLogStore({ load: false });
-    const args: UsePrivateSceneVoiceArgs = { ai, isMockMode: false, resolvedApiKey: 'k', narrationVoiceMode: 'on_demand', narratorVoice: 'Enceladus', week: 2, log, ...extra };
+    const args: UsePrivateSceneVoiceArgs = { ai, isMockMode: false, resolvedApiKey: 'k', narrationVoiceMode: 'on_demand', voiceCast: CAST, week: 2, log, ...extra };
     return { hook: renderHook(usePrivateSceneVoice, args), generateContent, log };
   }
 
@@ -110,14 +113,15 @@ describe('the hook', () => {
     expect(generateContent).toHaveBeenCalledTimes(1);
     const call = generateContent.mock.calls[0][0];
     expect(call.config?.responseModalities).toBeTruthy();
-    expect(call.contents).toBe('My son trusts you. Do not make me regret it.');
     const voice = (call.config?.speechConfig as { voiceConfig: { prebuiltVoiceConfig: { voiceName: string } } }).voiceConfig.prebuiltVoiceConfig.voiceName;
-    expect(voice).toBe(npcVoiceFor('julia', 'Enceladus'));
-    expect(voice).not.toBe('Enceladus');
+    // Her cast voice (Gacrux, a woman's) with her cast delivery note, not the narrator's Enceladus.
+    expect(voice).toBe('Gacrux');
+    expect(call.contents).toBe('Say, cool, imperious and measured: My son trusts you. Do not make me regret it.');
     expect(hook.current!.stateFor(view, view.transcript[1])).toBe('playing');
     expect(log.getSnapshot()[0]).toMatchObject({
       kind: 'private_scene', sourceLabel: 'Private scene with Julia Mamaea', narratorName: 'Julia Mamaea', voice,
-      voiceStyle: null, transcript: 'My son trusts you. Do not make me regret it.', patchedOut: [], usedFallback: false, turn: 2,
+      voiceStyle: { preset: 'custom', text: 'cool, imperious and measured' },
+      transcript: 'My son trusts you. Do not make me regret it.', patchedOut: [], usedFallback: false, turn: 2,
     });
     expect(JSON.stringify(log.getSnapshot())).not.toContain('NPC_PRIVATE');
 
@@ -125,6 +129,19 @@ describe('the hook', () => {
     act(() => hook.current!.onToggle(view, view.transcript[0]));
     await settle();
     expect(generateContent).toHaveBeenCalledTimes(1);
+    hook.unmount();
+  });
+
+  it('speaks in the player\'s override of the NPC\'s casting, and with no note at all while bespoke voices are off', async () => {
+    const overridden = withMemberOverride(CAST, 'julia', { voiceName: 'Kore', style: 'quiet and cold' });
+    const { hook, generateContent, log } = mount({ voiceCast: overridden, bespokeVoices: false });
+    act(() => hook.current!.onSetEnabled(true));
+    act(() => hook.current!.onToggle(view, view.transcript[1]));
+    await settle();
+    const call = generateContent.mock.calls[0][0];
+    expect((call.config?.speechConfig as { voiceConfig: { prebuiltVoiceConfig: { voiceName: string } } }).voiceConfig.prebuiltVoiceConfig.voiceName).toBe('Kore');
+    expect(call.contents).toBe('My son trusts you. Do not make me regret it.');
+    expect(log.getSnapshot()[0]).toMatchObject({ voice: 'Kore', voiceStyle: null });
     hook.unmount();
   });
 

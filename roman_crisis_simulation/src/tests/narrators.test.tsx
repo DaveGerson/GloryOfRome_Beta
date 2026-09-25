@@ -10,6 +10,7 @@
  * preferences and Settings controls, and the tuning harness core
  * (narration/tuning/tuneNarrator.ts).
  */
+import { VOICE_CATALOG } from '../narration/voiceCatalog';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { narrationLog } from '../narration/narrationLog';
 import React, { act } from 'react';
@@ -408,7 +409,11 @@ describe('Settings: narrator and voice', () => {
     const select = voiceSelect(view.host);
     expect(select.value).toBe('');
     expect(select.options[0].textContent).toBe("The narrator's own — Orus");
-    expect([...select.options].slice(1).map(o => o.value)).toEqual(['Enceladus', 'Orus', 'Gacrux', 'Charon', 'Sadaltager', 'Iapetus']);
+    // The curated six first, then the rest of the catalog (narration/voiceCatalog.ts).
+    const values = [...select.options].slice(1).map(o => o.value);
+    expect(values.slice(0, 6)).toEqual(['Enceladus', 'Orus', 'Gacrux', 'Charon', 'Sadaltager', 'Iapetus']);
+    expect(values).toHaveLength(VOICE_CATALOG.length);
+    expect(new Set(values)).toEqual(new Set(VOICE_CATALOG.map(v => v.id)));
     act(() => {
       select.value = 'Charon';
       select.dispatchEvent(new Event('change', { bubbles: true }));
