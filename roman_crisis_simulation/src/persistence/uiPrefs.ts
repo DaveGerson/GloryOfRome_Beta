@@ -19,6 +19,8 @@
  * doesn't persist, both harmless.
  */
 
+import { isCatalogVoice } from '../narration/voiceCatalog';
+
 const GM_CONSOLE_ENABLED_KEY = 'gloryOfRome:gmConsoleEnabled';
 const GM_INTERVENTION_ENABLED_KEY = 'gloryOfRome:gmInterventionEnabled';
 const COMPOSER_MODE_KEY = 'gloryOfRome:composerMode';
@@ -180,7 +182,10 @@ export function setNarrationVoiceMode(mode: NarrationVoiceMode): void {
 }
 
 /**
- * Curated senatorial and Roman narrator voice personas available from Gemini TTS.
+ * Curated senatorial and Roman narrator voice personas available from Gemini TTS:
+ * the Settings "Voice" picker's first group. The full palette - every
+ * prebuilt voice, and what the voice cast draws on - is narration/voiceCatalog.ts,
+ * and any voice in it is a valid stored choice.
  */
 export const NARRATOR_VOICES = [
   { id: 'Enceladus', label: 'Enceladus', role: 'Senatorial Baritone — calm, grave, dignified' },
@@ -191,17 +196,18 @@ export const NARRATOR_VOICES = [
   { id: 'Iapetus', label: 'Iapetus', role: 'Patrician Scholar — clean, articulate, patrician' },
 ] as const;
 
-export type NarratorVoiceId = typeof NARRATOR_VOICES[number]['id'];
+/** A voice from the full catalog (narration/voiceCatalog.ts); the curated six are a subset. */
+export type NarratorVoiceId = string;
 export const DEFAULT_NARRATOR_VOICE_ID: NarratorVoiceId = 'Enceladus';
 const NARRATOR_VOICE_KEY = 'gloryOfRome:narratorVoice';
 
 function isNarratorVoiceId(value: unknown): value is NarratorVoiceId {
-  return NARRATOR_VOICES.some(v => v.id === value);
+  return isCatalogVoice(value);
 }
 
 /**
  * The voice the player explicitly chose, or null when they never chose one
- * (or cleared it, or the stored value is not a curated voice). Null means
+ * (or cleared it, or the stored value is not a catalog voice). Null means
  * "the narrator's own voice": each narrator profile (narration/narrators.ts)
  * names the voice it was tuned with, and an explicit choice overrides it.
  */
@@ -222,7 +228,7 @@ export function getNarratorVoice(): NarratorVoiceId {
   return getNarratorVoiceChoice() ?? DEFAULT_NARRATOR_VOICE_ID;
 }
 
-/** Stores an explicit voice choice; anything outside the curated list clears it instead. */
+/** Stores an explicit voice choice; anything outside the catalog clears it instead. */
 export function setNarratorVoice(voiceId: string | null): void {
   try {
     const storage = getStorage();
@@ -255,11 +261,13 @@ export function getNarratorProfileId(): string | null {
   }
 }
 
-export function setNarratorProfileId(id: string): void {
+/** Stores the explicit narration style; null (or '') clears it, so the campaign's cast chooses again. */
+export function setNarratorProfileId(id: string | null): void {
   try {
     const storage = getStorage();
     if (!storage) return;
-    storage.setItem(NARRATOR_PROFILE_KEY, id);
+    if (id) storage.setItem(NARRATOR_PROFILE_KEY, id);
+    else storage.removeItem(NARRATOR_PROFILE_KEY);
   } catch (e) {
     console.warn('setNarratorProfileId: localStorage.setItem failed', e);
   }
@@ -362,4 +370,22 @@ export function setSceneVoicesEnabled(enabled: boolean): void {
   } catch (e) {
     console.warn('setSceneVoicesEnabled: localStorage.setItem failed', e);
   }
+}
+
+/**
+ * "Bespoke character voices" (narration/voiceCast.ts): whether the voice
+ * cast's delivery notes are sent as "Say …:" prefixes on the TTS input. ON by
+ * default. OFF is the plain behavior: every character and the narrator keep
+ * their distinct cast voices, and no cast style is ever prefixed - the one
+ * switch that turns the cast's prefixes off everywhere, should the TTS model
+ * read them aloud (PR #9, narration/voiceStyle.ts).
+ */
+const BESPOKE_VOICES_KEY = 'gloryOfRome:bespokeVoices';
+
+export function getBespokeVoicesEnabled(): boolean {
+  return getBoolPref(BESPOKE_VOICES_KEY);
+}
+
+export function setBespokeVoicesEnabled(enabled: boolean): void {
+  setBoolPref(BESPOKE_VOICES_KEY, enabled);
 }

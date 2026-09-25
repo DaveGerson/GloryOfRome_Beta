@@ -236,14 +236,14 @@ describe('custom narrators', () => {
     expect(localStorage.getItem(CUSTOM_NARRATORS_KEY)).toBeNull();
   });
 
-  it('refuses what will not hold: empty or oversized fields, a voice outside the curated list, an unknown id', () => {
+  it('refuses what will not hold: empty or oversized fields, a voice outside the catalog, an unknown id', () => {
     const bad = (draft: Partial<CustomNarratorDraft>) => saveCustomNarrator([], { ...DRAFT, ...draft });
     expect(bad({ name: '   ' })).toMatchObject({ ok: false, issues: [{ field: 'name', message: 'Give the narrator a name.' }] });
     expect(bad({ name: 'x'.repeat(CUSTOM_NARRATOR_LIMITS.name + 1) })).toMatchObject({ ok: false, issues: [{ field: 'name' }] });
     expect(bad({ description: 'x'.repeat(CUSTOM_NARRATOR_LIMITS.description + 1) })).toMatchObject({ ok: false, issues: [{ field: 'description' }] });
     expect(bad({ brief: '' })).toMatchObject({ ok: false, issues: [{ field: 'brief', message: 'Say who narrates.' }] });
     expect(bad({ brief: 'x'.repeat(CUSTOM_NARRATOR_LIMITS.brief + 1) })).toMatchObject({ ok: false, issues: [{ field: 'brief' }] });
-    expect(bad({ voiceName: 'Brio' as CustomNarratorDraft['voiceName'] })).toMatchObject({ ok: false, issues: [{ field: 'voiceName' }] });
+    expect(bad({ voiceName: 'Nobody' as CustomNarratorDraft['voiceName'] })).toMatchObject({ ok: false, issues: [{ field: 'voiceName' }] });
     expect(bad({ id: 'custom-nothere' })).toMatchObject({ ok: false });
     expect(localStorage.getItem(CUSTOM_NARRATORS_KEY)).toBeNull();
   });
@@ -267,7 +267,7 @@ describe('custom narrators', () => {
     localStorage.setItem(CUSTOM_NARRATORS_KEY, JSON.stringify([
       created.narrator,
       { ...created.narrator },
-      { ...created.narrator, id: 'custom-other1', voiceName: 'Brio' },
+      { ...created.narrator, id: 'custom-other1', voiceName: 'Nobody' },
       { ...created.narrator, id: 'bad id' },
       'not a narrator',
     ]));

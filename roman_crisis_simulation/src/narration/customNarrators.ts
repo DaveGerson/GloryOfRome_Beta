@@ -7,7 +7,7 @@
  * part of a save.
  *
  * Validation is layered. The stored record is checked against
- * `customNarratorSchema` (lengths, a curated voice, a known style), and the
+ * `customNarratorSchema` (lengths, a catalog voice, a known style), and the
  * narrator profile built from it must pass the same `narratorProfileSchema`
  * every deployed narrator passes - a record that fails either is dropped on
  * load, never voiced.
@@ -25,13 +25,15 @@ import { GEMINI_NARRATION_PREP, GEMINI_TTS, NARRATION_PREP_THINKING_LEVEL } from
 import { buildCustomNarratorPersona } from '../ai/prompts/narrationPerformance';
 import { narratorProfileSchema, type NarratorProfile } from './narrators';
 import { voiceStyleSchema, sanitizeVoiceStyleText, type VoiceStyle } from './voiceStyle';
-import { CUSTOM_NARRATORS_KEY, NARRATOR_VOICES, getJsonPref, setJsonPref } from '../persistence/uiPrefs';
+import { CUSTOM_NARRATORS_KEY, getJsonPref, setJsonPref } from '../persistence/uiPrefs';
+import { VOICE_CATALOG } from './voiceCatalog';
 
 export const CUSTOM_NARRATOR_LIMITS = { name: 40, description: 160, brief: 1200 } as const;
 /** Enough for a small company of narrators; more would flood the picker. */
 export const MAX_CUSTOM_NARRATORS = 12;
 
-const VOICE_IDS = NARRATOR_VOICES.map(v => v.id) as [string, ...string[]];
+/** Any voice in the catalog (the curated six are among them, so older records stay valid). */
+const VOICE_IDS = VOICE_CATALOG.map(v => v.id) as [string, ...string[]];
 const CUSTOM_ID = /^custom-[a-z0-9]{4,24}$/;
 
 export const customNarratorSchema = z.object({
