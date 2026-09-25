@@ -17,6 +17,7 @@
  *  - the Settings controls and the editor.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { narrationLog } from '../narration/narrationLog';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GameState, type Entity, type Message } from '../types';
@@ -82,6 +83,8 @@ const DRAFT: CustomNarratorDraft = {
 
 beforeEach(() => {
   localStorage.clear();
+  // The App's shared log remembers performances in memory; each test starts with none.
+  narrationLog.clear();
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
 

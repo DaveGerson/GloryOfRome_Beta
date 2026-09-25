@@ -30,6 +30,8 @@ import { useTurnFlow } from './hooks/useTurnFlow';
 import { useWeekBeat } from './hooks/useWeekBeat';
 import { useNarrationVoice } from './hooks/useNarrationVoice';
 import { narratorCharactersFor } from './narration/narratorChoice';
+import { useNarrationLog } from './hooks/useNarrationLog';
+import { NarrationLog } from './components/NarrationLog';
 import { useDevSmokeTest, useScrollToLatest, useUnloadGuardWhileProcessing } from './hooks/useShellEffects';
 import type { TransactionNote } from './app/transactions';
 import { TransactionNoteView, downloadTheReign } from './app/TransactionNoteView';
@@ -212,7 +214,13 @@ const App: React.FC = () => {
         customNarrators, handleSaveCustomNarrator, handleDeleteCustomNarrator,
         narratorVoiceChoice, narratorOwnVoice, handleSetNarratorVoice,
         voiceStyleChoice, narratorOwnStyle, handleSetVoiceStyle,
-    } = useNarrationVoice({ ai, isMockMode, resolvedApiKey, messages, gameState, playerEntity, narratorCharacters });
+    } = useNarrationVoice({
+        ai, isMockMode, resolvedApiKey, messages, gameState, playerEntity, narratorCharacters,
+        week: worldState.week, turnNumber,
+    });
+    // The narration log: every performance kept as text on this device, with
+    // replay that never re-runs the narrator (narration/narrationLog.ts).
+    const { narrationLogEntries, toggleReplay, replayStateFor, stopReplay, clearLog } = useNarrationLog({ ai, isMockMode, resolvedApiKey });
 
     const {
         handleSpendResource, handleOccurrenceFinding, handleInvestigationOutcome, handleSetIntervention,
@@ -399,6 +407,15 @@ const App: React.FC = () => {
                                                     onEnd={handlePrivateSceneEnd}
                                                     onLastWord={handlePrivateSceneLastWord}
                                                     onSkipLastWord={handlePrivateSceneSkipLastWord}
+                                                />
+                                            )}
+                                            {(narrationVoiceMode !== 'off' || narrationLogEntries.length > 0) && (
+                                                <NarrationLog
+                                                    entries={narrationLogEntries}
+                                                    stateFor={replayStateFor}
+                                                    onToggle={toggleReplay}
+                                                    onClear={clearLog}
+                                                    onClose={stopReplay}
                                                 />
                                             )}
                                             {isGmConsoleEnabled && (

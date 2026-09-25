@@ -29,8 +29,8 @@ export interface NarrationPlayback {
   status: NarrationVoiceStatus;
 }
 
-/** Renders one narration to playable audio. Throws on failure. */
-export type NarrationRenderer = (text: string) => Promise<Blob>;
+/** Renders one narration (message `index`'s text) to playable audio. Throws on failure. */
+export type NarrationRenderer = (text: string, index: number) => Promise<Blob>;
 
 export const DEFAULT_NARRATION_CACHE_SIZE = 20;
 
@@ -176,7 +176,7 @@ export class NarrationPlayer {
     const renderer = this.renderer;
     if (!renderer) return Promise.reject(new Error('NarrationPlayer: no renderer set'));
     const generation = this.generation;
-    const promise = renderer(text).then(blob => {
+    const promise = renderer(text, index).then(blob => {
       const url = URL.createObjectURL(blob);
       if (generation !== this.generation) {
         URL.revokeObjectURL(url);

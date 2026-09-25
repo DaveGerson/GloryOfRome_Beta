@@ -13,6 +13,7 @@ import type { WorldState, Entity, Report, SimulationState } from '../types';
 import { performImperialDispatch } from '../ai/tools/narrationVoice';
 import { NarrationPlayer, type NarrationVoiceStatus } from '../narration/narrationPlayer';
 import { toRoman } from '../components/ui/Brand';
+import { narrationLog, type NarrationLogStore } from '../narration/narrationLog';
 
 export type ImperialDispatchStatus = NarrationVoiceStatus | 'unavailable';
 
@@ -28,6 +29,17 @@ export interface UseImperialDispatchArgs {
   currentEvents: readonly unknown[];
   playerEntity?: Entity | null;
   turnNumber: number;
+  /** The narration log (narration/narrationLog.ts); tests inject their own. */
+  log?: NarrationLogStore;
+}
+
+/** The Dispatch's voice and its name in the narration log (veto-queue copy). */
+export const IMPERIAL_DISPATCH_VOICE = 'Sadaltager';
+export const IMPERIAL_DISPATCH_SPEAKER = 'The Imperial Chancellery';
+
+/** "Imperial Dispatch, Week XI" - the log's label for a dispatch. */
+export function dispatchSourceLabel(week: number): string {
+  return `Imperial Dispatch, Week ${toRoman(week)}`;
 }
 
 /**
@@ -96,6 +108,7 @@ export function useImperialDispatch(args: UseImperialDispatchArgs) {
     currentEvents,
     playerEntity,
     turnNumber,
+    log = narrationLog,
   } = args;
 
   const [player] = useState(() => new NarrationPlayer());
@@ -103,15 +116,39 @@ export function useImperialDispatch(args: UseImperialDispatchArgs) {
 
   const canReachVoice = isMockMode || Boolean(resolvedApiKey);
 
+  const weekRef = useRef(worldState.week || turnNumber);
+  const turnRef = useRef(turnNumber);
+  useEffect(() => {
+    weekRef.current = worldState.week || turnNumber;
+    turnRef.current = turnNumber;
+  }, [worldState.week, turnNumber]);
+
   useEffect(() => {
     player.setRenderer(
       async (factsText) => {
-        const { wav } = await performImperialDispatch(ai, factsText, isMockMode);
-        return new Blob([wav], { type: 'audio/wav' });
+        const performed = await performImperialDispatch(ai, factsText, isMockMode, IMPERIAL_DISPATCH_VOICE);
+        // The dispatch the player is about to hear, kept as text in the log.
+        const week = weekRef.current;
+        log.record({
+          kind: 'dispatch',
+          sourceLabel: dispatchSourceLabel(week),
+          sourceText: factsText,
+          narratorKey: 'imperial-dispatch',
+          narratorName: IMPERIAL_DISPATCH_SPEAKER,
+          voice: IMPERIAL_DISPATCH_VOICE,
+          voiceStyle: null,
+          transcript: performed.transcript,
+          patchedOut: performed.patchedOut,
+          usedFallback: performed.usedFallback,
+          week,
+          turn: turnRef.current,
+        });
+        return new Blob([performed.wav], { type: 'audio/wav' });
       },
       isMockMode ? 'mock-dispatch' : 'live-dispatch',
     );
-  }, [player, ai, isMockMode]);
+  }, [player, ai, isMockMode, log]);
+
 
   useEffect(() => () => player.dispose(), [player]);
 

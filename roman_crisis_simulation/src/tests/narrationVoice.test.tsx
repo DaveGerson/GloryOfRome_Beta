@@ -10,6 +10,7 @@
  * URL.createObjectURL/revokeObjectURL are stubbed.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { narrationLog } from '../narration/narrationLog';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { GameState, type Message } from '../types';
@@ -60,6 +61,8 @@ let revokeUrl: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   localStorage.clear();
+  // The App's shared log remembers performances in memory; each test starts with none.
+  narrationLog.clear();
   playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
   pauseSpy = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
   let n = 0;

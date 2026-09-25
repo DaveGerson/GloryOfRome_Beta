@@ -11,6 +11,7 @@
  * (narration/tuning/tuneNarrator.ts).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { narrationLog } from '../narration/narrationLog';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GameState, type Message } from '../types';
@@ -82,6 +83,8 @@ const voiceOf = (call: [ContentParams]) =>
 
 beforeEach(() => {
   localStorage.clear();
+  // The App's shared log remembers performances in memory; each test starts with none.
+  narrationLog.clear();
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
@@ -331,8 +334,9 @@ describe('the hook', () => {
     expect(getNarratorVoiceChoice()).toBe('Charon');
     act(() => hook.current.toggleNarrationVoice(0, NARRATION));
     await settle();
-    expect(generateContent).toHaveBeenCalledTimes(4);
-    expect(voiceOf(generateContent.mock.calls[3])).toBe('Charon');
+    // New audio in the new voice - but the same narrator's logged words, so no second prep call.
+    expect(generateContent).toHaveBeenCalledTimes(3);
+    expect(voiceOf(generateContent.mock.calls[2])).toBe('Charon');
 
     act(() => hook.current.handleSetNarratorVoice(null));
     expect(getNarratorVoiceChoice()).toBeNull();

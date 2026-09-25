@@ -44,7 +44,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { GameState, type Message, type Entity } from '../types';
 import type { GeminiClient } from '../ai/core/geminiService';
-import { performNarration } from '../ai/tools/narrationVoice';
+import { performNarration, speakTranscript } from '../ai/tools/narrationVoice';
+import { narrationLog as sharedNarrationLog, type NarrationLogStore } from '../narration/narrationLog';
+import { describeListener } from '../ai/prompts/narrationPerformance';
+import { toRoman } from '../components/ui/Brand';
 import { NarrationPlayer, type NarrationVoiceStatus } from '../narration/narrationPlayer';
 import { NARRATORS, type NarratorProfile } from '../narration/narrators';
 import {
@@ -85,6 +88,25 @@ export interface UseNarrationVoiceArgs {
      * `knownRecipientOptionsForPlayer`), never raw entities.
      */
     narratorCharacters?: readonly NarratorCharacter[];
+    /** The week and turn now, for the narration log's labels. */
+    week?: number;
+    turnNumber?: number;
+    /** The narration log (narration/narrationLog.ts); tests inject their own. */
+    log?: NarrationLogStore;
+}
+
+/** The week a message belongs to: the last week ribbon before it, else `fallback`. */
+export function weekOfMessage(messages: readonly Message[], index: number, fallback: number | undefined): number | undefined {
+    for (let i = Math.min(index, messages.length - 1); i >= 0; i--) {
+        const date = messages[i]?.ribbonDate;
+        if (messages[i]?.sender === 'ribbon' && date) return date.week;
+    }
+    return fallback;
+}
+
+/** "Week XI narration" - the log's label for a chronicle narration (veto-queue copy). */
+export function chronicleSourceLabel(week: number | undefined): string {
+    return week ? `Week ${toRoman(week)} narration` : 'The chronicle';
 }
 
 const NO_CHARACTERS: readonly NarratorCharacter[] = [];
@@ -92,6 +114,7 @@ const NO_CHARACTERS: readonly NarratorCharacter[] = [];
 export function useNarrationVoice({
     ai, isMockMode, resolvedApiKey, messages, gameState, playerEntity,
     narrators = NARRATORS, narratorCharacters = NO_CHARACTERS,
+    week, turnNumber, log = sharedNarrationLog,
 }: UseNarrationVoiceArgs) {
     const [player] = useState(() => new NarrationPlayer());
     const playback = useSyncExternalStore(player.subscribe, player.getSnapshot, player.getSnapshot);
@@ -170,23 +193,57 @@ export function useNarrationVoice({
     // style's performance - from answering for this one in the cache. The
     // narrator's key covers an edited custom narrator and a different
     // character, too.
+    //
+    // Every new performance is written to the narration log, and a transcript
+    // the log already holds for this source and narrator is voiced again
+    // without a second prep call (narration/narrationLog.ts, "Reuse").
     const allowedNames = resolved.allowedNames;
     const variant = `${isMockMode ? 'mock' : 'live'}:${resolved.key}:${voice}:${voiceStyleKey(style)}`;
+    const listener = useMemo(() => (playerName ? { name: playerName, position: playerPosition } : null), [playerName, playerPosition]);
+    const reuseKey = `${resolved.key}|${describeListener(listener) ?? ''}`;
+    const messagesRef = useRef(messages);
+    const weekRef = useRef({ week, turnNumber });
+    useEffect(() => {
+        messagesRef.current = messages;
+        weekRef.current = { week, turnNumber };
+    }, [messages, week, turnNumber]);
     useEffect(() => {
         player.setRenderer(
-            async text => {
-                const { wav } = await performNarration(ai, text, isMockMode, {
+            async (text, index) => {
+                const reusable = isMockMode ? undefined : log.findReusable(text, reuseKey);
+                if (reusable) {
+                    const wav = await speakTranscript(ai, reusable.transcript, isMockMode, {
+                        model: narrator.voice.model, voiceName: voice, temperature: narrator.voice.temperature, style,
+                    });
+                    return new Blob([wav], { type: 'audio/wav' });
+                }
+                const performed = await performNarration(ai, text, isMockMode, {
                     narrator,
                     voiceName: voice,
                     style,
                     allowedNames,
-                    playerContext: playerName ? { name: playerName, position: playerPosition } : null,
+                    playerContext: listener,
                 });
-                return new Blob([wav], { type: 'audio/wav' });
+                const messageWeek = weekOfMessage(messagesRef.current, index, weekRef.current.week);
+                log.record({
+                    kind: 'chronicle',
+                    sourceLabel: chronicleSourceLabel(messageWeek),
+                    sourceText: text,
+                    narratorKey: reuseKey,
+                    narratorName: resolved.displayName,
+                    voice,
+                    voiceStyle: style,
+                    transcript: performed.transcript,
+                    patchedOut: performed.patchedOut,
+                    usedFallback: performed.usedFallback,
+                    week: messageWeek ?? null,
+                    turn: weekRef.current.turnNumber ?? null,
+                });
+                return new Blob([performed.wav], { type: 'audio/wav' });
             },
             variant,
         );
-    }, [player, ai, isMockMode, narrator, voice, style, allowedNames, playerName, playerPosition, variant]);
+    }, [player, ai, isMockMode, narrator, voice, style, allowedNames, listener, variant, log, reuseKey, resolved.displayName]);
 
     // A different narrator, voice or style was chosen: the old performance stops.
     useEffect(() => {
