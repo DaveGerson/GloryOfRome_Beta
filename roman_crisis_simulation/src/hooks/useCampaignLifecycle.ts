@@ -69,7 +69,7 @@ export function useCampaignLifecycle(deps: CampaignLifecycleDeps) {
         // components/starterActions.ts) so turn 1 isn't a blank page.
         const starterActions = deriveStarterActions(characterEntity);
 
-        const candidate = buildSaveState({ entities: allInitialEntities, worldState: resolvedWorldState, metaNarrative: resolvedMetaNarrative, playerCharacterId: characterEntity.entity_id, messages: [...messages, introMessage], suggestedActions: starterActions });
+        const candidate = buildSaveState({ entities: allInitialEntities, worldState: resolvedWorldState, metaNarrative: resolvedMetaNarrative, playerCharacterId: characterEntity.entity_id, messages: [...messages, introMessage], suggestedActions: starterActions, voiceCast: null });
         if (!commitDomainMutation({
             candidate,
             action: {

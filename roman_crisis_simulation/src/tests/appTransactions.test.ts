@@ -104,7 +104,7 @@ describe('pickSaveState (D17)', () => {
             'inferredAmbition', 'knowledge', 'messages', 'metaNarrative', 'npcIntents',
             'pendingIntelligenceFallout', 'playerCharacterId', 'privateScenes', 'reports',
             'simulationState', 'suggestedActions', 'triggeredEventIds', 'truthLedger',
-            'turnHistory', 'turnNumber', 'worldState',
+            'turnHistory', 'turnNumber', 'voiceCast', 'worldState',
         ]);
     });
 });
