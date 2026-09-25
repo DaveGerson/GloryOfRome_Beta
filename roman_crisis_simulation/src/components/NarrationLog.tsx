@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Button } from './ui/Core';
 import { createFocusTrap, type FocusTrap } from './ui/focusTrap';
 import type { NarrationLogEntry } from '../narration/narrationLog';
@@ -142,7 +143,9 @@ export const NarrationLog: React.FC<{
     return (
         <>
             <Button variant="secondary" onClick={() => setOpen(true)} aria-haspopup="dialog">{NARRATION_LOG_COPY.open}</Button>
-            {open && (
+            {/* Portalled to <body>: rendered inside the composer, the backdrop sat
+                under the side panel's tab rail in the stacking order. */}
+            {open && createPortal(
                 <div className="gor-dialog-backdrop">
                     <div
                         ref={dialogRef}
@@ -190,7 +193,8 @@ export const NarrationLog: React.FC<{
                             )}
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body,
             )}
         </>
     );

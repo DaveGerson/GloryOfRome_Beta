@@ -381,8 +381,8 @@ blend keeps both:
   plus prep model (a `tunedModels/...` id is allowed), thinking level and
   temperature, and the narrator's own voice. #9's partner is the built-in.
   "The Lamplit Storyteller" (close to the text, no counsel, voiced by Charon)
-  ships as the first deployed profile in `narration/narrators/`, so the
-  Settings → Narrator picker is live.
+  shipped as the first deployed profile in `narration/narrators/`. It was
+  replaced on 2026-09-25 by the Acta Diurna (see below).
 - **Voice.** #9's six curated voices are kept. An explicit Settings → Voice
   choice overrides the narrator's own voice; "the narrator's own" is the
   default option. The choice now lives in the narration hook and keys the
@@ -407,6 +407,71 @@ blend keeps both:
   retelling length against the source, with every source and retelling side
   by side, plus optional WAVs (`GOR_NARRATOR_VOICE` auditions other voices).
   It is paid, local-only, and never part of CI.
+
+**Update 2026-09-25 (the owner's requests on the voice).**
+- **Fidelity patches in place, at no token cost.** A retelling that brings
+  in a name or a digit figure is no longer refused wholesale. The guard splits
+  it into sentences (never inside a quotation) and cuts each offending
+  sentence (`performanceScript.ts::patchIntroducedContent`). It voices the
+  rest and records the cuts on `PerformedTranscript.patchedOut`. It falls
+  back to the plain narration only when nothing is left, or when more than
+  half the sentences or words would go. For example, "The Praetorians mutter
+  in their camp, restless. At the gate, Philip gathers his cohorts. Maximinus
+  raises a cup, and the Senate waits." is voiced without its middle
+  sentence. The length cap, direction rules and mechanics gate still refuse
+  wholesale; the mechanics gate now runs before fidelity. The tuning report
+  shows patched passages and the cut sentences.
+- **The owner's Dramatic Reader, restored.** The built-in (id
+  `senatorial-partner` kept) is PR #9's system instruction and user prompt
+  word for word, including "Output exactly 1 or 2 spoken paragraphs". The one
+  addition is rule 7: "Never introduce people, places, numbers or events the
+  passage does not mention." `tests/dramaticReader.test.ts` pins it against
+  a copy of the owner's text. Profiles gain an optional `prep.task` (the
+  closing ask, with `{listener}`). The generic fixed rules are appended only
+  when a persona does not already state each one as its own line. The check
+  is line-anchored, so a JSON-quoted player brief can never satisfy it.
+- **The Acta Diurna replaces the Lamplit Storyteller.** It is a factual
+  reader: the day's gazette read aloud, third person, no side, no counsel,
+  no "we". Voiced by Gacrux, the curated list's mature, measured voice
+  (Iapetus reads younger and male).
+- **Settings: three separate selects**, shown while the voice is on:
+  - **Narration style** covers the readers, "In character…" and the
+    player's own narrators. "In character…" offers only characters the
+    player knows (`narratorChoice.ts::narratorCharactersFor`, built on
+    `knownRecipientOptionsForPlayer`: living individuals, name and public
+    position or epithet only, JSON-quoted). They recount the week in the
+    first person and claim no private knowledge, and their name is allowed
+    to the patch.
+  - **Voice** is unchanged.
+  - **Voice style** is "As written" by default, or four presets, or a
+    sanitized custom phrase of up to 80 characters. It is sent as a Gemini
+    TTS "Say in …:" prefix built only in `voiceStyle.ts`. **Unverified
+    without a key:** whether the TTS model reads the prefix aloud (PR #9 saw
+    it read instructions). Audition with `GOR_NARRATOR_STYLE=...
+    GOR_NARRATOR_AUDIO=1 npm run narrator:tune`.
+- **Custom narrators.** The player writes a name, description, brief (up to
+  1200 characters), voice and voice style in a disclosure under the selects.
+  They are stored as a device pref, validated by their own schema and by
+  `narratorProfileSchema`. The brief is embedded as JSON-quoted data under a
+  NARRATOR BRIEF heading (D41, tested in `promptDataBoundary.test.ts`), and
+  the fixed rules and the guard apply as for any narrator.
+- **The narration log.** Every chronicle performance, Imperial Dispatch and
+  private-scene NPC line is kept as text on the device (`narrationLog.ts`).
+  An entry records the source label and a 140-character excerpt, the
+  narrator, voice and style, the transcript, what was patched out, and
+  whether it fell back. The log is capped at 150 entries, guarded, and never
+  in the save. A logged, guard-accepted transcript for the same source and
+  narrator is re-voiced with no prep call. "Narration log" by the composer
+  opens it as a dialog with replay, copy and clear.
+- **Private scenes: "Hear them speak".** It is off by default and offered
+  only while the voice is on. Each committed NPC line gets a play control,
+  voiced in a voice hashed from the NPC's entity id. That voice skips the
+  narrator's current one, and NPC lines take no delivery style. There is no
+  prep call. Lines are cleaned of `*stage business*` and logged as "Private
+  scene with <name>".
+- The Imperial Dispatch keeps its own prompt and voice. Its log entry's
+  excerpt is the head of its facts summary, which is still the open D4/D5
+  follow-up below.
 
 **Proposed ruling (a D46 candidate, restated for the retelling design): the
 voice may perform only text already committed to the player's chat. Its
@@ -436,8 +501,12 @@ Open follow-ups:
   processing lands in that turn's `rawCalls` (the same bracket-timing
   caveat `evalCorpus.ts` already documents). It is harmless, because only
   the placeholder is recorded.
-- **Epilogue and private scenes** carry no control yet. Both are
-  player-visible and could take one under the same guard.
+- **Epilogue** carries no control yet. It is player-visible and could take
+  one under the same guard. (Private scenes now have "Hear them speak".)
+- **Real-endpoint checks for 2026-09-25.** Listen for style prefixes read
+  aloud. Check the patch's cut rate on real retellings with
+  `npm run narrator:tune`, and whether the Acta Diurna holds the third
+  person.
 
 ---
 
@@ -456,18 +525,59 @@ Nothing here blocks; all are one edit from rewording.
   turns. Every performance is a paid call on your key."). Control: "Hear it
   performed", title "Stop the performance", status lines "The narrator draws
   breath…" and "The voice faltered — press again." (It also reuses "No token
-  on this device".) The generic fallback direction "grave, measured,
-  theatrical Roman storyteller" and the TTS style note are model-facing, not
-  player-facing, but they shape how the voice sounds. The PR #9 blend adds
-  the "Narrator" picker label and each profile's name and description:
-  "The Senatorial Partner" / "Your sworn ally in the Senate: recounts each
-  week with fervor and makes plain what it means for you." and "The Lamplit
-  Storyteller" / "A grave storyteller by lamplight who keeps close to the
-  chronicle and lets the dread speak for itself." PR #9's voice select is
-  relabelled "Narrator persona" -> "Voice" (the persona is now the narrator
-  profile), with a first option "The narrator's own — <voice>" and the note
-  "The voice each narrator was tuned with."
-
+  on this device".) The TTS style presets (below) are model-facing but shape
+  how the voice sounds. PR #9's voice select is relabelled "Narrator
+  persona" -> "Voice", with a first option "The narrator's own — <voice>"
+  and the note "The voice each narrator was tuned with."
+  **Added 2026-09-25:**
+  - *Narrators:* "The Dramatic Reader" / "An epic stage reading by your
+    sworn ally in the Senate: each week told with fervor, and what it means
+    for you made plain." "The Acta Diurna" / "The day's gazette, read aloud:
+    composed, impartial and precise. What happened, to whom, and nothing
+    more." (These replace "The Senatorial Partner" and "The Lamplit
+    Storyteller".) In character: "The week as <name> tells it, from where
+    they stand."
+  - *Settings:* "Narration style" with groups "Readers" and "Your
+    narrators", "In character…", "Narrating character" (options "<name> —
+    <standing>"), "The week as <name> tells it, from where they stand. They
+    know only what you know.", "No one you know yet. The Dramatic Reader
+    reads until you do.", "Voice style", "As written", "Epic stage
+    tragedian", "Composed newsreader", "Hushed and conspiratorial", "Weary
+    old soldier", "Custom…", "The narrator's own — <style>", "Your voice
+    style" (placeholder "e.g. slow and grave, like a funeral oration"), "No
+    delivery note: the voice reads the words alone." and "A short delivery
+    note goes before the words. If the voice reads it aloud, choose As
+    written."
+  - *Style instructions sent to the TTS model:* "Say in the grand, resonant
+    voice of an epic stage tragedian:", "Say in a composed newsreader's
+    voice:", "Say in a hushed, conspiratorial voice:", "Say in the weary
+    voice of an old soldier:". A custom style becomes "Say, <text>:",
+    "Say <in/like/as/with …>:", or the player's own verb.
+  - *Your narrators:* "Your narrators (N)", "Write a narrator of your own.
+    It is kept on this device, never in your save.", "None yet.", "New
+    narrator", "Edit", "Remove", "Remove <name>?", "Keep", "Name",
+    "Description", "Who narrates", "Who they are, whom they speak to, how
+    they tell a week. The chronicle stays the chronicle: they may not add to
+    it.", "Voice", "Voice style", "Save narrator", "Cancel", "You may keep 12
+    narrators at most.", and the default description "A narrator of your own
+    making.". Errors: "Give the narrator a name.", "A name runs to 40
+    characters at most.", "A description runs to 160 characters at most.",
+    "Say who narrates.", "A brief runs to 1200 characters at most.", "Choose
+    one of the voices.", "That narrator is no longer here.", "That brief will
+    not hold together as a narrator.", "Something in this narrator will not
+    hold."
+  - *Narration log:* "Narration log", "Close the narration log", "Every
+    performance, kept as text on this device. Never part of your save.",
+    "Nothing has been performed yet.", "Omitted: 1 line / N lines the
+    chronicle did not support", "The chronicle’s own words were voiced.",
+    "Hear it again", "Stop", "The voice draws breath…", "The voice faltered —
+    press again.", "Copy text", "Copied.", "Could not copy.", "Clear log",
+    "Clear every entry? This cannot be undone.", "Clear", "Keep". Source
+    labels: "Week <N> narration", "The chronicle", "Imperial Dispatch, Week
+    <N>" (speaker "The Imperial Chancellery"), "Private scene with <name>".
+  - *Private scene:* "Hear them speak", "Each of their lines gets a play
+    control, in a voice of their own. Every line is a paid call on your
+    key.", "Hear them say it".
 ---
 
 ## Residuals from the visual-enhancement pass (WP-1…WP-21 + adversarial review)

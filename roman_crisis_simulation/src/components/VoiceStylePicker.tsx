@@ -71,7 +71,7 @@ export const VoiceStylePicker: React.FC<{
                     placeholder={VOICE_STYLE_PICKER_COPY.customStylePlaceholder}
                     value={value.text}
                     onChange={e => onChange({ preset: 'custom', text: filterVoiceStyleInput(e.target.value) })}
-                    style={{ width: '100%', marginTop: 6, fontSize: 14, padding: '6px 10px' }}
+                    style={{ width: '100%', boxSizing: 'border-box', marginTop: 6, fontSize: 14, padding: '6px 10px' }}
                 />
             )}
         </>

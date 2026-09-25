@@ -29,14 +29,14 @@ export const CUSTOM_NARRATOR_COPY = {
     voiceStyle: 'Voice style',
     save: 'Save narrator',
     cancel: 'Cancel',
-    full: `You keep ${MAX_CUSTOM_NARRATORS} narrators at most.`,
+    full: `You may keep ${MAX_CUSTOM_NARRATORS} narrators at most.`,
 } as const;
 
 type FormState = { id?: string; name: string; description: string; brief: string; voiceName: string; voiceStyle: VoiceStyle | null };
 
 const BLANK: FormState = { name: '', description: '', brief: '', voiceName: DEFAULT_NARRATOR_VOICE_ID, voiceStyle: null };
 
-const fieldStyle: React.CSSProperties = { width: '100%', fontSize: 14, padding: '6px 10px' };
+const fieldStyle: React.CSSProperties = { width: '100%', boxSizing: 'border-box', fontSize: 14, padding: '6px 10px' };
 const fieldLabelStyle: React.CSSProperties = { display: 'block', margin: '8px 0 3px' };
 
 /**
