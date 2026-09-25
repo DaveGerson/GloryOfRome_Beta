@@ -113,7 +113,7 @@ describe('the narrator speaks in the cast', () => {
     // Her note shaped the retelling (the prep brief); the voice speaks only the words.
     const prep = generateContent.mock.calls.map(c => c[0]).filter(c => !c.config?.responseModalities);
     expect(prep[0].contents).toContain(asPromptData('cool, imperious and measured'));
-    expect(tts[0].contents).toBe(`Hear it: ${NARRATION}`);
+    expect(tts[0].contents).toBe(`## Transcript:\nHear it: ${NARRATION}`);
     // The log records the voice and style actually used.
     expect(narrationLog.getSnapshot()[0]).toMatchObject({ voice: 'Gacrux', voiceStyle: { preset: 'custom', text: 'cool, imperious and measured' }, narratorName: 'Julia Mamaea' });
     hook.unmount();
@@ -151,7 +151,7 @@ describe('the narrator speaks in the cast', () => {
     await settle();
     const tts = generateContent.mock.calls.map(c => c[0]).filter(c => c.config?.responseModalities);
     expect(voiceOf(tts[0])).toBe('Puck');
-    expect(tts[0].contents).toBe(`Hear it: ${NARRATION}`);
+    expect(tts[0].contents).toBe(`## Transcript:\nHear it: ${NARRATION}`);
     const prep = generateContent.mock.calls.map(c => c[0]).filter(c => !c.config?.responseModalities);
     expect(prep[0].contents).toContain(asPromptData(voiceStyleManner({ preset: 'newsreader' })));
     // Clearing the narration style hands the choice back to the cast.
@@ -178,7 +178,7 @@ describe('the narrator speaks in the cast', () => {
     const tts = calls.filter(c => c.config?.responseModalities);
     const prep = calls.filter(c => !c.config?.responseModalities);
     expect(tts.map(voiceOf)).toEqual(['Charon', 'Gacrux']);
-    for (const call of tts) expect(call.contents).toBe(`Hear it: ${NARRATION}`);
+    for (const call of tts) expect(call.contents).toBe(`## Transcript:\nHear it: ${NARRATION}`);
     expect(prep[0].contents).toContain(asPromptData('grave and warm'));
     expect(prep[1].contents).toContain(asPromptData('cool, imperious and measured'));
     hook.unmount();

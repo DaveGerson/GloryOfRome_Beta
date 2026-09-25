@@ -574,7 +574,8 @@ TTS model (gemini-3.8-flash-tts) speaks every word it is given, and its
   This holds for the chronicle, "In character…", custom narrators, the
   Imperial Dispatch, private-scene NPC lines and the log's "Hear it again".
   `tests/ttsSpeaksOnlyTheWords.test.tsx` guards every path with a style
-  chosen.
+  chosen. (Superseded the same day by the acted script, below: the guard is
+  now `tests/ttsPerformsTheScript.test.tsx`.)
 - **Delivery style shapes the writing instead.** Where a prep call exists,
   a chosen style (a preset, custom text, or a cast note for the cast
   narrator or a narrator in character) is appended after the task as a
@@ -592,6 +593,55 @@ TTS model (gemini-3.8-flash-tts) speaks every word it is given, and its
 - **Cast notes are manners for a writer** ("clipped soldier's sentences,
   few words"); the casting prompt says so, and the voice carries the sound.
 - `GOR_NARRATOR_STYLE` now auditions the prep brief.
+
+**Update 2026-09-25 (the acted script: the owner's "the voice model needs to
+actually design the narration almost like a dramatic speech ... the
+subagent needs to convert the story now, into a dramatically acted
+retelling and the tts model just does that narration word for word").**
+The owner's reference calls gemini-3.8-flash-tts (Brio, temperature 1) with
+a `## Transcript:` whose inline `<angle-bracket>` cues (`<cackle>`, `<argh>`,
+`<coughing and sputtering as they say their last words. ...>`) are ACTED,
+not read. So the rule is now: **cues in `<angle brackets>` are performed,
+and everything outside them is spoken.** Settled:
+- **The narrator writes an acted script.** Every narrator's fixed rules
+  carry `PERFORMANCE_CUE_RULE` (ai/prompts/narrationPerformance.ts): convert
+  the passage into a dramatically acted retelling with inline cues; a cue
+  says HOW (tone, pace, pause, breath, a sound, a quoted speaker's manner),
+  never WHAT; lower case, no names, numbers or quotation marks; ONLY in
+  angle brackets; every unbracketed word is spoken. It includes one generic
+  Roman example in the reference's form. The Dramatic Reader's rule 4,
+  which forbade stage directions, is replaced by that same rule at the
+  owner's direction; every other word of the owner's text is unchanged
+  (`tests/dramaticReader.test.ts` pins it). The Acta Diurna's cues are
+  sparing and composed (`<a measured pause>`, `<drily>`); a narrator in
+  character acts as that character; a player's narrator gets the cues
+  through the fixed rules. The delivery brief now asks for the manner in
+  the words AND in the cues.
+- **The TTS input is `## Transcript:` and the acted script, cues intact**
+  (`buildNarrationTtsPrompt`, `cleanActedScript`): the exact shape of the
+  owner's working call. Packaging (code fences, other headings, speaker
+  labels, bold) is stripped; a well-formed `[cue]` is converted to `<cue>`
+  before validation and checked like any cue. The heading is kept because
+  it is the owner's own frame, marking where the performance begins, and
+  is not a prose instruction; "word for word" is about the script beneath
+  it. No "Say it …:" prefix, style or instruction ever reaches the TTS
+  (`tests/ttsPerformsTheScript.test.tsx`, on every path).
+- **The guard is unchanged in substance.** Each cue: at most 160
+  characters, no digits, quotes or brackets, the mechanics gate, a cap on
+  their number, and no capitalized word the passage lacks, with one
+  adjustment: a common word may open a cue or a sentence inside one
+  capitalized ("<Gravely>", the reference's "... last words. The last word
+  ..."), while a name still may not ("<Philip whispers>"). The fidelity
+  patch never splits inside a cue, and a cut sentence takes its cues with
+  it.
+- **The fallback is performed too:** the plain narration opened by one cue,
+  `<grave, measured, dramatic storyteller>`.
+- **Unchanged:** the Imperial Dispatch stays a crisp briefing without cues;
+  a private-scene NPC's committed line has no prep call and no cues.
+- **The narration log** shows each cue italic and muted, set apart from the
+  spoken words, and "Copy text" copies the script with its cues. Old
+  entries without cues read as before. The tuning report shows each
+  performed script and counts its cues.
 
 **Proposed ruling (a D46 candidate, restated for the retelling design): the
 voice may perform only text already committed to the player's chat. Its
@@ -626,8 +676,15 @@ Open follow-ups:
 - **Real-endpoint checks for 2026-09-25.** Check the patch's cut rate on
   real retellings with `npm run narrator:tune`, and whether the Acta Diurna
   holds the third person. With `GOR_NARRATOR_STYLE`, check that a delivery
-  brief changes the retelling's rhythm and word choice without adding stage
-  directions, and without raising the patch's cut rate.
+  brief changes the retelling's rhythm, word choice and cues, and without
+  raising the patch's cut rate.
+- **Real-endpoint checks for the acted script.** Confirm with
+  `GOR_NARRATOR_AUDIO=1 npm run narrator:tune` that the voice acts the
+  cues and never reads one aloud, that it does not read the `## Transcript:`
+  heading (if it ever does, drop the heading in `buildNarrationTtsPrompt`),
+  and how often the cue rules refuse a script (the report counts cues per
+  script and lists refusals). Grow `COMMON_CUE_OPENERS` in
+  `performanceScript.ts` only for a refused common word.
 - **The voice cast, against the real endpoint.** Audition the catalog's
   believed registers, especially the ones the rule leans on (Gacrux, Kore,
   Despina, Algenib, Charon, Iapetus). Also check that the casting
@@ -756,6 +813,25 @@ Nothing here blocks; all are one edit from rewording.
   - *Model-written (not authored copy, but player-visible):* the casting
     director's notes and one-line rationales, from the prompt in
     `ai/prompts/voiceCasting.ts`.
+  **Added 2026-09-25 (the acted script):**
+  - *Narration log:* each performance cue shown italic and muted between
+    single guillemets (‹a long pause›), read to screen readers as
+    "Performance cue: …".
+  - *The fallback's one cue, shown in the log:* "grave, measured, dramatic
+    storyteller".
+  - *Model-facing, shaping what players read and hear:* the acted-script
+    rule (`PERFORMANCE_CUE_RULE`) with its example `<a low, bitter laugh>
+    "So the Senate waits..." <a long pause, then quietly> and still no word
+    comes.`; the Dramatic Reader's new rule 4 (the same text); the Acta
+    Diurna's added sentence ("You read it as a performance, but a sparing
+    and composed one: ... <a measured pause>, <drily> or <gravely,
+    unhurried>. ...") and task; the in-character line "Act it as this
+    person: your performance cues are your own voice, breath and temper as
+    you tell it."; the new delivery brief ask ("Write the acted script for
+    a voice that should sound like the manner above. Carry that manner in
+    the words AND in the cues: ..."), replacing the one quoted above.
+  - *Model-written (player-visible):* the narrators' cues themselves, in
+    the log.
 ---
 
 ## Residuals from the visual-enhancement pass (WP-1…WP-21 + adversarial review)

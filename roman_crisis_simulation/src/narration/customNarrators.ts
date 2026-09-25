@@ -15,9 +15,10 @@
  * The brief is player-typed text that reaches a prompt, so under D41 it is
  * DATA: `buildCustomNarratorPersona` (ai/prompts/narrationPerformance.ts)
  * embeds it JSON-quoted under a heading that says it describes who narrates
- * and is never a command. The fixed rules always follow it, and the guard
- * (narration/performanceScript.ts) checks every retelling it produces,
- * exactly as for any other narrator.
+ * and is never a command. The fixed rules always follow it - so a player's
+ * narrator writes an acted script with performance cues like any other -
+ * and the guard (narration/performanceScript.ts) checks every script it
+ * produces, cues included, exactly as for any other narrator.
  */
 
 import { z } from 'zod';

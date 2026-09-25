@@ -24,6 +24,7 @@ import {
 } from '../narration/narrationLog';
 import { NARRATION_LOG_KEY } from '../persistence/uiPrefs';
 import { DRAMATIC_READER_NARRATOR } from '../narration/narrators';
+import { fallbackTranscript } from '../narration/performanceScript';
 import { useNarrationVoice, chronicleSourceLabel, weekOfMessage, type UseNarrationVoiceArgs } from '../hooks/useNarrationVoice';
 import { useNarrationLog } from '../hooks/useNarrationLog';
 import { useImperialDispatch } from '../hooks/useImperialDispatch';
@@ -185,7 +186,7 @@ describe('recording from the voices', () => {
     await settle();
     expect(second.prep()).toHaveLength(0);
     expect(second.tts()).toHaveLength(1);
-    expect(second.tts()[0][0].contents).toBe('The Praetorians mutter in their camp, restless. Maximinus raises a cup, and the Senate waits.');
+    expect(second.tts()[0][0].contents).toBe('## Transcript:\nThe Praetorians mutter in their camp, restless. Maximinus raises a cup, and the Senate waits.');
     expect(log.getSnapshot()).toHaveLength(1);
 
     // Another style is another retelling: the style shaped the words.
@@ -232,7 +233,7 @@ describe('recording from the voices', () => {
     act(() => hook.current.toggleNarrationVoice(1, NARRATION));
     await settle();
     expect(generateContent).not.toHaveBeenCalled();
-    expect(log.getSnapshot()[0]).toMatchObject({ usedFallback: true, transcript: NARRATION });
+    expect(log.getSnapshot()[0]).toMatchObject({ usedFallback: true, transcript: fallbackTranscript(NARRATION) });
     expect(log.findReusable(NARRATION, log.getSnapshot()[0].narratorKey)).toBeUndefined();
     hook.unmount();
   });
@@ -289,7 +290,7 @@ describe('the log panel', () => {
     await settle();
     expect(prep()).toHaveLength(0);
     expect(tts()).toHaveLength(1);
-    expect(tts()[0][0].contents).toBe('Newer words.');
+    expect(tts()[0][0].contents).toBe('## Transcript:\nNewer words.');
     expect(play.getAttribute('aria-pressed')).toBe('true');
     act(() => play.click());
     expect(play.getAttribute('aria-pressed')).toBe('false');
@@ -309,6 +310,41 @@ describe('the log panel', () => {
     await act(async () => { copy.click(); });
     expect(writeText).toHaveBeenCalledWith('Newer words.');
     expect(dialog()!.textContent).toContain('Copied.');
+    view.cleanup();
+  });
+
+  it('sets each performance cue of an acted script apart, and copies the script with its cues', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const script = '<a low, bitter laugh> "So the Senate waits..." <a long pause, then quietly> Rome holds its breath.';
+    const log = new NarrationLogStore({ load: false });
+    log.record(input({ sourceLabel: 'Week IV narration', transcript: script }));
+    const { ai } = makeAi();
+    const view = mount(log, ai);
+    act(() => opener(view.host).click());
+    const transcript = dialog()!.querySelector('.gor-narration-log-transcript')!;
+    const cues = [...transcript.querySelectorAll('em.gor-narration-log-cue')];
+    expect(cues).toHaveLength(2);
+    expect(cues[0].textContent).toBe('Performance cue: ‹a low, bitter laugh›');
+    expect(cues[0].querySelector('.gor-sr-only')!.textContent).toBe('Performance cue: ');
+    expect([...cues[0].querySelectorAll('[aria-hidden="true"]')].map(el => el.textContent)).toEqual(['‹', '›']);
+    // The spoken words stay plain text.
+    expect(transcript.textContent).toContain('"So the Senate waits..."');
+    expect(transcript.textContent).toContain('Rome holds its breath.');
+    const copy = [...dialog()!.querySelectorAll('button')].find(b => b.textContent === 'Copy text')!;
+    await act(async () => { copy.click(); });
+    expect(writeText).toHaveBeenCalledWith(script);
+    view.cleanup();
+  });
+
+  it('an entry with no cues (logged before scripts carried them) reads exactly as its text', () => {
+    const { ai } = makeAi();
+    const view = mount(seeded(), ai);
+    act(() => opener(view.host).click());
+    const transcripts = [...dialog()!.querySelectorAll('.gor-narration-log-transcript')];
+    expect(transcripts.map(t => t.textContent)).toEqual(['Newer words.', 'Older words.']);
+    expect(transcripts.map(t => t.innerHTML)).toEqual(['Newer words.', 'Older words.']);
+    expect(dialog()!.querySelector('.gor-narration-log-cue')).toBeNull();
     view.cleanup();
   });
 

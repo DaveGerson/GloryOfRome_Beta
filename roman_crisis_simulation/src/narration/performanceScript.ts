@@ -7,16 +7,37 @@
  *
  * The narrator (ai/tools/narrationVoice.ts, prompts in
  * ai/prompts/narrationPerformance.ts, persona in narration/narrators.ts)
- * sees ONE committed player-visible GM narration and retells it for the
- * ear - reworded, heightened, addressed to the player, at most two
- * paragraphs. Rewording is the point; inventing is not. The prompt asks
- * for that; this module ENFORCES what can be enforced, deterministically,
- * before anything reaches the TTS call:
+ * sees ONE committed player-visible GM narration and turns it into an
+ * ACTED SCRIPT: a dramatically acted retelling, at most two paragraphs,
+ * meant to be performed. A script is spoken words plus inline performance
+ * cues in `<angle brackets>` - tone shifts, pace, pauses, breaths, sounds
+ * (a cackle, a cough, a sigh, the crowd's roar), a quoted speaker's manner:
  *
- *  1. Not empty, and not a runaway (<= 400 words / 3000 characters).
- *  2. Any `<...>` direction must parse (closed, not nested, not empty), be
- *     short, carry no digits, quote marks or brackets, and name nobody the
- *     passage does not - the direction channel cannot smuggle content.
+ *   <a low, bitter laugh> "So the Senate waits..." <a long pause, then quietly> ...
+ *
+ * The TTS model ACTS the cues and speaks every word outside them, word for
+ * word (the owner's reference: gemini-3.8-flash-tts performing a
+ * `## Transcript:` with inline `<cues>`). So a cue is performance, never
+ * text; and anything outside a cue - a heading, a label, a "Say it
+ * gravely:" prefix - would be read aloud, which is why it is packaging to
+ * strip (`cleanActedScript`) or a thing the prompt forbids. Square
+ * brackets are not our cue syntax: a well-formed `[cue]` is converted to
+ * `<cue>` BEFORE validation (`squareCuesToAngle`), so it is checked like
+ * any other cue.
+ *
+ * Rewording is the point; inventing is not. The prompt asks for that; this
+ * module ENFORCES what can be enforced, deterministically, before anything
+ * reaches the TTS call:
+ *
+ *  1. Not empty, and not a runaway (<= 400 spoken words / 3000 characters).
+ *  2. Every `<cue>` must parse (closed, not nested, not empty), be short
+ *     (`MAX_DIRECTION_CHARS`), carry no digits, quote marks or brackets,
+ *     and name nobody the passage does not (a capitalized word in a cue must
+ *     be in the passage - except a common word opening the cue or one of its
+ *     sentences, "<Gravely>", "<... last words. The last word fades>"), and
+ *     there may be no wall of them (`maxDirectionsFor`). A cue says HOW,
+ *     never WHAT: the cue channel cannot smuggle content - and cues are
+ *     player-visible, in the narration log.
  *  3. FIDELITY: the retelling may not bring in a name or a figure the
  *     passage never mentioned (see "Patching" below for what happens when
  *     it does). Every capitalized word mid-sentence (a
@@ -26,10 +47,12 @@
  *     "Caesar", "Rome", "the Senate"). Every number written in digits must
  *     appear in the passage. "The heir is hidden in Emesa" is refused when
  *     the passage never spoke of Emesa - the narrator can interpret the
- *     week, never manufacture intelligence about it.
- *  4. The whole transcript passes the same hidden-mechanics gate every
- *     player-visible text passes (ai/core/playerBoundary.ts). Checked
- *     before 3, so a fidelity verdict means every other rule held.
+ *     week, never manufacture intelligence about it. Cue text is not
+ *     spoken, so this rule reads the spoken words only (rule 2 covers cues).
+ *  4. The whole script, and each cue on its own, passes the same
+ *     hidden-mechanics gate every player-visible text passes
+ *     (ai/core/playerBoundary.ts). Checked before 3, so a fidelity verdict
+ *     means every other rule held.
  *
  * Known limit of 3: a new name that only ever opens a sentence reads like
  * any sentence-initial word and is not caught, and numbers spelled out in
@@ -39,20 +62,23 @@
  *
  * Patching (rule 3 only, deterministic, zero tokens): a retelling that
  * breaks the fidelity rule is not refused wholesale. It is split into
- * sentences (`splitSpokenSentences`, which never splits inside a quotation),
- * every sentence that brings in a name or a figure is cut, and the rest is
- * voiced; `patchedOut` records each cut sentence verbatim. Only when nothing
+ * sentences (`splitSpokenSentences`, which never splits inside a quotation
+ * or inside a cue), every sentence that brings in a name or a figure is
+ * cut, and the rest is voiced; `patchedOut` records each cut sentence
+ * verbatim. A cue belongs to the sentence it opens or sits inside, so a cut
+ * sentence takes its cues with it. Only when nothing
  * is left, or when more than half of the sentences - or of the words - had
  * to go, does the retelling fall back (`MAX_PATCHED_SHARE`). Rules 1, 2 and
  * 4 still refuse wholesale: a runaway, a smuggling direction or a mechanics
  * leak says the whole script is untrustworthy, not one sentence of it.
  *
- * Any refusal falls back to the plain narration cleaned for speech
- * (`fallbackTranscript`) - the voice is a garnish, so a refused script
+ * Any refusal falls back to the plain narration cleaned for speech, opened
+ * by one cue so even the fallback is performed (`fallbackTranscript`,
+ * `FALLBACK_DIRECTION`) - the voice is a garnish, so a refused script
  * costs drama, never correctness.
  *
  * Angle brackets in the ORIGINAL text would be indistinguishable from
- * directions, so `speakableText` turns them into single guillemets first;
+ * cues, so `speakableText` turns them into single guillemets first;
  * it also drops `**bold**` markers, which are formatting, not words. That
  * speakable form is what the narrator is shown and what it is checked
  * against.
@@ -60,11 +86,15 @@
 
 import { assertPlayerVisibleTextSafe } from '../ai/core/playerBoundary';
 
-/** Longest single direction accepted, in characters (brackets excluded). */
+/** Longest single cue accepted, in characters (brackets excluded). */
 export const MAX_DIRECTION_CHARS = 160;
 
-/** The one direction label associated with default narrator styling. */
-export const FALLBACK_DIRECTION = 'dramatic Roman storyteller';
+/**
+ * The one cue that opens a fallback transcript, so the plain narration is
+ * still performed rather than read flat. Ours, never validated; shown in the
+ * narration log (veto queue: roadmaps/BACKLOG.md B13).
+ */
+export const FALLBACK_DIRECTION = 'grave, measured, dramatic storyteller';
 
 export type PerformanceRejection =
   | 'empty'
@@ -84,25 +114,64 @@ export type PerformanceRejection =
 
 export type PerformanceValidation = { ok: true } | { ok: false; reason: PerformanceRejection };
 
-/**
- * Strips code fences, markdown headings, speaker prefixes, delivery directions
- * in angle brackets or square brackets, bold markers, and excess whitespace,
- * returning pure natural spoken prose ready for TTS.
- */
-export function cleanSpokenTranscript(transcript: string): string {
+/** The packaging a model may wrap a script in: code fences, markdown headings ("## Transcript:"), speaker labels, bold markers. */
+function stripPackaging(transcript: string): string {
   return transcript
     .replace(/^```[a-z]*\s*\n?/gim, '')
     .replace(/\n?```\s*$/gim, '')
     .replace(/^#+\s*(?:Transcript:?|[^\n]*)\n+/gim, '')
     .replace(/^#+\s*/gm, '')
     .replace(/^(?:Narrator|Storyteller|Bard|Speaker)\s*:\s*/gim, '')
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/\[[^\]]*\]/g, ' ')
-    .replace(/\*\*/g, '')
+    .replace(/\*\*/g, '');
+}
+
+function tidyWhitespace(text: string): string {
+  return text
     .replace(/[ \t]+/g, ' ')
     .replace(/ ?\n ?/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+/**
+ * Square brackets are not our cue syntax. A well-formed `[cue]` (closed, on
+ * one line, holding no other bracket) becomes `<cue>`, so the guard checks
+ * it exactly like any cue; anything else is left for the guard to judge.
+ */
+export function squareCuesToAngle(transcript: string): string {
+  return transcript.replace(/\[([^[\]<>\n]+)\]/g, '<$1>');
+}
+
+/**
+ * The words alone: packaging stripped AND every `<...>` / `[...]` cue
+ * removed. For text that is performed without cues - the Imperial
+ * Dispatch's briefing - and for reading a script's spoken part.
+ */
+export function cleanSpokenTranscript(transcript: string): string {
+  return tidyWhitespace(stripPackaging(transcript)
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\[[^\]]*\]/g, ' '));
+}
+
+/**
+ * The acted script as the TTS model performs it: packaging stripped (code
+ * fences, markdown headings, speaker labels, bold markers), a `[cue]`
+ * turned into a `<cue>`, any stray square bracket dropped, whitespace tidied
+ * - and every `<cue>` KEPT, verbatim. Everything left outside a cue is
+ * spoken.
+ */
+export function cleanActedScript(transcript: string): string {
+  return tidyWhitespace(squareCuesToAngle(stripPackaging(transcript)).replace(/[[\]]/g, ' '));
+}
+
+/** A script's cues, in order (none for plain text). */
+export function cuesIn(script: string): string[] {
+  return [...script.matchAll(/<([^<>]*)>/g)].map(match => match[1].trim()).filter(Boolean);
+}
+
+/** A script's spoken part: every cue replaced by a space. */
+export function spokenPartOf(script: string): string {
+  return script.replace(/<[^<>]*>/g, ' ');
 }
 
 /**
@@ -114,9 +183,14 @@ export function speakableText(text: string): string {
   return text.replace(/\*\*/g, '').replace(/</g, '‹').replace(/>/g, '›').trim();
 }
 
-/** The plain narration cleaned for speech. Never validated - it is ours. */
+/**
+ * The plain narration cleaned for speech, opened by the one fallback cue
+ * (`FALLBACK_DIRECTION`) so it is still performed. Never validated - it is
+ * ours.
+ */
 export function fallbackTranscript(text: string): string {
-  return cleanSpokenTranscript(speakableText(text));
+  const words = cleanSpokenTranscript(speakableText(text));
+  return words ? `<${FALLBACK_DIRECTION}> ${words}` : '';
 }
 
 /** Curly, low and prime quote marks fold to their straight forms. */
@@ -132,12 +206,12 @@ const TOKEN_PATTERN = /[\p{L}\p{N}\p{M}]+(?:'[\p{L}\p{N}\p{M}]+)*|\S/gu;
 
 /**
  * The comparison form of spoken text: its word and punctuation tokens in
- * order. Whitespace (including the gap a removed direction leaves) and
- * quote style are normalized away; word boundaries are not - "an other"
- * is not "another".
+ * order. Cues are not spoken, so they are ignored; whitespace (including
+ * the gap a removed cue leaves) and quote style are normalized away; word
+ * boundaries are not - "an other" is not "another".
  */
 export function spokenTokens(text: string): string[] {
-  return normalizeQuotes(text).match(TOKEN_PATTERN) ?? [];
+  return normalizeQuotes(spokenPartOf(text)).match(TOKEN_PATTERN) ?? [];
 }
 
 interface ParsedTranscript {
@@ -174,10 +248,39 @@ export function parseTranscript(transcript: string): { ok: true; value: ParsedTr
 // (checked first, for a clearer reason), no quote marks, no brackets.
 const DIRECTION_CHARACTERS = /^[\p{L}\p{M}\s,.;:!?'’\-–—…]+$/u;
 
-/** Words in a direction that carry a capital letter - the proper-noun candidates. */
-function capitalizedWords(direction: string): string[] {
-  return (normalizeQuotes(direction).match(/[\p{L}\p{M}]+(?:'[\p{L}\p{M}]+)*/gu) ?? [])
-    .filter(word => /\p{Lu}/u.test(word));
+/**
+ * Common words a cue may open with (or open one of its sentences with)
+ * capitalized, though the passage never has them: "<The last word fades>",
+ * "<Then, quietly>". A name is never on this list.
+ */
+const COMMON_CUE_OPENERS = new Set([
+  'a', 'an', 'the', 'then', 'with', 'as', 'and', 'but', 'now', 'still', 'almost', 'very', 'in', 'on', 'at',
+  'after', 'before', 'while', 'his', 'her', 'their', 'they', 'he', 'she', 'it', 'this', 'that', 'said',
+  'spoken', 'slow', 'low', 'long', 'soft', 'hushed', 'quiet', 'grave', 'cold', 'dry', 'pause',
+  'beat', 'breath', 'silence', 'laughing', 'sighing', 'coughing', 'whispering', 'whispered', 'barely',
+]);
+
+/**
+ * Words in a cue that carry a capital letter - the proper-noun candidates.
+ * A word that opens the cue, or one of its sentences, is exempt when it is
+ * a common word: on `COMMON_CUE_OPENERS`, an "-ly" adverb ("Gravely",
+ * "Bitterly"), or a word the script itself uses in lower case. "<Philip
+ * whispers>" is still caught: "philip" is none of those.
+ */
+function capitalizedWords(direction: string, lowerCaseWords: ReadonlySet<string>): string[] {
+  const text = normalizeQuotes(direction);
+  const found: string[] = [];
+  for (const match of text.matchAll(/[\p{L}\p{M}]+(?:'[\p{L}\p{M}]+)*/gu)) {
+    const word = match[0];
+    if (!/\p{Lu}/u.test(word)) continue;
+    const before = text.slice(0, match.index ?? 0).trimEnd();
+    const opens = before === '' || /[.!?;:…]$/.test(before);
+    const lower = word.toLowerCase();
+    const common = COMMON_CUE_OPENERS.has(lower) || (lower.length >= 6 && lower.endsWith('ly')) || lowerCaseWords.has(lower);
+    if (opens && common && /^\p{Lu}\p{Ll}*$/u.test(word)) continue;
+    found.push(word);
+  }
+  return found;
 }
 
 /** Plenty for a performed reading (about one per sentence); a wall of them is not a performance. */
@@ -230,7 +333,8 @@ function opensSentence(text: string, index: number): boolean {
 
 /**
  * The fidelity check (rule 3 above): the first word or figure the retelling
- * introduces that the passage never mentioned, if any.
+ * introduces that the passage never mentioned, if any. Reads the spoken
+ * words only: cues are ignored here (rule 2 checks them).
  */
 export function findIntroducedContent(
   original: string,
@@ -242,7 +346,7 @@ export function findIntroducedContent(
   for (const word of [source, ...allowedNames].join(' ').match(WORD_PATTERN) ?? []) known.add(nameKey(normalizeQuotes(word)));
   const knownNumbers = new Set((source.match(NUMBER_PATTERN) ?? []).map(numberKey));
 
-  const text = normalizeQuotes(spoken);
+  const text = normalizeQuotes(spokenPartOf(spoken));
   for (const match of text.matchAll(WORD_PATTERN)) {
     const word = match[0];
     if (!/^\p{Lu}/u.test(word)) continue;
@@ -284,11 +388,15 @@ export function validatePerformance(
     if (directions.length > maxDirectionsFor(wordCount)) return { ok: false, reason: 'too_many_directions' };
 
     const originalWords = new Set(spokenTokens(speakableText(original)));
+    // Words the script and the passage use in lower case: a cue may open with one capitalized.
+    const lowerCaseWords = new Set(
+      [speakableText(original), transcript].join(' ').match(/(?<![\p{L}\p{M}'])\p{Ll}[\p{Ll}\p{M}]*/gu) ?? [],
+    );
     for (const direction of directions) {
       if (direction.length > MAX_DIRECTION_CHARS) return { ok: false, reason: 'direction_too_long' };
       if (/\p{N}/u.test(direction)) return { ok: false, reason: 'direction_has_digits' };
       if (!DIRECTION_CHARACTERS.test(direction)) return { ok: false, reason: 'direction_has_forbidden_characters' };
-      const smuggled = capitalizedWords(direction).some(word =>
+      const smuggled = capitalizedWords(direction, lowerCaseWords).some(word =>
         !originalWords.has(word) && !originalWords.has(word.replace(/'s$/, ''))
       );
       if (smuggled) return { ok: false, reason: 'direction_has_proper_noun' };
@@ -328,23 +436,34 @@ const CLOSERS = '"\'”’)]›»';
  * whitespace and a word that is not lower-case, and at every line break - but never inside a quotation: a
  * quoted speech that holds several sentences stays with the sentence that
  * quotes it. Straight double quotes toggle; curly ones open and close.
- * Apostrophes are not quotes.
+ * Apostrophes are not quotes. A `<cue>` is opaque: its full stops end
+ * nothing, and a cue after a sentence's end opens the next sentence (so a
+ * cue belongs to the sentence it opens or sits inside). A trailing piece
+ * that holds only cues joins the sentence before it.
  */
 export function splitSpokenSentences(text: string): string[] {
   const pieces: string[] = [];
   let start = 0;
   let inQuote = false;
   let i = 0;
+  const hasSpoken = (piece: string) => spokenPartOf(piece).trim() !== '';
   const cut = (end: number) => {
     let next = end;
     while (next < text.length && /\s/.test(text[next])) next++;
-    if (text.slice(start, end).trim()) pieces.push(text.slice(start, next));
+    if (hasSpoken(text.slice(start, end))) pieces.push(text.slice(start, next));
     else if (pieces.length > 0) pieces[pieces.length - 1] += text.slice(start, next);
     start = next;
     return next;
   };
   while (i < text.length) {
     const ch = text[i];
+    if (ch === '<') {
+      const close = text.indexOf('>', i + 1);
+      if (close !== -1 && !text.slice(i + 1, close).includes('\n')) {
+        i = close + 1;
+        continue;
+      }
+    }
     if (ch === '"') {
       inQuote = !inQuote;
     } else if (ch === '“') {
@@ -384,20 +503,21 @@ export function splitSpokenSentences(text: string): string[] {
     i++;
   }
   if (start < text.length) {
-    if (text.slice(start).trim()) pieces.push(text.slice(start));
+    if (hasSpoken(text.slice(start)) || pieces.length === 0) pieces.push(text.slice(start));
     else if (pieces.length > 0) pieces[pieces.length - 1] += text.slice(start);
   }
   return pieces;
 }
 
+/** Spoken words in a text (cues ignored: `spokenTokens` skips them). */
 function wordsIn(text: string): number {
   return spokenTokens(text).filter(token => /[\p{L}\p{N}]/u.test(token)).length;
 }
 
 export interface FidelityPatch {
-  /** The spoken text with every unsupported sentence cut. */
+  /** The script with every unsupported sentence (and its cues) cut. */
   kept: string;
-  /** Each cut sentence, trimmed, in order. */
+  /** Each cut sentence, trimmed, in order, verbatim (its cues included). */
   patchedOut: string[];
   /** The first name or figure that forced a cut, when any did. */
   firstIntroduced: { kind: 'name' | 'number'; value: string } | null;
@@ -407,9 +527,11 @@ export interface FidelityPatch {
 
 /**
  * The fidelity patch (see the module header): cuts every sentence of
- * `spoken` that brings in a name or a figure `original` never mentioned,
- * checking each sentence exactly as `findIntroducedContent` checks a whole
- * retelling. Allowed names (the listener, forms of address) are never cut.
+ * `spoken` - a script, cues and all - that brings in a name or a figure
+ * `original` never mentioned, checking each sentence's spoken words exactly
+ * as `findIntroducedContent` checks a whole retelling. A cut sentence takes
+ * its cues with it; the kept ones keep theirs. Allowed names (the listener,
+ * forms of address) are never cut.
  */
 export function patchIntroducedContent(
   original: string,
@@ -440,7 +562,7 @@ export function patchIntroducedContent(
   const kept = keptPieces.join('').trim();
   const totalWords = wordsIn(spoken);
   const tooMuchCut = patchedOut.length > 0 && (
-    !kept
+    !spokenPartOf(kept).trim()
     || patchedOut.length > sentences.length * MAX_PATCHED_SHARE
     || cutWords > totalWords * MAX_PATCHED_SHARE
   );
@@ -476,9 +598,12 @@ export function unwrapDirectorOutput(raw: string): string {
 }
 
 /**
- * The narrator's script if it validates - patched when it brought in a name
- * or a figure, as long as the patch leaves most of it standing - otherwise
- * the fallback.
+ * The narrator's acted script if it validates - patched when it brought in
+ * a name or a figure, as long as the patch leaves most of it standing -
+ * otherwise the fallback. An accepted script keeps its `<cues>`: the
+ * transcript is exactly what the voice performs (`cleanActedScript`). A
+ * `[cue]` is turned into a `<cue>` before validation, so it is checked like
+ * any other.
  */
 export function performedTranscriptFor(
   original: string,
@@ -492,17 +617,16 @@ export function performedTranscriptFor(
     patchedOut: [],
   });
   if (directorOutput === null) return fallback();
-  const candidate = unwrapDirectorOutput(directorOutput);
+  const candidate = squareCuesToAngle(unwrapDirectorOutput(directorOutput));
   const verdict = validatePerformance(original, candidate, allowedNames);
-  if (verdict.ok) return { transcript: cleanSpokenTranscript(candidate), usedFallback: false, patchedOut: [] };
+  if (verdict.ok) return { transcript: cleanActedScript(candidate), usedFallback: false, patchedOut: [] };
   if (verdict.reason !== 'introduces_new_name' && verdict.reason !== 'introduces_new_number') return fallback(verdict.reason);
 
-  // Only fidelity failed (every other rule is checked first): patch it.
-  const parsed = parseTranscript(candidate);
-  if (!parsed.ok) return fallback(parsed.reason);
-  const patch = patchIntroducedContent(original, parsed.value.spoken, allowedNames);
-  if (patch.tooMuchCut || !patch.kept) return fallback(verdict.reason);
+  // Only fidelity failed (every other rule is checked first, so the script
+  // parses and every cue passed): patch it, cues travelling with their sentences.
+  const patch = patchIntroducedContent(original, candidate, allowedNames);
+  if (patch.tooMuchCut || !patch.kept || !spokenPartOf(patch.kept).trim()) return fallback(verdict.reason);
   // The mechanics gate already passed on the whole script; the patched text
   // is a subset of it, so it passes too.
-  return { transcript: cleanSpokenTranscript(patch.kept), usedFallback: false, patchedOut: patch.patchedOut };
+  return { transcript: cleanActedScript(patch.kept), usedFallback: false, patchedOut: patch.patchedOut };
 }

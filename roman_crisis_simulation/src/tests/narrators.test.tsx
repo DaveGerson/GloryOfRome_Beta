@@ -216,7 +216,7 @@ describe('the pipeline follows the profile', () => {
     expect(prep[0].config?.systemInstruction).toContain('a herald crying the news');
     expect(voice[0]).toMatchObject({ model: HERALD.voice.model, config: { temperature: 0.8 } });
     expect(voiceOf(voice)).toBe('Orus');
-    expect(voice[0].contents).toBe(`Hear it: ${NARRATION}`);
+    expect(voice[0].contents).toBe(`## Transcript:\nHear it: ${NARRATION}`);
     expect(result.usedFallback).toBe(false);
   });
 
@@ -441,9 +441,9 @@ describe('Settings: narrator and voice', () => {
 });
 
 describe('the tuning harness core', () => {
-  it('reports acceptance, patched sentences, fidelity refusals with what was invented, call failures and audio', async () => {
+  it('reports acceptance, patched sentences, fidelity refusals with what was invented, cues per script, call failures and audio', async () => {
     const scripts = [
-      (n: string) => `Mark this, Emperor: ${n}`, // accepted: the listener's position is theirs to hear
+      (n: string) => `<grave> Mark this, Emperor: <a long pause> ${n}`, // accepted, two cues: the listener's position is theirs to hear
       (n: string) => `${n} Rome holds its breath, and the city is still. And Philip marches.`, // one invented sentence: patched
       (n: string) => `${n} And Philip marches. Soon Gordian follows.`, // mostly invented: refused
       () => { throw new Error('rate limited'); }, // no script
@@ -466,7 +466,9 @@ describe('the tuning harness core', () => {
     });
 
     expect(results.map(r => r.accepted)).toEqual([true, true, false, false]);
-    expect(results[0]).toMatchObject({ sourceWords: 2, retellingWords: 5, patchedOut: [] });
+    expect(results[0]).toMatchObject({ sourceWords: 2, retellingWords: 5, patchedOut: [], cues: 2, transcript: '<grave> Mark this, Emperor: <a long pause> Rome waits.' });
+    expect(results[1].cues).toBe(0);
+    expect(results[2].cues).toBe(1); // the fallback's one cue
     expect(results[1]).toMatchObject({ patchedOut: ['And Philip marches.'], introduced: 'Philip', transcript: 'The Senate is silent. Rome holds its breath, and the city is still.' });
     expect(results[2]).toMatchObject({ rejection: 'introduces_new_name', introduced: 'Philip', directorOutput: 'Night falls. And Philip marches. Soon Gordian follows.' });
     expect(results[2].transcript).toBe(fallbackTranscript('Night falls.'));
@@ -476,6 +478,7 @@ describe('the tuning harness core', () => {
     const summary = summarizeTuning(DRAMATIC_READER_NARRATOR, results);
     expect(summary).toMatchObject({ narratorId: 'senatorial-partner', prepModel: GEMINI_NARRATION_PREP, thinkingLevel: 'low', passages: 4, accepted: 2, patched: 1, patchedSentences: 1 });
     expect(summary.rejections).toEqual({ introduces_new_name: 1, director_call_failed: 1 });
+    expect(summary.meanCuesPerScript).toBe(1);
 
     const report = formatTuningReport(summary, results);
     expect(report).toContain('Accepted: 2/4 (50%)');
@@ -484,10 +487,14 @@ describe('the tuning harness core', () => {
     expect(report).toContain('Patched out:\n\n- And Philip marches.');
     expect(report).toContain('refused (introduces_new_name: "Philip")');
     expect(report).toContain('Audio: 48 bytes');
+    expect(report).toContain('Mean performance cues per accepted script: 1.0');
+    expect(report).toContain('### 1. accepted — 5 words from 2, 2 cues');
+    expect(report).toContain('Performed script:\n\n```\n<grave> Mark this, Emperor: <a long pause> Rome waits.\n```');
   });
 
   it('counts words, not punctuation, and ships a usable fixture set with a sample listener', () => {
     expect(countWords('Rome — waits, "still".')).toBe(3);
+    expect(countWords('<a long, bitter pause> Rome waits.')).toBe(2);
     expect(fixtures.narrations.length).toBeGreaterThanOrEqual(6);
     expect(fixtures.player).toMatchObject({ name: expect.any(String), position: expect.any(String) });
     for (const passage of fixtures.narrations) expect(passage.trim().length).toBeGreaterThan(0);

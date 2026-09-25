@@ -96,11 +96,11 @@ afterEach(() => {
 });
 
 describe('voice style: it shapes the writing, never the TTS input', () => {
-  const BRIEF_ASK = 'Carry that manner in the words themselves: word choice, sentence length, rhythm, pauses written as punctuation (commas, dashes, ellipses, full stops). Never describe the manner, never write stage directions: every word you write will be spoken aloud.';
+  const BRIEF_ASK = 'Carry that manner in the words AND in the cues: word choice, sentence length and rhythm, and performance cues in <angle brackets> for its tone, pace, pauses and breath. Never describe the manner outside the angle brackets: every word outside them will be spoken aloud.';
 
-  it('the TTS input is the clean transcript and nothing else - it takes no style at all', () => {
-    expect(buildNarrationTtsPrompt('Rome waits.')).toBe('Rome waits.');
-    expect(buildNarrationTtsPrompt('## Transcript:\n<grave> Rome waits.')).toBe('Rome waits.');
+  it('the TTS input is the acted script and nothing else - it takes no style at all', () => {
+    expect(buildNarrationTtsPrompt('Rome waits.')).toBe('## Transcript:\nRome waits.');
+    expect(buildNarrationTtsPrompt('## Transcript:\n<grave> Rome waits.')).toBe('## Transcript:\n<grave> Rome waits.');
     expect(buildNarrationTtsPrompt.length).toBe(1);
   });
 
@@ -120,7 +120,7 @@ describe('voice style: it shapes the writing, never the TTS input', () => {
     expect(styled.systemInstruction).toBe(plain.systemInstruction);
     expect(styled.prompt.startsWith(`${plain.prompt}\n\nDELIVERY BRIEF`)).toBe(true);
     expect(styled.prompt).toContain(asPromptData(voiceStyleManner({ preset: 'newsreader' })));
-    expect(styled.prompt).toContain('Write the spoken text for a voice that should sound like the manner above.');
+    expect(styled.prompt).toContain('Write the acted script for a voice that should sound like the manner above.');
     expect(styled.prompt.endsWith(BRIEF_ASK)).toBe(true);
     for (const preset of ['tragedian', 'newsreader', 'conspiratorial', 'old-soldier'] as const) {
       expect(voiceStyleManner({ preset })).toBeTruthy();
@@ -153,19 +153,19 @@ describe('voice style: it shapes the writing, never the TTS input', () => {
     expect(voiceStyleFromSpec(undefined)).toBeNull();
   });
 
-  it('the tuning harness auditions a style (GOR_NARRATOR_STYLE) in the prep brief; the voice gets the words alone', async () => {
+  it('the tuning harness auditions a style (GOR_NARRATOR_STYLE) in the prep brief; the voice gets the script alone', async () => {
     const { ai, generateContent } = makeAi();
     await runNarratorTuning({ ai, narrator: DRAMATIC_READER_NARRATOR, narrations: ['Rome waits.'], withAudio: true, style: voiceStyleFromSpec('tragedian') });
     expect(generateContent.mock.calls[0][0].contents).toContain('DELIVERY BRIEF');
     expect(generateContent.mock.calls[0][0].contents).toContain(asPromptData(voiceStyleManner({ preset: 'tragedian' })));
-    expect(generateContent.mock.calls[1][0].contents).toBe('Hear it: Rome waits.');
+    expect(generateContent.mock.calls[1][0].contents).toBe('## Transcript:\nHear it: Rome waits.');
   });
 
   it('the pipeline sends the style to the prep model only, never on the TTS call', async () => {
     const { ai, generateContent } = makeAi();
     await performNarration(ai, NARRATION, false, { style: { preset: 'newsreader' } });
     expect(generateContent.mock.calls[0][0].contents).toContain(asPromptData(voiceStyleManner({ preset: 'newsreader' })));
-    expect(generateContent.mock.calls[1][0].contents).toBe(`Hear it: ${NARRATION}`);
+    expect(generateContent.mock.calls[1][0].contents).toBe(`## Transcript:\nHear it: ${NARRATION}`);
   });
 });
 
@@ -348,7 +348,7 @@ describe('the hook: separate selections, persisted, keying the cache', () => {
     expect(prepCalls).toHaveLength(2);
     expect(prepCalls[0][0].contents).not.toContain('DELIVERY BRIEF');
     expect(prepCalls[1][0].contents).toContain(asPromptData(voiceStyleManner({ preset: 'conspiratorial' })));
-    expect(ttsCalls(generateContent)[1][0].contents).toBe(`Hear it: ${NARRATION}`);
+    expect(ttsCalls(generateContent)[1][0].contents).toBe(`## Transcript:\nHear it: ${NARRATION}`);
 
     act(() => hook.current.handleSetVoiceStyle(null));
     expect(localStorage.getItem(NARRATOR_VOICE_STYLE_KEY)).toBeNull();
@@ -384,7 +384,7 @@ describe('the hook: separate selections, persisted, keying the cache', () => {
     act(() => hook.current.toggleNarrationVoice(0, NARRATION));
     await settle();
     expect(generateContent.mock.calls[0][0].contents).toContain(asPromptData(voiceStyleManner({ preset: 'old-soldier' })));
-    expect(ttsCalls(generateContent)[0][0].contents).toBe(`Hear it: ${NARRATION}`);
+    expect(ttsCalls(generateContent)[0][0].contents).toBe(`## Transcript:\nHear it: ${NARRATION}`);
 
     act(() => hook.current.handleDeleteCustomNarrator(id));
     expect(hook.current.narratorId).toBe('senatorial-partner');

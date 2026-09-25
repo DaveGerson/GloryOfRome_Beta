@@ -619,6 +619,7 @@
 .gor-narration-log-meta{margin:2px 0 0;font-size:13.5px;font-style:italic;color:var(--text-muted)}
 .gor-narration-log-excerpt{margin:6px 0 0;padding-left:9px;border-left:2px solid var(--border-subtle);font-size:13.5px;color:var(--text-muted)}
 .gor-narration-log-transcript{margin:8px 0 0;white-space:pre-wrap;color:var(--text-body)}
+.gor-narration-log-cue{font-style:italic;color:var(--text-muted)}
 .gor-narration-log-omitted{margin:6px 0 0;font-size:14px;color:var(--text-muted)}
 .gor-narration-log-omitted summary{cursor:pointer;font-style:italic}
 .gor-narration-log-omitted summary:focus-visible{outline:none;box-shadow:var(--focus-ring)}

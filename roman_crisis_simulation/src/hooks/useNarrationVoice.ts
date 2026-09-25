@@ -15,8 +15,8 @@
  *  - the voice: an explicit choice, or else the narrator's own;
  *  - the voice style (narration/voiceStyle.ts): an explicit choice, or else
  *    the narrator's own, which for every preset is "As written". It shapes
- *    the prep model's WRITING (its delivery brief); the TTS input is only
- *    the words to be spoken, always.
+ *    the prep model's acted script - words and cues - (its delivery brief);
+ *    the TTS input is that script and nothing else, always.
  *
  * Under all three sits the campaign's voice cast (narration/voiceCast.ts,
  * hooks/useVoiceCast.ts): with no explicit narration style, the reader the

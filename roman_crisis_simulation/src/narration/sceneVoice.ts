@@ -22,8 +22,9 @@
  *    from their name alone.
  *
  * Delivery style: none reaches the voice. The line is the NPC's committed
- * words and there is no prep call to write them in a manner, and the TTS
- * model speaks every word it is given - so the NPC's character comes
+ * words and there is no prep call to write them as an acted script with
+ * cues (a line carries none: its `<angled>` asides are stripped above), and
+ * the TTS model speaks every word outside a cue - so the NPC's character comes
  * entirely from their cast VOICE. Their cast note is returned for display
  * (the narration log shows it) and sent nowhere. Never the narrator's style
  * either: a style is a speaker's own manner.

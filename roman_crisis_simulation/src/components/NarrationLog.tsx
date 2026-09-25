@@ -22,6 +22,8 @@ export const NARRATION_LOG_COPY = {
     error: 'The voice faltered — press again.',
     unavailable: 'No token on this device',
     copy: 'Copy text',
+    /** Read to screen readers before each performance cue in a script. */
+    cue: 'Performance cue',
     copied: 'Copied.',
     copyFailed: 'Could not copy.',
     clear: 'Clear log',
@@ -29,6 +31,31 @@ export const NARRATION_LOG_COPY = {
     confirm: 'Clear',
     keep: 'Keep',
 } as const;
+
+/**
+ * A logged transcript as the player reads it: the spoken words as plain
+ * text, each `<cue>` of an acted script (narration/performanceScript.ts) set
+ * apart - italic, muted, its angle brackets shown but hidden from screen
+ * readers, which hear "Performance cue:" instead. A transcript with no cues
+ * (the Imperial Dispatch, a private-scene line, an entry logged before
+ * scripts carried cues) renders exactly as its text.
+ */
+export const ScriptText: React.FC<{ transcript: string }> = ({ transcript }) => {
+    const parts = transcript.split(/<([^<>\n]+)>/g);
+    if (parts.length === 1) return <>{transcript}</>;
+    return (
+        <>
+            {parts.map((part, i) => (i % 2 === 0
+                ? (part ? <React.Fragment key={i}>{part}</React.Fragment> : null)
+                : (
+                    <em key={i} className="gor-narration-log-cue">
+                        <span className="gor-sr-only">{NARRATION_LOG_COPY.cue}: </span>
+                        <span aria-hidden="true">‹</span>{part.trim()}<span aria-hidden="true">›</span>
+                    </em>
+                )))}
+        </>
+    );
+};
 
 const EntryView: React.FC<{
     entry: NarrationLogEntry;
@@ -60,11 +87,11 @@ const EntryView: React.FC<{
                 {entry.sourceExcerpt && (
                     <p className="gor-narration-log-excerpt"><span className="gor-sr-only">{NARRATION_LOG_COPY.from}: </span>“{entry.sourceExcerpt}”</p>
                 )}
-                <p className="gor-narration-log-transcript">{entry.transcript}</p>
+                <p className="gor-narration-log-transcript"><ScriptText transcript={entry.transcript} /></p>
                 {entry.patchedOut.length > 0 && (
                     <details className="gor-narration-log-omitted">
                         <summary>{NARRATION_LOG_COPY.omitted(entry.patchedOut.length)}</summary>
-                        <ul>{entry.patchedOut.map((line, i) => <li key={i}>{line}</li>)}</ul>
+                        <ul>{entry.patchedOut.map((line, i) => <li key={i}><ScriptText transcript={line} /></li>)}</ul>
                     </details>
                 )}
                 {entry.usedFallback && entry.kind === 'chronicle' && (
@@ -97,7 +124,8 @@ const EntryView: React.FC<{
  * The narration log (narration/narrationLog.ts, hooks/useNarrationLog.ts):
  * an affordance at the foot of the game screen that opens a gor-dialog
  * listing every performance, newest first - source, narrator and voice, the
- * spoken words, what the fidelity patch left out, replay and copy - with a
+ * acted script with its cues set apart (`ScriptText`), what the fidelity
+ * patch left out, replay and copy (the script, cues included) - with a
  * two-step "Clear log". Same dialog contract as Settings: focus moves in on
  * open, Tab is trapped (components/ui/focusTrap.ts), Escape closes, focus
  * returns to the opener.

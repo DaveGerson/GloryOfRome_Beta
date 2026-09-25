@@ -1,20 +1,22 @@
 /**
  * narration/voiceStyle.ts
  *
- * The narration voice's delivery style: a MANNER the spoken text should
+ * The narration voice's delivery style: a MANNER the acted script should
  * carry ("hushed and conspiratorial"). It never reaches the text-to-speech
- * model. gemini-3.8-flash-tts is a text-to-speech model: it speaks every
- * word it is given, and its `speechConfig` has no style parameter - only the
- * prebuilt voice (and language). So the TTS input is only the words to be
- * spoken, always (ai/prompts/narrationPerformance.ts
- * `buildNarrationTtsPrompt`).
+ * model as an instruction. gemini-3.8-flash-tts performs the script it is
+ * given word for word - it acts every `<cue>` and speaks every word outside
+ * one - and its `speechConfig` has no style parameter, only the prebuilt
+ * voice (and language). So the TTS input is the script and nothing else,
+ * always (ai/prompts/narrationPerformance.ts `buildNarrationTtsPrompt`): a
+ * "Say it …:" prefix would be read aloud.
  *
  * Instead a style shapes the WRITING: where a prep call exists (the
  * chronicle narrator, "In character…", the player's own narrators), the
  * chosen style is handed to the prep model as a DELIVERY BRIEF
  * (`buildDeliveryBrief` in ai/prompts/narrationPerformance.ts), which asks
- * for the manner to be carried in word choice, sentence length, rhythm and
- * punctuation-as-pause - never described, never staged. Where no prep call
+ * for the manner to be carried in the words (word choice, sentence length,
+ * rhythm) AND in the script's performance cues (`<angle brackets>`: tone,
+ * pace, pauses, breath) - never described outside a cue. Where no prep call
  * exists (a private-scene NPC's committed line, the Imperial Dispatch, a
  * replay from the narration log), the voice alone carries the character.
  *

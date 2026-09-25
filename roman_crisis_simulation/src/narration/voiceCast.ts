@@ -37,7 +37,8 @@
  * style (narration/voiceStyle.ts `sanitizeVoiceStyleText`), capped at 80
  * characters. A note is a MANNER for a writer ("clipped soldier's
  * sentences, few words"); the voice carries the sound. It NEVER reaches the
- * TTS input - the TTS model speaks every word it is given. Where a prep call
+ * TTS input - the TTS model speaks every word outside a `<cue>`, so a note
+ * there would be read aloud. Where a prep call
  * exists (the cast narrator, a character narrating "In character…") the note
  * feeds that call's delivery brief (`castStyle`,
  * ai/prompts/narrationPerformance.ts `buildDeliveryBrief`); where none does

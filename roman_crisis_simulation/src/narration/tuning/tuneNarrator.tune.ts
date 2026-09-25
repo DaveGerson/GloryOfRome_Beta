@@ -18,7 +18,8 @@
  *                            old-soldier) or free text, sanitized as a player's
  *                            custom style is. It feeds the prep prompt's
  *                            delivery brief, so it shapes the retelling's
- *                            words; the TTS input stays the words alone.
+ *                            script and its cues; the TTS input stays the
+ *                            script alone.
  *  - GOR_NARRATOR_FIXTURES   an alternative fixtures JSON path.
  *
  * Output: narration/tuning/out/<narrator-id>/<timestamp>/ (git-ignored):

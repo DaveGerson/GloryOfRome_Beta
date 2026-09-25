@@ -118,7 +118,7 @@ describe('the hook', () => {
     // voice speaks her committed words and nothing else: with no prep call,
     // her cast note is shown on the log entry and sent nowhere.
     expect(voice).toBe('Gacrux');
-    expect(call.contents).toBe('My son trusts you. Do not make me regret it.');
+    expect(call.contents).toBe('## Transcript:\nMy son trusts you. Do not make me regret it.');
     expect(hook.current!.stateFor(view, view.transcript[1])).toBe('playing');
     expect(log.getSnapshot()[0]).toMatchObject({
       kind: 'private_scene', sourceLabel: 'Private scene with Julia Mamaea', narratorName: 'Julia Mamaea', voice,
@@ -142,7 +142,7 @@ describe('the hook', () => {
     await settle();
     const call = generateContent.mock.calls[0][0];
     expect((call.config?.speechConfig as { voiceConfig: { prebuiltVoiceConfig: { voiceName: string } } }).voiceConfig.prebuiltVoiceConfig.voiceName).toBe('Kore');
-    expect(call.contents).toBe('My son trusts you. Do not make me regret it.');
+    expect(call.contents).toBe('## Transcript:\nMy son trusts you. Do not make me regret it.');
     expect(call.contents).not.toContain('quiet and cold');
     expect(log.getSnapshot()[0]).toMatchObject({ voice: 'Kore', voiceStyle: { preset: 'custom', text: 'quiet and cold' } });
     hook.unmount();

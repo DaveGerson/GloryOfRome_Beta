@@ -7,7 +7,8 @@
  * (narration/performanceScript.ts: length, fidelity - no new names or
  * figures - and the mechanics gate), which sentences the fidelity patch
  * cut from the ones it accepted, why it refused the rest, how long the
- * retellings run against their source, and the retellings themselves - so
+ * retellings run against their source, how many performance cues each
+ * script carries, and the acted scripts themselves, cues included - so
  * the profile's persona, temperature, thinking level or prep model can be
  * tuned before the profile is deployed (narration/narrators/README.md).
  *
@@ -21,7 +22,7 @@ import { generateSpeech } from '../../ai/core/geminiService';
 import { buildNarrationTtsPrompt, type NarrationPlayerContext } from '../../ai/prompts/narrationPerformance';
 import { listenerNames, runNarrationDirector } from '../../ai/tools/narrationVoice';
 import type { NarratorProfile } from '../narrators';
-import { findIntroducedContent, performedTranscriptFor, spokenTokens, type PerformanceRejection } from '../performanceScript';
+import { cuesIn, findIntroducedContent, performedTranscriptFor, spokenTokens, type PerformanceRejection } from '../performanceScript';
 import { ensureWav } from '../wav';
 import type { VoiceStyle } from '../voiceStyle';
 
@@ -36,12 +37,14 @@ export interface TuningPassageResult {
   rejection?: PerformanceRejection | 'director_call_failed';
   /** The narrator's raw output, verbatim - what to read when tuning. */
   directorOutput: string | null;
-  /** What would actually be voiced: the accepted retelling, or the fallback. */
+  /** What would actually be performed: the accepted acted script (cues included), or the fallback. */
   transcript: string;
+  /** Performance cues in `transcript`. */
+  cues: number;
   /** For a fidelity refusal or patch: the name(s) or figure(s) the retelling brought in. */
   introduced?: string;
   sourceWords: number;
-  /** Words in the narrator's output (0 when there was none). */
+  /** Spoken words in the narrator's output, cues not counted (0 when there was none). */
   retellingWords: number;
   prepLatencyMs: number;
   /** Present when audio was rendered. */
@@ -62,10 +65,12 @@ export interface TuningSummary {
   rejections: Record<string, number>;
   /** Mean retelling length over its source's, for accepted retellings (1 = same length). */
   meanLengthRatio: number;
+  /** Mean performance cues per accepted script. */
+  meanCuesPerScript: number;
   meanPrepLatencyMs: number;
 }
 
-/** Counts spoken words (not punctuation) in a text. */
+/** Counts spoken words (not punctuation, not cues) in a text. */
 export function countWords(text: string): number {
   return spokenTokens(text).filter(token => /[\p{L}\p{N}]/u.test(token)).length;
 }
@@ -101,6 +106,7 @@ export async function runNarratorTuning(params: {
       patchedOut: performed.patchedOut,
       directorOutput: output,
       transcript: performed.transcript,
+      cues: cuesIn(performed.transcript).length,
       sourceWords: countWords(narration),
       retellingWords: output === null ? 0 : countWords(output),
       prepLatencyMs,
@@ -155,6 +161,7 @@ export function summarizeTuning(narrator: NarratorProfile, results: readonly Tun
     acceptanceRate: results.length ? accepted.length / results.length : 0,
     rejections,
     meanLengthRatio: mean(accepted.filter(r => r.sourceWords > 0).map(r => r.retellingWords / r.sourceWords)),
+    meanCuesPerScript: mean(accepted.map(r => r.cues)),
     meanPrepLatencyMs: mean(results.map(r => r.prepLatencyMs)),
   };
 }
@@ -172,6 +179,7 @@ export function formatTuningReport(summary: TuningSummary, results: readonly Tun
     `Accepted: ${summary.accepted}/${summary.passages} (${pct}%)`,
     `Patched: ${summary.patched} (${summary.patchedSentences} sentence${summary.patchedSentences === 1 ? '' : 's'} cut for bringing in a name or figure)`,
     `Mean retelling length: ${summary.meanLengthRatio.toFixed(1)}× its source`,
+    `Mean performance cues per accepted script: ${summary.meanCuesPerScript.toFixed(1)}`,
     `Mean prep latency: ${Math.round(summary.meanPrepLatencyMs)} ms`,
     '',
     '## Refusals',
@@ -183,10 +191,12 @@ export function formatTuningReport(summary: TuningSummary, results: readonly Tun
     const verdict = r.accepted
       ? (r.patchedOut.length > 0 ? `accepted, patched (${r.patchedOut.length} cut: "${r.introduced}")` : 'accepted')
       : `refused (${r.rejection}${r.introduced ? `: "${r.introduced}"` : ''})`;
-    lines.push('', `### ${r.index + 1}. ${verdict} — ${r.retellingWords} words from ${r.sourceWords}`, '');
+    lines.push('', `### ${r.index + 1}. ${verdict} — ${r.retellingWords} words from ${r.sourceWords}, ${r.cues} cue${r.cues === 1 ? '' : 's'}`, '');
     lines.push('Source:', '', '```', r.narration, '```', '', 'Narrator output:', '', '```', r.directorOutput ?? '(no output)', '```');
     if (r.patchedOut.length > 0) {
-      lines.push('', 'Patched out:', '', ...r.patchedOut.map(sentence => `- ${sentence}`), '', 'Voiced:', '', '```', r.transcript, '```');
+      lines.push('', 'Patched out:', '', ...r.patchedOut.map(sentence => `- ${sentence}`), '', 'Performed script:', '', '```', r.transcript, '```');
+    } else if (r.accepted) {
+      lines.push('', 'Performed script:', '', '```', r.transcript, '```');
     }
     if (!r.accepted) lines.push('', 'Voiced instead:', '', '```', r.transcript, '```');
     if (r.audio) {

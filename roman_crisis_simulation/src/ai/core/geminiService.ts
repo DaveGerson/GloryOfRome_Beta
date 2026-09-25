@@ -64,7 +64,8 @@ export const DEFAULT_NARRATOR_VOICE = 'Enceladus';
 /**
  * The narration voice's intermediary prep model: the narrator that turns
  * one committed narration (or, for the Imperial Dispatch, the tabs' fact
- * summary) into clean spoken prose before the TTS call
+ * summary) into an acted script (for the Dispatch, a plain briefing) before
+ * the TTS call
  * (ai/tools/narrationVoice.ts). It tracks the flash tier, run at LOW
  * thinking - a spoken retelling wants a short think, not deep reasoning,
  * so latency stays close to the voice's own. A deployed narrator profile

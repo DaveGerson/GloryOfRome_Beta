@@ -6,23 +6,26 @@
  *
  *  1. `narrationPerformance` (the intermediary prep model, prose) - the
  *     chosen narrator (narration/narrators.ts; by default the senatorial
- *     partner) recounts the scene to the player in at most two paragraphs of
- *     clean spoken prose. By default this is `GEMINI_NARRATION_PREP` at LOW
+ *     partner) converts the scene into an acted script: a dramatically
+ *     acted retelling for the player, at most two paragraphs, spoken words
+ *     plus performance cues in `<angle brackets>`. By default this is `GEMINI_NARRATION_PREP` at LOW
  *     thinking; a deployed profile may name its own, tuned, prep model. The
  *     output is validated by narration/performanceScript.ts - including the
  *     fidelity check, which cuts every sentence that brings in a name or a
  *     figure the narration never mentioned (and falls back when that would
  *     cut most of it); a refused script, or a failed call, falls back to
- *     the plain narration. The voice never fails for want of
- *     a narrator.
- *  2. `narrationVoice` (the profile's TTS model, audio) - the clean
- *     transcript is voiced in the player's chosen voice, or else the
- *     narrator's own; raw PCM is wrapped in a WAV header (narration/wav.ts).
+ *     the plain narration (opened by one fallback cue). The voice never
+ *     fails for want of a narrator.
+ *  2. `narrationVoice` (the profile's TTS model, audio) - the acted script
+ *     is performed word for word, cues acted, in the player's chosen voice,
+ *     or else the narrator's own; raw PCM is wrapped in a WAV header
+ *     (narration/wav.ts).
  *
  * Delivery style (narration/voiceStyle.ts) goes to step 1 only, as the prep
- * prompt's delivery brief. The TTS input is only the words to be spoken,
- * always: the TTS model speaks every word it is given, and has no style
- * parameter.
+ * prompt's delivery brief. The TTS input is the script and nothing else
+ * (`buildNarrationTtsPrompt`: `## Transcript:` and the script, cues
+ * intact): the TTS model speaks every word outside a cue, so no prose
+ * instruction or style prefix ever reaches it.
  *
  * The caller may only pass text that is already committed to the player's
  * chat (DESIGN_DECISIONS.md D4/D5) - in practice a `messages[]` entry with
@@ -83,7 +86,7 @@ export interface NarrationOptions {
   playerContext?: NarrationPlayerContext;
   /** Further names the fidelity patch allows (a narrator in character's own name and standing). */
   allowedNames?: readonly string[];
-  /** The delivery style the prep model writes for (its delivery brief); none by default. Never sent to the TTS model. */
+  /** The delivery style the prep model writes the script for (its delivery brief); none by default. Never sent to the TTS model. */
   style?: VoiceStyle | null;
 }
 
@@ -191,12 +194,12 @@ export interface SpeakOptions {
 }
 
 /**
- * The voice alone: an already-vetted spoken transcript to a WAV, with no
- * prep call. Used by `performNarration`, by replay from the narration log
- * (a transcript the guard already passed), and by a private-scene NPC's
- * committed line (their words are already theirs). There is no style here:
- * the TTS input is the transcript alone, and with no prep call the voice
- * carries the speaker's character. Mock Mode: no call, the synthesized tone.
+ * The voice alone: an already-vetted transcript to a WAV, with no prep
+ * call. Used by `performNarration` (the acted script, cues and all), by
+ * replay from the narration log (a script the guard already passed), and by
+ * a private-scene NPC's committed line (their words are already theirs, with
+ * no cues). There is no style here: the TTS input is the transcript alone,
+ * and with no prep call the voice carries the speaker's character. Mock Mode: no call, the synthesized tone.
  * Throws only when the TTS call itself fails.
  */
 export async function speakTranscript(
@@ -251,7 +254,9 @@ export async function directImperialDispatch(
 
 /**
  * Voicing step for the Imperial Dispatch. Uses Sadaltager (or the configured voice)
- * for a crisp, knowledgeable intelligence briefing.
+ * for a crisp, knowledgeable intelligence briefing. The briefing is plain
+ * words with no performance cues (`cleanSpokenTranscript` strips any), so
+ * it reads as a briefing, not a drama.
  */
 export async function performImperialDispatch(
   ai: GeminiClient,

@@ -1,15 +1,19 @@
 /**
  * @vitest-environment jsdom
  *
- * tests/ttsSpeaksOnlyTheWords.test.tsx
+ * tests/ttsPerformsTheScript.test.tsx
  *
- * THE GUARD: the TTS input is only the words to be spoken, always.
+ * THE GUARD: the TTS performs exactly the script, always.
  *
- * gemini-3.8-flash-tts is a text-to-speech model. It speaks every word it is
- * given, and its `speechConfig` has no style parameter. A delivery style sent
- * as a prefix ("Say in a … voice: …") would be read aloud. So on every path
- * that reaches the voice, with a style chosen, the TTS call's `contents` must
- * equal exactly the spoken transcript:
+ * The narrator writes an ACTED SCRIPT - spoken words plus `<cues>` - and
+ * gemini-3.8-flash-tts performs it word for word, as in the owner's
+ * reference: it ACTS every `<cue>` and SPEAKS every word outside one. Its
+ * `speechConfig` has no style parameter, and a delivery style sent as a
+ * prefix ("Say in a … voice: …") would be read aloud. So on every path that
+ * reaches the voice, with a style chosen, the TTS call's `contents` must be
+ * exactly `## Transcript:` and the logged script, cues included - and,
+ * outside the cues, nothing but the script's words: no prose instruction,
+ * no style prefix, no manner:
  *
  *  - the chronicle narrator (cast note, preset, custom style text);
  *  - "In character…" (the character's cast note);
@@ -20,14 +24,17 @@
  *  - the narration log's "Hear it again".
  *
  * Where a prep call exists, the style reaches it instead, as the delivery
- * brief (ai/prompts/narrationPerformance.ts `buildDeliveryBrief`).
+ * brief (ai/prompts/narrationPerformance.ts `buildDeliveryBrief`), and the
+ * script's cues carry it. The Imperial Dispatch and a private-scene line
+ * carry no cues: they are performed as their words.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { GameState, type Message } from '../types';
 import type { GeminiClient } from '../ai/core/geminiService';
 import { asPromptData } from '../ai/prompts/fragments';
-import { buildNarrationTtsPrompt } from '../ai/prompts/narrationPerformance';
+import { TTS_TRANSCRIPT_HEADING, buildNarrationTtsPrompt } from '../ai/prompts/narrationPerformance';
+import { cuesIn, spokenPartOf } from '../narration/performanceScript';
 import { DRAMATIC_READER_NARRATOR } from '../narration/narrators';
 import { IN_CHARACTER_NARRATOR_ID } from '../narration/narratorChoice';
 import { NarrationLogStore } from '../narration/narrationLog';
@@ -44,6 +51,9 @@ import { makeEntity, makeSimulationState, makeWorldState } from './factories';
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const NARRATION = 'The Senate waits. Julia Mamaea says nothing.';
+/** What the fake narrator writes: an acted script of the narration, in the reference's cue style. */
+const actedScriptOf = (narration: string) => `<a low, bitter laugh> Hear it. <a long pause, then quietly> ${narration}`;
+const ACTED = actedScriptOf(NARRATION);
 const DISPATCH = 'The treasury holds and the legions wait.';
 const AUDIO_RESPONSE = { candidates: [{ content: { parts: [{ inlineData: { data: 'AQIDBA==', mimeType: 'audio/L16;codec=pcm;rate=24000' } }] } }] };
 type ContentParams = { model: string; contents: string; config?: Record<string, unknown> };
@@ -60,7 +70,7 @@ const JULIA_NOTE = 'cool, imperious and measured';
 function makeAi() {
   const generateContent = vi.fn(async (params: ContentParams) => {
     if (params.config?.responseModalities) return AUDIO_RESPONSE;
-    if (params.contents.startsWith('NARRATION')) return { text: `Hear it: ${JSON.parse(params.contents.split('\n')[1]) as string}` };
+    if (params.contents.startsWith('NARRATION')) return { text: `## Transcript:\n${actedScriptOf(JSON.parse(params.contents.split('\n')[1]) as string)}` };
     return { text: DISPATCH };
   });
   const ai: GeminiClient = { models: { generateContent } };
@@ -71,14 +81,23 @@ function makeAi() {
 
 const settle = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
 
-/** Every TTS input is exactly one logged transcript, and no manner in `manners` appears in any. */
-function expectWordsOnly(tts: ContentParams[], transcripts: string[], manners: string[]) {
-  expect(tts.map(c => c.contents)).toEqual(transcripts);
-  for (const call of tts) {
+/**
+ * Every TTS input is exactly "## Transcript:" and one logged script, cues
+ * included; outside the cues it holds nothing but that script's words (no
+ * "Say it …:" prefix, no instruction); and no manner in `manners` appears
+ * anywhere in it.
+ */
+function expectScriptPerformed(tts: ContentParams[], scripts: string[], manners: string[]) {
+  expect(tts.map(c => c.contents)).toEqual(scripts.map(script => `${TTS_TRANSCRIPT_HEADING}\n${script}`));
+  tts.forEach((call, i) => {
     expect(call.contents).toBe(buildNarrationTtsPrompt(call.contents));
-    expect(call.contents).not.toMatch(/^(?:say|read|speak|whisper)\b[^:]*:/i);
+    const body = call.contents.slice(`${TTS_TRANSCRIPT_HEADING}\n`.length);
+    expect(cuesIn(body)).toEqual(cuesIn(scripts[i]));
+    expect(spokenPartOf(body)).toBe(spokenPartOf(scripts[i]));
+    expect(spokenPartOf(body)).not.toMatch(/^\s*(?:say|read|speak|whisper|perform|deliver)\b[^:]*:/im);
+    expect(spokenPartOf(body)).not.toMatch(/#|\[|\]|<|>/);
     for (const manner of manners) expect(call.contents).not.toContain(manner);
-  }
+  });
 }
 
 beforeEach(() => {
@@ -95,7 +114,7 @@ afterEach(() => {
   localStorage.clear();
 });
 
-describe('the TTS input is only the words to be spoken, on every path, with a style chosen', () => {
+describe('the TTS performs exactly the script, on every path, with a style chosen', () => {
   function mountChronicle(log: NarrationLogStore, ai: GeminiClient, extra: Partial<UseNarrationVoiceArgs> = {}) {
     return renderHook(useNarrationVoice, {
       ai, isMockMode: false, resolvedApiKey: 'k', messages: [{ sender: 'gm', text: NARRATION }] as Message[], gameState: GameState.AWAITING_PLAYER_INPUT,
@@ -104,7 +123,7 @@ describe('the TTS input is only the words to be spoken, on every path, with a st
     });
   }
 
-  it('the chronicle, "In character…" and a custom narrator: the style is in the prep brief, the voice gets the transcript', async () => {
+  it('the chronicle, "In character…" and a custom narrator: the style is in the prep brief, the voice performs the acted script, cues and all', async () => {
     const log = new NarrationLogStore({ load: false });
     const { ai, tts, prep } = makeAi();
     const hook = mountChronicle(log, ai);
@@ -147,11 +166,13 @@ describe('the TTS input is only the words to be spoken, on every path, with a st
     });
     const transcripts = [...log.getSnapshot()].reverse().map(e => e.transcript);
     expect(transcripts).toHaveLength(5);
-    expectWordsOnly(tts(), transcripts, manners);
-    expect(tts().every(c => c.contents === `Hear it: ${NARRATION}`)).toBe(true);
+    expect(transcripts.every(t => t === ACTED)).toBe(true);
+    expectScriptPerformed(tts(), transcripts, manners);
+    expect(tts().every(c => c.contents === `## Transcript:\n${ACTED}`)).toBe(true);
+    expect(cuesIn(tts()[0].contents)).toEqual(['a low, bitter laugh', 'a long pause, then quietly']);
   });
 
-  it('a transcript the chronicle voice reuses from the log is voiced as the words alone', async () => {
+  it('a script the chronicle voice reuses from the log is performed as logged, cues and all', async () => {
     localStorage.setItem(NARRATOR_VOICE_STYLE_KEY, JSON.stringify({ preset: 'newsreader' }));
     const log = new NarrationLogStore({ load: false });
     const first = makeAi();
@@ -166,10 +187,11 @@ describe('the TTS input is only the words to be spoken, on every path, with a st
     await settle();
     again.unmount();
     expect(second.prep()).toHaveLength(0);
-    expectWordsOnly(second.tts(), [log.getSnapshot()[0].transcript], [voiceStyleManner({ preset: 'newsreader' })!]);
+    expect(log.getSnapshot()[0].transcript).toBe(ACTED);
+    expectScriptPerformed(second.tts(), [ACTED], [voiceStyleManner({ preset: 'newsreader' })!]);
   });
 
-  it('the Imperial Dispatch: the words alone, whatever style the player chose', async () => {
+  it('the Imperial Dispatch: a crisp briefing with no cues, whatever style the player chose', async () => {
     localStorage.setItem(NARRATOR_VOICE_STYLE_KEY, JSON.stringify({ preset: 'conspiratorial' }));
     const log = new NarrationLogStore({ load: false });
     const { ai, tts } = makeAi();
@@ -180,11 +202,12 @@ describe('the TTS input is only the words to be spoken, on every path, with a st
     act(() => hook.current.toggleDispatch());
     await settle();
     hook.unmount();
-    expectWordsOnly(tts(), [DISPATCH], [voiceStyleManner({ preset: 'conspiratorial' })!]);
+    expectScriptPerformed(tts(), [DISPATCH], [voiceStyleManner({ preset: 'conspiratorial' })!]);
+    expect(cuesIn(tts()[0].contents)).toEqual([]);
     expect(log.getSnapshot()[0].transcript).toBe(DISPATCH);
   });
 
-  it('a private-scene NPC line: the committed words alone; the cast note is kept for display, never sent', async () => {
+  it('a private-scene NPC line: the committed words, no cues; the cast note is kept for display, never sent', async () => {
     const log = new NarrationLogStore({ load: false });
     const { ai, generateContent, tts } = makeAi();
     const hook = renderHook(usePrivateSceneVoice, { ai, isMockMode: false, resolvedApiKey: 'k', narrationVoiceMode: 'on_demand', voiceCast: CAST, week: 2, log });
@@ -194,14 +217,15 @@ describe('the TTS input is only the words to be spoken, on every path, with a st
     await settle();
     hook.unmount();
     expect(generateContent).toHaveBeenCalledTimes(1); // no prep call: nothing to take a brief
-    expectWordsOnly(tts(), ['My son trusts you.'], [JULIA_NOTE]);
+    expectScriptPerformed(tts(), ['My son trusts you.'], [JULIA_NOTE]);
+    expect(cuesIn(tts()[0].contents)).toEqual([]);
     expect(log.getSnapshot()[0]).toMatchObject({ transcript: 'My son trusts you.', voiceStyle: { preset: 'custom', text: JULIA_NOTE } });
   });
 
-  it('"Hear it again" from the narration log: the logged words alone, whatever style the entry was written in', async () => {
+  it('"Hear it again" from the narration log: the logged script as logged, whatever style the entry was written in', async () => {
     const log = new NarrationLogStore({ load: false });
     const styled: VoiceStyle[] = [{ preset: 'tragedian' }, { preset: 'custom', text: JULIA_NOTE }];
-    log.record({ kind: 'chronicle', sourceLabel: 'Week III narration', sourceText: NARRATION, narratorKey: 'k', narratorName: 'The Dramatic Reader', voice: 'Enceladus', voiceStyle: styled[0], transcript: 'Rome waits, and waits.', patchedOut: [], usedFallback: false, week: 3, turn: 2 });
+    log.record({ kind: 'chronicle', sourceLabel: 'Week III narration', sourceText: NARRATION, narratorKey: 'k', narratorName: 'The Dramatic Reader', voice: 'Enceladus', voiceStyle: styled[0], transcript: '<a weary sigh> Rome waits, and waits.', patchedOut: [], usedFallback: false, week: 3, turn: 2 });
     log.record({ kind: 'private_scene', sourceLabel: 'Private scene with Julia Mamaea', sourceText: 'My son trusts you.', narratorKey: 'npc:julia', narratorName: 'Julia Mamaea', voice: 'Gacrux', voiceStyle: styled[1], transcript: 'My son trusts you.', patchedOut: [], usedFallback: false, week: 3, turn: 2 });
     const { ai, tts } = makeAi();
     const hook = renderHook(useNarrationLog, { ai, isMockMode: false, resolvedApiKey: 'k', log });
@@ -211,6 +235,6 @@ describe('the TTS input is only the words to be spoken, on every path, with a st
     act(() => hook.current.toggleReplay(newest));
     await settle();
     hook.unmount();
-    expectWordsOnly(tts(), ['Rome waits, and waits.', 'My son trusts you.'], styled.map(s => voiceStyleManner(s)!));
+    expectScriptPerformed(tts(), ['<a weary sigh> Rome waits, and waits.', 'My son trusts you.'], styled.map(s => voiceStyleManner(s)!));
   });
 });
