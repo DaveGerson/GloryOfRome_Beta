@@ -41,8 +41,11 @@
  * there would be read aloud. Where a prep call
  * exists (the cast narrator, a character narrating "In character…") the note
  * feeds that call's delivery brief (`castStyle`,
- * ai/prompts/narrationPerformance.ts `buildDeliveryBrief`); where none does
- * (a private-scene NPC's committed line) it is shown, and sent nowhere.
+ * ai/prompts/narrationPerformance.ts `buildDeliveryBrief`); and whenever a
+ * passage the narrator performs names a member, their note reaches its cast
+ * block (`castMannersFor`, `buildCastBlock`), so the scriptwriter plays them
+ * as themselves. Where no prep call exists (a private-scene NPC's committed
+ * line) it is shown, and sent nowhere.
  */
 
 import { z } from 'zod';
@@ -510,4 +513,43 @@ export function withoutMemberOverride(cast: VoiceCast, entityId: string): VoiceC
   if (!current?.override) return cast;
   const { override: _dropped, ...rest } = current;
   return { ...cast, revision: cast.revision + 1, members: { ...cast.members, [entityId]: rest } };
+}
+
+// ---------------------------------------------------------------------------
+// The cast as the scriptwriter reads it.
+
+/**
+ * One cast member's manner, as the narration scriptwriter reads it
+ * (ai/prompts/narrationPerformance.ts `buildCastBlock`): their name as the
+ * player knows it, their public epithet, and their delivery note -
+ * player-visible and player-editable, so it only ever reaches a prompt as
+ * JSON-quoted data (D41).
+ */
+export interface CastManner {
+  entityId: string;
+  name: string;
+  epithet?: string;
+  manner: string;
+}
+
+/**
+ * Every cast member with a delivery note, as a `CastManner` - the note as it
+ * performs (their override over their casting), sanitized again. Epithets
+ * come from the player-visible casting candidates. Empty notes are left out:
+ * a member with nothing to say about their manner adds nothing to a prompt.
+ */
+export function castMannersFor(
+  cast: VoiceCast | null | undefined,
+  candidates: readonly Pick<CastingCandidate, 'entityId' | 'epithet'>[] = [],
+): CastManner[] {
+  if (!cast) return [];
+  const epithets = new Map(candidates.map(c => [c.entityId, c.epithet?.trim() ?? '']));
+  const manners: CastManner[] = [];
+  for (const [entityId, member] of Object.entries(cast.members)) {
+    const manner = sanitizeCastStyle(effectiveMember(member).style);
+    if (!manner) continue;
+    const epithet = epithets.get(entityId);
+    manners.push({ entityId, name: member.name, ...(epithet ? { epithet } : {}), manner });
+  }
+  return manners;
 }

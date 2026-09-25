@@ -222,7 +222,7 @@ const App: React.FC = () => {
         voiceStyleChoice, narratorOwnStyle, handleSetVoiceStyle,
     } = useNarrationVoice({
         ai, isMockMode, resolvedApiKey, messages, gameState, playerEntity, narratorCharacters,
-        week: worldState.week, turnNumber, voiceCast: effectiveCast,
+        week: worldState.week, turnNumber, voiceCast: effectiveCast, castCandidates: castBasis.candidates,
     });
     // The casting director: runs when the voice is first needed, then for newcomers (see the hook).
     const {

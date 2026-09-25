@@ -8,7 +8,11 @@
  *     chosen narrator (narration/narrators.ts; by default the senatorial
  *     partner) converts the scene into an acted script: a dramatically
  *     acted retelling for the player, at most two paragraphs, spoken words
- *     plus performance cues in `<angle brackets>`. By default this is `GEMINI_NARRATION_PREP` at LOW
+ *     plus performance cues in `<angle brackets>`, in which the narrator's
+ *     own lines carry its persona and everyone it quotes or describes is
+ *     played as who they are - by the voice cast's note for a named cast
+ *     member (`options.cast`, the prompt's cast block), by station and
+ *     class for everyone else. By default this is `GEMINI_NARRATION_PREP` at LOW
  *     thinking; a deployed profile may name its own, tuned, prep model. The
  *     output is validated by narration/performanceScript.ts - including the
  *     fidelity check, which cuts every sentence that brings in a name or a
@@ -68,6 +72,7 @@ import { MOCK_TONE_MIME_TYPE, ensureWav, pcmToWav, synthesizeMockTone } from '..
 import { DRAMATIC_READER_NARRATOR, type NarratorProfile } from '../../narration/narrators';
 import { getNarratorVoiceChoice } from '../../persistence/uiPrefs';
 import type { VoiceStyle } from '../../narration/voiceStyle';
+import type { CastManner } from '../../narration/voiceCast';
 
 /** The owner's reference: temperature 1 for the voice itself. */
 export const NARRATION_VOICE_TEMPERATURE = DRAMATIC_READER_NARRATOR.voice.temperature;
@@ -88,6 +93,12 @@ export interface NarrationOptions {
   allowedNames?: readonly string[];
   /** The delivery style the prep model writes the script for (its delivery brief); none by default. Never sent to the TTS model. */
   style?: VoiceStyle | null;
+  /**
+   * The voice cast's manners (narration/voiceCast.ts `castMannersFor`):
+   * player-visible names and notes. Those the passage names reach the prep
+   * prompt's cast block, as data; never sent to the TTS model.
+   */
+  cast?: readonly CastManner[] | null;
 }
 
 /** The SDK's ThinkingLevel enum is upper-case ('LOW'); profiles are authored lower-case. */
@@ -116,8 +127,9 @@ export async function runNarrationDirector(
   narrator: NarratorProfile = DRAMATIC_READER_NARRATOR,
   playerContext?: NarrationPlayerContext,
   style?: VoiceStyle | null,
+  cast?: readonly CastManner[] | null,
 ): Promise<{ output: string | null; error?: unknown }> {
-  const { systemInstruction, prompt } = buildNarrationPerformancePrompt(speakableText(narration), playerContext, narrator, style);
+  const { systemInstruction, prompt } = buildNarrationPerformancePrompt(speakableText(narration), playerContext, narrator, style, cast);
   try {
     const output = await generateText(ai, {
       callName: 'narrationPerformance',
@@ -145,10 +157,11 @@ export async function directNarrationPerformance(
   narrator: NarratorProfile = DRAMATIC_READER_NARRATOR,
   allowedNames: readonly string[] = [],
   style?: VoiceStyle | null,
+  cast?: readonly CastManner[] | null,
 ): Promise<PerformedTranscript> {
   if (isMockMode) return performedTranscriptFor(narration, null);
 
-  const { output, error } = await runNarrationDirector(ai, narration, narrator, playerContext, style);
+  const { output, error } = await runNarrationDirector(ai, narration, narrator, playerContext, style, cast);
   if (error !== undefined) {
     console.warn('narrationVoice: the narrator call failed; performing the plain narration instead', error);
   }
@@ -177,7 +190,7 @@ export async function performNarration(
   options: NarrationOptions = {},
 ): Promise<NarrationPerformance> {
   const narrator = options.narrator ?? DRAMATIC_READER_NARRATOR;
-  const performed = await directNarrationPerformance(ai, narration, isMockMode, options.playerContext, narrator, options.allowedNames, options.style);
+  const performed = await directNarrationPerformance(ai, narration, isMockMode, options.playerContext, narrator, options.allowedNames, options.style, options.cast);
   const wav = await speakTranscript(ai, performed.transcript, isMockMode, {
     model: narrator.voice.model,
     voiceName: resolveNarrationVoice(narrator, options.voiceName),

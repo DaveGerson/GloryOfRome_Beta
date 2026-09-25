@@ -11,13 +11,15 @@
  * ACTED SCRIPT: a dramatically acted retelling, at most two paragraphs,
  * meant to be performed. A script is spoken words plus inline performance
  * cues in `<angle brackets>` - tone shifts, pace, pauses, breaths, sounds
- * (a cackle, a cough, a sigh, the crowd's roar), a quoted speaker's manner:
+ * (a sigh, a wet belch, hawking and spitting, the mob's jeers), and the
+ * manner of each speaker, played by station and character:
  *
- *   <a low, bitter laugh> "So the Senate waits..." <a long pause, then quietly> ...
+ *   <with senatorial disdain, each word weighed> "The people can wait." <a wet belch, then a crude laugh> "Wait for what?" ...
  *
  * The TTS model ACTS the cues and speaks every word outside them, word for
- * word (the owner's reference: gemini-3.8-flash-tts performing a
- * `## Transcript:` with inline `<cues>`). So a cue is performance, never
+ * word (the mechanism: inline cues performed by gemini-3.8-flash-tts, a
+ * `## Transcript:` with inline `<cues>`). A cue is never content: a belch
+ * in a cue is performance, so the fidelity check (rule 3) never reads it. So a cue is performance, never
  * text; and anything outside a cue - a heading, a label, a "Say it
  * gravely:" prefix - would be read aloud, which is why it is packaging to
  * strip (`cleanActedScript`) or a thing the prompt forbids. Square
@@ -34,7 +36,9 @@
  *     (`MAX_DIRECTION_CHARS`), carry no digits, quote marks or brackets,
  *     and name nobody the passage does not (a capitalized word in a cue must
  *     be in the passage - except a common word opening the cue or one of its
- *     sentences, "<Gravely>", "<... last words. The last word fades>"), and
+ *     sentences, "<Gravely>", "<... a long pause. Then, quietly>", and the
+ *     adjectives Roman, Senatorial and Imperial, "<with swelling Roman
+ *     pride>"), and
  *     there may be no wall of them (`maxDirectionsFor`). A cue says HOW,
  *     never WHAT: the cue channel cannot smuggle content - and cues are
  *     player-visible, in the narration log.
@@ -261,6 +265,14 @@ const COMMON_CUE_OPENERS = new Set([
 ]);
 
 /**
+ * Adjectives a cue may carry capitalized anywhere: "<with swelling Roman
+ * pride>" (an example in the cue rule itself). Each is already a word any
+ * narrator may speak (`ALWAYS_SPEAKABLE_WORDS`) and none names a person or
+ * a place, so a cue with one still says HOW, never WHO.
+ */
+const CUE_ADJECTIVES = new Set(['roman', 'senatorial', 'imperial']);
+
+/**
  * Words in a cue that carry a capital letter - the proper-noun candidates.
  * A word that opens the cue, or one of its sentences, is exempt when it is
  * a common word: on `COMMON_CUE_OPENERS`, an "-ly" adverb ("Gravely",
@@ -278,6 +290,7 @@ function capitalizedWords(direction: string, lowerCaseWords: ReadonlySet<string>
     const lower = word.toLowerCase();
     const common = COMMON_CUE_OPENERS.has(lower) || (lower.length >= 6 && lower.endsWith('ly')) || lowerCaseWords.has(lower);
     if (opens && common && /^\p{Lu}\p{Ll}*$/u.test(word)) continue;
+    if (CUE_ADJECTIVES.has(lower) && /^\p{Lu}\p{Ll}*$/u.test(word)) continue;
     found.push(word);
   }
   return found;

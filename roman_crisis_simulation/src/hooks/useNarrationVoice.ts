@@ -22,7 +22,10 @@
  * hooks/useVoiceCast.ts): with no explicit narration style, the reader the
  * casting chose performs, in the cast narrator's voice and delivery note; a
  * narrator in character performs in that character's cast voice and note.
- * Explicit choices always win (narration/narratorChoice.ts).
+ * Explicit choices always win (narration/narratorChoice.ts). The cast also
+ * tells the scriptwriter how the people a passage names speak: each named
+ * member's player-visible note reaches the prep prompt's cast block
+ * (`performNarration`'s `cast`), for every narrator, in character or not.
  *
  * Each is a device preference, never save state, and together they key the
  * clip cache - a change is a new performance, never an old clip replayed.
@@ -54,9 +57,9 @@ import { GameState, type Message, type Entity } from '../types';
 import type { GeminiClient } from '../ai/core/geminiService';
 import { performNarration, speakTranscript } from '../ai/tools/narrationVoice';
 import { narrationLog as sharedNarrationLog, type NarrationLogStore } from '../narration/narrationLog';
-import { describeListener } from '../ai/prompts/narrationPerformance';
+import { castInPassage, describeListener } from '../ai/prompts/narrationPerformance';
 import { toRoman } from '../components/ui/Brand';
-import { NarrationPlayer, type NarrationVoiceStatus } from '../narration/narrationPlayer';
+import { NarrationPlayer, hashText, type NarrationVoiceStatus } from '../narration/narrationPlayer';
 import { NARRATORS, type NarratorProfile } from '../narration/narrators';
 import {
     IN_CHARACTER_NARRATOR_ID, chosenCharacter, resolveNarrator, type NarratorCharacter,
@@ -66,7 +69,8 @@ import {
     type CustomNarrator, type CustomNarratorDraft, type CustomNarratorSaveResult,
 } from '../narration/customNarrators';
 import { parseVoiceStyle, voiceStyleKey, type VoiceStyle } from '../narration/voiceStyle';
-import type { VoiceCast } from '../narration/voiceCast';
+import { castMannersFor, type CastingCandidate, type VoiceCast } from '../narration/voiceCast';
+import { speakableText } from '../narration/performanceScript';
 import {
     getNarrationVoiceMode, setNarrationVoiceMode, type NarrationVoiceMode,
     getNarratorProfileId, setNarratorProfileId,
@@ -104,6 +108,12 @@ export interface UseNarrationVoiceArgs {
     log?: NarrationLogStore;
     /** The campaign's voice cast, complete for everyone the player knows (hooks/useVoiceCast.ts). */
     voiceCast?: VoiceCast | null;
+    /**
+     * The casting candidates (hooks/useVoiceCast.ts `useCastBasis`): the
+     * player-visible projection, read here only for each member's public
+     * epithet, so a passage that names someone by it still finds their note.
+     */
+    castCandidates?: readonly Pick<CastingCandidate, 'entityId' | 'epithet'>[];
 }
 
 /** The week a message belongs to: the last week ribbon before it, else `fallback`. */
@@ -121,11 +131,12 @@ export function chronicleSourceLabel(week: number | undefined): string {
 }
 
 const NO_CHARACTERS: readonly NarratorCharacter[] = [];
+const NO_CANDIDATES: readonly Pick<CastingCandidate, 'entityId' | 'epithet'>[] = [];
 
 export function useNarrationVoice({
     ai, isMockMode, resolvedApiKey, messages, gameState, playerEntity,
     narrators = NARRATORS, narratorCharacters = NO_CHARACTERS,
-    week, turnNumber, log = sharedNarrationLog, voiceCast = null,
+    week, turnNumber, log = sharedNarrationLog, voiceCast = null, castCandidates = NO_CANDIDATES,
 }: UseNarrationVoiceArgs) {
     const [player] = useState(() => new NarrationPlayer());
     const playback = useSyncExternalStore(player.subscribe, player.getSnapshot, player.getSnapshot);
@@ -214,7 +225,18 @@ export function useNarrationVoice({
     // style keys the reuse too: it shaped the words, so a transcript written
     // for one manner is not reused for another.
     const allowedNames = resolved.allowedNames;
-    const variant = `${isMockMode ? 'mock' : 'live'}:${resolved.key}:${voice}:${styleKey}`;
+    // How the people in a passage speak: every cast member's note (a narrator
+    // in character carries their own in the delivery brief, so not twice).
+    // The notes shape the script, so they key the clip cache - and, per
+    // passage, the reuse of a logged transcript: only the notes of those the
+    // passage names, so a newcomer's casting reuses every other transcript.
+    const selfId = resolved.character?.entityId;
+    const castManners = useMemo(
+        () => castMannersFor(voiceCast, castCandidates).filter(m => m.entityId !== selfId),
+        [voiceCast, castCandidates, selfId],
+    );
+    const castKey = castManners.length > 0 ? `:${hashText(JSON.stringify(castManners.map(m => [m.name, m.epithet ?? '', m.manner])))}` : '';
+    const variant = `${isMockMode ? 'mock' : 'live'}:${resolved.key}:${voice}:${styleKey}${castKey}`;
     const listener = useMemo(() => (playerName ? { name: playerName, position: playerPosition } : null), [playerName, playerPosition]);
     const reuseKey = `${resolved.key}|${describeListener(listener) ?? ''}${styleKey === 'as-written' ? '' : `|${styleKey}`}`;
     const messagesRef = useRef(messages);
@@ -226,7 +248,11 @@ export function useNarrationVoice({
     useEffect(() => {
         player.setRenderer(
             async (text, index) => {
-                const reusable = isMockMode ? undefined : log.findReusable(text, reuseKey);
+                const present = castInPassage(speakableText(text), castManners);
+                const passageKey = present.length > 0
+                    ? `${reuseKey}|cast:${hashText(JSON.stringify(present.map(m => [m.name, m.manner])))}`
+                    : reuseKey;
+                const reusable = isMockMode ? undefined : log.findReusable(text, passageKey);
                 if (reusable) {
                     const wav = await speakTranscript(ai, reusable.transcript, isMockMode, {
                         model: narrator.voice.model, voiceName: voice, temperature: narrator.voice.temperature,
@@ -239,13 +265,14 @@ export function useNarrationVoice({
                     style,
                     allowedNames,
                     playerContext: listener,
+                    cast: castManners,
                 });
                 const messageWeek = weekOfMessage(messagesRef.current, index, weekRef.current.week);
                 log.record({
                     kind: 'chronicle',
                     sourceLabel: chronicleSourceLabel(messageWeek),
                     sourceText: text,
-                    narratorKey: reuseKey,
+                    narratorKey: passageKey,
                     narratorName: resolved.displayName,
                     voice,
                     voiceStyle: style,
@@ -259,7 +286,7 @@ export function useNarrationVoice({
             },
             variant,
         );
-    }, [player, ai, isMockMode, narrator, voice, style, allowedNames, listener, variant, log, reuseKey, resolved.displayName]);
+    }, [player, ai, isMockMode, narrator, voice, style, allowedNames, listener, variant, log, reuseKey, resolved.displayName, castManners]);
 
     // A different narrator, voice or style was chosen: the old performance stops.
     // Keyed on the style's instruction, not its object: a recast that leaves

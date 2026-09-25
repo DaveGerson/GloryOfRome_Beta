@@ -40,7 +40,13 @@ import {
   buildNarrationPerformancePrompt,
   buildNarrationTtsPrompt,
   buildNarratorSystemInstruction,
+  buildCastBlock,
+  castInPassage,
+  CAST_BLOCK_HEADING,
+  MAX_CAST_BLOCK_LINES,
 } from '../ai/prompts/narrationPerformance';
+import { asPromptData } from '../ai/prompts/fragments';
+import { castMannersFor, deterministicCast, withMemberOverride, type CastManner } from '../narration/voiceCast';
 import { DRAMATIC_READER_NARRATOR, type NarratorProfile } from '../narration/narrators';
 import { directNarrationPerformance, performNarration } from '../ai/tools/narrationVoice';
 import { GEMINI_NARRATION_PREP, GEMINI_TTS, type GeminiClient } from '../ai/core/geminiService';
@@ -316,11 +322,20 @@ describe('performedTranscriptFor', () => {
 });
 
 describe('prompts: the narrator writes an acted script', () => {
-  const EXAMPLE = '<a low, bitter laugh> "So the Senate waits..." <a long pause, then quietly> and still no word comes.';
+  const EXAMPLE = '<with senatorial disdain, each word weighed> "The people can wait." <a wet belch, then a crude laugh> "Wait for what?" <clipped, a soldier\'s bark> "Pay us." <hushed, conspiratorial> and the whispers spread. <with swelling Roman pride> Rome endures.';
 
-  it('the fixed rules ask for cues in the reference style, only in angle brackets, HOW never WHAT', () => {
+  it('the fixed rules ask for cues that play every speaker by station and character, only in angle brackets, HOW never WHAT', () => {
     expect(NARRATOR_FIXED_RULES).toContain(PERFORMANCE_CUE_RULE);
     expect(PERFORMANCE_CUE_RULE).toContain(EXAMPLE);
+    expect(PERFORMANCE_CUE_RULE).toContain('never a monotone description of events');
+    expect(PERFORMANCE_CUE_RULE).toContain('Your own lines carry your persona.');
+    expect(PERFORMANCE_CUE_RULE).toContain('Every speaker you quote or describe is played as who they are, by station and character, as far as your persona allows');
+    expect(PERFORMANCE_CUE_RULE).toContain('senators regal, pompous and silky; soldiers gruff and clipped; freedmen and clients obsequious; plebeians and the mob crass and earthy');
+    expect(PERFORMANCE_CUE_RULE).toContain('a wet belch, a snort, hawking and spitting, a crude laugh, lip-smacking, a wheeze, the mob\'s jeers');
+    expect(PERFORMANCE_CUE_RULE).not.toMatch(/goblin/i);
+    expect(PERFORMANCE_CUE_RULE).not.toContain('So the Senate waits');
+    // One line: the fixed-rule check is line-anchored.
+    expect(PERFORMANCE_CUE_RULE).not.toContain('\n');
     expect(PERFORMANCE_CUE_RULE).toContain('never WHAT happens');
     expect(PERFORMANCE_CUE_RULE).toContain('no names, no numbers and no quotation marks inside them');
     expect(PERFORMANCE_CUE_RULE).toContain('ONLY in angle brackets (never square brackets or parentheses)');
@@ -333,8 +348,15 @@ describe('prompts: the narrator writes an acted script', () => {
   });
 
   it('the example itself obeys the guard: its cues carry no name, number or quote', () => {
-    expect(cuesIn(EXAMPLE)).toEqual(['a low, bitter laugh', 'a long pause, then quietly']);
-    expect(validatePerformance('So the Senate waits, and still no word comes.', EXAMPLE)).toEqual({ ok: true });
+    expect(cuesIn(EXAMPLE)).toEqual([
+      'with senatorial disdain, each word weighed',
+      'a wet belch, then a crude laugh',
+      'clipped, a soldier\'s bark',
+      'hushed, conspiratorial',
+      'with swelling Roman pride',
+    ]);
+    const source = 'A senator says the people can wait. A pleb asks: "Wait for what?" The soldiers answer: "Pay us." The whispers spread, and Rome endures.';
+    expect(validatePerformance(source, EXAMPLE)).toEqual({ ok: true });
   });
 
   it('a custom narrator and a narrator in character carry the cue rule; the one in character acts as themselves', () => {
@@ -451,24 +473,39 @@ describe('ai/tools/narrationVoice', () => {
   });
 });
 
-describe('the acted script: cues in the owner\'s reference style', () => {
-  // The owner's goblin-speech reference, Roman-ised: the same shape of cues
-  // (a sound, comedic timing, a remorseful turn, a long dying cue with full
-  // stops inside), with no name in any cue.
-  const DYING_SOURCE = 'Maximinus laughs at the senators. An arrow strikes him and he falls, saying his dreams are dust and the throne was meant to be his.';
-  const DYING_SCRIPT = '<cackle> "Not this time, senators!" <said with comedic timing as if hit by an arrow> <argh> "You got me... <with a sad, introspective, almost remorseful tone as he lays down to die> all my dreams... now drifting away into dust. <coughing and sputtering as he says his last words.  The last word is said as he slowly fades away, this is his last sentence.> The throne was meant to be mine!"';
+describe('the acted script: the Romans play themselves', () => {
+  // A Forum scene: a pleb heckling from the Rostra with a belch and a spit,
+  // the mob's jeers, and a senator's disdainful aside - each played by
+  // station, with no name in any cue.
+  const FORUM_SOURCE = 'In the Forum a fishmonger climbs the Rostra, belches, spits into the dust and jeers: "Bread tomorrow, they say!" Below him, Gaius Petronius Rufus turns to the senators beside him: "The people are always hungry."';
+  const FORUM_SCRIPT = '<hawking, then a spit into the dust> In the Forum a fishmonger climbs the Rostra. <a wet belch, then a crude laugh> "Bread tomorrow, they say!" <the mob\'s jeers swell> And below him, <with senatorial disdain, each word weighed> Gaius Petronius Rufus turns to the senators beside him. <silky, amused, unhurried> "The people are always hungry." <with swelling Roman pride> Such is the Forum.';
 
-  it('the Roman-ised goblin reference passes validation, and is performed exactly as written', () => {
-    expect(validatePerformance(DYING_SOURCE, DYING_SCRIPT)).toEqual({ ok: true });
-    expect(cuesIn(DYING_SCRIPT)).toHaveLength(5);
-    // Verbatim, but for runs of spaces tidied to one.
-    const performed = DYING_SCRIPT.replace(/ {2,}/g, ' ');
-    expect(performedTranscriptFor(DYING_SOURCE, `## Transcript:\n${DYING_SCRIPT}`)).toEqual({ transcript: performed, usedFallback: false, patchedOut: [] });
-    expect(buildNarrationTtsPrompt(DYING_SCRIPT)).toBe(`## Transcript:\n${performed}`);
+  it('a pleb\'s belch and spit and a senator\'s disdain pass the guard, and are performed exactly as written', () => {
+    expect(validatePerformance(FORUM_SOURCE, FORUM_SCRIPT)).toEqual({ ok: true });
+    expect(cuesIn(FORUM_SCRIPT)).toHaveLength(6);
+    expect(performedTranscriptFor(FORUM_SOURCE, `## Transcript:\n${FORUM_SCRIPT}`)).toEqual({ transcript: FORUM_SCRIPT, usedFallback: false, patchedOut: [] });
+    expect(buildNarrationTtsPrompt(FORUM_SCRIPT)).toBe(`## Transcript:\n${FORUM_SCRIPT}`);
   });
 
-  it('the reference\'s long cue, full stops and all, fits the direction rules', () => {
-    const cue = 'coughing and sputtering as they say their last words.  The last word is said as goblin slowly fades away this is their last sentence.';
+  it('Roman bodily and crowd noises are cues like any other: the guard passes every one', () => {
+    for (const cue of [
+      'a wet belch', 'a snort', 'hawking and spitting', 'a crude laugh', 'lip-smacking', 'a wheeze', 'the mob\'s jeers',
+      'a wet belch, then a crude laugh', 'clipped, a soldier\'s bark', 'hushed, conspiratorial', 'oily and obsequious, bowing',
+      'with senatorial disdain, each word weighed', 'with swelling Roman pride', 'Imperial, unhurried',
+    ]) {
+      expect(reject(`<${cue}> ${NARRATION}`), cue).toBe('ok');
+    }
+  });
+
+  it('the fidelity check reads spoken words only: a noise in a cue is never content', () => {
+    expect(findIntroducedContent(NARRATION, `<a wet belch> ${NARRATION}`)).toBeNull();
+    expect(performedTranscriptFor(NARRATION, `<a wet belch, then a crude laugh> ${NARRATION}`)).toEqual({
+      transcript: `<a wet belch, then a crude laugh> ${NARRATION}`, usedFallback: false, patchedOut: [],
+    });
+  });
+
+  it('a long cue, full stops and all, fits the direction rules; a name still may not ride in one', () => {
+    const cue = 'wheezing and lip-smacking as he says his last words.  The last word is said as the old senator slowly fades away, this is his last sentence.';
     expect(cue.length).toBeLessThanOrEqual(MAX_DIRECTION_CHARS);
     expect(reject(`<${cue}> ${NARRATION}`)).toBe('ok');
     // A common word may open a cue capitalized; a name may not.
@@ -477,8 +514,9 @@ describe('the acted script: cues in the owner\'s reference style', () => {
     expect(reject(`<Philip whispers> ${NARRATION}`)).toBe('direction_has_proper_noun');
     expect(reject(`<a pause. Emesa waits> ${NARRATION}`)).toBe('direction_has_proper_noun');
     expect(reject(`<a pause. Italy burns> ${NARRATION}`)).toBe('direction_has_proper_noun');
-    // Only because of a name: the owner's verbatim cue naming Dar Goon would be refused, as intended.
-    expect(reject(`<as the throne of Dar Goon slips away> ${NARRATION}`)).toBe('direction_has_proper_noun');
+    // "Roman" is an adjective the cue may keep capitalized; a name beside it is still refused.
+    expect(reject(`<with Roman pride, as Philip would> ${NARRATION}`)).toBe('direction_has_proper_noun');
+    expect(reject(`<as the throne of Emesa slips away> ${NARRATION}`)).toBe('direction_has_proper_noun');
   });
 
   it('cues carrying names, digits or quotes are refused', () => {
@@ -537,5 +575,92 @@ describe('the acted script: cues in the owner\'s reference style', () => {
   it('the fidelity check and the token view read the spoken words, never the cue text', () => {
     expect(findIntroducedContent(NARRATION, 'The Senate waits. <a pause. Gravely> Rome holds.')).toBeNull();
     expect(spokenTokens('<a long pause> Rome.')).toEqual(['Rome', '.']);
+  });
+});
+
+describe('the cast block: how those the passage names speak', () => {
+  const THRAX: CastManner = { entityId: 'thrax', name: 'Maximinus Thrax', epithet: 'the Thracian', manner: 'clipped soldier\'s sentences, few words' };
+  const JULIA: CastManner = { entityId: 'julia', name: 'Julia Mamaea', epithet: 'Augusta', manner: 'cool, measured, every word a warning' };
+  const RUFUS: CastManner = { entityId: 'rufus', name: 'Gaius Petronius Rufus', manner: 'silky senatorial disdain, amused' };
+  const CAST = [THRAX, JULIA, RUFUS];
+  const SENATE = 'In the Curia, Gaius Petronius Rufus remarks: "The people are always hungry." Julia Mamaea says nothing.';
+
+  it('lists only the members the passage names, in the order it names them, one "Name": "manner" line each', () => {
+    const block = buildCastBlock(SENATE, CAST)!;
+    expect(block.split('\n').slice(0, 3)).toEqual([
+      CAST_BLOCK_HEADING,
+      `${asPromptData('Gaius Petronius Rufus')}: ${asPromptData(RUFUS.manner)}`,
+      `${asPromptData('Julia Mamaea')}: ${asPromptData(JULIA.manner)}`,
+    ]);
+    expect(block).not.toContain('Maximinus');
+    expect(block).toContain('Never speak a manner aloud: it lives in the cues.');
+    // It follows the task, as its own block.
+    const { prompt } = buildNarrationPerformancePrompt(SENATE, null, DRAMATIC_READER_NARRATOR, null, CAST);
+    expect(prompt.endsWith(`\n\n${block}`)).toBe(true);
+  });
+
+  it('matches names and epithets case-insensitively, on word boundaries only', () => {
+    expect(castInPassage('maximinus thrax\'s men lie in the gutter.', CAST)).toEqual([THRAX]);
+    expect(castInPassage('The Thracian waits at the gate.', CAST)).toEqual([THRAX]);
+    expect(castInPassage('The AUGUSTA sets down her cup.', CAST)).toEqual([JULIA]);
+    expect(castInPassage('The Maximinus Thraxes of this world.', CAST)).toEqual([]);
+    expect(castInPassage('Augustan poets sing.', CAST)).toEqual([]);
+    expect(castInPassage('Maximinus drinks.', CAST)).toEqual([]);
+  });
+
+  it('with a brief too, the cast block comes after it', () => {
+    const { prompt } = buildNarrationPerformancePrompt(SENATE, null, DRAMATIC_READER_NARRATOR, { preset: 'tragedian' }, CAST);
+    expect(prompt.indexOf('DELIVERY BRIEF')).toBeGreaterThan(0);
+    expect(prompt.indexOf(CAST_BLOCK_HEADING)).toBeGreaterThan(prompt.indexOf('DELIVERY BRIEF'));
+  });
+
+  it('is capped: at most six lines, the first six named', () => {
+    const many: CastManner[] = Array.from({ length: 9 }, (_, i) => ({ entityId: `s${i}`, name: `Senator ${'ABCDEFGHI'[i]}ius`, manner: `manner ${i}` }));
+    const passage = many.map(m => `${m.name} speaks.`).join(' ');
+    expect(MAX_CAST_BLOCK_LINES).toBe(6);
+    const block = buildCastBlock(passage, many)!;
+    const lines = block.split('\n').filter(line => line.startsWith('"'));
+    expect(lines).toHaveLength(6);
+    expect(lines[0]).toContain('Senator Aius');
+    expect(lines[5]).toContain('Senator Fius');
+    expect(block).not.toContain('Senator Gius');
+  });
+
+  it('no named member, an empty manner, or no cast at all: no block, and the prompt is byte-identical to the cast-free one', () => {
+    const plain = 'The crowd in the Forum jeers; a pleb belches and spits.';
+    const without = buildNarrationPerformancePrompt(plain, { name: 'Severus', position: 'Emperor' });
+    for (const cast of [undefined, null, [], CAST, [{ ...THRAX, manner: '   ' }]]) {
+      expect(buildNarrationPerformancePrompt(plain, { name: 'Severus', position: 'Emperor' }, DRAMATIC_READER_NARRATOR, null, cast)).toEqual(without);
+    }
+    expect(buildCastBlock('Maximinus Thrax scowls.', [{ ...THRAX, manner: '' }])).toBeNull();
+    expect(buildNarrationPerformancePrompt(SENATE, null, DRAMATIC_READER_NARRATOR, null, CAST).systemInstruction)
+      .toBe(buildNarrationPerformancePrompt(SENATE).systemInstruction);
+  });
+
+  it('castMannersFor: every member\'s note as it performs (override first), epithets from the candidates, empty notes left out', () => {
+    const cast = deterministicCast([
+      { entityId: 'julia', name: 'Julia Mamaea', position: 'Regent', entityType: 'individual' },
+      { entityId: 'thrax', name: 'Maximinus Thrax', position: 'General', entityType: 'individual' },
+    ], { narratorId: 'senatorial-partner', voiceName: 'Charon' });
+    const edited = withMemberOverride(cast, 'thrax', { style: 'a bark, then silence' });
+    const manners = castMannersFor(edited, [{ entityId: 'thrax', epithet: 'the Thracian' }]);
+    expect(manners.find(m => m.entityId === 'thrax')).toEqual({ entityId: 'thrax', name: 'Maximinus Thrax', epithet: 'the Thracian', manner: 'a bark, then silence' });
+    const muted = withMemberOverride(edited, 'thrax', { style: '' });
+    expect(castMannersFor(muted).some(m => m.entityId === 'thrax')).toBe(false);
+    expect(castMannersFor(null)).toEqual([]);
+  });
+
+  it('performNarration hands the cast to the prep call, never to the voice', async () => {
+    const generateContent = vi.fn(async (params: { model: string; contents: string; config?: Record<string, unknown> }) => {
+      if (params.model === GEMINI_TTS) return { candidates: [{ content: { parts: [{ inlineData: { data: 'AQIDBA==', mimeType: 'audio/L16;codec=pcm;rate=24000' } }] } }] };
+      return { text: '<silky, amused> In the Curia, Gaius Petronius Rufus remarks: "The people are always hungry." <a long pause> Julia Mamaea says nothing.' };
+    });
+    const ai: GeminiClient = { models: { generateContent } };
+    const result = await performNarration(ai, SENATE, false, { cast: CAST });
+    expect(result.usedFallback).toBe(false);
+    expect(generateContent.mock.calls[0][0].contents).toContain(buildCastBlock(SENATE, CAST)!);
+    const tts = generateContent.mock.calls[1][0].contents;
+    expect(tts).not.toContain(RUFUS.manner);
+    expect(tts).not.toContain('HOW THOSE');
   });
 });

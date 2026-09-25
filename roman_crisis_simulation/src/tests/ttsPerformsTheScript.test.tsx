@@ -15,7 +15,8 @@
  * outside the cues, nothing but the script's words: no prose instruction,
  * no style prefix, no manner:
  *
- *  - the chronicle narrator (cast note, preset, custom style text);
+ *  - the chronicle narrator (cast note, preset, custom style text, and the
+ *    cast block of those the passage names);
  *  - "In character…" (the character's cast note);
  *  - a custom narrator (its own voice style);
  *  - a transcript reused from the log by the chronicle voice;
@@ -33,7 +34,7 @@ import { act } from 'react';
 import { GameState, type Message } from '../types';
 import type { GeminiClient } from '../ai/core/geminiService';
 import { asPromptData } from '../ai/prompts/fragments';
-import { TTS_TRANSCRIPT_HEADING, buildNarrationTtsPrompt } from '../ai/prompts/narrationPerformance';
+import { CAST_BLOCK_HEADING, TTS_TRANSCRIPT_HEADING, buildNarrationTtsPrompt } from '../ai/prompts/narrationPerformance';
 import { cuesIn, spokenPartOf } from '../narration/performanceScript';
 import { DRAMATIC_READER_NARRATOR } from '../narration/narrators';
 import { IN_CHARACTER_NARRATOR_ID } from '../narration/narratorChoice';
@@ -51,7 +52,7 @@ import { makeEntity, makeSimulationState, makeWorldState } from './factories';
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const NARRATION = 'The Senate waits. Julia Mamaea says nothing.';
-/** What the fake narrator writes: an acted script of the narration, in the reference's cue style. */
+/** What the fake narrator writes: an acted script of the narration, cues and all. */
 const actedScriptOf = (narration: string) => `<a low, bitter laugh> Hear it. <a long pause, then quietly> ${narration}`;
 const ACTED = actedScriptOf(NARRATION);
 const DISPATCH = 'The treasury holds and the legions wait.';
@@ -170,6 +171,43 @@ describe('the TTS performs exactly the script, on every path, with a style chose
     expectScriptPerformed(tts(), transcripts, manners);
     expect(tts().every(c => c.contents === `## Transcript:\n${ACTED}`)).toBe(true);
     expect(cuesIn(tts()[0].contents)).toEqual(['a low, bitter laugh', 'a long pause, then quietly']);
+  });
+
+  it('the cast: a named member\'s note reaches the prep prompt\'s cast block, for every narrator but themselves, and never the voice', async () => {
+    const log = new NarrationLogStore({ load: false });
+    const { ai, tts, prep } = makeAi();
+    const thrax = 'The Thracian growls at the gate. The Senate waits.';
+    const hook = renderHook(useNarrationVoice, {
+      ai, isMockMode: false, resolvedApiKey: 'k',
+      messages: [{ sender: 'gm', text: NARRATION }, { sender: 'gm', text: thrax }] as Message[], gameState: GameState.AWAITING_PLAYER_INPUT,
+      narrators: [DRAMATIC_READER_NARRATOR], narratorCharacters: [{ entityId: 'julia', name: 'Julia Mamaea', standing: 'Regent' }],
+      voiceCast: CAST, castCandidates: [{ entityId: 'thrax', epithet: 'the Thracian' }], log,
+    });
+    const perform = async (index: number, text: string) => {
+      act(() => hook.current.toggleNarrationVoice(index, text));
+      await settle();
+      act(() => hook.current.toggleNarrationVoice(index, text));
+    };
+    const thraxNote = CAST.members.thrax.style;
+    // 1. The chronicle narrator: Julia is named, so her note is in the block.
+    await perform(0, NARRATION);
+    // 2. Named by epithet only: the Thracian's note.
+    await perform(1, thrax);
+    // 3. Julia narrates in character: her own note is her delivery brief, not a cast line.
+    act(() => hook.current.handleSetNarrator(IN_CHARACTER_NARRATOR_ID));
+    act(() => hook.current.handleSetNarratorCharacter('julia'));
+    await perform(0, NARRATION);
+    // 4. In character too, others she speaks of are cast.
+    await perform(1, thrax);
+    hook.unmount();
+
+    const [chronicle, byEpithet, herself, inCharacter] = prep().map(c => c.contents);
+    expect(chronicle).toContain(`${CAST_BLOCK_HEADING}\n${asPromptData('Julia Mamaea')}: ${asPromptData(JULIA_NOTE)}`);
+    expect(byEpithet).toContain(`${CAST_BLOCK_HEADING}\n${asPromptData('Maximinus Thrax')}: ${asPromptData(thraxNote)}`);
+    expect(herself).not.toContain(CAST_BLOCK_HEADING);
+    expect(herself).toContain('DELIVERY BRIEF');
+    expect(inCharacter).toContain(`${asPromptData('Maximinus Thrax')}: ${asPromptData(thraxNote)}`);
+    expectScriptPerformed(tts(), [...log.getSnapshot()].reverse().map(e => e.transcript), [JULIA_NOTE, thraxNote]);
   });
 
   it('a script the chronicle voice reuses from the log is performed as logged, cues and all', async () => {

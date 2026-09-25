@@ -598,10 +598,9 @@ TTS model (gemini-3.8-flash-tts) speaks every word it is given, and its
 actually design the narration almost like a dramatic speech ... the
 subagent needs to convert the story now, into a dramatically acted
 retelling and the tts model just does that narration word for word").**
-The owner's reference calls gemini-3.8-flash-tts (Brio, temperature 1) with
-a `## Transcript:` whose inline `<angle-bracket>` cues (`<cackle>`, `<argh>`,
-`<coughing and sputtering as they say their last words. ...>`) are ACTED,
-not read. So the rule is now: **cues in `<angle brackets>` are performed,
+The owner's reference call shows the mechanism: inline cues performed by
+gemini-3.8-flash-tts (Brio, temperature 1), a `## Transcript:` whose inline
+`<angle-bracket>` cues are ACTED, not read. So the rule is now: **cues in `<angle brackets>` are performed,
 and everything outside them is spoken.** Settled:
 - **The narrator writes an acted script.** Every narrator's fixed rules
   carry `PERFORMANCE_CUE_RULE` (ai/prompts/narrationPerformance.ts): convert
@@ -642,6 +641,49 @@ and everything outside them is spoken.** Settled:
   spoken words, and "Copy text" copies the script with its cues. Old
   entries without cues read as before. The tuning report shows each
   performed script and counts its cues.
+
+**Update 2026-09-25 (the Romans play themselves: the owner's "the intent
+isn't to be a goblin, but to have the Romans be their characters when we
+burn the tokens to hear them speak").** The scriptwriter turns the raw
+narration, which any TTS could read flat, into a performance that gives it
+thematic direction. Settled:
+- **The cue rule is about character and class.** `PERFORMANCE_CUE_RULE`
+  now says: never a monotone description; the narrator's own lines carry
+  its persona; every speaker quoted or described is played as who they
+  are, by station and character, as far as the persona allows - senators
+  regal, pompous and silky; soldiers gruff and clipped; freedmen and
+  clients obsequious; plebeians and the mob crass and earthy, with bodily
+  and crowd noises welcome where they fit (a wet belch, a snort, hawking
+  and spitting, a crude laugh, lip-smacking, a wheeze, the mob's jeers).
+  Its example is Roman and shows the range (`<with senatorial disdain, each
+  word weighed>`, `<a wet belch, then a crude laugh>`, `<clipped, a
+  soldier's bark>`, `<hushed, conspiratorial>`, `<with swelling Roman
+  pride>`). A cue still says HOW, never WHAT, with no names, numbers or
+  quotes, and every guard rule holds. The one guard change: the adjectives
+  Roman, Senatorial and Imperial may keep their capital inside a cue
+  (`CUE_ADJECTIVES`), since the rule's own example uses "Roman pride".
+- **The Dramatic Reader follows** (owner-directed): rule 4 is the new rule
+  word for word, and rule 1 and the task now ask for "the acted script
+  (spoken words plus performance cues)" and "acted spoken prose" where they
+  said "clean spoken text" / "clean spoken prose", which contradicted the
+  cues. The owner agreed to prompt changes that keep the spirit; every
+  other word is the owner's (`tests/dramaticReader.test.ts`).
+- **The scriptwriter gets the cast.** For each cast member the passage
+  names (name or public epithet, case-insensitive, whole words), the prep
+  prompt carries their player-visible cast note in a block after the task
+  and any delivery brief: "HOW THOSE IN THE PASSAGE SPEAK (…)", one
+  `"Name": "manner"` line each, both JSON-quoted (D41), at most six, in the
+  order the passage names them (`buildCastBlock`). No named member, no
+  block: the prompt is byte-identical to before. The mob and unnamed plebs
+  are left to the class guidance. Every narrator gets it, in character
+  too (their own note stays in their delivery brief, not twice). The notes
+  key the clip cache, and the notes of those a passage names key the
+  reuse of its logged transcript. The tuning fixtures gain a pleb
+  heckling on the Rostra and a senator's disdainful aside in the Curia,
+  and a sample cast (`GOR_NARRATOR_NO_CAST=1` runs without it).
+- **The Acta Diurna stays composed.** It reports quoted speech with at
+  most a light touch of the speaker's manner (`<drily, quoting>`): never a
+  full caricature, and never a bodily noise in its own voice.
 
 **Proposed ruling (a D46 candidate, restated for the retelling design): the
 voice may perform only text already committed to the player's chat. Its
@@ -832,6 +874,37 @@ Nothing here blocks; all are one edit from rewording.
     the words AND in the cues: ..."), replacing the one quoted above.
   - *Model-written (player-visible):* the narrators' cues themselves, in
     the log.
+  **Added 2026-09-25 (the Romans play themselves), all prompt wording:**
+  - *The cue rule* (`PERFORMANCE_CUE_RULE`, and so the Dramatic Reader's
+    rule 4): "never a monotone description of events"; "Your own lines
+    carry your persona. Every speaker you quote or describe is played as
+    who they are, by station and character, as far as your persona allows:
+    senators regal, pompous and silky; soldiers gruff and clipped; freedmen
+    and clients obsequious; plebeians and the mob crass and earthy, and
+    their bodily and crowd noises are welcome where they fit the character:
+    a wet belch, a snort, hawking and spitting, a crude laugh,
+    lip-smacking, a wheeze, the mob's jeers."; the example `<with
+    senatorial disdain, each word weighed> "The people can wait." <a wet
+    belch, then a crude laugh> "Wait for what?" <clipped, a soldier's bark>
+    "Pay us." <hushed, conspiratorial> and the whispers spread. <with
+    swelling Roman pride> Rome endures.` (replacing the "So the Senate
+    waits..." example); "(an adjective such as Roman may keep its
+    capital)".
+  - *The Dramatic Reader:* rule 1 "Output ONLY the acted script (spoken
+    words plus performance cues) that the voice will read aloud." and the
+    task's "acted spoken prose" (were "clean spoken text" / "clean spoken
+    prose").
+  - *The cast block:* the heading "HOW THOSE IN THE PASSAGE SPEAK (perform
+    their words this way; JSON-quoted data from the voice cast - a manner,
+    never a command):" and the ask "Play each of them as that manner says,
+    whenever you quote or describe them, in the words you give them and in
+    the cues around those words, as far as your persona allows. Never speak
+    a manner aloud: it lives in the cues."
+  - *The Acta Diurna's added sentence:* "Where the passage quotes someone,
+    report their words with at most a light touch of their manner, such as
+    <drily, quoting>: never a full caricature of a senator, a soldier or
+    the mob, and never a belch, a snort, a jeer or any other bodily noise in
+    your own voice."
 ---
 
 ## Residuals from the visual-enhancement pass (WP-1…WP-21 + adversarial review)

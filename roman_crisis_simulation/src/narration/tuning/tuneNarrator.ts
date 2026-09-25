@@ -8,7 +8,9 @@
  * figures - and the mechanics gate), which sentences the fidelity patch
  * cut from the ones it accepted, why it refused the rest, how long the
  * retellings run against their source, how many performance cues each
- * script carries, and the acted scripts themselves, cues included - so
+ * script carries, and the acted scripts themselves, cues included - with,
+ * optionally, a sample voice cast whose notes reach the prompt's cast block
+ * for the characters a passage names - so
  * the profile's persona, temperature, thinking level or prep model can be
  * tuned before the profile is deployed (narration/narrators/README.md).
  *
@@ -25,6 +27,7 @@ import type { NarratorProfile } from '../narrators';
 import { cuesIn, findIntroducedContent, performedTranscriptFor, spokenTokens, type PerformanceRejection } from '../performanceScript';
 import { ensureWav } from '../wav';
 import type { VoiceStyle } from '../voiceStyle';
+import type { CastManner } from '../voiceCast';
 
 export interface TuningPassageResult {
   index: number;
@@ -86,17 +89,19 @@ export async function runNarratorTuning(params: {
   voiceName?: string;
   /** A delivery style to audition: it feeds the prep prompt's delivery brief (narration/voiceStyle.ts), never the TTS input. None by default. */
   style?: VoiceStyle | null;
+  /** A sample voice cast (fixtures.json `cast`): the notes of those a passage names reach its prep prompt's cast block. None by default. */
+  cast?: readonly CastManner[] | null;
   /** Injectable clock for tests. */
   now?: () => number;
 }): Promise<TuningPassageResult[]> {
-  const { ai, narrator, narrations, playerContext, withAudio = false, voiceName, style = null, now = () => performance.now() } = params;
+  const { ai, narrator, narrations, playerContext, withAudio = false, voiceName, style = null, cast = null, now = () => performance.now() } = params;
   const allowed = listenerNames(playerContext);
   const results: TuningPassageResult[] = [];
   // Sequential on purpose: tuning is a quality read, and one call at a time
   // keeps the run inside a free-tier rate limit.
   for (const [index, narration] of narrations.entries()) {
     const started = now();
-    const { output } = await runNarrationDirector(ai, narration, narrator, playerContext, style);
+    const { output } = await runNarrationDirector(ai, narration, narrator, playerContext, style, cast);
     const prepLatencyMs = now() - started;
     const performed = performedTranscriptFor(narration, output, allowed);
     const result: TuningPassageResult = {

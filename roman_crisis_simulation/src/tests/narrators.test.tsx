@@ -49,6 +49,7 @@ import SettingsMenu from '../components/SettingsMenu';
 import { renderHook } from './renderHook';
 import template from '../narration/tuning/narrator.template.json';
 import fixtures from '../narration/tuning/fixtures.json';
+import { CAST_BLOCK_HEADING, castInPassage } from '../ai/prompts/narrationPerformance';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -498,5 +499,23 @@ describe('the tuning harness core', () => {
     expect(fixtures.narrations.length).toBeGreaterThanOrEqual(6);
     expect(fixtures.player).toMatchObject({ name: expect.any(String), position: expect.any(String) });
     for (const passage of fixtures.narrations) expect(passage.trim().length).toBeGreaterThan(0);
+  });
+
+  it('the fixtures carry a crowd scene, a senatorial scene and a sample cast whose named characters reach the cast block', async () => {
+    expect(fixtures.narrations.some(n => /belches/.test(n) && /spits/.test(n) && /crowd/i.test(n))).toBe(true);
+    expect(fixtures.narrations.some(n => /Curia/.test(n) && /senators laugh/.test(n))).toBe(true);
+    expect(fixtures.cast.length).toBeGreaterThanOrEqual(3);
+    // Every sample cast member is named in some fixture, so tuning exercises the block.
+    for (const member of fixtures.cast) {
+      expect(castInPassage(fixtures.narrations.join(' '), [member]), member.name).toEqual([member]);
+    }
+    const generateContent = vi.fn<(params: ContentParams) => Promise<{ text: string }>>(async () => ({ text: 'Rome waits.' }));
+    await runNarratorTuning({ ai: { models: { generateContent } }, narrator: DRAMATIC_READER_NARRATOR, narrations: fixtures.narrations, cast: fixtures.cast });
+    const prompts = generateContent.mock.calls.map(c => c[0].contents);
+    const withBlock = prompts.filter(p => p.includes(CAST_BLOCK_HEADING));
+    expect(withBlock.length).toBeGreaterThanOrEqual(fixtures.cast.length);
+    expect(prompts.some(p => p.includes('"Gaius Petronius Rufus": "silky senatorial disdain, amused, unhurried"'))).toBe(true);
+    // A crowd with no named member is left to the class guidance: no block.
+    expect(prompts.find(p => p.includes('fishmonger'))).not.toContain(CAST_BLOCK_HEADING);
   });
 });
