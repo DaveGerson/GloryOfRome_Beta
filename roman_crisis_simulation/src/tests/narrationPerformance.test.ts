@@ -324,10 +324,11 @@ describe('prompts', () => {
     expect(systemInstruction).toContain('CLARIFY WHAT ACTUALLY HAPPENED');
     expect(systemInstruction).toContain('EXPLAIN WHAT IT MEANS FOR THE PLAYER');
     expect(prompt).toContain('Severus (Imperator)');
-    expect(prompt).toContain('Your listener is Severus (Imperator).');
+    expect(prompt).toContain('directly to your partner');
+    expect(prompt).toContain('Your partner and principal is Severus (Imperator).');
     expect(systemInstruction).toContain('Address the player directly as their devoted partner');
-    // The fixed rules follow the persona, so they are the last word the model reads.
-    expect(systemInstruction.indexOf('FIDELITY RULES')).toBeGreaterThan(systemInstruction.indexOf('CORE DUTIES'));
+    // The fidelity line closes the owner's rules, so it is the last word the model reads.
+    expect(systemInstruction.endsWith('7. Never introduce people, places, numbers or events the passage does not mention.')).toBe(true);
   });
 });
 

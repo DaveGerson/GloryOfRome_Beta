@@ -57,11 +57,11 @@ import {
   type PerformedTranscript,
 } from '../../narration/performanceScript';
 import { MOCK_TONE_MIME_TYPE, ensureWav, pcmToWav, synthesizeMockTone } from '../../narration/wav';
-import { SENATORIAL_PARTNER_NARRATOR, type NarratorProfile } from '../../narration/narrators';
+import { DRAMATIC_READER_NARRATOR, type NarratorProfile } from '../../narration/narrators';
 import { getNarratorVoiceChoice } from '../../persistence/uiPrefs';
 
 /** The owner's reference: temperature 1 for the voice itself. */
-export const NARRATION_VOICE_TEMPERATURE = SENATORIAL_PARTNER_NARRATOR.voice.temperature;
+export const NARRATION_VOICE_TEMPERATURE = DRAMATIC_READER_NARRATOR.voice.temperature;
 
 export interface NarrationPerformance extends PerformedTranscript {
   /** A complete RIFF/WAVE file, ready for a Blob. */
@@ -100,7 +100,7 @@ export function listenerNames(playerContext: NarrationPlayerContext): string[] {
 export async function runNarrationDirector(
   ai: GeminiClient,
   narration: string,
-  narrator: NarratorProfile = SENATORIAL_PARTNER_NARRATOR,
+  narrator: NarratorProfile = DRAMATIC_READER_NARRATOR,
   playerContext?: NarrationPlayerContext,
 ): Promise<{ output: string | null; error?: unknown }> {
   const { systemInstruction, prompt } = buildNarrationPerformancePrompt(speakableText(narration), playerContext, narrator);
@@ -128,7 +128,7 @@ export async function directNarrationPerformance(
   narration: string,
   isMockMode: boolean,
   playerContext?: NarrationPlayerContext,
-  narrator: NarratorProfile = SENATORIAL_PARTNER_NARRATOR,
+  narrator: NarratorProfile = DRAMATIC_READER_NARRATOR,
 ): Promise<PerformedTranscript> {
   if (isMockMode) return performedTranscriptFor(narration, null);
 
@@ -160,7 +160,7 @@ export async function performNarration(
   isMockMode: boolean,
   options: NarrationOptions = {},
 ): Promise<NarrationPerformance> {
-  const narrator = options.narrator ?? SENATORIAL_PARTNER_NARRATOR;
+  const narrator = options.narrator ?? DRAMATIC_READER_NARRATOR;
   const performed = await directNarrationPerformance(ai, narration, isMockMode, options.playerContext, narrator);
   if (isMockMode) {
     return { ...performed, wav: pcmToWav(synthesizeMockTone(), MOCK_TONE_MIME_TYPE) };
