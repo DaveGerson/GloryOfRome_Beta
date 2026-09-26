@@ -138,8 +138,9 @@ Two things no profile can change:
   - keep names as spelled;
   - output an acted script: spoken words plus performance cues, and cues go
     ONLY in `<angle brackets>` (never square brackets or parentheses);
-  - a cue says how something is performed, never what happens: no names,
-    numbers or quotation marks in a cue;
+  - a cue says how something is performed, never what happens: a name in a
+    cue only if the passage already uses it (never introduce anyone), and
+    no numbers or quotation marks in a cue;
   - no headings, labels or commentary outside the brackets: every
     unbracketed word is spoken;
   - at most two paragraphs;
@@ -151,13 +152,18 @@ Two things no profile can change:
   one JSON-quoted line, so it can never stand in for them.
 - **The guard** (`../performanceScript.ts`) checks every retelling
   deterministically before it is voiced. A retelling may reword freely.
-  - A retelling is **refused** if it runs past about 400 words, smuggles
-    content through a cue (a name absent from the passage, a digit, a
-    quote mark, a cue over 160 characters, or a wall of cues), or leaks a
-    hidden mechanic. A `[square]` cue is turned into an `<angle>` cue first
-    and checked like any other. The plain narration is voiced instead,
-    opened by one cue (`<grave, measured, dramatic storyteller>`) so even
-    the fallback is performed.
+  - A **bad cue** (a name the passage never uses, a digit, a quote mark or
+    bracket, an empty cue, one over 160 characters, or one leaking a hidden
+    mechanic) is dropped and the rest is performed: a bad cue costs only
+    itself. A name the passage uses may ride in a cue (`<with Maximinus's
+    contempt>`). Dropped cues are recorded as `droppedCues` and shown
+    gently in the narration log. A `[square]` cue is turned into an
+    `<angle>` cue first and checked like any other.
+  - A retelling is **refused** if its brackets do not parse (unbalanced or
+    nested), it runs past about 400 words, it is a wall of cues even after
+    the bad ones are dropped, or its spoken words leak a hidden mechanic.
+    The plain narration is voiced instead, opened by one cue (`<grave,
+    measured, dramatic storyteller>`) so even the fallback is performed.
   - A **sentence that brings in a name or a figure** the narration never
     mentioned is cut, and the rest is voiced. Allowed names are the
     listener's own name and position, a character narrating in character's

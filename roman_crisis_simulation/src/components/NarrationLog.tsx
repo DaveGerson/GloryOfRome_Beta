@@ -15,6 +15,7 @@ export const NARRATION_LOG_COPY = {
     empty: 'Nothing has been performed yet.',
     from: 'From',
     omitted: (n: number) => `Omitted: ${n} ${n === 1 ? 'line' : 'lines'} the chronicle did not support`,
+    omittedCues: (n: number) => `Omitted: ${n} ${n === 1 ? 'cue' : 'cues'} the chronicle did not support`,
     plain: 'The chronicle’s own words were voiced.',
     play: 'Hear it again',
     stop: 'Stop',
@@ -92,6 +93,12 @@ const EntryView: React.FC<{
                     <details className="gor-narration-log-omitted">
                         <summary>{NARRATION_LOG_COPY.omitted(entry.patchedOut.length)}</summary>
                         <ul>{entry.patchedOut.map((line, i) => <li key={i}><ScriptText transcript={line} /></li>)}</ul>
+                    </details>
+                )}
+                {entry.droppedCues.length > 0 && (
+                    <details className="gor-narration-log-omitted">
+                        <summary>{NARRATION_LOG_COPY.omittedCues(entry.droppedCues.length)}</summary>
+                        <ul>{entry.droppedCues.map((cue, i) => <li key={i}><ScriptText transcript={cue} /></li>)}</ul>
                     </details>
                 )}
                 {entry.usedFallback && entry.kind === 'chronicle' && (

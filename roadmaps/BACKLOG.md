@@ -685,6 +685,19 @@ thematic direction. Settled:
   most a light touch of the speaker's manner (`<drily, quoting>`): never a
   full caricature, and never a bodily noise in its own voice.
 
+**Update 2026-09-26 (a bad cue costs only itself: the owner's decision).**
+A name inside a cue is fine when the passage already uses it
+(`<with Maximinus's contempt>` over a passage naming Maximinus), and the cue
+rule now says so ("a name in a cue must be one the passage already uses
+(never introduce anyone), no numbers and no quotation marks inside a cue").
+A cue that breaks a per-cue rule (a name the passage never uses, digits,
+quote marks or brackets, too long, empty, or a mechanics leak in its own
+text) is dropped (`performanceScript.ts::dropBadCues`), recorded on
+`PerformedTranscript.droppedCues` and in the narration log, and the rest of
+the script is performed. Still refused wholesale: unbalanced or nested
+brackets, a runaway, too many cues after dropping, a mechanics leak in the
+spoken words, and a fidelity patch that would cut too much.
+
 **Proposed ruling (a D46 candidate, restated for the retelling design): the
 voice may perform only text already committed to the player's chat. Its
 narrator may reword and interpret that text for the listener, but may never
@@ -905,6 +918,13 @@ Nothing here blocks; all are one edit from rewording.
     <drily, quoting>: never a full caricature of a senator, a soldier or
     the mob, and never a belch, a snort, a jeer or any other bodily noise in
     your own voice."
+  **Added 2026-09-26 (a bad cue costs only itself):**
+  - *The cue rule* (`PERFORMANCE_CUE_RULE`, and so the Dramatic Reader's
+    rule 4): "a name in a cue must be one the passage already uses (never
+    introduce anyone), no numbers and no quotation marks inside a cue"
+    (was "with no names, no numbers and no quotation marks inside them").
+  - *Narration log:* "Omitted: N cue(s) the chronicle did not support",
+    listing each dropped cue.
 ---
 
 ## Residuals from the visual-enhancement pass (WP-1…WP-21 + adversarial review)

@@ -6,7 +6,8 @@
  * records where the words came from (a human label and the first
  * `SOURCE_EXCERPT_CHARS` characters of the source), who spoke them in what
  * voice and style, the final spoken transcript, what the fidelity patch cut
- * (`patchedOut`) and whether it fell back to the plain narration.
+ * (`patchedOut`), the cues the guard dropped (`droppedCues`) and whether it
+ * fell back to the plain narration.
  *
  * Privacy (D4/D5): the log is only ever written from transcripts that have
  * already been vetted and voiced to the player - the guard's output
@@ -54,6 +55,8 @@ const entrySchema = z.object({
   voiceStyle: voiceStyleSchema.nullable(),
   transcript: z.string().max(6000),
   patchedOut: z.array(z.string().max(3000)).max(100),
+  // Absent from entries logged before cues could be dropped one by one.
+  droppedCues: z.array(z.string().max(400)).max(100).default([]),
   usedFallback: z.boolean(),
 }).strict();
 
@@ -70,6 +73,8 @@ export interface NarrationLogInput {
   voiceStyle: VoiceStyle | null;
   transcript: string;
   patchedOut: readonly string[];
+  /** Cues the guard dropped from an accepted script (none for other sources). */
+  droppedCues?: readonly string[];
   usedFallback: boolean;
   week?: number | null;
   turn?: number | null;
@@ -147,6 +152,7 @@ export class NarrationLogStore {
       voiceStyle: input.voiceStyle,
       transcript: input.transcript.slice(0, 6000),
       patchedOut: input.patchedOut.slice(0, 100).map(s => s.slice(0, 3000)),
+      droppedCues: (input.droppedCues ?? []).slice(0, 100).map(s => s.slice(0, 400)),
       usedFallback: input.usedFallback,
     };
     this.entries = [entry, ...this.entries].slice(0, MAX_NARRATION_LOG_ENTRIES);

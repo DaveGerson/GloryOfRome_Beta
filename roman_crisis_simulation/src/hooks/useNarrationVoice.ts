@@ -278,6 +278,7 @@ export function useNarrationVoice({
                     voiceStyle: style,
                     transcript: performed.transcript,
                     patchedOut: performed.patchedOut,
+                    droppedCues: performed.droppedCues,
                     usedFallback: performed.usedFallback,
                     week: messageWeek ?? null,
                     turn: weekRef.current.turnNumber ?? null,

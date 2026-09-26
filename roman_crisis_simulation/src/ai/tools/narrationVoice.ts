@@ -168,8 +168,13 @@ export async function directNarrationPerformance(
   const performed = performedTranscriptFor(narration, output, [...listenerNames(playerContext), ...allowedNames]);
   if (performed.rejection) {
     console.warn(`narrationVoice: the narrator's script was refused (${performed.rejection}); performing the plain narration instead`);
-  } else if (performed.patchedOut.length > 0) {
-    console.warn(`narrationVoice: cut ${performed.patchedOut.length} sentence(s) the narration did not support; performing the rest`);
+  } else {
+    if (performed.droppedCues.length > 0) {
+      console.warn(`narrationVoice: dropped ${performed.droppedCues.length} cue(s) the narration did not support; performing the rest`);
+    }
+    if (performed.patchedOut.length > 0) {
+      console.warn(`narrationVoice: cut ${performed.patchedOut.length} sentence(s) the narration did not support; performing the rest`);
+    }
   }
   return performed;
 }
@@ -243,7 +248,7 @@ export async function directImperialDispatch(
 ): Promise<PerformedTranscript> {
   if (isMockMode) {
     const fallback = cleanSpokenTranscript(factsSummary.slice(0, 300));
-    return { transcript: fallback, usedFallback: true, patchedOut: [] };
+    return { transcript: fallback, usedFallback: true, patchedOut: [], droppedCues: [] };
   }
 
   const { systemInstruction, prompt } = buildImperialDispatchPrompt(factsSummary);
@@ -262,7 +267,7 @@ export async function directImperialDispatch(
   }
 
   const clean = cleanSpokenTranscript(rawDispatch || factsSummary);
-  return { transcript: clean, usedFallback: !rawDispatch, patchedOut: [] };
+  return { transcript: clean, usedFallback: !rawDispatch, patchedOut: [], droppedCues: [] };
 }
 
 /**

@@ -107,6 +107,20 @@ describe('the log store', () => {
     expect(new NarrationLogStore().getSnapshot()).toEqual([]);
   });
 
+  it('records dropped cues, and still loads an entry logged before cues could be dropped', () => {
+    const log = new NarrationLogStore();
+    expect(log.record(input({ droppedCues: ['<Philip whispers>'] })).droppedCues).toEqual(['<Philip whispers>']);
+    expect(log.record(input()).droppedCues).toEqual([]);
+    const stored = JSON.parse(localStorage.getItem(NARRATION_LOG_KEY)!);
+    // The newest entry, stored as an entry from before `droppedCues` existed.
+    const { droppedCues: _dropped, ...older } = stored[0];
+    localStorage.setItem(NARRATION_LOG_KEY, JSON.stringify([older, stored[1]]));
+    const reloaded = new NarrationLogStore().getSnapshot();
+    expect(reloaded).toHaveLength(2);
+    expect(reloaded[1].droppedCues).toEqual(['<Philip whispers>']);
+    expect(reloaded[0].droppedCues).toEqual([]);
+  });
+
   it('never crashes on storage that throws: it simply forgets', () => {
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new DOMException('blocked', 'SecurityError'); });
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('full', 'QuotaExceededError'); });
@@ -277,6 +291,19 @@ describe('the log panel', () => {
     expect(items[0].textContent).toContain('Newer words.');
     expect(items[0].querySelector('summary')!.textContent).toBe('Omitted: 1 line the chronicle did not support');
     expect(items[1].querySelector('summary')).toBeNull();
+    view.cleanup();
+  });
+
+  it('shows the cues the guard dropped, gently, apart from the cut lines', () => {
+    const log = new NarrationLogStore({ load: false });
+    log.record(input({ transcript: 'Rome waits.', droppedCues: ['<Philip whispers>'] }));
+    const { ai } = makeAi();
+    const view = mount(log, ai);
+    act(() => opener(view.host).click());
+    const entry = dialog()!.querySelector('.gor-narration-log-entry')!;
+    const summaries = [...entry.querySelectorAll('summary')].map(s => s.textContent);
+    expect(summaries).toEqual(['Omitted: 1 cue the chronicle did not support']);
+    expect(entry.querySelector('details li')!.textContent).toContain('Philip whispers');
     view.cleanup();
   });
 

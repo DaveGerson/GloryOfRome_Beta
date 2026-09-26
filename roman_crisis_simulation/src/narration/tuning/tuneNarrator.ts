@@ -36,6 +36,8 @@ export interface TuningPassageResult {
   accepted: boolean;
   /** Sentences the fidelity patch cut from an accepted script, verbatim. */
   patchedOut: string[];
+  /** Cues the guard dropped from an accepted script, verbatim. */
+  droppedCues: string[];
   /** Why the guard refused it; `director_call_failed` when there was no script at all. */
   rejection?: PerformanceRejection | 'director_call_failed';
   /** The narrator's raw output, verbatim - what to read when tuning. */
@@ -109,6 +111,7 @@ export async function runNarratorTuning(params: {
       narration,
       accepted: output !== null && !performed.usedFallback,
       patchedOut: performed.patchedOut,
+      droppedCues: performed.droppedCues,
       directorOutput: output,
       transcript: performed.transcript,
       cues: cuesIn(performed.transcript).length,
@@ -198,6 +201,7 @@ export function formatTuningReport(summary: TuningSummary, results: readonly Tun
       : `refused (${r.rejection}${r.introduced ? `: "${r.introduced}"` : ''})`;
     lines.push('', `### ${r.index + 1}. ${verdict} — ${r.retellingWords} words from ${r.sourceWords}, ${r.cues} cue${r.cues === 1 ? '' : 's'}`, '');
     lines.push('Source:', '', '```', r.narration, '```', '', 'Narrator output:', '', '```', r.directorOutput ?? '(no output)', '```');
+    if (r.droppedCues.length > 0) lines.push('', 'Dropped cues:', '', ...r.droppedCues.map(cue => `- ${cue}`));
     if (r.patchedOut.length > 0) {
       lines.push('', 'Patched out:', '', ...r.patchedOut.map(sentence => `- ${sentence}`), '', 'Performed script:', '', '```', r.transcript, '```');
     } else if (r.accepted) {

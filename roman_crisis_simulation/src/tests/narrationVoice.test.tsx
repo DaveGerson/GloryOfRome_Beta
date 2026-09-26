@@ -265,9 +265,23 @@ describe('playback', () => {
     view.unmount();
   });
 
-  it('voices the plain narration when the director\'s script fails validation', async () => {
+  it('drops a bad cue and cuts an invented sentence, and voices the rest', async () => {
     localStorage.setItem(MODE_KEY, 'on_demand');
     const { ai, generateContent } = makeAi(() => `<Philip leans in> ${GM_A} And the heir hides in Emesa.`);
+    const view = mount({ ai });
+    click(buttonIn(GM_A));
+    await settle();
+    const ttsCall = generateContent.mock.calls[1][0];
+    expect(ttsCall.model).toBe(GEMINI_TTS);
+    expect(ttsCall.contents).toBe(buildNarrationTtsPrompt(GM_A));
+    expect(ttsCall.contents).not.toContain('Philip');
+    expect(ttsCall.contents).not.toContain('Emesa');
+    view.unmount();
+  });
+
+  it('voices the plain narration when the director\'s script fails validation', async () => {
+    localStorage.setItem(MODE_KEY, 'on_demand');
+    const { ai, generateContent } = makeAi(() => `<grave <Philip leans in>> ${GM_A} And the heir hides in Emesa.`);
     const view = mount({ ai });
     click(buttonIn(GM_A));
     await settle();

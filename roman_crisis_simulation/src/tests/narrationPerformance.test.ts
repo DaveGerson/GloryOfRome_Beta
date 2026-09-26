@@ -4,9 +4,10 @@
  * The narration voice's guard (narration/performanceScript.ts) and the tool
  * that runs it (ai/tools/narrationVoice.ts). The narrator turns ONE
  * committed narration into an acted script - spoken words plus `<cues>` the
- * voice performs - and may reword it freely, but the guard refuses a
- * script that runs away, smuggles content through a cue, or leaks a hidden
- * mechanic - and every refusal falls back to the plain narration cleaned
+ * voice performs - and may reword it freely. A cue that smuggles content
+ * (or leaks a mechanic) is dropped alone and the rest performed; the guard
+ * refuses a script that does not parse, runs away, is a wall of cues, or
+ * leaks a hidden mechanic in its spoken words - and every refusal falls back to the plain narration cleaned
  * for speech, opened by one fallback cue. A retelling that brings in a name
  * or a figure the narration never mentioned is patched instead: the
  * offending sentences are cut and the rest is voiced, unless that would cut
@@ -219,6 +220,7 @@ describe('the fidelity patch', () => {
       transcript: 'The Praetorians mutter in their camp, restless. Maximinus raises a cup, and the Senate waits.',
       usedFallback: false,
       patchedOut: ['At the gate, Philip gathers his cohorts.'],
+      droppedCues: [],
     });
   });
 
@@ -233,7 +235,7 @@ describe('the fidelity patch', () => {
   it('a mostly invented retelling falls back to the plain narration', () => {
     const bySentences = 'Tonight Philip marches. Now Gordian waits in Africa. The Senate waits.';
     expect(performedTranscriptFor(ORIGINAL, bySentences)).toEqual({
-      transcript: fallbackTranscript(ORIGINAL), usedFallback: true, rejection: 'introduces_new_name', patchedOut: [],
+      transcript: fallbackTranscript(ORIGINAL), usedFallback: true, rejection: 'introduces_new_name', patchedOut: [], droppedCues: [],
     });
     // One sentence of three, but most of the words.
     const byWords = 'The Senate waits. Tonight Philip, with every cohort of the Rhine and every tribune who ever doubted the throne, marches south. Rome sleeps.';
@@ -252,7 +254,7 @@ describe('the fidelity patch', () => {
   it('allowed names - the listener and the forms of address - are never cut', () => {
     const retelling = 'Severus Alexander, my Emperor, the Praetorians mutter in their camp. Hear me, Dominus: Maximinus raises a cup. Caesar, the Senate waits in Rome.';
     const result = performedTranscriptFor(ORIGINAL, retelling, ['Severus Alexander', 'Emperor']);
-    expect(result).toEqual({ transcript: retelling, usedFallback: false, patchedOut: [] });
+    expect(result).toEqual({ transcript: retelling, usedFallback: false, patchedOut: [], droppedCues: [] });
   });
 
   it('keeps a paragraph break when the cut sentence closed a paragraph', () => {
@@ -261,9 +263,16 @@ describe('the fidelity patch', () => {
     expect(result.transcript).toBe('The Praetorians mutter in their camp. Maximinus raises a cup.\n\nThe Senate waits, and the camp mutters on.');
   });
 
-  it('every other rule still refuses wholesale, even beside an invented sentence', () => {
-    expect(performedTranscriptFor(ORIGINAL, `The Senate waits. And Philip smiles. <Philip whispers> Maximinus raises a cup.`))
-      .toMatchObject({ usedFallback: true, rejection: 'direction_has_proper_noun' });
+  it('a bad cue beside an invented sentence: the cue is dropped, the sentence cut, the rest played', () => {
+    expect(performedTranscriptFor(ORIGINAL, `The Senate waits. Maximinus raises a cup. And Philip smiles. <Philip whispers> The camp mutters.`)).toEqual({
+      transcript: 'The Senate waits. Maximinus raises a cup. The camp mutters.',
+      usedFallback: false,
+      patchedOut: ['And Philip smiles.'],
+      droppedCues: ['<Philip whispers>'],
+    });
+  });
+
+  it('the wholesale rules still refuse, even beside an invented sentence', () => {
     expect(performedTranscriptFor(ORIGINAL, `The Senate waits. And Philip smiles. ${'Rome endures. '.repeat(200)}`))
       .toMatchObject({ usedFallback: true, rejection: 'too_long' });
   });
@@ -299,21 +308,60 @@ describe('spokenTokens', () => {
 describe('performedTranscriptFor', () => {
   it('keeps a valid script, unwrapping stray packaging', () => {
     const script = 'The Praetorians mutter in their camp. Maximinus raises a cup: "To the legions!" The Senate waits.';
-    expect(performedTranscriptFor(NARRATION, `\`\`\`\n## Transcript:\n${script}\n\`\`\``)).toEqual({ transcript: script, usedFallback: false, patchedOut: [] });
+    expect(performedTranscriptFor(NARRATION, `\`\`\`\n## Transcript:\n${script}\n\`\`\``)).toEqual({ transcript: script, usedFallback: false, patchedOut: [], droppedCues: [] });
   });
 
   it('falls back with the reason on a refused script', () => {
-    const result = performedTranscriptFor(NARRATION, `<Philip whispers> ${NARRATION}`);
+    const result = performedTranscriptFor(NARRATION, `<grave <whisper>> ${NARRATION}`);
     expect(result).toEqual({
       transcript: fallbackTranscript(NARRATION),
       usedFallback: true,
-      rejection: 'direction_has_proper_noun',
-      patchedOut: [],
+      rejection: 'nested_brackets',
+      patchedOut: [], droppedCues: [],
     });
   });
 
+  it('a script whose only problem was a bad cue plays without it', () => {
+    const result = performedTranscriptFor(NARRATION, `<Philip whispers> ${NARRATION}`);
+    expect(result).toEqual({ transcript: NARRATION, usedFallback: false, patchedOut: [], droppedCues: ['<Philip whispers>'] });
+    expect(result.rejection).toBeUndefined();
+  });
+
+  it('drops every bad cue together, keeps the good ones, and records each for the log', () => {
+    const script = '<grave> The Praetorians mutter in their camp. <as Gordian would, 3 times> Maximinus raises a cup: <mocking "the legions"> "To the legions, and to 235 more victories!" <partial success> The Senate waits <>.';
+    const result = performedTranscriptFor(NARRATION, script);
+    expect(result.usedFallback).toBe(false);
+    expect(result.droppedCues).toEqual(['<as Gordian would, 3 times>', '<mocking "the legions">', '<partial success>', '<>']);
+    expect(result.transcript).toBe('<grave> The Praetorians mutter in their camp. Maximinus raises a cup: "To the legions, and to 235 more victories!" The Senate waits.');
+    expect(cuesIn(result.transcript)).toEqual(['grave']);
+  });
+
+  it('a name the passage uses may ride in a cue', () => {
+    const script = `<with Maximinus's contempt> ${NARRATION}`;
+    expect(reject(script)).toBe('ok');
+    expect(performedTranscriptFor(NARRATION, script)).toEqual({ transcript: script, usedFallback: false, patchedOut: [], droppedCues: [] });
+  });
+
+  it('a wall of cues is still refused wholesale when it stays a wall after dropping', () => {
+    const walled = NARRATION.split(' ').map(word => `<slow> ${word}`).join(' ');
+    expect(performedTranscriptFor(NARRATION, walled)).toMatchObject({ usedFallback: true, rejection: 'too_many_directions' });
+    // Dropping the bad ones first can bring a script under the cap.
+    const words = NARRATION.split(' ');
+    const mostlyBad = words.map((word, i) => `<${i % 5 === 0 ? 'slow' : `take ${i}`}> ${word}`).join(' ');
+    expect(validatePerformance(NARRATION, mostlyBad)).toEqual({ ok: false, reason: 'too_many_directions' });
+    const kept = performedTranscriptFor(NARRATION, mostlyBad);
+    expect(kept.usedFallback).toBe(false);
+    expect(kept.droppedCues).toHaveLength(words.length - Math.ceil(words.length / 5));
+    expect(cuesIn(kept.transcript)).toHaveLength(Math.ceil(words.length / 5));
+  });
+
+  it('a mechanics leak in the spoken words still refuses wholesale; unbalanced brackets too', () => {
+    expect(performedTranscriptFor(NARRATION, `${NARRATION} The outcome tier: partial success.`)).toMatchObject({ usedFallback: true, rejection: 'mechanics_leak' });
+    expect(performedTranscriptFor(NARRATION, `<grave ${NARRATION}`)).toMatchObject({ usedFallback: true, rejection: 'unbalanced_brackets' });
+  });
+
   it('falls back with no reason when there was no director at all', () => {
-    expect(performedTranscriptFor(NARRATION, null)).toEqual({ transcript: fallbackTranscript(NARRATION), usedFallback: true, patchedOut: [] });
+    expect(performedTranscriptFor(NARRATION, null)).toEqual({ transcript: fallbackTranscript(NARRATION), usedFallback: true, patchedOut: [], droppedCues: [] });
   });
 
   it('unwrapDirectorOutput leaves a plain transcript alone', () => {
@@ -337,7 +385,8 @@ describe('prompts: the narrator writes an acted script', () => {
     // One line: the fixed-rule check is line-anchored.
     expect(PERFORMANCE_CUE_RULE).not.toContain('\n');
     expect(PERFORMANCE_CUE_RULE).toContain('never WHAT happens');
-    expect(PERFORMANCE_CUE_RULE).toContain('no names, no numbers and no quotation marks inside them');
+    expect(PERFORMANCE_CUE_RULE).toContain('a name in a cue must be one the passage already uses (never introduce anyone), no numbers and no quotation marks inside a cue');
+    expect(PERFORMANCE_CUE_RULE).not.toContain('no names');
     expect(PERFORMANCE_CUE_RULE).toContain('ONLY in angle brackets (never square brackets or parentheses)');
     expect(NARRATOR_FIXED_RULES).toContain('Every word outside the angle brackets is spoken aloud.');
     expect(NARRATOR_FIXED_RULES).toContain('Never introduce people, places, numbers or events the passage does not mention.');
@@ -436,7 +485,7 @@ describe('ai/tools/narrationVoice', () => {
     const script = '<low and ominous> The Praetorians mutter in their camp. <a long pause> Maximinus raises a cup: <a gruff, booming toast> "To the legions!" <quietly> The Senate waits.';
     const { ai, generateContent } = makeAi(`## Transcript:\n${script}`);
     const result = await performNarration(ai, NARRATION, false);
-    expect(result).toMatchObject({ transcript: script, usedFallback: false, patchedOut: [] });
+    expect(result).toMatchObject({ transcript: script, usedFallback: false, patchedOut: [], droppedCues: [] });
     expect(generateContent.mock.calls[1][0].contents).toBe(`## Transcript:\n${script}`);
   });
 
@@ -453,12 +502,22 @@ describe('ai/tools/narrationVoice', () => {
     expect([...result.wav.slice(44)]).toEqual([1, 2, 3, 4]);
   });
 
+  it('a dropped cue never reaches the voice; the rest of the script does', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { ai, generateContent } = makeAi(`<hushed> ${NARRATION} <Philip nods>`);
+    const result = await performNarration(ai, NARRATION, false);
+    expect(result).toMatchObject({ usedFallback: false, transcript: `<hushed> ${NARRATION}`, droppedCues: ['<Philip nods>'] });
+    const ttsPrompt = generateContent.mock.calls[1][0].contents;
+    expect(ttsPrompt).toBe(buildNarrationTtsPrompt(`<hushed> ${NARRATION}`));
+    expect(ttsPrompt).not.toContain('Philip');
+  });
+
   it('a script that fails validation is never sent to the voice', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const { ai, generateContent } = makeAi(`${NARRATION} <Philip nods> And the heir is hidden in Emesa.`);
+    const { ai, generateContent } = makeAi(`${NARRATION} <grave <Philip nods>> And the heir is hidden in Emesa.`);
     const result = await performNarration(ai, NARRATION, false);
     expect(result.usedFallback).toBe(true);
-    expect(result.rejection).toBe('direction_has_proper_noun');
+    expect(result.rejection).toBe('nested_brackets');
     const ttsPrompt = generateContent.mock.calls[1][0].contents;
     expect(ttsPrompt).toBe(buildNarrationTtsPrompt(fallbackTranscript(NARRATION)));
     expect(ttsPrompt).not.toContain('Emesa');
@@ -469,7 +528,7 @@ describe('ai/tools/narrationVoice', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { ai } = makeAi(new Error('Bad Request'));
     const performed = await directNarrationPerformance(ai, NARRATION, false);
-    expect(performed).toEqual({ transcript: fallbackTranscript(NARRATION), usedFallback: true, patchedOut: [] });
+    expect(performed).toEqual({ transcript: fallbackTranscript(NARRATION), usedFallback: true, patchedOut: [], droppedCues: [] });
   });
 });
 
@@ -483,7 +542,7 @@ describe('the acted script: the Romans play themselves', () => {
   it('a pleb\'s belch and spit and a senator\'s disdain pass the guard, and are performed exactly as written', () => {
     expect(validatePerformance(FORUM_SOURCE, FORUM_SCRIPT)).toEqual({ ok: true });
     expect(cuesIn(FORUM_SCRIPT)).toHaveLength(6);
-    expect(performedTranscriptFor(FORUM_SOURCE, `## Transcript:\n${FORUM_SCRIPT}`)).toEqual({ transcript: FORUM_SCRIPT, usedFallback: false, patchedOut: [] });
+    expect(performedTranscriptFor(FORUM_SOURCE, `## Transcript:\n${FORUM_SCRIPT}`)).toEqual({ transcript: FORUM_SCRIPT, usedFallback: false, patchedOut: [], droppedCues: [] });
     expect(buildNarrationTtsPrompt(FORUM_SCRIPT)).toBe(`## Transcript:\n${FORUM_SCRIPT}`);
   });
 
@@ -500,7 +559,7 @@ describe('the acted script: the Romans play themselves', () => {
   it('the fidelity check reads spoken words only: a noise in a cue is never content', () => {
     expect(findIntroducedContent(NARRATION, `<a wet belch> ${NARRATION}`)).toBeNull();
     expect(performedTranscriptFor(NARRATION, `<a wet belch, then a crude laugh> ${NARRATION}`)).toEqual({
-      transcript: `<a wet belch, then a crude laugh> ${NARRATION}`, usedFallback: false, patchedOut: [],
+      transcript: `<a wet belch, then a crude laugh> ${NARRATION}`, usedFallback: false, patchedOut: [], droppedCues: [],
     });
   });
 
@@ -519,21 +578,21 @@ describe('the acted script: the Romans play themselves', () => {
     expect(reject(`<as the throne of Emesa slips away> ${NARRATION}`)).toBe('direction_has_proper_noun');
   });
 
-  it('cues carrying names, digits or quotes are refused', () => {
+  it('cues carrying unknown names, digits or quotes are refused by the validator, and dropped from the performance', () => {
     expect(reject(`<a bitter laugh, as Gordian would> ${NARRATION}`)).toBe('direction_has_proper_noun');
     expect(reject(`<a pause of 3 heartbeats> ${NARRATION}`)).toBe('direction_has_digits');
     expect(reject(`<mocking "the legions"> ${NARRATION}`)).toBe('direction_has_forbidden_characters');
-    expect(performedTranscriptFor(NARRATION, `<Philip laughs> ${NARRATION}`)).toMatchObject({ usedFallback: true, rejection: 'direction_has_proper_noun' });
+    expect(performedTranscriptFor(NARRATION, `<Philip laughs> ${NARRATION}`)).toEqual({ transcript: NARRATION, usedFallback: false, patchedOut: [], droppedCues: ['<Philip laughs>'] });
   });
 
   it('[square] cues are converted to <angle> cues before validation, so they are checked like any cue', () => {
     expect(squareCuesToAngle('[a long pause] Rome waits [sighs].')).toBe('<a long pause> Rome waits <sighs>.');
     const script = '[grave] The Praetorians mutter in their camp. [a long pause] The Senate waits.';
     expect(performedTranscriptFor(NARRATION, script)).toEqual({
-      transcript: '<grave> The Praetorians mutter in their camp. <a long pause> The Senate waits.', usedFallback: false, patchedOut: [],
+      transcript: '<grave> The Praetorians mutter in their camp. <a long pause> The Senate waits.', usedFallback: false, patchedOut: [], droppedCues: [],
     });
-    expect(performedTranscriptFor(NARRATION, `[Philip whispers] ${NARRATION}`)).toMatchObject({ usedFallback: true, rejection: 'direction_has_proper_noun' });
-    expect(performedTranscriptFor(NARRATION, `[in the year 238] ${NARRATION}`)).toMatchObject({ usedFallback: true, rejection: 'direction_has_digits' });
+    expect(performedTranscriptFor(NARRATION, `[Philip whispers] ${NARRATION}`)).toMatchObject({ usedFallback: false, transcript: NARRATION, droppedCues: ['<Philip whispers>'] });
+    expect(performedTranscriptFor(NARRATION, `[in the year 238] ${NARRATION}`)).toMatchObject({ usedFallback: false, transcript: NARRATION, droppedCues: ['<in the year 238>'] });
   });
 
   it('packaging is stripped while cues are kept', () => {
@@ -568,6 +627,7 @@ describe('the acted script: the Romans play themselves', () => {
       transcript: '<low and ominous> The Praetorians mutter in their camp. <a gruff toast> Maximinus raises a cup, and the Senate waits.',
       usedFallback: false,
       patchedOut: ['<a sly whisper> At the gate, Philip gathers his cohorts.'],
+      droppedCues: [],
     });
     expect(result.transcript).not.toContain('sly whisper');
   });
