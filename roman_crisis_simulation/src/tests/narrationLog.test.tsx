@@ -255,7 +255,7 @@ describe('recording from the voices', () => {
 
 describe('the log panel', () => {
   function Harness({ log, ai }: { log: NarrationLogStore; ai: GeminiClient }) {
-    const { narrationLogEntries, toggleReplay, replayStateFor, stopReplay, clearLog } = useNarrationLog({ ai, isMockMode: false, resolvedApiKey: 'k', log });
+    const { narrationLogEntries, toggleReplay, replayStateFor, stopReplay, clearLog } = useNarrationLog({ ai, isMockMode: false, resolvedApiKey: 'k', narrationVoiceMode: 'on_demand', log });
     return <NarrationLog entries={narrationLogEntries} stateFor={replayStateFor} onToggle={toggleReplay} onClear={clearLog} onClose={stopReplay} />;
   }
 
@@ -409,5 +409,58 @@ describe('the log panel', () => {
     expect(dialog()).toBeNull();
     expect(document.activeElement).toBe(open);
     view.cleanup();
+  });
+});
+
+describe('SILENT holds in the log (PR #12 review)', () => {
+  it('while the voice is off, replay is silenced: the words stay readable, and no paid call is made', async () => {
+    mockAudio();
+    const log = new NarrationLogStore({ load: false });
+    log.record(input());
+    const { ai, tts } = makeAi();
+    const hook = renderHook(useNarrationLog, { ai, isMockMode: false, resolvedApiKey: 'k', narrationVoiceMode: 'off' as const, log });
+    const [entry] = hook.current.narrationLogEntries;
+    expect(entry.transcript).toBe('Rome waits.');
+    expect(hook.current.replayStateFor(entry)).toBe('silenced');
+    act(() => hook.current.toggleReplay(entry));
+    await settle();
+    expect(tts()).toHaveLength(0);
+    hook.unmount();
+  });
+
+  it('turning the voice off stops a replay already playing', async () => {
+    mockAudio();
+    const log = new NarrationLogStore({ load: false });
+    log.record(input());
+    const { ai, tts } = makeAi();
+    const args = { ai, isMockMode: false, resolvedApiKey: 'k', narrationVoiceMode: 'on_demand' as 'on_demand' | 'off', log };
+    const hook = renderHook(useNarrationLog, args);
+    const [entry] = hook.current.narrationLogEntries;
+    act(() => hook.current.toggleReplay(entry));
+    await settle();
+    expect(tts()).toHaveLength(1);
+    expect(hook.current.replayStateFor(entry)).toBe('playing');
+    hook.rerender({ ...args, narrationVoiceMode: 'off' });
+    expect(hook.current.replayStateFor(entry)).toBe('silenced');
+    act(() => hook.current.toggleReplay(entry));
+    await settle();
+    expect(tts()).toHaveLength(1);
+    hook.unmount();
+  });
+
+  it('the panel disables replay and says why', () => {
+    const log = new NarrationLogStore({ load: false });
+    log.record(input());
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    act(() => root.render(<NarrationLog entries={log.getSnapshot()} stateFor={() => 'silenced'} onToggle={vi.fn()} onClear={vi.fn()} onClose={vi.fn()} />));
+    act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Narration log')!.click());
+    const panel = document.querySelector<HTMLElement>('[role="dialog"][aria-labelledby="narration-log-title"]')!;
+    const replay = [...panel.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.includes('Hear it again'))!;
+    expect(replay.disabled).toBe(true);
+    expect(panel.textContent).toContain('The voice is silent. Turn it on in Settings to hear this again.');
+    act(() => root.unmount());
+    host.remove();
   });
 });

@@ -233,7 +233,7 @@ const App: React.FC = () => {
     });
     // The narration log: every performance kept as text on this device, with
     // replay that never re-runs the narrator (narration/narrationLog.ts).
-    const { narrationLogEntries, toggleReplay, replayStateFor, stopReplay, clearLog } = useNarrationLog({ ai, isMockMode, resolvedApiKey });
+    const { narrationLogEntries, toggleReplay, replayStateFor, stopReplay, clearLog } = useNarrationLog({ ai, isMockMode, resolvedApiKey, narrationVoiceMode });
     // "Hear them speak": a private-scene NPC's committed lines in their own
     // voice - offered only while the narration voice is on, off by default.
     const privateSceneNpcVoice = usePrivateSceneVoice({

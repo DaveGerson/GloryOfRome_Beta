@@ -825,6 +825,9 @@ Nothing here blocks; all are one edit from rewording.
     "Clear every entry? This cannot be undone.", "Clear", "Keep". Source
     labels: "Week <N> narration", "The chronicle", "Imperial Dispatch, Week
     <N>" (speaker "The Imperial Chancellery"), "Private scene with <name>".
+    Added from the PR #12 review: "The voice is silent. Turn it on in
+    Settings to hear this again." (replay is disabled while the voice is
+    SILENT, so the log never makes a paid call behind that setting).
   - *Private scene:* "Hear them speak", "Each of their lines gets a play
     control, in a voice of their own. Every line is a paid call on your
     key.", "Hear them say it".

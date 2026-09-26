@@ -22,6 +22,7 @@ export const NARRATION_LOG_COPY = {
     preparing: 'The voice draws breath…',
     error: 'The voice faltered — press again.',
     unavailable: 'No token on this device',
+    silenced: 'The voice is silent. Turn it on in Settings to hear this again.',
     copy: 'Copy text',
     /** Read to screen readers before each performance cue in a script. */
     cue: 'Performance cue',
@@ -69,6 +70,7 @@ const EntryView: React.FC<{
     const status = state === 'preparing' ? NARRATION_LOG_COPY.preparing
         : state === 'error' ? NARRATION_LOG_COPY.error
             : state === 'unavailable' ? NARRATION_LOG_COPY.unavailable
+            : state === 'silenced' ? NARRATION_LOG_COPY.silenced
                 : null;
     const copy = async () => {
         try {
@@ -110,7 +112,7 @@ const EntryView: React.FC<{
                         className="gor-voice-btn"
                         aria-pressed={engaged}
                         aria-busy={state === 'preparing' || undefined}
-                        disabled={state === 'unavailable'}
+                        disabled={state === 'unavailable' || state === 'silenced'}
                         title={engaged ? NARRATION_LOG_COPY.stop : undefined}
                         onClick={onToggle}
                     >

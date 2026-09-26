@@ -266,7 +266,7 @@ describe('the TTS performs exactly the script, on every path, with a style chose
     log.record({ kind: 'chronicle', sourceLabel: 'Week III narration', sourceText: NARRATION, narratorKey: 'k', narratorName: 'The Dramatic Reader', voice: 'Enceladus', voiceStyle: styled[0], transcript: '<a weary sigh> Rome waits, and waits.', patchedOut: [], usedFallback: false, week: 3, turn: 2 });
     log.record({ kind: 'private_scene', sourceLabel: 'Private scene with Julia Mamaea', sourceText: 'My son trusts you.', narratorKey: 'npc:julia', narratorName: 'Julia Mamaea', voice: 'Gacrux', voiceStyle: styled[1], transcript: 'My son trusts you.', patchedOut: [], usedFallback: false, week: 3, turn: 2 });
     const { ai, tts } = makeAi();
-    const hook = renderHook(useNarrationLog, { ai, isMockMode: false, resolvedApiKey: 'k', log });
+    const hook = renderHook(useNarrationLog, { ai, isMockMode: false, resolvedApiKey: 'k', narrationVoiceMode: 'on_demand', log });
     const [newest, oldest] = log.getSnapshot();
     act(() => hook.current.toggleReplay(oldest));
     await settle();
