@@ -489,6 +489,7 @@ const App: React.FC = () => {
                             pulsingTabs={pulsingTabs}
                             onOccurrenceFinding={handleOccurrenceFinding}
                             resolvedApiKey={resolvedApiKey}
+                            narrationVoiceMode={narrationVoiceMode}
                             personaeVoice={personaeVoice}
                         />
                     </>

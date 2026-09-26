@@ -12,15 +12,22 @@ import type { GeminiClient } from '../ai/core/geminiService';
 import type { WorldState, Entity, Report, SimulationState } from '../types';
 import { performImperialDispatch } from '../ai/tools/narrationVoice';
 import { NarrationPlayer, type NarrationVoiceStatus } from '../narration/narrationPlayer';
+import type { NarrationVoiceMode } from '../persistence/uiPrefs';
 import { toRoman } from '../components/ui/Brand';
 import { narrationLog, type NarrationLogStore } from '../narration/narrationLog';
 
-export type ImperialDispatchStatus = NarrationVoiceStatus | 'unavailable';
+export type ImperialDispatchStatus = NarrationVoiceStatus | 'unavailable' | 'silenced';
 
 export interface UseImperialDispatchArgs {
   ai: GeminiClient;
   isMockMode: boolean;
   resolvedApiKey?: string | null;
+  /**
+   * The narration voice's mode. SILENT ('off') silences the Dispatch like
+   * every other voice: the control stays shown but makes no call, and a
+   * reading already playing stops.
+   */
+  narrationVoiceMode?: NarrationVoiceMode;
   worldState: WorldState;
   simulationState?: SimulationState;
   entities: Entity[];
@@ -100,6 +107,7 @@ export function useImperialDispatch(args: UseImperialDispatchArgs) {
     ai,
     isMockMode,
     resolvedApiKey,
+    narrationVoiceMode,
     worldState,
     simulationState,
     entities,
@@ -115,6 +123,7 @@ export function useImperialDispatch(args: UseImperialDispatchArgs) {
   const playback = useSyncExternalStore(player.subscribe, player.getSnapshot, player.getSnapshot);
 
   const canReachVoice = isMockMode || Boolean(resolvedApiKey);
+  const silenced = narrationVoiceMode === 'off';
 
   const weekRef = useRef(worldState.week || turnNumber);
   const turnRef = useRef(turnNumber);
@@ -152,6 +161,11 @@ export function useImperialDispatch(args: UseImperialDispatchArgs) {
 
   useEffect(() => () => player.dispose(), [player]);
 
+  // Turned SILENT: a reading in progress stops.
+  useEffect(() => {
+    if (silenced) player.stop();
+  }, [player, silenced]);
+
   const factsText = compileTabsFactSummary({
     worldState,
     simulationState,
@@ -169,11 +183,13 @@ export function useImperialDispatch(args: UseImperialDispatchArgs) {
   }, [factsText]);
 
   const toggleDispatch = useCallback(() => {
-    if (!canReachVoice) return;
+    if (!canReachVoice || silenced) return;
     player.toggle(turnNumber, factsRef.current);
-  }, [canReachVoice, player, turnNumber]);
+  }, [canReachVoice, silenced, player, turnNumber]);
 
-  const status: ImperialDispatchStatus = !canReachVoice
+  const status: ImperialDispatchStatus = silenced
+    ? 'silenced'
+    : !canReachVoice
     ? 'unavailable'
     : playback.index === turnNumber
       ? playback.status

@@ -570,9 +570,11 @@ voice. Now every character has a voice of their own:
     per-line controls once on), every Settings narration section, the
     narration log affordance, and the Personae voice row. While SILENT,
     or with no key outside Mock Mode, each is disabled and tied by
-    `aria-describedby` to a hint; nothing is ever called. Not changed: the
-    Imperial Dispatch's "Hear Report" still plays while SILENT (an
-    explicit, separate press) - flagged for the owner.
+    `aria-describedby` to a hint; nothing is ever called. The Imperial
+    Dispatch's "Hear Report" follows SILENT too: it stays shown but is
+    disabled, its note reads "Turn on the narrator's voice in Settings to
+    hear this.", and a reading in progress stops when the voice is turned
+    off.
 - **"Bespoke character voices"** was a Settings switch that stopped cast
   notes being prefixed on the TTS input. **Removed** the same day (below):
   notes never reach the TTS input now, so the reason for it is gone. Every
