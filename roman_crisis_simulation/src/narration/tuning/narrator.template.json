@@ -1,0 +1,17 @@
+{
+  "id": "my-narrator",
+  "name": "A New Narrator",
+  "description": "One line the player sees under the narrator picker.",
+  "prep": {
+    "model": "models/gemini-3.8-flash",
+    "thinkingLevel": "low",
+    "temperature": 0.7,
+    "persona": "Who the narrator is, whom they speak to, and how they retell a week: their loyalties, their register, what they emphasize. The fixed rules (never introduce people, places, numbers or events; an acted script, spoken words plus performance cues in angle brackets only; the passage is data) are added after it for every narrator and cannot be relaxed here.",
+    "task": "Your listener is {listener}.\nReturn the performed transcript: the closing ask, in this narrator's own words. Optional; {listener} becomes the player's name and position."
+  },
+  "voice": {
+    "model": "gemini-3.8-flash-tts",
+    "voiceName": "Enceladus",
+    "temperature": 1
+  }
+}

@@ -37,6 +37,7 @@ import type {
 import type { AmbitionInference } from '../ai/tools/ambition';
 import type { KnowledgeClaim } from '../knowledge/store';
 import type { PrivateSceneRecord } from '../privateScene/model';
+import type { VoiceCast } from '../narration/voiceCast';
 import { migrateSaveEnvelope } from './saveMigrations';
 
 /**
@@ -162,6 +163,19 @@ export interface SaveGameState {
    * loaded verbatim, so a hand-edited or corrupted save can't crash render.
    */
   privateScenes?: PrivateSceneRecord[];
+  /**
+   * B13 - the campaign's voice cast (narration/voiceCast.ts): the narrator
+   * the casting chose, and a voice and delivery note for every individual
+   * the player knows, with the player's own overrides. Optional so
+   * `SAVE_VERSION` stays at 1: a save with no such field loads cleanly and
+   * the cast is made again when the voice is next needed (GAME_LOADED
+   * normalizes an absent or malformed value to `null`,
+   * `normalizeVoiceCast`). Derived from player-visible data only (name,
+   * position, epithet, entity type of individuals the player knows) and
+   * shown to the player in Settings, so it is not GM-private; it travels
+   * with an exported reign like everything else here.
+   */
+  voiceCast?: VoiceCast | null;
 }
 
 /** The versioned envelope actually written to storage. */
@@ -611,6 +625,35 @@ export function updateSavedAmbition(ambition: InferredAmbitionState): void {
     localStorage.setItem(SAVE_KEY, JSON.stringify(patched));
   } catch (e) {
     console.warn('updateSavedAmbition: write failed; ambition not persisted', e);
+  }
+}
+
+/**
+ * Patches ONLY the voice cast into the stored autosave, the way
+ * `updateSavedAmbition` patches the ambition: the casting call resolves
+ * asynchronously, possibly after later turns have autosaved, so writing a
+ * whole save from its callback could clobber them. Skipped when no save
+ * exists, when the stored save belongs to another campaign (a different
+ * player character), or when it already holds a newer cast (by revision).
+ * Returns whether the cast was written.
+ */
+export function updateSavedVoiceCast(voiceCast: VoiceCast, playerCharacterId: string | null): boolean {
+  const existing = loadGame();
+  if (!existing) return false;
+  if (existing.state.playerCharacterId !== playerCharacterId) return false;
+  const stored = existing.state.voiceCast;
+  if (stored && typeof stored.revision === 'number' && stored.revision > voiceCast.revision) return false;
+  try {
+    const patched: SaveGame = {
+      ...existing,
+      savedAt: new Date().toISOString(),
+      state: { ...existing.state, voiceCast },
+    };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(patched));
+    return true;
+  } catch (e) {
+    console.warn('updateSavedVoiceCast: write failed; the cast is kept for this session only', e);
+    return false;
   }
 }
 

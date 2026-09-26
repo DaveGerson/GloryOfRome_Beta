@@ -19,6 +19,8 @@
  * doesn't persist, both harmless.
  */
 
+import { isCatalogVoice } from '../narration/voiceCatalog';
+
 const GM_CONSOLE_ENABLED_KEY = 'gloryOfRome:gmConsoleEnabled';
 const GM_INTERVENTION_ENABLED_KEY = 'gloryOfRome:gmInterventionEnabled';
 const COMPOSER_MODE_KEY = 'gloryOfRome:composerMode';
@@ -180,7 +182,10 @@ export function setNarrationVoiceMode(mode: NarrationVoiceMode): void {
 }
 
 /**
- * Curated senatorial and Roman narrator voice personas available from Gemini TTS.
+ * Curated senatorial and Roman narrator voice personas available from Gemini TTS:
+ * the Settings "Voice" picker's first group. The full palette - every
+ * prebuilt voice, and what the voice cast draws on - is narration/voiceCatalog.ts,
+ * and any voice in it is a valid stored choice.
  */
 export const NARRATOR_VOICES = [
   { id: 'Enceladus', label: 'Enceladus', role: 'Senatorial Baritone — calm, grave, dignified' },
@@ -191,28 +196,186 @@ export const NARRATOR_VOICES = [
   { id: 'Iapetus', label: 'Iapetus', role: 'Patrician Scholar — clean, articulate, patrician' },
 ] as const;
 
-export type NarratorVoiceId = typeof NARRATOR_VOICES[number]['id'];
+/** A voice from the full catalog (narration/voiceCatalog.ts); the curated six are a subset. */
+export type NarratorVoiceId = string;
 export const DEFAULT_NARRATOR_VOICE_ID: NarratorVoiceId = 'Enceladus';
 const NARRATOR_VOICE_KEY = 'gloryOfRome:narratorVoice';
 
-export function getNarratorVoice(): NarratorVoiceId {
+function isNarratorVoiceId(value: unknown): value is NarratorVoiceId {
+  return isCatalogVoice(value);
+}
+
+/**
+ * The voice the player explicitly chose, or null when they never chose one
+ * (or cleared it, or the stored value is not a catalog voice). Null means
+ * "the narrator's own voice": each narrator profile (narration/narrators.ts)
+ * names the voice it was tuned with, and an explicit choice overrides it.
+ */
+export function getNarratorVoiceChoice(): NarratorVoiceId | null {
   try {
     const storage = getStorage();
-    if (!storage) return DEFAULT_NARRATOR_VOICE_ID;
+    if (!storage) return null;
     const stored = storage.getItem(NARRATOR_VOICE_KEY);
-    return NARRATOR_VOICES.some(v => v.id === stored) ? (stored as NarratorVoiceId) : DEFAULT_NARRATOR_VOICE_ID;
+    return isNarratorVoiceId(stored) ? stored : null;
   } catch (e) {
-    console.warn('getNarratorVoice: localStorage.getItem failed', e);
-    return DEFAULT_NARRATOR_VOICE_ID;
+    console.warn('getNarratorVoiceChoice: localStorage.getItem failed', e);
+    return null;
   }
 }
 
-export function setNarratorVoice(voiceId: string): void {
+/** The explicit choice, falling back to the built-in default voice. */
+export function getNarratorVoice(): NarratorVoiceId {
+  return getNarratorVoiceChoice() ?? DEFAULT_NARRATOR_VOICE_ID;
+}
+
+/** Stores an explicit voice choice; anything outside the catalog clears it instead. */
+export function setNarratorVoice(voiceId: string | null): void {
   try {
     const storage = getStorage();
     if (!storage) return;
-    storage.setItem(NARRATOR_VOICE_KEY, voiceId);
+    if (isNarratorVoiceId(voiceId)) storage.setItem(NARRATOR_VOICE_KEY, voiceId);
+    else storage.removeItem(NARRATOR_VOICE_KEY);
   } catch (e) {
     console.warn('setNarratorVoice: localStorage.setItem failed', e);
   }
 }
+
+/**
+ * Which narrator profile performs the narration (narration/narrators.ts) -
+ * a device preference like the mode above. Stored as the profile id; an
+ * unknown or retired id (a deployed narrator later withdrawn) resolves to
+ * the built-in at the call site via `narratorById`, so this getter only
+ * guards shape, never membership.
+ */
+const NARRATOR_PROFILE_KEY = 'gloryOfRome:narratorProfile';
+
+export function getNarratorProfileId(): string | null {
+  try {
+    const storage = getStorage();
+    if (!storage) return null;
+    const stored = storage.getItem(NARRATOR_PROFILE_KEY);
+    return stored && /^[a-z0-9][a-z0-9-]{1,47}$/.test(stored) ? stored : null;
+  } catch (e) {
+    console.warn('getNarratorProfileId: localStorage.getItem failed', e);
+    return null;
+  }
+}
+
+/** Stores the explicit narration style; null (or '') clears it, so the campaign's cast chooses again. */
+export function setNarratorProfileId(id: string | null): void {
+  try {
+    const storage = getStorage();
+    if (!storage) return;
+    if (id) storage.setItem(NARRATOR_PROFILE_KEY, id);
+    else storage.removeItem(NARRATOR_PROFILE_KEY);
+  } catch (e) {
+    console.warn('setNarratorProfileId: localStorage.setItem failed', e);
+  }
+}
+
+/**
+ * Structured device preferences - the narration voice's custom narrators,
+ * delivery style, private-scene voices and narration log - stored as JSON.
+ * Guarded like everything above: a blocked or full storage, or a corrupted
+ * value, reads back as `null` and a failed write is dropped with a warning,
+ * never a crash. These getters guard only the JSON; each caller validates
+ * the shape it expects (narration/customNarrators.ts, narration/voiceStyle.ts,
+ * narration/narrationLog.ts). None of this is ever part of a save.
+ */
+export function getJsonPref(key: string): unknown {
+  try {
+    const storage = getStorage();
+    if (!storage) return null;
+    const stored = storage.getItem(key);
+    return stored === null ? null : JSON.parse(stored);
+  } catch (e) {
+    console.warn(`getJsonPref(${key}): could not read the stored value`, e);
+    return null;
+  }
+}
+
+/** Stores `value` as JSON, or removes the key for `null`. Returns whether it stuck. */
+export function setJsonPref(key: string, value: unknown): boolean {
+  try {
+    const storage = getStorage();
+    if (!storage) return false;
+    if (value === null || value === undefined) storage.removeItem(key);
+    else storage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch (e) {
+    console.warn(`setJsonPref(${key}): localStorage.setItem failed`, e);
+    return false;
+  }
+}
+
+export const CUSTOM_NARRATORS_KEY = 'gloryOfRome:customNarrators';
+export const NARRATOR_VOICE_STYLE_KEY = 'gloryOfRome:narratorVoiceStyle';
+export const NARRATION_LOG_KEY = 'gloryOfRome:narrationLog';
+
+/**
+ * The character who narrates when the narrator is "In character…"
+ * (narration/narratorChoice.ts): an entity id, guarded for shape only.
+ * Whether the player still knows them is decided at the call site, from
+ * the player-visible list, every time.
+ */
+const NARRATOR_CHARACTER_KEY = 'gloryOfRome:narratorCharacter';
+
+export function getNarratorCharacterId(): string | null {
+  try {
+    const storage = getStorage();
+    if (!storage) return null;
+    const stored = storage.getItem(NARRATOR_CHARACTER_KEY);
+    return stored && /^[\w.:-]{1,80}$/.test(stored) ? stored : null;
+  } catch (e) {
+    console.warn('getNarratorCharacterId: localStorage.getItem failed', e);
+    return null;
+  }
+}
+
+export function setNarratorCharacterId(entityId: string | null): void {
+  try {
+    const storage = getStorage();
+    if (!storage) return;
+    if (entityId) storage.setItem(NARRATOR_CHARACTER_KEY, entityId);
+    else storage.removeItem(NARRATOR_CHARACTER_KEY);
+  } catch (e) {
+    console.warn('setNarratorCharacterId: localStorage.setItem failed', e);
+  }
+}
+
+/**
+ * Whether a private-scene NPC's committed lines get a play control that
+ * speaks them in the NPC's own voice (hooks/usePrivateSceneVoice.ts). Off by
+ * default - every line is a paid TTS call on the player's key - and only
+ * offered while the narration voice itself is not SILENT.
+ */
+const SCENE_VOICES_KEY = 'gloryOfRome:sceneVoices';
+
+export function getSceneVoicesEnabled(): boolean {
+  try {
+    const storage = getStorage();
+    return storage?.getItem(SCENE_VOICES_KEY) === '1';
+  } catch (e) {
+    console.warn('getSceneVoicesEnabled: localStorage.getItem failed', e);
+    return false;
+  }
+}
+
+export function setSceneVoicesEnabled(enabled: boolean): void {
+  try {
+    const storage = getStorage();
+    if (!storage) return;
+    if (enabled) storage.setItem(SCENE_VOICES_KEY, '1');
+    else storage.removeItem(SCENE_VOICES_KEY);
+  } catch (e) {
+    console.warn('setSceneVoicesEnabled: localStorage.setItem failed', e);
+  }
+}
+
+/*
+ * 'gloryOfRome:bespokeVoices' was the "Bespoke character voices" switch. It
+ * existed only to stop cast delivery notes from being prefixed on the TTS
+ * input, where the voice would read them aloud; notes never reach the TTS
+ * input now (narration/voiceStyle.ts), so the switch is gone. A stored value
+ * from an older build is simply never read - harmless, and left in place.
+ */

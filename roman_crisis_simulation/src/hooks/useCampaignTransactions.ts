@@ -27,6 +27,7 @@ import { saveGame, loadGame } from '../persistence/saveGame';
 import type { SaveGameState, InferredAmbitionState } from '../persistence/saveGame';
 import type { PrivateSceneRecord } from '../privateScene/model';
 import { resetSessionCallLog } from '../ai/core/geminiService';
+import { newestVoiceCast } from '../narration/voiceCast';
 import {
     type DomainCommit,
     isPrivateSceneInteractionLocked,
@@ -125,6 +126,14 @@ export function useCampaignTransactions(state: GameDomainState, dispatch: Dispat
             latestInferredAmbitionRef.current,
         );
         latestInferredAmbitionRef.current = candidate.inferredAmbition ?? null;
+        // The voice cast is patched into the stored save as soon as it is
+        // made (updateSavedVoiceCast), possibly after this render's state was
+        // captured by an in-flight turn - carry the newer one forward, same
+        // campaign only, exactly as the ambition above.
+        if (!('voiceCast' in overrides)) {
+            const storedCast = stored && isSameCampaignPrefix(candidate, stored) ? stored.voiceCast : null;
+            candidate.voiceCast = newestVoiceCast(candidate.voiceCast, storedCast);
+        }
         return candidate;
     }, [state]);
 

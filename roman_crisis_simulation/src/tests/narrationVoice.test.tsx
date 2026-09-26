@@ -10,12 +10,13 @@
  * URL.createObjectURL/revokeObjectURL are stubbed.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { narrationLog } from '../narration/narrationLog';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { GameState, type Message } from '../types';
 import { ChatMessage, NARRATION_VOICE_COPY, StreamingNarrationBubble } from '../components/Chat';
 import { useNarrationVoice, type UseNarrationVoiceArgs } from '../hooks/useNarrationVoice';
-import { GEMINI_FLASH, GEMINI_TTS, type GeminiClient } from '../ai/core/geminiService';
+import { GEMINI_NARRATION_PREP, GEMINI_TTS, type GeminiClient } from '../ai/core/geminiService';
 import { buildNarrationTtsPrompt } from '../ai/prompts/narrationPerformance';
 import { fallbackTranscript } from '../narration/performanceScript';
 import { NarrationPlayer } from '../narration/narrationPlayer';
@@ -60,6 +61,8 @@ let revokeUrl: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   localStorage.clear();
+  // The App's shared log remembers performances in memory; each test starts with none.
+  narrationLog.clear();
   playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
   pauseSpy = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
   let n = 0;
@@ -262,13 +265,28 @@ describe('playback', () => {
     view.unmount();
   });
 
-  it('voices the plain narration when the director\'s script fails validation', async () => {
+  it('drops a bad cue and cuts an invented sentence, and voices the rest', async () => {
     localStorage.setItem(MODE_KEY, 'on_demand');
     const { ai, generateContent } = makeAi(() => `<Philip leans in> ${GM_A} And the heir hides in Emesa.`);
     const view = mount({ ai });
     click(buttonIn(GM_A));
     await settle();
-    expect(generateContent.mock.calls[0][0].model).toBe(GEMINI_FLASH);
+    const ttsCall = generateContent.mock.calls[1][0];
+    expect(ttsCall.model).toBe(GEMINI_TTS);
+    expect(ttsCall.contents).toBe(buildNarrationTtsPrompt(GM_A));
+    expect(ttsCall.contents).not.toContain('Philip');
+    expect(ttsCall.contents).not.toContain('Emesa');
+    view.unmount();
+  });
+
+  it('voices the plain narration when the director\'s script fails validation', async () => {
+    localStorage.setItem(MODE_KEY, 'on_demand');
+    const { ai, generateContent } = makeAi(() => `<grave <Philip leans in>> ${GM_A} And the heir hides in Emesa.`);
+    const view = mount({ ai });
+    click(buttonIn(GM_A));
+    await settle();
+    expect(generateContent.mock.calls[0][0].model).toBe(GEMINI_NARRATION_PREP);
+    expect(generateContent.mock.calls[0][0].config?.thinkingConfig).toEqual({ thinkingLevel: 'LOW' });
     const ttsCall = generateContent.mock.calls[1][0];
     expect(ttsCall.model).toBe(GEMINI_TTS);
     expect(ttsCall.contents).toBe(buildNarrationTtsPrompt(fallbackTranscript(GM_A)));

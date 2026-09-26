@@ -317,6 +317,7 @@ function expectV1BuildSaveShape(raw: string | null): void {
     'truthLedger',
     'turnHistory',
     'turnNumber',
+    'voiceCast',
     'worldState',
   ]);
   expect(envelope.state).not.toHaveProperty('activeEvent');

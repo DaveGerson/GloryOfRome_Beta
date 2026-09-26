@@ -163,5 +163,6 @@ export function pickSaveState(state: GameDomainState): SaveGameState {
         gmInterventionText: state.gmInterventionText,
         inferredAmbition: state.inferredAmbition,
         pendingIntelligenceFallout: state.pendingIntelligenceFallout,
+        voiceCast: state.voiceCast,
     };
 }

@@ -38,6 +38,7 @@ import type { KnowledgeClaim } from '../knowledge/store';
 import type { PrivateSceneRecord } from '../privateScene/model';
 import { INITIAL_WORLD_STATE, INITIAL_SIMULATION_STATE } from '../constants/baseScenario';
 import { normalizeEventFirings } from '../events/engine';
+import { normalizeVoiceCast, type VoiceCast } from '../narration/voiceCast';
 import { clearFallout } from '../components/investigationLoop';
 
 export interface GameDomainState {
@@ -121,6 +122,13 @@ export interface GameDomainState {
    * epilogue, NPC reactions, or any other player-facing surface.
    */
   inferredAmbition: InferredAmbitionState | null;
+  /**
+   * B13 - the campaign's voice cast (narration/voiceCast.ts), or null until
+   * the casting has run. Player-visible data only; saved with the campaign
+   * (the optional `voiceCast` save field). Not turn-bound: a rolled-back
+   * turn leaves it as it is.
+   */
+  voiceCast: VoiceCast | null;
 }
 
 export function createInitialGameState(): GameDomainState {
@@ -148,6 +156,7 @@ export function createInitialGameState(): GameDomainState {
     eventHistory: [],
     metaNarrative: 'An imperial succession crisis in a crumbling empire teetering on the brink of civil war.',
     inferredAmbition: null,
+    voiceCast: null,
   };
 }
 
@@ -287,7 +296,8 @@ export type GameAction =
   /** GM-console operator authored (or cleared) the intervention text. */
   | { type: 'GM_INTERVENTION_SET'; text: string }
   /** DESIGN_DECISIONS.md D8 - a periodic ambition inference resolved. */
-  | { type: 'AMBITION_INFERRED'; inferredAmbition: InferredAmbitionState };
+  | { type: 'AMBITION_INFERRED'; inferredAmbition: InferredAmbitionState }
+  | { type: 'VOICE_CAST_SET'; voiceCast: VoiceCast };
 
 /**
  * DESIGN_DECISIONS.md D1 - survival-only: ONLY the player's own death ends
@@ -442,6 +452,8 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         messages: [...state.messages, action.introMessage],
         suggestedActions: action.suggestedActions,
         privateScenes: [],
+        // A new campaign is cast afresh.
+        voiceCast: null,
       };
 
     case 'GAME_LOADED': {
@@ -491,6 +503,10 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         // investigation-fallout queue existed, so this normalizes it to an
         // empty queue rather than `undefined`.
         pendingIntelligenceFallout: s.pendingIntelligenceFallout ?? [],
+        // Optional field (B13) - absent on saves from before the voice cast
+        // existed, or malformed: normalized to `null`, and the cast is made
+        // again when the voice is next needed.
+        voiceCast: normalizeVoiceCast(s.voiceCast),
         // A save can legitimately be reloaded while the last-loaded run had
         // already ended (the player closed/refreshed the tab on the epilogue
         // screen - GAME_OVER itself is never persisted, only the underlying
@@ -526,6 +542,12 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         return state;
       }
       return { ...state, inferredAmbition: action.inferredAmbition };
+
+    case 'VOICE_CAST_SET':
+      // An older cast (a slow casting call overtaken by a recast or an
+      // override) never replaces a newer one.
+      if (state.voiceCast && state.voiceCast.revision > action.voiceCast.revision) return state;
+      return { ...state, voiceCast: action.voiceCast };
 
     default:
       return state;

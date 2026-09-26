@@ -1,0 +1,38 @@
+{
+  "about": "Sample player-visible narrations for tuning a narrator profile (npm run narrator:tune), retold to the sample player below, with a sample voice cast: the cast notes of the named fixture characters, so tuning exercises the prompt's cast block. Written in the game's narration voice; none is drawn from a real save. Cover the registers a narrator must handle: quiet dread, quoted speech, violence, crowds and plebs, the Senate's disdain, numbers and names, and a short line.",
+  "player": {
+    "name": "Severus Alexander",
+    "position": "Emperor"
+  },
+  "narrations": [
+    "The Curia is colder than the season warrants. Senators who greeted you warmly a week ago now find urgent business with their scribes as you pass, and the silence follows you to your seat like a hound.",
+    "Your freedman returns after dark, dust on his sandals. \"The Prefect received your letter,\" he says, keeping his voice low. \"He read it twice. Then he burned it.\"",
+    "Steel rings in the Subura before dawn. By the time the vigiles arrive, three of Maximinus Thrax's men lie in the gutter, and the fourth is nowhere to be found.",
+    "The crowd in the Forum Romanum swells as the grain carts fail to arrive. First a murmur, then a chant, then stones against the shutters of the granary on the Vicus Tuscus.",
+    "A fishmonger climbs onto the steps of the Rostra, belches loud enough to turn heads, and spits into the dust. \"Bread tomorrow, they say! Bread tomorrow!\" The crowd around him roars with laughter and takes up the chant.",
+    "In the Curia, Gaius Petronius Rufus does not rise to answer the tribune. He adjusts the fold of his toga and remarks to the bench beside him: \"The people are hungry. The people are always hungry. That is what the people are for.\" Several senators laugh behind their hands.",
+    "Julia Mamaea does not raise her voice. She sets down her cup, looks at you for a long moment, and says only: \"My son trusts you. Do not make me regret that I allowed it.\"",
+    "Word reaches you from the Rhine: 50,000 denarii promised to the legions have not arrived, and the camp prefect has stopped pretending not to hear the soldiers' complaints.",
+    "Nothing stirs on the Palatine tonight. That, more than any rumor, should frighten you.",
+    "A letter sealed in purple wax waits on your desk. It is unsigned. It says: \"The Guard has chosen. Choose faster.\""
+  ],
+  "cast": [
+    {
+      "entityId": "maximinus-thrax",
+      "name": "Maximinus Thrax",
+      "epithet": "the Thracian",
+      "manner": "clipped soldier's sentences, few words"
+    },
+    {
+      "entityId": "julia-mamaea",
+      "name": "Julia Mamaea",
+      "epithet": "Augusta",
+      "manner": "cool, measured, every word a warning"
+    },
+    {
+      "entityId": "petronius-rufus",
+      "name": "Gaius Petronius Rufus",
+      "manner": "silky senatorial disdain, amused, unhurried"
+    }
+  ]
+}

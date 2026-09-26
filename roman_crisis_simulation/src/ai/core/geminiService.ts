@@ -11,7 +11,7 @@
  *
  * Responsibilities:
  *  - Centralize the model id constants (GEMINI_PRO / GEMINI_FLASH /
- *    GEMINI_TTS).
+ *    GEMINI_TTS / GEMINI_NARRATION_PREP).
  *  - One structured-output entry point (`generateStructured`), one
  *    plain-prose entry point (`generateText`), and one audio entry point
  *    (`generateSpeech`, the optional narration voice).
@@ -61,6 +61,20 @@ export const GEMINI_PRO_FALLBACK = 'gemini-pro-latest';
 export const GEMINI_TTS = 'gemini-3.8-flash-tts';
 /** The prebuilt voice the narrator performs in: Enceladus, a deep, calm, authoritative senatorial baritone. */
 export const DEFAULT_NARRATOR_VOICE = 'Enceladus';
+/**
+ * The narration voice's intermediary prep model: the narrator that turns
+ * one committed narration (or, for the Imperial Dispatch, the tabs' fact
+ * summary) into an acted script (for the Dispatch, a plain briefing) before
+ * the TTS call
+ * (ai/tools/narrationVoice.ts). It tracks the flash tier, run at LOW
+ * thinking - a spoken retelling wants a short think, not deep reasoning,
+ * so latency stays close to the voice's own. A deployed narrator profile
+ * (narration/narrators.ts) may name its own prep model, including a tuned
+ * one (`tunedModels/...`).
+ */
+export const GEMINI_NARRATION_PREP = GEMINI_FLASH;
+/** The thinking level the prep model runs at unless a narrator profile says otherwise. */
+export const NARRATION_PREP_THINKING_LEVEL = 'low';
 
 /**
  * One inline-data part of a model response, as the SDK's `Part.inlineData`

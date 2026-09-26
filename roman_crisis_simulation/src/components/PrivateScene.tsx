@@ -7,7 +7,9 @@ import { Alert } from './ui/Alert';
 import { WaxSeal, toRoman } from './ui/Brand';
 import { radioGroupKeyDown, radioTabIndex } from './ui/rovingRadio';
 import { createFocusTrap } from './ui/focusTrap';
-import { PrivateSceneShelf, TranscriptLine } from './PrivateSceneShelf';
+import { PrivateSceneShelf, SCENE_VOICE_COPY, TranscriptLine } from './PrivateSceneShelf';
+import { Switch } from './ui/Forms';
+import type { PrivateSceneNpcVoice } from '../hooks/usePrivateSceneVoice';
 
 export function replacePrivateSceneForCommit<T extends { sceneId: string }>(
   scenes: readonly T[], candidate: T,
@@ -34,6 +36,11 @@ export interface PrivateSceneProps {
   onEnd(sceneId: string): void;
   onLastWord(sceneId: string): void;
   onSkipLastWord(sceneId: string): void;
+  /**
+   * "Hear them speak" (hooks/usePrivateSceneVoice.ts): present only while the
+   * narration voice is not SILENT. Speaks committed NPC lines only.
+   */
+  npcVoice?: PrivateSceneNpcVoice;
 }
 
 /** The one over-limit notice. Four sites wrote this sentence; only one composer ever mounts. */
@@ -59,6 +66,7 @@ function trimLastSentence(text: string): string {
 export const PrivateScene: React.FC<PrivateSceneProps> = ({
   scenes, currentMacroTurn, canStartScene, eligibleTargets, openingDraft, replyDraft, lastWordDraft, loading, error,
   onOpeningDraftChange, onReplyDraftChange, onLastWordDraftChange, onInvite, onReply, onEnd, onLastWord, onSkipLastWord,
+  npcVoice,
 }) => {
   const [open, setOpen] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -159,6 +167,18 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
         </span>
         <Button type="button" variant="secondary" size="sm" aria-label="Close private scene" onClick={closePresentation} disabled={disabled}>Close</Button>
       </header>
+      {npcVoice && (
+        <div className="gor-scene-voice">
+          <Switch
+            id="private-scene-voices"
+            checked={npcVoice.enabled}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => npcVoice.onSetEnabled(e.target.checked)}
+            aria-describedby="private-scene-voices-note"
+            label={SCENE_VOICE_COPY.toggle}
+          />
+          <p className="gor-config-note" id="private-scene-voices-note" style={{ margin: '2px 0 0' }}>{SCENE_VOICE_COPY.toggleNote}</p>
+        </div>
+      )}
       {/* A failed continuation: the hour is charged on invitation, not on failure. Say so, or nobody risks a retry. */}
       {error && <Alert title="The door did not open" style={{ margin: '6px 0 0' }}>{error}</Alert>}
       {!active && <>
@@ -235,7 +255,9 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
         {/* role="log": each reply is announced as it lands, and the label is
             valid on a landmark-less div only once it has a role. */}
         <div role="log" aria-label="Private-scene transcript" className={active.status === 'awaiting_last_word' ? 'gor-scene-transcript-spent' : undefined}>
-          {active.transcript.map(line => <TranscriptLine key={line.sequence} line={line} npcName={active.npcName} />)}
+          {active.transcript.map(line => (
+            <TranscriptLine key={line.sequence} line={line} npcName={active.npcName} voice={npcVoice ? { scene: active, npcVoice } : undefined} />
+          ))}
         </div>
         {active.status === 'active' && <>
           <textarea className="gor-textarea" rows={3} aria-label="Private-scene reply" maxLength={PRIVATE_SCENE_MAX_UTTERANCE_CHARS} value={replyDraft} disabled={disabled}
@@ -262,7 +284,7 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
           <Button type="button" variant="ghost" disabled={disabled} onClick={() => onSkipLastWord(active.sceneId)}>Let it stand</Button>
         </>}
       </>}
-      <PrivateSceneShelf completed={completed} reading={reading} onRead={setReadingSceneId} />
+      <PrivateSceneShelf completed={completed} reading={reading} onRead={setReadingSceneId} npcVoice={npcVoice} />
       <span className="gor-sr-only">Turn {currentMacroTurn}</span>
     </dialog>}
   </>;

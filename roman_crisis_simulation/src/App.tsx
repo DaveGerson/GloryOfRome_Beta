@@ -29,6 +29,11 @@ import { useSettings } from './hooks/useSettings';
 import { useTurnFlow } from './hooks/useTurnFlow';
 import { useWeekBeat } from './hooks/useWeekBeat';
 import { useNarrationVoice } from './hooks/useNarrationVoice';
+import { narratorCharactersFor } from './narration/narratorChoice';
+import { useNarrationLog } from './hooks/useNarrationLog';
+import { usePrivateSceneVoice } from './hooks/usePrivateSceneVoice';
+import { useCastBasis, useVoiceCast } from './hooks/useVoiceCast';
+import { NarrationLog } from './components/NarrationLog';
 import { useDevSmokeTest, useScrollToLatest, useUnloadGuardWhileProcessing } from './hooks/useShellEffects';
 import type { TransactionNote } from './app/transactions';
 import { TransactionNoteView, downloadTheReign } from './app/TransactionNoteView';
@@ -198,9 +203,42 @@ const App: React.FC = () => {
     // "Hear it performed" - voices committed GM narration only (D4/D5); a
     // device preference, default off (every clip is a paid call). See the
     // hook's header.
+    // "In character…" offers ONLY characters the player knows, as name and
+    // public standing (narration/narratorChoice.ts) - never raw entities.
+    const narratorCharacters = useMemo(
+        () => narratorCharactersFor(playerEntity, entities, knowledge),
+        [playerEntity, entities, knowledge],
+    );
+    // The campaign's voice cast (narration/voiceCast.ts): every character
+    // the player knows gets a voice of their own - player-visible data only.
+    const castBasis = useCastBasis({ voiceCast: state.voiceCast, playerEntity, entities, knowledge });
+    const { effectiveCast } = castBasis;
     const {
         narrationVoiceMode, handleSetNarrationVoiceMode, toggleNarrationVoice, narrationVoiceStateFor,
-    } = useNarrationVoice({ ai, isMockMode, resolvedApiKey, messages, gameState, playerEntity });
+        narrators, narratorId, narratorChosenExplicitly, castNarratorId, narratorVoiceFromCast, handleSetNarrator,
+        narratorCharacterId, handleSetNarratorCharacter,
+        customNarrators, handleSaveCustomNarrator, handleDeleteCustomNarrator,
+        narratorVoiceChoice, narratorOwnVoice, handleSetNarratorVoice,
+        voiceStyleChoice, narratorOwnStyle, handleSetVoiceStyle,
+    } = useNarrationVoice({
+        ai, isMockMode, resolvedApiKey, messages, gameState, playerEntity, narratorCharacters,
+        week: worldState.week, turnNumber, voiceCast: effectiveCast, castCandidates: castBasis.candidates,
+    });
+    // The casting director: runs when the voice is first needed, then for newcomers (see the hook).
+    const {
+        recastStatus, canRecast, handleRecast, handleOverrideMember, handleResetMember,
+    } = useVoiceCast({
+        ai, isMockMode, resolvedApiKey, narrationVoiceMode, gameState, voiceCast: state.voiceCast, dispatch,
+        playerEntity, basis: castBasis, metaNarrative, campaignGenerationRef,
+    });
+    // The narration log: every performance kept as text on this device, with
+    // replay that never re-runs the narrator (narration/narrationLog.ts).
+    const { narrationLogEntries, toggleReplay, replayStateFor, stopReplay, clearLog } = useNarrationLog({ ai, isMockMode, resolvedApiKey, narrationVoiceMode });
+    // "Hear them speak": a private-scene NPC's committed lines in their own
+    // voice - offered only while the narration voice is on, off by default.
+    const privateSceneNpcVoice = usePrivateSceneVoice({
+        ai, isMockMode, resolvedApiKey, narrationVoiceMode, voiceCast: effectiveCast, week: worldState.week,
+    });
 
     const {
         handleSpendResource, handleOccurrenceFinding, handleInvestigationOutcome, handleSetIntervention,
@@ -387,6 +425,16 @@ const App: React.FC = () => {
                                                     onEnd={handlePrivateSceneEnd}
                                                     onLastWord={handlePrivateSceneLastWord}
                                                     onSkipLastWord={handlePrivateSceneSkipLastWord}
+                                                    npcVoice={privateSceneNpcVoice}
+                                                />
+                                            )}
+                                            {(narrationVoiceMode !== 'off' || narrationLogEntries.length > 0) && (
+                                                <NarrationLog
+                                                    entries={narrationLogEntries}
+                                                    stateFor={replayStateFor}
+                                                    onToggle={toggleReplay}
+                                                    onClear={clearLog}
+                                                    onClose={stopReplay}
                                                 />
                                             )}
                                             {isGmConsoleEnabled && (
@@ -480,6 +528,31 @@ const App: React.FC = () => {
                     onSetGmInterventionEnabled={handleSetGmInterventionAvailable}
                     narrationVoiceMode={narrationVoiceMode}
                     onSetNarrationVoiceMode={handleSetNarrationVoiceMode}
+                    narrators={narrators}
+                    narratorId={narratorId}
+                    onSetNarrator={handleSetNarrator}
+                    narratorCharacters={narratorCharacters}
+                    narratorCharacterId={narratorCharacterId}
+                    onSetNarratorCharacter={handleSetNarratorCharacter}
+                    customNarrators={customNarrators}
+                    onSaveCustomNarrator={handleSaveCustomNarrator}
+                    onDeleteCustomNarrator={handleDeleteCustomNarrator}
+                    narratorVoiceChoice={narratorVoiceChoice}
+                    narratorOwnVoice={narratorOwnVoice}
+                    onSetNarratorVoice={handleSetNarratorVoice}
+                    voiceStyleChoice={voiceStyleChoice}
+                    narratorOwnStyle={narratorOwnStyle}
+                    onSetVoiceStyle={handleSetVoiceStyle}
+                    narratorChosenExplicitly={narratorChosenExplicitly}
+                    castNarratorId={castNarratorId}
+                    narratorVoiceFromCast={narratorVoiceFromCast}
+                    voiceCast={effectiveCast}
+                    castCharacters={castBasis.candidates}
+                    canRecast={canRecast}
+                    recastStatus={recastStatus}
+                    onRecast={handleRecast}
+                    onOverrideCastMember={handleOverrideMember}
+                    onResetCastMember={handleResetMember}
                     isMockMode={isMockMode}
                     onSetIsMockMode={setIsMockMode}
                     gmConsoleOpen={isGmConsoleEnabled}

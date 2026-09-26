@@ -4,41 +4,63 @@
  * "Hear it performed": one committed, player-visible GM narration in, one
  * playable WAV out. Two model calls, both through ai/core/geminiService.ts:
  *
- *  1. `narrationPerformance` (flash, prose) - the dramatic Roman bard/narrator
- *     recounts and acts out the scene in 1-2 powerful paragraphs full of fervor,
- *     tension, and pizzazz. Its output is validated by
- *     narration/performanceScript.ts; a refused script, or a failed call,
- *     falls back to the plain narration. The voice never fails for want
- *     of a narrator.
- *  2. `narrationVoice` (GEMINI_TTS, audio) - the clean transcript is voiced
- *     directly in the `DEFAULT_NARRATOR_VOICE`; the returned PCM is wrapped
- *     in a WAV header (narration/wav.ts).
+ *  1. `narrationPerformance` (the intermediary prep model, prose) - the
+ *     chosen narrator (narration/narrators.ts; by default the senatorial
+ *     partner) converts the scene into an acted script: a dramatically
+ *     acted retelling for the player, at most two paragraphs, spoken words
+ *     plus performance cues in `<angle brackets>`, in which the narrator's
+ *     own lines carry its persona and everyone it quotes or describes is
+ *     played as who they are - by the voice cast's note for a named cast
+ *     member (`options.cast`, the prompt's cast block), by station and
+ *     class for everyone else. By default this is `GEMINI_NARRATION_PREP` at LOW
+ *     thinking; a deployed profile may name its own, tuned, prep model. The
+ *     output is validated by narration/performanceScript.ts - including the
+ *     fidelity check, which cuts every sentence that brings in a name or a
+ *     figure the narration never mentioned (and falls back when that would
+ *     cut most of it); a refused script, or a failed call, falls back to
+ *     the plain narration (opened by one fallback cue). The voice never
+ *     fails for want of a narrator.
+ *  2. `narrationVoice` (the profile's TTS model, audio) - the acted script
+ *     is performed word for word, cues acted, in the player's chosen voice,
+ *     or else the narrator's own; raw PCM is wrapped in a WAV header
+ *     (narration/wav.ts).
+ *
+ * Delivery style (narration/voiceStyle.ts) goes to step 1 only, as the prep
+ * prompt's delivery brief. The TTS input is the script and nothing else
+ * (`buildNarrationTtsPrompt`: `## Transcript:` and the script, cues
+ * intact): the TTS model speaks every word outside a cue, so no prose
+ * instruction or style prefix ever reaches it.
  *
  * The caller may only pass text that is already committed to the player's
  * chat (DESIGN_DECISIONS.md D4/D5) - in practice a `messages[]` entry with
- * `sender === 'gm'` (hooks/useNarrationVoice.ts). Nothing else from the
- * game state reaches either call.
+ * `sender === 'gm'` (hooks/useNarrationVoice.ts) - plus, optionally, the
+ * player's own name and position. Nothing else from the game state reaches
+ * either call.
+ *
+ * The Imperial Dispatch (`performImperialDispatch`) shares the plumbing: its
+ * scriptwriter runs on the same prep model and thinking level.
  *
  * Mock Mode: like every ai/tools call site, `isMockMode` is checked here,
  * before the service is reached. Both network calls are skipped: the
- * fallback plain narration transcript and a short synthesized tone stand in, so
- * offline play and tests still run the whole decode -> WAV -> playback
- * path.
+ * fallback plain narration transcript and a short synthesized tone stand
+ * in, so offline play and tests still run the whole decode -> WAV ->
+ * playback path.
  */
 
 import {
-  DEFAULT_NARRATOR_VOICE,
-  GEMINI_FLASH,
+  GEMINI_NARRATION_PREP,
   GEMINI_TTS,
+  NARRATION_PREP_THINKING_LEVEL,
   generateSpeech,
   generateText,
   type GeminiClient,
+  type ThinkingConfigLike,
 } from '../core/geminiService';
 import {
   buildNarrationPerformancePrompt,
   buildNarrationTtsPrompt,
   buildImperialDispatchPrompt,
-  NARRATION_PERFORMANCE_TEMPERATURE,
+  type NarrationPlayerContext,
 } from '../prompts/narrationPerformance';
 import {
   cleanSpokenTranscript,
@@ -47,46 +69,119 @@ import {
   type PerformedTranscript,
 } from '../../narration/performanceScript';
 import { MOCK_TONE_MIME_TYPE, ensureWav, pcmToWav, synthesizeMockTone } from '../../narration/wav';
-import { getNarratorVoice } from '../../persistence/uiPrefs';
+import { DRAMATIC_READER_NARRATOR, type NarratorProfile } from '../../narration/narrators';
+import { getNarratorVoiceChoice } from '../../persistence/uiPrefs';
+import type { VoiceStyle } from '../../narration/voiceStyle';
+import type { CastManner } from '../../narration/voiceCast';
 
 /** The owner's reference: temperature 1 for the voice itself. */
-export const NARRATION_VOICE_TEMPERATURE = 1;
+export const NARRATION_VOICE_TEMPERATURE = DRAMATIC_READER_NARRATOR.voice.temperature;
 
 export interface NarrationPerformance extends PerformedTranscript {
   /** A complete RIFF/WAVE file, ready for a Blob. */
   wav: Uint8Array<ArrayBuffer>;
 }
 
+export interface NarrationOptions {
+  /** Who narrates; defaults to the built-in senatorial partner. */
+  narrator?: NarratorProfile;
+  /** An explicit voice; otherwise the player's Settings choice, otherwise the narrator's own. */
+  voiceName?: string;
+  /** The listener's name and position, for address - never game state. */
+  playerContext?: NarrationPlayerContext;
+  /** Further names the fidelity patch allows (a narrator in character's own name and standing). */
+  allowedNames?: readonly string[];
+  /** The delivery style the prep model writes the script for (its delivery brief); none by default. Never sent to the TTS model. */
+  style?: VoiceStyle | null;
+  /**
+   * The voice cast's manners (narration/voiceCast.ts `castMannersFor`):
+   * player-visible names and notes. Those the passage names reach the prep
+   * prompt's cast block, as data; never sent to the TTS model.
+   */
+  cast?: readonly CastManner[] | null;
+}
+
+/** The SDK's ThinkingLevel enum is upper-case ('LOW'); profiles are authored lower-case. */
+function thinkingConfigFor(level: string): ThinkingConfigLike {
+  return { thinkingLevel: level.toUpperCase() };
+}
+
+/** The listener's own words the fidelity check lets the narrator use: name and position. */
+export function listenerNames(playerContext: NarrationPlayerContext): string[] {
+  if (typeof playerContext === 'string') return [playerContext];
+  if (playerContext && typeof playerContext === 'object') {
+    return [playerContext.name, playerContext.position].filter((part): part is string => Boolean(part));
+  }
+  return [];
+}
+
 /**
- * Step 1 alone: the director's script, validated, or the fallback. Never
- * throws - a failed director call is just a fallback.
+ * The prep model's raw answer for one narration, unvalidated - or the error
+ * that stopped it. Shared by the game path below and the tuning harness
+ * (narration/tuning/), which reports refused scripts verbatim so a
+ * narrator's persona can be tuned against them.
+ */
+export async function runNarrationDirector(
+  ai: GeminiClient,
+  narration: string,
+  narrator: NarratorProfile = DRAMATIC_READER_NARRATOR,
+  playerContext?: NarrationPlayerContext,
+  style?: VoiceStyle | null,
+  cast?: readonly CastManner[] | null,
+): Promise<{ output: string | null; error?: unknown }> {
+  const { systemInstruction, prompt } = buildNarrationPerformancePrompt(speakableText(narration), playerContext, narrator, style, cast);
+  try {
+    const output = await generateText(ai, {
+      callName: 'narrationPerformance',
+      model: narrator.prep.model,
+      systemInstruction,
+      prompt,
+      thinkingConfig: thinkingConfigFor(narrator.prep.thinkingLevel),
+      temperature: narrator.prep.temperature,
+    });
+    return { output };
+  } catch (error) {
+    return { output: null, error };
+  }
+}
+
+/**
+ * Step 1 alone: the narrator's script, validated, or the fallback. Never
+ * throws - a failed narrator call is just a fallback.
  */
 export async function directNarrationPerformance(
   ai: GeminiClient,
   narration: string,
   isMockMode: boolean,
-  playerContext?: { name?: string; position?: string } | string | null,
+  playerContext?: NarrationPlayerContext,
+  narrator: NarratorProfile = DRAMATIC_READER_NARRATOR,
+  allowedNames: readonly string[] = [],
+  style?: VoiceStyle | null,
+  cast?: readonly CastManner[] | null,
 ): Promise<PerformedTranscript> {
   if (isMockMode) return performedTranscriptFor(narration, null);
 
-  const { systemInstruction, prompt } = buildNarrationPerformancePrompt(speakableText(narration), playerContext);
-  let directorOutput: string | null = null;
-  try {
-    directorOutput = await generateText(ai, {
-      callName: 'narrationPerformance',
-      model: GEMINI_FLASH,
-      systemInstruction,
-      prompt,
-      temperature: NARRATION_PERFORMANCE_TEMPERATURE,
-    });
-  } catch (error) {
-    console.warn('narrationVoice: the director call failed; performing the plain narration instead', error);
+  const { output, error } = await runNarrationDirector(ai, narration, narrator, playerContext, style, cast);
+  if (error !== undefined) {
+    console.warn('narrationVoice: the narrator call failed; performing the plain narration instead', error);
   }
-  const performed = performedTranscriptFor(narration, directorOutput);
+  const performed = performedTranscriptFor(narration, output, [...listenerNames(playerContext), ...allowedNames]);
   if (performed.rejection) {
-    console.warn(`narrationVoice: the director's script was refused (${performed.rejection}); performing the plain narration instead`);
+    console.warn(`narrationVoice: the narrator's script was refused (${performed.rejection}); performing the plain narration instead`);
+  } else {
+    if (performed.droppedCues.length > 0) {
+      console.warn(`narrationVoice: dropped ${performed.droppedCues.length} cue(s) the narration did not support; performing the rest`);
+    }
+    if (performed.patchedOut.length > 0) {
+      console.warn(`narrationVoice: cut ${performed.patchedOut.length} sentence(s) the narration did not support; performing the rest`);
+    }
   }
   return performed;
+}
+
+/** The voice a performance uses: explicit, then the player's Settings choice, then the narrator's own. */
+export function resolveNarrationVoice(narrator: NarratorProfile, explicit?: string | null): string {
+  return explicit || getNarratorVoiceChoice() || narrator.voice.voiceName;
 }
 
 /**
@@ -97,22 +192,49 @@ export async function performNarration(
   ai: GeminiClient,
   narration: string,
   isMockMode: boolean,
-  voiceName?: string,
-  playerContext?: { name?: string; position?: string } | string | null,
+  options: NarrationOptions = {},
 ): Promise<NarrationPerformance> {
-  const performed = await directNarrationPerformance(ai, narration, isMockMode, playerContext);
-  if (isMockMode) {
-    return { ...performed, wav: pcmToWav(synthesizeMockTone(), MOCK_TONE_MIME_TYPE) };
-  }
-  const resolvedVoice = voiceName || getNarratorVoice() || DEFAULT_NARRATOR_VOICE;
-  const speech = await generateSpeech(ai, {
-    callName: 'narrationVoice',
-    model: GEMINI_TTS,
-    prompt: buildNarrationTtsPrompt(performed.transcript),
-    voiceName: resolvedVoice,
-    temperature: NARRATION_VOICE_TEMPERATURE,
+  const narrator = options.narrator ?? DRAMATIC_READER_NARRATOR;
+  const performed = await directNarrationPerformance(ai, narration, isMockMode, options.playerContext, narrator, options.allowedNames, options.style, options.cast);
+  const wav = await speakTranscript(ai, performed.transcript, isMockMode, {
+    model: narrator.voice.model,
+    voiceName: resolveNarrationVoice(narrator, options.voiceName),
+    temperature: narrator.voice.temperature,
   });
-  return { ...performed, wav: ensureWav(speech.pcm, speech.mimeType) };
+  return { ...performed, wav };
+}
+
+export interface SpeakOptions {
+  voiceName: string;
+  model?: string;
+  temperature?: number;
+  callName?: string;
+}
+
+/**
+ * The voice alone: an already-vetted transcript to a WAV, with no prep
+ * call. Used by `performNarration` (the acted script, cues and all), by
+ * replay from the narration log (a script the guard already passed), and by
+ * a private-scene NPC's committed line (their words are already theirs, with
+ * no cues). There is no style here: the TTS input is the transcript alone,
+ * and with no prep call the voice carries the speaker's character. Mock Mode: no call, the synthesized tone.
+ * Throws only when the TTS call itself fails.
+ */
+export async function speakTranscript(
+  ai: GeminiClient,
+  transcript: string,
+  isMockMode: boolean,
+  options: SpeakOptions,
+): Promise<Uint8Array<ArrayBuffer>> {
+  if (isMockMode) return pcmToWav(synthesizeMockTone(), MOCK_TONE_MIME_TYPE);
+  const speech = await generateSpeech(ai, {
+    callName: options.callName ?? 'narrationVoice',
+    model: options.model ?? GEMINI_TTS,
+    prompt: buildNarrationTtsPrompt(transcript),
+    voiceName: options.voiceName,
+    temperature: options.temperature ?? NARRATION_VOICE_TEMPERATURE,
+  });
+  return ensureWav(speech.pcm, speech.mimeType);
 }
 
 /**
@@ -126,7 +248,7 @@ export async function directImperialDispatch(
 ): Promise<PerformedTranscript> {
   if (isMockMode) {
     const fallback = cleanSpokenTranscript(factsSummary.slice(0, 300));
-    return { transcript: fallback, usedFallback: true };
+    return { transcript: fallback, usedFallback: true, patchedOut: [], droppedCues: [] };
   }
 
   const { systemInstruction, prompt } = buildImperialDispatchPrompt(factsSummary);
@@ -134,9 +256,10 @@ export async function directImperialDispatch(
   try {
     rawDispatch = await generateText(ai, {
       callName: 'imperialDispatch',
-      model: GEMINI_FLASH,
+      model: GEMINI_NARRATION_PREP,
       systemInstruction,
       prompt,
+      thinkingConfig: thinkingConfigFor(NARRATION_PREP_THINKING_LEVEL),
       temperature: 0.5,
     });
   } catch (error) {
@@ -144,12 +267,14 @@ export async function directImperialDispatch(
   }
 
   const clean = cleanSpokenTranscript(rawDispatch || factsSummary);
-  return { transcript: clean, usedFallback: !rawDispatch };
+  return { transcript: clean, usedFallback: !rawDispatch, patchedOut: [], droppedCues: [] };
 }
 
 /**
  * Voicing step for the Imperial Dispatch. Uses Sadaltager (or the configured voice)
- * for a crisp, knowledgeable intelligence briefing.
+ * for a crisp, knowledgeable intelligence briefing. The briefing is plain
+ * words with no performance cues (`cleanSpokenTranscript` strips any), so
+ * it reads as a briefing, not a drama.
  */
 export async function performImperialDispatch(
   ai: GeminiClient,
