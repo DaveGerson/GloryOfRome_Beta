@@ -46,6 +46,10 @@ import { countWords, formatTuningReport, runNarratorTuning, summarizeTuning } fr
 import { getNarratorProfileId, setNarratorProfileId, getNarratorVoiceChoice, getNarratorVoice, setNarratorVoice } from '../persistence/uiPrefs';
 import { useNarrationVoice, type UseNarrationVoiceArgs } from '../hooks/useNarrationVoice';
 import SettingsMenu from '../components/SettingsMenu';
+import { NARRATION_SETTINGS_COPY } from '../components/NarrationSettings';
+import { VOICE_CAST_COPY } from '../components/VoiceCastList';
+import { CUSTOM_NARRATOR_COPY } from '../components/CustomNarratorEditor';
+import { deterministicCast } from '../narration/voiceCast';
 import { renderHook } from './renderHook';
 import template from '../narration/tuning/narrator.template.json';
 import fixtures from '../narration/tuning/fixtures.json';
@@ -382,11 +386,52 @@ describe('Settings: narrator and voice', () => {
   const voiceSelect = (host: HTMLElement) => host.querySelector<HTMLSelectElement>('select[aria-label="Voice"]')!;
   const choices = (narrators: NarratorProfile[]) => narrators.map(({ id, name, description, voice }) => ({ id, name, description, voiceName: voice.voiceName }));
 
-  it('the narration selections stay hidden while the voice is silent', () => {
-    const silent = renderSettings({ narrationVoiceMode: 'off', narrators: choices([DRAMATIC_READER_NARRATOR, HERALD]), narratorId: 'senatorial-partner', onSetNarrator: vi.fn() });
-    expect(styleSelect(silent.host)).toBeNull();
-    expect(silent.host.querySelector('select[aria-label="Voice"]')).toBeNull();
+  it('while SILENT every narration section is shown but disabled, with the hint - only the mode stays live', () => {
+    const julia = { entityId: 'julia', name: 'Julia Mamaea', position: 'Regent', entityType: 'individual' as const };
+    const cast = deterministicCast([julia], { narratorId: 'senatorial-partner', voiceName: 'Enceladus' });
+    const handlers = {
+      onSetNarrator: vi.fn(), onSetNarratorVoice: vi.fn(), onSetVoiceStyle: vi.fn(), onSetNarratorCharacter: vi.fn(),
+      onOverrideCastMember: vi.fn(), onResetCastMember: vi.fn(), onRecast: vi.fn(), onSaveCustomNarrator: vi.fn(), onDeleteCustomNarrator: vi.fn(),
+    };
+    const silent = renderSettings({
+      narrationVoiceMode: 'off', narrators: choices([DRAMATIC_READER_NARRATOR, HERALD]), narratorId: 'in-character',
+      narratorCharacters: [{ entityId: 'julia', name: 'Julia Mamaea', standing: 'Regent' }], narratorCharacterId: 'julia',
+      narratorVoiceChoice: null, narratorOwnVoice: 'Enceladus', voiceStyleChoice: null,
+      voiceCast: cast, castCharacters: [julia], canRecast: true, customNarrators: [], ...handlers,
+    });
+    const hint = [...silent.host.querySelectorAll('p')].find(p => p.textContent === NARRATION_SETTINGS_COPY.silentHint)!;
+    expect(hint).toBeDefined();
+    const described = (el: Element) => (el.getAttribute('aria-describedby') ?? '').split(' ').includes(hint.id);
+    // The mode control is live.
+    expect(silent.host.querySelector<HTMLButtonElement>('[role="radio"]')!.disabled).toBe(false);
+    // Narration style, the narrating character, voice and voice style: shown, disabled, pointing at the hint.
+    for (const label of ['Narration style', NARRATION_SETTINGS_COPY.characterLabel, 'Voice', NARRATION_SETTINGS_COPY.styleOfVoiceLabel]) {
+      const select = silent.host.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`);
+      expect(select, label).not.toBeNull();
+      expect(select!.disabled, label).toBe(true);
+      expect(described(select!), label).toBe(true);
+    }
+    expect(styleSelect(silent.host)!.value).toBe('in-character');
+    // The cast and "Your narrators": still openable to read, every edit disabled, described by the hint.
+    for (const disclosure of [VOICE_CAST_COPY.disclosure, CUSTOM_NARRATOR_COPY.disclosure]) {
+      const toggle = [...silent.host.querySelectorAll('button')].find(b => b.textContent?.includes(disclosure))!;
+      expect(toggle, disclosure).toBeDefined();
+      act(() => toggle.click());
+      const panel = document.getElementById(toggle.getAttribute('aria-controls')!) as HTMLFieldSetElement;
+      expect(panel.tagName).toBe('FIELDSET');
+      expect(panel.disabled).toBe(true);
+      expect(described(panel)).toBe(true);
+    }
+    expect(silent.host.querySelector('select[aria-label="Voice for Julia Mamaea"]')!.matches(':disabled')).toBe(true);
+    for (const fn of Object.values(handlers)) expect(fn).not.toHaveBeenCalled();
     silent.cleanup();
+
+    // On request: the same sections, enabled, and no hint.
+    const on = renderSettings({ narrators: choices([DRAMATIC_READER_NARRATOR, HERALD]), narratorId: 'senatorial-partner', ...handlers, voiceCast: cast, castCharacters: [julia] });
+    expect(styleSelect(on.host)!.disabled).toBe(false);
+    expect(on.host.querySelector<HTMLSelectElement>('select[aria-label="Voice"]')!.disabled).toBe(false);
+    expect(on.host.textContent).not.toContain(NARRATION_SETTINGS_COPY.silentHint);
+    on.cleanup();
   });
 
   it('offers each deployed narrator in the style select, describes the chosen one, and reports a choice', () => {

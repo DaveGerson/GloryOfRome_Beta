@@ -50,6 +50,9 @@ export interface VoiceCastListProps {
   canRecast: boolean;
   recastStatus: RecastStatus;
   onRecast: () => void;
+  /** Shown but not editable (while the narration voice is SILENT); `describedBy` names the hint. */
+  disabled?: boolean;
+  describedBy?: string;
 }
 
 /** A style field that commits on blur or Enter, so a keystroke is never a save. */
@@ -123,7 +126,7 @@ const CastRow: React.FC<RowProps> = ({ name, standing, voiceName, style, rationa
  * reports; the cast lives in hooks/useVoiceCast.ts.
  */
 export const VoiceCastList: React.FC<VoiceCastListProps> = ({
-  cast, characters, narrator, onOverride, onReset, canRecast, recastStatus, onRecast,
+  cast, characters, narrator, onOverride, onReset, canRecast, recastStatus, onRecast, disabled = false, describedBy,
 }) => {
   const ids = useId();
   const [open, setOpen] = useState(false);
@@ -141,7 +144,7 @@ export const VoiceCastList: React.FC<VoiceCastListProps> = ({
         <span aria-hidden="true">{open ? '▾' : '▸'}</span> {VOICE_CAST_COPY.disclosure} ({known.length + 1})
       </button>
       {open && (
-        <div id={`${ids}-panel`} className="gor-narrator-editor-panel">
+        <fieldset id={`${ids}-panel`} className="gor-narrator-editor-panel gor-fieldset-plain" disabled={disabled} aria-describedby={disabled ? describedBy : undefined}>
           <p className="gor-config-note" style={{ marginTop: 0 }}>{VOICE_CAST_COPY.intro}</p>
           <ul className="gor-cast-list" aria-label={VOICE_CAST_COPY.disclosure}>
             <CastRow
@@ -180,7 +183,7 @@ export const VoiceCastList: React.FC<VoiceCastListProps> = ({
           </div>
           <p className="gor-config-note" id={`${ids}-recast-note`}>{canRecast ? VOICE_CAST_COPY.recastNote : VOICE_CAST_COPY.recastUnavailable}</p>
           <p className="gor-config-note" role="status" aria-live="polite" style={{ minHeight: status ? undefined : 0, margin: status ? undefined : 0 }}>{status}</p>
-        </div>
+        </fieldset>
       )}
     </div>
   );

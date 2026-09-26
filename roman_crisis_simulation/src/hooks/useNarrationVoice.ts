@@ -49,6 +49,10 @@
  * 'unavailable' and the composer's standing "No token on this device"
  * notice - the existing missing-key path - says why.
  *
+ * SILENT (the default): nothing is called, ever - not a prep call, not a TTS
+ * call. Every committed GM narration still carries its control, disabled,
+ * reading 'silent', whose line points to Settings.
+ *
  * Nothing here is persisted. Audio lives in the player's in-memory cache
  * and every object URL is revoked on eviction and on unmount.
  */
@@ -81,10 +85,12 @@ import {
 } from '../persistence/uiPrefs';
 
 /**
- * What one chat bubble's control shows. `undefined` (no control at all) is
- * decided by the caller: voice off, or not a committed GM narration.
+ * What one chat bubble's control shows. `undefined` (no control at all)
+ * means only: not a committed GM narration. 'silent' (the voice is SILENT)
+ * and 'unavailable' (no key) are shown, disabled, with a pointer - never
+ * hidden, so the player can always find the voice.
  */
-export type NarrationVoiceControlState = NarrationVoiceStatus | 'unavailable';
+export type NarrationVoiceControlState = NarrationVoiceStatus | 'unavailable' | 'silent';
 
 export interface UseNarrationVoiceArgs {
     ai: GeminiClient;
@@ -210,9 +216,12 @@ export function useNarrationVoice({
 
     const canReachVoice = isMockMode || Boolean(resolvedApiKey);
     const canReachVoiceRef = useRef(canReachVoice);
+    // SILENT makes no call, whatever asks: the stable toggle reads this too.
+    const silentRef = useRef(mode === 'off');
     useEffect(() => {
         canReachVoiceRef.current = canReachVoice;
-    }, [canReachVoice]);
+        silentRef.current = mode === 'off';
+    }, [canReachVoice, mode]);
 
     // The renderer follows the current client, narrator, voice and style.
     // The variant keeps a Mock Mode tone - or another narrator's, voice's or
@@ -336,13 +345,14 @@ export function useNarrationVoice({
     // Stable for the App's lifetime, so memoised ChatMessages never re-render
     // for a new callback identity.
     const toggleNarrationVoice = useCallback((index: number, text: string) => {
-        if (!canReachVoiceRef.current) return;
+        if (!canReachVoiceRef.current || silentRef.current) return;
         player.toggle(index, text);
     }, [player]);
 
     /** The control state for message `index`, or undefined when it gets no control. */
     const narrationVoiceStateFor = useCallback((message: Message, index: number): NarrationVoiceControlState | undefined => {
-        if (mode === 'off' || message.sender !== 'gm') return undefined;
+        if (message.sender !== 'gm') return undefined;
+        if (mode === 'off') return 'silent';
         if (!canReachVoice) return 'unavailable';
         return playback.index === index ? playback.status : 'idle';
     }, [mode, canReachVoice, playback]);

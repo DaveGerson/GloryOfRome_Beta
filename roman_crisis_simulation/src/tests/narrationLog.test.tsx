@@ -460,6 +460,8 @@ describe('SILENT holds in the log (PR #12 review)', () => {
     const replay = [...panel.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.includes('Hear it again'))!;
     expect(replay.disabled).toBe(true);
     expect(panel.textContent).toContain('The voice is silent. Turn it on in Settings to hear this again.');
+    // The hint describes the disabled replay button.
+    expect(document.getElementById(replay.getAttribute('aria-describedby')!)?.textContent).toBe('The voice is silent. Turn it on in Settings to hear this again.');
     act(() => root.unmount());
     host.remove();
   });

@@ -235,7 +235,7 @@ const App: React.FC = () => {
     // replay that never re-runs the narrator (narration/narrationLog.ts).
     const { narrationLogEntries, toggleReplay, replayStateFor, stopReplay, clearLog } = useNarrationLog({ ai, isMockMode, resolvedApiKey, narrationVoiceMode });
     // "Hear them speak": a private-scene NPC's committed lines in their own
-    // voice - offered only while the narration voice is on, off by default.
+    // voice - always shown (disabled with a pointer while SILENT), off by default.
     const privateSceneNpcVoice = usePrivateSceneVoice({
         ai, isMockMode, resolvedApiKey, narrationVoiceMode, voiceCast: effectiveCast, week: worldState.week,
     });
@@ -428,15 +428,14 @@ const App: React.FC = () => {
                                                     npcVoice={privateSceneNpcVoice}
                                                 />
                                             )}
-                                            {(narrationVoiceMode !== 'off' || narrationLogEntries.length > 0) && (
-                                                <NarrationLog
-                                                    entries={narrationLogEntries}
-                                                    stateFor={replayStateFor}
-                                                    onToggle={toggleReplay}
-                                                    onClear={clearLog}
-                                                    onClose={stopReplay}
-                                                />
-                                            )}
+                                            {/* Always present: the text log stays readable while SILENT; replay is silenced (useNarrationLog). */}
+                                            <NarrationLog
+                                                entries={narrationLogEntries}
+                                                stateFor={replayStateFor}
+                                                onToggle={toggleReplay}
+                                                onClear={clearLog}
+                                                onClose={stopReplay}
+                                            />
                                             {isGmConsoleEnabled && (
                                                 <Tooltip wide label={turnHistory.length > 0 ? "The Fates' ledger — every thread and die of the simulation, recorded." : 'The ledger opens once a turn has been played.'}>
                                                     <Button

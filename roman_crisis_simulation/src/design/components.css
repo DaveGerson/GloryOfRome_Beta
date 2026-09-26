@@ -59,6 +59,8 @@
 .gor-switch input:checked{background:var(--gold-600);border-color:var(--gold-600)}
 .gor-switch input:checked::before{transform:translateX(17px);background:var(--parchment-050)}
 .gor-switch input:focus-visible{outline:none;box-shadow:var(--focus-ring)}
+.gor-switch input:disabled{cursor:not-allowed;opacity:.55}
+.gor-switch:has(input:disabled){cursor:not-allowed;color:var(--text-muted)}
 .gor-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border-subtle)}
 .gor-tab{all:unset;position:relative;cursor:pointer;font-family:var(--font-display);font-size:13px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);padding:10px 16px;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color var(--duration-fast) var(--ease-standard)}
 .gor-tab:hover{color:var(--text-heading)}
@@ -605,6 +607,8 @@
 .gor-narrator-editor-toggle:hover{color:var(--gold-600)}
 .gor-narrator-editor-toggle:focus-visible{box-shadow:var(--focus-ring)}
 .gor-narrator-editor-panel{margin-top:8px;padding:10px 12px;background:var(--surface-inset);box-shadow:var(--shadow-inset);border-radius:var(--radius-sm)}
+.gor-fieldset-plain{border:0;min-width:0;margin-left:0;margin-right:0;margin-bottom:0}
+.gor-fieldset-plain:disabled{color:var(--text-muted)}
 .gor-narrator-editor-list{list-style:none;margin:6px 0 8px;padding:0;display:flex;flex-direction:column;gap:6px}
 .gor-narrator-editor-list li{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;padding-bottom:6px;border-bottom:1px solid var(--border-faint)}
 .gor-narrator-editor-name{font-weight:600;color:var(--text-heading)}

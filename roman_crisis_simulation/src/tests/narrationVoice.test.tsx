@@ -124,12 +124,31 @@ const click = (button: HTMLButtonElement | null) => act(() => { button!.click();
 const settle = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
 
 describe('the control', () => {
-  it('renders nothing while the voice is off (the default)', () => {
-    const { ai } = makeAi();
+  it('while SILENT (the default) the control is still shown on every GM narration - disabled, with the Settings hint, and no call', () => {
+    const { ai, generateContent } = makeAi();
     const view = mount({ ai });
     expect(getNarrationVoiceMode()).toBe('off');
-    expect(buttons()).toHaveLength(0);
+    expect(buttons()).toHaveLength(2);
+    for (const text of [GM_A, GM_B]) {
+      const button = buttonIn(text)!;
+      expect(button.textContent).toContain(NARRATION_VOICE_COPY.button);
+      expect(button.disabled).toBe(true);
+      const hint = document.getElementById(button.getAttribute('aria-describedby')!);
+      expect(hint?.textContent).toBe(NARRATION_VOICE_COPY.silent);
+    }
+    expect(NARRATION_VOICE_COPY.silent).toMatch(/Settings/);
+    act(() => buttonIn(GM_A)!.click());
     view.unmount();
+    // The hook itself refuses too: a toggle while SILENT makes no call, in Mock Mode or with a key.
+    for (const isMockMode of [false, true]) {
+      const hook = renderHook(useNarrationVoice, { ai, isMockMode, resolvedApiKey: 'k', messages: MESSAGES, gameState: GameState.AWAITING_PLAYER_INPUT });
+      expect(hook.current.narrationVoiceStateFor(MESSAGES[GM_A_INDEX], GM_A_INDEX)).toBe('silent');
+      expect(hook.current.narrationVoiceStateFor(MESSAGES[1], 1)).toBeUndefined();
+      act(() => hook.current.toggleNarrationVoice(GM_A_INDEX, GM_A));
+      expect(hook.current.narrationPlayback.index).toBeNull();
+      hook.unmount();
+    }
+    expect(generateContent).not.toHaveBeenCalled();
   });
 
   it('renders only on committed GM narration - not player, monologue, ribbon or the streaming bubble', () => {

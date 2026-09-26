@@ -10,6 +10,7 @@ import { createFocusTrap } from './ui/focusTrap';
 import { PrivateSceneShelf, SCENE_VOICE_COPY, TranscriptLine } from './PrivateSceneShelf';
 import { Switch } from './ui/Forms';
 import type { PrivateSceneNpcVoice } from '../hooks/usePrivateSceneVoice';
+import { NARRATION_VOICE_COPY } from './Chat';
 
 export function replacePrivateSceneForCommit<T extends { sceneId: string }>(
   scenes: readonly T[], candidate: T,
@@ -37,8 +38,9 @@ export interface PrivateSceneProps {
   onLastWord(sceneId: string): void;
   onSkipLastWord(sceneId: string): void;
   /**
-   * "Hear them speak" (hooks/usePrivateSceneVoice.ts): present only while the
-   * narration voice is not SILENT. Speaks committed NPC lines only.
+   * "Hear them speak" (hooks/usePrivateSceneVoice.ts): always shown; disabled
+   * with a pointer while the narration voice is SILENT or there is no key.
+   * Speaks committed NPC lines only.
    */
   npcVoice?: PrivateSceneNpcVoice;
 }
@@ -169,14 +171,21 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
       </header>
       {npcVoice && (
         <div className="gor-scene-voice">
+          {/* Always shown: while SILENT (or with no key) it is disabled, and the hint says where to go. */}
           <Switch
             id="private-scene-voices"
             checked={npcVoice.enabled}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => npcVoice.onSetEnabled(e.target.checked)}
-            aria-describedby="private-scene-voices-note"
+            disabled={npcVoice.blocked !== null}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => { if (npcVoice.blocked === null) npcVoice.onSetEnabled(e.target.checked); }}
+            aria-describedby={npcVoice.blocked ? 'private-scene-voices-note private-scene-voices-hint' : 'private-scene-voices-note'}
             label={SCENE_VOICE_COPY.toggle}
           />
           <p className="gor-config-note" id="private-scene-voices-note" style={{ margin: '2px 0 0' }}>{SCENE_VOICE_COPY.toggleNote}</p>
+          {npcVoice.blocked && (
+            <p className="gor-config-note" id="private-scene-voices-hint" style={{ margin: '2px 0 0' }}>
+              {npcVoice.blocked === 'silent' ? NARRATION_VOICE_COPY.silent : NARRATION_VOICE_COPY.unavailable}
+            </p>
+          )}
         </div>
       )}
       {/* A failed continuation: the hour is charged on invitation, not on failure. Say so, or nobody risks a retry. */}
