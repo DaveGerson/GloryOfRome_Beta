@@ -54,10 +54,10 @@ export const NARRATION_SETTINGS_COPY = {
     styleOfVoiceLabel: 'Voice style',
     asWrittenNote: 'The narrator writes in its own manner.',
     styledNote: 'Shapes how the narrator writes for the voice: pace, rhythm, word choice.',
-    asCast: (name: string) => `As cast — ${name}`,
-    castHint: 'Cast by the casting director.',
     castVoice: (voice: string) => `As cast — ${voice}`,
     castVoiceNote: 'The voice the casting gave this narrator. Choose another to override it.',
+    /** The narrator's row in "The cast": the reader is never the casting's to choose. */
+    narratorRowNote: 'Reads in its own voice unless you choose another. The casting never changes the narrator.',
 } as const;
 
 export interface NarrationSettingsProps {
@@ -85,11 +85,7 @@ export interface NarrationSettingsProps {
     customNarrators?: readonly CustomNarrator[];
     onSaveCustomNarrator?: (draft: CustomNarratorDraft) => CustomNarratorSaveResult;
     onDeleteCustomNarrator?: (id: string) => void;
-    /** Whether the player chose the narration style (else the voice cast did). */
-    narratorChosenExplicitly?: boolean;
-    /** The reader the voice cast chose for this campaign. */
-    castNarratorId?: string | null;
-    /** The narrator's own voice and style come from the voice cast. */
+    /** The narrator's own voice and style come from the voice cast (a narrator in character). */
     narratorVoiceFromCast?: boolean;
     /** The campaign's voice cast (hooks/useVoiceCast.ts) and the known individuals it covers. */
     voiceCast?: VoiceCast | null;
@@ -116,7 +112,7 @@ export const NarrationSettings: React.FC<NarrationSettingsProps> = ({
     narratorVoiceChoice, narratorOwnVoice, onSetNarratorVoice,
     voiceStyleChoice = null, narratorOwnStyle = null, onSetVoiceStyle,
     customNarrators = [], onSaveCustomNarrator, onDeleteCustomNarrator,
-    narratorChosenExplicitly = true, castNarratorId = null, narratorVoiceFromCast = false,
+    narratorVoiceFromCast = false,
     voiceCast = null, castCharacters = [],
     canRecast = false, recastStatus = 'idle', onRecast, onOverrideCastMember, onResetCastMember,
 }) => {
@@ -145,10 +141,8 @@ export const NarrationSettings: React.FC<NarrationSettingsProps> = ({
         : chosenCustom
             ? (chosenCustom.description || CUSTOM_NARRATOR_DEFAULT_DESCRIPTION)
             : chosenPreset?.description;
-    // With no explicit choice, the cast's reader performs: the select shows "As cast — <reader>".
-    const castReader = castNarratorId ? narrators.find(n => n.id === castNarratorId) : undefined;
-    const followingCast = Boolean(castReader) && !narratorChosenExplicitly;
-    const selectValue = followingCast ? '' : inCharacter ? IN_CHARACTER_NARRATOR_ID : (chosenCustom?.id ?? chosenPreset?.id ?? '');
+    // With no explicit choice the Dramatic Reader (the first preset) performs, and the select shows it.
+    const selectValue = inCharacter ? IN_CHARACTER_NARRATOR_ID : (chosenCustom?.id ?? chosenPreset?.id ?? '');
     const effectiveStyle = voiceStyleChoice ?? narratorOwnStyle;
     const curatedIds = new Set<string>(NARRATOR_VOICES.map(v => v.id));
     const voiceNote = voiceChoice
@@ -181,7 +175,6 @@ export const NarrationSettings: React.FC<NarrationSettingsProps> = ({
                             onChange={e => onSetNarrator(e.target.value)}
                             style={narrationSelectStyle}
                         >
-                            {castReader && <option value="">{NARRATION_SETTINGS_COPY.asCast(castReader.name)}</option>}
                             <optgroup label={NARRATION_SETTINGS_COPY.readersGroup}>
                                 {narrators.map(n => <option key={n.id} value={n.id}>{n.name}</option>)}
                             </optgroup>
@@ -206,7 +199,6 @@ export const NarrationSettings: React.FC<NarrationSettingsProps> = ({
                         )}
                         <p className="gor-config-note" id={`${ids}-style-note`}>
                             {styleNote}
-                            {followingCast && <> <em>{NARRATION_SETTINGS_COPY.castHint}</em></>}
                         </p>
                     </div>
                 </>
@@ -267,13 +259,13 @@ export const NarrationSettings: React.FC<NarrationSettingsProps> = ({
                         cast={voiceCast}
                         characters={castCharacters}
                         narrator={{
-                            readerName: castReader?.name ?? narrators[0]?.name ?? '',
-                            voiceName: voiceChoice ?? voiceCast.narrator.voiceName,
+                            readerName: inCharacter && character ? character.name : chosenCustom?.name ?? chosenPreset?.name ?? '',
+                            voiceName: voiceChoice ?? ownVoice,
                             style: voiceStyleChoice?.preset === 'custom'
                                 ? sanitizeVoiceStyleText(voiceStyleChoice.text)
                                 : voiceStyleChoice && voiceStyleChoice.preset !== 'as-written' ? voiceStyleLabel(voiceStyleChoice)
-                                    : voiceStyleChoice ? '' : voiceCast.narrator.style,
-                            rationale: voiceCast.narrator.rationale,
+                                    : '',
+                            rationale: NARRATION_SETTINGS_COPY.narratorRowNote,
                             overridden: voiceChoice !== null || voiceStyleChoice !== null,
                             onVoice: handleVoiceChange,
                             onStyle: text => onSetVoiceStyle?.(text ? { preset: 'custom', text } : { preset: 'as-written' }),

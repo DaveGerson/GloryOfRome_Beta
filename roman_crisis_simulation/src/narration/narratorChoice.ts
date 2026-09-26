@@ -23,14 +23,14 @@
  * a `key` that separates one narrator's performances from another's - in
  * the clip cache and in the narration log's transcript reuse.
  *
- * The campaign's voice cast (narration/voiceCast.ts) supplies the defaults:
- *  - with no explicit narration style, the reader the casting chose;
- *  - a preset that IS the cast's reader performs in the cast narrator's
- *    voice and delivery note (another preset keeps its own voice, tuned
- *    with it);
- *  - a narrator in character performs in THAT CHARACTER's cast voice and
- *    delivery - never the narrator's (the bug where Julia Mamaea narrated in
- *    Enceladus, a man's voice).
+ * The default is ALWAYS the Dramatic Reader, in its own voice (Enceladus)
+ * and its own written manner: with no explicit narration style it performs,
+ * whatever the campaign's voice cast (narration/voiceCast.ts) holds. The
+ * cast never chooses the reader, nor re-voices a preset - the owner's
+ * advisor sounds the same in every campaign. The cast still voices
+ * characters: a narrator in character performs in THAT CHARACTER's cast
+ * voice and delivery - never the narrator's (the bug where Julia Mamaea
+ * narrated in Enceladus, a man's voice).
  * The player's explicit Settings voice and voice style still win over all
  * of it (hooks/useNarrationVoice.ts); a custom narrator keeps the voice and
  * style its author gave it.
@@ -45,7 +45,7 @@ import { DRAMATIC_READER_NARRATOR, narratorById, type NarratorProfile } from './
 import { customNarratorProfile, type CustomNarrator } from './customNarrators';
 import { hashText } from './narrationPlayer';
 import type { VoiceStyle } from './voiceStyle';
-import { castStyle, memberVoice, type VoiceCast } from './voiceCast';
+import { memberVoice, type VoiceCast } from './voiceCast';
 
 /** The Settings value for "In character…". */
 export const IN_CHARACTER_NARRATOR_ID = 'in-character';
@@ -106,9 +106,7 @@ export interface ResolvedNarrator {
   key: string;
   /** Set for a narrator in character. */
   character?: NarratorCharacter;
-  /** The reader was chosen by the voice cast, not by the player. */
-  castPick?: boolean;
-  /** The voice and delivery come from the voice cast (the cast narrator's, or the character's). */
+  /** The voice and delivery come from the voice cast (a narrator in character's own). */
   castVoice?: boolean;
 }
 
@@ -120,7 +118,7 @@ export interface NarratorSelection {
   presets: readonly NarratorProfile[];
   customs: readonly CustomNarrator[];
   characters: readonly NarratorCharacter[];
-  /** The campaign's voice cast, when there is one (narration/voiceCast.ts). */
+  /** The campaign's voice cast, when there is one (narration/voiceCast.ts): voices a narrator in character, nothing else. */
   cast?: VoiceCast | null;
 }
 
@@ -137,12 +135,11 @@ export function chosenCharacter(characterId: string | null, characters: readonly
  * The narrator a stored choice resolves to. An unknown or retired id, a
  * deleted custom narrator, or "In character…" with no one known yet all
  * fall back to the built-in, so a choice can never leave the voice without
- * a narrator.
+ * a narrator. No choice at all is the built-in too - never the cast's pick.
  */
 export function resolveNarrator(selection: NarratorSelection): ResolvedNarrator {
   const { characterId, presets, customs, characters, cast = null } = selection;
-  const castPick = !selection.narratorId && Boolean(cast);
-  const narratorId = selection.narratorId || cast?.narrator.narratorId || null;
+  const narratorId = selection.narratorId || null;
   if (narratorId === IN_CHARACTER_NARRATOR_ID) {
     const character = chosenCharacter(characterId, characters);
     if (character) {
@@ -166,12 +163,5 @@ export function resolveNarrator(selection: NarratorSelection): ResolvedNarrator 
     return { kind: 'custom', profile: customProfile, ownStyle: custom.voiceStyle, allowedNames: [], displayName: custom.name, key: keyFor(customProfile) };
   }
   const preset = narratorById(narratorId === IN_CHARACTER_NARRATOR_ID ? null : narratorId, presets);
-  if (cast && preset.id === cast.narrator.narratorId) {
-    const profile: NarratorProfile = { ...preset, voice: { ...preset.voice, voiceName: cast.narrator.voiceName } };
-    return {
-      kind: 'preset', profile, ownStyle: castStyle(cast.narrator.style), allowedNames: [], displayName: profile.name,
-      key: keyFor(profile), castPick, castVoice: true,
-    };
-  }
-  return { kind: 'preset', profile: preset, ownStyle: null, allowedNames: [], displayName: preset.name, key: keyFor(preset), castPick: castPick && preset.id === narratorId };
+  return { kind: 'preset', profile: preset, ownStyle: null, allowedNames: [], displayName: preset.name, key: keyFor(preset) };
 }

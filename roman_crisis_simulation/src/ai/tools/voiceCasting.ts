@@ -5,9 +5,8 @@
  * prep model (`GEMINI_NARRATION_PREP` at LOW thinking) that casts the
  * campaign's voices (ai/prompts/voiceCasting.ts). Two modes:
  *
- *  - 'full': the narrator (a deployed reader, a voice, a delivery note) and
- *    every individual the player knows. Runs once, when a campaign's voice is
- *    first needed, and again on "Recast everyone".
+ *  - 'full': every individual the player knows. Runs once, when a
+ *    campaign's voice is first needed, and again on "Recast everyone".
  *  - 'newcomers': only the individuals not yet cast, around the voices
  *    already taken. Runs when someone new becomes known and the voice is on.
  *
@@ -16,7 +15,15 @@
  * deterministic casting instead (narration/voiceCast.ts); every note is
  * sanitized like a player's custom voice style and capped at 80 characters;
  * every rationale is cleaned and capped. `ensureUniqueCast` then runs over
- * the whole cast. A failed or refused call falls back to the deterministic
+ * the whole cast.
+ *
+ * The director does NOT choose the narrator (reader, voice or manner): the
+ * cast's narrator slot is always the default reader in its own voice
+ * (`fallbackNarrator`), listed to the director as a voice already taken. The
+ * response schema no longer asks for a narrator; `zVoiceCasting` still
+ * accepts one, so an older-shaped answer parses - and it is ignored.
+ *
+ * A failed or refused call falls back to the deterministic
  * casting for everyone asked - it never throws and never blocks play.
  *
  * Mock Mode: no call; the deterministic casting.
@@ -33,10 +40,7 @@ import {
   generateStructured,
   type GeminiClient,
 } from '../core/geminiService';
-import {
-  buildVoiceCastingPrompt,
-  type CastingNarratorOption,
-} from '../prompts/voiceCasting';
+import { buildVoiceCastingPrompt } from '../prompts/voiceCasting';
 import {
   MAX_CAST_RATIONALE_CHARS,
   assembleCast,
@@ -53,7 +57,10 @@ import {
 import { VOICE_CATALOG, catalogVoice, isCatalogVoice } from '../../narration/voiceCatalog';
 import { cleanPlayerText } from '../../narration/customNarrators';
 
-/** The shape the model returns; semantic validation happens member by member afterwards. */
+/**
+ * The shape the model returns; semantic validation happens member by member
+ * afterwards. `narrator` is accepted for an older-shaped answer and ignored.
+ */
 export const zVoiceCasting = z.object({
   narrator: z.object({
     narratorId: z.string(),
@@ -87,16 +94,6 @@ const castEntrySchema = {
 export const VoiceCastingSchema = {
   type: Type.OBJECT,
   properties: {
-    narrator: {
-      type: Type.OBJECT,
-      properties: {
-        narratorId: { type: Type.STRING },
-        voiceName: { type: Type.STRING, enum: VOICE_IDS },
-        style: { type: Type.STRING },
-        rationale: { type: Type.STRING },
-      },
-      required: ['narratorId', 'voiceName', 'style', 'rationale'],
-    },
     cast: { type: Type.ARRAY, items: castEntrySchema },
   },
   required: ['cast'],
@@ -111,11 +108,9 @@ export interface CastVoicesInput {
   player: { name: string; position?: string } | null;
   /** 'full': everyone the player knows. 'newcomers': only those not yet cast. */
   candidates: readonly CastingCandidate[];
-  /** The deployed readers the director may choose among. */
-  narrators: readonly CastingNarratorOption[];
-  /** The reader, and its voice, the cast falls back to. */
+  /** The narrator's slot: the default reader in its own voice, always. */
   defaultNarrator: DefaultNarrator;
-  /** The cast so far: its narrator and members are kept in 'newcomers' mode, its overrides in both. */
+  /** The cast so far: its members are kept in 'newcomers' mode, its overrides in both. */
   existing: VoiceCast | null;
 }
 
@@ -135,7 +130,7 @@ function cleanRationale(raw: string): string {
  */
 export function validateCasting(
   answer: VoiceCastingAnswer | null,
-  input: Pick<CastVoicesInput, 'mode' | 'candidates' | 'narrators' | 'defaultNarrator' | 'existing'>,
+  input: Pick<CastVoicesInput, 'candidates' | 'defaultNarrator'>,
 ): { narrator: CastNarrator; proposals: ProposedMember[]; fallbackIds: string[] } {
   const byId = new Map(input.candidates.map(c => [c.entityId, c]));
   const accepted = new Map<string, ProposedMember>();
@@ -160,25 +155,9 @@ export function validateCasting(
     return fallbackProposal(candidate);
   });
 
-  let narrator: CastNarrator;
-  if (input.mode === 'newcomers' && input.existing) {
-    narrator = input.existing.narrator;
-  } else {
-    const raw = answer?.narrator;
-    const knownReader = raw && input.narrators.some(n => n.id === raw.narratorId);
-    if (raw && knownReader && isCatalogVoice(raw.voiceName)) {
-      narrator = {
-        narratorId: raw.narratorId,
-        voiceName: raw.voiceName,
-        style: sanitizeCastStyle(raw.style),
-        rationale: cleanRationale(raw.rationale),
-        source: 'agent',
-      };
-    } else {
-      narrator = fallbackNarrator(input.defaultNarrator);
-      fallbackIds.push('narrator');
-    }
-  }
+  // The narrator is never the director's to cast: whatever the answer says
+  // about it is ignored, and the default reader keeps its own voice.
+  const narrator: CastNarrator = fallbackNarrator(input.defaultNarrator);
   return { narrator, proposals, fallbackIds };
 }
 
@@ -188,20 +167,19 @@ export function validateCasting(
  */
 export async function castVoices(ai: GeminiClient, input: CastVoicesInput, isMockMode: boolean): Promise<CastVoicesResult> {
   let answer: VoiceCastingAnswer | null = null;
-  if (!isMockMode && input.candidates.length + (input.mode === 'full' ? 1 : 0) > 0) {
+  if (!isMockMode && input.candidates.length > 0) {
     const existingMembers = input.existing?.members ?? {};
     const { systemInstruction, prompt } = buildVoiceCastingPrompt({
       mode: input.mode,
       theme: input.theme,
       player: input.player,
       candidates: input.candidates,
-      narrators: input.narrators,
-      taken: input.mode === 'newcomers' && input.existing
-        ? [
-          { name: 'The narrator', voiceName: input.existing.narrator.voiceName, style: input.existing.narrator.style },
-          ...Object.values(existingMembers).map(m => ({ name: m.name, ...effectiveMember(m) })),
-        ]
-        : undefined,
+      taken: [
+        { name: 'The narrator', voiceName: input.defaultNarrator.voiceName, style: '' },
+        ...(input.mode === 'newcomers' && input.existing
+          ? Object.values(existingMembers).map(m => ({ name: m.name, ...effectiveMember(m) }))
+          : []),
+      ],
     });
     try {
       answer = await generateStructured<VoiceCastingAnswer>(ai, {

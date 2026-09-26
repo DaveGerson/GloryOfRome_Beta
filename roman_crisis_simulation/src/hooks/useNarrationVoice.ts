@@ -18,11 +18,12 @@
  *    the prep model's acted script - words and cues - (its delivery brief);
  *    the TTS input is that script and nothing else, always.
  *
- * Under all three sits the campaign's voice cast (narration/voiceCast.ts,
- * hooks/useVoiceCast.ts): with no explicit narration style, the reader the
- * casting chose performs, in the cast narrator's voice and delivery note; a
- * narrator in character performs in that character's cast voice and note.
- * Explicit choices always win (narration/narratorChoice.ts). The cast also
+ * With no explicit narration style, the Dramatic Reader performs, in its own
+ * voice (Enceladus) and manner - always, whatever the campaign's voice cast
+ * (narration/voiceCast.ts, hooks/useVoiceCast.ts) holds: the cast never
+ * picks the reader. A narrator in character performs in that character's
+ * cast voice and note. Explicit choices always win
+ * (narration/narratorChoice.ts). The cast also
  * tells the scriptwriter how the people a passage names speak: each named
  * member's player-visible note reaches the prep prompt's cast block
  * (`performNarration`'s `cast`), for every narrator, in character or not.
@@ -164,7 +165,7 @@ export function useNarrationVoice({
     // even before anyone is known, so the character list can explain itself.
     const narratorId = storedNarratorId === IN_CHARACTER_NARRATOR_ID ? IN_CHARACTER_NARRATOR_ID : narrator.id;
 
-    // '' clears the explicit choice: the campaign's cast chooses the reader again.
+    // '' clears the explicit choice: the Dramatic Reader reads again.
     const handleSetNarrator = useCallback((id: string) => {
         setStoredNarratorId(id || null);
         setNarratorProfileId(id || null);
@@ -351,10 +352,6 @@ export function useNarrationVoice({
         handleSetNarrationVoiceMode,
         narrators,
         narratorId,
-        /** Whether the player chose the narration style (else the cast, or the built-in, did). */
-        narratorChosenExplicitly: storedNarratorId !== null,
-        /** The reader the voice cast chose for this campaign, if any. */
-        castNarratorId: voiceCast?.narrator.narratorId ?? null,
         handleSetNarrator,
         narratorCharacters,
         narratorCharacterId: chosenCharacter(characterId, narratorCharacters)?.entityId ?? null,
@@ -364,7 +361,7 @@ export function useNarrationVoice({
         handleDeleteCustomNarrator,
         narratorVoiceChoice: voiceChoice,
         narratorOwnVoice: narrator.voice.voiceName,
-        /** The narrator's own voice and style come from the voice cast. */
+        /** The narrator's own voice and style come from the voice cast (a narrator in character). */
         narratorVoiceFromCast: Boolean(resolved.castVoice),
         handleSetNarratorVoice,
         voiceStyleChoice: styleChoice,

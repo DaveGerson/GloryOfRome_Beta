@@ -44,23 +44,19 @@ import type { KnowledgeClaim } from '../knowledge/store';
 import type { GameAction } from '../state/gameReducer';
 import type { GeminiClient } from '../ai/core/geminiService';
 import { castVoices } from '../ai/tools/voiceCasting';
-import type { CastingNarratorOption } from '../ai/prompts/voiceCasting';
 import {
   castingCandidatesFor, completeCast, withMemberOverride, withoutMemberOverride,
   type CastOverride, type DefaultNarrator, type VoiceCast,
 } from '../narration/voiceCast';
 import { updateSavedVoiceCast } from '../persistence/saveGame';
-import { DRAMATIC_READER_NARRATOR, NARRATORS } from '../narration/narrators';
+import { DRAMATIC_READER_NARRATOR } from '../narration/narrators';
 import type { NarrationVoiceMode } from '../persistence/uiPrefs';
 
-/** The cast's fallback narrator: the built-in Dramatic Reader in its own voice. */
+/** The cast's narrator slot, always: the built-in Dramatic Reader in its own voice (the cast never picks the reader). */
 export const DEFAULT_CAST_NARRATOR: DefaultNarrator = {
   narratorId: DRAMATIC_READER_NARRATOR.id,
   voiceName: DRAMATIC_READER_NARRATOR.voice.voiceName,
 };
-
-/** The deployed readers, as the casting director sees them. */
-export const CASTING_NARRATOR_OPTIONS: readonly CastingNarratorOption[] = NARRATORS.map(n => ({ id: n.id, name: n.name, description: n.description }));
 
 export interface CastBasisArgs {
   voiceCast: VoiceCast | null;
@@ -97,9 +93,7 @@ export interface UseVoiceCastArgs {
   basis: Pick<CastBasis, 'candidates' | 'effectiveCast'>;
   /** The scenario theme, embedded in the casting prompt as data. */
   metaNarrative: string;
-  /** The deployed readers the casting may choose among. */
-  narrators?: readonly CastingNarratorOption[];
-  /** The reader and voice the cast falls back to. */
+  /** The narrator's slot: the default reader and its voice. */
   defaultNarrator?: DefaultNarrator;
   /** Bumped at every campaign boundary (hooks/useCampaignTransactions.ts). */
   campaignGenerationRef: MutableRefObject<number>;
@@ -109,7 +103,7 @@ export type RecastStatus = 'idle' | 'casting' | 'done' | 'fell_back';
 
 export function useVoiceCast({
   ai, isMockMode, resolvedApiKey, narrationVoiceMode, gameState, voiceCast, dispatch,
-  playerEntity, basis, metaNarrative, narrators = CASTING_NARRATOR_OPTIONS, defaultNarrator = DEFAULT_CAST_NARRATOR, campaignGenerationRef,
+  playerEntity, basis, metaNarrative, defaultNarrator = DEFAULT_CAST_NARRATOR, campaignGenerationRef,
 }: UseVoiceCastArgs) {
   const { candidates, effectiveCast } = basis;
   const [recastStatus, setRecastStatus] = useState<RecastStatus>('idle');
@@ -150,7 +144,6 @@ export function useVoiceCast({
         theme: metaNarrative,
         player,
         candidates: effectiveMode === 'full' ? candidates : candidates.filter(c => !existing?.members[c.entityId]),
-        narrators,
         defaultNarrator,
         existing,
       }, isMockMode);
@@ -182,7 +175,7 @@ export function useVoiceCast({
       inFlightRef.current = false;
       if (dropped) setRetryTick(tick => tick + 1);
     }
-  }, [ai, isMockMode, candidates, metaNarrative, player, narrators, defaultNarrator, campaignGenerationRef, keep]);
+  }, [ai, isMockMode, candidates, metaNarrative, player, defaultNarrator, campaignGenerationRef, keep]);
 
   // The automatic casting: see the module header for exactly when.
   const canReach = isMockMode || Boolean(resolvedApiKey);

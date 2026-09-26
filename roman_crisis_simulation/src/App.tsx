@@ -215,7 +215,7 @@ const App: React.FC = () => {
     const { effectiveCast } = castBasis;
     const {
         narrationVoiceMode, handleSetNarrationVoiceMode, toggleNarrationVoice, narrationVoiceStateFor,
-        narrators, narratorId, narratorChosenExplicitly, castNarratorId, narratorVoiceFromCast, handleSetNarrator,
+        narrators, narratorId, narratorVoiceFromCast, handleSetNarrator,
         narratorCharacterId, handleSetNarratorCharacter,
         customNarrators, handleSaveCustomNarrator, handleDeleteCustomNarrator,
         narratorVoiceChoice, narratorOwnVoice, handleSetNarratorVoice,
@@ -543,8 +543,6 @@ const App: React.FC = () => {
                     voiceStyleChoice={voiceStyleChoice}
                     narratorOwnStyle={narratorOwnStyle}
                     onSetVoiceStyle={handleSetVoiceStyle}
-                    narratorChosenExplicitly={narratorChosenExplicitly}
-                    castNarratorId={castNarratorId}
                     narratorVoiceFromCast={narratorVoiceFromCast}
                     voiceCast={effectiveCast}
                     castCharacters={castBasis.candidates}

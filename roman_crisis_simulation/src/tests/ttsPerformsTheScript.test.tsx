@@ -135,7 +135,11 @@ describe('the TTS performs exactly the script, on every path, with a style chose
     };
     const styles: VoiceStyle[] = [];
 
-    // 1. The cast narrator's note (no explicit choice).
+    // 0. No explicit choice: the Dramatic Reader "As written" - the cast's
+    // narrator note is never read, so no delivery brief at all.
+    await perform();
+    // 1. The same passage in a chosen manner.
+    act(() => hook.current.handleSetVoiceStyle({ preset: 'custom', text: 'grave and warm' }));
     await perform();
     styles.push({ preset: 'custom', text: 'grave and warm' });
     // 2. A preset.
@@ -160,13 +164,16 @@ describe('the TTS performs exactly the script, on every path, with a style chose
     hook.unmount();
 
     const manners = styles.map(s => voiceStyleManner(s)!);
-    expect(prep()).toHaveLength(5);
-    prep().forEach((call, i) => {
+    expect(prep()).toHaveLength(6);
+    const [asWritten, ...styled] = prep();
+    expect(asWritten.contents).not.toContain('DELIVERY BRIEF');
+    expect(asWritten.contents).not.toContain('grave and warm');
+    styled.forEach((call, i) => {
       expect(call.contents).toContain('DELIVERY BRIEF');
       expect(call.contents).toContain(asPromptData(manners[i]));
     });
     const transcripts = [...log.getSnapshot()].reverse().map(e => e.transcript);
-    expect(transcripts).toHaveLength(5);
+    expect(transcripts).toHaveLength(6);
     expect(transcripts.every(t => t === ACTED)).toBe(true);
     expectScriptPerformed(tts(), transcripts, manners);
     expect(tts().every(c => c.contents === `## Transcript:\n${ACTED}`)).toBe(true);

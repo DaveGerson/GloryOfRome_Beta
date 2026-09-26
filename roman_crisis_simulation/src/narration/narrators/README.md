@@ -100,21 +100,25 @@ which adds no brief (see `../voiceStyle.ts`).
 
 ## The voice cast
 
-Each campaign also has a **voice cast** (`../voiceCast.ts`): a narrator,
-plus a voice and a short delivery note for every individual the player
-knows.
+Each campaign also has a **voice cast** (`../voiceCast.ts`): a voice and a
+short delivery note for every individual the player knows. It does **not**
+choose the narrator.
 
 - **Who casts it.** A casting director (`castVoices`,
   `ai/tools/voiceCasting.ts`) makes one structured call when the voice is
-  first needed. It sees only player-visible fields, and chooses from the
-  profiles in this folder. The director reads each profile's `id`, `name`
-  and `description`, so write the description for it as well as for the
-  player.
-- **The cast's reader performs by default.** When the player has not
-  chosen a narration style, the cast's reader performs, in the voice the
-  cast gave it, writing in the manner of its delivery note.
-- **The player's choice wins.** A reader the player picks explicitly keeps
-  the voice in its profile.
+  first needed. It sees only player-visible fields. It is never shown the
+  profiles in this folder and never picks a reader, a narrator voice or a
+  narrator manner.
+- **The Dramatic Reader is always the default.** When the player has not
+  chosen a narration style, the built-in Dramatic Reader performs, in its
+  own voice (Enceladus) and its own written manner, in every campaign. The
+  cast keeps a narrator slot only to reserve that voice, so no character is
+  given it. An older cast that named another reader, voice or note there
+  still loads; the choice is ignored and the slot re-seated.
+- **The player's choice wins.** A reader, voice or voice style the player
+  picks explicitly (Settings, or "Narrate as them" on a Personae card)
+  replaces the default. A reader keeps the voice in its profile unless the
+  player picks another.
 - **In character.** A character narrating "In character…" speaks in their
   own cast voice, and their note shapes how they tell it.
 - **Notes shape writing, never sound.** A delivery note is a manner of
@@ -122,8 +126,8 @@ knows.
   prep call exists it becomes that call's delivery brief; where none does
   (a private-scene NPC's committed line) the note is shown and sent
   nowhere, and the voice alone carries the character.
-- **Uniqueness.** No two cast members, the narrator included, share voice
-  and note.
+- **Uniqueness.** No two cast members share voice and note, and none takes
+  the narrator's voice while another remains.
 
 When the call fails, and in Mock Mode, a deterministic, register-aware rule
 casts everyone. A voice's register (feminine or masculine) is believed, not

@@ -7,8 +7,10 @@
  *
  *  - REGRESSION: "In character…" Julia Mamaea narrates in HER cast voice
  *    (a woman's), not the narrator's Enceladus;
- *  - the cast's reader, voice and note are the default narrator; explicit
- *    Settings choices always win;
+ *  - the Dramatic Reader is ALWAYS the default narrator, in its own voice
+ *    (Enceladus) and manner, even with a cast that names another reader,
+ *    voice or note (the "advisor missing" report); explicit Settings
+ *    choices always win;
  *  - a cast note shapes the prep model's writing (its delivery brief) and
  *    never reaches the TTS input;
  *  - hooks/useVoiceCast.ts: casts when the voice is first needed (never while
@@ -119,17 +121,42 @@ describe('the narrator speaks in the cast', () => {
     hook.unmount();
   });
 
-  it('with no explicit narration style, the cast\'s reader performs in the cast narrator\'s voice and note', () => {
-    const resolved = resolveNarrator({ ...base, narratorId: null, cast: { ...CAST, narrator: { ...CAST.narrator, narratorId: 'acta-diurna' } } });
-    expect(resolved.profile.id).toBe('acta-diurna');
-    expect(resolved.profile.voice.voiceName).toBe('Charon');
-    expect(resolved.ownStyle).toEqual({ preset: 'custom', text: 'grave and warm' });
-    expect(resolved.castPick).toBe(true);
+  it('REGRESSION: with no explicit narration style, the Dramatic Reader performs in Enceladus - even when the cast names another reader, voice and note', () => {
+    const actaCast: VoiceCast = { ...CAST, narrator: { ...CAST.narrator, narratorId: 'acta-diurna' } };
+    for (const cast of [CAST, actaCast, null]) {
+      const resolved = resolveNarrator({ ...base, narratorId: null, cast });
+      expect(resolved.kind).toBe('preset');
+      expect(resolved.profile).toBe(DRAMATIC_READER_NARRATOR);
+      expect(resolved.profile.voice.voiceName).toBe('Enceladus');
+      expect(resolved.ownStyle).toBeNull();
+      expect(resolved.castVoice).toBeFalsy();
+    }
     // Another reader chosen explicitly keeps the voice it was tuned with.
-    const other = resolveNarrator({ ...base, narratorId: 'acta-diurna' });
+    const other = resolveNarrator({ ...base, narratorId: 'acta-diurna', cast: actaCast });
     expect(other.profile.voice.voiceName).toBe('Gacrux');
     expect(other.ownStyle).toBeNull();
-    expect(other.castPick).toBeFalsy();
+  });
+
+  it('REGRESSION, end to end: a cast that picked the Acta Diurna still leaves the Dramatic Reader performing, in Enceladus', async () => {
+    localStorage.setItem('gloryOfRome:narrationVoiceMode', 'on_demand');
+    const { ai, generateContent } = makeAi();
+    const hook = renderHook(useNarrationVoice, {
+      ai, isMockMode: false, resolvedApiKey: 'k', messages: [{ sender: 'gm', text: NARRATION }] as Message[], gameState: GameState.AWAITING_PLAYER_INPUT,
+      narrators: [DRAMATIC_READER_NARRATOR, ACTA], narratorCharacters: characters,
+      voiceCast: { ...CAST, narrator: { ...CAST.narrator, narratorId: 'acta-diurna' } },
+    });
+    expect(hook.current.narratorId).toBe('senatorial-partner');
+    expect(hook.current.narratorOwnVoice).toBe('Enceladus');
+    expect(hook.current.narratorVoiceFromCast).toBe(false);
+    act(() => hook.current.toggleNarrationVoice(0, NARRATION));
+    await settle();
+    const calls = generateContent.mock.calls.map(c => c[0]);
+    const tts = calls.filter(c => c.config?.responseModalities);
+    expect(tts.map(voiceOf)).toEqual(['Enceladus']);
+    const prep = calls.filter(c => !c.config?.responseModalities);
+    expect(prep[0].config?.systemInstruction).toBe(DRAMATIC_READER_NARRATOR.prep.persona);
+    expect(prep[0].contents).not.toContain('grave and warm');
+    hook.unmount();
   });
 
   it('explicit Settings choices beat the cast: voice, voice style and narration style', async () => {
@@ -142,11 +169,9 @@ describe('the narrator speaks in the cast', () => {
       narrators: [DRAMATIC_READER_NARRATOR, ACTA], narratorCharacters: characters,
       voiceCast: { ...CAST, narrator: { ...CAST.narrator, narratorId: 'acta-diurna' } },
     });
-    expect(hook.current.narratorId).toBe('acta-diurna');
-    expect(hook.current.narratorChosenExplicitly).toBe(false);
-    act(() => hook.current.handleSetNarrator('senatorial-partner'));
     expect(hook.current.narratorId).toBe('senatorial-partner');
-    expect(hook.current.narratorChosenExplicitly).toBe(true);
+    act(() => hook.current.handleSetNarrator('acta-diurna'));
+    expect(hook.current.narratorId).toBe('acta-diurna');
     act(() => hook.current.toggleNarrationVoice(0, NARRATION));
     await settle();
     const tts = generateContent.mock.calls.map(c => c[0]).filter(c => c.config?.responseModalities);
@@ -154,10 +179,9 @@ describe('the narrator speaks in the cast', () => {
     expect(tts[0].contents).toBe(`## Transcript:\nHear it: ${NARRATION}`);
     const prep = generateContent.mock.calls.map(c => c[0]).filter(c => !c.config?.responseModalities);
     expect(prep[0].contents).toContain(asPromptData(voiceStyleManner({ preset: 'newsreader' })));
-    // Clearing the narration style hands the choice back to the cast.
+    // Clearing the narration style hands it back to the Dramatic Reader - never the cast's pick.
     act(() => hook.current.handleSetNarrator(''));
-    expect(hook.current.narratorId).toBe('acta-diurna');
-    expect(hook.current.narratorChosenExplicitly).toBe(false);
+    expect(hook.current.narratorId).toBe('senatorial-partner');
     hook.unmount();
   });
 
@@ -177,9 +201,10 @@ describe('the narrator speaks in the cast', () => {
     const calls = generateContent.mock.calls.map(c => c[0]);
     const tts = calls.filter(c => c.config?.responseModalities);
     const prep = calls.filter(c => !c.config?.responseModalities);
-    expect(tts.map(voiceOf)).toEqual(['Charon', 'Gacrux']);
+    // The Dramatic Reader in its own voice (the cast's narrator note is never read), then Julia in hers.
+    expect(tts.map(voiceOf)).toEqual(['Enceladus', 'Gacrux']);
     for (const call of tts) expect(call.contents).toBe(`## Transcript:\nHear it: ${NARRATION}`);
-    expect(prep[0].contents).toContain(asPromptData('grave and warm'));
+    expect(prep[0].contents).not.toContain(asPromptData('grave and warm'));
     expect(prep[1].contents).toContain(asPromptData('cool, imperious and measured'));
     hook.unmount();
   });
@@ -210,7 +235,6 @@ describe('useVoiceCast: when the casting director runs', () => {
     const cast = useVoiceCast({
       ai, isMockMode, resolvedApiKey: 'k', narrationVoiceMode: mode, gameState, voiceCast, dispatch,
       playerEntity, basis, metaNarrative: 'A crisis.', campaignGenerationRef: generationRef,
-      narrators: [{ id: 'senatorial-partner', name: 'The Dramatic Reader', description: 'Epic.' }],
     });
     return { voiceCast, basis, cast };
   }
@@ -234,7 +258,8 @@ describe('useVoiceCast: when the casting director runs', () => {
     await settle();
     expect(generateContent).toHaveBeenCalledTimes(1);
     expect(hook.current.voiceCast?.members.julia).toMatchObject({ voiceName: 'Kore', source: 'agent' });
-    expect(hook.current.voiceCast?.narrator).toMatchObject({ voiceName: 'Charon', source: 'agent' });
+    // The director's narrator is ignored: the slot keeps the Dramatic Reader in Enceladus.
+    expect(hook.current.voiceCast?.narrator).toMatchObject({ narratorId: 'senatorial-partner', voiceName: 'Enceladus', style: '', source: 'fallback' });
     expect(loadGame()?.state.voiceCast).toEqual(hook.current.voiceCast);
     // No more calls while nothing changes.
     hook.rerender({ ai, mode: 'auto', entities });
@@ -345,9 +370,9 @@ describe('Settings → The cast', () => {
   const props = () => ({
     narrators: [{ id: 'senatorial-partner', name: 'The Dramatic Reader', description: 'Epic.', voiceName: 'Enceladus' }],
     narratorId: 'senatorial-partner', onSetNarrator: vi.fn(),
-    narratorVoiceChoice: null, narratorOwnVoice: 'Charon', onSetNarratorVoice: vi.fn(),
-    voiceStyleChoice: null, narratorOwnStyle: { preset: 'custom' as const, text: 'grave and warm' }, onSetVoiceStyle: vi.fn(),
-    narratorChosenExplicitly: false, castNarratorId: 'senatorial-partner', narratorVoiceFromCast: true,
+    narratorVoiceChoice: null, narratorOwnVoice: 'Enceladus', onSetNarratorVoice: vi.fn(),
+    voiceStyleChoice: null, narratorOwnStyle: null, onSetVoiceStyle: vi.fn(),
+    narratorVoiceFromCast: false,
     voiceCast: overridden, castCharacters: [JULIA, THRAX],
     canRecast: true, recastStatus: 'idle' as const, onRecast: vi.fn(), onOverrideCastMember: vi.fn(), onResetCastMember: vi.fn(),
   });
@@ -361,14 +386,15 @@ describe('Settings → The cast', () => {
     el.dispatchEvent(new Event(el instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }));
   });
 
-  it('shows what the cast chose: "As cast" for the reader and the voice, with the casting director\'s hint', () => {
+  it('the Dramatic Reader is the default: no "As cast" reader, its own voice named, and the narrator row says the casting never changes it', () => {
     const view = renderSettings(props());
     const style = view.host.querySelector<HTMLSelectElement>('select[aria-label="Narration style"]')!;
-    expect(style.value).toBe('');
-    expect(style.options[0].textContent).toBe(NARRATION_SETTINGS_COPY.asCast('The Dramatic Reader'));
-    expect(view.host.textContent).toContain(NARRATION_SETTINGS_COPY.castHint);
+    expect(style.value).toBe('senatorial-partner');
+    expect([...style.options].map(o => o.textContent)).not.toContain('');
+    expect(view.host.textContent).not.toContain('As cast — The');
+    expect(view.host.textContent).not.toContain('Cast by the casting director.');
     const voice = view.host.querySelector<HTMLSelectElement>('select[aria-label="Voice"]')!;
-    expect(voice.options[0].textContent).toBe(NARRATION_SETTINGS_COPY.castVoice('Charon'));
+    expect(voice.options[0].textContent).toBe(NARRATION_SETTINGS_COPY.ownVoice('Enceladus'));
     // The retired switch is gone: every character always speaks in their own cast voice.
     expect(view.host.textContent).not.toContain('Bespoke');
     view.cleanup();
@@ -383,7 +409,10 @@ describe('Settings → The cast', () => {
     expect(rows.map(r => r.querySelector('.gor-narrator-editor-name')?.textContent)).toEqual([
       VOICE_CAST_COPY.narratorRow('The Dramatic Reader'), 'Julia Mamaea', 'Maximinus Thrax',
     ]);
-    expect(rows[0].textContent).toContain('A counsellor.');
+    // The cast's own narrator rationale is never shown: the casting does not choose the narrator.
+    expect(rows[0].textContent).not.toContain('A counsellor.');
+    expect(rows[0].textContent).toContain(NARRATION_SETTINGS_COPY.narratorRowNote);
+    expect(rows[0].querySelector<HTMLSelectElement>('select')!.value).toBe('Enceladus');
     expect(rows[1].textContent).toContain(CAST.members.julia.rationale);
     const juliaVoice = rows[1].querySelector<HTMLSelectElement>('select[aria-label="Voice for Julia Mamaea"]')!;
     expect(juliaVoice.value).toBe('Gacrux');
