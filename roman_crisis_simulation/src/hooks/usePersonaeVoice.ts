@@ -156,6 +156,14 @@ export function usePersonaeVoice({
         if (blocked) player.stop();
     }, [player, blocked]);
 
+    // A cast voice changed: a sample preparing or playing in the superseded
+    // voice stops (the player drops its in-flight result), so "Hear their
+    // voice" never demonstrates the wrong selection. As useNarrationVoice
+    // does for narrator, voice and style changes.
+    useEffect(() => {
+        player.stop();
+    }, [player, castKey]);
+
     const onHear = useCallback((entityId: string, name: string) => {
         if (blocked || !voiceFor(entityId)) return;
         const line = voiceSampleLine(name);

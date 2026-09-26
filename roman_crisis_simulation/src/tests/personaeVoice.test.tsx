@@ -23,7 +23,9 @@ import DramatisPersonaeTab from '../components/tabs/DramatisPersonaeTab';
 import { PERSONA_VOICE_COPY } from '../components/tabs/PersonaVoiceRow';
 import { NARRATION_VOICE_COPY } from '../components/Chat';
 import { useNarrationVoice } from '../hooks/useNarrationVoice';
-import { useCastBasis } from '../hooks/useVoiceCast';
+import { useCastBasis, DEFAULT_CAST_NARRATOR } from '../hooks/useVoiceCast';
+import { castingCandidatesFor, completeCast } from '../narration/voiceCast';
+import { renderHook } from './renderHook';
 import { usePersonaeVoice, voiceSampleLine } from '../hooks/usePersonaeVoice';
 import { IN_CHARACTER_NARRATOR_ID, narratorCharactersFor } from '../narration/narratorChoice';
 import { NarrationLogStore } from '../narration/narrationLog';
@@ -209,5 +211,30 @@ describe('the Personae voice row', () => {
   it('the sample line invents nothing: the name, stripped of markup', () => {
     expect(voiceSampleLine('Julia Mamaea')).toBe('I am Julia Mamaea.');
     expect(voiceSampleLine('Julia <whispers> *Mamaea*')).toBe('I am Julia.');
+  });
+});
+
+describe('a sample in a superseded voice (PR #13 review)', () => {
+  it('changing the cast voice while a sample is preparing drops it: the old voice never plays', async () => {
+    let release: (value: unknown) => void = () => {};
+    const generateContent = vi.fn(() => new Promise(resolve => { release = resolve; }));
+    const ai = { models: { generateContent } } as unknown as ReturnType<typeof makeAi>['ai'];
+    const cast = completeCast(null, castingCandidatesFor(player, ENTITIES, []), DEFAULT_CAST_NARRATOR);
+    const args = {
+      ai, isMockMode: false, resolvedApiKey: 'k', narrationVoiceMode: 'on_demand' as const, voiceCast: cast,
+      candidateIds: ['julia'], narratingId: null, onNarrateAs: vi.fn(), log: new NarrationLogStore({ load: false }),
+    };
+    const hook = renderHook(usePersonaeVoice, args);
+    act(() => hook.current.onHear('julia', 'Julia Mamaea'));
+    expect(hook.current.sampleStateFor('julia')).toBe('preparing');
+
+    const recast = { ...cast, members: { ...cast.members, julia: { ...cast.members.julia, override: { voiceName: 'Kore' } } } };
+    hook.rerender({ ...args, voiceCast: recast });
+    expect(hook.current.sampleStateFor('julia')).toBe('idle');
+
+    await act(async () => { release(AUDIO_RESPONSE); await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(hook.current.sampleStateFor('julia')).toBe('idle');
+    expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled();
+    hook.unmount();
   });
 });
