@@ -52,7 +52,9 @@ export const VoiceStylePicker: React.FC<{
     ownStyle?: VoiceStyle | null;
     onChange: (style: VoiceStyle | null) => void;
     describedBy?: string;
-}> = ({ id, ariaLabel, value, ownStyle = null, onChange, describedBy }) => {
+    /** Shown but not editable (Settings, while the narration voice is SILENT). */
+    disabled?: boolean;
+}> = ({ id, ariaLabel, value, ownStyle = null, onChange, describedBy, disabled = false }) => {
     const current = styleSelectValue(value);
     const handleSelect = (next: string) => {
         if (next === '') onChange(null);
@@ -61,7 +63,7 @@ export const VoiceStylePicker: React.FC<{
     };
     return (
         <>
-            <select id={id} aria-label={ariaLabel} aria-describedby={describedBy} value={current} onChange={e => handleSelect(e.target.value)} style={narrationSelectStyle}>
+            <select id={id} aria-label={ariaLabel} aria-describedby={describedBy} disabled={disabled} value={current} onChange={e => handleSelect(e.target.value)} style={narrationSelectStyle}>
                 <option value="">{ownStyle ? VOICE_STYLE_PICKER_COPY.ownStyle(voiceStyleLabel(ownStyle)) : VOICE_STYLE_PRESETS[0].label}</option>
                 {VOICE_STYLE_PRESETS.filter(p => ownStyle !== null || p.id !== 'as-written').map(p => (
                     <option key={p.id} value={p.id}>{p.label}</option>
@@ -73,6 +75,8 @@ export const VoiceStylePicker: React.FC<{
                     type="text"
                     className="gor-input"
                     aria-label={VOICE_STYLE_PICKER_COPY.customStyleLabel}
+                    aria-describedby={describedBy}
+                    disabled={disabled}
                     maxLength={MAX_CUSTOM_VOICE_STYLE_CHARS}
                     placeholder={VOICE_STYLE_PICKER_COPY.customStylePlaceholder}
                     value={value.text}

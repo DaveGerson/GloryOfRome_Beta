@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 import { Message } from '../types';
 import { TurnStage } from '../ai/core/turn';
 import { structuredSubmissionForHistory, TurnSubmissionHistory } from './TurnSubmissionHistory';
@@ -175,6 +175,8 @@ export const NARRATION_VOICE_COPY = {
     preparing: 'The narrator draws breath…',
     error: 'The voice faltered — press again.',
     unavailable: 'No token on this device',
+    /** While the narration voice is SILENT: the control stays, disabled, and points the way. */
+    silent: 'Turn on the narrator\'s voice in Settings to hear this.',
 } as const;
 
 /**
@@ -182,8 +184,11 @@ export const NARRATION_VOICE_COPY = {
  * constant accessible name. `aria-pressed` is true while this passage is
  * being prepared or performed - pressing it again stops it - and
  * `aria-busy` marks the preparation. The quiet line beside it carries the
- * states the button cannot: preparing, a failure, or no key (the same
- * words as the composer's standing no-key notice, which explains it).
+ * states the button cannot: preparing, a failure, no key (the same words as
+ * the composer's standing no-key notice, which explains it), or SILENT (a
+ * pointer to Settings). With no key or while SILENT the button is shown but
+ * disabled, and the line describes it (`aria-describedby`) - it never hides,
+ * so the player can always find it.
  */
 export const NarrationVoiceControl: React.FC<{
     state: NarrationVoiceControlState;
@@ -191,14 +196,18 @@ export const NarrationVoiceControl: React.FC<{
     /** The button's constant accessible name; the chronicle's by default. */
     label?: string;
 }> = ({ state, onToggle, label = NARRATION_VOICE_COPY.button }) => {
+    const statusId = useId();
     const engaged = state === 'preparing' || state === 'playing';
+    const blocked = state === 'unavailable' || state === 'silent';
     const status = state === 'preparing'
         ? NARRATION_VOICE_COPY.preparing
         : state === 'error'
             ? NARRATION_VOICE_COPY.error
             : state === 'unavailable'
                 ? NARRATION_VOICE_COPY.unavailable
-                : null;
+                : state === 'silent'
+                    ? NARRATION_VOICE_COPY.silent
+                    : null;
     return (
         <div className={`gor-voice gor-voice-${state}`}>
             <button
@@ -206,7 +215,8 @@ export const NarrationVoiceControl: React.FC<{
                 className="gor-voice-btn"
                 aria-pressed={engaged}
                 aria-busy={state === 'preparing' || undefined}
-                disabled={state === 'unavailable'}
+                aria-describedby={status ? statusId : undefined}
+                disabled={blocked}
                 title={engaged ? NARRATION_VOICE_COPY.stop : undefined}
                 onClick={onToggle}
             >
@@ -215,7 +225,7 @@ export const NarrationVoiceControl: React.FC<{
                 </span>
                 {label}
             </button>
-            {status && <span className="gor-voice-status">{status}</span>}
+            {status && <span className="gor-voice-status" id={statusId}>{status}</span>}
         </div>
     );
 };
@@ -234,9 +244,11 @@ const ChatMessageView: React.FC<{
     /** This message's index in the committed transcript - the voice's cache key. */
     index?: number;
     /**
-     * The narration voice's control state. Undefined means no control: the
-     * voice is off, or this is not a committed GM narration. App.tsx only
-     * ever passes it for `sender === 'gm'` messages from `messages[]`.
+     * The narration voice's control state. Undefined means no control: this
+     * is not a committed GM narration. While the voice is SILENT the state is
+     * 'silent' - the control is shown, disabled, with a pointer to Settings.
+     * App.tsx only ever passes it for `sender === 'gm'` messages from
+     * `messages[]`.
      */
     voiceState?: NarrationVoiceControlState;
     /** Stable for the App's lifetime (hooks/useNarrationVoice.ts), so the memo holds. */

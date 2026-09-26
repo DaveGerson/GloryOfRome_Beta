@@ -54,10 +54,12 @@ export const NARRATION_SETTINGS_COPY = {
     styleOfVoiceLabel: 'Voice style',
     asWrittenNote: 'The narrator writes in its own manner.',
     styledNote: 'Shapes how the narrator writes for the voice: pace, rhythm, word choice.',
-    asCast: (name: string) => `As cast — ${name}`,
-    castHint: 'Cast by the casting director.',
     castVoice: (voice: string) => `As cast — ${voice}`,
     castVoiceNote: 'The voice the casting gave this narrator. Choose another to override it.',
+    /** Under the mode while SILENT: every section below is shown, disabled, and points here. */
+    silentHint: 'Turn on the narrator\'s voice above to change these.',
+    /** The narrator's row in "The cast": the reader is never the casting's to choose. */
+    narratorRowNote: 'Reads in its own voice unless you choose another. The casting never changes the narrator.',
 } as const;
 
 export interface NarrationSettingsProps {
@@ -85,11 +87,7 @@ export interface NarrationSettingsProps {
     customNarrators?: readonly CustomNarrator[];
     onSaveCustomNarrator?: (draft: CustomNarratorDraft) => CustomNarratorSaveResult;
     onDeleteCustomNarrator?: (id: string) => void;
-    /** Whether the player chose the narration style (else the voice cast did). */
-    narratorChosenExplicitly?: boolean;
-    /** The reader the voice cast chose for this campaign. */
-    castNarratorId?: string | null;
-    /** The narrator's own voice and style come from the voice cast. */
+    /** The narrator's own voice and style come from the voice cast (a narrator in character). */
     narratorVoiceFromCast?: boolean;
     /** The campaign's voice cast (hooks/useVoiceCast.ts) and the known individuals it covers. */
     voiceCast?: VoiceCast | null;
@@ -102,10 +100,12 @@ export interface NarrationSettingsProps {
 }
 
 /**
- * Settings → Play → the narration voice: the mode, then - while the voice
- * is on - three separate selections (narration style, voice, voice style)
- * and the player's own narrators, behind a disclosure so they never flood
- * the menu. Every value is owned by hooks/useNarrationVoice.ts; this only
+ * Settings → Play → the narration voice: the mode, then three separate
+ * selections (narration style, voice, voice style), the cast and the
+ * player's own narrators, behind disclosures so they never flood the menu.
+ * Every section is ALWAYS shown: while SILENT each is disabled, with a hint
+ * (`silentHint`, tied by `aria-describedby`) - only the mode stays live - so
+ * the player can always find the narrator. Every value is owned by hooks/useNarrationVoice.ts; this only
  * reports choices (except the voice, which it keeps itself when no hook is
  * wired, as the menu always has).
  */
@@ -116,13 +116,17 @@ export const NarrationSettings: React.FC<NarrationSettingsProps> = ({
     narratorVoiceChoice, narratorOwnVoice, onSetNarratorVoice,
     voiceStyleChoice = null, narratorOwnStyle = null, onSetVoiceStyle,
     customNarrators = [], onSaveCustomNarrator, onDeleteCustomNarrator,
-    narratorChosenExplicitly = true, castNarratorId = null, narratorVoiceFromCast = false,
+    narratorVoiceFromCast = false,
     voiceCast = null, castCharacters = [],
     canRecast = false, recastStatus = 'idle', onRecast, onOverrideCastMember, onResetCastMember,
 }) => {
     const ids = useId();
     const selectedMode = NARRATOR_MODE_OPTIONS.find(option => option.value === narrationVoiceMode) ?? NARRATOR_MODE_OPTIONS[0];
     const voiceOn = narrationVoiceMode !== 'off';
+    const off = !voiceOn;
+    const hintId = `${ids}-silent-hint`;
+    /** A control's description, with the SILENT hint first while it applies. */
+    const describe = (note: string) => (off ? `${hintId} ${note}` : note);
 
     // The voice: controlled by the App's narration hook when it passes one;
     // otherwise this menu reads and writes the device preference itself.
@@ -145,10 +149,8 @@ export const NarrationSettings: React.FC<NarrationSettingsProps> = ({
         : chosenCustom
             ? (chosenCustom.description || CUSTOM_NARRATOR_DEFAULT_DESCRIPTION)
             : chosenPreset?.description;
-    // With no explicit choice, the cast's reader performs: the select shows "As cast — <reader>".
-    const castReader = castNarratorId ? narrators.find(n => n.id === castNarratorId) : undefined;
-    const followingCast = Boolean(castReader) && !narratorChosenExplicitly;
-    const selectValue = followingCast ? '' : inCharacter ? IN_CHARACTER_NARRATOR_ID : (chosenCustom?.id ?? chosenPreset?.id ?? '');
+    // With no explicit choice the Dramatic Reader (the first preset) performs, and the select shows it.
+    const selectValue = inCharacter ? IN_CHARACTER_NARRATOR_ID : (chosenCustom?.id ?? chosenPreset?.id ?? '');
     const effectiveStyle = voiceStyleChoice ?? narratorOwnStyle;
     const curatedIds = new Set<string>(NARRATOR_VOICES.map(v => v.id));
     const voiceNote = voiceChoice
@@ -168,20 +170,21 @@ export const NarrationSettings: React.FC<NarrationSettingsProps> = ({
                     onChange={onSetNarrationVoiceMode}
                 />
                 <p className="gor-config-note" id="settings-narrator-note">{selectedMode.description}</p>
+                {off && <p className="gor-config-note" id={hintId}><em>{NARRATION_SETTINGS_COPY.silentHint}</em></p>}
             </div>
-            {voiceOn && onSetNarrator && narrators.length > 0 && (
+            {onSetNarrator && narrators.length > 0 && (
                 <>
                     <label className="gor-label gor-config-label" htmlFor={`${ids}-style`}>{NARRATION_SETTINGS_COPY.styleLabel}</label>
                     <div>
                         <select
                             id={`${ids}-style`}
                             aria-label={NARRATION_SETTINGS_COPY.styleLabel}
-                            aria-describedby={`${ids}-style-note`}
+                            aria-describedby={describe(`${ids}-style-note`)}
+                            disabled={off}
                             value={selectValue}
                             onChange={e => onSetNarrator(e.target.value)}
                             style={narrationSelectStyle}
                         >
-                            {castReader && <option value="">{NARRATION_SETTINGS_COPY.asCast(castReader.name)}</option>}
                             <optgroup label={NARRATION_SETTINGS_COPY.readersGroup}>
                                 {narrators.map(n => <option key={n.id} value={n.id}>{n.name}</option>)}
                             </optgroup>
@@ -195,6 +198,8 @@ export const NarrationSettings: React.FC<NarrationSettingsProps> = ({
                         {inCharacter && narratorCharacters.length > 0 && character && (
                             <select
                                 aria-label={NARRATION_SETTINGS_COPY.characterLabel}
+                                aria-describedby={off ? hintId : undefined}
+                                disabled={off}
                                 value={character.entityId}
                                 onChange={e => onSetNarratorCharacter?.(e.target.value)}
                                 style={{ ...narrationSelectStyle, marginTop: 6 }}
@@ -206,19 +211,18 @@ export const NarrationSettings: React.FC<NarrationSettingsProps> = ({
                         )}
                         <p className="gor-config-note" id={`${ids}-style-note`}>
                             {styleNote}
-                            {followingCast && <> <em>{NARRATION_SETTINGS_COPY.castHint}</em></>}
                         </p>
                     </div>
                 </>
             )}
-            {voiceOn && (
                 <>
                     <label className="gor-label gor-config-label" htmlFor={`${ids}-voice`}>{NARRATION_SETTINGS_COPY.voiceLabel}</label>
                     <div>
                         <select
                             id={`${ids}-voice`}
                             aria-label="Voice"
-                            aria-describedby="settings-voice-note"
+                            aria-describedby={describe('settings-voice-note')}
+                            disabled={off}
                             value={voiceChoice ?? ''}
                             onChange={(e) => handleVoiceChange(e.target.value)}
                             style={narrationSelectStyle}
@@ -242,8 +246,7 @@ export const NarrationSettings: React.FC<NarrationSettingsProps> = ({
                         </p>
                     </div>
                 </>
-            )}
-            {voiceOn && onSetVoiceStyle && (
+            {onSetVoiceStyle && (
                 <>
                     <label className="gor-label gor-config-label" htmlFor={`${ids}-voice-style`}>{NARRATION_SETTINGS_COPY.styleOfVoiceLabel}</label>
                     <div>
@@ -253,7 +256,8 @@ export const NarrationSettings: React.FC<NarrationSettingsProps> = ({
                             value={voiceStyleChoice}
                             ownStyle={narratorOwnStyle}
                             onChange={onSetVoiceStyle}
-                            describedBy={`${ids}-voice-style-note`}
+                            describedBy={describe(`${ids}-voice-style-note`)}
+                            disabled={off}
                         />
                         <p className="gor-config-note" id={`${ids}-voice-style-note`}>
                             {effectiveStyle && effectiveStyle.preset !== 'as-written' ? NARRATION_SETTINGS_COPY.styledNote : NARRATION_SETTINGS_COPY.asWrittenNote}
@@ -261,19 +265,19 @@ export const NarrationSettings: React.FC<NarrationSettingsProps> = ({
                     </div>
                 </>
             )}
-            {voiceOn && voiceCast && onOverrideCastMember && onResetCastMember && (
+            {voiceCast && onOverrideCastMember && onResetCastMember && (
                 <div style={{ gridColumn: '1 / -1' }}>
                     <VoiceCastList
                         cast={voiceCast}
                         characters={castCharacters}
                         narrator={{
-                            readerName: castReader?.name ?? narrators[0]?.name ?? '',
-                            voiceName: voiceChoice ?? voiceCast.narrator.voiceName,
+                            readerName: inCharacter && character ? character.name : chosenCustom?.name ?? chosenPreset?.name ?? '',
+                            voiceName: voiceChoice ?? ownVoice,
                             style: voiceStyleChoice?.preset === 'custom'
                                 ? sanitizeVoiceStyleText(voiceStyleChoice.text)
                                 : voiceStyleChoice && voiceStyleChoice.preset !== 'as-written' ? voiceStyleLabel(voiceStyleChoice)
-                                    : voiceStyleChoice ? '' : voiceCast.narrator.style,
-                            rationale: voiceCast.narrator.rationale,
+                                    : '',
+                            rationale: NARRATION_SETTINGS_COPY.narratorRowNote,
                             overridden: voiceChoice !== null || voiceStyleChoice !== null,
                             onVoice: handleVoiceChange,
                             onStyle: text => onSetVoiceStyle?.(text ? { preset: 'custom', text } : { preset: 'as-written' }),
@@ -284,15 +288,19 @@ export const NarrationSettings: React.FC<NarrationSettingsProps> = ({
                         canRecast={canRecast}
                         recastStatus={recastStatus}
                         onRecast={() => onRecast?.()}
+                        disabled={off}
+                        describedBy={hintId}
                     />
                 </div>
             )}
-            {voiceOn && onSaveCustomNarrator && onDeleteCustomNarrator && (
+            {onSaveCustomNarrator && onDeleteCustomNarrator && (
                 <div style={{ gridColumn: '1 / -1' }}>
                     <CustomNarratorEditor
                         narrators={customNarrators}
                         onSave={onSaveCustomNarrator}
                         onDelete={onDeleteCustomNarrator}
+                        disabled={off}
+                        describedBy={hintId}
                     />
                 </div>
             )}

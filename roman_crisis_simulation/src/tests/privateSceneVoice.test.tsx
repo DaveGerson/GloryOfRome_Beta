@@ -20,6 +20,7 @@ import { isCatalogVoice } from '../narration/voiceCatalog';
 import { NarrationLogStore } from '../narration/narrationLog';
 import { usePrivateSceneVoice, type UsePrivateSceneVoiceArgs, type PrivateSceneNpcVoice } from '../hooks/usePrivateSceneVoice';
 import { PrivateScene } from '../components/PrivateScene';
+import { NARRATION_VOICE_COPY } from '../components/Chat';
 import { projectPrivateSceneForPlayer, type PrivateScenePlayerView } from '../perception/visibility';
 import type { PrivateSceneRecord } from '../privateScene/model';
 import { renderHook } from './renderHook';
@@ -93,9 +94,30 @@ describe('the hook', () => {
     return { hook: renderHook(usePrivateSceneVoice, args), generateContent, log };
   }
 
-  it('is not offered while the narration voice is SILENT, and is off by default', () => {
-    expect(mount({ narrationVoiceMode: 'off' }).hook.current).toBeUndefined();
+  it('while SILENT it is still offered, blocked: toggled-on lines read \'silent\' and nothing is ever called', async () => {
+    localStorage.setItem('gloryOfRome:sceneVoices', '1');
+    const silent = mount({ narrationVoiceMode: 'off' });
+    expect(silent.hook.current.blocked).toBe('silent');
+    act(() => silent.hook.current.onSetEnabled(true));
+    expect(silent.hook.current.stateFor(view, view.transcript[1])).toBe('silent');
+    expect(silent.hook.current.stateFor(view, view.transcript[0])).toBeUndefined();
+    act(() => silent.hook.current.onToggle(view, view.transcript[1]));
+    await settle();
+    expect(silent.generateContent).not.toHaveBeenCalled();
+    silent.hook.unmount();
+    // No key outside Mock Mode: blocked too, and still no call.
+    const keyless = mount({ resolvedApiKey: null });
+    expect(keyless.hook.current.blocked).toBe('unavailable');
+    act(() => keyless.hook.current.onToggle(view, view.transcript[1]));
+    await settle();
+    expect(keyless.generateContent).not.toHaveBeenCalled();
+    keyless.hook.unmount();
+    localStorage.clear();
+  });
+
+  it('is off by default', () => {
     const { hook } = mount();
+    expect(hook.current.blocked).toBeNull();
     expect(hook.current?.enabled).toBe(false);
     expect(hook.current?.stateFor(view, view.transcript[1])).toBeUndefined();
     act(() => hook.current!.onSetEnabled(true));
@@ -184,17 +206,44 @@ describe('the private scene surface', () => {
     act(() => Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'Private scene')!.click());
     return container;
   }
-  const voiceStub = (enabled: boolean): PrivateSceneNpcVoice => ({
+  const voiceStub = (enabled: boolean, blocked: PrivateSceneNpcVoice['blocked'] = null): PrivateSceneNpcVoice => ({
     enabled,
+    blocked,
     onSetEnabled: vi.fn(),
-    stateFor: vi.fn((_scene, line) => (enabled && line.speaker === 'npc' ? 'idle' as const : undefined)),
+    stateFor: vi.fn((_scene, line) => (enabled && line.speaker === 'npc' ? (blocked ?? 'idle') : undefined)),
     onToggle: vi.fn(),
   });
 
-  it('shows no switch while the narration voice is silent', () => {
+  it('shows no switch when no voice is wired at all', () => {
     const container = render(undefined);
     expect(container.querySelector('#private-scene-voices')).toBeNull();
     expect(container.querySelector('.gor-voice-btn')).toBeNull();
+  });
+
+  it('while SILENT the switch is shown but disabled, with the Settings hint; lines already on show disabled controls', () => {
+    const npcVoice = voiceStub(false, 'silent');
+    const container = render(npcVoice);
+    const toggle = container.querySelector<HTMLInputElement>('#private-scene-voices')!;
+    expect(toggle).not.toBeNull();
+    expect(toggle.closest('label')!.textContent).toBe('Hear them speak');
+    expect(toggle.disabled).toBe(true);
+    const hints = toggle.getAttribute('aria-describedby')!.split(' ').map(id => document.getElementById(id)?.textContent);
+    expect(hints).toContain(NARRATION_VOICE_COPY.silent);
+    act(() => toggle.click());
+    expect(npcVoice.onSetEnabled).not.toHaveBeenCalled();
+
+    const on = render(voiceStub(true, 'silent'));
+    const control = on.querySelector<HTMLButtonElement>('.gor-voice-btn')!;
+    expect(control.textContent).toContain('Hear them say it');
+    expect(control.disabled).toBe(true);
+    expect(document.getElementById(control.getAttribute('aria-describedby')!)?.textContent).toBe(NARRATION_VOICE_COPY.silent);
+  });
+
+  it('with no key the switch is disabled with the no-key line', () => {
+    const container = render(voiceStub(false, 'unavailable'));
+    const toggle = container.querySelector<HTMLInputElement>('#private-scene-voices')!;
+    expect(toggle.disabled).toBe(true);
+    expect(toggle.getAttribute('aria-describedby')!.split(' ').map(id => document.getElementById(id)?.textContent)).toContain(NARRATION_VOICE_COPY.unavailable);
   });
 
   it('the switch is off by default and turns the voices on', () => {

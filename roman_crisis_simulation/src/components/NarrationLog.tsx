@@ -66,6 +66,7 @@ const EntryView: React.FC<{
 }> = ({ entry, state, onToggle }) => {
     const [copyStatus, setCopyStatus] = useState<string | null>(null);
     const headingId = `narration-log-${entry.id}`;
+    const statusId = `narration-log-${entry.id}-status`;
     const engaged = state === 'preparing' || state === 'playing';
     const status = state === 'preparing' ? NARRATION_LOG_COPY.preparing
         : state === 'error' ? NARRATION_LOG_COPY.error
@@ -113,6 +114,7 @@ const EntryView: React.FC<{
                         aria-pressed={engaged}
                         aria-busy={state === 'preparing' || undefined}
                         disabled={state === 'unavailable' || state === 'silenced'}
+                        aria-describedby={state === 'unavailable' || state === 'silenced' ? statusId : undefined}
                         title={engaged ? NARRATION_LOG_COPY.stop : undefined}
                         onClick={onToggle}
                     >
@@ -122,7 +124,7 @@ const EntryView: React.FC<{
                         {NARRATION_LOG_COPY.play}
                     </button>
                     <button type="button" className="gor-voice-btn" onClick={() => void copy()}>{NARRATION_LOG_COPY.copy}</button>
-                    <span className="gor-voice-status" aria-live="polite">{status ?? copyStatus ?? ''}</span>
+                    <span className="gor-voice-status" id={statusId} aria-live="polite">{status ?? copyStatus ?? ''}</span>
                 </div>
             </article>
         </li>

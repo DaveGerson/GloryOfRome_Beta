@@ -14,7 +14,9 @@ import { renderHook } from './renderHook';
 import { useCampaignTransactions } from '../hooks/useCampaignTransactions';
 import { createInitialGameState, gameReducer, type GameAction, type GameDomainState } from '../state/gameReducer';
 import { SAVE_KEY, importSaveBlob, loadGame, rawSaveBlob, saveGame, updateSavedVoiceCast } from '../persistence/saveGame';
-import { deterministicCast, withMemberOverride, type VoiceCast } from '../narration/voiceCast';
+import { completeCast, deterministicCast, withMemberOverride, type VoiceCast } from '../narration/voiceCast';
+import { resolveNarrator } from '../narration/narratorChoice';
+import { DRAMATIC_READER_NARRATOR } from '../narration/narrators';
 import { makeAppSave, makeLegacySaveState } from './factories';
 
 const CAST: VoiceCast = withMemberOverride(
@@ -54,6 +56,30 @@ describe('the optional voiceCast save field', () => {
     const state = gameReducer(createInitialGameState(), { type: 'GAME_LOADED', save: loaded!.state });
     expect(state.voiceCast).toEqual(CAST);
     expect(state.voiceCast?.members.julia_mamaea.override).toEqual({ style: 'icy and slow' });
+  });
+
+  it('an older cast whose director picked another reader, voice and note still loads - and the Dramatic Reader reads, in Enceladus', () => {
+    // Saved before the cast stopped choosing the reader: the Acta Diurna in
+    // Enceladus' place, with a note, and Julia holding Enceladus.
+    const old: VoiceCast = {
+      ...CAST,
+      narrator: { narratorId: 'acta-diurna', voiceName: 'Schedar', style: 'even, composed and dry', rationale: 'A gazette wants an even voice.', source: 'agent' },
+      members: { ...CAST.members, julia_mamaea: { ...CAST.members.julia_mamaea, voiceName: 'Enceladus' } },
+    };
+    expect(saveGame(makeAppSave({ voiceCast: old })).ok).toBe(true);
+    const state = gameReducer(createInitialGameState(), { type: 'GAME_LOADED', save: loadGame()!.state });
+    expect(state.voiceCast).toEqual(old);
+    // What performs ignores the old reader entirely.
+    const resolved = resolveNarrator({ narratorId: null, characterId: null, presets: [DRAMATIC_READER_NARRATOR], customs: [], characters: [], cast: state.voiceCast });
+    expect(resolved.profile.id).toBe('senatorial-partner');
+    expect(resolved.profile.voice.voiceName).toBe('Enceladus');
+    expect(resolved.ownStyle).toBeNull();
+    // The cast every voice uses re-seats the Dramatic Reader, and no one else keeps its voice.
+    const effective = completeCast(state.voiceCast, [], { narratorId: 'senatorial-partner', voiceName: 'Enceladus' });
+    expect(effective.narrator).toMatchObject({ narratorId: 'senatorial-partner', voiceName: 'Enceladus', style: '' });
+    expect(effective.members.julia_mamaea.voiceName).not.toBe('Enceladus');
+    expect(effective.members.julia_mamaea.override).toEqual({ style: 'icy and slow' });
+    expect(effective.members.maximinus_thrax).toEqual(old.members.maximinus_thrax);
   });
 
   it('a malformed cast never refuses the save; it loads as no cast', () => {

@@ -3,6 +3,7 @@ import { GameState, Entity, InvestigationResult, WorldState, Report, EventHistor
 import { GoogleGenAI } from "@google/genai";
 import CurrentEventsTab from './tabs/CurrentEventsTab';
 import DramatisPersonaeTab from './tabs/DramatisPersonaeTab';
+import type { PersonaeVoice } from '../hooks/usePersonaeVoice';
 import EmpireTab from './tabs/EmpireTab';
 import ReportsTab from './tabs/ReportsTab';
 import PlayerStatus from './PlayerStatus';
@@ -19,6 +20,10 @@ import { occurrenceFindings } from '../knowledge/store';
 import type { DomainMutationContext, RunDomainMutation } from '../state/domainMutation';
 import { radioGroupKeyDown } from './ui/rovingRadio';
 import { useImperialDispatch } from '../hooks/useImperialDispatch';
+import type { NarrationVoiceMode } from '../persistence/uiPrefs';
+
+/** Shown under the Imperial Dispatch while the narration voice is SILENT (veto queue, B13). */
+export const DISPATCH_SILENCED_NOTE = "Turn on the narrator's voice in Settings to hear this.";
 
 /**
  * The intelligence dashboard — player dossier header, Tyrian-pennant tab bar,
@@ -77,12 +82,17 @@ const SidePanel: React.FC<{
     /** Commits one occurrence finding to the knowledge store (audit item 40). */
     onOccurrenceFinding: (occurrence: string, question: OccurrenceQuestion, text: string, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
     resolvedApiKey?: string | null;
-}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, turnHistory, pulsingTabs, onOccurrenceFinding, resolvedApiKey }) => {
+    /** The narration voice's mode: SILENT disables the Imperial Dispatch control, with a pointer. */
+    narrationVoiceMode?: NarrationVoiceMode;
+    /** The voice row on each Personae card (hooks/usePersonaeVoice.ts). */
+    personaeVoice?: PersonaeVoice;
+}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, turnHistory, pulsingTabs, onOccurrenceFinding, resolvedApiKey, narrationVoiceMode, personaeVoice }) => {
     const [activeTab, setActiveTab] = useState<TabId>('world_state');
     const { dispatchStatus, toggleDispatch } = useImperialDispatch({
         ai,
         isMockMode,
         resolvedApiKey,
+        narrationVoiceMode,
         worldState,
         simulationState,
         entities,
@@ -206,8 +216,10 @@ const SidePanel: React.FC<{
                     <span style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--gold-500)' }}>
                         📜 Imperial Dispatch
                     </span>
-                    <span style={{ fontSize: '11px', color: 'var(--text-quiet)', fontStyle: 'italic' }}>
-                        {dispatchStatus === 'preparing'
+                    <span id="imperial-dispatch-note" style={{ fontSize: '11px', color: 'var(--text-quiet)', fontStyle: 'italic' }}>
+                        {dispatchStatus === 'silenced'
+                            ? DISPATCH_SILENCED_NOTE
+                            : dispatchStatus === 'preparing'
                             ? 'Drafting situation report…'
                             : dispatchStatus === 'playing'
                                 ? 'Reading all tabs aloud…'
@@ -218,7 +230,8 @@ const SidePanel: React.FC<{
                     type="button"
                     className="gor-voice-btn"
                     aria-label={dispatchStatus === 'playing' ? 'Stop Imperial Dispatch' : 'Hear Imperial Dispatch'}
-                    disabled={dispatchStatus === 'unavailable'}
+                    disabled={dispatchStatus === 'unavailable' || dispatchStatus === 'silenced'}
+                    aria-describedby="imperial-dispatch-note"
                     onClick={toggleDispatch}
                     style={{ fontSize: '11px', padding: '3px 8px', height: '24px' }}
                 >
@@ -291,6 +304,7 @@ const SidePanel: React.FC<{
                     interactionLocked={interactionLocked}
                     ai={ai}
                     isMockMode={isMockMode}
+                    personaeVoice={personaeVoice}
                 />}
                 {activeTab === 'locations' && <EmpireTab worldState={worldState} entities={entities} playerEntity={playerEntity} knowledge={knowledge} />}
                 {activeTab === 'resources' && <ResourcesTab playerEntity={playerEntity} />}

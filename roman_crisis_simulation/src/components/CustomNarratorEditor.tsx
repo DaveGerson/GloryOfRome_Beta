@@ -50,7 +50,10 @@ export const CustomNarratorEditor: React.FC<{
     narrators: readonly CustomNarrator[];
     onSave: (draft: CustomNarratorDraft) => CustomNarratorSaveResult;
     onDelete: (id: string) => void;
-}> = ({ narrators, onSave, onDelete }) => {
+    /** Shown but not editable (while the narration voice is SILENT); `describedBy` names the hint. */
+    disabled?: boolean;
+    describedBy?: string;
+}> = ({ narrators, onSave, onDelete, disabled = false, describedBy }) => {
     const ids = useId();
     const [open, setOpen] = useState(false);
     const [form, setForm] = useState<FormState | null>(null);
@@ -93,7 +96,7 @@ export const CustomNarratorEditor: React.FC<{
                 <span aria-hidden="true">{open ? '▾' : '▸'}</span> {CUSTOM_NARRATOR_COPY.disclosure} ({narrators.length})
             </button>
             {open && (
-                <div id={`${ids}-panel`} className="gor-narrator-editor-panel">
+                <fieldset id={`${ids}-panel`} className="gor-narrator-editor-panel gor-fieldset-plain" disabled={disabled} aria-describedby={disabled ? describedBy : undefined}>
                     <p className="gor-config-note" style={{ marginTop: 0 }}>{CUSTOM_NARRATOR_COPY.intro}</p>
                     {narrators.length === 0 && !form && <p className="gor-config-note">{CUSTOM_NARRATOR_COPY.empty}</p>}
                     {narrators.length > 0 && (
@@ -169,7 +172,7 @@ export const CustomNarratorEditor: React.FC<{
                     ) : (
                         <Button type="button" size="sm" variant="ghost" onClick={() => startForm(BLANK)}>{CUSTOM_NARRATOR_COPY.add}</Button>
                     )}
-                </div>
+                </fieldset>
             )}
         </div>
     );

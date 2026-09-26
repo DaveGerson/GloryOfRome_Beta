@@ -1,10 +1,14 @@
 /**
  * narration/voiceCast.ts
  *
- * The campaign's voice cast: who speaks in which voice. One narrator (the
- * reader the casting chose for this campaign, with a voice and a delivery
- * note) and, for every INDIVIDUAL the player knows, a voice and a short
- * delivery note fitting who they are. The cast is what makes Julia Mamaea
+ * The campaign's voice cast: who speaks in which voice. For every
+ * INDIVIDUAL the player knows, a voice and a short delivery note fitting
+ * who they are. The cast does NOT choose the narrator: its `narrator` slot is
+ * always the built-in Dramatic Reader in its own voice (Enceladus), kept
+ * only so no character is given the narrator's voice. An older cast that
+ * named another reader, voice or note there still loads; `completeCast`
+ * re-seats the Dramatic Reader in that slot, and nothing reads the old
+ * choice (narration/narratorChoice.ts). The cast is what makes Julia Mamaea
  * narrate "in character" in a woman's voice, and a private-scene NPC sound
  * like themselves.
  *
@@ -39,7 +43,7 @@
  * sentences, few words"); the voice carries the sound. It NEVER reaches the
  * TTS input - the TTS model speaks every word outside a `<cue>`, so a note
  * there would be read aloud. Where a prep call
- * exists (the cast narrator, a character narrating "In character…") the note
+ * exists (a character narrating "In character…") the note
  * feeds that call's delivery brief (`castStyle`,
  * ai/prompts/narrationPerformance.ts `buildDeliveryBrief`); and whenever a
  * passage the narrator performs names a member, their note reaches its cast
@@ -88,8 +92,13 @@ const castMemberSchema = z.object({
   override: castOverrideSchema.optional(),
 }).strict();
 
+/**
+ * The narrator's slot. Always the Dramatic Reader in its own voice now; an
+ * older cast may name another reader, voice or note here - still valid, so
+ * the save loads, but never read (`completeCast` re-seats the default).
+ */
 const castNarratorSchema = z.object({
-  /** The reader (a preset narrator's id) the casting chose for this campaign. */
+  /** The reader: the Dramatic Reader's id (an older cast may name another; it is ignored). */
   narratorId: z.string().regex(NARRATOR_ID),
   voiceName: catalogVoiceId,
   style: castStyleText,
@@ -450,8 +459,16 @@ export function deterministicCast(candidates: readonly CastingCandidate[], defau
 export function completeCast(stored: VoiceCast | null, candidates: readonly CastingCandidate[], defaults: DefaultNarrator): VoiceCast {
   if (!stored) return deterministicCast(candidates, defaults, 0);
   const missing = candidates.filter(c => !stored.members[c.entityId]);
-  if (missing.length === 0) return stored;
-  return assembleCast(stored.narrator, stored.members, missing.map(fallbackProposal), stored.revision);
+  const seated = isDefaultNarrator(stored.narrator, defaults);
+  if (missing.length === 0 && seated) return stored;
+  // An older cast whose director chose another reader or voice: the default
+  // reader takes the slot back, and anyone who held its voice is re-voiced.
+  return assembleCast(seated ? stored.narrator : fallbackNarrator(defaults), stored.members, missing.map(fallbackProposal), stored.revision);
+}
+
+/** Whether a cast's narrator slot already holds the default reader, in its own voice and manner. */
+export function isDefaultNarrator(narrator: CastNarrator, defaults: DefaultNarrator): boolean {
+  return narrator.narratorId === defaults.narratorId && narrator.voiceName === defaults.voiceName && narrator.style === '';
 }
 
 /** The newer of two casts by revision (the first wins a tie), for carrying a cast forward into a save. */

@@ -460,7 +460,36 @@ describe('SILENT holds in the log (PR #12 review)', () => {
     const replay = [...panel.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.includes('Hear it again'))!;
     expect(replay.disabled).toBe(true);
     expect(panel.textContent).toContain('The voice is silent. Turn it on in Settings to hear this again.');
+    // The hint describes the disabled replay button.
+    expect(document.getElementById(replay.getAttribute('aria-describedby')!)?.textContent).toBe('The voice is silent. Turn it on in Settings to hear this again.');
     act(() => root.unmount());
     host.remove();
+  });
+});
+
+describe('SILENT holds for the Imperial Dispatch too', () => {
+  it('while the voice is off the Dispatch is silenced: no call, and a reading in progress stops', async () => {
+    mockAudio();
+    const log = new NarrationLogStore({ load: false });
+    const { ai, generateContent } = makeAi('The treasury holds and the legions wait.');
+    const base = {
+      ai, isMockMode: false, resolvedApiKey: 'k', worldState: makeWorldState({ week: 4 }), simulationState: makeSimulationState(),
+      entities: [makeEntity()], reports: [], currentEvents: [], playerEntity: makeEntity(), turnNumber: 3, log,
+    };
+    const silent = renderHook(useImperialDispatch, { ...base, narrationVoiceMode: 'off' as const });
+    expect(silent.current.dispatchStatus).toBe('silenced');
+    act(() => silent.current.toggleDispatch());
+    await settle();
+    expect(generateContent).not.toHaveBeenCalled();
+    silent.unmount();
+
+    const args = { ...base, narrationVoiceMode: 'on_demand' as 'on_demand' | 'off' };
+    const live = renderHook(useImperialDispatch, args);
+    act(() => live.current.toggleDispatch());
+    await settle();
+    expect(live.current.dispatchStatus).toBe('playing');
+    live.rerender({ ...args, narrationVoiceMode: 'off' });
+    expect(live.current.dispatchStatus).toBe('silenced');
+    live.unmount();
   });
 });

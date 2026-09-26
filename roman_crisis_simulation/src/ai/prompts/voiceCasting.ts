@@ -2,17 +2,20 @@
  * ai/prompts/voiceCasting.ts
  *
  * The casting director (`castVoices`, ai/tools/voiceCasting.ts): one
- * structured call that casts the campaign's voices - the reader best suited
- * to this campaign with a voice and delivery note of its own, and a voice
- * and short delivery note for every individual the player knows, fitting
- * who they are (sex and register, age, temperament, origin, station).
+ * structured call that casts the campaign's voices: a voice and short
+ * delivery note for every individual the player knows, fitting who they are
+ * (sex and register, age, temperament, origin, station). It does NOT choose
+ * the narrator: the Dramatic Reader always reads, in its own voice, and the
+ * prompt lists that voice as taken so no character is given it. (An answer
+ * that still carries a "narrator" is parsed and ignored -
+ * ai/tools/voiceCasting.ts.)
  *
  * What the prompt sees (D4/D5): the scenario theme (player-provided, so it
  * is JSON-quoted DATA under D41), the player's own name and position, and
  * the PLAYER-VISIBLE face of each individual the player knows - name,
  * position, epithet, entity type (narration/voiceCast.ts
- * `castingCandidatesFor`) - plus the voice catalog and the deployed
- * readers. Never personality numbers, schemes, secrets, beliefs,
+ * `castingCandidatesFor`) - plus the voice catalog and the voices already
+ * taken. Never personality numbers, schemes, secrets, beliefs,
  * relationships, `secret_truth`, `gm_private`, memories or goals: the
  * builder is typed on the projection and has no way to reach them.
  * Everything it returns is shown to the player (the rationale, the note).
@@ -31,13 +34,6 @@ import type { CastingCandidate } from '../../narration/voiceCast';
 import { MAX_CAST_RATIONALE_CHARS, MAX_CAST_STYLE_CHARS } from '../../narration/voiceCast';
 import { VOICE_CATALOG } from '../../narration/voiceCatalog';
 
-/** A reader the director may choose: a deployed narrator profile's player-visible face. */
-export interface CastingNarratorOption {
-  id: string;
-  name: string;
-  description: string;
-}
-
 /** A voice already taken, for casting newcomers around it. */
 export interface TakenVoice {
   name: string;
@@ -46,13 +42,13 @@ export interface TakenVoice {
 }
 
 export interface VoiceCastingPromptInput {
-  /** 'full' casts the narrator and everyone; 'newcomers' casts only `candidates` around `taken`. */
+  /** 'full' casts everyone; 'newcomers' casts only `candidates`. Both cast around `taken`. */
   mode: 'full' | 'newcomers';
   /** The scenario's theme (the meta-narrative): player-provided text, embedded as data. */
   theme: string;
   player: { name: string; position?: string } | null;
   candidates: readonly CastingCandidate[];
-  narrators: readonly CastingNarratorOption[];
+  /** Voices already taken - the narrator's always, and in 'newcomers' mode the cast's so far. */
   taken?: readonly TakenVoice[];
 }
 
@@ -81,20 +77,11 @@ export function buildVoiceCastingPrompt(input: VoiceCastingPromptInput): { syste
   const player = input.player
     ? { name: input.player.name, ...(input.player.position ? { position: input.player.position } : {}) }
     : null;
-  const readers = input.narrators.map(n => ({ id: n.id, name: n.name, description: n.description }));
-
-  const narratorAsk = input.mode === 'full'
-    ? `THE NARRATOR:
-Choose the reader (by id, from READERS) best suited to this campaign and its listener, then a voice from the catalog and a delivery note for that reader. The narrator's voice must differ from every character's.
-
-READERS (JSON-quoted data):
-${asPromptData(readers, 1)}
-`
-    : `The narrator is already cast. Omit "narrator" from your answer.
+  const narratorNote = `The narrator is not yours to cast: it keeps its own voice, listed below. Omit "narrator" from your answer.
 `;
 
-  const taken = input.mode === 'newcomers' && input.taken && input.taken.length > 0
-    ? `VOICES ALREADY TAKEN (JSON-quoted data - give newcomers other voices while any suitable one remains):
+  const taken = input.taken && input.taken.length > 0
+    ? `VOICES ALREADY TAKEN (JSON-quoted data - give ${input.mode === 'full' ? 'the cast' : 'newcomers'} other voices while any suitable one remains):
 ${asPromptData(input.taken.map(t => ({ name: t.name, voice: t.voiceName, note: t.style })), 1)}
 
 `
@@ -109,11 +96,11 @@ ${asPromptData(player)}
 VOICE CATALOG (JSON-quoted data; "register" is believed, not verified):
 ${catalogBlock()}
 
-${narratorAsk}
+${narratorNote}
 ${taken}${input.mode === 'full' ? 'THE CAST' : 'NEWCOMERS TO CAST'} (JSON-quoted data - cast every one of them, by entity_id):
 ${asPromptData(cast, 1)}
 
-Return JSON: ${input.mode === 'full' ? '"narrator" ({ narratorId, voiceName, style, rationale }) and ' : ''}"cast", one entry per character ({ entityId, voiceName, style, rationale }).`;
+Return JSON: "cast", one entry per character ({ entityId, voiceName, style, rationale }).`;
 
   return { systemInstruction: VOICE_CASTING_SYSTEM_INSTRUCTION, prompt };
 }

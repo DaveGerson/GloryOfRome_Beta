@@ -487,8 +487,9 @@ voice. Now every character has a voice of their own:
   `tests/voiceCast.test.ts` pins the list. The Settings voice pickers
   offer the curated six first, then the rest. Any catalog voice is a valid
   stored choice, a superset, so older prefs stay valid.
-- **The cast** (`narration/voiceCast.ts`) holds a narrator (a deployed
-  reader, a voice, a delivery note) and, for every living individual the
+- **The cast** (`narration/voiceCast.ts`) holds a narrator slot (since
+  2026-09-26 always the Dramatic Reader in Enceladus, reserved so no one
+  else takes that voice) and, for every living individual the
   player knows, a voice and a delivery note of at most 80 characters,
   sanitized like a custom voice style. Each member also has a one-line
   rationale shown to the player, and the player's optional override.
@@ -505,7 +506,7 @@ voice. Now every character has a voice of their own:
   it makes **one small newcomers call** for everyone uncast at that moment,
   around the voices already taken. "Recast everyone" in Settings is the
   only other trigger. It is explicit and paid, and it keeps the player's
-  overrides. Cost: a full cast sends roughly the catalog, the readers and
+  overrides. Cost: a full cast sends roughly the catalog, the voices taken and
   one short line per character, a few thousand tokens in and about 60 out
   per character. A newcomers call is a fraction of that. Nothing runs
   while the voice is SILENT, without a key, or on the selection screen.
@@ -546,13 +547,34 @@ voice. Now every character has a voice of their own:
   - Private-scene NPC lines use the NPC's cast voice, which replaces the
     hash. Their note is shown (and kept on the log entry) but sent nowhere:
     there is no prep call, so the voice alone carries them.
-  - With no explicit narration style, the cast's reader performs in the
-    cast narrator's voice, writing in its note's manner. Settings shows "As cast — …" and "Cast
-    by the casting director."
-  - **Explicit Settings choices always win.** Choosing "As cast" in the
-    style select hands the reader back to the cast. Custom narrators keep
-    their own voice and style. Another preset, chosen explicitly, keeps the
-    voice it was tuned with.
+  - ~~With no explicit narration style, the cast's reader performs in the
+    cast narrator's voice~~ **Changed 2026-09-26:** the cast never chooses
+    the reader. With no explicit narration style the Dramatic Reader
+    always performs, in its own voice (Enceladus) and written manner, in
+    every campaign - the owner's advisor, who had gone "totally missing"
+    when a real-key cast picked the Acta Diurna. The casting prompt no
+    longer offers readers and its schema carries no narrator (an older
+    answer's narrator parses and is ignored); an older cast that named
+    another reader, voice or note still loads, and its narrator slot is
+    re-seated. "As cast — <reader>" and "Cast by the casting director."
+    are gone from Settings. The cast does not voice the Dramatic Reader
+    either: the owner's advisor was voiced Enceladus, so it keeps that
+    unless the player picks a voice or a voice style.
+  - **Explicit Settings choices always win.** Custom narrators keep their
+    own voice and style. Another preset, chosen explicitly, keeps the
+    voice it was tuned with. "Narrate as them" on a Personae card sets
+    "In character…" exactly as Settings does.
+  - **Always shown, never hidden (2026-09-26).** Every narration control
+    is present whatever the mode: the chat's "Hear it performed" on every
+    committed GM narration, a private scene's "Hear them speak" (and the
+    per-line controls once on), every Settings narration section, the
+    narration log affordance, and the Personae voice row. While SILENT,
+    or with no key outside Mock Mode, each is disabled and tied by
+    `aria-describedby` to a hint; nothing is ever called. The Imperial
+    Dispatch's "Hear Report" follows SILENT too: it stays shown but is
+    disabled, its note reads "Turn on the narrator's voice in Settings to
+    hear this.", and a reading in progress stops when the voice is turned
+    off.
 - **"Bespoke character voices"** was a Settings switch that stopped cast
   notes being prefixed on the TTS input. **Removed** the same day (below):
   notes never reach the TTS input now, so the reason for it is gone. Every
@@ -928,6 +950,30 @@ Nothing here blocks; all are one edit from rewording.
     (was "with no names, no numbers and no quotation marks inside them").
   - *Narration log:* "Omitted: N cue(s) the chronicle did not support",
     listing each dropped cue.
+  **Added 2026-09-26 (always shown; the Dramatic Reader by default; a voice row on Personae):**
+  - *Chat, private scene, Personae (disabled while SILENT):* "Turn on the
+    narrator's voice in Settings to hear this." (the no-key case reuses
+    "No token on this device").
+  - *Settings (under the mode, while SILENT):* "Turn on the narrator's
+    voice above to change these."
+  - *The cast, the narrator's row:* "Reads in its own voice unless you
+    choose another. The casting never changes the narrator." (replaces the
+    cast's own narrator rationale there).
+  - *Personae voice row:* "Voice: <voice> — <manner>" ("Voice: <voice>"
+    with no manner), "Narrate as them", "<name> now narrates.", "Hear
+    their voice", "They draw breath…", and, once above the figures,
+    "Hearing a voice is one paid call on your key: they say their name,
+    nothing more." Screen readers hear each button's character after its
+    label ("Narrate as them (Julia Mamaea)").
+  - *The sample itself (spoken, and in the log):* "I am <name>." Log
+    source label: "Voice of <name>".
+  - *Removed:* "As cast — <reader>" and "Cast by the casting director."
+    (Settings, narration style).
+  - *Model-facing:* the casting prompt's "The narrator is not yours to
+    cast: it keeps its own voice, listed below. Omit "narrator" from your
+    answer." (replaces the READERS ask), and "VOICES ALREADY TAKEN
+    (JSON-quoted data - give the cast other voices while any suitable one
+    remains):" in a full cast.
 ---
 
 ## Residuals from the visual-enhancement pass (WP-1…WP-21 + adversarial review)

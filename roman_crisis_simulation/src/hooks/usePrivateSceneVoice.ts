@@ -2,9 +2,11 @@
  * hooks/usePrivateSceneVoice.ts
  *
  * "Hear them speak": a private-scene NPC's committed lines, spoken in the
- * NPC's own voice (narration/sceneVoice.ts). Offered only while the
- * narration voice is not SILENT, and off until the player turns it on (a
- * device preference). Each committed NPC line - never a draft, never the
+ * NPC's own voice (narration/sceneVoice.ts). Always shown, and off until the
+ * player turns it on (a device preference). While the narration voice is
+ * SILENT - or there is no key outside Mock Mode - the toggle is shown
+ * DISABLED with a pointer (`blocked`), and no call is ever made; lines
+ * already toggled on keep a disabled control saying why. Each committed NPC line - never a draft, never the
  * player's own lines, never anything but the player-visible transcript
  * (`PrivateScenePlayerView`) - gets a play control.
  *
@@ -44,8 +46,10 @@ export interface SceneVoiceLine {
 /** The private-scene surface's voice seam (components/PrivateScene.tsx). */
 export interface PrivateSceneNpcVoice {
     enabled: boolean;
+    /** Why the voice cannot be heard now - SILENT, or no key - else null. Its controls are shown, disabled. */
+    blocked: 'silent' | 'unavailable' | null;
     onSetEnabled: (enabled: boolean) => void;
-    /** The control state for a line, or undefined when it gets no control (a player line, voice off, nothing to say). */
+    /** The control state for a line, or undefined when it gets no control (toggled off, a player line, nothing to say). */
     stateFor: (scene: SceneVoiceContext, line: SceneVoiceLine) => NarrationVoiceControlState | undefined;
     onToggle: (scene: SceneVoiceContext, line: SceneVoiceLine) => void;
 }
@@ -68,7 +72,7 @@ export interface UsePrivateSceneVoiceArgs {
 
 export function usePrivateSceneVoice({
     ai, isMockMode, resolvedApiKey, narrationVoiceMode, voiceCast = null, week, log = sharedNarrationLog,
-}: UsePrivateSceneVoiceArgs): PrivateSceneNpcVoice | undefined {
+}: UsePrivateSceneVoiceArgs): PrivateSceneNpcVoice {
     const [player] = useState(() => new NarrationPlayer());
     const playback = useSyncExternalStore(player.subscribe, player.getSnapshot, player.getSnapshot);
     const [enabled, setEnabledState] = useState(() => getSceneVoicesEnabled());
@@ -141,18 +145,19 @@ export function usePrivateSceneVoice({
 
     const stateFor = useCallback((scene: SceneVoiceContext, line: SceneVoiceLine): NarrationVoiceControlState | undefined => {
         if (!enabled || line.speaker !== 'npc' || !cleanSceneLineForSpeech(line.text)) return undefined;
+        if (!offered) return 'silent';
         if (!canReachVoice) return 'unavailable';
         const index = indexOf.current.get(`${scene.sceneId}#${line.sequence}`);
         return index !== undefined && playback.index === index ? playback.status : 'idle';
-    }, [enabled, canReachVoice, playback]);
+    }, [enabled, offered, canReachVoice, playback]);
 
     const onToggle = useCallback((scene: SceneVoiceContext, line: SceneVoiceLine) => {
-        if (!canReachVoice || line.speaker !== 'npc') return;
+        if (!offered || !canReachVoice || line.speaker !== 'npc') return;
         const spoken = cleanSceneLineForSpeech(line.text);
         if (!spoken) return;
         player.toggle(slot(scene, line), spoken);
-    }, [player, canReachVoice, slot]);
+    }, [player, offered, canReachVoice, slot]);
 
-    if (!offered) return undefined;
-    return { enabled, onSetEnabled, stateFor, onToggle };
+    const blocked = !offered ? 'silent' : !canReachVoice ? 'unavailable' : null;
+    return { enabled, blocked, onSetEnabled, stateFor, onToggle };
 }

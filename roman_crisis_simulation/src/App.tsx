@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useCallback, useState, useMemo } from 'react';
 import { GameState } from './types';
 
 import Header from './components/Header';
@@ -29,9 +29,10 @@ import { useSettings } from './hooks/useSettings';
 import { useTurnFlow } from './hooks/useTurnFlow';
 import { useWeekBeat } from './hooks/useWeekBeat';
 import { useNarrationVoice } from './hooks/useNarrationVoice';
-import { narratorCharactersFor } from './narration/narratorChoice';
+import { IN_CHARACTER_NARRATOR_ID, narratorCharactersFor } from './narration/narratorChoice';
 import { useNarrationLog } from './hooks/useNarrationLog';
 import { usePrivateSceneVoice } from './hooks/usePrivateSceneVoice';
+import { usePersonaeVoice } from './hooks/usePersonaeVoice';
 import { useCastBasis, useVoiceCast } from './hooks/useVoiceCast';
 import { NarrationLog } from './components/NarrationLog';
 import { useDevSmokeTest, useScrollToLatest, useUnloadGuardWhileProcessing } from './hooks/useShellEffects';
@@ -215,7 +216,7 @@ const App: React.FC = () => {
     const { effectiveCast } = castBasis;
     const {
         narrationVoiceMode, handleSetNarrationVoiceMode, toggleNarrationVoice, narrationVoiceStateFor,
-        narrators, narratorId, narratorChosenExplicitly, castNarratorId, narratorVoiceFromCast, handleSetNarrator,
+        narrators, narratorId, narratorVoiceFromCast, handleSetNarrator,
         narratorCharacterId, handleSetNarratorCharacter,
         customNarrators, handleSaveCustomNarrator, handleDeleteCustomNarrator,
         narratorVoiceChoice, narratorOwnVoice, handleSetNarratorVoice,
@@ -235,9 +236,22 @@ const App: React.FC = () => {
     // replay that never re-runs the narrator (narration/narrationLog.ts).
     const { narrationLogEntries, toggleReplay, replayStateFor, stopReplay, clearLog } = useNarrationLog({ ai, isMockMode, resolvedApiKey, narrationVoiceMode });
     // "Hear them speak": a private-scene NPC's committed lines in their own
-    // voice - offered only while the narration voice is on, off by default.
+    // voice - always shown (disabled with a pointer while SILENT), off by default.
     const privateSceneNpcVoice = usePrivateSceneVoice({
         ai, isMockMode, resolvedApiKey, narrationVoiceMode, voiceCast: effectiveCast, week: worldState.week,
+    });
+    // The voice row on each Personae card: the cast voice, "Narrate as them"
+    // (the same "In character…" state Settings sets) and "Hear their voice"
+    // (one paid TTS call: their name, no prep). Disabled while SILENT.
+    const castCandidateIds = useMemo(() => castBasis.candidates.map(c => c.entityId), [castBasis.candidates]);
+    const narrateAs = useCallback((entityId: string) => {
+        handleSetNarrator(IN_CHARACTER_NARRATOR_ID);
+        handleSetNarratorCharacter(entityId);
+    }, [handleSetNarrator, handleSetNarratorCharacter]);
+    const personaeVoice = usePersonaeVoice({
+        ai, isMockMode, resolvedApiKey, narrationVoiceMode, voiceCast: effectiveCast, candidateIds: castCandidateIds,
+        narratingId: narratorId === IN_CHARACTER_NARRATOR_ID ? narratorCharacterId : null, onNarrateAs: narrateAs,
+        week: worldState.week, turnNumber,
     });
 
     const {
@@ -428,15 +442,14 @@ const App: React.FC = () => {
                                                     npcVoice={privateSceneNpcVoice}
                                                 />
                                             )}
-                                            {(narrationVoiceMode !== 'off' || narrationLogEntries.length > 0) && (
-                                                <NarrationLog
-                                                    entries={narrationLogEntries}
-                                                    stateFor={replayStateFor}
-                                                    onToggle={toggleReplay}
-                                                    onClear={clearLog}
-                                                    onClose={stopReplay}
-                                                />
-                                            )}
+                                            {/* Always present: the text log stays readable while SILENT; replay is silenced (useNarrationLog). */}
+                                            <NarrationLog
+                                                entries={narrationLogEntries}
+                                                stateFor={replayStateFor}
+                                                onToggle={toggleReplay}
+                                                onClear={clearLog}
+                                                onClose={stopReplay}
+                                            />
                                             {isGmConsoleEnabled && (
                                                 <Tooltip wide label={turnHistory.length > 0 ? "The Fates' ledger — every thread and die of the simulation, recorded." : 'The ledger opens once a turn has been played.'}>
                                                     <Button
@@ -476,6 +489,8 @@ const App: React.FC = () => {
                             pulsingTabs={pulsingTabs}
                             onOccurrenceFinding={handleOccurrenceFinding}
                             resolvedApiKey={resolvedApiKey}
+                            narrationVoiceMode={narrationVoiceMode}
+                            personaeVoice={personaeVoice}
                         />
                     </>
                 )}
@@ -543,8 +558,6 @@ const App: React.FC = () => {
                     voiceStyleChoice={voiceStyleChoice}
                     narratorOwnStyle={narratorOwnStyle}
                     onSetVoiceStyle={handleSetVoiceStyle}
-                    narratorChosenExplicitly={narratorChosenExplicitly}
-                    castNarratorId={castNarratorId}
                     narratorVoiceFromCast={narratorVoiceFromCast}
                     voiceCast={effectiveCast}
                     castCharacters={castBasis.candidates}
