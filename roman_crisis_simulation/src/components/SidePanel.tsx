@@ -3,6 +3,7 @@ import { GameState, Entity, InvestigationResult, WorldState, Report, EventHistor
 import { GoogleGenAI } from "@google/genai";
 import CurrentEventsTab from './tabs/CurrentEventsTab';
 import DramatisPersonaeTab from './tabs/DramatisPersonaeTab';
+import type { PersonaeVoice } from '../hooks/usePersonaeVoice';
 import EmpireTab from './tabs/EmpireTab';
 import ReportsTab from './tabs/ReportsTab';
 import PlayerStatus from './PlayerStatus';
@@ -77,7 +78,9 @@ const SidePanel: React.FC<{
     /** Commits one occurrence finding to the knowledge store (audit item 40). */
     onOccurrenceFinding: (occurrence: string, question: OccurrenceQuestion, text: string, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
     resolvedApiKey?: string | null;
-}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, turnHistory, pulsingTabs, onOccurrenceFinding, resolvedApiKey }) => {
+    /** The voice row on each Personae card (hooks/usePersonaeVoice.ts). */
+    personaeVoice?: PersonaeVoice;
+}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, turnHistory, pulsingTabs, onOccurrenceFinding, resolvedApiKey, personaeVoice }) => {
     const [activeTab, setActiveTab] = useState<TabId>('world_state');
     const { dispatchStatus, toggleDispatch } = useImperialDispatch({
         ai,
@@ -291,6 +294,7 @@ const SidePanel: React.FC<{
                     interactionLocked={interactionLocked}
                     ai={ai}
                     isMockMode={isMockMode}
+                    personaeVoice={personaeVoice}
                 />}
                 {activeTab === 'locations' && <EmpireTab worldState={worldState} entities={entities} playerEntity={playerEntity} knowledge={knowledge} />}
                 {activeTab === 'resources' && <ResourcesTab playerEntity={playerEntity} />}

@@ -166,6 +166,10 @@
 .gor-voice-status{font-size:13.5px;font-style:italic;color:var(--text-muted)}
 .gor-voice-error .gor-voice-status{color:var(--text-body)}
 @keyframes gorVoiceSpin{to{transform:rotate(360deg)}}
+/* The Personae card's voice row: one quiet line and two voice buttons (components/tabs/PersonaVoiceRow.tsx). */
+.gor-persona-voice{padding-top:6px;border-top:1px solid var(--border-faint)}
+.gor-persona-voice-line{margin:0;font-size:14px;color:var(--text-body)}
+.gor-persona-voice-actions{margin-top:6px}
 @media (prefers-reduced-motion:reduce){.gor-voice-btn{transition:none}.gor-voice-spinner{animation:none;border-style:dotted;border-top-color:var(--border-strong)}}
 .gor-pill{display:inline-flex;align-items:center;gap:8px;font-family:var(--font-display);font-weight:600;font-size:13px;letter-spacing:.05em;padding:9px 16px;background:linear-gradient(180deg,#FFFEF9,#EFEBDC);border:1px solid var(--border-strong);clip-path:var(--chamfer-sm);cursor:pointer;color:var(--gold-700);transition:color var(--duration-fast) var(--ease-standard),border-color var(--duration-fast) var(--ease-standard),filter var(--duration-fast) var(--ease-standard);animation:gorRise .4s ease-out both}
 .gor-pill:hover:not(:disabled){color:var(--tyrian-500);border-color:var(--tyrian-400);filter:brightness(1.03)}

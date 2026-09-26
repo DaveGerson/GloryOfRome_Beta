@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useId, useState } from 'react';
 import { Entity, InvestigationResult } from '../../types';
 import { GoogleGenAI } from '@google/genai';
 import InfoTooltip from '../InfoTooltip';
@@ -16,6 +16,8 @@ import RelationshipsTab from './RelationshipsTab';
 import { SubRail } from '../ui/SubRail';
 import { getTabRegister, setTabRegister } from '../../persistence/uiPrefs';
 import type { DomainMutationContext, RunDomainMutation } from '../../state/domainMutation';
+import type { PersonaeVoice } from '../../hooks/usePersonaeVoice';
+import { PersonaVoiceRow, PERSONA_VOICE_COPY } from './PersonaVoiceRow';
 
 type Wiring = {
   knowledge: KnowledgeClaim[];
@@ -26,10 +28,15 @@ type Wiring = {
   interactionLocked?: boolean;
   ai: GoogleGenAI;
   isMockMode: boolean;
+  /** The voice row on each known character's card (hooks/usePersonaeVoice.ts); omitted, no row. */
+  personaeVoice?: PersonaeVoice;
+  /** The id of the tab's "paid call" note, which describes each Hear button. */
+  paidNoteId?: string;
 };
 
 const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring> = ({
   entity, playerEntity, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, ai, isMockMode, interactionLocked,
+  personaeVoice, paidNoteId,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   // One ❧ Glossary control per dossier instead of five † daggers (audit item
@@ -81,6 +88,7 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <span style={quiet}>{entity.position || entity.entity_type}</span>
+        {personaeVoice && <PersonaVoiceRow entityId={entity.entity_id} name={entity.name} voice={personaeVoice} paidNoteId={paidNoteId} />}
         <RelationshipObservations observations={observations} currentTurn={turnNumber} subjectName={entity.name} />
         {requestError && <Alert title="Your agents return empty-handed">{requestError}</Alert>}
         {isExpanded && <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 8, borderTop: '1px solid var(--border-faint)' }}>
@@ -114,8 +122,9 @@ const FactionSection: React.FC<{ faction: Entity; members: Entity[]; playerEntit
 const PERSONAE_REGISTERS = ['figures', 'relationships'] as const;
 type PersonaeRegister = typeof PERSONAE_REGISTERS[number];
 
-const DramatisPersonaeTab: React.FC<{ playerEntity: Entity | null; entities: Entity[] } & Wiring> = ({ playerEntity, entities, ...wiring }) => {
+const DramatisPersonaeTab: React.FC<{ playerEntity: Entity | null; entities: Entity[] } & Omit<Wiring, 'paidNoteId'>> = ({ playerEntity, entities, ...rest }) => {
   const [register, setRegister] = useState<PersonaeRegister>(() => getTabRegister('personae', PERSONAE_REGISTERS, 'figures'));
+  const paidNoteId = useId();
   if (!playerEntity) return <p style={quiet}>Loading character…</p>;
 
   const selectRegister = (next: PersonaeRegister) => {
@@ -123,6 +132,7 @@ const DramatisPersonaeTab: React.FC<{ playerEntity: Entity | null; entities: Ent
     setTabRegister('personae', next);
   };
 
+  const wiring: Wiring = { ...rest, paidNoteId };
   const known = entities.filter(entity => isEntityKnownToPlayer(playerEntity, entity, wiring.knowledge));
   // Knownness is deliberately evaluated before status and faction grouping:
   // an unseen death or affiliation must not establish a hidden identity.
@@ -158,6 +168,7 @@ const DramatisPersonaeTab: React.FC<{ playerEntity: Entity | null; entities: Ent
               epilogue. The one † left in this view is on the term itself. */}
           <span className="gor-label" style={{ color: investigations > 0 ? 'var(--gold-700)' : 'var(--crimson-500)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>Investigations: {investigations}<InfoTooltip text="Your capacity for espionage. Spend to reveal beliefs, schemes, or secrets." /></span>
         </span>
+        {wiring.personaeVoice && <p className="gor-config-note" id={paidNoteId} style={{ margin: 0 }}>{PERSONA_VOICE_COPY.paidNote}</p>}
         {knownFactions.map(faction => <FactionSection key={faction.entity_id} faction={faction} members={knownLiving.filter(member => member.faction_id === faction.entity_id)} playerEntity={playerEntity} {...wiring} />)}
         {neutral.length > 0 && <><span className="gor-label">Other known figures</span>{neutral.map(entity => <EntityDetails key={entity.entity_id} entity={entity} playerEntity={playerEntity} {...wiring} />)}</>}
       </>

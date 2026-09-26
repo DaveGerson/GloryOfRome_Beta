@@ -35,7 +35,7 @@ export interface UseNarrationLogArgs {
 }
 
 /** The Dispatch was voiced a touch cooler than the narrator (ai/tools/narrationVoice.ts). */
-const REPLAY_TEMPERATURE: Record<NarrationLogEntry['kind'], number> = { chronicle: 1, dispatch: 0.8, private_scene: 1 };
+const REPLAY_TEMPERATURE: Record<NarrationLogEntry['kind'], number> = { chronicle: 1, dispatch: 0.8, private_scene: 1, voice_sample: 1 };
 
 export function useNarrationLog({ ai, isMockMode, resolvedApiKey, narrationVoiceMode, log = sharedNarrationLog }: UseNarrationLogArgs) {
     const entries = useSyncExternalStore(log.subscribe, log.getSnapshot, log.getSnapshot);

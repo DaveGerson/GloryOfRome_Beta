@@ -37,7 +37,8 @@ import { NARRATION_LOG_KEY, getJsonPref, setJsonPref } from '../persistence/uiPr
 export const MAX_NARRATION_LOG_ENTRIES = 150;
 export const SOURCE_EXCERPT_CHARS = 140;
 
-export type NarrationSourceKind = 'chronicle' | 'dispatch' | 'private_scene';
+/** 'voice_sample': a Personae card's "Hear their voice" - one fixed line in a character's cast voice. */
+export type NarrationSourceKind = 'chronicle' | 'dispatch' | 'private_scene' | 'voice_sample';
 
 const entrySchema = z.object({
   id: z.string().min(1).max(64),
@@ -45,7 +46,7 @@ const entrySchema = z.object({
   at: z.string().max(40),
   week: z.number().int().nullable(),
   turn: z.number().int().nullable(),
-  kind: z.enum(['chronicle', 'dispatch', 'private_scene']),
+  kind: z.enum(['chronicle', 'dispatch', 'private_scene', 'voice_sample']),
   sourceLabel: z.string().max(200),
   sourceExcerpt: z.string().max(SOURCE_EXCERPT_CHARS + 1),
   sourceHash: z.string().max(16),
