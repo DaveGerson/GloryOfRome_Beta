@@ -974,6 +974,54 @@ Nothing here blocks; all are one edit from rewording.
     answer." (replaces the READERS ask), and "VOICES ALREADY TAKEN
     (JSON-quoted data - give the cast other voices while any suitable one
     remains):" in a full cast.
+- **Reading, motion and the command palette (2026-09-28)** — the UI pass
+  that shipped ROADMAP_UPLEVEL P5 (reading and motion settings) and P6
+  (per-tab "what changed" counts), a command palette, a chat log that
+  stops yanking a reader who scrolled back, and a game screen that gives
+  the chronicle its height back. Every string below is new player-visible
+  copy; each lives in one exported constant, named here, so a rewording is
+  one edit.
+  - *Settings → Reading* (`components/ReadingSettings.tsx`,
+    `READING_SETTINGS_COPY`): the register "Reading"; "Text size" with
+    "Standard" / "Large" / "Larger" and the notes "The chronicle and the
+    registers at their written size." / "The chronicle, the registers and
+    your dossier drawn a size larger." / "…two sizes larger."; "Motion"
+    with "As the device" / "Still" and "Follows your device: leaves rise,
+    the crisis smoulders, unless it asks for less motion." / "Nothing moves
+    that need not: no rising leaves, no smoulder, no gliding scroll.";
+    "Narration" with "As written" / "Whole" and "Watch the chronicler write
+    the week, word by word." / "The week appears once it is written; the
+    loom shows the work meanwhile."; "Keys" (a radiogroup named
+    "Single-key shortcuts") with "On" / "Off" and "Outside a text field,
+    1–7 open a register, / takes you to the tablet and ? lists every
+    command. Ctrl+K always opens the commands." / "Single keys do nothing.
+    Ctrl+K still opens the commands." ("As written" is also a Voice style
+    option; the two sit in different registers and mean different things.)
+  - *The command palette* (`components/CommandPalette.tsx`,
+    `COMMAND_PALETTE_COPY`; `app/commands.ts`, `COMMAND_COPY`): dialog
+    "Commands"; field "Seek a command", placeholder "Seek a register, a
+    tool, a counsel…"; "No command answers to that."; foot "↑ ↓ to choose ·
+    Enter to act · Esc to close"; close "Close the commands". Groups
+    "Registers", "The desk", "Counsel", "The house". Commands: each
+    register's full name (with "<N> new" beside it), "Write your action",
+    "Seek a private audience", "Open the narration log", "Return to the
+    latest in the chronicle", "Draft: <counsel>", "Open the
+    configuration", "Open the Fates' ledger".
+  - *The masthead* (`components/Header.tsx`, `HEADER_COPY`): "Commands"
+    (button name "Open the command palette"), and "Changed this week" (the
+    ✦ beside a world stat a public 'world' delta moved last week). The
+    Settings button's hover title gains "reading": "Configuration — API
+    key, pacing, lighting, reading, GM console".
+  - *The side panel*: a pulsing tab's name becomes "<Tab> (<N> new)"
+    (`components/SidePanel.tsx`, `tabAriaLabel`; the older "(new
+    intelligence)" stays where no count is known). The dossier's fold
+    control, "Your goal and state" (`components/PlayerStatus.tsx`,
+    `PLAYER_STATUS_COPY`). The Imperial Dispatch keeps every word; its 📜
+    emoji is replaced by a small crimson seal.
+  - *The desk*: "Counsel" over the week's suggested actions
+    (`components/TurnComposer.tsx`, `TURN_COMPOSER_COPY`); "To the latest"
+    and, once a leaf has landed unseen, "New in the chronicle"
+    (`hooks/useChatFollow.ts`, `CHAT_FOLLOW_COPY`).
 ---
 
 ## Residuals from the visual-enhancement pass (WP-1…WP-21 + adversarial review)

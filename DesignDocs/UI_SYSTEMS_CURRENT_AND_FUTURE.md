@@ -411,6 +411,10 @@ text to compact trend meters (value + directional arrow + spark of recent histor
 *(PARTIALLY SHIPPED — the blocker is gone: the `'world'` delta type now unfreezes both fields
 (`ai/core/engine.ts`). `Header.tsx` still renders them as plain text `Stat` rows, not trend
 meters/arrows/sparkline — that visual upgrade is still open.)*
+*(PARTLY SHIPPED 2026-09-28 — economic stability gains a five-pip grade meter from
+`events/stabilityVocabulary.ts`, and a stat a public 'world' delta moved last week carries a
+"changed this week" mark. No direction arrow or sparkline: no per-week history of the two
+values is kept, and inventing one from the deltas would need the pre-change value.)*
 
 ## 7. Surface the Drama (stakes, endings, tension)
 
@@ -521,6 +525,9 @@ narrow. Before/after evidence: `docs/ui-refresh/`. Still not built: modals going
 **10.3 Inclusive meters [P2 / S]** — Add text/pattern redundancy to color-coded meters (trust,
 stability, credibility); respect `prefers-reduced-motion` for all entrance/typing animations;
 audit the sepia palette for contrast.
+*(Reduced motion SHIPPED — every animation honours the device, and Settings → Reading →
+Motion "Still" stills the client even when the device does not ask. Contrast is pinned by
+`tests/colorContrast.test.ts`.)*
 
 ## 11. Atmosphere & Sensory Polish
 
@@ -557,6 +564,9 @@ reduced motion, streaming on/off, and (dev) mock mode — replacing the header c
 availability, and a dev-build-only Developer card (Mock Mode + the GM-console runtime switch)
 all live there with visible descriptions; the fixed bottom-right chrome and the dev-only Header
 pills are gone. No audio/text-size/reduced-motion/streaming-toggle controls yet.)*
+*(Text size, reduced motion and streaming on/off SHIPPED 2026-09-28 as the configuration
+menu's Reading register — see ROADMAP_UPLEVEL_2026-09.md Part 3. Audio is B13's narration
+voice.)*
 
 **12.4 GM screen as "Director's Booth" [P2 / M]** — Rebrand the player-facing half (Intervention,
 Summary, Entity States) as an intentional sandbox-director feature with in-theme framing

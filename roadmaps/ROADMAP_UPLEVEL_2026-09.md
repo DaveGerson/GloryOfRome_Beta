@@ -180,8 +180,8 @@ already there rather than replacing it.
 | P2 | **Browser end-to-end tests with Playwright** as a fourth CI job, running Mock Mode in preview. Cover boot, a turn, reload, export/import, two-tab play and the GM hotkey. | jsdom does not exercise real storage events, focus, layout or bundle loading. | 2–3 d |
 | P3 | **IndexedDB storage with multiple save slots** and autosave history (undo to turn N), plus a `BroadcastChannel` tab lock. | Lifts the ~5 MB ceiling. The migration registry makes the move safe. | 1 wk |
 | P4 | **Mobile single-column layout.** Below about 900 px, show a Chat ↔ Intel switcher, collapse player status into a bar, and make dialogs full-screen. | The biggest reach gain (UI doc item 10.2). | 1–2 wk |
-| P5 | **Reading and motion settings**: text size, reduced motion, streaming off, progress announcements. | Also settles the double progress announcement noted in the UI track. | 3 d |
-| P6 | **Per-tab "what changed since you last looked"** counts instead of the pulse dot. | Turns the intel panel into a to-do list and helps screen-reader users. | 3–4 d |
+| P5 | **Reading and motion settings**: text size, reduced motion, streaming off, progress announcements. *(LANDED 2026-09-28 except progress announcements — see Part 3.)* | Also settles the double progress announcement noted in the UI track. | 3 d |
+| P6 | **Per-tab "what changed since you last looked"** counts instead of the pulse dot. *(LANDED 2026-09-28 — see Part 3.)* | Turns the intel panel into a to-do list and helps screen-reader users. | 3–4 d |
 | P7 | **Shareable end-of-reign recap** built from the Chronicle and the epilogue. | Players share their story, which is a growth loop. | 1 wk |
 | P8 | **Opt-in telemetry** for stage latency, retry and validation rates, save failure reasons and error-boundary crashes. | Tuning becomes measurement, and it feeds the eval corpus. | 2–3 d |
 | P9 | **Hosted mode (B9)**: a Gemini proxy, optional sign-in, and saves on the server. | No need to bring your own key; saves follow the player across devices. | 2+ wk |
@@ -205,3 +205,64 @@ already there rather than replacing it.
   impression? To revert, delete the one small script block in `index.html`.
 - **CI check names changed** from `ci` to `verify:static`, `verify:unit`
   and `verify:integration`. Update branch protection if it requires `ci`.
+
+---
+
+## Part 3 — Landed since: the game-screen UI pass (2026-09-28)
+
+One pass over the game screen, aimed at the two things a player feels
+every week: how much of the screen the chronicle gets, and how quickly
+they can reach what they need. New copy is in the veto queue
+(`BACKLOG.md`, "Reading, motion and the command palette"); nothing here
+touches the save format, the AI pipeline or any ruling in
+`DESIGN_DECISIONS.md`.
+
+- **P5, reading and motion.** A new Reading register in the configuration
+  menu (D43: the single home for options). Text size (Standard / Large /
+  Larger) scales the reading surfaces only: the chronicle, the registers,
+  the player's dossier and the tablet. Motion: "Still" turns off every
+  animation and the gliding scroll, even when the device does not ask for
+  less motion. Narration: "Whole" keeps the loom up instead of streaming
+  the pen. Keys: single-key shortcuts can be turned off (WCAG 2.1.4). All
+  four are device preferences (`persistence/readingPrefs.ts`), painted on
+  `<html>` as data attributes (absent by default, so a device that never
+  chose renders as before) and seeded in `index.html` before first paint.
+  *Not done:* the double progress announcement (the loom and the
+  composer's stage line) is still an open owner decision (see "Open owner
+  decisions" above).
+- **P6, what changed since you last looked.** A pulsing tab now shows how
+  many perceived changes landed on it, as a gold coin and in its
+  accessible name ("Reports (2 new)"). The count comes from the same
+  filtered digest as the pulse (`tabChangeCountsFor`,
+  `hooks/usePlayerPerception.ts`), so it can say nothing the Dispatches
+  card did not. Personae counts relationship observations only (D36).
+- **A command palette** (Ctrl+K / ⌘K, the masthead's Commands button, or
+  `?`). It reaches the seven registers (with their counts), the tablet, a
+  private scene, the narration log, the week's counsel, the latest line,
+  the configuration and, when on, the Fates' ledger. Outside a text field,
+  1–7 open the registers and `/` goes to the tablet. It only reaches
+  things, never sets an option (D43), and offers only what can run now.
+  Each command presses the same control the player would
+  (`app/domCommands.ts`), so every guard on those controls still applies.
+  Lazy-loaded like the other overlays.
+- **The chat log follows only a reader at the foot**
+  (`hooks/useChatFollow.ts`). The old hook scrolled to the bottom on every
+  change, yanking a reader who had scrolled back, and never followed the
+  streamed narration. Now it follows the pen while you are at the foot,
+  always returns you there when you send a week, and otherwise offers "To
+  the latest" (gold "New in the chronicle" once something has landed).
+- **The screen gives the chronicle its height back.** On the game screen
+  the masthead is compact (about 40px back). The player's dossier folds to
+  its name line (a device preference). The tablet takes the full width of
+  the column, with the desk's tools (Private scene, Narration log, GM Log)
+  on its mode bar. The week's counsel is a compact, labelled row. The
+  Imperial Dispatch bar moved from inline styles to classes, so the night
+  skin reaches it. Economic stability gains a five-pip grade meter, and a
+  world stat a public 'world' delta moved last week carries a "changed
+  this week" mark (UI_SYSTEMS 6.5, partly).
+
+Checks: 2450 unit tests (from 2385), 10 journeys, typecheck, lint with
+zero warnings, the deterministic eval and the build all pass. The main
+chunk grew by about 11 kB (3.9 kB gzipped); the palette is its own 3.6 kB
+chunk. Screenshots: `docs/ui-refresh/16-*.png`.
+
