@@ -48,7 +48,21 @@ const TABS: { id: TabId; label: string; fullLabel: string }[] = [
  * swaps, `aria-controls`/`aria-labelledby` tying the two together.
  */
 const SIDEPANEL_TABPANEL_ID = 'sidepanel-tabpanel';
-const sidePanelTabDomId = (id: TabId): string => `sidepanel-tab-${id}`;
+export const sidePanelTabDomId = (id: TabId): string => `sidepanel-tab-${id}`;
+
+/** The seven registers in rail order - the command palette and the 1-7 keys read the same list. */
+export const SIDE_PANEL_TABS: readonly { id: TabId; label: string; fullLabel: string }[] = TABS;
+
+/**
+ * A pulsing tab's accessible name says how much is new when the count is
+ * known ("Reports (2 new)"), and falls back to the older wording when it is
+ * not (veto queue: roadmaps/BACKLOG.md, "Reading, motion and the command
+ * palette").
+ */
+export function tabAriaLabel(fullLabel: string, pulsing: boolean, count: number | undefined): string {
+    if (!pulsing) return fullLabel;
+    return count ? `${fullLabel} (${count} new)` : `${fullLabel} (new intelligence)`;
+}
 
 const SidePanel: React.FC<{
     gameState: GameState;
@@ -79,6 +93,14 @@ const SidePanel: React.FC<{
      * filter didn't already let through - this set is built strictly from
      * buildPlayerPerceivedDigest's output, never raw deltas. */
     pulsingTabs: Set<TabId>;
+    /**
+     * How many perceived changes landed on each pulsing tab last turn
+     * (hooks/usePlayerPerception.ts's tabChangeCountsFor - built from the
+     * same filtered digest as `pulsingTabs`, so it can say nothing the
+     * digest did not). With it, a pulsing tab carries its count instead of a
+     * bare dot; without it (or for a tab it has no count for) the dot stays.
+     */
+    tabChangeCounts?: ReadonlyMap<TabId, number>;
     /** Commits one occurrence finding to the knowledge store (audit item 40). */
     onOccurrenceFinding: (occurrence: string, question: OccurrenceQuestion, text: string, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
     resolvedApiKey?: string | null;
@@ -86,7 +108,7 @@ const SidePanel: React.FC<{
     narrationVoiceMode?: NarrationVoiceMode;
     /** The voice row on each Personae card (hooks/usePersonaeVoice.ts). */
     personaeVoice?: PersonaeVoice;
-}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, turnHistory, pulsingTabs, onOccurrenceFinding, resolvedApiKey, narrationVoiceMode, personaeVoice }) => {
+}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, turnHistory, pulsingTabs, tabChangeCounts, onOccurrenceFinding, resolvedApiKey, narrationVoiceMode, personaeVoice }) => {
     const [activeTab, setActiveTab] = useState<TabId>('world_state');
     const { dispatchStatus, toggleDispatch } = useImperialDispatch({
         ai,
@@ -201,22 +223,13 @@ const SidePanel: React.FC<{
                 @media (prefers-reduced-motion: reduce) { .gor-tab-pulse { animation: none; } }
             `}</style>
             <PlayerStatus playerEntity={playerEntity} />
-            <div className="gor-dispatch-bar" style={{
-                margin: '8px 12px 6px 12px',
-                padding: '6px 10px',
-                background: 'var(--surface-hover, rgba(201,162,39,.06))',
-                border: '1px solid var(--border-subtle, rgba(201,162,39,.2))',
-                borderRadius: '4px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '8px',
-            }}>
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <span style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--gold-500)' }}>
-                        📜 Imperial Dispatch
-                    </span>
-                    <span id="imperial-dispatch-note" style={{ fontSize: '11px', color: 'var(--text-quiet)', fontStyle: 'italic' }}>
+            {/* The Imperial Dispatch: a spoken briefing of every register.
+                Presentation lives in design/shell.css (`gor-dispatch-*`). */}
+            <div className="gor-dispatch-bar">
+                <span className="gor-dispatch-seal" aria-hidden="true">✉</span>
+                <div className="gor-dispatch-text">
+                    <span className="gor-dispatch-title">Imperial Dispatch</span>
+                    <span id="imperial-dispatch-note" className="gor-dispatch-note">
                         {dispatchStatus === 'silenced'
                             ? DISPATCH_SILENCED_NOTE
                             : dispatchStatus === 'preparing'
@@ -228,12 +241,11 @@ const SidePanel: React.FC<{
                 </div>
                 <button
                     type="button"
-                    className="gor-voice-btn"
+                    className="gor-voice-btn gor-dispatch-btn"
                     aria-label={dispatchStatus === 'playing' ? 'Stop Imperial Dispatch' : 'Hear Imperial Dispatch'}
                     disabled={dispatchStatus === 'unavailable' || dispatchStatus === 'silenced'}
                     aria-describedby="imperial-dispatch-note"
                     onClick={toggleDispatch}
-                    style={{ fontSize: '11px', padding: '3px 8px', height: '24px' }}
                 >
                     <span className="gor-voice-glyph" aria-hidden="true">
                         {dispatchStatus === 'preparing' ? <span className="gor-voice-spinner" /> : dispatchStatus === 'playing' ? '■' : '▶'}
@@ -249,6 +261,7 @@ const SidePanel: React.FC<{
             >
                 {TABS.map(tab => {
                     const shouldPulse = pulsingTabs.has(tab.id) && !dismissed.has(tab.id);
+                    const count = shouldPulse ? tabChangeCounts?.get(tab.id) : undefined;
                     return (
                         <button
                             key={tab.id}
@@ -259,10 +272,12 @@ const SidePanel: React.FC<{
                             aria-controls={SIDEPANEL_TABPANEL_ID}
                             tabIndex={activeTab === tab.id ? 0 : -1}
                             onClick={() => handleTabClick(tab.id)}
-                            aria-label={shouldPulse ? `${tab.fullLabel} (new intelligence)` : tab.fullLabel}
+                            aria-label={tabAriaLabel(tab.fullLabel, shouldPulse, count)}
                         >
                             {tab.label}
-                            {shouldPulse && <span aria-hidden="true" className="gor-tab-dot" />}
+                            {shouldPulse && (count
+                                ? <span aria-hidden="true" className="gor-tab-count">{count > 9 ? '9+' : count}</span>
+                                : <span aria-hidden="true" className="gor-tab-dot" />)}
                         </button>
                     );
                 })}

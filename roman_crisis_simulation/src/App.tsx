@@ -26,6 +26,7 @@ import { useOnboarding } from './hooks/useOnboarding';
 import { usePlayerPerception } from './hooks/usePlayerPerception';
 import { usePrivateSceneController } from './hooks/usePrivateSceneController';
 import { useSettings } from './hooks/useSettings';
+import { useReadingPrefs } from './hooks/useReadingPrefs';
 import { useTurnFlow } from './hooks/useTurnFlow';
 import { useWeekBeat } from './hooks/useWeekBeat';
 import { useNarrationVoice } from './hooks/useNarrationVoice';
@@ -35,11 +36,16 @@ import { usePrivateSceneVoice } from './hooks/usePrivateSceneVoice';
 import { usePersonaeVoice } from './hooks/usePersonaeVoice';
 import { useCastBasis, useVoiceCast } from './hooks/useVoiceCast';
 import { NarrationLog } from './components/NarrationLog';
-import { useDevSmokeTest, useScrollToLatest, useUnloadGuardWhileProcessing } from './hooks/useShellEffects';
+import { useDevSmokeTest, useUnloadGuardWhileProcessing } from './hooks/useShellEffects';
+import { CHAT_FOLLOW_COPY, useChatFollow } from './hooks/useChatFollow';
+import { useCommandPalette } from './hooks/useCommandPalette';
+import { buildGameCommands } from './app/commands';
+import { draftSuggestion, focusComposer, pressOpener, selectRegister } from './app/domCommands';
+import { SIDE_PANEL_TABS } from './components/SidePanel';
 import type { TransactionNote } from './app/transactions';
 import { TransactionNoteView, downloadTheReign } from './app/TransactionNoteView';
 import {
-    GameMasterScreen, EpilogueScreen, SettingsMenu, OnboardingOverlay, usePreloadLazyScreens,
+    GameMasterScreen, EpilogueScreen, SettingsMenu, OnboardingOverlay, CommandPalette, usePreloadLazyScreens,
 } from './app/lazyScreens';
 
 
@@ -100,10 +106,17 @@ const App: React.FC = () => {
         gmInterventionAvailable, handleSetGmInterventionAvailable,
     } = useGmConsole();
     const { showOnboarding, offerOnboarding, handleCloseOnboarding } = useOnboarding();
+    // Text size, motion, how the narration arrives, single-key shortcuts -
+    // the configuration menu's Reading register (persistence/readingPrefs.ts).
+    const reading = useReadingPrefs();
     useDevSmokeTest();
     usePreloadLazyScreens();
-    const messagesEndRef = useScrollToLatest(messages, gameState);
     useUnloadGuardWhileProcessing(gameState);
+    // The game screen proper: a week to write, being written, or a fate
+    // awaiting its choice (whose modal holds the room - the palette never
+    // opens over it). Character selection keeps the full masthead ceremony;
+    // the epilogue has no desk.
+    const inGame = gameState !== GameState.SETUP && gameState !== GameState.GAME_OVER;
 
     // --- The transaction kernel every durable handler below runs on.
     const {
@@ -136,8 +149,14 @@ const App: React.FC = () => {
     // executeTurn/handleEventChoice/handleContinue), not here.
     const isPlayerExiledOrMissing = playerEntity !== null && (playerEntity.status === 'exiled' || playerEntity.status === 'missing');
     const {
-        lastTurn, lastTurnPerceivedChanges, pulsingTabs, illuminatedNarrations, lastGmNarration,
+        lastTurn, lastTurnPerceivedChanges, pulsingTabs, tabChangeCounts, illuminatedNarrations, lastGmNarration,
     } = usePlayerPerception(messages, turnHistory, playerCharacterId, worldState, knowledge);
+    // Which masthead stats a 'world' delta moved last week - public by D5
+    // rule 1, and the header already shows both values unconditionally.
+    const worldShifts = useMemo(() => {
+        const moved = (key: string) => Boolean(lastTurn?.adjudication.deltas.some(delta => delta.type === 'world' && delta.key === key));
+        return { economic_stability: moved('economic_stability'), political_climate: moved('political_climate') };
+    }, [lastTurn]);
 
     // --- The domain handlers, one hook per surface.
     const {
@@ -186,6 +205,15 @@ const App: React.FC = () => {
         dispatch, getStateGeneration, runDomainMutation, commitDomainMutation, buildSaveState, strikeWeekBeat,
         preTurnSnapshotRef, campaignGenerationRef, privateScenesRef, appMountedRef, latestInferredAmbitionRef,
         setIsCheckingEvents, setTransactionNote,
+    });
+    // The log follows the newest line only while the reader is at it
+    // (hooks/useChatFollow.ts) - including the streamed narration.
+    const {
+        logRef: chatLogRef, endRef: chatEndRef, onLogScroll, awayFromFoot, hasUnseen, jumpToLatest,
+    } = useChatFollow({
+        messageCount: messages.length,
+        gameState,
+        streamingText: reading.narrationReveal === 'stream' ? streamingNarration : '',
     });
 
     const {
@@ -261,12 +289,48 @@ const App: React.FC = () => {
         buildSaveState, commitDomainMutation, setTransactionNote,
     });
 
+    // --- The command palette (Ctrl+K / ⌘K) and the game screen's keys.
+    // Everything it offers runs through the control the player would press
+    // (app/domCommands.ts); it never sets an option itself (D43).
+    const singleKeys = reading.shortcuts === 'on';
+    const { paletteOpen, openPalette, closePalette } = useCommandPalette({
+        inGame,
+        singleKeys,
+        onAction: action => {
+            if (action.kind === 'focus-composer') focusComposer();
+            else selectRegister(SIDE_PANEL_TABS[action.index].id);
+        },
+    });
+    const canWrite = gameState === GameState.AWAITING_PLAYER_INPUT && !domainMutationInFlight && !privateSceneInteractionLocked;
+    const paletteCommands = paletteOpen ? buildGameCommands({
+        registers: SIDE_PANEL_TABS,
+        changeCounts: tabChangeCounts,
+        singleKeys,
+        canWrite,
+        // Not gated on the scene lock: an active scene is exactly when the
+        // player may want its dialog back (the opener stays enabled then).
+        canOpenPrivateScene: gameState === GameState.AWAITING_PLAYER_INPUT && !domainMutationInFlight,
+        canOpenLedger: isGmConsoleEnabled && turnHistory.length > 0,
+        suggestedActions,
+        selectRegister: id => { selectRegister(id); },
+        focusComposer: () => { focusComposer(); },
+        draftSuggestion: index => { draftSuggestion(index); },
+        openPrivateScene: () => { pressOpener('private-scene'); },
+        openNarrationLog: () => { pressOpener('narration-log'); },
+        jumpToLatest,
+        openSettings,
+        openLedger: openGmScreen,
+    }) : [];
+
     return (
         <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
             {weekBeat && <div className="gor-week-beat" aria-hidden="true" />}
             <Header
                 worldState={worldState}
                 onOpenSettings={openSettings}
+                compact={inGame}
+                onOpenCommands={inGame ? openPalette : undefined}
+                worldShifts={inGame ? worldShifts : undefined}
             />
             {gameState !== GameState.GAME_OVER && (
                 <CrisisBanner
@@ -334,7 +398,7 @@ const App: React.FC = () => {
                                 />
                             ) : (
                                 <>
-                                    <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }} role="log" aria-live="polite" aria-label="Chat log">
+                                    <div ref={chatLogRef} onScroll={onLogScroll} style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }} role="log" aria-live="polite" aria-label="Chat log">
                                         {messages.map((msg, index) => (
                                             <ChatMessage
                                                 key={index}
@@ -347,16 +411,32 @@ const App: React.FC = () => {
                                         ))}
                                         {pendingPlayerMessage && <ChatMessage message={pendingPlayerMessage} />}
                                         {gameState === GameState.PROCESSING && (
-                                            streamingNarration
+                                            // "Whole" (Settings → Reading) keeps the loom up until the
+                                            // week commits instead of streaming the pen's progress.
+                                            streamingNarration && reading.narrationReveal === 'stream'
                                                 ? <StreamingNarrationBubble text={streamingNarration} />
                                                 : <TypingIndicator stage={turnStage} />
                                         )}
                                         {gameState !== GameState.PROCESSING && lastTurn && (
                                             <DispatchesDigest changes={lastTurnPerceivedChanges} />
                                         )}
-                                        <div ref={messagesEndRef} />
+                                        <div ref={chatEndRef} />
                                     </div>
                                     <div style={{ flex: 'none', borderTop: '1px solid var(--border-subtle)', padding: '12px 24px 16px', background: 'rgba(255,254,249,.55)' }}>
+                                        {/* Scrolled back through the chronicle: the way to the
+                                            latest, which says so once something has landed. It
+                                            rides the desk's top edge (the log's own sibling must
+                                            stay the desk - design/shell.css reaches it as `+div`). */}
+                                        {awayFromFoot && (
+                                            <button
+                                                type="button"
+                                                className={`gor-follow${hasUnseen ? ' gor-follow-unseen' : ''}`}
+                                                onClick={jumpToLatest}
+                                            >
+                                                <span aria-hidden="true">↓</span>
+                                                {hasUnseen ? CHAT_FOLLOW_COPY.unseen : CHAT_FOLLOW_COPY.toLatest}
+                                            </button>
+                                        )}
                                         {/* Four kinds of failed week, and three kinds of
                                             transaction note — each in its own voice and its
                                             own tone. Nothing here is modal: the tablet below
@@ -402,67 +482,67 @@ const App: React.FC = () => {
                                                 </Button>
                                             </div>
                                         )}
-                                        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
-                                            <TurnComposer
-                                                chatDraft={chatDraft}
-                                                structuredDraft={structuredDraft}
-                                                recipientOptions={recipientOptions}
-                                                suggestedActions={gameState === GameState.PROCESSING ? [] : suggestedActions}
-                                                onChatDraftChange={setChatDraft}
-                                                onStructuredDraftChange={setStructuredDraft}
-                                                onSubmit={handleComposerSubmit}
-                                                disabled={domainMutationInFlight || privateSceneInteractionLocked || gameState !== GameState.AWAITING_PLAYER_INPUT}
-                                                isProcessing={gameState === GameState.PROCESSING}
-                                                turnStage={turnStage}
-                                                playerInitial={playerEntity?.name}
-                                                canReachTheFates={isMockMode || Boolean(resolvedApiKey)}
-                                                online={online}
-                                                onOpenSettings={openSettings}
-                                                onEnableMockMode={() => setIsMockMode(true)}
-                                            />
-                                            {gameState === GameState.AWAITING_PLAYER_INPUT && (
-                                                <PrivateScene
-                                                    scenes={privateSceneViews}
-                                                    currentMacroTurn={turnNumber}
-                                                    canStartScene={canStartScene}
-                                                    eligibleTargets={privateSceneTargets}
-                                                    openingDraft={privateSceneOpeningDraft}
-                                                    replyDraft={privateSceneReplyDraft}
-                                                    lastWordDraft={privateSceneLastWordDraft}
-                                                    loading={domainMutationInFlight}
-                                                    error={privateSceneError}
-                                                    onOpeningDraftChange={setPrivateSceneOpeningDraft}
-                                                    onReplyDraftChange={setPrivateSceneReplyDraft}
-                                                    onLastWordDraftChange={setPrivateSceneLastWordDraft}
-                                                    onInvite={handlePrivateSceneInvite}
-                                                    onReply={handlePrivateSceneReply}
-                                                    onEnd={handlePrivateSceneEnd}
-                                                    onLastWord={handlePrivateSceneLastWord}
-                                                    onSkipLastWord={handlePrivateSceneSkipLastWord}
-                                                    npcVoice={privateSceneNpcVoice}
+                                        <TurnComposer
+                                            chatDraft={chatDraft}
+                                            structuredDraft={structuredDraft}
+                                            recipientOptions={recipientOptions}
+                                            suggestedActions={gameState === GameState.PROCESSING ? [] : suggestedActions}
+                                            onChatDraftChange={setChatDraft}
+                                            onStructuredDraftChange={setStructuredDraft}
+                                            onSubmit={handleComposerSubmit}
+                                            disabled={domainMutationInFlight || privateSceneInteractionLocked || gameState !== GameState.AWAITING_PLAYER_INPUT}
+                                            isProcessing={gameState === GameState.PROCESSING}
+                                            turnStage={turnStage}
+                                            playerInitial={playerEntity?.name}
+                                            canReachTheFates={isMockMode || Boolean(resolvedApiKey)}
+                                            online={online}
+                                            onOpenSettings={openSettings}
+                                            onEnableMockMode={() => setIsMockMode(true)}
+                                            tools={<>
+                                                {gameState === GameState.AWAITING_PLAYER_INPUT && (
+                                                    <PrivateScene
+                                                        scenes={privateSceneViews}
+                                                        currentMacroTurn={turnNumber}
+                                                        canStartScene={canStartScene}
+                                                        eligibleTargets={privateSceneTargets}
+                                                        openingDraft={privateSceneOpeningDraft}
+                                                        replyDraft={privateSceneReplyDraft}
+                                                        lastWordDraft={privateSceneLastWordDraft}
+                                                        loading={domainMutationInFlight}
+                                                        error={privateSceneError}
+                                                        onOpeningDraftChange={setPrivateSceneOpeningDraft}
+                                                        onReplyDraftChange={setPrivateSceneReplyDraft}
+                                                        onLastWordDraftChange={setPrivateSceneLastWordDraft}
+                                                        onInvite={handlePrivateSceneInvite}
+                                                        onReply={handlePrivateSceneReply}
+                                                        onEnd={handlePrivateSceneEnd}
+                                                        onLastWord={handlePrivateSceneLastWord}
+                                                        onSkipLastWord={handlePrivateSceneSkipLastWord}
+                                                        npcVoice={privateSceneNpcVoice}
+                                                    />
+                                                )}
+                                                {/* Always present: the text log stays readable while SILENT; replay is silenced (useNarrationLog). */}
+                                                <NarrationLog
+                                                    entries={narrationLogEntries}
+                                                    stateFor={replayStateFor}
+                                                    onToggle={toggleReplay}
+                                                    onClear={clearLog}
+                                                    onClose={stopReplay}
                                                 />
-                                            )}
-                                            {/* Always present: the text log stays readable while SILENT; replay is silenced (useNarrationLog). */}
-                                            <NarrationLog
-                                                entries={narrationLogEntries}
-                                                stateFor={replayStateFor}
-                                                onToggle={toggleReplay}
-                                                onClear={clearLog}
-                                                onClose={stopReplay}
-                                            />
-                                            {isGmConsoleEnabled && (
-                                                <Tooltip wide label={turnHistory.length > 0 ? "The Fates' ledger — every thread and die of the simulation, recorded." : 'The ledger opens once a turn has been played.'}>
-                                                    <Button
-                                                        variant="secondary"
-                                                        onClick={openGmScreen}
-                                                        aria-label="Open Game Master Screen"
-                                                        disabled={turnHistory.length === 0}
-                                                    >
-                                                        GM Log
-                                                    </Button>
-                                                </Tooltip>
-                                            )}
-                                        </div>
+                                                {isGmConsoleEnabled && (
+                                                    <Tooltip wide label={turnHistory.length > 0 ? "The Fates' ledger — every thread and die of the simulation, recorded." : 'The ledger opens once a turn has been played.'}>
+                                                        <Button
+                                                            variant="secondary"
+                                                            onClick={openGmScreen}
+                                                            aria-label="Open Game Master Screen"
+                                                            disabled={turnHistory.length === 0}
+                                                        >
+                                                            GM Log
+                                                        </Button>
+                                                    </Tooltip>
+                                                )}
+                                            </>}
+                                        />
                                     </div>
                                 </>
                             )}
@@ -487,6 +567,7 @@ const App: React.FC = () => {
                             eventHistory={eventHistory}
                             turnHistory={turnHistory}
                             pulsingTabs={pulsingTabs}
+                            tabChangeCounts={tabChangeCounts}
                             onOccurrenceFinding={handleOccurrenceFinding}
                             resolvedApiKey={resolvedApiKey}
                             narrationVoiceMode={narrationVoiceMode}
@@ -527,6 +608,7 @@ const App: React.FC = () => {
             {showOnboarding && gameState === GameState.AWAITING_PLAYER_INPUT && (
                 <OnboardingOverlay isOpen={showOnboarding} onClose={handleCloseOnboarding} />
             )}
+            {paletteOpen && <CommandPalette commands={paletteCommands} onClose={closePalette} />}
             {isSettingsMenuOpen && (
                 <SettingsMenu
                     onClose={closeSettings}
@@ -574,6 +656,12 @@ const App: React.FC = () => {
                     onExportReign={downloadTheReign}
                     onImportReign={handleImportReign}
                     interactionLocked={domainMutationInFlight || gameState === GameState.PROCESSING}
+                    reading={{
+                        readingScale: reading.readingScale, onSetReadingScale: reading.handleSetReadingScale,
+                        motion: reading.motion, onSetMotion: reading.handleSetMotion,
+                        narrationReveal: reading.narrationReveal, onSetNarrationReveal: reading.handleSetNarrationReveal,
+                        shortcuts: reading.shortcuts, onSetShortcuts: reading.handleSetShortcuts,
+                    }}
                 />
             )}
         </div>

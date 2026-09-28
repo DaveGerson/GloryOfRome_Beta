@@ -155,7 +155,7 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
   const heldThisWeek = scenes.find(scene => scene.macroTurn === currentMacroTurn);
 
   return <>
-    <button ref={openerRef} type="button" className="gor-pill" onClick={() => setOpen(true)} disabled={disabled}>Private scene</button>
+    <button ref={openerRef} type="button" className="gor-pill" onClick={() => setOpen(true)} disabled={disabled} data-gor-command="private-scene">Private scene</button>
     {open && <dialog ref={dialogRef} className="gor-private-scene" aria-label="Private scene"
       onCancel={event => { event.preventDefault(); closePresentation(); }} onKeyDown={handleDialogKeyDown}>
       <header>

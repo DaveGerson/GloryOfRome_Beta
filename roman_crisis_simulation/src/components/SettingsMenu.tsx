@@ -8,6 +8,7 @@ import type { ImportResult } from '../persistence/saveGame';
 import { useReignImport } from './ui/useReignImport';
 import { ApiKeyCard } from './ApiKeyCard';
 import { NarrationSettings, type NarrationSettingsProps } from './NarrationSettings';
+import { ReadingSettings, type ReadingSettingsProps } from './ReadingSettings';
 
 export type { NarratorChoice } from './NarrationSettings';
 
@@ -37,7 +38,8 @@ const registerStyle: React.CSSProperties = { display: 'flex', flexDirection: 'co
  * GameMasterScreen's dark tablinum), opened from a Header affordance.
  * Since the options-consolidation pass this is the single home for EVERY
  * option: the player's own Gemini API key (D34), the D23 pacing posture,
- * the LVX/NOX lighting (formerly floating bottom-right chrome), the
+ * the LVX/NOX lighting (formerly floating bottom-right chrome), the Reading
+ * register (text size, motion, narration reveal, single-key shortcuts), the
  * D32/D33 GM availability toggles, and - dev builds only - the Mock Mode
  * and GM-console runtime switches that used to sit in the Header.
  */
@@ -84,6 +86,12 @@ const SettingsMenu: React.FC<NarrationSettingsProps & {
      * Export stays live: a read races nothing.
      */
     interactionLocked?: boolean;
+    /**
+     * The Reading register (components/ReadingSettings.tsx): text size,
+     * motion, how the narration arrives, single-key shortcuts. Optional so a
+     * surface that renders the menu without it (a test) keeps its shape.
+     */
+    reading?: ReadingSettingsProps;
 }> = ({
     onClose,
     apiKey,
@@ -105,6 +113,7 @@ const SettingsMenu: React.FC<NarrationSettingsProps & {
     onExportReign,
     onImportReign,
     interactionLocked = false,
+    reading,
     ...narration
 }) => {
     const dialogRef = useRef<HTMLDivElement>(null);
@@ -196,6 +205,8 @@ const SettingsMenu: React.FC<NarrationSettingsProps & {
                             <NarrationSettings {...narration} />
                         </div>
                     </section>
+
+                    {reading && <ReadingSettings {...reading} />}
 
                     <section aria-labelledby="settings-curtain" style={registerStyle}>
                         <RegisterHeading headingId="settings-curtain" title="Behind the curtain" />

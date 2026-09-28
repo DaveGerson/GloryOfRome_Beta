@@ -1,14 +1,14 @@
 /**
  * hooks/useShellEffects.ts
  *
- * The composition root's three stateless window-level effects, moved
- * verbatim out of App.tsx (2026-09-23). None of them owns state; each is a
- * named hook so App reads as a list of what the shell does rather than
- * three anonymous effect bodies.
+ * The composition root's stateless window-level effects, moved verbatim out
+ * of App.tsx (2026-09-23). None of them owns state; each is a named hook so
+ * App reads as a list of what the shell does rather than anonymous effect
+ * bodies. (The third, `useScrollToLatest`, grew state - whether the reader
+ * is at the foot of the log - and became hooks/useChatFollow.ts.)
  */
 
-import { useEffect, useRef } from 'react';
-import type { RefObject } from 'react';
+import { useEffect } from 'react';
 import { GameState } from '../types';
 import { runSmokeTest } from '../tests/smokeTest';
 
@@ -57,17 +57,4 @@ export function useUnloadGuardWhileProcessing(gameState: GameState): void {
         window.addEventListener('beforeunload', handleBeforeUnload);
         return () => window.removeEventListener('beforeunload', handleBeforeUnload);
     }, [gameState]);
-}
-
-/**
- * Keeps the chat log pinned to its newest line: returns the ref for the
- * sentinel div at the log's foot, scrolled into view whenever the messages
- * or the game phase change.
- */
-export function useScrollToLatest(messages: unknown, gameState: GameState): RefObject<HTMLDivElement | null> {
-    const messagesEndRef = useRef<HTMLDivElement>(null);
-    useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages, gameState]);
-    return messagesEndRef;
 }

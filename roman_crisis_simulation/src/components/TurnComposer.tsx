@@ -38,7 +38,25 @@ export interface TurnComposerProps {
   onChatDraftChange(value: string): void;
   onStructuredDraftChange(value: StructuredTurnDraft): void;
   onSubmit(input: string | StructuredTurnDraft): void;
+  /**
+   * The desk's other tools (a private scene, the narration log, the GM
+   * ledger), drawn at the end of the mode bar so the tablet itself can take
+   * the full width of the column.
+   */
+  tools?: React.ReactNode;
 }
+
+/** Player-visible copy (veto queue: roadmaps/BACKLOG.md, "Reading, motion and the command palette"). */
+export const TURN_COMPOSER_COPY = {
+  counsel: 'Counsel',
+} as const;
+
+/**
+ * The suggestion pills carry their index, so the command palette's "Draft:"
+ * rows press the very same pill - one code path for chat and structured
+ * modes alike.
+ */
+export const SUGGESTION_INDEX_ATTRIBUTE = 'data-gor-suggestion';
 
 /**
  * How long the seal stays on the tablet after a week is committed. The press
@@ -70,7 +88,7 @@ const CHAT_INPUT_ELEMENT_ID = 'chat-input';
 export const TurnComposer: React.FC<TurnComposerProps> = ({
   chatDraft, structuredDraft, recipientOptions, suggestedActions, disabled, isProcessing,
   onChatDraftChange, onStructuredDraftChange, onSubmit, turnStage, playerInitial,
-  canReachTheFates = true, online = true, onOpenSettings, onEnableMockMode,
+  canReachTheFates = true, online = true, onOpenSettings, onEnableMockMode, tools,
 }) => {
   const [mode, setMode] = useState<ComposerMode>(() => getComposerMode());
   const [sealing, setSealing] = useState(false);
@@ -174,7 +192,7 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
     : 'Enter your action... (Shift+Enter for new line)';
 
   return (
-    <div ref={composerRef} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div ref={composerRef} className="gor-composer" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
       {/* Item 46: said before the week is written, not after it is lost. */}
       {!canReachTheFates && onOpenSettings && onEnableMockMode && (
         <TurnFailureNotice
@@ -185,22 +203,28 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
         />
       )}
       {suggestedActions.length > 0 && (
-        <div className="gor-composer-pills" style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8 }}>
+        <div className="gor-composer-pills">
+          <span className="gor-label gor-composer-pills-label" aria-hidden="true">{TURN_COMPOSER_COPY.counsel}</span>
           {suggestedActions.map((action, index) => (
-            <ActionPill key={action} aria-label={action} delay={index * 80} disabled={locked} onClick={() => {
-              if (mode === 'structured') onStructuredDraftChange(appendSuggestedAction(structuredDraft, action));
-              else onChatDraftChange(action);
-            }}>{action}</ActionPill>
+            <ActionPill key={action} aria-label={action} delay={index * 80} disabled={locked}
+              {...{ [SUGGESTION_INDEX_ATTRIBUTE]: index }}
+              onClick={() => {
+                if (mode === 'structured') onStructuredDraftChange(appendSuggestedAction(structuredDraft, action));
+                else onChatDraftChange(action);
+              }}>{action}</ActionPill>
           ))}
         </div>
       )}
-      <SegmentedControl
-        ariaLabel="Composer mode"
-        options={COMPOSER_MODE_OPTIONS}
-        value={mode}
-        onChange={selectMode}
-        disabled={locked}
-      />
+      <div className="gor-composer-bar">
+        <SegmentedControl
+          ariaLabel="Composer mode"
+          options={COMPOSER_MODE_OPTIONS}
+          value={mode}
+          onChange={selectMode}
+          disabled={locked}
+        />
+        {tools && <div className="gor-composer-tools">{tools}</div>}
+      </div>
       {isProcessing && (
         <p className="gor-hint" role="status" aria-live="polite" style={{ margin: 0 }}>
           {TURN_STAGE_STATUS_COPY[turnStage ?? 'story_relevance']}

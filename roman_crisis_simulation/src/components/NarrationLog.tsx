@@ -181,7 +181,7 @@ export const NarrationLog: React.FC<{
 
     return (
         <>
-            <Button variant="secondary" onClick={() => setOpen(true)} aria-haspopup="dialog">{NARRATION_LOG_COPY.open}</Button>
+            <Button variant="secondary" onClick={() => setOpen(true)} aria-haspopup="dialog" data-gor-command="narration-log">{NARRATION_LOG_COPY.open}</Button>
             {/* Portalled to <body>: rendered inside the composer, the backdrop sat
                 under the side panel's tab rail in the stacking order. */}
             {open && createPortal(

@@ -3,7 +3,7 @@
  *
  * tests/lazyScreens.test.tsx — app/lazyScreens.tsx's lazyScreen(): the
  * React.lazy boundary App uses for GameMasterScreen, EpilogueScreen,
- * SettingsMenu and OnboardingOverlay. Pinned with a hand-driven loader so
+ * SettingsMenu, OnboardingOverlay and CommandPalette. Pinned with a hand-driven loader so
  * each path (preloaded, opened-before-loaded, failed preload) is exercised
  * deterministically.
  */
@@ -105,7 +105,7 @@ describe('lazyScreen', () => {
 });
 
 describe('whenLazyScreensReady', () => {
-    it("resolves once App's four lazy screens have loaded", async () => {
+    it("resolves once App's lazy screens have loaded", async () => {
         await expect(whenLazyScreensReady()).resolves.toBeUndefined();
     });
 });

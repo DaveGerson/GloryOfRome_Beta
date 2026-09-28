@@ -2,8 +2,9 @@
  * hooks/usePlayerPerception.ts
  *
  * What the player's screen derives from committed state each render - the
- * last turn's perceived digest, which SidePanel tabs pulse, the illuminated
- * narrations, and the epilogue's cause-of-death text. Moved verbatim out of
+ * last turn's perceived digest, which SidePanel tabs pulse and with how many
+ * changes, the illuminated narrations, and the epilogue's cause-of-death
+ * text. Moved verbatim out of
  * App.tsx (2026-09-23). Everything here is derived, never stored: it
  * recomputes from slices that already persist, so it survives a reload
  * with no save-format change.
@@ -32,26 +33,45 @@ export function lastGmNarrationOf(messages: readonly Message[]): string {
 }
 
 /**
- * Which SidePanel tabs to pulse - built strictly from the already-filtered
- * perceived changes, never from the raw deltas, so a pulse can never itself
- * leak something the perception filter withheld. Dramatis Personae pulses
- * only for a relationship observation first learned on the last turn.
+ * How many things changed on each SidePanel tab in the most recently
+ * committed turn ("what changed since you last looked", ROADMAP_UPLEVEL
+ * P6) - built strictly from the already-filtered perceived changes, never
+ * from the raw deltas, so a count can never itself leak something the
+ * perception filter withheld: it counts only lines the Dispatches digest
+ * already shows. Dramatis Personae counts only relationship observations
+ * first learned on the last turn (D36 - the player reads relationships from
+ * sourced observations, never from engine sentiment), so a perceived change
+ * naming that tab adds nothing to it. A tab with nothing new is absent.
+ */
+export function tabChangeCountsFor(
+    perceivedChanges: readonly PerceivedChange[],
+    knowledge: readonly KnowledgeClaim[],
+    lastTurn: TurnHistoryEntry | null,
+): Map<TabId, number> {
+    const counts = new Map<TabId, number>();
+    const bump = (tab: TabId, by = 1) => counts.set(tab, (counts.get(tab) ?? 0) + by);
+    perceivedChanges.forEach(change => new Set(change.tabs).forEach(tab => {
+        if (tab !== 'dramatis_personae') bump(tab);
+    }));
+    if (lastTurn) {
+        const observations = knowledge.filter(claim =>
+            claim.relationshipObservation && claim.firstLearnedTurn === lastTurn.turnNumber
+        ).length;
+        if (observations > 0) bump('dramatis_personae', observations);
+    }
+    return counts;
+}
+
+/**
+ * Which SidePanel tabs to pulse: exactly the tabs `tabChangeCountsFor`
+ * counts something on.
  */
 export function pulsingTabsFor(
     perceivedChanges: readonly PerceivedChange[],
     knowledge: readonly KnowledgeClaim[],
     lastTurn: TurnHistoryEntry | null,
 ): Set<TabId> {
-    const tabs = new Set<TabId>();
-    perceivedChanges.forEach(change => change.tabs.forEach(tab => {
-        if (tab !== 'dramatis_personae') tabs.add(tab);
-    }));
-    if (lastTurn && knowledge.some(claim =>
-        claim.relationshipObservation && claim.firstLearnedTurn === lastTurn.turnNumber
-    )) {
-        tabs.add('dramatis_personae');
-    }
-    return tabs;
+    return new Set(tabChangeCountsFor(perceivedChanges, knowledge, lastTurn).keys());
 }
 
 export function usePlayerPerception(
@@ -88,10 +108,11 @@ export function usePlayerPerception(
             : [],
         [lastTurn, lastTurnPlayer, worldState]
     );
-    const pulsingTabs = useMemo(
-        () => pulsingTabsFor(lastTurnPerceivedChanges, knowledge, lastTurn),
+    const tabChangeCounts = useMemo(
+        () => tabChangeCountsFor(lastTurnPerceivedChanges, knowledge, lastTurn),
         [knowledge, lastTurn, lastTurnPerceivedChanges],
     );
+    const pulsingTabs = useMemo(() => new Set(tabChangeCounts.keys()), [tabChangeCounts]);
 
-    return { lastTurn, lastTurnPerceivedChanges, pulsingTabs, illuminatedNarrations, lastGmNarration };
+    return { lastTurn, lastTurnPerceivedChanges, pulsingTabs, tabChangeCounts, illuminatedNarrations, lastGmNarration };
 }

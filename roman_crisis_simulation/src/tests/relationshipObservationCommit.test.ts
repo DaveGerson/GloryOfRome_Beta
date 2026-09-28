@@ -441,7 +441,9 @@ describe('App relationship-observation transaction', () => {
     expect((loadGame()!.state.knowledge ?? []).filter(claim => claim.relationshipObservation)).toHaveLength(1);
     const personaeTab = Array.from(container.querySelectorAll<HTMLButtonElement>('button[role="tab"]'))
       .find(button => button.getAttribute('aria-label')?.startsWith('Dramatis Personae'))!;
-    expect(personaeTab.getAttribute('aria-label')).toBe('Dramatis Personae (new intelligence)');
+    // One observation learned on the committed turn: the tab says how much is new.
+    expect(personaeTab.getAttribute('aria-label')).toBe('Dramatis Personae (1 new)');
+    expect(personaeTab.querySelector('.gor-tab-count')?.textContent).toBe('1');
     expect(personaeTab.classList.contains('gor-tab-pulse')).toBe(true);
   });
 

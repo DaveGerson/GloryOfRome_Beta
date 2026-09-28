@@ -1,16 +1,18 @@
 /**
  * app/lazyScreens.tsx
  *
- * The four screens most sessions never open - or open once - split out of
- * the main chunk (bundle-triage.md's lazy-load follow-up to Task 4b):
+ * The screens most sessions never open - or open once, or only on demand -
+ * split out of the main chunk (bundle-triage.md's lazy-load follow-up to
+ * Task 4b):
  *
  *   GameMasterScreen  - D7: hidden by default, and it drags in every
  *                       components/gm/* view plus the eval-corpus export
  *   EpilogueScreen    - D1: only death ends a run
  *   SettingsMenu      - D31: opened on demand
  *   OnboardingOverlay - once per device, ever
+ *   CommandPalette    - Ctrl+K / ⌘K: opened on demand
  *
- * Each is a React.lazy boundary with a `preload()`; App preloads all four
+ * Each is a React.lazy boundary with a `preload()`; App preloads them all
  * once it has mounted (preloadLazyScreens), so by the time a player can
  * click anything the module is almost always already in hand. A screen
  * whose module has loaded renders the REAL component on its very first
@@ -65,8 +67,9 @@ export const GameMasterScreen = lazyScreen(() => import('../components/GameMaste
 export const EpilogueScreen = lazyScreen(() => import('../components/EpilogueScreen'));
 export const SettingsMenu = lazyScreen(() => import('../components/SettingsMenu'));
 export const OnboardingOverlay = lazyScreen(() => import('../components/OnboardingOverlay'));
+export const CommandPalette = lazyScreen(() => import('../components/CommandPalette'));
 
-const LAZY_SCREENS = [GameMasterScreen, EpilogueScreen, SettingsMenu, OnboardingOverlay];
+const LAZY_SCREENS = [GameMasterScreen, EpilogueScreen, SettingsMenu, OnboardingOverlay, CommandPalette];
 
 /**
  * Resolves once every lazy screen's module is in hand (idempotent: each
