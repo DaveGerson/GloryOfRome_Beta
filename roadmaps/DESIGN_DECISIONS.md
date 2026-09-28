@@ -638,7 +638,10 @@ The half-commit line ("the turn was saved, but a follow-up step failed") is
 reassurance, and a screen reader announcing it as an error was a defect, not
 a styling choice. Corollary for tests: `role="status"` is NOT unique on a
 screen — the composer's character count uses it — so a status assertion must
-be scoped by what it says, never by counting.
+be scoped by what it says, never by counting. *(Factual update, 2026-09-28:
+the example is now the composer's always-present stage line; the character
+count stopped being a live region, per ROADMAP_UPLEVEL_2026-09.md Part 4.
+The rule is unchanged.)*
 
 **A failure never takes the room.** Nothing in this pass is modal. The
 player's unsent words are the most valuable thing on the screen and stay

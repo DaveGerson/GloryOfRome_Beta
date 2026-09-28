@@ -199,10 +199,17 @@ already there rather than replacing it.
   which authored event it wove in. That is a schema change; ruling needed.
 - **Turn progress is announced twice**: in the chat loom and in the
   composer's stage line. Which surface keeps the announcement?
+  *Resolved on best practice, 2026-09-28 (Part 4): the composer's stage
+  line.*
 - **The Events tab refusal copy** reuses the dossier's line word for word.
   It is new on this screen, so it goes in the veto queue.
+  *Recommended on best practice (Part 4): keep the shared line. The copy
+  is still the owner's to veto.*
 - **NOX as the default theme.** Is the night skin the right first
   impression? To revert, delete the one small script block in `index.html`.
+  *Resolved on best practice, 2026-09-28 (Part 4): a device that never
+  chose follows the system's appearance. Reverting is now a two-line
+  change (see Part 4).*
 - **CI check names changed** from `ci` to `verify:static`, `verify:unit`
   and `verify:integration`. Update branch protection if it requires `ci`.
 
@@ -218,18 +225,21 @@ touches the save format, the AI pipeline or any ruling in
 `DESIGN_DECISIONS.md`.
 
 - **P5, reading and motion.** A new Reading register in the configuration
-  menu (D43: the single home for options). Text size (Standard / Large /
-  Larger) scales the reading surfaces only: the chronicle, the registers,
-  the player's dossier and the tablet. Motion: "Still" turns off every
-  animation and the gliding scroll, even when the device does not ask for
-  less motion. Narration: "Whole" keeps the loom up instead of streaming
-  the pen. Keys: single-key shortcuts can be turned off (WCAG 2.1.4). All
-  four are device preferences (`persistence/readingPrefs.ts`), painted on
-  `<html>` as data attributes (absent by default, so a device that never
+  menu (D43: the single home for options). As amended in Part 4, it has
+  four controls:
+  - *Text size* (Standard / Large / Larger) scales everything the player
+    reads (the chronicle, the side panel, the dossier, fates, private
+    scenes, the narration log), not the chrome.
+  - *Reduce motion* turns off every animation and the gliding scroll, even
+    when the device does not ask for less motion.
+  - *Show the narration word by word*, turned off, keeps the loom up
+    instead of streaming the pen.
+  - *Single-key shortcuts* can be turned off (WCAG 2.1.4).
+
+  All four are device preferences (`persistence/readingPrefs.ts`), painted
+  on `<html>` as data attributes (absent by default, so a device that never
   chose renders as before) and seeded in `index.html` before first paint.
-  *Not done:* the double progress announcement (the loom and the
-  composer's stage line) is still an open owner decision (see "Open owner
-  decisions" above).
+  The double progress announcement is settled in Part 4.
 - **P6, what changed since you last looked.** A pulsing tab now shows how
   many perceived changes landed on it, as a gold coin and in its
   accessible name ("Reports (2 new)"). The count comes from the same
@@ -237,10 +247,10 @@ touches the save format, the AI pipeline or any ruling in
   `hooks/usePlayerPerception.ts`), so it can say nothing the Dispatches
   card did not. Personae counts relationship observations only (D36).
 - **A command palette** (Ctrl+K / ⌘K, the masthead's Commands button, or
-  `?`). It reaches the seven registers (with their counts), the tablet, a
-  private scene, the narration log, the week's counsel, the latest line,
-  the configuration and, when on, the Fates' ledger. Outside a text field,
-  1–7 open the registers and `/` goes to the tablet. It only reaches
+  `?`). It reaches the side panel's seven tabs (with their counts), the
+  tablet, a private scene, the narration log, the week's counsel, the
+  latest line, Settings and, when on, the GM log. Outside a text field,
+  1–7 open the tabs and `/` goes to the tablet. It only reaches
   things, never sets an option (D43), and offers only what can run now.
   Each command presses the same control the player would
   (`app/domCommands.ts`), so every guard on those controls still applies.
@@ -249,8 +259,8 @@ touches the save format, the AI pipeline or any ruling in
   (`hooks/useChatFollow.ts`). The old hook scrolled to the bottom on every
   change, yanking a reader who had scrolled back, and never followed the
   streamed narration. Now it follows the pen while you are at the foot,
-  always returns you there when you send a week, and otherwise offers "To
-  the latest" (gold "New in the chronicle" once something has landed).
+  always returns you there when you send a week, and otherwise offers "Back
+  to the latest" (gold "New in the chronicle" once something has landed).
 - **The screen gives the chronicle its height back.** On the game screen
   the masthead is compact (about 40px back). The player's dossier folds to
   its name line (a device preference). The tablet takes the full width of
@@ -266,3 +276,126 @@ zero warnings, the deterministic eval and the build all pass. The main
 chunk grew by about 11 kB (3.9 kB gzipped); the palette is its own 3.6 kB
 chunk. Screenshots: `docs/ui-refresh/16-*.png`.
 
+---
+
+## Part 4 — Design review: open questions settled on best practice (2026-09-28)
+
+The open design questions from Part 3 were settled on design best practice
+rather than left open, as this pass was asked to. Each entry names the question,
+the answer, the principle it rests on, and how to reverse it. None of these
+changes a ruling in `DESIGN_DECISIONS.md`. All new or changed copy is in the
+veto queue (`BACKLOG.md`, "Reading, motion and the command palette").
+
+**Turn progress is announced once, by the composer's stage line.** The loom
+sat inside the chat log (`role="log"`) as a live region of its own, so a
+screen reader heard each stage twice. When the stage line is created at the
+same moment as its message, the first stage is often not heard at all.
+- *Principle:* one status message, one live region (WCAG 4.1.3). A live
+  region must exist before its message arrives (ARIA practice; this repo
+  already applies it to the API-key notice).
+- *What changed:* the stage line is always in the DOM. It is visually hidden
+  and empty while idle. The loom is drawn but not spoken (`aria-hidden`),
+  the same call as the streaming bubble beside it.
+- *Why this surface:* it lasts the whole turn, in both narration modes (the
+  loom gives way to the pen as soon as narration streams). It sits where
+  the week was sent. The code already named it the progress voice while
+  streaming.
+- *To reverse:* restore `role="status"` on `.gor-loom` and conditional
+  rendering in `TurnComposer`.
+
+**The character count is no longer a live region.** As one, it
+re-announced itself after every keystroke. That is the chatter the GOV.UK
+character-count pattern exists to prevent.
+- *What changed:* the count still describes the tablet (read with it when
+  focused). Going over the limit or an invalid draft still interrupts as an
+  alert.
+
+**On/off preferences are switches, and no two controls share a label.**
+Reduce motion, Show the narration word by word, and Single-key shortcuts
+are switches. Text size keeps its three-way radio group.
+- *Principle:* a binary setting that takes effect at once is a switch
+  (NN/g, Apple HIG, Material). Its visible label is its accessible name
+  (WCAG 2.5.3). "Reduce motion" is the platforms' own term.
+- *What it fixes:* the first cut's "As written" / "Whole" collided with
+  Voice style's "As written". A mismatch between the visible label "Keys"
+  and the accessible name is also gone.
+- *Storage:* the stored values are unchanged, so earlier choices survive.
+
+**The economy meter shows no direction arrow.**
+- *Principle:* D26, the system is an honest window. An arrow needs last
+  week's value, and none is kept: the pre-turn snapshot lives only in
+  session, so an arrow that vanished on reload would be worse than none.
+- *What stands:* the level (five pips) and the fact of change (✦ "Changed
+  this week") are shown. The Dispatches card says what changed.
+- *To add trends honestly later:* a bounded per-week history of the two
+  macro values in the save, through the migration registry. That would
+  also feed the sparkline in UI_SYSTEMS 6.5.
+
+**Copy speaks the screen's own words.** The palette and the Reading notes
+had leaked the code's vocabulary: "registers" for the tabs the onboarding
+calls "the side panel", "the desk", "the house".
+- *Principle:* recognition over recall, and one name per action (Nielsen
+  #2 and #4).
+- *Labels match what they press:* Open Settings, Open a private scene,
+  Open the GM log. "Back to the latest" is the same words on the palette
+  row and the follow button.
+- *Grammar:* the placeholder read "a counsel". It is now "Seek a tab, a
+  tool or counsel…".
+- *Platform wording:* the chord is written ⌘K on Apple devices and Ctrl+K
+  elsewhere.
+
+**Keys work on every keyboard layout.** Single keys match the character
+typed and ignore Shift: `/` is Shift+7 on German keyboards, and the digits
+are shifted on French AZERTY. Ctrl+K falls back to the physical K key when
+the layout types another script (Cyrillic, Greek).
+
+**The palette is accessible in the details.**
+- Each option is named in words ("Reports, 2 new"), not by its run-together
+  text.
+- The listbox holds only groups and options; the empty state moved outside
+  it.
+- The number of matching commands is announced once typing pauses (GOV.UK
+  autocomplete pattern), never per keystroke.
+- The active row keeps a visible outline in forced-colours mode.
+- The search affordance is an inline SVG magnifier. The ❖ glyph had fallen
+  back to a bare ◆, which read as ornament on phones, where the button's
+  word is hidden.
+- The fold chevron shows its name on hover.
+
+**Counsel is set to be read.** The suggestions had shrunk to 11.5px display
+capitals. Long all-caps text costs legibility, and these are sentences the
+player reads to decide. They now use the body face, in sentence case, at
+15px, inside the same pill frame.
+
+**Text size covers everything the player reads.** That means fates, the
+private-scene transcript and the narration log, beside the chronicle, the
+side panel and the dossier. The note states the scope. A dialog taller than
+the window now scrolls from its top instead of being clipped at both ends.
+- *Why it matters:* a fate has no close control, so on a short screen, or
+  at a larger size, its choices must stay reachable (WCAG 1.4.10).
+
+**First visit follows the system's appearance.** A light system opens on
+LVX; a dark one, or one that does not say, on NOX. An explicit choice
+always wins. Until the player makes one, the lighting follows the system
+as it changes. The Lighting control gains "◐ Device": the default for a
+device that never chose, and the way back to following the system after
+a choice. Without it, following the system would be a one-way door.
+- *Principle:* Apple HIG and Material both say to respect the system
+  appearance when an app ships both, and to offer "follow the system"
+  beside light and dark. People who need light or dark for their eyes
+  set it there.
+- *Returning players:* the old script stored "nox" on first visit, so they
+  keep what they saw.
+- *To open every new device on NOX again:* treat a null `gor-theme` as
+  'nox' in the `index.html` script and in `resolveLighting`
+  (`hooks/useSettings.ts`).
+
+**The Events tab refusal copy (recommendation only).** Reusing the
+dossier's line is right: the same refusal should read the same everywhere
+(Nielsen #4, consistency). No change was made; the owner keeps the veto.
+
+Checks after Part 4: 2466 unit tests (from 2450), 10 journeys, typecheck,
+lint with zero warnings, the deterministic eval and the build all pass.
+Over Parts 3 and 4 together the main chunk grew by about 12.5 kB (4.4 kB
+gzipped); the palette is its own 4 kB chunk. Screenshots:
+`docs/ui-refresh/16-*.png` (refreshed) and `17-first-visit-light-system.png`.
