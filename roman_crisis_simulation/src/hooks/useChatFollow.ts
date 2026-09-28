@@ -13,8 +13,10 @@
  *    streamed chunk keeps the foot in view;
  *  - sending a week always returns the reader to the foot - they just
  *    acted, and the loom is where the answer appears;
- *  - scrolled away, nothing moves; the desk offers "To the latest", which
- *    becomes "New in the chronicle" once something has landed unseen.
+ *  - scrolled away, nothing moves; the desk offers "Back to the latest",
+ *    which becomes "New in the chronicle" once something has landed unseen
+ *    (the same words as the command palette's row, so one action has one
+ *    name).
  *
  * Presentation state only - nothing here is saved (D17).
  */
@@ -31,7 +33,7 @@ const AUTO_SCROLL_GRACE_MS = 700;
 
 /** Player-visible copy (veto queue: roadmaps/BACKLOG.md, "Reading, motion and the command palette"). */
 export const CHAT_FOLLOW_COPY = {
-    toLatest: 'To the latest',
+    toLatest: 'Back to the latest',
     unseen: 'New in the chronicle',
 } as const;
 

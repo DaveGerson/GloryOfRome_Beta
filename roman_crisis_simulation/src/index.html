@@ -19,18 +19,23 @@
       (design/nocturne.css, lazy-loaded by the LVX/NOX switch).
     -->
     <!--
-      Rome after dark is the house lighting: a device that has never chosen
-      between LVX and NOX opens on Nox Romae. This only seeds the same
-      `gor-theme` preference the configuration menu writes (App.tsx reads it
-      on mount), so an explicit LVX choice is never overridden; delete this
-      block to make marble day the default again. Until the night stylesheet
-      arrives the ground is painted basalt, so the first frame is not a
-      flash of daylight.
+      A device that has never chosen between LVX and NOX follows the
+      system's own appearance: a light system opens on marble day, a dark
+      one - or one that does not say - on Nox Romae, the house lighting.
+      An explicit choice in the configuration menu is stored as `gor-theme`
+      and always wins (hooks/useSettings.ts resolves the same way, and
+      follows the system as it changes until a choice is made). Nothing is
+      written here: seeding `gor-theme` would pass the house default off as
+      the player's own choice. To open every new device on NOX instead,
+      treat a null `gor-theme` as 'nox' here and in useSettings. Until the
+      night stylesheet arrives the ground is painted basalt, so the first
+      frame is not a flash of daylight.
     -->
     <script>
       try {
-        if (localStorage.getItem('gor-theme') === null) localStorage.setItem('gor-theme', 'nox');
-        if (localStorage.getItem('gor-theme') === 'nox') document.documentElement.setAttribute('data-gor-dusk', '');
+        var gorTheme = localStorage.getItem('gor-theme');
+        var gorSystemLight = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
+        if (gorTheme === 'nox' || (gorTheme !== 'lux' && !gorSystemLight)) document.documentElement.setAttribute('data-gor-dusk', '');
       } catch (e) { /* private mode: the day skin stands */ }
       /* Text size and motion (persistence/readingPrefs.ts), seeded before the
          first paint so a large-type reader never sees a frame of small type.

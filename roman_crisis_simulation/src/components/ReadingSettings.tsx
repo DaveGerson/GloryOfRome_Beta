@@ -1,6 +1,7 @@
 import React from 'react';
 import { RegisterHeading } from './ui/Core';
-import { SegmentedControl } from './ui/Forms';
+import { SegmentedControl, Switch } from './ui/Forms';
+import { paletteChordProse } from '../app/commands';
 import type {
     MotionPreference, NarrationReveal, ReadingScale, ShortcutPreference,
 } from '../persistence/readingPrefs';
@@ -16,28 +17,25 @@ export const READING_SETTINGS_COPY = {
     textSize: 'Text size',
     textSizeOptions: { standard: 'Standard', large: 'Large', larger: 'Larger' } satisfies Record<ReadingScale, string>,
     textSizeNote: {
-        standard: 'The chronicle and the registers at their written size.',
-        large: 'The chronicle, the registers and your dossier drawn a size larger.',
-        larger: 'The chronicle, the registers and your dossier drawn two sizes larger.',
+        standard: 'The chronicle, the side panel, fates and private scenes at their written size; buttons and menus keep theirs.',
+        large: 'The chronicle, the side panel, fates and private scenes a size larger; buttons and menus keep theirs.',
+        larger: 'The chronicle, the side panel, fates and private scenes two sizes larger; buttons and menus keep theirs.',
     } satisfies Record<ReadingScale, string>,
-    motion: 'Motion',
-    motionOptions: { device: 'As the device', reduced: 'Still' } satisfies Record<MotionPreference, string>,
-    motionNote: {
-        device: 'Follows your device: leaves rise, the crisis smoulders, unless it asks for less motion.',
-        reduced: 'Nothing moves that need not: no rising leaves, no smoulder, no gliding scroll.',
-    } satisfies Record<MotionPreference, string>,
-    narration: 'Narration',
-    narrationOptions: { stream: 'As written', whole: 'Whole' } satisfies Record<NarrationReveal, string>,
-    narrationNote: {
-        stream: 'Watch the chronicler write the week, word by word.',
-        whole: 'The week appears once it is written; the loom shows the work meanwhile.',
-    } satisfies Record<NarrationReveal, string>,
-    shortcuts: 'Keys',
-    shortcutOptions: { on: 'On', off: 'Off' } satisfies Record<ShortcutPreference, string>,
-    shortcutNote: {
-        on: 'Outside a text field, 1–7 open a register, / takes you to the tablet and ? lists every command. Ctrl+K always opens the commands.',
-        off: 'Single keys do nothing. Ctrl+K still opens the commands.',
-    } satisfies Record<ShortcutPreference, string>,
+    reduceMotion: 'Reduce motion',
+    reduceMotionNote: {
+        off: 'Animation plays unless your device asks for less motion.',
+        on: 'Nothing moves that need not: no rising leaves, no smoulder, no gliding scroll.',
+    },
+    wordByWord: 'Show the narration word by word',
+    wordByWordNote: {
+        on: 'The week appears as the chronicler writes it.',
+        off: 'The week appears whole once it is written; the loom shows the work meanwhile.',
+    },
+    singleKeys: 'Single-key shortcuts',
+    singleKeysNote: {
+        on: (chord: string) => `Outside a text field, 1–7 open the side panel's tabs, / goes to your action and ? opens the commands. ${chord} always opens them.`,
+        off: (chord: string) => `Single keys do nothing. ${chord} still opens the commands.`,
+    },
 } as const;
 
 const options = <T extends string>(labels: Record<T, string>) =>
@@ -54,17 +52,47 @@ export interface ReadingSettingsProps {
     onSetShortcuts: (shortcuts: ShortcutPreference) => void;
 }
 
+/** A switch with its note under the label, the note tied to it as its description. */
+const NotedSwitch: React.FC<{
+    id: string;
+    label: string;
+    checked: boolean;
+    note: string;
+    onChange: (checked: boolean) => void;
+}> = ({ id, label, checked, note, onChange }) => (
+    <div className="gor-config-switch">
+        <Switch
+            id={id}
+            checked={checked}
+            aria-describedby={`${id}-note`}
+            onChange={(event: React.ChangeEvent<HTMLInputElement>) => onChange(event.target.checked)}
+            label={label}
+        />
+        <p id={`${id}-note`} className="gor-config-note">{note}</p>
+    </div>
+);
+
 /**
- * The configuration menu's Reading register (persistence/readingPrefs.ts):
- * text size, motion, how the narration arrives, and the single-key
- * shortcuts WCAG 2.1.4 requires a player be able to turn off. Every value is
- * a device preference, never part of the save.
+ * The configuration menu's Reading register (persistence/readingPrefs.ts).
+ *
+ * Text size has three settings, so it is a radio group. The other three are
+ * on/off preferences that take effect at once, so each is a switch, named
+ * for what it does when on ("Reduce motion", the platforms' own words). A
+ * switch's visible label is its accessible name (WCAG 2.5.3), and no two
+ * controls in the menu share a label: an earlier cut made the narration's
+ * two states "As written" / "Whole", and "As written" already meant
+ * something else under Voice style.
+ *
+ * Every value is a device preference, never part of the save. The stored
+ * values keep their names ('reduced', 'whole', 'off'), so a choice made
+ * before the switches survives them.
  */
 export const ReadingSettings: React.FC<ReadingSettingsProps> = ({
     readingScale, onSetReadingScale, motion, onSetMotion,
     narrationReveal, onSetNarrationReveal, shortcuts, onSetShortcuts,
 }) => {
     const c = READING_SETTINGS_COPY;
+    const chord = paletteChordProse();
     return (
         <section aria-labelledby="settings-reading" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <RegisterHeading headingId="settings-reading" title={c.heading} />
@@ -75,25 +103,28 @@ export const ReadingSettings: React.FC<ReadingSettingsProps> = ({
                         options={options(c.textSizeOptions)} value={readingScale} onChange={onSetReadingScale} />
                     <p id="settings-reading-size-note" className="gor-config-note">{c.textSizeNote[readingScale]}</p>
                 </div>
-                <span className="gor-label gor-config-label">{c.motion}</span>
-                <div>
-                    <SegmentedControl radio ariaLabel={c.motion} describedBy="settings-reading-motion-note"
-                        options={options(c.motionOptions)} value={motion} onChange={onSetMotion} />
-                    <p id="settings-reading-motion-note" className="gor-config-note">{c.motionNote[motion]}</p>
-                </div>
-                <span className="gor-label gor-config-label">{c.narration}</span>
-                <div>
-                    <SegmentedControl radio ariaLabel={c.narration} describedBy="settings-reading-narration-note"
-                        options={options(c.narrationOptions)} value={narrationReveal} onChange={onSetNarrationReveal} />
-                    <p id="settings-reading-narration-note" className="gor-config-note">{c.narrationNote[narrationReveal]}</p>
-                </div>
-                <span className="gor-label gor-config-label">{c.shortcuts}</span>
-                <div>
-                    <SegmentedControl radio ariaLabel="Single-key shortcuts" describedBy="settings-reading-keys-note"
-                        options={options(c.shortcutOptions)} value={shortcuts} onChange={onSetShortcuts} />
-                    <p id="settings-reading-keys-note" className="gor-config-note">{c.shortcutNote[shortcuts]}</p>
-                </div>
             </div>
+            <NotedSwitch
+                id="settings-reduce-motion"
+                label={c.reduceMotion}
+                checked={motion === 'reduced'}
+                note={motion === 'reduced' ? c.reduceMotionNote.on : c.reduceMotionNote.off}
+                onChange={on => onSetMotion(on ? 'reduced' : 'device')}
+            />
+            <NotedSwitch
+                id="settings-word-by-word"
+                label={c.wordByWord}
+                checked={narrationReveal === 'stream'}
+                note={narrationReveal === 'stream' ? c.wordByWordNote.on : c.wordByWordNote.off}
+                onChange={on => onSetNarrationReveal(on ? 'stream' : 'whole')}
+            />
+            <NotedSwitch
+                id="settings-single-keys"
+                label={c.singleKeys}
+                checked={shortcuts === 'on'}
+                note={shortcuts === 'on' ? c.singleKeysNote.on(chord) : c.singleKeysNote.off(chord)}
+                onChange={on => onSetShortcuts(on ? 'on' : 'off')}
+            />
         </section>
     );
 };

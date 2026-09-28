@@ -31,6 +31,22 @@ const LIGHTING_OPTIONS = [
     { value: 'nox', label: '☾ NOX', title: 'Nox Romae — torchlit' },
 ] as const;
 
+/**
+ * Lighting as the platforms offer appearance: follow the device, or always
+ * one skin (Apple HIG, Material). "Device" is the default for a device that
+ * never chose, and the way back to it after a choice (hooks/useSettings.ts).
+ */
+const LIGHTING_CHOICES = [
+    { value: 'device', label: '◐ Device', title: 'Follow this device — light or dark' },
+    ...LIGHTING_OPTIONS,
+] as const;
+
+/** Player-visible copy (veto queue: roadmaps/BACKLOG.md, "Reading, motion and the command palette"). */
+export const LIGHTING_COPY = {
+    device: "Follows this device's light or dark appearance. Never part of your save.",
+    chosen: 'Kept on this device, whatever its appearance. Never part of your save.',
+} as const;
+
 const registerStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 10 };
 
 /**
@@ -58,6 +74,13 @@ const SettingsMenu: React.FC<NarrationSettingsProps & {
     /** LVX/NOX - a device preference (localStorage 'gor-theme'), never save state. */
     isNox: boolean;
     onSetIsNox: (isNox: boolean) => void;
+    /**
+     * The explicit choice behind `isNox` - null while the lighting follows
+     * the device. With its setter, the control offers Device / LVX / NOX;
+     * without them (a surface that predates the choice), LVX / NOX only.
+     */
+    lightingChoice?: 'lux' | 'nox' | null;
+    onSetLightingChoice?: (choice: 'lux' | 'nox' | null) => void;
     gmConsoleEnabled: boolean;
     onSetGmConsoleEnabled: (enabled: boolean) => void;
     gmInterventionEnabled: boolean;
@@ -101,6 +124,8 @@ const SettingsMenu: React.FC<NarrationSettingsProps & {
     onSetPacingPosture,
     isNox,
     onSetIsNox,
+    lightingChoice,
+    onSetLightingChoice,
     gmConsoleEnabled,
     onSetGmConsoleEnabled,
     gmInterventionEnabled,
@@ -193,14 +218,28 @@ const SettingsMenu: React.FC<NarrationSettingsProps & {
                             </div>
                             <span className="gor-label gor-config-label">Lighting</span>
                             <div>
-                                <SegmentedControl
-                                    ariaLabel="Lighting: marble day or torchlit night"
-                                    options={LIGHTING_OPTIONS}
-                                    value={isNox ? 'nox' : 'lux'}
-                                    onChange={(value) => onSetIsNox(value === 'nox')}
-                                    style={{ width: 172 }}
-                                />
-                                <p className="gor-config-note">A device preference, never part of your save.</p>
+                                {onSetLightingChoice && lightingChoice !== undefined ? (
+                                    <>
+                                        <SegmentedControl
+                                            ariaLabel="Lighting: follow this device, marble day or torchlit night"
+                                            options={LIGHTING_CHOICES}
+                                            value={lightingChoice ?? 'device'}
+                                            onChange={(value) => onSetLightingChoice(value === 'device' ? null : value)}
+                                        />
+                                        <p className="gor-config-note">{lightingChoice ? LIGHTING_COPY.chosen : LIGHTING_COPY.device}</p>
+                                    </>
+                                ) : (
+                                    <>
+                                        <SegmentedControl
+                                            ariaLabel="Lighting: marble day or torchlit night"
+                                            options={LIGHTING_OPTIONS}
+                                            value={isNox ? 'nox' : 'lux'}
+                                            onChange={(value) => onSetIsNox(value === 'nox')}
+                                            style={{ width: 172 }}
+                                        />
+                                        <p className="gor-config-note">A device preference, never part of your save.</p>
+                                    </>
+                                )}
                             </div>
                             <NarrationSettings {...narration} />
                         </div>

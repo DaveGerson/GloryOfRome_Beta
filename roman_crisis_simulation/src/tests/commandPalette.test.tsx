@@ -24,10 +24,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import {
-  buildGameCommands, filterCommands, groupCommands, isApplePlatform, paletteChordLabel, resolveShortcut,
+  buildGameCommands, filterCommands, groupCommands, isApplePlatform, paletteChordLabel, paletteChordProse, resolveShortcut,
   COMMAND_COPY, type GameCommandContext, type PaletteCommand, type ShortcutContext, type ShortcutKeyEvent,
 } from '../app/commands';
-import { CommandPalette, COMMAND_PALETTE_COPY } from '../components/CommandPalette';
+import { CommandPalette, COMMAND_PALETTE_COPY, RESULTS_ANNOUNCE_DELAY_MS } from '../components/CommandPalette';
 import { anyModalOpen, isTypingTarget, useCommandPalette } from '../hooks/useCommandPalette';
 import { draftSuggestion, focusComposer, pressOpener, selectRegister } from '../app/domCommands';
 import { SIDE_PANEL_TABS } from '../components/SidePanel';
@@ -72,7 +72,7 @@ async function mount(element: React.ReactElement): Promise<HTMLElement> {
 }
 
 const command = (label: string, overrides: Partial<PaletteCommand> = {}): PaletteCommand => ({
-  id: label, group: 'The desk', label, run: vi.fn(), ...overrides,
+  id: label, group: 'Actions', label, run: vi.fn(), ...overrides,
 });
 
 // --- app/commands.ts ---------------------------------------------------------
@@ -80,7 +80,7 @@ const command = (label: string, overrides: Partial<PaletteCommand> = {}): Palett
 describe('filterCommands', () => {
   const list = [
     command('Open the narration log', { keywords: 'voice transcript' }),
-    command('Reports', { group: 'Registers' }),
+    command('Reports', { group: 'Side panel' }),
     command('Write your action', { keywords: 'compose tablet' }),
     command('Draft: Report to the Senate', { group: 'Counsel' }),
   ];
@@ -92,7 +92,7 @@ describe('filterCommands', () => {
 
   it('requires every word, in the label, the group or the keywords, ignoring case and accents', () => {
     expect(filterCommands(list, 'VOICE log').map(c => c.label)).toEqual(['Open the narration log']);
-    expect(filterCommands(list, 'registers').map(c => c.label)).toEqual(['Reports']);
+    expect(filterCommands(list, 'side panel').map(c => c.label)).toEqual(['Reports']);
     expect(filterCommands(list, 'tablét').map(c => c.label)).toEqual(['Write your action']);
     expect(filterCommands(list, 'voice senate')).toEqual([]);
   });
@@ -111,10 +111,10 @@ describe('filterCommands', () => {
 describe('groupCommands', () => {
   it('keeps each group together, in order of first appearance', () => {
     const groups = groupCommands([
-      command('a', { group: 'Registers' }), command('b', { group: 'The desk' }), command('c', { group: 'Registers' }),
+      command('a', { group: 'Side panel' }), command('b', { group: 'Actions' }), command('c', { group: 'Side panel' }),
     ]);
     expect(groups.map(g => [g.group, g.commands.map(c => c.label)])).toEqual([
-      ['Registers', ['a', 'c']], ['The desk', ['b']],
+      ['Side panel', ['a', 'c']], ['Actions', ['b']],
     ]);
   });
 });
@@ -156,7 +156,24 @@ describe('resolveShortcut', () => {
     }
     expect(resolveShortcut(key('3', { altKey: true }), ctx())).toBeNull();
     expect(resolveShortcut(key('3', { ctrlKey: true }), ctx())).toBeNull();
-    expect(resolveShortcut(key('/', { shiftKey: true }), ctx())).toBeNull();
+    expect(resolveShortcut(key('/', { metaKey: true }), ctx())).toBeNull();
+  });
+
+  it('matches the character typed, so every keyboard layout reaches the same keys', () => {
+    // German: `/` is Shift+7. French AZERTY: the digits are shifted.
+    expect(resolveShortcut(key('/', { shiftKey: true, code: 'Digit7' }), ctx())).toEqual({ kind: 'focus-composer' });
+    expect(resolveShortcut(key('3', { shiftKey: true, code: 'Digit3' }), ctx())).toEqual({ kind: 'register', index: 2 });
+    // US Shift+3 types '#', which is nothing.
+    expect(resolveShortcut(key('#', { shiftKey: true, code: 'Digit3' }), ctx())).toBeNull();
+  });
+
+  it('finds Ctrl+K on a layout whose K key types another script, and only there', () => {
+    // Russian: the K key types 'л'.
+    expect(resolveShortcut(key('л', { ctrlKey: true, code: 'KeyK' }), ctx())).toEqual({ kind: 'toggle-palette' });
+    // Dvorak: the letter k lives elsewhere, and is what counts.
+    expect(resolveShortcut(key('k', { ctrlKey: true, code: 'KeyV' }), ctx())).toEqual({ kind: 'toggle-palette' });
+    // ...while the physical K key types 't' there, which is not the chord.
+    expect(resolveShortcut(key('t', { ctrlKey: true, code: 'KeyK' }), ctx())).toBeNull();
   });
 });
 
@@ -166,6 +183,8 @@ describe('the chord label', () => {
     expect(isApplePlatform({ userAgent: 'Mozilla/5.0 (X11; Linux x86_64)' })).toBe(false);
     expect(paletteChordLabel(true)).toBe('⌘K');
     expect(paletteChordLabel(false)).toBe('Ctrl K');
+    expect(paletteChordProse(true)).toBe('⌘K');
+    expect(paletteChordProse(false)).toBe('Ctrl+K');
   });
 });
 
@@ -185,7 +204,7 @@ describe('buildGameCommands', () => {
   });
 
   it('offers the seven registers in rail order, numbered, with what is new', () => {
-    const registers = buildGameCommands(context()).filter(c => c.group === 'Registers');
+    const registers = buildGameCommands(context()).filter(c => c.group === 'Side panel');
     expect(registers.map(c => c.label)).toEqual(SIDE_PANEL_TABS.map(t => t.fullLabel));
     expect(registers.map(c => c.shortcut)).toEqual(['1', '2', '3', '4', '5', '6', '7']);
     expect(registers.find(c => c.label === 'Reports')?.note).toBe(COMMAND_COPY.registerNote(2));
@@ -252,10 +271,10 @@ describe('CommandPalette', () => {
   });
 
   const list = () => [
-    command('World State', { group: 'Registers' }),
-    command('Reports', { group: 'Registers', note: '2 new', shortcut: '3' }),
+    command('World State', { group: 'Side panel' }),
+    command('Reports', { group: 'Side panel', note: '2 new', shortcut: '3' }),
     command('Write your action', { shortcut: '/' }),
-    command('Open the configuration', { group: 'The house' }),
+    command('Open the configuration', { group: 'Settings' }),
   ];
 
   it('is a modal dialog holding a combobox over an always-shown listbox, grouped, first option active', async () => {
@@ -268,10 +287,15 @@ describe('CommandPalette', () => {
     expect(listbox.getAttribute('role')).toBe('listbox');
     expect(input().getAttribute('aria-expanded')).toBe('true');
     expect([...listbox.querySelectorAll('[role="group"]')].map(g => document.getElementById(g.getAttribute('aria-labelledby')!)?.textContent))
-      .toEqual(['Registers', 'The desk', 'The house']);
+      .toEqual(['Side panel', 'Actions', 'Settings']);
     expect(input().getAttribute('aria-activedescendant')).toBe(options()[0].id);
     expect(options()[0].getAttribute('aria-selected')).toBe('true');
     expect(options()[1].textContent).toContain('2 new');
+    // Named in words, not by run-together text ("Reports2 new").
+    expect(options()[1].getAttribute('aria-label')).toBe('Reports, 2 new');
+    expect(options()[0].getAttribute('aria-label')).toBe('World State');
+    // A search field, drawn as one.
+    expect(document.querySelector('.gor-palette-glyph svg')).not.toBeNull();
   });
 
   it('walks the options with the arrows, wrapping at both ends', async () => {
@@ -294,6 +318,29 @@ describe('CommandPalette', () => {
     expect(options()).toHaveLength(0);
     expect(document.body.textContent).toContain(COMMAND_PALETTE_COPY.empty);
     expect(input().hasAttribute('aria-activedescendant')).toBe(false);
+    // A listbox holds groups and options only; the empty state sits outside it.
+    const listbox = document.getElementById(input().getAttribute('aria-controls')!)!;
+    expect(listbox.textContent).toBe('');
+    type('');
+    expect([...listbox.children].every(child => child.getAttribute('role') === 'group')).toBe(true);
+  });
+
+  it('tells a screen reader how many commands answer once typing pauses, never per keystroke', async () => {
+    vi.useFakeTimers();
+    await mount(<CommandPalette commands={list()} onClose={vi.fn()} />);
+    const status = () => document.querySelector('.gor-palette [role="status"]')!;
+    expect(status().getAttribute('aria-live')).toBe('polite');
+    expect(status().textContent).toBe('');
+    type('r');
+    act(() => { vi.advanceTimersByTime(RESULTS_ANNOUNCE_DELAY_MS - 1); });
+    type('re');
+    act(() => { vi.advanceTimersByTime(RESULTS_ANNOUNCE_DELAY_MS - 1); });
+    expect(status().textContent).toBe('');
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(status().textContent).toBe(COMMAND_PALETTE_COPY.count(1));
+    type('zzz');
+    act(() => { vi.advanceTimersByTime(RESULTS_ANNOUNCE_DELAY_MS); });
+    expect(status().textContent).toBe(COMMAND_PALETTE_COPY.empty);
   });
 
   it('Enter closes the palette and runs the active command only afterwards', async () => {

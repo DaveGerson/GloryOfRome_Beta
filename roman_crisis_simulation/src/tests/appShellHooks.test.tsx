@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { renderHook } from './renderHook';
 import { useGmConsole } from '../hooks/useGmConsole';
-import { useSettings } from '../hooks/useSettings';
+import { resolveLighting, storedLighting, useSettings } from '../hooks/useSettings';
 import { useWeekBeat, WEEK_BEAT_MS } from '../hooks/useWeekBeat';
 import { getGmConsoleEnabled, getGmInterventionEnabled } from '../persistence/uiPrefs';
 import { getApiKey } from '../persistence/apiKey';
@@ -110,17 +110,81 @@ describe('useSettings (D23/D31/D34)', () => {
     });
 
     it('NOX loads the nocturne stylesheet once and LVX disables it, persisting the choice', () => {
+        // A light system: a device that never chose opens on marble day.
+        vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+        document.getElementById('nox-css')?.remove();
         const hook = renderHook(useSettings, undefined);
+        expect(hook.current.isNox).toBe(false);
         expect(document.getElementById('nox-css')).toBeNull();
+        // Opening on the system's lighting is not a choice: nothing is stored.
+        expect(localStorage.getItem('gor-theme')).toBeNull();
         act(() => hook.current.setIsNox(true));
         const link = document.getElementById('nox-css') as HTMLLinkElement;
         expect(link).not.toBeNull();
         expect(localStorage.getItem('gor-theme')).toBe('nox');
+        expect(document.documentElement.hasAttribute('data-gor-dusk')).toBe(true);
         act(() => hook.current.setIsNox(false));
         expect(document.getElementById('nox-css')).toBe(link);
         expect(link.disabled).toBe(true);
         expect(localStorage.getItem('gor-theme')).toBe('lux');
+        expect(document.documentElement.hasAttribute('data-gor-dusk')).toBe(false);
         hook.unmount();
+        vi.unstubAllGlobals();
+    });
+
+    it('a device that never chose follows the system, live; an explicit choice always wins', () => {
+        let listener: ((event: { matches: boolean }) => void) | null = null;
+        const query = {
+            matches: false,
+            addEventListener: vi.fn((_type: string, fn: (event: { matches: boolean }) => void) => { listener = fn; }),
+            removeEventListener: vi.fn(),
+        };
+        vi.stubGlobal('matchMedia', vi.fn().mockReturnValue(query));
+        const hook = renderHook(useSettings, undefined);
+        // A dark system: the night.
+        expect(hook.current.isNox).toBe(true);
+        // The system turns light at dawn; the room follows while nothing was chosen.
+        act(() => listener!({ matches: true }));
+        expect(hook.current.isNox).toBe(false);
+        // Once the player chooses, the system no longer moves it.
+        act(() => hook.current.setIsNox(true));
+        act(() => listener!({ matches: true }));
+        expect(hook.current.isNox).toBe(true);
+        hook.unmount();
+        expect(query.removeEventListener).toHaveBeenCalled();
+        vi.unstubAllGlobals();
+    });
+
+    it('"Device" hands the room back to the system: the choice is cleared, and the system decides again', () => {
+        let listener: ((event: { matches: boolean }) => void) | null = null;
+        const query = {
+            matches: true,
+            addEventListener: vi.fn((_type: string, fn: (event: { matches: boolean }) => void) => { listener = fn; }),
+            removeEventListener: vi.fn(),
+        };
+        vi.stubGlobal('matchMedia', vi.fn().mockReturnValue(query));
+        localStorage.setItem('gor-theme', 'nox');
+        const hook = renderHook(useSettings, undefined);
+        expect(hook.current.lightingChoice).toBe('nox');
+        expect(hook.current.isNox).toBe(true);
+        act(() => hook.current.setLightingChoice(null));
+        expect(localStorage.getItem('gor-theme')).toBeNull();
+        expect(hook.current.lightingChoice).toBeNull();
+        // A light system, so marble day - and it follows the system again.
+        expect(hook.current.isNox).toBe(false);
+        act(() => listener!({ matches: false }));
+        expect(hook.current.isNox).toBe(true);
+        hook.unmount();
+        vi.unstubAllGlobals();
+    });
+
+    it('resolveLighting: a stored choice, else the system, else the house night', () => {
+        expect(resolveLighting('lux', false)).toBe('lux');
+        expect(resolveLighting('nox', true)).toBe('nox');
+        expect(resolveLighting(null, true)).toBe('lux');
+        expect(resolveLighting(null, false)).toBe('nox');
+        localStorage.setItem('gor-theme', 'sepia');
+        expect(storedLighting()).toBeNull();
     });
 
     it('the menu flag and Mock Mode are transient session state', () => {

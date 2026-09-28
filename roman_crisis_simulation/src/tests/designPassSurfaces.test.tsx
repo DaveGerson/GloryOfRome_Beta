@@ -80,11 +80,16 @@ describe("the Fates' loom (WP-1 — invisible to a Mock-Mode playthrough)", () =
     expect(container.querySelector('.gor-loom-count')?.textContent).toBe('1 of 7');
   });
 
-  it('keeps the live-region contract the three dots had', async () => {
+  // Resolved open decision (ROADMAP_UPLEVEL_2026-09.md, "Turn progress is
+  // announced twice"): the composer's stage line is the one voice for a
+  // week's progress; the loom sits inside the chat log and is drawn, not
+  // spoken - the same call as the streaming narration bubble.
+  it('is drawn, not spoken: hidden from assistive tech, with no live region of its own', async () => {
     const container = await mount(<TypingIndicator stage="monologue" />);
-    const status = container.querySelector('[role="status"]');
-    expect(status?.getAttribute('aria-live')).toBe('polite');
-    expect(status?.textContent).toContain('Your own thoughts gather');
+    const loom = container.firstElementChild!;
+    expect(loom.getAttribute('aria-hidden')).toBe('true');
+    expect(container.querySelector('[aria-live], [role="status"]')).toBeNull();
+    expect(container.textContent).toContain('Your own thoughts gather');
   });
 });
 

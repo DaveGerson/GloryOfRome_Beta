@@ -114,7 +114,7 @@ describe('components/TurnComposer', () => {
     expect(chatMode.getAttribute('aria-pressed')).toBe('true');
     expect(container.querySelector('textarea[aria-label="Chat input"]')).not.toBeNull();
     expect(container.querySelector('[role="alert"]')).toBeNull();
-    expect(container.querySelector('[role="status"]')?.textContent).toMatch(/20,000 characters remaining/i);
+    expect(container.querySelector('#composer-submission-status')?.textContent).toMatch(/20,000 characters remaining/i);
 
     await click(structuredMode);
 
@@ -306,7 +306,7 @@ describe('components/TurnComposer', () => {
     );
 
     const input = byAriaLabel<HTMLTextAreaElement>(container, 'Chat input');
-    const exactStatus = container.querySelector<HTMLElement>('[role="status"]');
+    const exactStatus = container.querySelector<HTMLElement>('#composer-submission-status');
     expect(exactStatus?.textContent).toMatch(/0 characters remaining/i);
     expect(input.getAttribute('aria-describedby')).toBe(exactStatus?.id);
     expect(buttonNamed(container, 'Send message').disabled).toBe(false);
@@ -332,7 +332,7 @@ describe('components/TurnComposer', () => {
     const { container, rerender } = await mount(
       <TurnComposer {...defaultProps({ chatDraft: `  ${reserved}  ` , onSubmit })} />,
     );
-    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+    expect(container.querySelector('#composer-submission-status')?.textContent).toContain(
       `${(20_000 - (TURN_SUBMISSION_PREFIX.length + JSON.stringify({ version: 1, kind: 'freeform', text: reserved }).length)).toLocaleString('en-US')} characters remaining`,
     );
 
@@ -457,6 +457,34 @@ describe('components/TurnComposer', () => {
     const status = container.querySelector<HTMLElement>('[role="status"]');
     expect(status?.getAttribute('aria-live')).toBe('polite');
     expect(status?.textContent).toBe(TURN_STAGE_STATUS_COPY.narration);
+  });
+
+  // The one voice for a week's progress must exist BEFORE its first message:
+  // a live region created together with its text is often never announced.
+  it('keeps the stage region in the DOM while idle - empty and visually hidden - so the first stage is heard', async () => {
+    const { container, rerender } = await mount(<TurnComposer {...defaultProps()} />);
+    const idle = container.querySelectorAll<HTMLElement>('[role="status"]');
+    expect(idle).toHaveLength(1);
+    expect(idle[0].textContent).toBe('');
+    expect(idle[0].classList.contains('gor-sr-only')).toBe(true);
+
+    await rerender(<TurnComposer {...defaultProps({ isProcessing: true, turnStage: 'npc_minds' })} />);
+    const busy = container.querySelectorAll<HTMLElement>('[role="status"]');
+    expect(busy).toHaveLength(1);
+    expect(busy[0]).toBe(idle[0]);
+    expect(busy[0].textContent).toBe(TURN_STAGE_STATUS_COPY.npc_minds);
+    expect(busy[0].classList.contains('gor-hint')).toBe(true);
+  });
+
+  // GOV.UK character count pattern: the count describes the field and is
+  // read with it, but never re-announces itself on every keystroke.
+  it('describes the tablet by its character count without making the count a live region', async () => {
+    const { container } = await mount(<TurnComposer {...defaultProps({ chatDraft: 'Hold court' })} />);
+    const count = container.querySelector<HTMLElement>('#composer-submission-status')!;
+    expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').getAttribute('aria-describedby')).toBe(count.id);
+    expect(count.hasAttribute('role')).toBe(false);
+    expect(count.hasAttribute('aria-live')).toBe(false);
+    expect(count.closest('[aria-live]')).toBeNull();
   });
 
   it('keeps Chat Enter/Shift+Enter behavior while Structured uses newline Enter and Ctrl/Cmd+Enter submission', async () => {
@@ -614,7 +642,7 @@ describe('components/TurnComposer', () => {
     await click(buttonNamed(container, 'Structured'));
 
     expect(container.querySelector('[role="alert"]')).toBeNull();
-    expect(container.querySelector('[role="status"]')?.textContent).toMatch(/20,000 characters remaining/i);
+    expect(container.querySelector('#composer-submission-status')?.textContent).toMatch(/20,000 characters remaining/i);
     expect(buttonNamed(container, 'Submit turn').disabled).toBe(true);
 
     const command = byAriaLabel<HTMLTextAreaElement>(container, 'Message or order 1');

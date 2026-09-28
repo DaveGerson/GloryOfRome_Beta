@@ -3,6 +3,7 @@ import { WorldState } from '../types';
 import { Medallion, toRoman } from './ui/Brand';
 import { economicSeverity, economicStabilityGrade, ECONOMIC_STABILITY_GRADES } from '../events/stabilityVocabulary';
 import { paletteChordLabel } from '../app/commands';
+import { SearchGlyph } from './ui/Icons';
 
 /**
  * Twin-medallion Tyrian vexillum masthead (design system ui_kits/simulation/Header):
@@ -99,7 +100,7 @@ const Header: React.FC<{
                 aria-keyshortcuts="Control+K Meta+K"
                 className="gor-masthead-settings gor-masthead-commands"
             >
-                <span aria-hidden="true" className="gor-masthead-settings-glyph">❖</span>{' '}
+                <span aria-hidden="true" className="gor-masthead-settings-glyph"><SearchGlyph size={13} /></span>{' '}
                 <span className="gor-masthead-settings-word">{HEADER_COPY.commands}</span>
                 <kbd aria-hidden="true" className="gor-kbd gor-masthead-kbd">{paletteChordLabel()}</kbd>
             </button>

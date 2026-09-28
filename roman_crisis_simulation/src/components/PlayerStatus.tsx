@@ -38,6 +38,8 @@ const PlayerStatus: React.FC<{ playerEntity: Entity | null }> = ({ playerEntity 
                     aria-expanded={!folded}
                     aria-controls={DETAILS_ID}
                     aria-label={PLAYER_STATUS_COPY.fold}
+                    // An icon-only control shows its name on hover too.
+                    title={PLAYER_STATUS_COPY.fold}
                     onClick={toggle}
                 ><span aria-hidden="true">▾</span></button>
             </div>

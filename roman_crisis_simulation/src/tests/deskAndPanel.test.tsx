@@ -162,6 +162,7 @@ describe('PlayerStatus: the dossier folds', () => {
     const { container } = await mount(<PlayerStatus playerEntity={makePlayer()} />);
     const details = document.getElementById(fold(container).getAttribute('aria-controls')!)!;
     expect(fold(container).getAttribute('aria-label')).toBe(PLAYER_STATUS_COPY.fold);
+    expect(fold(container).getAttribute('title')).toBe(PLAYER_STATUS_COPY.fold);
     expect(fold(container).getAttribute('aria-expanded')).toBe('true');
     expect(details.hidden).toBe(false);
     expect(container.textContent).toContain('Maintain Senate support');
@@ -206,6 +207,9 @@ describe('Header', () => {
     expect(container.querySelector('.gor-masthead-compact')).not.toBeNull();
     const commands = container.querySelector<HTMLButtonElement>(`button[aria-label="${HEADER_COPY.commandsLabel}"]`)!;
     expect(commands.getAttribute('aria-keyshortcuts')).toBe('Control+K Meta+K');
+    // A magnifier the phone can show alone - not a fallback ornament.
+    expect(commands.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+    expect(commands.textContent).not.toContain('❖');
     await act(async () => commands.click());
     expect(onOpenCommands).toHaveBeenCalled();
   });
@@ -347,6 +351,10 @@ describe('TurnComposer: the desk', () => {
     const pills = container.querySelectorAll(`[${SUGGESTION_INDEX_ATTRIBUTE}]`);
     expect([...pills].map(p => p.getAttribute(SUGGESTION_INDEX_ATTRIBUTE))).toEqual(['0', '1']);
     expect(container.querySelector('.gor-composer-pills-label')?.textContent).toBe(TURN_COMPOSER_COPY.counsel);
+    // The counsel is one labelled group, not a run of loose buttons.
+    const group = container.querySelector('.gor-composer-pills')!;
+    expect(group.getAttribute('role')).toBe('group');
+    expect(document.getElementById(group.getAttribute('aria-labelledby')!)?.textContent).toBe(TURN_COMPOSER_COPY.counsel);
   });
 
   it('draws no tool row when given none', async () => {

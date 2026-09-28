@@ -58,6 +58,8 @@ export const TURN_COMPOSER_COPY = {
  */
 export const SUGGESTION_INDEX_ATTRIBUTE = 'data-gor-suggestion';
 
+const COUNSEL_LABEL_ID = 'composer-counsel-label';
+
 /**
  * How long the seal stays on the tablet after a week is committed. The press
  * itself runs 520ms (`gorSealPress` in components.css); the extra beat lets
@@ -203,8 +205,11 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
         />
       )}
       {suggestedActions.length > 0 && (
-        <div className="gor-composer-pills">
-          <span className="gor-label gor-composer-pills-label" aria-hidden="true">{TURN_COMPOSER_COPY.counsel}</span>
+        // A labelled group, so a screen reader hears "Counsel" once on the
+        // way in rather than a run of loose buttons. The label stays the
+        // group's name even where the narrow layout hides it.
+        <div className="gor-composer-pills" role="group" aria-labelledby={COUNSEL_LABEL_ID}>
+          <span id={COUNSEL_LABEL_ID} className="gor-label gor-composer-pills-label">{TURN_COMPOSER_COPY.counsel}</span>
           {suggestedActions.map((action, index) => (
             <ActionPill key={action} aria-label={action} delay={index * 80} disabled={locked}
               {...{ [SUGGESTION_INDEX_ATTRIBUTE]: index }}
@@ -225,11 +230,15 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
         />
         {tools && <div className="gor-composer-tools">{tools}</div>}
       </div>
-      {isProcessing && (
-        <p className="gor-hint" role="status" aria-live="polite" style={{ margin: 0 }}>
-          {TURN_STAGE_STATUS_COPY[turnStage ?? 'story_relevance']}
-        </p>
-      )}
+      {/* The one voice for a week's progress. The loom in the chronicle
+          draws the same stage and is hidden from assistive tech, so a screen
+          reader hears each stage once, here, beside where the week was sent.
+          The region is always in the DOM - visually hidden and empty while
+          idle - because a live region created together with its message is
+          often never announced, which cost the first stage every turn. */}
+      <p className={isProcessing ? 'gor-hint' : 'gor-sr-only'} role="status" aria-live="polite" style={{ margin: 0 }}>
+        {isProcessing ? TURN_STAGE_STATUS_COPY[turnStage ?? 'story_relevance'] : ''}
+      </p>
       {mode === 'chat' ? (
         <form
           onSubmit={event => { event.preventDefault(); submitChat(); }}
@@ -264,7 +273,12 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
             ) : validationMessage ? (
               <p id={statusId} role="alert" className="gor-hint gor-hint-error" style={{ margin: 0 }}>{validationMessage} {remaining} characters remaining</p>
             ) : (
-              <p id={statusId} role="status" className="gor-hint" style={{ margin: 0 }}>{formatCharacterCount(remaining ?? 0)} characters remaining</p>
+              // The count describes the tablet (aria-describedby) and is read
+              // with it; it is NOT a live region. As one it re-announced
+              // itself after every keystroke - the chatter the GOV.UK character
+              // count pattern exists to prevent. Going over the limit, or an
+              // invalid draft, still interrupts as an alert (the branches above).
+              <p id={statusId} className="gor-hint" style={{ margin: 0 }}>{formatCharacterCount(remaining ?? 0)} characters remaining</p>
             )}
             <Button
               type="submit"
@@ -288,7 +302,7 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
               <span className="gor-gauge-track" aria-hidden="true">
                 <span className="gor-gauge-fill" style={{ width: `${remainingShare}%` }} />
               </span>
-              <p id={statusId} role="status" className="gor-gauge-count">{formatCharacterCount(remaining ?? 0)} characters remaining</p>
+              <p id={statusId} className="gor-gauge-count">{formatCharacterCount(remaining ?? 0)} characters remaining</p>
             </div>
           )}
           <div style={{ position: 'relative' }}>

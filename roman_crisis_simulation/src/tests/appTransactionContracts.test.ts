@@ -279,7 +279,8 @@ function failBothSaveWrites(): ReturnType<typeof vi.spyOn> {
  * The laurel half-commit notice (WP-21), found by what it says. It is the
  * one notice in the app that reports a SUCCESS, so it takes `role="status"`
  * rather than `role="alert"` — and that role is shared with the composer's
- * character count, so a bare count would prove nothing.
+ * stage line (always present, the one voice for a week's progress), so a
+ * bare count would prove nothing.
  */
 function halfCommitNotes(container: HTMLElement): HTMLElement[] {
   return Array.from(container.querySelectorAll<HTMLElement>('[role="status"]'))

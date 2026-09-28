@@ -6,17 +6,21 @@
  * screen offers. No React and no DOM here - the palette itself is
  * components/CommandPalette.tsx, the global keys are hooks/useCommandPalette.ts.
  *
- * Two rules the palette keeps:
+ * Three rules the palette keeps:
  *  - it is a way to REACH things, never a second home for an option (D43):
  *    it opens the configuration menu, it never flips a setting itself;
  *  - it offers only what can run right now. A command that could not run
- *    (the GM ledger before a turn is played, a private scene mid-turn) is
- *    left out rather than drawn dead, so every row the player sees works.
+ *    (the GM log before a turn is played, a private scene mid-turn) is
+ *    left out rather than drawn dead, so every row the player sees works;
+ *  - it speaks the screen's own words. A row is named for the control it
+ *    presses ("Open the narration log" for the Narration log button) and
+ *    grouped in the player's vocabulary ("Side panel", as the onboarding
+ *    calls it) - never the code's ("registers", "the desk").
  */
 
 import type { TabId } from '../perception/visibility';
 
-export type CommandGroup = 'Registers' | 'The desk' | 'Counsel' | 'The house';
+export type CommandGroup = 'Side panel' | 'Actions' | 'Counsel' | 'Settings' | 'Behind the curtain';
 
 export interface PaletteCommand {
     id: string;
@@ -81,6 +85,8 @@ export type ShortcutAction =
 
 export interface ShortcutKeyEvent {
     key: string;
+    /** The physical key - consulted only when the typed letter is not Latin. */
+    code?: string;
     ctrlKey: boolean;
     metaKey: boolean;
     altKey: boolean;
@@ -101,27 +107,38 @@ export interface ShortcutContext {
 }
 
 /**
+ * The letter a chord names: the key as typed on a Latin layout, else - on a
+ * layout whose K key types another script (Cyrillic, Greek...) - the
+ * physical K key, so Ctrl+K works there too.
+ */
+function chordLetter(event: ShortcutKeyEvent): string {
+    if (/^[a-z]$/i.test(event.key)) return event.key.toLowerCase();
+    return event.code === 'KeyK' ? 'k' : '';
+}
+
+/**
  * Which command, if any, a keydown asks for.
  *
  *  - Ctrl+K / ⌘K opens and closes the palette anywhere on the game screen,
  *    typing or not - but never over another modal: a fate waiting on a
  *    choice, or the configuration menu, keeps the room.
- *  - 1-7 open the registers, `/` goes to the tablet and `?` opens the
- *    palette - single keys, so only outside a text field, never with a
- *    modifier, never under a modal, and never when the player turned them
- *    off (WCAG 2.1.4).
+ *  - 1-7 open the side panel's tabs, `/` goes to the tablet and `?` opens
+ *    the palette - single keys, so only outside a text field, never with
+ *    Ctrl, ⌘ or Alt, never under a modal, and never when the player turned
+ *    them off (WCAG 2.1.4). They match the character TYPED and ignore
+ *    Shift: `/` is Shift+7 on a German keyboard and the digits are shifted
+ *    on a French one, so rejecting Shift would lock those players out.
  */
 export function resolveShortcut(event: ShortcutKeyEvent, context: ShortcutContext): ShortcutAction | null {
     if (!context.inGame || event.isComposing) return null;
     const isPaletteChord = (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey
-        && event.key.toLowerCase() === 'k';
+        && chordLetter(event) === 'k';
     if (isPaletteChord) {
         return context.otherModalOpen && !context.paletteOpen ? null : { kind: 'toggle-palette' };
     }
     if (!context.singleKeys || context.paletteOpen || context.otherModalOpen || context.typing) return null;
     if (event.ctrlKey || event.metaKey || event.altKey) return null;
     if (event.key === '?') return { kind: 'open-palette' };
-    if (event.shiftKey) return null;
     if (event.key === '/') return { kind: 'focus-composer' };
     if (/^[1-7]$/.test(event.key)) return { kind: 'register', index: Number(event.key) - 1 };
     return null;
@@ -132,7 +149,9 @@ export function isApplePlatform(nav: Pick<Navigator, 'userAgent'> | undefined = 
     return /Mac|iPhone|iPad|iPod/.test(nav?.userAgent ?? '');
 }
 
+/** The chord as a key cap ("Ctrl K") and as prose ("Ctrl+K"), in the platform's own terms. */
 export const paletteChordLabel = (apple = isApplePlatform()): string => (apple ? '⌘K' : 'Ctrl K');
+export const paletteChordProse = (apple = isApplePlatform()): string => (apple ? '⌘K' : 'Ctrl+K');
 
 // --- The game screen's commands ----------------------------------------------
 
@@ -140,16 +159,17 @@ export const paletteChordLabel = (apple = isApplePlatform()): string => (apple ?
 export const COMMAND_COPY = {
     registerNote: (count: number) => `${count} new`,
     write: 'Write your action',
-    privateScene: 'Seek a private audience',
+    privateScene: 'Open a private scene',
     narrationLog: 'Open the narration log',
-    latest: 'Return to the latest in the chronicle',
-    settings: 'Open the configuration',
-    ledger: "Open the Fates' ledger",
+    latest: 'Back to the latest',
+    settings: 'Open Settings',
+    ledger: 'Open the GM log',
     counsel: (action: string) => `Draft: ${action}`,
 } as const;
 
 export interface GameCommandContext {
-    registers: readonly { id: TabId; fullLabel: string }[];
+    /** The side panel's tabs in rail order: the visible label and the full (accessible) one. */
+    registers: readonly { id: TabId; label: string; fullLabel: string }[];
     changeCounts?: ReadonlyMap<TabId, number>;
     singleKeys: boolean;
     /** The tablet takes words now (a week is not being written). */
@@ -176,9 +196,9 @@ export function buildGameCommands(ctx: GameCommandContext): PaletteCommand[] {
         const count = ctx.changeCounts?.get(register.id);
         commands.push({
             id: `register:${register.id}`,
-            group: 'Registers',
+            group: 'Side panel',
             label: register.fullLabel,
-            keywords: 'tab panel register go open intelligence',
+            keywords: `${register.label} tab panel go open intelligence`,
             shortcut: ctx.singleKeys ? String(index + 1) : undefined,
             note: count ? COMMAND_COPY.registerNote(count) : undefined,
             run: () => ctx.selectRegister(register.id),
@@ -186,7 +206,7 @@ export function buildGameCommands(ctx: GameCommandContext): PaletteCommand[] {
     });
     if (ctx.canWrite) {
         commands.push({
-            id: 'desk:write', group: 'The desk', label: COMMAND_COPY.write,
+            id: 'desk:write', group: 'Actions', label: COMMAND_COPY.write,
             keywords: 'compose tablet speak turn input type order',
             shortcut: ctx.singleKeys ? '/' : undefined,
             run: ctx.focusComposer,
@@ -194,19 +214,19 @@ export function buildGameCommands(ctx: GameCommandContext): PaletteCommand[] {
     }
     if (ctx.canOpenPrivateScene) {
         commands.push({
-            id: 'desk:private-scene', group: 'The desk', label: COMMAND_COPY.privateScene,
-            keywords: 'private scene meeting audience talk conversation',
+            id: 'desk:private-scene', group: 'Actions', label: COMMAND_COPY.privateScene,
+            keywords: 'meeting audience talk conversation',
             run: ctx.openPrivateScene,
         });
     }
     commands.push({
-        id: 'desk:narration-log', group: 'The desk', label: COMMAND_COPY.narrationLog,
+        id: 'desk:narration-log', group: 'Actions', label: COMMAND_COPY.narrationLog,
         keywords: 'voice performance transcript audio narrator',
         run: ctx.openNarrationLog,
     });
     commands.push({
-        id: 'desk:latest', group: 'The desk', label: COMMAND_COPY.latest,
-        keywords: 'scroll bottom newest jump end chat',
+        id: 'desk:latest', group: 'Actions', label: COMMAND_COPY.latest,
+        keywords: 'scroll bottom newest jump end chat chronicle',
         run: ctx.jumpToLatest,
     });
     if (ctx.canWrite) {
@@ -219,14 +239,14 @@ export function buildGameCommands(ctx: GameCommandContext): PaletteCommand[] {
         });
     }
     commands.push({
-        id: 'house:settings', group: 'The house', label: COMMAND_COPY.settings,
-        keywords: 'settings options preferences key lighting theme text size motion voice pacing',
+        id: 'house:settings', group: 'Settings', label: COMMAND_COPY.settings,
+        keywords: 'configuration options preferences key lighting theme text size motion voice pacing',
         run: ctx.openSettings,
     });
     if (ctx.canOpenLedger) {
         commands.push({
-            id: 'house:ledger', group: 'The house', label: COMMAND_COPY.ledger,
-            keywords: 'gm console game master debug log',
+            id: 'house:ledger', group: 'Behind the curtain', label: COMMAND_COPY.ledger,
+            keywords: "fates' ledger console game master debug",
             run: ctx.openLedger,
         });
     }

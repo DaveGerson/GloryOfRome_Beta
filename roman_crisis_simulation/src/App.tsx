@@ -95,6 +95,7 @@ const App: React.FC = () => {
         isSettingsMenuOpen, openSettings, closeSettings,
         isMockMode, setIsMockMode,
         isNox, setIsNox,
+        lightingChoice, setLightingChoice,
         pacingPosture, handleSetPacingPosture,
         userApiKey, resolvedApiKey, handleSaveApiKey, handleClearApiKey,
         ai,
@@ -619,6 +620,8 @@ const App: React.FC = () => {
                     onSetPacingPosture={handleSetPacingPosture}
                     isNox={isNox}
                     onSetIsNox={setIsNox}
+                    lightingChoice={lightingChoice}
+                    onSetLightingChoice={setLightingChoice}
                     gmConsoleEnabled={gmConsoleAvailable}
                     onSetGmConsoleEnabled={handleSetGmConsoleAvailable}
                     gmInterventionEnabled={gmInterventionAvailable}

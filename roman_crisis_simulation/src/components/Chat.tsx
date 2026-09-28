@@ -63,7 +63,8 @@ const MORTALITY_STAGE: TurnStage = 'mortality';
  *
  * Bound to the same `stage` prop the old three-dot indicator took — no new
  * API and no new state. Reduced motion renders every woven thread at its
- * final height with no movement (see components.css).
+ * final height with no movement (see components.css). Hidden from assistive
+ * tech: the composer's stage line announces the same stage, once.
  */
 export const TypingIndicator: React.FC<{ stage?: TurnStage | null }> = ({ stage = null }) => {
     const statusText = getStageStatusText(stage);
@@ -73,8 +74,12 @@ export const TypingIndicator: React.FC<{ stage?: TurnStage | null }> = ({ stage 
     const activeIndex = reportedIndex < 0 ? 0 : reportedIndex;
 
     return (
-        <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 14 }}>
-            <div className="gor-loom" role="status" aria-live="polite">
+        // Drawn, not spoken: it sits inside the chat log (itself role="log"),
+        // and as a status region of its own it announced every stage a second
+        // time beside the composer's stage line - which is the one voice for
+        // turn progress (TurnComposer). Same call as StreamingNarrationBubble.
+        <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 14 }} aria-hidden="true">
+            <div className="gor-loom">
                 <div className="gor-loom-threads" aria-hidden="true">
                     {TURN_STAGE_ORDER.map((name, index) => (
                         <div
