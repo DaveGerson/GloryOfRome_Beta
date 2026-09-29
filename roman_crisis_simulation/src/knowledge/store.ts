@@ -679,10 +679,19 @@ export type InvestigationKind = 'beliefs' | 'scheme' | 'secrets';
  * 'scheme' aspect instead takes the D28 clue path (ingestSchemeClue): it
  * adds a clue toward earning the scheme's nature rather than dumping the
  * whole scheme, and keeps no items.
+ *
+ * `natureReading` (D47) is the agents' read of the design the accumulated
+ * clues add up to, pieced together at the reveal from every clue on file
+ * (ai/tools/intelligence.ts::settleInvestigationTruth). A string is the
+ * nature candidate; `null` says the reading was due but none came back, so
+ * the nature already earned stands (else the honest "particulars pending"
+ * line); absent - a caller that reads no nature - the bought report text
+ * stands in, as it always did. Everything here is player-facing text only:
+ * the reading's truth stays in the GM ledger.
  */
 export function ingestInvestigationReveal(
   store: KnowledgeClaim[],
-  reveal: { targetId: string; kind: InvestigationKind; text: string; turn: number; items?: readonly string[] }
+  reveal: { targetId: string; kind: InvestigationKind; text: string; turn: number; items?: readonly string[]; natureReading?: string | null }
 ): KnowledgeClaim[] {
   // D28: buying intel on a plotting target earns a NATURE clue toward the
   // reveal (advancesNature) - it does not dump the whole scheme. The bought
@@ -695,7 +704,7 @@ export function ingestInvestigationReveal(
       turn: reveal.turn,
       source: 'spy',
       text: SCHEME_CLUE_LINE,
-      natureHint: reveal.text,
+      natureHint: reveal.natureReading === undefined ? reveal.text : (reveal.natureReading ?? undefined),
       advancesNature: true,
     });
   }

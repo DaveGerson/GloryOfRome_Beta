@@ -19,6 +19,7 @@ import {
 } from '../ai/tools/intelligence';
 import { endTurnCapture } from '../ai/core/geminiService';
 import { rollD20, createSeededRng } from '../ai/core/resolution';
+import { mockIntelSeed } from '../ai/mocks';
 import type { Entity } from '../types';
 import { makeEntity as baseMakeEntity } from './factories';
 
@@ -182,17 +183,28 @@ describe('ai/tools/intelligence.ts getInvestigationResult - resolution layer wir
     expect(String(call.config?.systemInstruction)).toContain('PARTIAL_SUCCESS');
   });
 
-  it('mock mode bypasses the resolution layer entirely (delegates straight to the mock function)', async () => {
+  // D47 (deliberate change): Mock Mode used to bypass the resolution layer
+  // entirely, so it never exercised the grounded path. It now runs the SAME
+  // rolls and ground-truth plan from a seed fixed by the target and the
+  // aspect (ai/mocks.ts::mockIntelSeed) - still no model call, still no
+  // Math.random - and hands back a trace and the findings' truth.
+  it('mock mode runs the grounded path from a deterministic seed - no model call, no Math.random', async () => {
     const randomSpy = vi.spyOn(Math, 'random');
     const { ai, generateContent } = makeMockAi({ reportData: [], report: 'unused', consequences: null });
+    const target = makeBaselineTarget({ secrets: ['Hides a debt to a Syrian banker.'] });
 
-    const result = await getInvestigationResult(ai, makeBaselineTarget(), makePlayer(), true, true, 'secrets');
+    const result = await getInvestigationResult(ai, target, makePlayer(), true, true, 'secrets');
+    const again = await getInvestigationResult(ai, target, makePlayer(), true, true, 'secrets');
 
     expect(generateContent).not.toHaveBeenCalled();
     expect(randomSpy).not.toHaveBeenCalled();
     expect(result.report).toBeTruthy();
-    // No roll happened, so there is no resolution trace (and no seed) to record.
-    expect(result.resolutionTrace).toBeUndefined();
+    expect(result.resolutionTrace?.seed).toBe(mockIntelSeed('target_1', 'secrets'));
+    expect(rollD20(createSeededRng(result.resolutionTrace!.seed!))).toBe(result.resolutionTrace!.roll);
+    expect(result.truth).toMatchObject({ kind: 'secrets', targetId: 'target_1', rolls: { seed: mockIntelSeed('target_1', 'secrets') } });
+    expect(result.truth!.findings.map(finding => finding.text)).toEqual(result.reportData);
+    // Deterministic: the same question about the same figure lands the same way.
+    expect(again).toEqual(result);
   });
 
   it('records a resolutionTrace carrying the investigation\'s own seed, and replaying the seed reproduces the recorded roll', async () => {

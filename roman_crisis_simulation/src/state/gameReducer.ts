@@ -294,9 +294,11 @@ export type GameAction =
    * ingestion of the revealed intel (D14/D21 - bought intel persists
    * instead of evaporating with the component) MUST land in a single
    * state transition - split across separate commits, whichever landed last
-   * would silently revert the others' fields in the autosave.
+   * would silently revert the others' fields in the autosave. `truthLedger`
+   * (D11/D47) carries the GM-private truth of every finding in the same
+   * transition; absent, the ledger is left as it stands.
    */
-  | { type: 'INVESTIGATION_COMMITTED'; entities: Entity[]; pendingIntelligenceFallout: string[]; knowledge: KnowledgeClaim[]; falloutMessage?: Message }
+  | { type: 'INVESTIGATION_COMMITTED'; entities: Entity[]; pendingIntelligenceFallout: string[]; knowledge: KnowledgeClaim[]; falloutMessage?: Message; truthLedger?: TruthLedgerEntry[] }
   /** GM-console operator authored (or cleared) the intervention text. */
   | { type: 'GM_INTERVENTION_SET'; text: string }
   /** DESIGN_DECISIONS.md D8 - a periodic ambition inference resolved. */
@@ -547,6 +549,7 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         entities: action.entities,
         pendingIntelligenceFallout: action.pendingIntelligenceFallout,
         knowledge: action.knowledge,
+        truthLedger: action.truthLedger ?? state.truthLedger,
         messages: action.falloutMessage ? [...state.messages, action.falloutMessage] : state.messages,
       };
 

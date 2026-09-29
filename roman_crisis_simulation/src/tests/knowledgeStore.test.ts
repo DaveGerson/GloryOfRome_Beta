@@ -650,7 +650,12 @@ describe('knowledge/store', () => {
     // (`"key":`), not bare substrings: prose like "he assumed the throne"
     // must never trip the guard, and every entry below is seeded onto the
     // polluted fixtures pre-ingestion so no entry can pass vacuously.
-    const FORBIDDEN_KEYS = ['is_true', 'origin_id', 'isTrue', 'originId', 'secret_truth', 'assumed'];
+    // D47 adds an investigation finding's truth to the same class: its
+    // standing, the ground truth behind it, its distortion and the rolls.
+    const FORBIDDEN_KEYS = [
+      'is_true', 'origin_id', 'isTrue', 'originId', 'secret_truth', 'assumed',
+      'investigation', 'standing', 'groundTruth', 'distortion', 'rolls', 'accuracy', 'fidelity',
+    ];
     const asJsonKey = (key: string) => `"${key}":`;
     const POLLUTION = {
       is_true: false,
@@ -659,6 +664,13 @@ describe('knowledge/store', () => {
       originId: 'maximinus_thrax',
       assumed: true,
       secret_truth: { actually_alive: true, hidden_since_turn: 2, motive: 'revenge' },
+      investigation: { kind: 'secrets', standing: 'false' },
+      standing: 'garbled',
+      groundTruth: 'He hides nothing of the kind.',
+      distortion: 'misattributed',
+      rolls: { seed: 1, tier: 'success', accuracyRoll: 3, accuracy: 'false', fidelityRoll: 9, fidelity: 'partial' },
+      accuracy: 'false',
+      fidelity: 'partial',
     };
 
     it('ingesting a Report polluted with every forbidden key (a lying rumor built by careless spreading) stores none of them', () => {
@@ -703,12 +715,24 @@ describe('knowledge/store', () => {
       }
 
       let store = ingestPerceivedChanges([], [pollutedChange], 2);
+      // A reveal built carelessly by spreading an investigation's truth
+      // alongside its account (D47) - the field-by-field copy must hold.
       store = ingestInvestigationReveal(store, {
+        ...POLLUTION,
         targetId: 'maximinus_thrax',
         kind: 'secrets',
         text: 'He hides a pact.',
         turn: 3,
-      });
+        items: ['He hides a pact with the Guard.'],
+      } as unknown as Parameters<typeof ingestInvestigationReveal>[1]);
+      store = ingestInvestigationReveal(store, {
+        ...POLLUTION,
+        targetId: 'maximinus_thrax',
+        kind: 'scheme',
+        text: 'A thread.',
+        turn: 4,
+        natureReading: 'The design, as the agents read it.',
+      } as unknown as Parameters<typeof ingestInvestigationReveal>[1]);
 
       const serialized = JSON.stringify(store);
       for (const key of FORBIDDEN_KEYS) {

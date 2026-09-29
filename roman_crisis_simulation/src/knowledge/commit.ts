@@ -100,6 +100,8 @@ export interface InvestigationKnowledgeInput {
   reportText: string;
   /** The itemised findings the player was shown with the report (beliefs/secrets) - player-facing too. */
   items?: readonly string[];
+  /** Scheme buys at the D28 reveal: the agents' reading of the design the clues add up to, or null when none came back (player-facing text; its truth stays in the GM ledger). See ingestInvestigationReveal. */
+  natureReading?: string | null;
   /** The App's authoritative turn counter at the moment of the reveal. */
   turnNumber: number;
   relationshipObservations?: RelationshipObservationsInput;
@@ -116,6 +118,7 @@ export function computeInvestigationKnowledge({
   kind,
   reportText,
   items,
+  natureReading,
   turnNumber, relationshipObservations,
 }: InvestigationKnowledgeInput): KnowledgeClaim[] {
   const next = ingestInvestigationReveal(prev, {
@@ -124,6 +127,7 @@ export function computeInvestigationKnowledge({
     text: reportText,
     turn: turnNumber,
     items,
+    ...(natureReading !== undefined ? { natureReading } : {}),
   });
   return relationshipObservations ? ingestRelationshipObservations(next, {
     ...relationshipObservations,

@@ -22,6 +22,7 @@
  *   INV-LEAK      the HEADLINE end-to-end asymmetry guard: no GM-private datum
  *                  (gm_private notes, rolls/seed, fate bands/tiers,
  *                  secret_truth/actually_alive/motive, rumor is_true/origin_id,
+ *                  an investigation finding's standing/ground truth (D47),
  *                  mind private_reasoning, a NON-player scheme's name/steps,
  *                  the mortality validator's reasoning) reaches ANY
  *                  player-facing surface: the narration/monologue PROMPTS and
@@ -47,11 +48,12 @@ import { vi, expect } from 'vitest';
 import type { GoogleGenAI } from '@google/genai';
 import { runNewTurn, TurnStage } from '../../ai/core/turn';
 import { endTurnCapture } from '../../ai/core/geminiService';
-import { getInvestigationResult } from '../../ai/tools/intelligence';
+import { getInvestigationResult, settleInvestigationTruth } from '../../ai/tools/intelligence';
 import { createSeededRng, rollD20 } from '../../ai/core/resolution';
+import { appendTruthLedgerEntries } from '../../ai/core/engine';
 import { buildPlayerPerceivedDigest, PerceivedChange } from '../../perception/visibility';
 import { computeTurnKnowledge, computeInvestigationKnowledge } from '../../knowledge/commit';
-import type { KnowledgeClaim, InvestigationKind } from '../../knowledge/store';
+import { deriveDossier, SCHEME_CLUES_TO_REVEAL, type KnowledgeClaim, type InvestigationKind } from '../../knowledge/store';
 import { saveGame, loadGame, clearSave as clearPersistedSave, SaveGameState } from '../../persistence/saveGame';
 import { normalizeTurnSubmissionInput, projectForExternalInference } from '../../playerInput/turnSubmission';
 import { getRelationshipObservations } from '../../ai/tools/relationshipObservations';
@@ -125,7 +127,8 @@ export type CallKind =
   | 'narration'
   | 'relationshipObservations'
   | 'ambition'
-  | 'investigation';
+  | 'investigation'
+  | 'schemeNature';
 
 const CALL_MARKERS: Array<[string, CallKind]> = [
   ['You portray exactly one NPC', 'privateScene'],
@@ -141,6 +144,7 @@ const CALL_MARKERS: Array<[string, CallKind]> = [
   ['Relationship Observation Selector', 'relationshipObservations'],
   ['Silent Observer of Ambition', 'ambition'],
   ['head of intelligence for', 'investigation'],
+  ['reading a design from its threads', 'schemeNature'],
 ];
 
 export function classifyCall(systemInstruction: unknown): CallKind {
@@ -579,6 +583,11 @@ function assertNoLeaks(outcome: {
     { label: 'rumor origin field', value: 'origin_id' },
     { label: 'mind private-reasoning field', value: 'private_reasoning' },
     { label: 'gm_private field serialized', value: '"gm_private"' },
+    // D47: an investigation finding's truth (its standing and the ground
+    // truth behind it) lives on the GM ledger only; the leverage block that
+    // carries it to the adjudicator is caught by the GM-SECRET marker above.
+    { label: 'finding standing field', value: '"standing"' },
+    { label: 'finding ground-truth field', value: '"groundTruth"' },
     // Roll mechanics as prose ("roll 13", "rolled 4").
     { label: 'roll mechanics', pattern: /\broll(?:ed)?\s+\d+\b/i },
   ];
@@ -950,6 +959,10 @@ export interface InvestigationRunResult {
   client: ScriptedClient;
   /** The player knowledge store after ingesting this reveal (mirrors App.tsx's handleInvestigationOutcome). */
   knowledge: KnowledgeClaim[];
+  /** D47: the GM-private ledger entries this reveal wrote - one per finding, plus the nature's at the D28 reveal. */
+  ledgerEntries: TruthLedgerEntry[];
+  /** D28/D47: the nature reading, when this buy reached the reveal. */
+  natureReading?: string | null;
 }
 
 /**
@@ -962,7 +975,11 @@ export interface InvestigationRunResult {
  * reveal (App.tsx's handleInvestigationOutcome: "const relationshipDrafts =
  * await getRelationshipObservations(ai, relationshipEvidence,
  * entityDirectory, knownEntityIds, isMockMode);"). The investigation always
- * rolls once from its own seed.
+ * rolls once from its own seed, then draws its D47 accuracy and fidelity
+ * rolls from the same generator; its findings' truth is settled onto the
+ * runner's truth ledger through the SAME settleInvestigationTruth the App's
+ * commit uses - and a scheme buy that reaches the D28 reveal makes the
+ * `schemeNature` call, so a journey crossing the reveal scripts `nature`.
  */
 export async function runScriptedInvestigation(
   runner: JourneyRunner,
@@ -973,24 +990,47 @@ export async function runScriptedInvestigation(
     roll: number;
     response: ScriptValue;
     observations?: ScriptValue | ScriptedJsonArray;
+    /** The scripted nature reading, for a scheme buy that reaches the D28 reveal. */
+    nature?: ScriptValue;
   }
 ): Promise<InvestigationRunResult> {
   const label = `${runner.name} :: investigation of ${opts.targetId} (${opts.subject})`;
   const client = new ScriptedClient({
     investigation: opts.response,
     relationshipObservations: opts.observations ?? scriptedJsonArray([]),
+    ...(opts.nature !== undefined ? { schemeNature: opts.nature } : {}),
   }, label);
   const seeded = installSeededRolls([opts.roll]);
   try {
+    const target = runner.entity(opts.targetId);
     const result = await getInvestigationResult(
       client.ai,
-      runner.entity(opts.targetId),
+      target,
       runner.player(),
       opts.isRisky ?? true,
       false,
       opts.subject
     );
     expect(result.resolutionTrace?.roll, `[${label}] investigation roll != scripted roll`).toBe(opts.roll);
+
+    // D47/D11: the findings' truth lands on the ledger, and a scheme buy
+    // reaching the reveal reads its nature from every clue on file.
+    const cluesHeld = deriveDossier(runner.thread.knowledge, opts.targetId).entries
+      .find(entry => entry.kind === 'scheme')?.schemeDiscovery?.clues ?? 0;
+    const settled = result.truth
+      ? await settleInvestigationTruth({
+        ai: client.ai,
+        isMockMode: false,
+        target,
+        player: runner.player(),
+        truth: result.truth,
+        ledger: runner.thread.truthLedger,
+        natureDue: opts.subject === 'scheme' && cluesHeld + 1 >= SCHEME_CLUES_TO_REVEAL,
+        turn: runner.thread.turnNumber,
+        stamp: Date.now(),
+      })
+      : { ledgerEntries: [] };
+    runner.thread.truthLedger = appendTruthLedgerEntries(runner.thread.truthLedger, settled.ledgerEntries);
 
     // The relationship-observation selector App.tsx ALWAYS runs after a
     // bought reveal, over the player-facing report text only.
@@ -1015,6 +1055,7 @@ export async function runScriptedInvestigation(
       targetId: opts.targetId,
       kind: opts.subject as InvestigationKind,
       reportText: result.report,
+      ...(settled.natureReading !== undefined ? { natureReading: settled.natureReading } : {}),
       turnNumber: runner.thread.turnNumber,
       relationshipObservations: { evidence: relationshipEvidence, drafts: relationshipDrafts, entities: entityDirectory, knownEntityIds },
     });
@@ -1028,6 +1069,8 @@ export async function runScriptedInvestigation(
       roll: result.resolutionTrace?.roll ?? -1,
       client,
       knowledge: nextKnowledge,
+      ledgerEntries: settled.ledgerEntries,
+      ...(settled.natureReading !== undefined ? { natureReading: settled.natureReading } : {}),
     };
   } finally {
     seeded.spy.mockRestore();

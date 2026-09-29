@@ -556,3 +556,151 @@ export function deriveInvestigationDifficulty(target: Entity): number {
     const raw = INVESTIGATION_BASE_DIFFICULTY + (paranoia - TRAIT_MODIFIER_CENTER) + (intrigueSkill - TRAIT_MODIFIER_CENTER);
     return clampDifficulty(raw);
 }
+
+// --- Investigation accuracy and fidelity (DESIGN_DECISIONS.md D47) -------
+//
+// D47: an investigation reaches for the target's real beliefs, secrets and
+// scheme, and two hidden rolls decide how RIGHT the agent's account is
+// (accuracy) and how MUCH of the truth it reached (fidelity). Both are d20
+// draws from the investigation's own seeded generator, made straight after
+// the operational tier roll (draw 1 tier, draw 2 accuracy, draw 3 fidelity),
+// so the one recorded seed replays all three (D4: none is ever shown).
+//
+// WHY THE TIER FEEDS BOTH INSTEAD OF BECOMING ONE OF THEM: the tier already
+// answers a third question - did the agent get in and out unseen - and owns
+// the code-enforced consequences contract (ai/tools/intelligence.ts) and the
+// agent's own confidence framing (ai/prompts/intelligence.ts). Made the
+// fidelity roll, it would chain "caught" to "learned little" and "clean" to
+// "learned much"; made the accuracy roll, it would chain "clean" to "true" -
+// yet D47's bad accuracy is precisely a story the target PLANTED, which a
+// clean operation can carry home without a whisper of trouble. So the tier
+// stays the operational roll and shifts both new rolls by
+// INVESTIGATION_TIER_SHIFT: a clean operation tends to reach more and to be
+// misled less, without deciding either, and an agent can be confident and
+// wrong (D26: the source may be wrong, the window may not).
+//
+// Both scores are  d20 + tier shift + investigator term - target term,  every
+// term on its documented scale (clampToScale / clampDifficulty) so an
+// off-scale model-authored value cannot pre-decide the band:
+//  - investigator term, both rolls: (intrigue - 5) / 2 on the 0-10 skill
+//    scale, -2.5..+2.5 - the same skill the tier roll weighs, here as skill
+//    at sifting what was brought back. An unknown skill reads as average
+//    (5), as deriveInvestigationDifficulty reads a target's.
+//  - accuracy's target term: (paranoia - 5) / 2 on the 1-10 trait scale,
+//    -2..+2.5 - a paranoid target lays false trails and keeps decoys.
+//  - fidelity's target term: (difficulty - 12) / 2 - how closely the target
+//    guards its affairs (deriveInvestigationDifficulty: paranoia plus its
+//    own intrigue), 0 at the baseline difficulty of 12.
+//
+// Bands, and what they come to for an average investigator against an
+// average target (both extra terms 0), by tier:
+//
+//   ACCURACY  score <= 6 false | 7-12 garbled | >= 13 true
+//     critical_failure  60% false  30% garbled  10% true
+//     failure           45%        30%          25%
+//     partial_success   30%        30%          40%
+//     success           15%        30%          55%
+//     critical_success   0%        30%          70%
+//
+//   FIDELITY  score <= 8 fragment | 9-14 partial | >= 15 fuller
+//     critical_failure  70% fragment  30% partial   0% fuller
+//     failure           55%           30%          15%
+//     partial_success   40%           30%          30%
+//     success           25%           30%          45%
+//     critical_success  10%           30%          60%
+//
+// Garbled keeps a flat 30% across the table on purpose: a half-true account
+// is the ordinary texture of intelligence work, not a failure state, and it
+// is the band that makes corroboration across several buys worth paying for.
+
+/** How right an investigation's account is - see the band table above. Mirrors types.ts's IntelAccuracy. */
+export type InvestigationAccuracy = 'true' | 'garbled' | 'false';
+/** How much of the truth an investigation reached - see the band table above. Mirrors types.ts's IntelFidelity. */
+export type InvestigationFidelity = 'fragment' | 'partial' | 'fuller';
+
+/** The tier's shift on both D47 rolls: a clean operation reaches more and is misled less (see the rationale above). */
+export const INVESTIGATION_TIER_SHIFT: Record<ActionResolutionTier, number> = {
+    critical_failure: -6,
+    failure: -3,
+    partial_success: 0,
+    success: 3,
+    critical_success: 6,
+};
+
+/** Accuracy bands on the D47 accuracy score (inclusive upper bounds). */
+export const INVESTIGATION_ACCURACY_BANDS = {
+    /** score <= this is a false account (a mistake, or a story the target planted). */
+    FALSE_MAX: 6,
+    /** score <= this (and > FALSE_MAX) is a garbled, half-true account; above it, the truth. */
+    GARBLED_MAX: 12,
+} as const;
+
+/** Fidelity bands on the D47 fidelity score (inclusive upper bounds). */
+export const INVESTIGATION_FIDELITY_BANDS = {
+    /** score <= this reaches only a fragment. */
+    FRAGMENT_MAX: 8,
+    /** score <= this (and > FRAGMENT_MAX) reaches part of it; above it, a fuller picture. */
+    PARTIAL_MAX: 14,
+} as const;
+
+/** The investigator's skill term shared by both D47 rolls: (intrigue - 5) / 2, an unknown skill read as average. */
+function investigatorTerm(intrigue: number | null | undefined): number {
+    const skill = clampToScale(intrigue ?? TRAIT_MODIFIER_CENTER, SKILL_SCALE);
+    return (skill - TRAIT_MODIFIER_CENTER) / 2;
+}
+
+export interface InvestigationAccuracyInput {
+    /** Already-rolled d20 (the investigation generator's second draw). Never shown to the player (D4). */
+    roll: number;
+    /** The investigation's operational tier (resolveAction's), which shifts the score by INVESTIGATION_TIER_SHIFT. */
+    tier: ActionResolutionTier;
+    /** The INVESTIGATOR's intrigue skill (0-10), or null/undefined when unknown (read as average). */
+    investigatorIntrigue: number | null | undefined;
+    /** The TARGET's paranoia (1-10), or undefined when it has no personality (read as average). */
+    targetParanoia: number | undefined;
+}
+
+export interface InvestigationAccuracyResolution {
+    roll: number;
+    score: number;
+    accuracy: InvestigationAccuracy;
+}
+
+/** Resolves the D47 accuracy roll into its band. Pure - see the band table above. */
+export function resolveInvestigationAccuracy(input: InvestigationAccuracyInput): InvestigationAccuracyResolution {
+    const { roll, tier, investigatorIntrigue, targetParanoia } = input;
+    assertValidRoll('resolveInvestigationAccuracy', roll);
+    const paranoia = clampToScale(targetParanoia ?? TRAIT_MODIFIER_CENTER, TRAIT_SCALE);
+    const score = roll + INVESTIGATION_TIER_SHIFT[tier] + investigatorTerm(investigatorIntrigue) - (paranoia - TRAIT_MODIFIER_CENTER) / 2;
+    const accuracy: InvestigationAccuracy = score <= INVESTIGATION_ACCURACY_BANDS.FALSE_MAX
+        ? 'false'
+        : score <= INVESTIGATION_ACCURACY_BANDS.GARBLED_MAX ? 'garbled' : 'true';
+    return { roll, score, accuracy };
+}
+
+export interface InvestigationFidelityInput {
+    /** Already-rolled d20 (the investigation generator's third draw). Never shown to the player (D4). */
+    roll: number;
+    tier: ActionResolutionTier;
+    investigatorIntrigue: number | null | undefined;
+    /** How closely the target guards its affairs - deriveInvestigationDifficulty's value (clamped to ACTION_DIFFICULTY_RANGE here). */
+    difficulty: number;
+}
+
+export interface InvestigationFidelityResolution {
+    roll: number;
+    score: number;
+    fidelity: InvestigationFidelity;
+}
+
+/** Resolves the D47 fidelity roll into its band. Pure - see the band table above. */
+export function resolveInvestigationFidelity(input: InvestigationFidelityInput): InvestigationFidelityResolution {
+    const { roll, tier, investigatorIntrigue, difficulty } = input;
+    assertValidRoll('resolveInvestigationFidelity', roll);
+    const guarded = (clampDifficulty(difficulty) - INVESTIGATION_BASE_DIFFICULTY) / 2;
+    const score = roll + INVESTIGATION_TIER_SHIFT[tier] + investigatorTerm(investigatorIntrigue) - guarded;
+    const fidelity: InvestigationFidelity = score <= INVESTIGATION_FIDELITY_BANDS.FRAGMENT_MAX
+        ? 'fragment'
+        : score <= INVESTIGATION_FIDELITY_BANDS.PARTIAL_MAX ? 'partial' : 'fuller';
+    return { roll, score, fidelity };
+}

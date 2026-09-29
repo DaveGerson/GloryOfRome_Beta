@@ -9,9 +9,17 @@ import {
     mockGetStoryRelevance,
     mockInitiateWorld,
     mockGenerateScenarioStructure,
-    mockGenerateEntitiesDetails
+    mockGenerateEntitiesDetails,
+    mockIntelSeed,
 } from '../ai/mocks';
+import { planInvestigation, type GroundTruthKind } from '../ai/core/groundTruth';
+import { createSeededRng } from '../ai/core/resolution';
+import type { Entity } from '../types';
 import { ALL_INITIAL_ENTITIES, INITIAL_WORLD_STATE, INITIAL_SIMULATION_STATE } from '../constants/baseScenario';
+
+/** A D47 plan for a mock intel call - the truth as reached, part of it, from the target's fixed mock seed. */
+const mockPlan = (target: Entity, kind: GroundTruthKind) =>
+    planInvestigation(target, kind, { accuracy: 'true', fidelity: 'partial' }, createSeededRng(mockIntelSeed(target.entity_id, kind)));
 
 /**
  * Runs a "smoke test" on application startup to validate that all mock functions
@@ -54,7 +62,7 @@ export const runSmokeTest = async () => {
             fn: () => {
                  const target = ALL_INITIAL_ENTITIES.find(e => e.entity_id === 'maximinus_thrax');
                  if (!target) throw new Error("Setup failed: Target 'maximinus_thrax' not found for getDeepAnalysis.");
-                 return mockGetDeepAnalysis(target);
+                 return mockGetDeepAnalysis(target, mockPlan(target, 'deep_analysis'));
             }
         },
         {
@@ -62,7 +70,7 @@ export const runSmokeTest = async () => {
             fn: () => {
                  const target = ALL_INITIAL_ENTITIES.find(e => e.entity_id === 'maximinus_thrax');
                  if (!target) throw new Error("Setup failed: Target 'maximinus_thrax' not found for getInvestigationResult.");
-                 return mockGetInvestigationResult(target, true, 'secrets');
+                 return mockGetInvestigationResult(target, true, 'secrets', mockPlan(target, 'secrets'));
             }
         },
         {
@@ -70,7 +78,7 @@ export const runSmokeTest = async () => {
             fn: () => {
                  const target = ALL_INITIAL_ENTITIES.find(e => e.entity_id === 'maximinus_thrax');
                  if (!target) throw new Error("Setup failed: Target 'maximinus_thrax' not found for getInvestigationResult.");
-                 return mockGetInvestigationResult(target, false, 'scheme');
+                 return mockGetInvestigationResult(target, false, 'scheme', mockPlan(target, 'scheme'));
             }
         },
         {

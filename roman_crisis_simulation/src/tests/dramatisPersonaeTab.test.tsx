@@ -478,7 +478,8 @@ describe('components/tabs/DramatisPersonaeTab - player-safe Personae', () => {
     });
 
     expect(onInvestigationOutcome).toHaveBeenCalledTimes(1);
-    expect(card.textContent).not.toContain('(Mock) Is secretly illiterate.');
+    // Nothing the mock agents brought back shows before the commit lands.
+    expect(card.textContent).not.toContain('(Mock)');
     expect(capturedRequest?.isCurrent()).toBe(true);
 
     await act(async () => root.unmount());

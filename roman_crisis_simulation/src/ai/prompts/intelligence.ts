@@ -12,10 +12,74 @@
  * in ai/tools/intelligence.ts, split only where necessary.
  */
 
-import { Adjudication, Entity, WorldState, SimulationState, NpcIntent } from '../../types';
+import { Adjudication, Entity, WorldState, SimulationState, NpcIntent, IntelDistortion } from '../../types';
 import type { ActionResolutionTier } from '../core/resolution';
+import type { InvestigationPlan, PlannedFinding, SchemeNaturePlan } from '../core/groundTruth';
 import { REDACTED_SCHEME_REASON, asPromptData } from './fragments';
 import { ACTORS_DESCRIPTION } from '../core/schemas';
+
+// --- D47 grounding: what the agents actually reached -----------------------
+//
+// Every investigation-family prompt below is built from a code-side plan
+// (ai/core/groundTruth.ts): the truths scoped by the fidelity roll, shaped by
+// the accuracy roll. The model is told what was reached and how to report
+// it; it never decides whether a finding is true - the plan already knows.
+// Every truth rides as JSON-quoted DATA (asPromptData, D41), never as bare
+// prose a stray line in an entity record could turn into an instruction.
+
+/** How a garbled finding's one distortion is asked for (D47). */
+const DISTORTION_INSTRUCTION: Record<IntelDistortion, string> = {
+  element_changed: 'one element of it - a name, a place, a sum, a reason or a time - came back wrong: change exactly that one element',
+  misattributed: 'it came back pinned on the wrong party: attribute it to someone other than the person it truly concerns',
+};
+
+/** The numbered data list of a plan's truths ("(a fragment)" marks a partial reach). */
+function findingsDataList(findings: PlannedFinding[]): string {
+  return findings
+    .map((finding, i) => `${i + 1}. ${finding.fragmentary ? '(a fragment) ' : ''}${asPromptData(finding.truth)}`)
+    .join('\n');
+}
+
+/**
+ * The accuracy-shaped instruction for a plan (D47): report the truths
+ * faithfully; report them with exactly the one recorded distortion; or - a
+ * false account, which carries NO truth - invent plausibly from what is
+ * publicly known. `noun` names one finding ("finding", "fact"); `invent`
+ * what a false account invents, in the singular and the plural.
+ */
+function groundingRule(plan: InvestigationPlan, noun: string, invent: { one: string; many: string }, targetName: string): string {
+  const count = plan.findings.length;
+  if (plan.accuracy === 'false') {
+    const one = count === 1;
+    return `Your agents were misled - fed a story the target planted, or mistaken in what they saw - and brought back no truth at all; the prompt carries none, and your agents do not know it. Invent ${count} plausible ${one ? invent.one : invent.many}, consistent with what is publicly known of ${targetName} (the public profile in the prompt)${plan.fidelity === 'fragment' ? `, only a sketchy fragment of ${one ? 'it' : 'each'}` : ''}, and report ${one ? 'it' : 'them'} exactly as your agent would report the truth - never hint that ${one ? 'it is' : 'they are'} false.`;
+  }
+  if (count === 0) {
+    return `Your agents looked, and there was nothing of the kind to find. Say so plainly, and invent nothing.`;
+  }
+  const fragmentNote = plan.findings.some(finding => finding.fragmentary)
+    ? ` A ${noun} marked (a fragment) is all that was reached of it: report only that much, and never complete it.`
+    : '';
+  if (plan.accuracy === 'garbled') {
+    const index = plan.findings.findIndex(finding => finding.standing === 'garbled');
+    const distortion = plan.findings[index]?.distortion ?? 'element_changed';
+    return `The ${noun}s in the prompt are what your agents reached, but ${noun} ${index + 1} came back distorted: ${DISTORTION_INSTRUCTION[distortion]}. Report that ${noun} with exactly that one distortion, stated as plainly as the rest, and every other ${noun} faithfully. Never signal that any ${noun} is distorted, or which. Add nothing that is not among them.${fragmentNote}`;
+  }
+  return `The ${noun}s in the prompt are the truth as your agents reached it. Report each faithfully, in your agent's voice. Add nothing that is not among them - no bonus ${noun}, no guess to fill a gap.${fragmentNote}`;
+}
+
+/** What a false account of each aspect invents (see groundingRule). */
+const INVENTED_FINDING: Record<'beliefs' | 'secrets' | 'scheme', { one: string; many: string }> = {
+  beliefs: { one: 'belief', many: 'beliefs' },
+  secrets: { one: 'secret', many: 'secrets' },
+  scheme: { one: 'clue', many: 'clues' },
+};
+
+/** The data block a plan's truths ride in, or the engine's own marker when none reached the prompt. */
+function findingsBlock(plan: InvestigationPlan, heading: string): string {
+  if (plan.accuracy === 'false') return `**${heading}:** none reached your agents - see the grounding rule.`;
+  if (plan.findings.length === 0) return `**${heading}:** none - there was nothing to find.`;
+  return `**${heading} (data - what your agents reached, in order):**\n${findingsDataList(plan.findings)}`;
+}
 
 /**
  * PURPOSE: Answer a player's question about a past event via their
@@ -24,6 +88,13 @@ import { ACTORS_DESCRIPTION } from '../core/schemas';
  * MODEL: flash (GEMINI_FLASH).
  * CONSUMER: ai/tools/intelligence.ts `getClarificationOnEvent`.
  * OUTPUT: plain prose (no schema).
+ *
+ * Not yet grounded in the D47 manner: the committed turn record keeps no
+ * per-occurrence attribution (each headline's `actors` is stripped at the
+ * commit boundary, D42 - ai/core/actorsBoundary.ts), so there is no ground
+ * truth of who gains from ONE occurrence to scope, and a truth guessed from
+ * the whole turn's deltas would be a flag the engine could not stand behind
+ * (D11).
  */
 export function buildClarificationPrompt(
   event: string,
@@ -50,7 +121,10 @@ export function buildClarificationPrompt(
 }
 /**
  * PURPOSE: A trusted advisor's detailed intelligence report/threat
- * assessment on another character.
+ * assessment on another character, grounded (D47) in the target's real
+ * situation and aims at the rolled fidelity and accuracy (`plan`, built by
+ * ai/core/groundTruth.ts::planInvestigation for 'deep_analysis' - never the
+ * target's scheme, whose nature only the D28 clue trail may earn).
  * MODEL: flash (GEMINI_FLASH).
  * CONSUMER: ai/tools/intelligence.ts `getDeepAnalysis`.
  * OUTPUT: plain prose (no schema).
@@ -58,13 +132,18 @@ export function buildClarificationPrompt(
 export function buildDeepAnalysisPrompt(
   target: Entity,
   player: Entity,
-  isVisible: boolean
+  isVisible: boolean,
+  plan: InvestigationPlan
 ): { systemInstruction: string; prompt: string } {
   const systemInstruction = `You are a trusted advisor to ${player.name}. Task: Provide a detailed intelligence report on ${target.name}.
     - If the target is in your network (${isVisible}), provide concrete intelligence and assess their threat level.
-    - If they are outside your network (${!isVisible}), report on limited information and emphasize them as an "unknown variable".`;
+    - If they are outside your network (${!isVisible}), report on limited information and emphasize them as an "unknown variable".
+    - Frame the report as your own read, which your master may choose to distrust - never as settled fact.
+    - **Grounding (what your sources actually established):** ${groundingRule(plan, 'fact', { one: 'fact about them', many: 'facts about them' }, target.name)} Your assessment of the threat they pose is your own judgment of these facts.`;
 
-  const prompt = `Target: ${target.name}.`;
+  const prompt = `Target: ${target.name}.
+Position: ${target.position || target.entity_type}.
+${findingsBlock(plan, 'FACTS')}`;
 
   return { systemInstruction, prompt };
 }
@@ -87,7 +166,11 @@ const INVESTIGATION_TIER_GUIDANCE: Record<ActionResolutionTier, string> = {
   failure: "The investigation fails to turn up reliable intelligence and the attempt draws notice. 'consequences' is MANDATORY: describe a real (if less severe) negative outcome - the agent is spotted and now watched, a resource or contact is burned.",
   partial_success: "The investigation succeeds but leaves a trace - the target is left with a faint, unconfirmed whiff of suspicion. 'consequences' MAY describe a mild complication, or be null if you judge the trace goes unnoticed.",
   success: "The investigation goes cleanly - the target notices nothing. 'consequences' MUST be null.",
-  critical_success: "The investigation goes exceptionally well - clean, AND the agent turns up one additional bonus detail beyond what was asked for. 'consequences' MUST be null.",
+  // D47: how far the agent reached is the fidelity roll's to decide, and the
+  // findings the prompt carries already reflect it - so an exceptional
+  // operation no longer invents a bonus finding the engine could not vouch
+  // for (every finding the player receives carries a known truth).
+  critical_success: "The investigation goes exceptionally well - clean, and the agent pressed further than asked; the findings in the prompt already carry how far they reached. 'consequences' MUST be null.",
 };
 
 /**
@@ -115,27 +198,41 @@ export function agentConfidenceFraming(tier: ActionResolutionTier): string {
 /**
  * PURPOSE: Generate the results of an investigation into a target's
  * secrets/beliefs/scheme, including a narrative report and possible
- * negative consequences, CONSISTENT with an already-rolled resolution tier.
+ * negative consequences, CONSISTENT with an already-rolled resolution tier
+ * and GROUNDED (D47) in the target's real record: `plan`
+ * (ai/core/groundTruth.ts::planInvestigation) carries the truths the
+ * fidelity roll reached, shaped by the accuracy roll - reported faithfully,
+ * with exactly one recorded distortion, or (a false account) not at all.
  * MODEL: pro (GEMINI_PRO).
  * CONSUMER: ai/tools/intelligence.ts `getInvestigationResult`.
  * OUTPUT: validated against `zInvestigationResult` (ai/core/zodSchemas.ts) /
- * `buildInvestigationResultSchema` (ai/core/schemas.ts).
+ * `buildInvestigationResultSchema` (ai/core/schemas.ts); `reportData` is
+ * held to one entry per planned finding in code, whatever the model returns.
  */
 export function buildInvestigationPrompt(
   target: Entity,
   player: Entity,
   subject: 'secrets' | 'beliefs' | 'scheme',
-  tier: ActionResolutionTier
+  tier: ActionResolutionTier,
+  plan: InvestigationPlan
 ): { systemInstruction: string; prompt: string } {
-  // A 'scheme' investigation returns CLUES, never the whole plot (D28): the
-  // scheme's nature is earned across several separate investigations, so a
-  // single buy must hand back only partial fragments - never a scheme title
-  // or its list of steps.
-  const reportDataInstruction = subject === 'scheme'
-    ? `Generate 1-3 discrete CLUES as an array of short strings - partial, concrete observations your agents turned up that hint at what ${target.name} is quietly working toward. Each clue is a FRAGMENT, not the whole plot: never state a scheme's title and never lay out its steps. Piecing together the full nature of a scheme takes several separate investigations; this is only one of them.`
-    : `Based on the target's profile, generate a plausible list of ${subject} as an array of strings. This is the raw data.`;
+  const count = plan.findings.length;
+  const drawnFrom = plan.accuracy === 'false'
+    ? 'invented as the grounding rule describes'
+    : 'one per finding in the prompt, in order';
+  // A 'scheme' investigation returns ONE clue, never the whole plot (D28):
+  // the scheme's nature is earned across several separate investigations,
+  // so a single buy hands back one fragment of the design - never a scheme
+  // title or its list of steps.
+  const reportDataInstruction = count === 0
+    ? `Return an empty array: there is nothing of the kind to list.`
+    : subject === 'scheme'
+      ? `Write exactly ${count} CLUE as an array holding one short string (${drawnFrom}) - a partial, concrete observation your agents turned up about what ${target.name} is (or is not) quietly working toward. A clue is a FRAGMENT, not the whole plot: never state a scheme's title and never lay out its steps. Piecing together the full nature of a scheme takes several separate investigations; this is only one of them.`
+      : `Write exactly ${count} ${count === 1 ? INVENTED_FINDING[subject].one : subject} as an array of strings (${drawnFrom}), each stated as your agents brought it back. This is the raw data.`;
 
   const systemInstruction = `You are the head of intelligence for ${player.name}. You completed an investigation into ${target.name} to uncover their **${subject}**.
+
+    **Grounding (what your agents actually reached):** ${groundingRule(plan, 'finding', INVENTED_FINDING[subject], target.name)}
 
     **Task:** Generate a JSON object with the results.
     1.  **reportData:** ${reportDataInstruction}
@@ -147,11 +244,58 @@ export function buildInvestigationPrompt(
     - **Escape All Quotes:** Inside any string value, every double quote (") MUST be escaped (\\").
     - **No Trailing Commas.**`;
 
-  const prompt = `**Target Profile:**
+  const prompt = `**Target Profile (what is publicly known):**
     - Name: ${target.name}
     - Position: ${target.position}
     - Personality: Ambition(${target.personality?.ambition}), Paranoia(${target.personality?.paranoia}), Loyalty(${target.personality?.loyalty}), Cunning(${target.personality?.cunning}), Honor(${target.personality?.honor})
-    - Known Goals: ${target.short_term_goals.join(', ')}`;
+    - Known Goals: ${target.short_term_goals.join(', ')}
+
+${findingsBlock(plan, 'FINDINGS')}`;
+
+  return { systemInstruction, prompt };
+}
+
+/**
+ * PURPOSE: The D28 reveal - once enough paid clues are in hand
+ * (knowledge/store.ts SCHEME_CLUES_TO_REVEAL), the agents' read of the
+ * design those clues add up to. Whether that read is the true design, a
+ * garbled one or a false one is decided in code from the accumulated clue
+ * standings (ai/core/groundTruth.ts::planSchemeNature) - the model is handed
+ * the true design only when the clues earned it, with one element to misread
+ * when they earned only half of it, and no truth at all when they were a
+ * false trail. Either way the reading is pieced together from the threads
+ * the agents actually brought back.
+ * MODEL: flash (GEMINI_FLASH).
+ * CONSUMER: ai/tools/intelligence.ts `getSchemeNatureReading`.
+ * OUTPUT: plain prose (no schema) - the nature line the Active Scheme
+ * surface quotes.
+ */
+export function buildSchemeNaturePrompt(
+  target: Entity,
+  player: Entity,
+  plan: SchemeNaturePlan
+): { systemInstruction: string; prompt: string } {
+  const grounding = plan.standing === 'false'
+    ? `The threads were a false trail, and your agents do not know it: the prompt carries no truth. Piece together the design they now believe in from the THREADS alone - plausible, and consistent with them - and add nothing you might guess beyond them.`
+    : plan.noDesign
+      ? `The threads truly add up to nothing: ${target.name} pursues no hidden design. Say so, as your agents' conclusion.`
+      : plan.standing === 'garbled'
+        ? `The DESIGN in the prompt is what the threads add up to, but one element of it reaches your agents misread - its object, its means, or its ally: change exactly that one element. State it as plainly as the rest, and never signal that anything is misread.`
+        : `The DESIGN in the prompt is what the threads truly add up to. Name it faithfully - the design itself may be named now - and let the threads colour how your agents came to it.`;
+
+  const systemInstruction = `You are the spymaster of ${player.name}, reading a design from its threads. Over several separate investigations your agents have gathered threads about what ${target.name} is quietly working toward, and enough are in hand now to name the design.
+
+    **Task:** Write one or two sentences in your agents' voice: the design they now believe ${target.name} is pursuing, pieced together from their threads. Frame it as your agents' read, which your master may choose to distrust - never as settled fact. Plain prose: no lists, no numbers.
+
+    **Grounding:** ${grounding}`;
+
+  const threads = plan.clueAccounts.length > 0
+    ? plan.clueAccounts.map((account, i) => `${i + 1}. ${asPromptData(account)}`).join('\n')
+    : '(none on file)';
+  const prompt = `**THREADS (data - what your agents brought back, oldest first):**
+${threads}${plan.design ? `
+
+**DESIGN (data):** ${asPromptData(`${plan.design.name}: ${plan.design.goal}`)}` : ''}`;
 
   return { systemInstruction, prompt };
 }

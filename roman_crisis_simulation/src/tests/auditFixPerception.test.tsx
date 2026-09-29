@@ -21,6 +21,7 @@ import { computeDeepAnalysisKnowledge, computeInvestigationKnowledge, computeTur
 import { corroboration } from '../knowledge/credibilityFraming';
 import { isEntityKnownToPlayer, validateRelationshipObservationDrafts } from '../knowledge/relationships';
 import { getRelationshipObservations } from '../ai/tools/relationshipObservations';
+import { getInvestigationResult } from '../ai/tools/intelligence';
 import { tabChangeCountsFor, usePlayerPerception } from '../hooks/usePlayerPerception';
 import { withOldSnapshotsDropped, KEEP_FULL_SNAPSHOTS } from '../state/gameReducer';
 import { useIntelCommits, type IntelCommitsDeps } from '../hooks/useIntelCommits';
@@ -53,6 +54,14 @@ const world: WorldState = makeWorldState({
 const player = makeEntity({ entity_id: 'player', name: 'Severus Alexander', location: 'Palatine Hill', resources: { denarii: 100, investigations: 3, deep_analyses: 2 } });
 const marcus = makeEntity({ entity_id: 'marcus', name: 'Marcus Aquila', location: 'Palatine Hill', position: 'Tribune' });
 const gaius = makeEntity({ entity_id: 'gaius', name: 'Gaius Pontius', location: 'The Suburra' });
+/**
+ * The first itemised belief the offline mock brings back on Marcus. Since
+ * D47 the mock runs the grounded path from a seed fixed by the target and
+ * the aspect (ai/mocks.ts::mockIntelSeed), so the reading is derived here
+ * rather than pinned - the tests below are about where it lands, not what
+ * it says.
+ */
+const marcusBelief = async () => (await getInvestigationResult({} as GoogleGenAI, marcus, player, true, true, 'beliefs')).reportData[0];
 
 const status = (key: string, extra: Partial<EventDelta> = {}): EventDelta => ({ type: 'status', key, delta: 0, reason: 'Narrative only.', ...extra });
 const moved = (entity: Entity, location: string): Entity => ({ ...entity, location });
@@ -389,6 +398,7 @@ describe('paid intel commits', () => {
       entities: [player, marcus, livia],
       playerCharacterId: 'player',
       knowledge: [],
+      truthLedger: [],
       pendingIntelligenceFallout: [],
       messages: [],
       turnNumber: 4,
@@ -492,14 +502,14 @@ describe('paid intel survives a tab switch (knowledge-paid-intel-evaporates)', (
     await act(async () => button(sectionTitled('Beliefs'), 'Reveal').click());
     await settle();
     expect(container.textContent).toContain('(Mock Analysis)');
-    expect(container.textContent).toContain('Believes the army is the only true power in Rome.');
+    expect(container.textContent).toContain(await marcusBelief());
 
     // A tab switch unmounts the card; remount it over the committed store.
     await remount(<PersonaeHarness initial={latest} entities={[player, marcus]} />);
     await act(async () => button(container, 'Intel').click());
     expect(container.textContent).toContain('(Mock Analysis)');
     expect(container.textContent).not.toContain('No deep analysis commissioned');
-    expect(container.textContent).toContain('Believes the army is the only true power in Rome.');
+    expect(container.textContent).toContain(await marcusBelief());
     expect(container.textContent).toContain('As of Turn IV');
   });
 });
@@ -524,7 +534,7 @@ describe('focus stays with the intel the player just bought', () => {
 
     await act(async () => { release(); });
     await settle();
-    expect(document.activeElement?.textContent).toContain('Believes the army is the only true power in Rome.');
+    expect(document.activeElement?.textContent).toContain(await marcusBelief());
   });
 
   it('moves focus to an occurrence finding once it comes back', async () => {
@@ -551,13 +561,13 @@ describe('focus stays with the intel the player just bought', () => {
     await act(async () => intel.click());
     await act(async () => button(sectionTitled('Beliefs'), 'Reveal').click());
     await settle();
-    expect(document.activeElement?.textContent).toContain('Believes the army is the only true power in Rome.');
+    expect(document.activeElement?.textContent).toContain(await marcusBelief());
 
     intel.focus();
     await act(async () => intel.click());
     expect(intel.textContent).toBe('Intel');
     await act(async () => intel.click());
-    expect(container.textContent).toContain('Believes the army is the only true power in Rome.');
+    expect(container.textContent).toContain(await marcusBelief());
     expect(document.activeElement).toBe(intel);
 
     // The next purchase still moves focus to what it bought.
@@ -579,7 +589,7 @@ describe('focus stays with the intel the player just bought', () => {
     await act(async () => { release(); });
     await settle();
     await act(async () => intel.click());
-    expect(container.textContent).toContain('Believes the army is the only true power in Rome.');
+    expect(container.textContent).toContain(await marcusBelief());
     expect(document.activeElement).toBe(intel);
   });
 

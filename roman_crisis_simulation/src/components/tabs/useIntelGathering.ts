@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Entity, InvestigationResult } from '../../types';
+import { Entity, InvestigationResult, InvestigationTruth } from '../../types';
 import { GoogleGenAI } from '@google/genai';
 import { KnowledgeClaim } from '../../knowledge/store';
 import { resolveIntelRequest } from './dramatisPersonaeIntel';
@@ -15,8 +15,14 @@ export type IntelGatheringInput = {
   isMockMode: boolean;
   interactionLocked?: boolean;
   runDomainMutation: RunDomainMutation;
-  /** Commits the deep_analyses spend AND the assessment in one pass (hooks/useIntelCommits.ts). */
-  onSpendDeepAnalysis: (targetId: string, cost: number, analysis: string, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
+  /**
+   * Commits the deep_analyses spend AND the assessment in one pass
+   * (hooks/useIntelCommits.ts). `truth` is the assessment's GM-private truth
+   * (D11/D47), forwarded untouched for the truth ledger - this hook never
+   * reads or renders it.
+   */
+  onSpendDeepAnalysis: (targetId: string, cost: number, analysis: string, request: DomainMutationContext, truth?: InvestigationTruth) => boolean | void | Promise<boolean | void>;
+  /** One atomic commit per reveal; `truth` as for onSpendDeepAnalysis - forwarded, never read here. */
   onInvestigationOutcome: (
     kind: 'beliefs' | 'scheme' | 'secrets',
     targetId: string,
@@ -24,6 +30,7 @@ export type IntelGatheringInput = {
     cost: number,
     result: InvestigationResult,
     request: DomainMutationContext,
+    truth?: InvestigationTruth,
   ) => boolean | void | Promise<boolean | void>;
 };
 
@@ -99,13 +106,13 @@ export function useIntelGathering({
           const outcome = await resolveIntelRequest({ type, target: entity, playerEntity, knowledge, ai, isMockMode });
           if (outcome.kind === 'deep_analysis') {
             if (outcome.charged) {
-              const committed = await onSpendDeepAnalysis(entity.entity_id, outcome.cost, outcome.analysis, request);
+              const committed = await onSpendDeepAnalysis(entity.entity_id, outcome.cost, outcome.analysis, request, outcome.truth);
               if (request.isCurrent() && committed !== false) land('deep_analysis');
             }
             return;
           }
           if (outcome.charged) {
-            const committed = await onInvestigationOutcome(outcome.investigationKind, entity.entity_id, outcome.reportData, outcome.cost, outcome.outcome, request);
+            const committed = await onInvestigationOutcome(outcome.investigationKind, entity.entity_id, outcome.reportData, outcome.cost, outcome.outcome, request, outcome.truth);
             if (request.isCurrent() && committed !== false) land(outcome.investigationKind);
           }
         } finally {

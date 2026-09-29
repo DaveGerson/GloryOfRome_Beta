@@ -13,6 +13,7 @@
  */
 
 import { Entity, WorldState, SimulationState, StoryRelevance, NpcIntent, NpcMindDecision } from '../../types';
+import type { LeverageTruth } from '../core/groundTruth';
 
 /**
  * The opaque stand-in that REPLACES a 'scheme' delta's `reason` before that
@@ -273,5 +274,36 @@ export function buildSecretSurvivorsBlock(allNpcEntities: Entity[]): string {
 GM-SECRET: SECRETLY SURVIVING ENTITIES (never reveal this to the player - for your plotting only):
 The world (and the player) believe these entities are dead. They are NOT - they are alive and hiding. You MAY dramatically reintroduce any of them (e.g. as a returning nemesis) when narratively opportune, by emitting a 'status' delta with new_status:'alive' for them. Until you choose to do so, they remain publicly dead and MUST NOT appear, act, or be referenced as alive in any headline, delta reason, or entity action.
 ${survivors.map(e => `- ${e.name} (${e.entity_id}), hidden since turn ${e.secret_truth!.hidden_since_turn}. Motive: ${e.secret_truth!.motive}`).join('\n')}
+`;
+}
+
+/** How each standing of a piece of leverage reads in the GM-private block below. */
+const LEVERAGE_STANDING_LINE: Record<LeverageTruth['standing'], (groundTruth: string | undefined) => string> = {
+  true: () => 'TRUE - it rests on the truth.',
+  garbled: groundTruth => `GARBLED - half-true: the truth is ${groundTruth === undefined ? '(not recorded)' : asPromptData(groundTruth)}.`,
+  false: () => 'FALSE - nothing of the kind is true; it rests on a mistaken or planted account.',
+};
+
+/**
+ * GM-PRIVATE block (DESIGN_DECISIONS.md D11/D47): the truth behind each piece
+ * of blackmail the player filed from a bought secret
+ * (ai/core/groundTruth.ts::deriveLeverageTruth). An agent's garbled or false
+ * finding is filed as leverage exactly like a true one - the player cannot
+ * tell them apart, and must not be told - so the adjudicator is the one who
+ * knows which lever will hold. Leverage with no recorded truth (filed before
+ * D47, or created by the adjudicator itself) is not listed and is ruled on as
+ * before. Returns '' when there is nothing to list, so every call site
+ * without leverage sees the prompt exactly as before.
+ *
+ * CRITICAL: like the secret-survivors block above, this must NEVER reach a
+ * player-facing prompt - only the adjudication prompt carries it.
+ */
+export function buildLeverageTruthBlock(leverage: LeverageTruth[] | undefined, entities: Entity[]): string {
+  if (!leverage || leverage.length === 0) return '';
+  const nameOf = (id: string) => entities.find(e => e.entity_id === id)?.name ?? id;
+  return `
+GM-SECRET: THE PLAYER'S LEVERAGE, AS IT TRULY STANDS (never reveal this to the player - for your adjudication only):
+The player holds this blackmail material, filed from their own agents' reports, and believes all of it. Leverage resting on the truth bites as leverage should. Leverage resting on a garbled or false account is NOT solid ground: if the player presses it, the target may deny it with conviction, call the bluff, or turn the accusation back on the player - adjudicate the attempt against what is TRUE, never against what the player believes. A PLAYER ACTION OUTCOME tier, when present, still decides whether the attempt succeeds (a false lever may still land as a bluff the target dare not test), but it never makes the claim true; on a failure tier this is the natural way the attempt backfires. Never state in 'headlines', any delta's 'reason', or anything else player-facing that a piece of leverage is false or garbled - let the world's response carry it.
+${leverage.map(l => `- On ${nameOf(l.targetId)} (${l.targetId}): ${asPromptData(l.item)} - ${LEVERAGE_STANDING_LINE[l.standing](l.groundTruth)}`).join('\n')}
 `;
 }
