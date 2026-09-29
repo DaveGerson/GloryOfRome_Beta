@@ -537,6 +537,41 @@ describe('state-newer-save-hidden-then-overwritten: a reign this build cannot re
     expect(anchorDownloads).toEqual(['gor-reign-week0.json']);
     expect(await readBlobText(createdObjectUrlBlobs[0])).toBe('{not a reign');
   });
+
+  it('a stale tab: Continue over a slot a newer build has since rewritten shows the unreadable reign and keeps the gate', async () => {
+    saveGame(makeAppSave({ turnNumber: 7 }));
+    const container = await mountApp();
+    expect(findButton(container, 'Continue Your Reign')).not.toBeNull();
+
+    // Another tab, on a newer build, writes its save after this screen mounted.
+    const newer = JSON.stringify({ version: 2, savedAt: '2026-09-01T00:00:00.000Z', state: makeAppSave({ turnNumber: 30 }) });
+    localStorage.setItem(SAVE_KEY, newer);
+    await click(buttonNamed(container, 'Continue Your Reign'));
+
+    expect(container.querySelector('[aria-label="Chat input"]')).toBeNull();
+    expect(findButton(container, 'Continue Your Reign')).toBeNull();
+    expect(container.textContent).toContain('The saved reign cannot be read');
+    expect(findButton(container, 'Take a copy of the reign')).not.toBeNull();
+
+    await click(buttonContaining(container, 'The Young Emperor'));
+    expect(container.textContent).toContain('Abandon your saved reign?');
+    expect(localStorage.getItem(SAVE_KEY)).toBe(newer);
+    await click(buttonNamed(container, 'Keep my reign'));
+    expect(localStorage.getItem(SAVE_KEY)).toBe(newer);
+  });
+
+  it('a stale tab: Continue over a slot another tab has emptied drops the reign card, and a destiny asks nothing', async () => {
+    saveGame(makeAppSave({ turnNumber: 7 }));
+    const container = await mountApp();
+    localStorage.removeItem(SAVE_KEY);
+    await click(buttonNamed(container, 'Continue Your Reign'));
+
+    expect(findButton(container, 'Continue Your Reign')).toBeNull();
+    expect(container.textContent).not.toContain('The saved reign cannot be read');
+    await click(buttonContaining(container, 'The Young Emperor'));
+    await waitFor(() => expect(container.querySelector('[aria-label="Chat input"]')).not.toBeNull());
+    expect(container.textContent).not.toContain('Abandon your saved reign?');
+  });
 });
 
 describe('state-active-event-lost-on-reload: a fate awaiting its choice survives a reload', () => {

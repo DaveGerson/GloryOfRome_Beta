@@ -171,7 +171,11 @@ export function useCampaignLifecycle(deps: CampaignLifecycleDeps) {
     const handleContinue = useCallback(() => {
         const save = loadGame();
         if (!save) {
-            setSavedGameInfo(null);
+            // Re-read, never assume "no reign": another tab may have written
+            // a newer build's save (or damaged the slot) since this screen
+            // mounted. A refused reign keeps its card, its copy and the
+            // Abandon gate; only an emptied slot drops the card.
+            setSavedGameInfo(loadSavedGameSummary());
             return;
         }
         // Per-campaign-session log (see handleSelectCharacter): the loaded
