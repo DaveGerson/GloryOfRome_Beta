@@ -143,7 +143,7 @@ describe('journey: structured player input through the real App transaction', ()
 
     try {
       await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Chat input'), expectedChat);
-      await appClick(appButton(app.container, 'Send message'));
+      await appClick(appButton(app.container, 'Speak'));
       await waitForApp(() => expect(loadThreadState().turnNumber).toBe(3));
       chatClient.expectCallSequence([
         'storyRelevance', 'assessment', 'adjudication', 'simulationState',
@@ -170,19 +170,19 @@ describe('journey: structured player input through the real App transaction', ()
       expect(visibleOptions).not.toContain('Lycinia Stolo');
 
       await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Action 1'), 'Address the Senate in open session.');
-      await appClick(appButton(app.container, 'Add action row'));
+      await appClick(appButton(app.container, 'A further order'));
       await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Action 2'), 'Inspect the Praetorian watch roster.');
       const juliaValue = Array.from(recipient.options).find(option => option.textContent === 'Julia Mamaea')!.value;
       await appSetValue(recipient, juliaValue);
       await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Message or order 1'), 'Meet me in the library at dusk.');
-      await appClick(appButton(app.container, 'Add message or order row'));
+      await appClick(appButton(app.container, 'Another letter'));
       const secondRecipient = appControl<HTMLSelectElement>(app.container, 'Recipient 2');
       const customValue = Array.from(secondRecipient.options).find(option => option.textContent?.startsWith('Someone else'))!.value;
       await appSetValue(secondRecipient, customValue);
       await appSetValue(appControl<HTMLInputElement>(app.container, 'Custom recipient 2'), 'The captain at the eastern gate');
       await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Message or order 2'), 'Double the watch without public alarm.');
-      await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Private Intent'), privateIntent);
-      await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Question / Context'), question);
+      await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'What you intend'), privateIntent);
+      await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'What you ask'), question);
 
       // Drafts are separate only within this mounted session. Refresh/reload
       // deliberately does not persist either draft (the settled MVP contract).
@@ -190,7 +190,7 @@ describe('journey: structured player input through the real App transaction', ()
       expect(appControl<HTMLTextAreaElement>(app.container, 'Chat input').value).toBe(unsentChatDraft);
       await appClick(appButton(app.container, 'Structured'));
       expect(appControl<HTMLTextAreaElement>(app.container, 'Action 1').value).toBe('Address the Senate in open session.');
-      expect(appControl<HTMLTextAreaElement>(app.container, 'Private Intent').value).toBe(privateIntent);
+      expect(appControl<HTMLTextAreaElement>(app.container, 'What you intend').value).toBe(privateIntent);
 
       // Fail at the final provider call, after the whole real turn pipeline ran.
       const failed = clientForTurn(seed, 3, 'structuredInput/failure', {
@@ -198,13 +198,13 @@ describe('journey: structured player input through the real App transaction', ()
       });
       installAppGeminiScript(failed);
       const expectedConsole = vi.spyOn(console, 'error').mockImplementation(() => {});
-      await appClick(appButton(app.container, 'Submit turn'));
+      await appClick(appButton(app.container, 'Seal & send'));
       await waitForApp(() => expect(app.container.textContent).toMatch(/your draft is kept/i));
       expectedConsole.mockRestore();
       expect(loadThreadState().turnNumber).toBe(3);
       expect(loadThreadState().turnHistory).toHaveLength(1);
       expect(appControl<HTMLTextAreaElement>(app.container, 'Action 1').value).toBe('Address the Senate in open session.');
-      expect(appControl<HTMLTextAreaElement>(app.container, 'Private Intent').value).toBe(privateIntent);
+      expect(appControl<HTMLTextAreaElement>(app.container, 'What you intend').value).toBe(privateIntent);
       failed.expectCallSequence([
         'storyRelevance', 'assessment', 'npcMind', 'adjudication', 'simulationState',
         'monologue', 'narration', 'relationshipObservations',
@@ -376,9 +376,9 @@ describe('journey: structured player input through the real App transaction', ()
     const app = await mountJourneyApp(buildSaveStateFromThread(seed.thread));
     try {
       await appClick(appButton(app.container, 'Structured'));
-      await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Question / Context'), question);
+      await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'What you ask'), question);
       const expectedConsole = vi.spyOn(console, 'error').mockImplementation(() => {});
-      await appClick(appButton(app.container, 'Submit turn'));
+      await appClick(appButton(app.container, 'Seal & send'));
       await waitForApp(() => expect(app.container.textContent).toMatch(/your draft is kept/i));
       expectedConsole.mockRestore();
 
@@ -489,8 +489,8 @@ describe('journey: structured player input through the real App transaction', ()
         includeAmbition: true,
       });
       installAppGeminiScript(privateClient);
-      await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Private Intent'), privateIntent);
-      await appClick(appButton(app.container, 'Submit turn'));
+      await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'What you intend'), privateIntent);
+      await appClick(appButton(app.container, 'Seal & send'));
       await waitForApp(() => expect(loadThreadState().turnNumber).toBe(4));
       await waitForApp(() => expect(privateClient.calls.some(call => call.kind === 'ambition')).toBe(true));
 
@@ -520,9 +520,9 @@ describe('journey: structured player input through the real App transaction', ()
       });
       installAppGeminiScript(mixedClient);
       await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Action 1'), mixedAction);
-      await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Question / Context'), mixedQuestion);
-      await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Private Intent'), mixedPrivateIntent);
-      await appClick(appButton(app.container, 'Submit turn'));
+      await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'What you ask'), mixedQuestion);
+      await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'What you intend'), mixedPrivateIntent);
+      await appClick(appButton(app.container, 'Seal & send'));
       await waitForApp(() => expect(loadThreadState().turnNumber).toBe(5));
 
       const afterMixed = loadThreadState();

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { TurnStage } from '../ai/core/turn';
 import type { KnownRecipientOption, StructuredTurnDraft } from '../types';
 import { appendSuggestedAction, canonicalArtifactStatus } from '../playerInput/composerState';
@@ -33,6 +33,12 @@ export interface TurnComposerProps {
   canReachTheFates?: boolean;
   /** Item 49: while the roads are shut, Speak says so instead of failing. */
   online?: boolean;
+  /**
+   * A private scene still open, which is what holds the tablet (its dialog
+   * closed, or the game reloaded mid-scene). The tablet says so and names
+   * the way back, instead of the generic "Awaiting the Senate's judgment".
+   */
+  openScene?: { npcName: string; awaitingLastWord: boolean } | null;
   onOpenSettings?(): void;
   onEnableMockMode?(): void;
   onChatDraftChange(value: string): void;
@@ -49,6 +55,10 @@ export interface TurnComposerProps {
 /** Player-visible copy (veto queue: roadmaps/BACKLOG.md, "Reading, motion and the command palette"). */
 export const TURN_COMPOSER_COPY = {
   counsel: 'Counsel',
+  /** The tablet held by an open private scene: the line above it, and its placeholder. */
+  sceneOpen: (npc: string) => `Your private scene with ${npc} is still open. Return to it through Private scene; the week waits until it ends.`,
+  sceneLastWord: (npc: string) => `${npc} awaits your last word. Give it, or let it stand, through Private scene; the week waits until then.`,
+  scenePlaceholder: (npc: string) => `The week waits on your private scene with ${npc}…`,
 } as const;
 
 /**
@@ -85,6 +95,15 @@ const isBlankStructuredDraft = (draft: StructuredTurnDraft): boolean =>
   && !draft.privateIntent.trim()
   && !draft.questionOrContext.trim();
 
+/** A letter begun but not finished: a recipient without its words, or words without their recipient. */
+const isHalfWrittenLetter = (row: StructuredTurnDraft['messagesOrOrders'][number] | undefined): boolean => {
+  if (!row) return false;
+  const addressed = row.recipient?.kind === 'known_entity'
+    || (row.recipient?.kind === 'free_text' && Boolean(row.recipient.text.trim()));
+  const worded = Boolean(row.command.trim());
+  return (row.recipient !== null || worded) && !(addressed && worded);
+};
+
 const COMPOSER_MODE_OPTIONS = [
   { value: 'chat', label: 'Chat' },
   { value: 'structured', label: 'Structured' },
@@ -99,7 +118,7 @@ const CHAT_INPUT_ELEMENT_ID = 'chat-input';
 export const TurnComposer: React.FC<TurnComposerProps> = ({
   chatDraft, structuredDraft, recipientOptions, suggestedActions, disabled, isProcessing,
   onChatDraftChange, onStructuredDraftChange, onSubmit, turnStage, playerInitial,
-  canReachTheFates = true, online = true, onOpenSettings, onEnableMockMode, tools,
+  canReachTheFates = true, online = true, openScene = null, onOpenSettings, onEnableMockMode, tools,
 }) => {
   const [mode, setMode] = useState<ComposerMode>(() => getComposerMode());
   const [sealing, setSealing] = useState(false);
@@ -116,9 +135,26 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
   const blankChat = mode === 'chat' && !chatDraft.trim();
   const blankStructured = mode === 'structured' && isBlankStructuredDraft(structuredDraft);
   const pristine = blankChat || blankStructured;
+  // A letter the player is still writing is not yet an error: picking its
+  // recipient is step one of two, and the alert used to interrupt a screen
+  // reader right there. Its issue waits while focus stays in that letter,
+  // and is shown - still as an alert (UPLEVEL Part 4) - once they leave it
+  // unfinished or try to send it. Seal & send stays held meanwhile, and the
+  // count reads the rest of the tablet.
+  const [writingLetter, setWritingLetter] = useState<number | null>(null);
+  const issueHeld = mode === 'structured' && !artifactStatus.ok && writingLetter !== null
+    && isHalfWrittenLetter(structuredDraft.messagesOrOrders[writingLetter])
+    && artifactStatus.issues.every(issue => issue.field.startsWith(`messagesOrOrders.${writingLetter}.`));
+  const restOfTablet = issueHeld
+    ? canonicalArtifactStatus({
+      ...structuredDraft,
+      messagesOrOrders: structuredDraft.messagesOrOrders.map((row, index) => (index === writingLetter ? { recipient: null, command: '' } : row)),
+    }, recipientOptions)
+    : null;
   const remaining = artifactStatus.ok
     ? artifactStatus.remainingCharacters
-    : pristine ? MAX_TURN_SUBMISSION_CHARACTERS : null;
+    : restOfTablet?.ok ? restOfTablet.remainingCharacters
+    : pristine || issueHeld ? MAX_TURN_SUBMISSION_CHARACTERS : null;
   const overLimit = artifactStatus.ok && artifactStatus.overLimit;
   const remainingShare = Math.min(100, Math.max(0, ((remaining ?? 0) / MAX_TURN_SUBMISSION_CHARACTERS) * 100));
   const statusId = 'composer-submission-status';
@@ -134,7 +170,7 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
     );
     return () => clearTimeout(timer);
   }, [nearLimit, remaining]);
-  const validationMessage = artifactStatus.ok || pristine
+  const validationMessage = artifactStatus.ok || pristine || issueHeld
     ? null
     : artifactStatus.issues.map(issue => issue.message).join(' ');
 
@@ -145,6 +181,14 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
     textarea.style.height = `${textarea.scrollHeight}px`;
   }, [chatDraft, mode]);
 
+  /** The writing surface of whichever mode is up. */
+  const focusTablet = useCallback(() => {
+    const target = mode === 'chat'
+      ? chatTextareaRef.current
+      : composerRef.current?.querySelector<HTMLElement>(`#${STRUCTURED_INPUT_ELEMENT_ID}`);
+    target?.focus();
+  }, [mode]);
+
   useEffect(() => {
     if (locked || !restoreFocusOnUnlockRef.current) return;
     restoreFocusOnUnlockRef.current = false;
@@ -152,11 +196,8 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
     // dialog) that opened with the new week keeps what it took.
     const active = document.activeElement;
     if (active && active !== document.body && active !== document.documentElement) return;
-    const target = mode === 'chat'
-      ? chatTextareaRef.current
-      : composerRef.current?.querySelector<HTMLElement>(`#${STRUCTURED_INPUT_ELEMENT_ID}`);
-    target?.focus();
-  }, [locked, mode]);
+    focusTablet();
+  }, [locked, focusTablet]);
 
   // Clear any seal still on the tablet if the composer unmounts mid-press.
   useEffect(() => () => {
@@ -210,19 +251,32 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
 
   const chatPlaceholder = isProcessing
     ? TURN_STAGE_STATUS_COPY[turnStage ?? 'story_relevance']
+    : openScene
+    ? TURN_COMPOSER_COPY.scenePlaceholder(openScene.npcName)
     : disabled
     ? "Awaiting the Senate's judgment..."
     : 'Enter your action... (Shift+Enter for new line)';
+  const sceneHoldId = 'composer-scene-hold';
+  const sceneHold = openScene && !isProcessing
+    ? (openScene.awaitingLastWord ? TURN_COMPOSER_COPY.sceneLastWord : TURN_COMPOSER_COPY.sceneOpen)(openScene.npcName)
+    : null;
 
   return (
-    <div ref={composerRef} className="gor-composer" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
+    // A column that may shrink under the chronicle (App.tsx's desk): only
+    // the Structured registers give way, scrolling within themselves.
+    <div ref={composerRef} className="gor-composer" style={{ flex: '0 1 auto', minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
       {/* Item 46: said before the week is written, not after it is lost. */}
       {!canReachTheFates && onOpenSettings && onEnableMockMode && (
         <TurnFailureNotice
           failure={{ kind: 'no_key' }}
           onEditTheWeek={() => {}}
           onOpenSettings={onOpenSettings}
-          onEnableMockMode={onEnableMockMode}
+          onEnableMockMode={() => {
+            onEnableMockMode();
+            // The notice goes, and the pressed control with it; the tablet
+            // the player can now write on takes focus instead of <body>.
+            if (!locked) focusTablet();
+          }}
         />
       )}
       {suggestedActions.length > 0 && (
@@ -235,8 +289,10 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
             <ActionPill key={action} aria-label={action} delay={index * 80} disabled={locked}
               {...{ [SUGGESTION_INDEX_ATTRIBUTE]: index }}
               onClick={() => {
+                // Counsel adds to the week, in either mode; it never replaces
+                // what the player wrote, which no undo could bring back.
                 if (mode === 'structured') onStructuredDraftChange(appendSuggestedAction(structuredDraft, action));
-                else onChatDraftChange(action);
+                else onChatDraftChange(chatDraft.trim() ? `${chatDraft.trimEnd()}\n${action}` : action);
               }}>{action}</ActionPill>
           ))}
         </div>
@@ -251,6 +307,8 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
         />
         {tools && <div className="gor-composer-tools">{tools}</div>}
       </div>
+      {/* Beneath the Private scene opener it names: what holds the tablet. */}
+      {sceneHold && <p id={sceneHoldId} className="gor-hint" style={{ margin: 0 }}>{sceneHold}</p>}
       {/* The one voice for a week's progress. The loom in the chronicle
           draws the same stage and is hidden from assistive tech, so a screen
           reader hears each stage once, here, beside where the week was sent.
@@ -280,7 +338,7 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
               placeholder={chatPlaceholder}
               style={{ resize: 'none', maxHeight: 160, overflowY: 'auto' }}
               aria-invalid={overLimit || undefined}
-              aria-describedby={statusId}
+              aria-describedby={sceneHold ? `${statusId} ${sceneHoldId}` : statusId}
               onChange={event => onChatDraftChange(event.target.value)}
               onKeyDown={event => {
                 if (event.key === 'Enter' && !event.shiftKey
@@ -305,9 +363,11 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
               // or an invalid draft, interrupts as an alert (the branches above).
               <p id={statusId} className="gor-hint" style={{ margin: 0 }}>{formatCharacterCount(remaining ?? 0)} characters remaining</p>
             )}
+            {/* Named by what it says (WCAG 2.5.3): a player who speaks
+                "Speak" - or, offline, "Hold until the roads reopen" -
+                reaches it. */}
             <Button
               type="submit"
-              aria-label="Send message"
               disabled={!online || locked || overLimit || !artifactStatus.ok || !chatDraft.trim()}
             >
               {online ? 'Speak' : 'Hold until the roads reopen'}
@@ -330,9 +390,14 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
               <p id={statusId} className="gor-gauge-count">{formatCharacterCount(remaining ?? 0)} characters remaining</p>
             </div>
           )}
-          <div style={{ position: 'relative' }}>
+          {/* The registers scroll within the desk when they outgrow it, so
+              the chronicle above keeps its reading height (design/shell.css). */}
+          <div className="gor-register-scroll" style={{ position: 'relative' }}>
             <StructuredTurnComposer draft={structuredDraft} recipientOptions={recipientOptions} disabled={locked} online={online} submissionBlocked={overLimit || !artifactStatus.ok || !online}
-              aggregateIssue={overLimit} validationIssues={artifactStatus.ok ? [] : artifactStatus.issues} statusId={statusId}
+              aggregateIssue={overLimit} validationIssues={artifactStatus.ok || issueHeld ? [] : artifactStatus.issues} statusId={statusId}
+              onLetterFocus={setWritingLetter}
+              // Tried to send an unfinished letter: its issue is shown now.
+              onSubmitBlocked={() => setWritingLetter(null)}
               onChange={onStructuredDraftChange} onSubmit={submitStructured} />
             {waxSeal}
           </div>

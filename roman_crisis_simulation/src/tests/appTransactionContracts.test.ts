@@ -362,7 +362,7 @@ function revealSecretsButton(container: HTMLElement): HTMLButtonElement {
 
 async function playOneTurn(container: HTMLElement, text = 'Open the transaction ledger'): Promise<void> {
   await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), text);
-  await click(buttonNamed(container, 'Send message'));
+  await click(buttonNamed(container, 'Speak'));
   await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
 }
 
@@ -473,12 +473,12 @@ async function submitStructured(
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Action 1'), draft.action);
   }
   if (draft.privateIntent !== undefined) {
-    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Private Intent'), draft.privateIntent);
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'What you intend'), draft.privateIntent);
   }
   if (draft.questionOrContext !== undefined) {
-    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Question / Context'), draft.questionOrContext);
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'What you ask'), draft.questionOrContext);
   }
-  await click(buttonNamed(container, 'Submit turn'));
+  await click(buttonNamed(container, 'Seal & send'));
 }
 
 describe('App non-turn save atomicity', () => {
@@ -675,7 +675,7 @@ describe('App in-flight transaction barrier', () => {
       return new Promise(() => {});
     });
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Hold callbacks past unmount');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(capturedOptions).toBeDefined());
 
     const oldInstance = mounted.pop()!;
@@ -703,7 +703,7 @@ describe('App in-flight transaction barrier', () => {
       rejectTurn = reject;
     }));
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Reject after unmount');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(mockRunNewTurnCore).toHaveBeenCalledTimes(1));
 
     const oldInstance = mounted.pop()!;
@@ -817,7 +817,7 @@ describe('App in-flight transaction barrier', () => {
     expect(storageSpy).toHaveBeenCalledTimes(1);
 
     expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').value).toBe(queuedDraft);
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(loadGame()!.state.turnNumber).toBe(4));
     expect(mockRunNewTurn).toHaveBeenCalledTimes(2);
     expect(loadGame()!.state.messages.some(message => message.text.includes(queuedDraft))).toBe(true);
@@ -928,7 +928,7 @@ describe('App in-flight transaction barrier', () => {
     mockRunNewTurnCore.mockRejectedValueOnce(new Error('turn provider offline'));
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), exactDraft);
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(container.textContent).toMatch(/your draft is kept/i));
     expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').value).toBe(exactDraft);
     const retry = buttonNamed(container, 'Retry the last action');
@@ -1283,7 +1283,7 @@ describe('App in-flight transaction barrier', () => {
     const input = byAriaLabel<HTMLTextAreaElement>(container, 'Chat input');
 
     await setValue(input, 'Hold the candidate open');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(mockRunNewTurn).toHaveBeenCalledTimes(1));
 
     expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
@@ -1301,7 +1301,7 @@ describe('App in-flight transaction barrier', () => {
     mockInferAmbition.mockImplementationOnce(() => new Promise(resolve => { resolveAmbition = resolve; }));
 
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Trigger the old campaign inference');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(mockInferAmbition).toHaveBeenCalledTimes(1));
 
     const oldInstance = mounted.pop()!;
@@ -1334,7 +1334,7 @@ describe('App in-flight transaction barrier', () => {
     }));
 
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Trigger the periodic ambition read');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(4));
     await waitFor(() => expect(mockInferAmbition).toHaveBeenCalledTimes(1));
     expect(loadGame()!.state.inferredAmbition).toBeNull();
@@ -1348,7 +1348,7 @@ describe('App in-flight transaction barrier', () => {
       return defaultRunNewTurnCore(...args);
     });
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Commit after ambition');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(mockRunNewTurnCore).toHaveBeenCalledTimes(2));
 
     const newestAmbition = {
@@ -1409,7 +1409,7 @@ describe('App in-flight transaction barrier', () => {
     const input = byAriaLabel<HTMLTextAreaElement>(container, 'Chat input');
     const beforeTurn = loadGame()!.state.turnNumber;
     await setValue(input, 'Commit a clean durable turn');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(mockRunNewTurn).toHaveBeenCalledTimes(2));
 
     expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1);
@@ -1822,8 +1822,8 @@ describe('App no-attempt response privacy and atomicity', () => {
     expect(localStorage.getItem('gloryOfRome:autosave')).toBe(beforeBytes);
     expect(loadGame()!.state).toEqual(beforeState);
     expect(selectorCalls).toHaveLength(1);
-    expect(byAriaLabel<HTMLTextAreaElement>(container, 'Question / Context').value).toBe(question);
-    expect(byAriaLabel<HTMLTextAreaElement>(container, 'Private Intent').value).toBe(privateIntent);
+    expect(byAriaLabel<HTMLTextAreaElement>(container, 'What you ask').value).toBe(question);
+    expect(byAriaLabel<HTMLTextAreaElement>(container, 'What you intend').value).toBe(privateIntent);
     expect(container.textContent).not.toContain(SAFE_EVIDENCE_ANSWER);
     expect(JSON.stringify(loadGame()!.state.knowledge)).not.toContain(SAFE_EVIDENCE_TEXT);
     errorSpy.mockRestore();
@@ -1843,7 +1843,7 @@ describe('App turn-commit boundary and hidden-error surfacing (C1)', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Trigger post-commit failure');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(4));
 
     // Autosave stays at N+1.
@@ -1868,7 +1868,7 @@ describe('App turn-commit boundary and hidden-error surfacing (C1)', () => {
     // Liveness: no PROCESSING soft-lock, and no double resolution.
     await waitFor(() => expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').disabled).toBe(false));
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Play continues');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(loadGame()!.state.turnNumber).toBe(5));
     // And it clears on the next successful commit, as it always did.
     expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);
@@ -2238,7 +2238,7 @@ describe('B7a hardening — the import-review residuals (spec: 2026-08-05-b7a-ha
     mockInferAmbition.mockImplementationOnce(() => new Promise(resolve => { resolveAmbition = resolve; }));
 
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Arm the ambition tail');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(4));
     await waitFor(() => expect(mockInferAmbition).toHaveBeenCalledTimes(1));
 

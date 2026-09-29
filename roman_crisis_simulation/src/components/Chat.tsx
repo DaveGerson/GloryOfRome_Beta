@@ -236,6 +236,17 @@ export const NarrationVoiceControl: React.FC<{
 };
 
 /**
+ * Who is speaking, for a screen reader: the player's leaf and the
+ * chronicle's differ only in how they are drawn (WCAG 1.3.1), so each opens
+ * with a hidden lead, as the private scene's transcript names its speakers.
+ * (Player-visible copy: veto queue.)
+ */
+export const CHAT_LEAF_COPY = {
+    player: 'You wrote:',
+    chronicle: 'The chronicle:',
+} as const;
+
+/**
  * Memoised: App re-renders on every streamed narration chunk and every
  * pipeline stage, and the committed transcript only ever grows. Committed
  * `Message` objects are never mutated in place, so a shallow prop check lets
@@ -283,6 +294,8 @@ const ChatMessageView: React.FC<{
     const showVoice = message.sender === 'gm' && voiceState !== undefined && onToggleVoice !== undefined && index !== undefined;
     return (
         <div style={{ display: 'flex', justifyContent: isPlayer ? 'flex-end' : 'flex-start', marginBottom: 14 }}>
+            {/* Outside the leaf, so the drop cap still takes the leaf's own first letter. */}
+            <span className="gor-sr-only">{isPlayer ? CHAT_LEAF_COPY.player : CHAT_LEAF_COPY.chronicle} </span>
             <div className={`gor-msg ${isPlayer ? 'gor-msg-player' : 'gor-msg-gm'}${illuminate ? ' gor-dropcap' : ''}`}>
                 {historySubmission && historySubmission.kind !== 'freeform'
                     ? <TurnSubmissionHistory submission={historySubmission} audience="player" />

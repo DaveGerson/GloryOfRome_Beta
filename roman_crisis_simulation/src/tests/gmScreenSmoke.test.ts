@@ -537,7 +537,7 @@ describe('App turn-submission orchestration', () => {
 
     await click(buttonNamed(container, 'Structured'));
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Action 1'), 'Address the Senate');
-    await click(buttonNamed(container, 'Add action row'));
+    await click(buttonNamed(container, 'A further order'));
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Action 2'), 'Inspect the grain ledgers');
 
     const recipientOne = byAriaLabel<HTMLSelectElement>(container, 'Recipient 1');
@@ -549,16 +549,16 @@ describe('App turn-submission orchestration', () => {
     await setValue(recipientOne, knownOption.value);
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Message or order 1'), 'Meet me at dusk');
 
-    await click(buttonNamed(container, 'Add message or order row'));
+    await click(buttonNamed(container, 'Another letter'));
     const recipientTwo = byAriaLabel<HTMLSelectElement>(container, 'Recipient 2');
     const customOption = Array.from(recipientTwo.options).find(option => option.textContent?.startsWith('Someone else'))!;
     await setValue(recipientTwo, customOption.value);
     await setValue(byAriaLabel<HTMLInputElement>(container, 'Custom recipient 2'), 'HIDDEN_ACTOR_SENTINEL');
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Message or order 2'), 'Keep the eastern gate open');
-    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Private Intent'), 'Preserve room to bargain');
-    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Question / Context'), 'Which benches are empty?');
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'What you intend'), 'Preserve room to bargain');
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'What you ask'), 'Which benches are empty?');
 
-    await click(buttonNamed(container, 'Submit turn'));
+    await click(buttonNamed(container, 'Seal & send'));
     await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
 
     const expectedSubmission: TurnSubmission = {
@@ -633,7 +633,7 @@ describe('App turn-submission orchestration', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const input = byAriaLabel<HTMLTextAreaElement>(container, 'Chat input');
     await setValue(input, original);
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').value).toBe(original));
 
     const savedAfterFailure = loadGame()!;
@@ -648,7 +648,7 @@ describe('App turn-submission orchestration', () => {
     expect(alerts[0].textContent).toMatch(/send it again/i);
 
     // Pinned: WP-21 item 47's 15s arming + live countdown was considered and refused.
-    // The composer keeps the restored draft and stays enabled, so "Send message" IS this
+    // The composer keeps the restored draft and stays enabled, so "Speak" IS this
     // same affordance — arming Retry beside a live Send is two controls doing one job.
     // Arming this button later must confront this test and the recorded decision together.
     const retryButton = buttonNamed(container, 'Retry the last action');
@@ -685,13 +685,13 @@ describe('App turn-submission orchestration', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     let input = byAriaLabel<HTMLTextAreaElement>(container, 'Chat input');
     await setValue(input, 'Original authored draft');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').value).toBe('Original authored draft'));
     const failedSubmission = mockRunNewTurn.mock.calls[0][0];
 
     input = byAriaLabel<HTMLTextAreaElement>(container, 'Chat input');
     await setValue(input, 'Edited authored draft');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
 
     const editedSubmission = mockRunNewTurn.mock.calls[1][0];
@@ -708,7 +708,7 @@ describe('App turn-submission orchestration', () => {
     const before = localStorage.getItem('gloryOfRome:autosave');
     const original = '  Missing player draft\nwith exact whitespace  ';
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), original);
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').value).toBe(original));
 
     expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
@@ -732,7 +732,7 @@ describe('App turn-submission orchestration', () => {
       const before = localStorage.getItem('gloryOfRome:autosave');
       const original = '  Keyless real-mode draft\nkeeps whitespace  ';
       await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), original);
-      await click(buttonNamed(container, 'Send message'));
+      await click(buttonNamed(container, 'Speak'));
       await waitFor(() => expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').value).toBe(original));
 
       expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
@@ -756,14 +756,14 @@ describe('App turn-submission orchestration', () => {
     const recipient = byAriaLabel<HTMLSelectElement>(container, 'Recipient 1');
     await setValue(recipient, Array.from(recipient.options).find(option => option.textContent === 'Maximinus Thrax')!.value);
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Message or order 1'), 'Keep  the inner gate open');
-    await click(buttonNamed(container, 'Add message or order row'));
+    await click(buttonNamed(container, 'Another letter'));
     const recipientTwo = byAriaLabel<HTMLSelectElement>(container, 'Recipient 2');
     await setValue(recipientTwo, Array.from(recipientTwo.options).find(option => option.textContent?.startsWith('Someone else'))!.value);
     await setValue(byAriaLabel<HTMLInputElement>(container, 'Custom recipient 2'), '  A courier  ');
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Message or order 2'), 'Deliver\nthis exact order');
-    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Private Intent'), 'Keep leverage  private');
-    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Question / Context'), 'Who  is absent?');
-    await click(buttonNamed(container, 'Submit turn'));
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'What you intend'), 'Keep leverage  private');
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'What you ask'), 'Who  is absent?');
+    await click(buttonNamed(container, 'Seal & send'));
     await waitFor(() => expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1));
     const attempted = mockRunNewTurn.mock.calls[0][0] as TurnSubmission;
     const bytes = serializeTurnSubmission(attempted);
@@ -788,7 +788,7 @@ describe('App turn-submission orchestration', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const original = '  Save failure draft\nexactly restored  ';
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), original);
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').value).toBe(original));
     expect(storageSpy).toHaveBeenCalledTimes(2);
     expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
@@ -806,7 +806,7 @@ describe('App turn-submission orchestration', () => {
   it('closes the real GM modal through Header, hotkey, and availability transitions without remounting it', async () => {
     const container = await mountAppFromSave();
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Earn a GM Log');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
     // The GM console's runtime switch lives in the configuration menu's
     // Developer card now; the menu stays open through the transitions below

@@ -24,11 +24,12 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { GameState } from '../types';
 import { motionIsReduced } from '../persistence/readingPrefs';
+import { focusComposer } from '../app/domCommands';
 
 /** How close to the foot still counts as "reading the latest". */
 export const FOLLOW_THRESHOLD_PX = 160;
 
-/** Scroll events during a programmatic scroll are the scroll itself, not the reader leaving. */
+/** Scroll events during a programmatic glide are the glide itself, not the reader leaving. */
 const AUTO_SCROLL_GRACE_MS = 700;
 
 /** Player-visible copy (veto queue: roadmaps/BACKLOG.md, "Reading, motion and the command palette"). */
@@ -55,7 +56,7 @@ export interface ChatFollow {
     awayFromFoot: boolean;
     /** True when a leaf landed while the reader was away. */
     hasUnseen: boolean;
-    /** Returns the reader to the foot (the desk's button, the command palette). */
+    /** Returns the reader to the foot (the desk's button, the command palette), and the focus to the tablet. */
     jumpToLatest: () => void;
 }
 
@@ -74,11 +75,17 @@ export function useChatFollow({ messageCount, gameState, streamingText }: {
     const [seenCount, setSeenCount] = useState(messageCount);
     const messageCountRef = useRef(messageCount);
     const autoScrollUntilRef = useRef(0);
+    const lastScrollTopRef = useRef(0);
     const previousGameStateRef = useRef(gameState);
 
     const scrollToFoot = useCallback((smooth: boolean) => {
-        autoScrollUntilRef.current = Date.now() + AUTO_SCROLL_GRACE_MS;
-        endRef.current?.scrollIntoView?.({ behavior: smooth && !motionIsReduced() ? 'smooth' : 'auto', block: 'end' });
+        const glide = smooth && !motionIsReduced();
+        // Only a glide passes through "away" on its way down. An instant
+        // scroll lands at once, and arming the grace for one let every
+        // streamed chunk (a few hundred ms apart) swallow the reader's own
+        // scroll back - and the next chunk pulled them down again.
+        if (glide) autoScrollUntilRef.current = Date.now() + AUTO_SCROLL_GRACE_MS;
+        endRef.current?.scrollIntoView?.({ behavior: glide ? 'smooth' : 'auto', block: 'end' });
     }, []);
 
     // Committed leaves and phase changes.
@@ -104,8 +111,11 @@ export function useChatFollow({ messageCount, gameState, streamingText }: {
         const log = logRef.current;
         if (!log) return;
         const near = isNearFoot(log);
-        // A programmatic scroll passes through "away" on its way down.
-        if (!near && Date.now() < autoScrollUntilRef.current) return;
+        const movedUp = log.scrollTop < lastScrollTopRef.current;
+        lastScrollTopRef.current = log.scrollTop;
+        // A programmatic glide passes through "away" on its way down; a move
+        // UP is never the glide, so it is the reader's even inside the grace.
+        if (!near && !movedUp && Date.now() < autoScrollUntilRef.current) return;
         setAwayFromFoot(!near);
         if (near) setSeenCount(messageCountRef.current);
     }, []);
@@ -114,6 +124,11 @@ export function useChatFollow({ messageCount, gameState, streamingText }: {
         setAwayFromFoot(false);
         setSeenCount(messageCountRef.current);
         scrollToFoot(true);
+        // The desk's button unmounts itself once the reader is back, and took
+        // keyboard focus with it to <body>. Their next act is to write, so
+        // the tablet takes focus - or, while the week is being written and
+        // the tablet is held, the log itself (App gives it tabIndex -1).
+        if (!focusComposer()) logRef.current?.focus({ preventScroll: true });
     }, [scrollToFoot]);
 
     return {

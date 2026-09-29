@@ -134,7 +134,7 @@ async function openPrivateScene(app: MountedJourneyApp): Promise<void> {
 
 async function submitMacroTurn(app: MountedJourneyApp, intent: string, expectedTurn: number): Promise<void> {
   await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Chat input'), intent);
-  await appClick(appButton(app.container, 'Send message'));
+  await appClick(appButton(app.container, 'Speak'));
   await waitForApp(() => expect(loadGame()?.state.turnNumber).toBe(expectedTurn));
 }
 
