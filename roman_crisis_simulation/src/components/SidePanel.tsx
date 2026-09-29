@@ -133,6 +133,8 @@ const SidePanel: React.FC<{
     activeTab?: TabId;
     /** Told whenever the player opens a tab (a click, the arrows, a briefing pointer, the palette). */
     onSelectTab?: (id: TabId) => void;
+    /** The panel's own element, so App can tell whether it is on the screen (hooks/useSeenRegisters.ts). */
+    panelRef?: React.Ref<HTMLElement>;
     /** Commits one occurrence finding to the knowledge store (audit item 40). */
     onOccurrenceFinding: (occurrence: string, question: OccurrenceQuestion, text: string, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
     resolvedApiKey?: string | null;
@@ -140,7 +142,7 @@ const SidePanel: React.FC<{
     narrationVoiceMode?: NarrationVoiceMode;
     /** The voice row on each Personae card (hooks/usePersonaeVoice.ts). */
     personaeVoice?: PersonaeVoice;
-}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, turnHistory, pulsingTabs, tabChangeCounts, activeTab: heldTab, onSelectTab, onOccurrenceFinding, resolvedApiKey, narrationVoiceMode, personaeVoice }) => {
+}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, turnHistory, pulsingTabs, tabChangeCounts, activeTab: heldTab, onSelectTab, panelRef, onOccurrenceFinding, resolvedApiKey, narrationVoiceMode, personaeVoice }) => {
     const [ownTab, setOwnTab] = useState<TabId>('world_state');
     const activeTab = heldTab ?? ownTab;
     const { dispatchStatus, toggleDispatch } = useImperialDispatch({
@@ -233,7 +235,7 @@ const SidePanel: React.FC<{
     }
 
     return (
-        <aside data-screen-label="Side Panel" className="gor-panel">
+        <aside ref={panelRef} data-screen-label="Side Panel" className="gor-panel">
             <style>{`
                 @keyframes gorTabPulse {
                     0%, 100% { box-shadow: inset 0 0 0 rgba(158,126,27,0); }

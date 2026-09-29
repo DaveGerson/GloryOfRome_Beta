@@ -9,12 +9,15 @@
  *  - an open private scene names itself as what holds the tablet, and holds
  *    Retry too;
  *  - "N new" belongs to the committed week and to what was looked at - the
- *    tab rail and the palette say the same, a reload does not repeat it, and
- *    an investigation bought in the interlude is not counted again;
+ *    tab rail and the palette say the same, a reload does not repeat it, a
+ *    phone's panel a swipe away is not looked at, and an investigation
+ *    bought in the interlude is not counted again;
  *  - a streamed chunk never pulls down a reader who scrolled back;
- *  - the log speaks the player's words once, and says who speaks;
+ *  - the log speaks the player's words once, and says who speaks - its
+ *    hidden leads kept inside the log's scroll;
  *  - focus lands on the tablet, never on <body>, after the controls that
- *    remove themselves;
+ *    remove themselves - on a touch screen, on the log, so no keyboard is
+ *    thrown up unasked;
  *  - each control's name starts with the words it shows (WCAG 2.5.3);
  *  - the Imperial Dispatch says why it is silent;
  *  - Choose Your Destiny has the screen to itself.
@@ -29,10 +32,10 @@ import { draftSuggestion } from '../app/domCommands';
 import { TurnComposer, TURN_COMPOSER_COPY, type TurnComposerProps } from '../components/TurnComposer';
 import { STRUCTURED_ADD_ROW_LABELS, STRUCTURED_REGISTER_TITLES } from '../components/StructuredTurnComposer';
 import SidePanel, { DISPATCH_BUTTON_LABEL, dispatchNote } from '../components/SidePanel';
-import { CHAT_LEAF_COPY, NARRATION_VOICE_COPY } from '../components/Chat';
+import { CHAT_LEAF_COPY, ChatMessage, NARRATION_VOICE_COPY } from '../components/Chat';
 import { useChatFollow } from '../hooks/useChatFollow';
 import { tabChangeCountsFor } from '../hooks/usePlayerPerception';
-import { useSeenRegisters, weekKeyOf } from '../hooks/useSeenRegisters';
+import { usePanelInView, useSeenRegisters, weekKeyOf } from '../hooks/useSeenRegisters';
 import * as turnCore from '../ai/core/turn';
 import { GameProvider, useGame } from '../state/GameContext';
 import type { GameAction } from '../state/gameReducer';
@@ -64,6 +67,14 @@ let dispatchGame: React.Dispatch<GameAction> | null = null;
 const DEVICE_KEY = process.env.GEMINI_API_KEY;
 const withoutDeviceKey = () => { delete process.env.GEMINI_API_KEY; };
 
+/** A browser answering media queries: `matching` are the ones that hold. */
+function stubMedia(...matching: string[]): void {
+  vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
+    matches: matching.includes(query), media: query, onchange: null,
+    addEventListener: vi.fn(), removeEventListener: vi.fn(), addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
+  })));
+}
+
 beforeEach(() => {
   localStorage.clear();
   localStorage.setItem('gloryOfRome:onboardingSeen', '1');
@@ -80,6 +91,7 @@ afterEach(async () => {
   process.env.GEMINI_API_KEY = DEVICE_KEY;
   localStorage.clear();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 async function mount(element: React.ReactElement): Promise<{ container: HTMLElement; root: Root; render: (next: React.ReactElement) => Promise<void> }> {
@@ -269,6 +281,36 @@ describe('a half-written letter is not yet an error', () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  it('holds only the letter being written, never another the player already left unfinished', async () => {
+    const { container, recipient, command, action } = await structured();
+    await act(async () => buttonNamed(container, STRUCTURED_ADD_ROW_LABELS.letter)!.click());
+    const recipient2 = container.querySelector<HTMLSelectElement>('[aria-label="Recipient 2"]')!;
+    const command2 = container.querySelector<HTMLTextAreaElement>('[aria-label="Message or order 2"]')!;
+    await focus(recipient2);
+    await setValue(recipient2, recipient2.options[1].value);
+    await focus(action);
+    expect(container.querySelector('[role="alert"]')?.textContent).toMatch(/recipient and command are both required/i);
+    expect(command2.getAttribute('aria-invalid')).toBe('true');
+
+    // Back to the first letter, and begun: the second is still unfinished and still says so.
+    await focus(recipient);
+    await setValue(recipient, recipient.options[1].value);
+    expect(container.querySelector('[role="alert"]')?.textContent).toMatch(/recipient and command are both required/i);
+    expect(command2.getAttribute('aria-invalid')).toBe('true');
+    expect(command.getAttribute('aria-invalid')).toBeNull();
+    expect(recipient.getAttribute('aria-invalid')).toBeNull();
+    expect(container.querySelector('#composer-submission-status')?.textContent).not.toMatch(/characters remaining/);
+    expect(buttonNamed(container, 'Seal & send')!.disabled).toBe(true);
+
+    // The second letter finished: the first, still being written, is held again.
+    await focus(command2);
+    await setValue(command2, 'Bring the ledger.');
+    await focus(command);
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(command2.getAttribute('aria-invalid')).toBeNull();
+    expect(container.querySelector('#composer-submission-status')?.textContent).toMatch(/characters remaining/);
+  });
+
   it('the tablet\'s first field is described by the remaining count, as the chat tablet is', async () => {
     const { container, action } = await structured();
     const status = container.querySelector('#composer-submission-status')!;
@@ -355,6 +397,78 @@ describe('"N new" belongs to the committed week and to what was looked at', () =
     const another = renderHook((props: { weekKey: string }) => useSeenRegisters({ weekKey: props.weekKey, tabChangeCounts: counts }), { weekKey: '4:other-reign' });
     expect(another.current.unseenCounts.get('reports')).toBe(2);
     another.unmount();
+  });
+
+  it('on a phone the open tab is looked at once the panel is swiped into view, not as the week lands', () => {
+    type Props = { weekKey: string; panelInView: boolean };
+    const hook = renderHook((props: Props) => useSeenRegisters({ ...props, tabChangeCounts: counts }), { weekKey: '4:a', panelInView: false });
+    expect(hook.current.unseenCounts.get('world_state')).toBe(1);
+    hook.rerender({ weekKey: '4:a', panelInView: true });
+    expect(hook.current.unseenCounts.has('world_state')).toBe(false);
+    // Back on the chronicle as the next week lands: World State waits again.
+    hook.rerender({ weekKey: '5:b', panelInView: false });
+    expect(hook.current.unseenCounts.get('world_state')).toBe(1);
+    expect(hook.current.unseenTabs.has('world_state')).toBe(true);
+    // A tab pressed is looked at wherever the panel is.
+    act(() => hook.current.selectTab('reports'));
+    expect(hook.current.unseenCounts.has('reports')).toBe(false);
+    hook.unmount();
+  });
+
+  it('the panel is on the screen when more than its gilt edge shows; a phone opens on the chronicle', () => {
+    let report: ((entries: Array<{ intersectionRatio: number }>) => void) | null = null;
+    const observe = vi.fn();
+    const disconnect = vi.fn();
+    vi.stubGlobal('IntersectionObserver', class {
+      constructor(callback: (entries: Array<{ intersectionRatio: number }>) => void) { report = callback; }
+      observe = observe;
+      unobserve = vi.fn();
+      disconnect = disconnect;
+    });
+    stubMedia('(max-width: 768px)');
+    const aside = document.createElement('aside');
+    type Props = { panel: HTMLElement | null };
+    const hook = renderHook<Props, boolean>(props => usePanelInView(props.panel), { panel: null });
+    expect(hook.current).toBe(false);
+    hook.rerender({ panel: aside });
+    expect(observe).toHaveBeenCalledWith(aside);
+    act(() => report!([{ intersectionRatio: 18 / 375 }]));
+    expect(hook.current).toBe(false);
+    act(() => report!([{ intersectionRatio: 1 }]));
+    expect(hook.current).toBe(true);
+    hook.unmount();
+    expect(disconnect).toHaveBeenCalled();
+
+    // A wide screen, before anything reports: beside the chronicle.
+    stubMedia();
+    const wide = renderHook<Props, boolean>(props => usePanelInView(props.panel), { panel: null });
+    expect(wide.current).toBe(true);
+    wide.unmount();
+  });
+
+  it('App watches its own side panel, and a week landing while it is away leaves the open tab counted', async () => {
+    const observed: Element[] = [];
+    const reports: Array<(entries: Array<{ intersectionRatio: number }>) => void> = [];
+    vi.stubGlobal('IntersectionObserver', class {
+      constructor(callback: (entries: Array<{ intersectionRatio: number }>) => void) { reports.push(callback); }
+      observe(element: Element) { observed.push(element); }
+      unobserve() {}
+      disconnect() {}
+    });
+    stubMedia('(max-width: 768px)');
+    withoutDeviceKey();
+    const { container } = await mountGame();
+    const aside = container.querySelector('[data-screen-label="Side Panel"]')!;
+    expect(observed).toContain(aside);
+    await act(async () => buttonNamed(container, 'Play against canned responses')!.click());
+    await playCannedWeek(container, 'I hold court at dawn.');
+    const counted = [...container.querySelectorAll('[role="tab"] .gor-tab-count')]
+      .map(coin => coin.closest('[role="tab"]')!.id);
+    expect(counted).toContain('sidepanel-tab-world_state');
+
+    // Swiped into view: the open tab is looked at.
+    await act(async () => reports.forEach(report => report([{ intersectionRatio: 1 }])));
+    expect(container.querySelector('#sidepanel-tab-world_state .gor-tab-count')).toBeNull();
   });
 
   it('a device that keeps nothing still counts, and loses only the memory', () => {
@@ -519,6 +633,20 @@ describe('the log speaks the player once, and says who speaks', () => {
     // The lead sits outside the leaf, so the drop cap keeps the leaf's own first letter.
     expect(chronicle.querySelector('.gor-sr-only')).toBeNull();
   });
+
+  it('each hidden lead is placed within its own row, so it scrolls with the log and never stretches the page', async () => {
+    const { container } = await mount(
+      <div role="log">
+        <ChatMessage message={{ sender: 'player', text: 'I summon the Praetorian prefect.' }} />
+        <ChatMessage message={{ sender: 'gm', text: 'The prefect comes at dusk.' }} index={1} illuminated />
+      </div>,
+    );
+    const leads = [...container.querySelectorAll<HTMLElement>('.gor-sr-only')];
+    expect(leads).toHaveLength(2);
+    // Absolute, as every gor-sr-only is: an unpositioned row left the chat
+    // section as the lead's containing block, outside the log's scroll.
+    for (const lead of leads) expect(lead.parentElement!.style.position).toBe('relative');
+  });
 });
 
 // --- Focus -----------------------------------------------------------------------
@@ -565,6 +693,42 @@ describe('focus lands on the tablet, never on <body>', () => {
     await act(async () => toLatest.click());
     expect(container.querySelector('button.gor-follow')).toBeNull();
     expect(document.activeElement?.id).toBe('chat-input');
+  });
+});
+
+describe("on a touch screen the keyboard waits for the player's own tap", () => {
+  it("'Back to the latest' hands focus to the log, not the tablet", async () => {
+    stubMedia('(pointer: coarse)');
+    const { container } = await mountGame();
+    const log = container.querySelector<HTMLElement>('[role="log"]')!;
+    Object.defineProperties(log, {
+      scrollTop: { value: 0, configurable: true },
+      scrollHeight: { value: 3000, configurable: true },
+      clientHeight: { value: 600, configurable: true },
+    });
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 10_000);
+    await act(async () => log.dispatchEvent(new Event('scroll')));
+    const toLatest = container.querySelector<HTMLButtonElement>('button.gor-follow')!;
+    await focus(toLatest);
+    await act(async () => toLatest.click());
+    expect(container.querySelector('button.gor-follow')).toBeNull();
+    expect(document.activeElement).toBe(log);
+  });
+
+  it('a configuration menu that closes on nothing does the same', async () => {
+    stubMedia('(pointer: coarse)');
+    withoutDeviceKey();
+    const { container } = await mountGame();
+    const enterKey = buttonNamed(container, 'Enter your key')!;
+    await focus(enterKey);
+    await act(async () => enterKey.click());
+    await setValue(document.querySelector<HTMLInputElement>('[aria-label="Gemini API key"]')!, 'a-key-of-my-own');
+    await act(async () => buttonNamed(document, 'Save')!.click());
+    const close = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')]
+      .find(button => button.getAttribute('aria-label')?.startsWith('Close'))!;
+    await act(async () => close.click());
+    await flush();
+    expect(document.activeElement).toBe(container.querySelector('[role="log"]'));
   });
 });
 

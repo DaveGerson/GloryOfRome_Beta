@@ -24,7 +24,7 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { GameState } from '../types';
 import { motionIsReduced } from '../persistence/readingPrefs';
-import { focusComposer } from '../app/domCommands';
+import { focusDesk } from '../app/domCommands';
 
 /** How close to the foot still counts as "reading the latest". */
 export const FOLLOW_THRESHOLD_PX = 160;
@@ -56,7 +56,7 @@ export interface ChatFollow {
     awayFromFoot: boolean;
     /** True when a leaf landed while the reader was away. */
     hasUnseen: boolean;
-    /** Returns the reader to the foot (the desk's button, the command palette), and the focus to the tablet. */
+    /** Returns the reader to the foot (the desk's button, the command palette), and the focus to the desk. */
     jumpToLatest: () => void;
 }
 
@@ -126,9 +126,10 @@ export function useChatFollow({ messageCount, gameState, streamingText }: {
         scrollToFoot(true);
         // The desk's button unmounts itself once the reader is back, and took
         // keyboard focus with it to <body>. Their next act is to write, so
-        // the tablet takes focus - or, while the week is being written and
-        // the tablet is held, the log itself (App gives it tabIndex -1).
-        if (!focusComposer()) logRef.current?.focus({ preventScroll: true });
+        // the tablet takes focus - or the log itself (App gives it tabIndex
+        // -1) while the tablet is held, and on a touch screen, where the
+        // tablet would throw the keyboard over the chronicle (focusDesk).
+        focusDesk(logRef.current);
     }, [scrollToFoot]);
 
     return {

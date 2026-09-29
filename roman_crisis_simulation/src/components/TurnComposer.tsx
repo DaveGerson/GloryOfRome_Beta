@@ -142,15 +142,22 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
   // unfinished or try to send it. Seal & send stays held meanwhile, and the
   // count reads the rest of the tablet.
   const [writingLetter, setWritingLetter] = useState<number | null>(null);
-  const issueHeld = mode === 'structured' && !artifactStatus.ok && writingLetter !== null
+  const writingHalfLetter = mode === 'structured' && !artifactStatus.ok && writingLetter !== null
     && isHalfWrittenLetter(structuredDraft.messagesOrOrders[writingLetter])
     && artifactStatus.issues.every(issue => issue.field.startsWith(`messagesOrOrders.${writingLetter}.`));
-  const restOfTablet = issueHeld
-    ? canonicalArtifactStatus({
-      ...structuredDraft,
-      messagesOrOrders: structuredDraft.messagesOrOrders.map((row, index) => (index === writingLetter ? { recipient: null, command: '' } : row)),
-    }, recipientOptions)
+  // The tablet with that letter set aside. Validation stops at its first
+  // issue, so another letter left unfinished after this one shows only here:
+  // the hold waits on the letter being written, never on one already left.
+  const restDraft = writingHalfLetter
+    ? { ...structuredDraft, messagesOrOrders: structuredDraft.messagesOrOrders.map((row, index) => (index === writingLetter ? { recipient: null, command: '' } : row)) }
     : null;
+  const restOfTablet = restDraft ? canonicalArtifactStatus(restDraft, recipientOptions) : null;
+  const issueHeld = restDraft !== null && (Boolean(restOfTablet?.ok) || isBlankStructuredDraft(restDraft));
+  // What the registers mark as wrong: nothing while held; the rest's own
+  // issue while this letter is being written; else the draft's.
+  const shownIssues = artifactStatus.ok || issueHeld
+    ? []
+    : restOfTablet && !restOfTablet.ok ? restOfTablet.issues : artifactStatus.issues;
   const remaining = artifactStatus.ok
     ? artifactStatus.remainingCharacters
     : restOfTablet?.ok ? restOfTablet.remainingCharacters
@@ -170,9 +177,7 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
     );
     return () => clearTimeout(timer);
   }, [nearLimit, remaining]);
-  const validationMessage = artifactStatus.ok || pristine || issueHeld
-    ? null
-    : artifactStatus.issues.map(issue => issue.message).join(' ');
+  const validationMessage = pristine || !shownIssues.length ? null : shownIssues.map(issue => issue.message).join(' ');
 
   useEffect(() => {
     const textarea = chatTextareaRef.current;
@@ -394,7 +399,7 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
               the chronicle above keeps its reading height (design/shell.css). */}
           <div className="gor-register-scroll" style={{ position: 'relative' }}>
             <StructuredTurnComposer draft={structuredDraft} recipientOptions={recipientOptions} disabled={locked} online={online} submissionBlocked={overLimit || !artifactStatus.ok || !online}
-              aggregateIssue={overLimit} validationIssues={artifactStatus.ok || issueHeld ? [] : artifactStatus.issues} statusId={statusId}
+              aggregateIssue={overLimit} validationIssues={shownIssues} statusId={statusId}
               onLetterFocus={setWritingLetter}
               // Tried to send an unfinished letter: its issue is shown now.
               onSubmitBlocked={() => setWritingLetter(null)}

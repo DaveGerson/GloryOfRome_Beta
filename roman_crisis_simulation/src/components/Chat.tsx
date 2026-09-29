@@ -293,7 +293,11 @@ const ChatMessageView: React.FC<{
     const illuminate = illuminated && !isPlayer;
     const showVoice = message.sender === 'gm' && voiceState !== undefined && onToggleVoice !== undefined && index !== undefined;
     return (
-        <div style={{ display: 'flex', justifyContent: isPlayer ? 'flex-end' : 'flex-start', marginBottom: 14 }}>
+        // Positioned, so the hidden lead (absolute, as every gor-sr-only is)
+        // is placed within its row and scrolls with the log. Unpositioned, it
+        // was placed against the chat section, outside the log's scroll, and
+        // a long transcript's leads stretched the page itself.
+        <div style={{ display: 'flex', justifyContent: isPlayer ? 'flex-end' : 'flex-start', marginBottom: 14, position: 'relative' }}>
             {/* Outside the leaf, so the drop cap still takes the leaf's own first letter. */}
             <span className="gor-sr-only">{isPlayer ? CHAT_LEAF_COPY.player : CHAT_LEAF_COPY.chronicle} </span>
             <div className={`gor-msg ${isPlayer ? 'gor-msg-player' : 'gor-msg-gm'}${illuminate ? ' gor-dropcap' : ''}`}>
