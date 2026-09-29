@@ -70,6 +70,20 @@ function eventById(id: string): GameEvent {
 const fired = (eventId: string, lastFiredTurn: number, timesFired = 1): EventFiringRecord =>
   ({ eventId, lastFiredTurn, timesFired });
 
+/**
+ * The player plus the Roman bodies the authored choices act on: the event
+ * engine fires an event only in a world whose roster holds every id its
+ * choices name (events/engine.ts::isEventForThisWorld). Neutral stubs - no
+ * relationships - so no faction-keyed trigger fires by accident.
+ */
+function romeRoster(player: Entity): Entity[] {
+  return [
+    player,
+    ...['senatorial_party', 'roman_senate', 'military_cabal', 'praetorian_guard'].map(entity_id =>
+      baseMakeEntity({ entity_id, name: entity_id, entity_type: 'faction' })),
+  ];
+}
+
 // --- authored library shape -------------------------------------------------
 
 describe('constants/events: the authored library is payoff material (4D.2, D12)', () => {
@@ -130,15 +144,15 @@ describe('events/engine: isEventEligible (repeatable + cooldown, 4D.2)', () => {
     const sim = makeSim();
 
     // Never fired: grain_shortage triggers and is returned.
-    const first = checkForTriggeredEvent(world, [player], [], player, sim, 6);
+    const first = checkForTriggeredEvent(world, romeRoster(player), [], player, sim, 6);
     expect(first?.id).toBe('grain_shortage');
 
     // Fired at turn 6: suppressed until the cooldown elapses...
     const firings = [fired('grain_shortage', 6)];
-    expect(checkForTriggeredEvent(world, [player], firings, player, sim, 7)).toBeNull();
-    expect(checkForTriggeredEvent(world, [player], firings, player, sim, 15)).toBeNull();
+    expect(checkForTriggeredEvent(world, romeRoster(player), firings, player, sim, 7)).toBeNull();
+    expect(checkForTriggeredEvent(world, romeRoster(player), firings, player, sim, 15)).toBeNull();
     // ...and fires again exactly at expiry (repeatable, D12).
-    expect(checkForTriggeredEvent(world, [player], firings, player, sim, 16)?.id).toBe('grain_shortage');
+    expect(checkForTriggeredEvent(world, romeRoster(player), firings, player, sim, 16)?.id).toBe('grain_shortage');
   });
 });
 
@@ -268,7 +282,7 @@ describe('events/engine: selectRipeEventMaterial (4D.2, D24)', () => {
   const failing = makeWorld({ economic_stability: 'Failing' });
 
   it('returns a triggering, never-fired event as RIPE with its authored premise', () => {
-    const material = selectRipeEventMaterial(failing, makeSim(), [player], player, [], 6);
+    const material = selectRipeEventMaterial(failing, makeSim(), romeRoster(player), player, [], 6);
     expect(material).toHaveLength(1);
     expect(material[0].event.id).toBe('grain_shortage');
     expect(material[0].status).toBe('ripe');
@@ -276,7 +290,7 @@ describe('events/engine: selectRipeEventMaterial (4D.2, D24)', () => {
   });
 
   it('excludes events whose triggers are not met, whatever their bookkeeping', () => {
-    expect(selectRipeEventMaterial(makeWorld(), makeSim(), [player], player, [], 6)).toEqual([]);
+    expect(selectRipeEventMaterial(makeWorld(), makeSim(), romeRoster(player), player, [], 6)).toEqual([]);
   });
 
   it('marks a cooldown-held repeatable event NEAR inside the window and suppresses it entirely outside', () => {
@@ -284,24 +298,24 @@ describe('events/engine: selectRipeEventMaterial (4D.2, D24)', () => {
     const firings = [fired('grain_shortage', 10)];
 
     // Deep in cooldown (more than NEAR_COOLDOWN_WINDOW turns left): suppressed.
-    const deep = selectRipeEventMaterial(failing, makeSim(), [player], player, firings, 10 + cooldown - NEAR_COOLDOWN_WINDOW - 1);
+    const deep = selectRipeEventMaterial(failing, makeSim(), romeRoster(player), player, firings, 10 + cooldown - NEAR_COOLDOWN_WINDOW - 1);
     expect(deep).toEqual([]);
 
     // Within the window: NEAR.
-    const near = selectRipeEventMaterial(failing, makeSim(), [player], player, firings, 10 + cooldown - NEAR_COOLDOWN_WINDOW);
+    const near = selectRipeEventMaterial(failing, makeSim(), romeRoster(player), player, firings, 10 + cooldown - NEAR_COOLDOWN_WINDOW);
     expect(near).toHaveLength(1);
     expect(near[0].status).toBe('near');
 
     // Cooldown elapsed: RIPE again.
-    const ripe = selectRipeEventMaterial(failing, makeSim(), [player], player, firings, 10 + cooldown);
+    const ripe = selectRipeEventMaterial(failing, makeSim(), romeRoster(player), player, firings, 10 + cooldown);
     expect(ripe[0].status).toBe('ripe');
   });
 
   it('a fired non-repeatable event never returns, even with its trigger met', () => {
     const sim = makeSim({ imperial_status: 'Contested' });
-    const before = selectRipeEventMaterial(makeWorld(), sim, [player], player, [], 6);
+    const before = selectRipeEventMaterial(makeWorld(), sim, romeRoster(player), player, [], 6);
     expect(before.map(m => m.event.id)).toEqual(['gordian_stirrings']);
-    const after = selectRipeEventMaterial(makeWorld(), sim, [player], player, [fired('gordian_stirrings', 6)], 40);
+    const after = selectRipeEventMaterial(makeWorld(), sim, romeRoster(player), player, [fired('gordian_stirrings', 6)], 40);
     expect(after).toEqual([]);
   });
 });

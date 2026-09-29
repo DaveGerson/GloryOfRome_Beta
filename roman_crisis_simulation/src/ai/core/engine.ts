@@ -1,5 +1,6 @@
 import { Entity, WorldState, Adjudication, Report, EventDelta, Relationship, TruthLedgerEntry } from '../../types';
 import { SYSTEMIC_RESOURCES, applySystemicResourceRule } from './resources';
+import { zScheme } from './zodSchemas';
 import { buildNpcPerceptions, selectMemoryChanges, selectPerceivingNpcs } from '../../perception/npcPerception';
 
 // NOTE: The turn-adjudication prompt (formerly `compileContext` here) has
@@ -67,32 +68,57 @@ export function legacyReasonIndicatesDeath(reason: string): boolean {
  * decide whether an entity dies, exported so
  * `ai/core/mortality.ts`'s death-claim scan (DESIGN_DECISIONS.md D2/D3)
  * reuses the identical detection instead of re-implementing the regex.
+ *
+ * A delta carrying `new_location` without `new_status` is a RELOCATION -
+ * the STATUS DELTAS contract (ai/prompts/adjudication.ts) sets new_status
+ * only when status changes - so its `reason` is display text and is never
+ * read as a death ("Flees to Ostia after the Emperor was slain" moves the
+ * fleeing entity; it does not kill them). The legacy regex applies only to
+ * a delta that carries neither structured field.
  */
 export function isDeathClaimDelta(delta: EventDelta): boolean {
     if (delta.type !== 'status') return false;
     if (delta.new_status) return delta.new_status === 'dead';
+    if (delta.new_location) return false;
     return legacyReasonIndicatesDeath(delta.reason);
 }
 
 /**
  * Applies a list of deltas to the current game state.
  * This is a pure function that returns new state objects.
+ *
+ * `playerEntityId` (optional): the player's entity id. The systemic
+ * resource registry's notification Reports ("Your coffers run dry...")
+ * describe the PLAYER'S own treasury - the one treasury D6 makes knowable -
+ * so they are minted only for this entity. Every other entity still
+ * accrues its debt state, silently. With no id, no such Report is minted
+ * at all: an NPC's overdraft must never reach the player's Reports.
+ *
+ * `gmNotes` carries this module's refuse-and-record answers to malformed
+ * instructions that applyDeltas can see (a numeric delta aimed at a text
+ * resource, a scheme that is not a scheme) - applyAdjudication appends
+ * them to `gm_private` for the GM console.
  */
 export function applyDeltas(
     deltas: EventDelta[],
     currentEntities: Entity[],
     currentWorldState: WorldState,
-    turnNumber: number
-): { updatedEntities: Entity[], updatedWorldState: WorldState, newReports: Report[], newTruthLedgerEntries: TruthLedgerEntry[] } {
+    turnNumber: number,
+    playerEntityId?: string
+): { updatedEntities: Entity[], updatedWorldState: WorldState, newReports: Report[], newTruthLedgerEntries: TruthLedgerEntry[], gmNotes: string[] } {
     const updatedEntities: Entity[] = JSON.parse(JSON.stringify(currentEntities));
     const updatedWorldState: WorldState = JSON.parse(JSON.stringify(currentWorldState));
     const newReports: Report[] = [];
     const newTruthLedgerEntries: TruthLedgerEntry[] = [];
+    const gmNotes: string[] = [];
     // Per-call sequence for rumor report/ledger ids: Date.now() alone can
     // collide when one turn emits several rumors in the same millisecond,
     // and each ledger entry's reportId link requires the Report id to be
     // unique within the turn.
     let rumorSeq = 0;
+    // The same guarantee for the systemic registry's Reports (two
+    // overdrafts in one call would otherwise share an id).
+    let systemicSeq = 0;
 
     deltas.forEach(delta => {
         try {
@@ -106,7 +132,18 @@ export function applyDeltas(
                     // entity's persisted bag (the 'relation' case below has
                     // the same malformed-key guard).
                     if (entity && resourceName) {
-                        const currentVal = (entity.resources[resourceName] as number) || 0;
+                        const current = entity.resources[resourceName];
+                        // Resources may hold text or lists (world gen's
+                        // thematic resources). A numeric delta on one would
+                        // concatenate into a corrupted string, so it is
+                        // refused and recorded instead. An absent (or null)
+                        // value counts as 0, so a delta can still create a
+                        // new numeric resource.
+                        if (current !== undefined && current !== null && typeof current !== 'number') {
+                            gmNotes.push(`[Engine] Refused a numeric 'resource' delta (${delta.delta}) on '${delta.key}' - that resource holds text, not a number, and was left unchanged.`);
+                            break;
+                        }
+                        const currentVal = (current as number) || 0;
                         const rawNewVal = currentVal + delta.delta;
 
                         // SYSTEMIC RESOURCE REGISTRY (DESIGN_DECISIONS.md D6,
@@ -119,8 +156,10 @@ export function applyDeltas(
                         // fall through to the `else` branch, unchanged.
                         const rule = SYSTEMIC_RESOURCES[resourceName];
                         if (rule) {
+                            systemicSeq += 1;
                             const { finalValue, reports } = applySystemicResourceRule(
-                                rule, entity, resourceName, currentVal, rawNewVal, turnNumber
+                                rule, entity, resourceName, currentVal, rawNewVal, turnNumber,
+                                { emitReports: playerEntityId !== undefined && entity.entity_id === playerEntityId, sequence: systemicSeq }
                             );
                             entity.resources[resourceName] = finalValue;
                             newReports.push(...reports);
@@ -190,6 +229,7 @@ export function applyDeltas(
                     const entity = updatedEntities.find(e => e.entity_id === delta.key);
                     if (entity) {
                         const validStatuses: Entity['status'][] = ['alive', 'dead', 'exiled', 'missing'];
+                        const previousStatus = entity.status;
 
                         if (delta.new_status && validStatuses.includes(delta.new_status)) {
                             // STRUCTURED PATH (preferred, MAINT-P0.2): the model set the
@@ -200,11 +240,13 @@ export function applyDeltas(
                             // is never parsed for control flow when the structured field
                             // is present.
                             entity.status = delta.new_status;
-                        } else {
+                        } else if (!delta.new_location) {
                             // LEGACY FALLBACK (pre-MAINT-P0.2, kept as-is): no structured
                             // 'new_status' was supplied - either an older mock/save that
                             // predates the enum field, or the model omitted it. Fall back
-                            // to free-text parsing of 'reason'.
+                            // to free-text parsing of 'reason'. A delta that carries
+                            // `new_location` alone is a relocation and never takes this
+                            // path (see isDeathClaimDelta).
                             //
                             // STOPGAP (full enum redesign tracked separately): the AI's free-text
                             // 'reason' is matched against natural death phrasings ("has died", "was
@@ -249,8 +291,17 @@ export function applyDeltas(
                         // table. Copying it here (alongside status/location) keeps a
                         // single application point for everything a 'status' delta can
                         // carry.
+                        //
+                        // A secret survival belongs to the presumed-dead alone (D3), so
+                        // any ACTUAL status change that does not carry the pipeline's own
+                        // secret_truth ends it: a hidden survivor who returns alive, or a
+                        // survivor later confirmed dead on the fate table, is no longer
+                        // "secretly alive". An unchanged status (dead -> dead, a
+                        // re-declared death the mortality pipeline never rolls) keeps it.
                         if (delta.secret_truth) {
                             entity.secret_truth = delta.secret_truth;
+                        } else if (entity.status !== previousStatus) {
+                            delete entity.secret_truth;
                         }
                     }
                     break;
@@ -343,10 +394,24 @@ export function applyDeltas(
                 case 'scheme': {
                     const entity = updatedEntities.find(e => e.entity_id === delta.key);
                     if (entity) {
+                        let parsed: unknown;
                         try {
-                            entity.active_scheme = JSON.parse(delta.reason);
+                            parsed = JSON.parse(delta.reason);
                         } catch {
                             console.error(`Failed to parse scheme JSON for ${delta.key}:`, delta.reason);
+                            break;
+                        }
+                        // The model-authored scheme replaces active_scheme
+                        // wholesale, so it must BE a scheme: a parseable
+                        // object of the wrong shape (a 'plan' instead of
+                        // 'steps', a bare string) would otherwise persist and
+                        // break every later consumer that walks its steps.
+                        // Refused and recorded; the standing scheme stays.
+                        const scheme = zScheme.safeParse(parsed);
+                        if (scheme.success) {
+                            entity.active_scheme = scheme.data;
+                        } else {
+                            gmNotes.push(`[Engine] Refused a 'scheme' delta for '${delta.key}' - its reason is not a complete scheme (name, overall_goal, steps); the standing scheme was kept.`);
                         }
                     }
                     break;
@@ -399,7 +464,7 @@ export function applyDeltas(
         }
     });
 
-    return { updatedEntities, updatedWorldState, newReports, newTruthLedgerEntries };
+    return { updatedEntities, updatedWorldState, newReports, newTruthLedgerEntries, gmNotes };
 }
 
 /**
@@ -431,7 +496,9 @@ export interface PerceptionStampContext {
     /**
      * The player's entity id - ALWAYS excluded from the perceiving loop.
      * Player-side knowledge lives in the D21 knowledge store
-     * (knowledge/store.ts), never in Entity.memories stamping.
+     * (knowledge/store.ts), never in Entity.memories stamping. Also the
+     * only entity whose treasury crossings mint Reports (applyDeltas'
+     * `playerEntityId`, D6): absent, no treasury Report is minted.
      */
     playerEntityId?: string;
     /** Spotlight entity ids, first in line for the bounded perceiving set. */
@@ -461,7 +528,10 @@ export function applyAdjudication(
     perceptionContext: PerceptionStampContext = {}
 ): { updatedEntities: Entity[], updatedWorldState: WorldState, updatedReports: Report[], updatedTruthLedger: TruthLedgerEntry[], perceivingNpcIds: string[] } {
 
-    const { updatedEntities, updatedWorldState, newReports, newTruthLedgerEntries } = applyDeltas(adjudication.deltas, currentEntities, currentWorldState, adjudication.turn);
+    const { updatedEntities, updatedWorldState, newReports, newTruthLedgerEntries, gmNotes } = applyDeltas(
+        adjudication.deltas, currentEntities, currentWorldState, adjudication.turn, perceptionContext.playerEntityId
+    );
+    adjudication.gm_private.push(...gmNotes);
     let entitiesAfterDeltas = updatedEntities;
     const updatedReports = [...currentReports, ...newReports];
     const updatedTruthLedger = appendTruthLedgerEntries(currentTruthLedger, newTruthLedgerEntries);

@@ -52,6 +52,8 @@ export interface OverdraftContext {
   /** How far below the floor the raw (pre-clamp) value fell. Always > 0. */
   shortfall: number;
   turnNumber: number;
+  /** Per-call sequence for this application's Report ids (see `SystemicReportContext`). */
+  sequence: number;
 }
 
 /**
@@ -64,6 +66,24 @@ export interface WarnContext {
   /** The resource's final value (after any floor/overdraft clamping). */
   value: number;
   turnNumber: number;
+  /** Per-call sequence for this application's Report ids (see `SystemicReportContext`). */
+  sequence: number;
+}
+
+/**
+ * How one rule application may report. Both halves are threaded from
+ * ai/core/engine.ts's applyDeltas:
+ *  - `emitReports` is true only for the PLAYER'S own entity. The Reports are
+ *    the player's own treasury, which is objectively knowable (D6); another
+ *    entity's treasury is NOT, so its crossings still change its state (the
+ *    debt accrues) but mint nothing for the player's Reports.
+ *  - `sequence` is applyDeltas' per-call counter: Date.now() alone repeats
+ *    within one synchronous call, so two overdrafts in one turn would
+ *    otherwise mint two Reports with the same id.
+ */
+export interface SystemicReportContext {
+  emitReports: boolean;
+  sequence: number;
 }
 
 /**
@@ -78,7 +98,8 @@ export interface SystemicResourceRule {
    * present) and the resource is clamped to `floor`. */
   floor?: number;
   /** Called when a delta pushes the resource below `floor`. Returns any
-   * Reports to surface to the player (e.g. a "coffers run dry" notice).
+   * Reports to surface to the player (e.g. a "coffers run dry" notice) -
+   * kept only when `entity` is the player (`SystemicReportContext`).
    * May mutate `entity` directly (e.g. accumulating `debt_denarii`) -
    * the caller has already cloned entity state, so this is safe. */
   onOverdraft?: (ctx: OverdraftContext) => Report[];
@@ -92,8 +113,8 @@ export interface SystemicResourceRule {
   buildWarning?: (ctx: WarnContext) => Report;
 }
 
-function makeReportId(turnNumber: number, suffix: string): string {
-  return `report_${turnNumber}_${Date.now()}_${suffix}`;
+function makeReportId(turnNumber: number, sequence: number, suffix: string): string {
+  return `report_${turnNumber}_${Date.now()}_${sequence}_${suffix}`;
 }
 
 /**
@@ -105,12 +126,12 @@ function makeReportId(turnNumber: number, suffix: string): string {
  */
 const denariiRule: SystemicResourceRule = {
   floor: 0,
-  onOverdraft: ({ entity, shortfall, turnNumber }) => {
+  onOverdraft: ({ entity, shortfall, turnNumber, sequence }) => {
     const currentDebt = (entity.resources['debt_denarii'] as number) || 0;
     entity.resources['debt_denarii'] = currentDebt + shortfall;
 
     const report: Report = {
-      id: makeReportId(turnNumber, 'debt'),
+      id: makeReportId(turnNumber, sequence, 'debt'),
       turn: turnNumber,
       source: 'merchant',
       about: entity.entity_id,
@@ -120,8 +141,8 @@ const denariiRule: SystemicResourceRule = {
     return [report];
   },
   warnBelow: LOW_TREASURY_THRESHOLD,
-  buildWarning: ({ entity, value, turnNumber }) => ({
-    id: makeReportId(turnNumber, 'low_treasury'),
+  buildWarning: ({ entity, value, turnNumber, sequence }) => ({
+    id: makeReportId(turnNumber, sequence, 'low_treasury'),
     turn: turnNumber,
     source: 'merchant',
     about: entity.entity_id,
@@ -153,6 +174,10 @@ export const SYSTEMIC_RESOURCES: Record<string, SystemicResourceRule> = {
  * falls out of this without any extra "have we warned before" flag to
  * persist - as long as the entity stays below the threshold, subsequent
  * calls have `previousValue` already below it too, so no re-fire.
+ *
+ * `report.emitReports` false (any entity but the player): the state
+ * consequences still land (the floor, the debt `onOverdraft` accrues) but
+ * no Report is returned.
  */
 export function applySystemicResourceRule(
   rule: SystemicResourceRule,
@@ -160,16 +185,18 @@ export function applySystemicResourceRule(
   resourceName: string,
   previousValue: number,
   rawNewValue: number,
-  turnNumber: number
+  turnNumber: number,
+  report: SystemicReportContext
 ): { finalValue: number; reports: Report[] } {
   const reports: Report[] = [];
+  const { sequence } = report;
   let finalValue = rawNewValue;
 
   if (rule.floor !== undefined && rawNewValue < rule.floor) {
     const shortfall = rule.floor - rawNewValue;
     finalValue = rule.floor;
     if (rule.onOverdraft) {
-      reports.push(...rule.onOverdraft({ entity, resourceName, shortfall, turnNumber }));
+      reports.push(...rule.onOverdraft({ entity, resourceName, shortfall, turnNumber, sequence }));
     }
   }
 
@@ -177,9 +204,9 @@ export function applySystemicResourceRule(
     const wasAtOrAbove = previousValue >= rule.warnBelow;
     const isNowBelow = finalValue < rule.warnBelow;
     if (wasAtOrAbove && isNowBelow) {
-      reports.push(rule.buildWarning({ entity, resourceName, value: finalValue, turnNumber }));
+      reports.push(rule.buildWarning({ entity, resourceName, value: finalValue, turnNumber, sequence }));
     }
   }
 
-  return { finalValue, reports };
+  return { finalValue, reports: report.emitReports ? reports : [] };
 }

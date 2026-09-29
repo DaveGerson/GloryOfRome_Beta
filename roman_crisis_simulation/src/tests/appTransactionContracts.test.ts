@@ -238,6 +238,21 @@ function makeAppSave(overrides: Partial<SaveGameState> = {}): SaveGameState {
   });
 }
 
+/**
+ * Adds the Senate's bodies the grain-shortage choices act on: an authored
+ * event fires only in a world whose roster holds them
+ * (events/engine.ts::isEventForThisWorld).
+ */
+function withSenateBodies(entities: Entity[]): Entity[] {
+  const template = entities.find(entity => entity.entity_id === 'gaius_pontius_magnus')!;
+  return [
+    ...entities,
+    ...[['senatorial_party', 'Senatorial Party'], ['roman_senate', 'Roman Senate']].map(([entity_id, name]): Entity => ({
+      ...template, entity_id, name, entity_type: 'faction', relationships: {}, memories: [], visibility_network: [],
+    })),
+  ];
+}
+
 async function renderApp(continueSave: boolean, mockMode = true): Promise<HTMLDivElement> {
   const container = document.createElement('div');
   document.body.appendChild(container);
@@ -592,6 +607,7 @@ describe('App non-turn save atomicity', () => {
   it('keeps a triggered event modal and all event/domain/transcript slices unchanged when its choice cannot persist', async () => {
     const base = makeAppSave();
     const state = makeAppSave({
+      entities: withSenateBodies(base.entities),
       worldState: { ...base.worldState, economic_stability: 'Failing' },
     });
     const container = await mountApp(state);
@@ -871,6 +887,7 @@ describe('App in-flight transaction barrier', () => {
   it('rejects a forced event choice while an intel request owns the shared mutex', async () => {
     const base = makeAppSave();
     const container = await mountApp(makeAppSave({
+      entities: withSenateBodies(base.entities),
       worldState: { ...base.worldState, economic_stability: 'Failing' },
     }));
     await playOneTurn(container, 'Bring the grain crisis to a decision');
@@ -1880,6 +1897,7 @@ describe('App turn-commit boundary and hidden-error surfacing (C1)', () => {
   it('surfaces a failed event-choice save inside the modal dialog and keeps the choice retryable', async () => {
     const base = makeAppSave();
     const state = makeAppSave({
+      entities: withSenateBodies(base.entities),
       worldState: { ...base.worldState, economic_stability: 'Failing' },
     });
     const container = await mountApp(state);

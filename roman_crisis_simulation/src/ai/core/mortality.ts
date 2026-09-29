@@ -201,6 +201,15 @@ export function partitionOutcomeDeltas(
  * passes its per-turn `createSeededRng` generator, whose seed is recorded
  * on the turn's history entry); when omitted, rolls fall back to
  * `Math.random` and are not replayable.
+ *
+ * `playerOutcomeDirective` (returned only when the PLAYER'S own death claim
+ * was validated and rolled): the resolved band's narrative directive, which
+ * ai/core/turn.ts hands to the narration prompt as the one outcome it must
+ * narrate (D2: "Narration explains the escape"). It is either a band's
+ * fixed default or the outcome call's directive, which has already passed
+ * `assertPlayerVisibleTextSafe` below. NPC directives are never returned:
+ * an NPC's fate reaches narration only through the player-perceived digest
+ * (a presumed-dead directive would otherwise tell the narrator the secret).
  */
 export async function processMortality(
   ai: GeminiClient,
@@ -211,7 +220,7 @@ export async function processMortality(
   isMockMode: boolean,
   rng?: Rng,
   validationContext: MortalityValidationContext = {}
-): Promise<{ transformedAdjudication: Adjudication; mortalityEvents: MortalityEvent[] }> {
+): Promise<{ transformedAdjudication: Adjudication; mortalityEvents: MortalityEvent[]; playerOutcomeDirective?: string }> {
   if (isMockMode) {
     return { transformedAdjudication: adjudication, mortalityEvents: [] };
   }
@@ -294,7 +303,13 @@ export async function processMortality(
       thinkingConfig: { thinkingBudget: 512 },
     });
 
+    // Matched by candidate id: an outcome keyed to anyone else dresses no
+    // fate rolled this turn, so it is ignored - and the candidate it failed
+    // to name is treated as having no outcome at all (the band's default
+    // directive, and the missing-content note below).
+    const candidateIds = new Set(needingOutcome.map(r => r.claim.entity.entity_id));
     for (const o of outcomeResult.outcomes) {
+      if (!candidateIds.has(o.entity_id)) continue;
       assertPlayerVisibleTextSafe(o.narrative_directive);
       // Actors-attribution parse boundary (D42): strip the
       // interchange-only `actors` sibling off every outcome delta before it
@@ -325,6 +340,7 @@ export async function processMortality(
   const mortalityEvents: MortalityEvent[] = [];
   const extraDeltas: EventDelta[] = [];
   const knownEntityIds = new Set(entities.map(entity => entity.entity_id));
+  let playerOutcomeDirective: string | undefined;
 
   for (const r of resolved) {
     const { claim, originalCause, valid, reasoning } = r;
@@ -345,9 +361,9 @@ export async function processMortality(
       // 'alive': vetoing a hallucinated death of an exiled/missing entity
       // must not quietly restore them.
       claim.delta.new_status = claim.entity.status;
-      // `reason` is narrative text that reaches the narrator (and GM views).
-      // Keep it diegetic - the validation reasoning itself is GM-only and
-      // already recorded in gm_private below.
+      // `reason` is committed narrative text (the GM views read it; the
+      // narration prompt does not). Keep it diegetic - the validation
+      // reasoning itself is GM-only and already recorded in gm_private below.
       claim.delta.reason = `${claim.entity.name} comes through the turn's events unharmed; darker reports prove unfounded.`;
 
       const summary = `Death claim invalidated - ${reasoning}`;
@@ -368,12 +384,21 @@ export async function processMortality(
     const narrativeDirective = contentOverride?.narrative_directive ?? outcome.defaultDirective;
 
     const publicDies = isNpcFateOutcome(outcome) ? outcome.publicStatus === 'dead' : outcome.dies;
-    claim.delta.new_status = publicDies ? 'dead' : 'alive';
-    // `reason` reaches the narrator: carry ONLY the narrative directive.
-    // The roll/band/validation mechanics are D4-hidden and already recorded
-    // in gm_private (below) and the mortalityTrace.
+    // A survival band keeps the entity's standing status, as the invalid
+    // branch above does: surviving an attempt on one's life does not end an
+    // exile (D1) or bring the missing home. Only an entity alive before the
+    // claim is written back as 'alive'.
+    claim.delta.new_status = publicDies ? 'dead' : claim.entity.status;
+    // The narration prompt never reads this `reason` (it narrates from the
+    // player-perceived digest, and the player's own resolved directive is
+    // handed to it separately - `playerOutcomeDirective` below). It carries
+    // ONLY the narrative directive so that nothing in the committed delta
+    // exposes the roll/band/validation mechanics, which are D4-hidden and
+    // recorded in gm_private (below) and the mortalityTrace.
     claim.delta.reason = narrativeDirective;
+    if (claim.isPlayer) playerOutcomeDirective = narrativeDirective;
 
+    let authoredSideEffects = 0;
     if (contentOverride?.deltas && contentOverride.deltas.length > 0) {
       // SECURITY GATE (D2/D4): the outcome call authors SIDE-EFFECT content
       // (resource losses, relationship shifts, rumors, scheme changes) - it
@@ -394,6 +419,7 @@ export async function processMortality(
         throw new Error(MORTALITY_OUTCOME_BOUNDARY_ERROR);
       }
       extraDeltas.push(...safe);
+      authoredSideEffects = safe.length;
       for (const dropped of rejected) {
         gmPrivateNotes.push(
           `[Mortality] ${entityLabel}: REJECTED a 'status' delta authored by the outcome call (key: ${dropped.key}) - status changes may only come from the validated fate roll.`
@@ -412,6 +438,16 @@ export async function processMortality(
     gmPrivateNotes.push(
       `[Mortality] ${entityLabel}: validated death claim -> roll ${roll} -> ${outcome.band} (${outcome.label})`
     );
+    // D2 makes the loss (or boon) real deltas, "not just prose". The band
+    // still commits when the outcome call authored none - no fallback is
+    // invented here - but the GM console must not read the band's label
+    // above as if the loss had happened.
+    if ((outcome.needsLoss || outcome.needsBoon) && authoredSideEffects === 0) {
+      const kind = outcome.needsLoss ? 'loss' : 'boon';
+      gmPrivateNotes.push(
+        `[Mortality] ${entityLabel}: the ${outcome.band} band required a ${kind} but none was authored - it committed without one.`
+      );
+    }
     mortalityEvents.push({
       entity_id: claim.entity.entity_id,
       entity_name: claim.entity.name,
@@ -426,5 +462,5 @@ export async function processMortality(
   transformed.deltas.push(...extraDeltas);
   transformed.gm_private.push(...gmPrivateNotes);
 
-  return { transformedAdjudication: transformed, mortalityEvents };
+  return { transformedAdjudication: transformed, mortalityEvents, playerOutcomeDirective };
 }

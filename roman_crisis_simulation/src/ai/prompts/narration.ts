@@ -138,8 +138,14 @@ ${lines.join('\n')}
  * The event input accepts only `text` and `source` from the D5 visibility
  * seam; no raw adjudication/entityAction/delta/headline field can enter this
  * player-output request. `updatedPlayerEntity` is independently sanitized.
- * Mortality reaches this prompt through the same perceived-event input;
- * raw mortality trace directives are GM-side state and are never accepted.
+ * Mortality reaches this prompt through the same perceived-event input,
+ * with ONE exception: `playerOutcomeDirective`, the settled outcome of a
+ * validated attempt on the PLAYER'S own life (ai/core/mortality.ts), which
+ * the digest alone cannot convey ("you are now alive" says nothing of the
+ * blade) and which D2 requires narration to explain. It carries no secret -
+ * the player lived through it - and is checked against the mechanics
+ * boundary before it arrives. NPC mortality directives and the mortality
+ * trace are GM-side state and are never accepted.
  *
  * `metaNarrative` and `playerSubmission.context` are player-typed free
  * text - both delimited via `asPromptData` (D41) so neither can forge a
@@ -155,7 +161,11 @@ export function buildNarrationPrompt(
   // may carry - callers pass `selectVoiceCast`'s output (spotlight +
   // involved entities only, never the whole roster). Defaults to [] so
   // legacy call sites/tests behave exactly as before the block existed.
-  voiceCast: Entity[] = []
+  voiceCast: Entity[] = [],
+  // The resolved outcome of a validated attempt on the player's own life
+  // this turn (see the doc comment above). Absent: no OUTCOME TO NARRATE
+  // block, the instruction and prompt exactly as before.
+  playerOutcomeDirective?: string
 ): { systemInstruction: string; prompt: string } {
   // String callers are legacy direct prompt tests. The real pipeline passes
   // the typed projection so private-only text can never be mistaken for an
@@ -166,6 +176,10 @@ export function buildNarrationPrompt(
   const playerTurnInstruction = playerSubmission.hasObservableAttempt
     ? 'Begin with the direct, observable consequences of the player\'s submitted attempt. Private intent remains player-owned goal context only: do not turn it into facts, concealment, NPC knowledge, or an additional action.'
     : "Begin with a player-view response or reflection on the submitted private intent and question/context. No observable attempt was submitted: do not invent an action or immediate consequence, and do not make the avatar investigate or act. The player's id must NEVER appear in any 'actors' list this turn.";
+  // The OUTCOME TO NARRATE block is a sanctioned source alongside the
+  // perceived events, so tasks 1b and 1d name it - only when there is one,
+  // leaving every other turn's instruction exactly as before.
+  const outcomeSource = (joiner: string) => playerOutcomeDirective ? ` ${joiner} the OUTCOME TO NARRATE block` : '';
   const playerContextLabel = playerSubmission.hasObservableAttempt
     ? "PLAYER'S OBSERVABLE ATTEMPT THIS TURN:"
     : 'PLAYER-OWNED CONTEXT THIS TURN (NO OBSERVABLE ACTION SUBMITTED):';
@@ -179,9 +193,9 @@ META-NARRATIVE: The story's theme is ${asPromptData(metaNarrative)}. Your tone a
 Task:
 1.  **Narrate the Turn (2-3 paragraphs):** Write a narrative summary for the player. This MUST follow a specific structure:
     a.  **Player Turn Context:** ${playerTurnInstruction}
-    b.  **Observed & Reported Events:** Describe the PLAYER-PERCEIVED TURN EVENTS strictly from the player's vantage point.
+    b.  **Observed & Reported Events:** Describe the PLAYER-PERCEIVED TURN EVENTS${outcomeSource('and')} strictly from the player's vantage point.
     c.  **Source Information:** For any information the player didn't witness directly, you MUST state how they learned of it. Be specific and creative. Examples: "A panicked messenger arrives...", "Whispers in the Senate, relayed by your ally Gaius Pontius, suggest...", "A coded message from your spymaster reveals...". This makes information potentially unreliable.
-    d.  **Tone:** Maintain a tone of Tacitus meets field report. Focus on concrete outcomes. Do not invent new facts not present in the PLAYER-PERCEIVED TURN EVENTS.
+    d.  **Tone:** Maintain a tone of Tacitus meets field report. Focus on concrete outcomes. Do not invent new facts not present in the PLAYER-PERCEIVED TURN EVENTS${outcomeSource('or')}.
     e.  **Moment Line (ROADMAP_PHASE_4.md 4D item 3):** When a named character's visible action clearly culminates or detonates in the PLAYER-PERCEIVED TURN EVENTS, give that character ONE short signature spoken line, quoted in their own voice (per CAST VOICES when present): the line a chronicler would set down. At most one line per character, only at a true culmination, and reveal nothing beyond those player-perceived events.
     f.  **Actors Attribution:** ${ACTORS_DESCRIPTION}
 
@@ -199,9 +213,25 @@ ${asPromptData(playerSubmission.context)}
 ${buildVoiceCastBlock(voiceCast)}
 PLAYER-PERCEIVED TURN EVENTS:
 ${JSON.stringify(perceivedEvents.map(({ text, source }) => ({ text, source })), null, 2)}
-`;
+${buildPlayerOutcomeBlock(playerOutcomeDirective)}`;
 
   return { systemInstruction, prompt };
+}
+
+/**
+ * The narration prompt's OUTCOME TO NARRATE block: the settled result of an
+ * attempt on the player's own life (D2), stated as fact the narrator must
+ * render and may not change. It licenses HOW the moment played out, never
+ * WHO stood behind it - an attacker the player did not see stays unnamed
+ * unless the perceived events name them (D5). Empty when there is none.
+ */
+function buildPlayerOutcomeBlock(playerOutcomeDirective: string | undefined): string {
+  if (!playerOutcomeDirective) return '';
+  return `
+OUTCOME TO NARRATE (already decided - narrate it, never change it):
+An attempt was made on the player's own life this turn, and its outcome is settled: ${playerOutcomeDirective}
+Narrate that attempt and its outcome from the player's own vantage point, as established fact alongside the PLAYER-PERCEIVED TURN EVENTS - never soften, reverse, or second-guess it. You may describe how the moment unfolded; do not name who was behind it unless the PLAYER-PERCEIVED TURN EVENTS do.
+`;
 }
 
 /**

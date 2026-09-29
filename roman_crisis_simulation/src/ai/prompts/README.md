@@ -86,12 +86,18 @@ decides an outcome, only narrates one the code already rolled**
   endpoint; a rumor concerns the candidate but may be spread by any real
   entity (or omit `origin_id` when genuinely organic). Status, unrelated
   entity, region, faction, and world effects are rejected before apply.
-- The narration call (`narration.ts::buildNarrationPrompt`) receives those
-  directives as non-negotiable staging notes, plus a SANITIZED adjudication
-  (`sanitizeAdjudicationForNarration` strips `gm_private` and any
-  `secret_truth` trace) - see the CRITICAL LEAK-PREVENTION comment there for
-  why: a "presumed dead" NPC's secret survival must never reach a
-  player-facing prompt.
+- The adjudicator declares a death as a CLAIM and phrases every trace of it
+  (headlines, delta reasons, notes) as the attempt on that life
+  (`adjudication.ts`'s DEATHS ARE CLAIMS rule), because the roll settles it
+  afterwards; the validator is told to expect that phrasing.
+- The narration call (`narration.ts::buildNarrationPrompt`) narrates from the
+  player-perceived digest alone, with ONE mortality exception: the resolved
+  directive for the PLAYER'S own validated claim arrives as the OUTCOME TO
+  NARRATE block (`processMortality`'s `playerOutcomeDirective`), which the
+  standing instruction then names beside the digest as a source of fact, so
+  the narration can explain the escape (D2). An NPC's directive never reaches it
+  - a "presumed dead" NPC's secret survival must never reach a player-facing
+  prompt.
 
 If you touch this pipeline, keep that direction of control intact: adding
 a field the model could use to influence life/death would reopen the exact
