@@ -44,3 +44,21 @@ describe('a relocation whose reason names a death', () => {
     expect(isDeathClaimDelta(legacy)).toBe(true);
   });
 });
+
+describe('a secret tie is a secret an investigation can reach (D47 x D49)', () => {
+  it('joins the secrets pool; an openly professed tie never does', async () => {
+    const { groundTruthPool } = await import('../ai/core/groundTruth');
+    const mamaea = makeEntity({
+      entity_id: 'mamaea', name: 'Julia Mamaea', location: 'Palatine Hill',
+      secrets: ['Fears the legions more than the Senate.'],
+      affiliations: [
+        { id: 'origen', name: 'the circle of Origen', kind: 'religion', public: false },
+        { id: 'boosters', name: 'the boosters of the triumph', kind: 'cause', public: true },
+      ],
+    });
+    const pool = groundTruthPool(mamaea, 'secrets');
+    expect(pool).toContainEqual({ source: 'secret_affiliation', text: 'Keeps a secret tie to the circle of Origen (a religion).' });
+    expect(pool.some(item => item.text.includes('boosters'))).toBe(false);
+    expect(groundTruthPool(mamaea, 'beliefs').some(item => item.source === 'secret_affiliation')).toBe(false);
+  });
+});

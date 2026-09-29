@@ -15,7 +15,7 @@
 import { Adjudication, Entity, WorldState, SimulationState, NpcIntent, IntelDistortion } from '../../types';
 import type { ActionResolutionTier } from '../core/resolution';
 import type { InvestigationPlan, PlannedFinding, SchemeNaturePlan } from '../core/groundTruth';
-import { REDACTED_SCHEME_REASON, asPromptData, playerOutputDeltaKey, playerOutputDeltaReason } from './fragments';
+import { asPromptData, playerOutputDeltaKey, playerOutputDeltaReason } from './fragments';
 import { ACTORS_DESCRIPTION } from '../core/schemas';
 
 // --- D47 grounding: what the agents actually reached -----------------------

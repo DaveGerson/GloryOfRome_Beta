@@ -41,6 +41,7 @@ import type {
     TruthLedgerEntry,
 } from '../../types';
 import type { Rng } from './resolution';
+import { secretAffiliationsOf } from './affiliations';
 
 /** The investigation-family aspects that reach for ground truth (D47). */
 export type GroundTruthKind = 'beliefs' | 'secrets' | 'scheme' | 'deep_analysis';
@@ -53,6 +54,7 @@ export type GroundTruthKind = 'beliefs' | 'secrets' | 'scheme' | 'deep_analysis'
 export type GroundTruthSource =
     | 'belief'
     | 'secret'
+    | 'secret_affiliation'
     | 'scheme_goal'
     | 'scheme_step'
     | 'situation'
@@ -83,7 +85,17 @@ export function groundTruthPool(target: Entity, kind: GroundTruthKind): GroundTr
         case 'beliefs':
             return nonBlank(target.beliefs).map(text => ({ source: 'belief', text }));
         case 'secrets':
-            return nonBlank(target.secrets).map(text => ({ source: 'secret', text }));
+            return [
+                ...nonBlank(target.secrets).map(text => ({ source: 'secret' as const, text })),
+                // A tie kept secret (D49) is a secret like any other: an
+                // investigation may reach it, at its rolled fidelity and
+                // accuracy (D47). Openly professed ties are public knowledge
+                // and never a finding.
+                ...secretAffiliationsOf(target).map(tie => ({
+                    source: 'secret_affiliation' as const,
+                    text: `Keeps a secret tie to ${tie.name}${tie.kind === 'other' ? '' : ` (a ${tie.kind})`}.`,
+                })),
+            ];
         case 'scheme': {
             const scheme = target.active_scheme;
             if (!scheme) return [];
