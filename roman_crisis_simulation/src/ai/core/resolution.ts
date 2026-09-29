@@ -547,10 +547,12 @@ const INVESTIGATION_BASE_DIFFICULTY = 12;
  * ai/prompts/intelligence.ts::buildInvestigationPrompt and was never
  * actually load-bearing (ai/tools/intelligence.ts::getInvestigationResult
  * never passed a real risk signal into the prompt).
+ * Both inputs count only on their scales (see `clampToScale`), so a target
+ * written on a 0-100 convention is no harder to investigate than a 10/10 one.
  */
 export function deriveInvestigationDifficulty(target: Entity): number {
-    const paranoia = target.personality?.paranoia ?? TRAIT_MODIFIER_CENTER;
-    const intrigueSkill = target.skills?.intrigue ?? TRAIT_MODIFIER_CENTER;
+    const paranoia = clampToScale(target.personality?.paranoia ?? TRAIT_MODIFIER_CENTER, TRAIT_SCALE);
+    const intrigueSkill = clampToScale(target.skills?.intrigue ?? TRAIT_MODIFIER_CENTER, SKILL_SCALE);
     const raw = INVESTIGATION_BASE_DIFFICULTY + (paranoia - TRAIT_MODIFIER_CENTER) + (intrigueSkill - TRAIT_MODIFIER_CENTER);
     return clampDifficulty(raw);
 }

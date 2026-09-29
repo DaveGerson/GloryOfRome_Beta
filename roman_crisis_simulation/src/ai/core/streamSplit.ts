@@ -29,28 +29,47 @@ export const SUGGESTION_MARKER = 'SUGGESTION:';
 /**
  * Markup left standing in front of a marker - a bold or italic opener, a
  * list bullet, a heading - when it stands on its own (at the start, or after
- * whitespace). Stripped from the text before a marker. An asterisk that
- * closes a word ("...*Alea iacta est*") is attached to it and is kept.
+ * whitespace), or a list number ("1.", "2)") opening its own line. Stripped
+ * from the text before a marker. An asterisk that closes a word
+ * ("...*Alea iacta est*") is attached to it and is kept, as is a number
+ * that ends a sentence ("...in the year 235.").
  */
-const DANGLING_MARKUP = /(?<=^|\s)(?:[*_#•-]+(?:\s+|$))+$/;
+const DANGLING_MARKUP = /(?:(?<=^|\s)[*_#•-]+(?:\s+|$)|(?<=^|\n)[ \t]*\d{1,2}[.)](?:\s+|$))+$/;
 
 /** The closing half of a wrapped marker ("**SUGGESTION:**"), detached from the suggestion's first word. */
 const LEADING_MARKUP = /^\s*[*_]+(?=\s|$)/;
+
+/** Emphasis closing a suggestion's last word ("Bribe the guards.**"). */
+const TRAILING_CLOSER = /(?<=\S)[*_]+$/;
+
+/**
+ * Drops a trailing emphasis closer that nothing in the suggestion opened -
+ * the other half of a whole line wrapped around its marker
+ * ("**SUGGESTION: Bribe the guards.**"). A closed phrase
+ * ("Whisper *alea iacta est*") keeps its closer.
+ */
+function stripUnpairedCloser(suggestion: string): string {
+  const closer = TRAILING_CLOSER.exec(suggestion);
+  if (!closer) return suggestion;
+  const opener = new RegExp(`(?:^|\\s)${closer[0].replace(/\*/g, '\\*')}(?=\\S)`);
+  return opener.test(suggestion.slice(0, closer.index)) ? suggestion : suggestion.slice(0, closer.index);
+}
 
 /**
  * Splits a COMPLETE narration response into the narration and its
  * suggested next steps at every `SUGGESTION_MARKER` - the committed form of
  * what `createNarrationStreamGate` releases while streaming. Markup the
- * marker left behind (a dangling "**" or "- " before it, a closing "**"
- * after it) is removed from both sides so it never renders as literal
- * asterisks. Empty suggestions are dropped.
+ * marker left behind (a dangling "**", "- " or "1." before it, a closing
+ * "**" after it or at the end of its line) is removed from both sides so it
+ * never renders as literal asterisks or stray numbers. Empty suggestions
+ * are dropped.
  */
 export function splitNarrationSuggestions(fullText: string): { narration: string; suggestions: string[] } {
   const [head, ...rest] = fullText.split(SUGGESTION_MARKER);
   return {
     narration: head.replace(DANGLING_MARKUP, '').trim(),
     suggestions: rest
-      .map(part => part.replace(LEADING_MARKUP, '').replace(DANGLING_MARKUP, '').trim())
+      .map(part => stripUnpairedCloser(part.replace(LEADING_MARKUP, '').replace(DANGLING_MARKUP, '').trim()))
       .filter(suggestion => suggestion.length > 0),
   };
 }
@@ -76,11 +95,12 @@ export function splitNarrationSuggestions(fullText: string): { narration: string
  *    "...arrives.\nSUGGE" must not render "SUGGE" as prose) - buffer-
  *    boundary safety for a marker that arrived split across two or more
  *    stream chunks - together with the whitespace and any standalone markup
- *    ("**", "- ") in front of it, which would otherwise flash as literal
- *    asterisks before the marker lands. That suffix is re-evaluated fresh
- *    on every call, so it either gets swallowed into a completed marker on
- *    a later call, or turns out to have been ordinary prose all along and
- *    is released once more text proves it isn't the marker.
+ *    ("**", "- ", a line's "1.") in front of it, which would otherwise
+ *    flash as literal asterisks or a stray number before the marker lands.
+ *    That suffix is re-evaluated fresh on every call, so it either gets
+ *    swallowed into a completed marker on a later call, or turns out to
+ *    have been ordinary prose all along and is released once more text
+ *    proves it isn't the marker.
  */
 export function createNarrationStreamGate(): (cumulativeText: string) => string {
   return (cumulativeText: string): string => {

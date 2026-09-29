@@ -164,7 +164,7 @@ export function buildNarrationPrompt(
   voiceCast: Entity[] = [],
   // The resolved outcome of a validated attempt on the player's own life
   // this turn (see the doc comment above). Absent: no OUTCOME TO NARRATE
-  // block, the prompt exactly as before.
+  // block, the instruction and prompt exactly as before.
   playerOutcomeDirective?: string
 ): { systemInstruction: string; prompt: string } {
   // String callers are legacy direct prompt tests. The real pipeline passes
@@ -176,6 +176,10 @@ export function buildNarrationPrompt(
   const playerTurnInstruction = playerSubmission.hasObservableAttempt
     ? 'Begin with the direct, observable consequences of the player\'s submitted attempt. Private intent remains player-owned goal context only: do not turn it into facts, concealment, NPC knowledge, or an additional action.'
     : "Begin with a player-view response or reflection on the submitted private intent and question/context. No observable attempt was submitted: do not invent an action or immediate consequence, and do not make the avatar investigate or act. The player's id must NEVER appear in any 'actors' list this turn.";
+  // The OUTCOME TO NARRATE block is a sanctioned source alongside the
+  // perceived events, so tasks 1b and 1d name it - only when there is one,
+  // leaving every other turn's instruction exactly as before.
+  const outcomeSource = (joiner: string) => playerOutcomeDirective ? ` ${joiner} the OUTCOME TO NARRATE block` : '';
   const playerContextLabel = playerSubmission.hasObservableAttempt
     ? "PLAYER'S OBSERVABLE ATTEMPT THIS TURN:"
     : 'PLAYER-OWNED CONTEXT THIS TURN (NO OBSERVABLE ACTION SUBMITTED):';
@@ -189,9 +193,9 @@ META-NARRATIVE: The story's theme is ${asPromptData(metaNarrative)}. Your tone a
 Task:
 1.  **Narrate the Turn (2-3 paragraphs):** Write a narrative summary for the player. This MUST follow a specific structure:
     a.  **Player Turn Context:** ${playerTurnInstruction}
-    b.  **Observed & Reported Events:** Describe the PLAYER-PERCEIVED TURN EVENTS strictly from the player's vantage point.
+    b.  **Observed & Reported Events:** Describe the PLAYER-PERCEIVED TURN EVENTS${outcomeSource('and')} strictly from the player's vantage point.
     c.  **Source Information:** For any information the player didn't witness directly, you MUST state how they learned of it. Be specific and creative. Examples: "A panicked messenger arrives...", "Whispers in the Senate, relayed by your ally Gaius Pontius, suggest...", "A coded message from your spymaster reveals...". This makes information potentially unreliable.
-    d.  **Tone:** Maintain a tone of Tacitus meets field report. Focus on concrete outcomes. Do not invent new facts not present in the PLAYER-PERCEIVED TURN EVENTS.
+    d.  **Tone:** Maintain a tone of Tacitus meets field report. Focus on concrete outcomes. Do not invent new facts not present in the PLAYER-PERCEIVED TURN EVENTS${outcomeSource('or')}.
     e.  **Moment Line (ROADMAP_PHASE_4.md 4D item 3):** When a named character's visible action clearly culminates or detonates in the PLAYER-PERCEIVED TURN EVENTS, give that character ONE short signature spoken line, quoted in their own voice (per CAST VOICES when present): the line a chronicler would set down. At most one line per character, only at a true culmination, and reveal nothing beyond those player-perceived events.
     f.  **Actors Attribution:** ${ACTORS_DESCRIPTION}
 

@@ -17,7 +17,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { applyAdjudication, applyDeltas, isDeathClaimDelta } from '../ai/core/engine';
 import { processMortality, detectDeathClaims } from '../ai/core/mortality';
-import { resolveAction, derivePersonalityModifier, clampDifficulty } from '../ai/core/resolution';
+import { resolveAction, derivePersonalityModifier, clampDifficulty, deriveInvestigationDifficulty } from '../ai/core/resolution';
 import { selectDurableIntents } from '../ai/core/directorIntents';
 import { evolveSchemeFromAdjustment, buildMindSchemeDeltas } from '../ai/core/turn';
 import { createNarrationStreamGate, createPayloadTextExtractor, splitNarrationSuggestions } from '../ai/core/streamSplit';
@@ -120,8 +120,9 @@ describe("the player's own settled outcome reaches narration (rules-mortality-di
   it('the narration prompt carries OUTCOME TO NARRATE only when handed one, and is otherwise unchanged', () => {
     const narrator = makeEntity();
     const without = buildNarrationPrompt('A crisis.', narrator, 'Hold court', [], []);
-    expect(buildNarrationPrompt('A crisis.', narrator, 'Hold court', [], [], undefined).prompt).toBe(without.prompt);
+    expect(buildNarrationPrompt('A crisis.', narrator, 'Hold court', [], [], undefined)).toEqual(without);
     expect(without.prompt).not.toContain('OUTCOME TO NARRATE');
+    expect(without.systemInstruction).not.toContain('OUTCOME TO NARRATE');
 
     const directive = 'Narrate a harrowing survival that costs them something concrete and lasting.';
     const withOutcome = buildNarrationPrompt('A crisis.', narrator, 'Hold court', [], [], directive);
@@ -129,6 +130,9 @@ describe("the player's own settled outcome reaches narration (rules-mortality-di
     expect(withOutcome.prompt).toContain(directive);
     // It licenses how the moment unfolded, never who stood behind it (D5).
     expect(withOutcome.prompt).toContain('do not name who was behind it unless the PLAYER-PERCEIVED TURN EVENTS do');
+    // The standing instruction names it as a source, so "invent no new facts" cannot drop it.
+    expect(withOutcome.systemInstruction).toContain('Describe the PLAYER-PERCEIVED TURN EVENTS and the OUTCOME TO NARRATE block strictly');
+    expect(withOutcome.systemInstruction).toContain('Do not invent new facts not present in the PLAYER-PERCEIVED TURN EVENTS or the OUTCOME TO NARRATE block.');
   });
 });
 
@@ -492,6 +496,15 @@ describe('skills and traits count only on their scales (rules-offscale-traits-au
     expect(resolveAction({ roll: 10, relevantSkillValue: -4, personalityModifier: 0, oppositionModifier: 0, difficulty: 10 }).total).toBe(10);
   });
 
+  it("an investigation target's 0-100 paranoia and intrigue count as 10s", () => {
+    const offScale = makeEntity({ personality: { ...traits(5), paranoia: 20 }, skills: { intrigue: 20 } });
+    const topOfScale = makeEntity({ personality: { ...traits(5), paranoia: 10 }, skills: { intrigue: 10 } });
+    expect(deriveInvestigationDifficulty(offScale)).toBe(22);
+    expect(deriveInvestigationDifficulty(offScale)).toBe(deriveInvestigationDifficulty(topOfScale));
+    const belowScale = makeEntity({ personality: { ...traits(5), paranoia: 0 }, skills: { intrigue: 10 } });
+    expect(deriveInvestigationDifficulty(belowScale)).toBe(12 + (1 - 5) + (10 - 5));
+  });
+
   it('world generation is told the 1-10 scales', () => {
     const properties = EntitySchema.properties as Record<string, { description?: string }>;
     expect(properties.personality.description).toContain('rated 1-10');
@@ -544,9 +557,13 @@ describe('the stream gate and the committed split share one marker (voice-stream
     ['inline', 'The gate holds. SUGGESTION: Bribe the guards.\nSUGGESTION: Visit the Curia.'],
     ['bold', 'The gate holds.\n**SUGGESTION:** Bribe the guards.\n**SUGGESTION:** Visit the Curia.'],
     ['bulleted', 'The gate holds.\n\n- SUGGESTION: Bribe the guards.\n- SUGGESTION: Visit the Curia.'],
+    ['line-bold', 'The gate holds.\n**SUGGESTION: Bribe the guards.**\n**SUGGESTION: Visit the Curia.**'],
+    ['numbered', 'The gate holds.\n1. SUGGESTION: Bribe the guards.\n2. SUGGESTION: Visit the Curia.'],
+    ['numbered-paren', 'The gate holds.\n1) SUGGESTION: Bribe the guards.\n2) SUGGESTION: Visit the Curia.'],
+    ['numbered-bold', 'The gate holds.\n\n1. **SUGGESTION:** Bribe the guards.\n2. **SUGGESTION:** Visit the Curia.'],
   ])('a %s marker never streams, and commits cleanly', (_label, text) => {
     for (const released of streamReleases(text)) {
-      expect(released).not.toMatch(/SUGGESTION|Bribe|\*/);
+      expect(released).not.toMatch(/SUGGESTION|Bribe|\*|\n\s*\d/);
     }
     expect(splitNarrationSuggestions(text)).toEqual({
       narration: 'The gate holds.',
@@ -559,10 +576,20 @@ describe('the stream gate and the committed split share one marker (voice-stream
     expect(gate('The gate holds.\n**SUGG')).toBe('The gate holds.');
     expect(gate('The gate holds. **')).toBe('The gate holds.');
     expect(gate('The gate holds. **Rome** burns')).toBe('The gate holds. **Rome** burns');
+    expect(gate('The gate holds.\n1. SUGG')).toBe('The gate holds.');
+    expect(gate('The gate holds.\n2.')).toBe('The gate holds.');
+    expect(gate('The gate holds.\n1. The legions wait')).toBe('The gate holds.\n1. The legions wait');
   });
 
-  it("keeps an italic phrase that closes the narration", () => {
+  it("keeps an italic phrase that closes the narration, and a year that ends its sentence", () => {
     expect(splitNarrationSuggestions('He whispers *alea iacta est*\nSUGGESTION: Cross the river.').narration).toBe('He whispers *alea iacta est*');
+    expect(splitNarrationSuggestions('It is the year 235.\nSUGGESTION: Cross the river.').narration).toBe('It is the year 235.');
+    expect(createNarrationStreamGate()('It is the year 235.')).toBe('It is the year 235.');
+  });
+
+  it('keeps emphasis a suggestion opens and closes itself', () => {
+    expect(splitNarrationSuggestions('The gate holds.\nSUGGESTION: Whisper *alea iacta est*\nSUGGESTION: Bribe *the* guards.**').suggestions)
+      .toEqual(['Whisper *alea iacta est*', 'Bribe *the* guards.']);
   });
 });
 

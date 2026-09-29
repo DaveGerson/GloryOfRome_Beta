@@ -93,8 +93,9 @@ decides an outcome, only narrates one the code already rolled**
 - The narration call (`narration.ts::buildNarrationPrompt`) narrates from the
   player-perceived digest alone, with ONE mortality exception: the resolved
   directive for the PLAYER'S own validated claim arrives as the OUTCOME TO
-  NARRATE block (`processMortality`'s `playerOutcomeDirective`), so the
-  narration can explain the escape (D2). An NPC's directive never reaches it
+  NARRATE block (`processMortality`'s `playerOutcomeDirective`), which the
+  standing instruction then names beside the digest as a source of fact, so
+  the narration can explain the escape (D2). An NPC's directive never reaches it
   - a "presumed dead" NPC's secret survival must never reach a player-facing
   prompt.
 
