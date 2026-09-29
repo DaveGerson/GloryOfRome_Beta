@@ -866,7 +866,8 @@ names what already landed, so the question is only the part left.
   low-treasury Reports (now minted only for the player) arrive with no coin.
 
 *The smaller calls above were settled on design best practice
-(2026-09-29), as the owner asked for Part 4:*
+(2026-09-29), as the owner asked for Part 4, and all six are built
+(ROADMAP_UPLEVEL Part 6):*
 - *Unload guard:* ask before leaving only when the open fate failed to
   save. It is normally on disk, and a prompt with nothing at risk teaches
   players to dismiss it.
@@ -1248,6 +1249,53 @@ Nothing here blocks; all are one edit from rewording.
     numeric 'resource' delta …", "[Engine] Refused a 'scheme' delta …" and
     "[Mortality] <name>: the <band> band required a <loss|boon> but none was
     authored - it committed without one."
+- **The owner's rulings D46–D49, built (2026-09-29)**: the words the new
+  marks, ties and grounded investigations needed (ROADMAP_UPLEVEL Part 6).
+  - *Your status panel* (`components/ui/Marks.tsx`, `MARKS_COPY`): "Marks
+    you bear" (gloss: "Lasting marks the story has left on you. They weigh
+    on what you attempt; time and events may ease or heal them.") and "Your
+    ties" (gloss: "The factions, causes and faiths you hold to. One kept
+    secret is known only to you, and to anyone who learns it."); flags
+    "Borne inwardly" and "Kept secret"; a mark's tooltip "<Severity> —
+    <description>".
+  - *Personae*: "Marks seen" and "Ties"; a mark reads "<Name> · <severity>",
+    a tie "<Name> · <kind>" (no kind shown for "other"); a secret tie the
+    player witnessed is flagged "Known to you".
+  - *Dispatches — your own marks*: "You bear a new mark: <mark>." / "A mark
+    you bear grows worse: <mark>." / "A mark you bear eases: <mark>." / "A
+    mark you bore has left you: <mark>."
+  - *Dispatches — another's marks*: "<name> now bears a mark: <mark>." / "A
+    mark on <name> grows worse: <mark>." / "A mark on <name> eases:
+    <mark>." / "<name> no longer shows <mark>." (worded from the viewer's
+    side - true whether it healed or only went inward).
+  - *Dispatches — your own ties*: "You are now openly of <tie>." / "You are
+    now of <tie>, in secret." / "You break openly with <tie>." / "You
+    quietly break with <tie>." / "You openly avow your tie to <tie>." /
+    "Your hidden tie to <tie> stands exposed."
+  - *Dispatches — another's ties*: "<name> is now openly of <tie>." / "You
+    glimpse <name> among <tie>, in secret." / "<name> breaks openly with
+    <tie>." / "You glimpse <name> quietly break with <tie>." / "<name>
+    openly avows a tie to <tie>, long kept hidden." / "<name> stands
+    exposed: a hidden tie to <tie>."
+  - *Dispatches — holdings*: "You have lost <item>." / "<name> has lost
+    <item>."
+  - *The Private scene opener's name* while a scene holds the desk: "Private
+    scene (open)" / "Private scene (awaiting your last word)".
+  - *Seeded ties* (`constants/baseScenario.ts`): the Emperor's "the gods of
+    the Roman state" (open) and "the sages of his private lararium"
+    (secret); Julia Mamaea's "the circle of Origen" (secret); and ties for
+    Thrax, Magnus and Lycinia.
+  - *Mock Mode's canned intelligence* (`ai/mocks.ts`): wider pools of
+    false findings, distortions and false designs, drawn per figure; the
+    empty-reading line "(Mock) Your agents looked into <name>'s <aspect>
+    and found nothing worth the name."; the report leads "(Mock) Your
+    agents bring back word of what <name> holds true." / "… would keep
+    hidden." / "(Mock) Your agents bring back another thread of <name>'s
+    design."; and the nature readings.
+  - *GM console only*: the ledger's TRUE / GARBLED / FALSE with "player
+    holds: your agents' account", the rolls line, "one element changed" /
+    "misattributed", and the empty state "No rumors or investigation
+    findings have been recorded in the truth ledger yet."
 ---
 
 ## Residuals from the visual-enhancement pass (WP-1…WP-21 + adversarial review)
@@ -1393,3 +1441,58 @@ each deliberately not done, with the reason. Owner questions are in B14.
   `preTurnSimulationState` and `preTurnRoster` (the Dispatches re-derive from
   the same inputs as the commit, first turn included). The history-entry
   fields trim with the snapshot window; older saves load unchanged.
+
+---
+
+## Residuals from building rulings D46–D49 (2026-09-29)
+
+Each was found while building or reviewing the rulings (ROADMAP_UPLEVEL
+Part 6) and deliberately left, with the reason.
+
+- **"Who gains?" is not grounded (D47).** The Events tab's clarification
+  question has no truth to draw on: each headline's actors are stripped at
+  commit (D42), so there is no record of who gains from one occurrence, and
+  a guess from the whole turn would be a truth flag the engine cannot stand
+  behind (D11). Grounding it needs per-occurrence attribution kept
+  GM-side.
+- **A secret tie found by investigation stays in the dossier.** It is the
+  agent's sourced account; it is not listed under Ties as "Known to you",
+  which would put the system's voice behind a finding that may be false
+  (D26). Witnessed ties are listed there, since witnessed events do not
+  lie (D11).
+- **The ledger's cap (200) can roll off the truth behind old leverage.**
+  Blackmail whose record has rolled off counts as unrecorded, and the
+  adjudicator treats it as it did before D47.
+- **Smaller D47 gaps:**
+  - A relationship observation drawn from a false report is not flagged
+    false in its own right.
+  - An invented falsehood that happens to be true is still recorded false,
+    since no truth is sent that could rule it out.
+  - The action-assessment call still sees blackmail items without their
+    truth; only the adjudicator was asked for.
+  - Mock Mode's consequence line stays the canned risky one, whatever the
+    tier.
+- **Mock Mode's garbled wording is distinguishable in principle.** With no
+  model to rework a truth, a garbled finding carries a clause a true one
+  does not. The clauses now vary per figure, so none recurs as a tell. A
+  real key has no such mark.
+- **Private scenes do not yet carry marks and ties.** An NPC's mind weighs
+  its own marks and ties, but a private scene's prompt does not yet give
+  the NPC its own, or show it the player's outward marks and open ties.
+- **An open tie's news is judged by relationships and contacts.** "Knows
+  the figure" (D49) reads the viewer's relationships and
+  `visibility_network` - the same test the minds use - not the player's
+  knowledge store, so a figure known only from a rumor does not yet carry
+  their open ties to the player.
+- **An origin must be on the roster when the turn begins (D46).** An
+  entity the same adjudication introduces cannot yet be the origin of an
+  effect on an idle player.
+- **A 'faction' change is perceived as before** (witnessed or through a
+  contact), although the roster now reads the openly professed faction
+  live (D49).
+- **Seen by the UI review, and older than this work:**
+  - Personae gets no coin for newly seen marks or ties.
+  - Hidden screen-reader text in the Personae voice row adds about 1300px
+    of scroll height inside the panel.
+  - The GM console's "What changed" pane overflows sideways by 10px at
+    375px.

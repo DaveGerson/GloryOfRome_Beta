@@ -517,3 +517,111 @@ lint, the deterministic eval and the build all pass. A live tour on the
 merged build (1280x720 LVX, 375px NOX, forced colours) found no console
 errors and no 404s, no page scroll in either composer mode, and no raw JSON
 in the Chronicle. Screenshots: `docs/ui-refresh/18-*.png`.
+
+## Part 6 — The owner's rulings D46–D49, built (2026-09-29)
+
+The audit left four questions only the owner could answer (Part 5, BACKLOG
+B14). The answers are rulings D46–D49 in `DESIGN_DECISIONS.md`, quoted in
+the owner's words, and each is now in the game. Three builds ran in
+parallel worktrees: the world and six smaller calls, grounded
+investigations, and the character model (marks and ties). They were merged,
+joined where they meet, and adversarially reviewed on three lenses:
+secrecy, mechanics, and the UI live. The reviews found 23 defects (5
+serious); all are fixed and pinned by tests.
+
+**D46 — the world moves whether or not the player acts.** On a turn where
+the player only asks a question or records a private intent, the world may
+now exile, arrest or rob them, wound them, or expose a secret of theirs.
+Each such change must name a real figure in the world as its origin. A
+change with no origin, the player's own id, or an id off the roster is
+still an invented player act, and the turn fails closed as before. An
+exposure must also name a tie the player really held in secret. A death
+still goes through the mortality roll (D2). If the roll leaves a cost, it
+lands as the world's doing: a lost holding or a mark inherits the
+attacker's origin, and an opinion or scheme of the player's own is dropped
+with a GM note rather than failing the turn. On such a turn the fate is
+now narrated, ahead of the answer.
+
+**D47 — investigations reach for the truth.** Each investigation makes two
+hidden rolls after the old one:
+- *Accuracy:* true, garbled (one element changed or pinned on the wrong
+  party), or false.
+- *Fidelity:* a fragment, a partial picture or a fuller one.
+
+The code, never the model, picks which real beliefs, secrets, scheme steps
+and (since D49) secret ties reach the prompt. It also records each
+finding's truth in the ledger, where the GM console shows it. A scheme buy
+still carries at most one step or part of the goal, and the nature
+revealed at the third clue follows from how true the clues were.
+Blackmail filed from a false account can backfire; the adjudicator knows
+and the player does not.
+
+The review found a serious leak here: the *number* of findings gave the
+truth away. It is closed three ways:
+- A figure with nothing on record reads as an honest "nothing" whatever
+  the roll.
+- A false reading returns as many findings, as whole, as the truth would.
+- A third of false readings come back as a false "nothing".
+
+**D48 — the narration is the state; marks are tracked.** Every character
+can carry lasting marks: a scar, a limp, nightmares, grief. Each is
+outward or borne inwardly, and light, serious or grave. Marks deepen, ease
+and heal through a new `condition` change. A hard asset the story takes is
+removed, including a named holding (`lost_item`). The narrator is told
+never to narrate a loss the state did not make. Surviving a death save
+"with a loss" now means a removed holding and/or a new mark. The band
+itself is not stored.
+
+Who sees what:
+- Your own marks: on your status panel, inward ones flagged.
+- Another figure's outward mark, once seen: on Personae, by how it shows,
+  never by how it weighs on them.
+- An inward mark of anyone else: never.
+- Minds and the adjudicator weigh marks when choosing and resolving
+  actions.
+
+**D49 — ties openly professed or kept secret.** Every character, you
+included, can hold ties to a faction, cause, cult or religion. A tie is
+openly professed or kept secret; one once professed openly never goes back
+to secret. News of an open tie reaches anyone who knows the figure, and is
+no introduction to a stranger. A secret one is seen only by a witness in
+the room, found by an investigation, or learned when it is exposed or
+avowed. Your own secret ties show on your status panel as "Kept secret"
+and never reach an NPC's prompt unless that NPC witnessed them. The base
+cast has some: the Emperor keeps his private lararium's sages to himself,
+and Julia Mamaea quietly follows the circle of Origen. The Personae roster
+now groups figures by their openly professed faction, which is public.
+
+**The six smaller calls** (B14, settled on best practice):
+- The leave-page prompt now guards an event choice only when it failed to
+  save.
+- Recast now waits for a casting already under way.
+- The Private scene opener carries a lit seal while a scene is open.
+- Registers III and IV of the Structured tablet fold away, and "Seal &
+  send" sits below them.
+- The destiny hero compacts on short screens when a reign is saved.
+- Treasury notices count on the Reports coin, one per notice.
+
+**Calls made on best practice, beyond the rulings' words.**
+- A secret tie an investigation finds stays in the dossier, the agent's
+  sourced account, and does not earn a "Known to you" badge under Ties.
+  The badge would put the system's voice behind a finding that may be
+  false (D26).
+- A no-attempt turn is still answered, not narrated, unless the world made
+  an attempt on the player's life. An exile or a seizure on such a turn
+  reaches the player through the Dispatches.
+- Mock Mode has no model to rework a truth, so its garbled findings still
+  carry a clause the true ones do not. That wording is now varied per
+  figure, so no phrase recurs as a tell.
+
+Checks after Part 6: 2928 unit tests (from 2785), 12 journeys (2 new:
+lasting marks, and open and secret ties), typecheck, lint, the
+deterministic eval and the build all pass.
+
+A live tour of the merged build covered 1280×720, 1024×768 and 1440×900
+in LVX, and 375px in NOX. It found no console errors and no page scroll,
+keyless or in Mock Mode. "Seal & send" is on screen with the registers
+folded, your ties show whole on the status panel, no unlearned secret tie
+shows on Personae, and the first destiny row clears the fold. Screenshots:
+`docs/ui-refresh/19-*.png`. Residuals are listed at the end of
+`BACKLOG.md`.
