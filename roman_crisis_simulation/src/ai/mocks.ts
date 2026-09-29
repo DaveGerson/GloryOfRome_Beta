@@ -359,7 +359,7 @@ export const mockInitiateWorld = async (metaNarrative: string, playerCharacterDe
  * definition here is precisely how the projection and the gate came to
  * disagree.
  */
-function projectMockAdjudicationForNoAttempt(adjudication: AdjudicationInterchange, playerEntity: Entity): AdjudicationInterchange {
+function projectMockAdjudicationForNoAttempt(adjudication: AdjudicationInterchange, playerEntity: Entity, roster: readonly Entity[]): AdjudicationInterchange {
   return {
     ...adjudication,
     entityActions: adjudication.entityActions.filter(action => !samePlayerIdentity(action.id, playerEntity)),
@@ -369,7 +369,7 @@ function projectMockAdjudicationForNoAttempt(adjudication: AdjudicationInterchan
     // optional gap on new_status/is_true/origin_id/topic/stance (documented
     // on ai/core/actorsBoundary.ts's stripActorsFromEventDelta) - a runtime
     // no-op cast, not a behavior change.
-    deltas: adjudication.deltas.filter(delta => !playerOwnsDelta(delta as unknown as EventDelta, playerEntity)),
+    deltas: adjudication.deltas.filter(delta => !playerOwnsDelta(delta as unknown as EventDelta, playerEntity, roster)),
     remove_entities: adjudication.remove_entities?.filter(id => !samePlayerIdentity(id, playerEntity)),
   };
 }
@@ -504,10 +504,10 @@ export const mockRunNewTurn = async (
     // gates accept the `AdjudicationInterchange | Adjudication` union
     // directly (playerBoundary.ts), so no reshaping cast is needed here.
     const hasObservableAttempt = observableAttempt !== null;
-    const gatedAdjudication = hasObservableAttempt ? adjudication : projectMockAdjudicationForNoAttempt(adjudication, playerEntity);
+    const gatedAdjudication = hasObservableAttempt ? adjudication : projectMockAdjudicationForNoAttempt(adjudication, playerEntity, currentEntities);
     // Same consequence split as ai/core/turn.ts::enforceNoAttemptBoundary:
     // structural violations throw, prose is redacted and recorded GM-side.
-    assertNoInventedPlayerAction(gatedAdjudication, playerEntity, hasObservableAttempt);
+    assertNoInventedPlayerAction(gatedAdjudication, playerEntity, hasObservableAttempt, currentEntities);
     gatedAdjudication.gm_private.push(...playerProseRedactionNotes(
         redactInventedPlayerProse(gatedAdjudication, playerEntity, hasObservableAttempt),
     ));

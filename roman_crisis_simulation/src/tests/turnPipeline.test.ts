@@ -2106,6 +2106,167 @@ describe('ai/core/turn.ts runNewTurn - no-attempt player ownership boundary (DEB
   });
 });
 
+// --- D46: the world acts ON the player on any turn they take ---------------
+//
+// A world-authored exile, arrest or seizure used to fail a question-only or
+// private-intent turn closed after every provider call. It now commits when
+// its origin is a real non-player entity on the roster; without one it is
+// still an invented player act. A death on the player still goes through the
+// mortality pipeline (D2), which runs after the gate.
+
+describe('ai/core/turn.ts runNewTurn - the world acts ON the player on a no-attempt turn (D46)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const questionOnly: TurnSubmission = { version: 1, kind: 'structured', questionOrContext: 'Is the Senate still with me?' };
+  const privateOnly: TurnSubmission = { version: 1, kind: 'structured', privateIntent: 'Wait, and trust no one.' };
+  const worldWithTomis: WorldState = {
+    ...worldState,
+    regions: { Tomis: { stability: 'Stable', controlling_faction: null, current_events: [] } },
+  };
+
+  const exileDelta = {
+    type: 'status', key: 'player_1', delta: 0, reason: 'Thrax has the Senate banish the Emperor to Tomis.',
+    new_status: 'exiled', new_location: 'Tomis', actors: ['npc_thrax'],
+  };
+  const seizureDelta = {
+    type: 'resource', key: 'player_1:denarii', delta: -400, reason: 'Thrax\'s men empty the palace strongroom.', actors: ['npc_thrax'],
+  };
+
+  function scriptWorldTurn(h: Harness, deltas: object[]): void {
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.adjudication.resolve(JSON.stringify({
+      turn: 2,
+      entityActions: [{ id: 'npc_thrax', intent: 'intrigue', target: 'player_1', notes: 'Thrax moves against the palace.', actors: ['npc_thrax'] }],
+      deltas,
+      headlines: [{ text: 'Thrax moves against the palace.', actors: ['npc_thrax'] }],
+      gm_private: [],
+    }));
+    h.response.simulationState.resolve(simStateJson);
+  }
+
+  it.each([['question-only', questionOnly], ['private-intent', privateOnly]])(
+    'commits a world-origin exile and seizure on a %s turn',
+    async (_label, submission) => {
+      const h = createHarness(false);
+      const player = makeEntity();
+      const thrax = makeEntity({ entity_id: 'npc_thrax', name: 'Maximinus Thrax' });
+      scriptWorldTurn(h, [{ ...exileDelta, origin_id: 'npc_thrax' }, { ...seizureDelta, origin_id: 'npc_thrax' }]);
+
+      const result = await runNewTurn(
+        h.ai, submission, player, 2, [player, thrax], worldWithTomis, simulationState,
+        [], [], [], [], '', false, 'Grim political thriller',
+      );
+
+      const updatedPlayer = result.updatedEntities.find(e => e.entity_id === 'player_1');
+      expect(updatedPlayer?.status).toBe('exiled');
+      expect(updatedPlayer?.location).toBe('Tomis');
+      expect(updatedPlayer?.resources.denarii).toBe(600);
+      expect(h.order).not.toContain('narration');
+    },
+  );
+
+  it.each([
+    ['no origin', undefined],
+    ['a player origin', 'player_1'],
+    ['an origin off the roster', 'npc_invented'],
+  ])('still rejects an exile or a seizure with %s', async (_label, origin) => {
+    for (const delta of [exileDelta, seizureDelta]) {
+      const h = createHarness(false);
+      const player = makeEntity();
+      const thrax = makeEntity({ entity_id: 'npc_thrax', name: 'Maximinus Thrax' });
+      scriptWorldTurn(h, [origin === undefined ? delta : { ...delta, origin_id: origin }]);
+
+      await expect(runNewTurn(
+        h.ai, questionOnly, player, 2, [player, thrax], worldWithTomis, simulationState,
+        [], [], [], [], '', false, 'Grim political thriller',
+      )).rejects.toThrow('player action boundary');
+    }
+  });
+
+  it('sends a world-origin attempt on the player\'s life through the mortality pipeline, and commits the loss it leaves', async () => {
+    mockRoll(8); // A no-attempt turn draws no action roll: the death save is the first draw -> survive_with_loss.
+    const h = createHarness(false);
+    const player = makeEntity();
+    const thrax = makeEntity({ entity_id: 'npc_thrax', name: 'Maximinus Thrax' });
+    scriptWorldTurn(h, [{
+      type: 'status', key: 'player_1', delta: 0, reason: 'Thrax\'s assassin strikes at the Emperor in the baths.',
+      new_status: 'dead', origin_id: 'npc_thrax', actors: ['npc_thrax'],
+    }]);
+    h.response.mortalityValidation.resolve(JSON.stringify({
+      dispositions: [{ entity_id: 'player_1', valid: true, reasoning: 'Thrax has means and motive.' }],
+    }));
+    // The loss names no origin: it inherits the attempt's, so the gate after
+    // mortality reads it as Thrax's doing, not the player's.
+    h.response.mortalityOutcome.resolve(JSON.stringify({
+      outcomes: [{
+        entity_id: 'player_1',
+        deltas: [{ type: 'resource', key: 'player_1:denarii', delta: -300, reason: 'The physicians and the guards\' silence come dear.', actors: [] }],
+        narrative_directive: 'The Emperor survives the blade, but the price of it lingers.',
+      }],
+    }));
+
+    const result = await runNewTurn(
+      h.ai, questionOnly, player, 2, [player, thrax], worldWithTomis, simulationState,
+      [], [], [], [], '', false, 'Grim political thriller',
+    );
+
+    expect(h.order).toContain('mortalityValidation');
+    expect(h.order).toContain('mortalityOutcome');
+    expect(result.newHistoryEntry.mortalityTrace).toEqual([
+      expect.objectContaining({ entity_id: 'player_1', valid: true, roll: 8, band: 'survive_with_loss' }),
+    ]);
+    const updatedPlayer = result.updatedEntities.find(e => e.entity_id === 'player_1');
+    expect(updatedPlayer?.status).toBe('alive');
+    expect(updatedPlayer?.resources.denarii).toBe(700);
+  });
+
+  it('a world-origin death claim the roll upholds kills the player: the save decides, not the gate', async () => {
+    mockRoll(3); // dies
+    const h = createHarness(false);
+    const player = makeEntity();
+    const thrax = makeEntity({ entity_id: 'npc_thrax', name: 'Maximinus Thrax' });
+    scriptWorldTurn(h, [{
+      type: 'status', key: 'player_1', delta: 0, reason: 'Thrax\'s assassin strikes at the Emperor in the baths.',
+      new_status: 'dead', origin_id: 'npc_thrax', actors: ['npc_thrax'],
+    }]);
+    h.response.mortalityValidation.resolve(JSON.stringify({
+      dispositions: [{ entity_id: 'player_1', valid: true, reasoning: 'Thrax has means and motive.' }],
+    }));
+
+    const result = await runNewTurn(
+      h.ai, questionOnly, player, 2, [player, thrax], worldWithTomis, simulationState,
+      [], [], [], [], '', false, 'Grim political thriller',
+    );
+
+    expect(result.newHistoryEntry.mortalityTrace).toEqual([
+      expect.objectContaining({ entity_id: 'player_1', valid: true, roll: 3, band: 'dies' }),
+    ]);
+    expect(result.updatedEntities.find(e => e.entity_id === 'player_1')?.status).toBe('dead');
+  });
+
+  it('tells the adjudicator the world may act ON the player, from a named origin, in the rule and in the intervention block', async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+    scriptWorldTurn(h, []);
+
+    await runNewTurn(
+      h.ai, questionOnly, player, 2, [player], worldState, simulationState,
+      [], [], [], [], 'INTELLIGENCE FALLOUT (must be reflected this turn): the agent is caught.', false, 'Grim political thriller',
+    );
+
+    const system = h.systemInstructionsByKind.adjudication ?? '';
+    expect(system).toContain('The player\'s inaction is no shield');
+    expect(system).toContain('whose exact entity_id goes in the delta\'s \'origin_id\'');
+    const prompt = h.promptsByKind.adjudication ?? '';
+    expect(prompt).toContain('The world may still act ON the player (exile, arrest, seizure, a patron turned against them)');
+    expect(prompt).toContain('It never authorizes an action BY the player');
+    // D41: the fallout itself stays quoted data after the guidance.
+    expect(prompt).toContain('"INTELLIGENCE FALLOUT (must be reflected this turn): the agent is caught."');
+  });
+});
+
 // --- Prose redaction vs. structural rejection (shipping blocker) ------------
 //
 // The PROSE classifier is a heuristic; the STRUCTURAL gates are exact identity

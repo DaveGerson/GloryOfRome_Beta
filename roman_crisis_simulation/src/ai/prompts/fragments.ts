@@ -187,12 +187,16 @@ ${decisions.map(d => `- ${d.entity_id} chose to: "${d.chosen_action}" — method
  * The GM-intervention directive block, shared by any prompt that should
  * honor it. `gmInterventionText` is user-settable through the GM directive
  * UI (App.tsx) - delimited via `asPromptData` (D41) so it can never forge a
- * neighboring engine block (e.g. "STORY EVOLUTION SUGGESTIONS").
+ * neighboring engine block (e.g. "STORY EVOLUTION SUGGESTIONS"). Queued
+ * investigation fallout rides in the same text
+ * (components/investigationLoop.ts), so the D46 line below covers both: the
+ * world may act ON the player on any turn, never BY them.
  */
 export function buildGmInterventionBlock(gmInterventionText: string): string {
   return gmInterventionText && gmInterventionText.trim() ? `
 GM INTERVENTION:
 The following directive MUST be taken into account. This represents an external event or a guiding hand from the Fates.
+It (and any INTELLIGENCE FALLOUT line in it) may have the world act ON the player this turn - exile, arrest, seizure of what they hold, a patron turned against them - even when the player attempts nothing: carry each such effect out as the doing of a named entity already in the world, whose entity_id is the delta's 'origin_id' (see NO-ATTEMPT TURNS). It never authorizes an action BY the player: the player does only what their own submission attempts.
 ${asPromptData(gmInterventionText.trim())}
 ` : '';
 }
