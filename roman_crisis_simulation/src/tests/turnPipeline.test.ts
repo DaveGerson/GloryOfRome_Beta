@@ -1559,6 +1559,63 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
   );
 });
 
+// --- The player's own death save reaches narration as its settled outcome (D2) ---
+
+describe("ai/core/turn.ts runNewTurn - the player's own settled death save is narrated (D2)", () => {
+  it('hands the resolved band directive to narration as OUTCOME TO NARRATE, never the validator reasoning', async () => {
+    const randomSpy = mockRoll(14); // player death save 11-17: 'survive', no outcome call
+    const h = createHarness(false);
+    const player = makeEntity();
+    const VALIDATION_REASONING = 'VALIDATOR_REASONING_MUST_STAY_GM_SIDE';
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    h.response.adjudication.resolve(JSON.stringify({
+      turn: 2,
+      entityActions: [],
+      deltas: [{ type: 'status', key: 'player_1', delta: 0, reason: 'An assassin lunges at you on the Senate steps.', new_status: 'dead', actors: [] }],
+      headlines: [{ text: 'A blade flashes on the Senate steps.', actors: [] }],
+      gm_private: [],
+    }));
+    h.response.mortalityValidation.resolve(JSON.stringify({
+      dispositions: [{ entity_id: 'player_1', valid: true, reasoning: VALIDATION_REASONING }],
+    }));
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologuePayloadJson);
+    h.response.narration.resolve(narrationPayloadJson);
+
+    const result = await runNewTurn(
+      h.ai, freeform('Hold court'), player, 2, [player], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller',
+    );
+    randomSpy.mockRestore();
+
+    expect(result.updatedEntities.find(e => e.entity_id === 'player_1')?.status).toBe('alive');
+    expect(result.newHistoryEntry.mortalityTrace?.[0]).toMatchObject({ entity_id: 'player_1', valid: true, band: 'survive' });
+    const narrationPrompt = h.promptsByKind.narration ?? '';
+    expect(narrationPrompt).toContain('OUTCOME TO NARRATE');
+    expect(narrationPrompt).toContain('Narrate a tense but clean escape from death - no lasting cost, no windfall.');
+    expect(narrationPrompt).not.toContain(VALIDATION_REASONING);
+    expect(narrationPrompt).not.toContain('[Mortality]');
+  });
+
+  it('gives an ordinary turn with no death claim no OUTCOME TO NARRATE block', async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    h.response.adjudication.resolve(adjudicationJson);
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologuePayloadJson);
+    h.response.narration.resolve(narrationPayloadJson);
+
+    await runNewTurn(
+      h.ai, freeform('Hold court'), player, 2, [player], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller',
+    );
+
+    expect(h.promptsByKind.narration ?? '').not.toContain('OUTCOME TO NARRATE');
+  });
+});
+
 describe('ai/core/turn.ts runNewTurn - player-perceived narration input', () => {
   it('excludes invisible adjudication poison from the real narration request while retaining the submitted action and visible digest', async () => {
     const h = createHarness(false);
@@ -1805,9 +1862,13 @@ describe('ai/core/turn.ts runNewTurn - pacing posture threading (4D.1, D23)', ()
     resolveWholePipeline(h);
 
     // A failing economy makes grain_shortage's trigger fire for any player;
-    // empty bookkeeping means it has never fired, so it is RIPE.
+    // empty bookkeeping means it has never fired, so it is RIPE. The roster
+    // carries the Roman bodies its choices act on - an authored event is
+    // material only in a world that has them (events/engine.ts).
+    const romanBodies = ['senatorial_party', 'roman_senate'].map(entity_id =>
+      makeEntity({ entity_id, name: entity_id, entity_type: 'faction' }));
     await runNewTurn(
-      h.ai, freeform('Hold court'), player, 2, [player], { ...worldState, economic_stability: 'Failing' },
+      h.ai, freeform('Hold court'), player, 2, [player, ...romanBodies], { ...worldState, economic_stability: 'Failing' },
       simulationState, [], [], [], [], '', false, 'Grim political thriller',
       { eventFirings: [] }
     );

@@ -124,7 +124,10 @@ describe('authored events read economic_stability only through the canonical voc
 
   it('the trigger engine picks up the grain shortage from a synonym', () => {
     const world = makeWorldState({ economic_stability: 'Collapsing' });
-    const fired = checkForTriggeredEvent(world, [player], [], player, makeSimulationState(), 5);
+    // The engine fires an authored event only where every body its choices
+    // act on is on the roster (events/engine.ts::isEventForThisWorld).
+    const roster = [player, ...['senatorial_party', 'roman_senate'].map(entity_id => makeEntity({ entity_id, entity_type: 'faction' }))];
+    const fired = checkForTriggeredEvent(world, roster, [], player, makeSimulationState(), 5);
     expect(fired?.id).toBe('grain_shortage');
   });
 });

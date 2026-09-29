@@ -324,6 +324,21 @@ export function clampDifficulty(value: number): number {
     return Math.min(ACTION_DIFFICULTY_RANGE.MAX, Math.max(ACTION_DIFFICULTY_RANGE.MIN, value));
 }
 
+/** The documented skill scale (`ResolveActionInput.relevantSkillValue`): 0 (no skill) to 10. */
+const SKILL_SCALE = { MIN: 0, MAX: 10 } as const;
+/** The `PersonalityTraits` scale (types.ts): 1 to 10, 5 average. */
+const TRAIT_SCALE = { MIN: 1, MAX: 10 } as const;
+
+/**
+ * Clamps a model-authored skill or trait onto its documented scale before it
+ * meets the roll. World generation's entities are not bound to the scale by
+ * their schema, so a character written on a 0-100 convention would otherwise
+ * carry a modifier that decides every tier before the die is cast.
+ */
+function clampToScale(value: number, scale: { MIN: number; MAX: number }): number {
+    return Math.min(scale.MAX, Math.max(scale.MIN, value));
+}
+
 /**
  * The five coarse outcome tiers a resolved action lands in. Deliberately
  * coarse (not a numeric success percentage) so the adjudicator retains room
@@ -403,7 +418,12 @@ export function resolveAction(input: ResolveActionInput): ActionResolution {
     const { roll, relevantSkillValue, personalityModifier, oppositionModifier, difficulty } = input;
     assertValidRoll('resolveAction', roll);
 
-    const total = roll + (relevantSkillValue ?? 0) + personalityModifier + oppositionModifier;
+    // The skill is model-authored entity data (world generation, character
+    // creation). Like the difficulty (clampDifficulty), an off-scale value
+    // would pre-decide the tier - a 90 always critically succeeds - so it
+    // counts only on its documented 0-10 scale.
+    const skill = relevantSkillValue == null ? 0 : clampToScale(relevantSkillValue, SKILL_SCALE);
+    const total = roll + skill + personalityModifier + oppositionModifier;
     const margin = total - difficulty;
 
     return { roll, total, margin, tier: tierForMargin(margin) };
@@ -447,21 +467,25 @@ export interface PersonalityModifierInput {
  *    character is WORSE at treachery (it cuts against their nature), a
  *    low-honor character suffers little or even gains from the same act.
  * Returns 0 for an entity with no `personality` (e.g. a faction/group).
+ * Each trait counts only on its 1-10 scale (see `clampToScale`), so the
+ * modifier stays within roughly -2 to +2.5 per term for every call site -
+ * the player's action roll and the investigation roll alike.
  */
 export function derivePersonalityModifier(input: PersonalityModifierInput): number {
     const { personality, relevantSkill, actionCategory } = input;
     if (!personality) return 0;
 
+    const trait = (value: number) => clampToScale(value, TRAIT_SCALE);
     let modifier = 0;
 
     if (relevantSkill === 'intrigue' || relevantSkill === 'strategy') {
-        modifier += (personality.cunning - TRAIT_MODIFIER_CENTER) / TRAIT_MODIFIER_DIVISOR;
+        modifier += (trait(personality.cunning) - TRAIT_MODIFIER_CENTER) / TRAIT_MODIFIER_DIVISOR;
     }
     if (relevantSkill === 'oratory') {
-        modifier += (personality.ambition - TRAIT_MODIFIER_CENTER) / TRAIT_MODIFIER_DIVISOR;
+        modifier += (trait(personality.ambition) - TRAIT_MODIFIER_CENTER) / TRAIT_MODIFIER_DIVISOR;
     }
     if (isTreacherousActionCategory(actionCategory)) {
-        modifier -= (personality.honor - TRAIT_MODIFIER_CENTER) / TREACHERY_HONOR_DIVISOR;
+        modifier -= (trait(personality.honor) - TRAIT_MODIFIER_CENTER) / TREACHERY_HONOR_DIVISOR;
     }
 
     return modifier;

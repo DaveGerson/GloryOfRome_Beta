@@ -133,13 +133,17 @@ ${otherNpcs.map(getEntityBrief).join('\n')}
  * layer states for its tiers: what stays private is the direction system's
  * PROVENANCE (that an intent exists, its wording) - the acted-out move
  * itself is a real event whose public manifestation belongs in headlines.
+ * An intent naming `playerEntityId` is never rendered: this block orders
+ * conduct, and the player's conduct is the player's own (D35/D37) -
+ * defense in depth behind selectDurableIntents' own exclusion.
  */
-export function buildDirectorIntentsBlock(npcIntents: NpcIntent[] | undefined): string {
-  if (!npcIntents || npcIntents.length === 0) return '';
+export function buildDirectorIntentsBlock(npcIntents: NpcIntent[] | undefined, playerEntityId?: string): string {
+  const intents = (npcIntents ?? []).filter(i => i.entity_id !== playerEntityId);
+  if (intents.length === 0) return '';
   return `
 SPOTLIGHT NPC INTENTS (the Director's durable direction for this turn):
 Each spotlight NPC below is durably trying to accomplish its stated intent. Their Phase 1 proactive actions MUST act in service of their stated intent - advance it, or react to whatever blocks it - and do not let a spotlight NPC drift onto unrelated business this turn, UNLESS that NPC has an entry in the mind-decisions block below: per DIRECTION PRECEDENCE (mind decision > Director intent > generic scheme rules), the mind decision then governs instead. These intents are GM-private direction: never restate them in 'headlines' or any other player-visible text. What is private is the provenance - that an intent exists, its wording, that a Director set it. The action taken in service of an intent is a real event: its public manifestation may and should surface in headlines and NPC reactions as usual.
-${npcIntents.map(i => `- ${i.entity_id}: "${i.intent}" [${i.continuity}]`).join('\n')}
+${intents.map(i => `- ${i.entity_id}: "${i.intent}" [${i.continuity}]`).join('\n')}
 `;
 }
 
@@ -251,9 +255,15 @@ ${JSON.stringify(simulationState, null, 2)}
  * NEVER reach any player-facing prompt. See
  * ai/prompts/narration.ts::sanitizeAdjudicationForNarration, which strips
  * every trace of it before the narration call.
+ *
+ * Only an entity still publicly DEAD is listed: a returned survivor (or one
+ * later confirmed dead on the fate table) is no hidden survivor, and must
+ * not be offered for reintroduction. The engine clears `secret_truth` on
+ * any such status change (ai/core/engine.ts); this filter also covers a
+ * record written before it did.
  */
 export function buildSecretSurvivorsBlock(allNpcEntities: Entity[]): string {
-  const survivors = allNpcEntities.filter(e => e.secret_truth?.actually_alive);
+  const survivors = allNpcEntities.filter(e => e.status === 'dead' && e.secret_truth?.actually_alive);
   if (survivors.length === 0) return '';
   return `
 GM-SECRET: SECRETLY SURVIVING ENTITIES (never reveal this to the player - for your plotting only):
