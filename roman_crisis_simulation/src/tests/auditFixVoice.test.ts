@@ -16,7 +16,7 @@ import {
   validatePerformance,
 } from '../narration/performanceScript';
 import { buildNarrationTtsPrompt } from '../ai/prompts/narrationPerformance';
-import { NarrationPlayer } from '../narration/narrationPlayer';
+import { NarrationPlayer, type NarrationRenderSignal } from '../narration/narrationPlayer';
 import { MAX_CAST_MEMBERS, assembleCast, completeCast, deterministicCast, fallbackNarrator, fallbackProposal, type CastingCandidate } from '../narration/voiceCast';
 import { castVoices } from '../ai/tools/voiceCasting';
 import {
@@ -48,6 +48,10 @@ describe('fidelity guard: a name mid-sentence is caught whatever punctuation sta
     ['a parenthesis', 'The heir hides in the east (Emesa), and the Senate waits.', 'Emesa'],
     ['a single quote', "The camp mutters of 'Emesa', and the Senate waits.", 'Emesa'],
     ['an unclosed square bracket', 'The heir hides in [Emesa, and the Senate waits.', 'Emesa'],
+    // Speech quoted mid-sentence, after a colon or a comma: the natural place
+    // for a dramatic retelling to bring a name in.
+    ['a colon and a quote', 'The camp mutters, and one city shelters the heir: "Emesa."', 'Emesa'],
+    ['a comma and a quote', 'The Praetorians mutter, "Philip gathers his cohorts," and the Senate waits.', 'Philip'],
   ];
 
   for (const [position, retelling, name] of cases) {
@@ -68,6 +72,14 @@ describe('fidelity guard: a name mid-sentence is caught whatever punctuation sta
     expect(validatePerformance(PASSAGE, 'The heir hides in the east (Emesa), and the Senate waits.')).toEqual({ ok: false, reason: 'introduces_new_name' });
   });
 
+  it('cuts a quoted cry that brings in a name, and the name never reaches the voice', () => {
+    const performed = performedTranscriptFor(PASSAGE, 'Maximinus raises a cup and roars, "Philip will fall!" The Senate waits.');
+    expect(findIntroducedContent(PASSAGE, 'Maximinus raises a cup and roars, "Philip will fall!" The Senate waits.')).toEqual({ kind: 'name', value: 'Philip' });
+    expect(performed.rejection).toBe('introduces_new_name');
+    expect(performed.usedFallback).toBe(true);
+    expect(buildNarrationTtsPrompt(performed.transcript)).not.toContain('Philip');
+  });
+
   it('catches a plural possessive and a quotation inside a sentence', () => {
     expect(findIntroducedContent(PASSAGE, "The Praetorians' Philip gathers his cohorts.")).toEqual({ kind: 'name', value: 'Philip' });
     expect(findIntroducedContent(PASSAGE, 'The camp mutters, and the Senate waits for "Philip gathers his cohorts".')).toEqual({ kind: 'name', value: 'Philip' });
@@ -81,15 +93,23 @@ describe('fidelity guard: a name mid-sentence is caught whatever punctuation sta
     expect(performed.transcript).not.toContain('Philip');
   });
 
-  it('still lets a word open a sentence, a line, or quoted speech', () => {
+  it('still lets any word open a sentence or a line, quoted or not', () => {
     expect(findIntroducedContent(PASSAGE, 'The camp mutters. Tonight the Senate waits.')).toBeNull();
     expect(findIntroducedContent(PASSAGE, 'The camp mutters!\nTonight the Senate waits.')).toBeNull();
-    expect(findIntroducedContent(PASSAGE, 'Maximinus raises a cup, "Drink!" and the Senate waits.')).toBeNull();
-    expect(findIntroducedContent(PASSAGE, 'Maximinus roars: "Drink, all of you." The Senate waits.')).toBeNull();
     expect(findIntroducedContent(PASSAGE, 'The camp mutters. "Drink," says Maximinus.')).toBeNull();
+    expect(findIntroducedContent(PASSAGE, '"Drink," says Maximinus, and the Senate waits.')).toBeNull();
     expect(findIntroducedContent(PASSAGE, 'The cup is raised." Tonight the Senate waits.')).toBeNull();
+  });
+
+  it('lets speech quoted after a comma or a colon open only with a word the passage or the script uses in lower case', () => {
+    expect(findIntroducedContent(PASSAGE, 'Maximinus raises a cup, "Drink!" and they drink while the Senate waits.')).toBeNull();
+    expect(findIntroducedContent(PASSAGE, 'Maximinus roars: "Drink, all of you, drink." The Senate waits.')).toBeNull();
+    // "the" is the passage's own word: a quotation may always open with it.
+    expect(findIntroducedContent(PASSAGE, 'Maximinus roars, "The cup is raised!" The Senate waits.')).toBeNull();
     // Curly quotes open speech as straight ones do.
-    expect(findIntroducedContent(PASSAGE, 'Maximinus raises a cup, “Drink!” and the Senate waits.')).toBeNull();
+    expect(findIntroducedContent(PASSAGE, 'Maximinus raises a cup, “Drink!” and they drink while the Senate waits.')).toBeNull();
+    // A word nobody uses in lower case may be a name: it is checked like one.
+    expect(findIntroducedContent(PASSAGE, 'Maximinus raises a cup, "Drink!" and the Senate waits.')).toEqual({ kind: 'name', value: 'Drink' });
     expect(findIntroducedContent(PASSAGE, 'The Senate waits for “Philip” to come.')).toEqual({ kind: 'name', value: 'Philip' });
   });
 
@@ -134,7 +154,7 @@ describe('speaker labels are stripped before the voice reads them aloud', () => 
   });
 });
 
-describe('NarrationPlayer: a stopped preparation is let go', () => {
+describe('NarrationPlayer: a stopped preparation is no longer wanted, and a press rejoins it', () => {
   const fakeAudio = () => ({
     preload: '', src: '', currentTime: 0,
     play: vi.fn(async () => {}), pause: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn(), removeAttribute: vi.fn(),
@@ -147,51 +167,93 @@ describe('NarrationPlayer: a stopped preparation is let go', () => {
   });
   afterEach(() => vi.restoreAllMocks());
 
-  it('a press after a stop renders afresh instead of waiting on a render that never settles', async () => {
-    const signals: AbortSignal[] = [];
-    const render = vi.fn((_text: string, _index: number, signal: AbortSignal) => {
+  /** A renderer whose every render waits for `land`, and records the signal it was handed. */
+  function heldRenderer() {
+    const signals: NarrationRenderSignal[] = [];
+    const lands: Array<(blob: Blob) => void> = [];
+    const render = vi.fn((_text: string, _index: number, signal: NarrationRenderSignal) => {
       signals.push(signal);
-      return signals.length === 1 ? new Promise<Blob>(() => {}) : Promise.resolve(new Blob(['x']));
+      return new Promise<Blob>(resolve => lands.push(resolve));
     });
+    const flush = async () => { for (let i = 0; i < 4; i++) await Promise.resolve(); };
+    return { render, signals, lands, flush };
+  }
+
+  it('a press after a stop rejoins the render still out: one render, wanted again', async () => {
+    const { render, signals, lands } = heldRenderer();
     const player = new NarrationPlayer({ createAudio: fakeAudio });
     player.setRenderer(render, 'test');
-    player.toggle(2, 'The Senate waits.'); // preparing, and it hangs
+    player.toggle(2, 'The Senate waits.'); // preparing
     player.toggle(2, 'The Senate waits.'); // stop
     expect(signals[0].aborted).toBe(true);
-    await player.play(2, 'The Senate waits.');
-    expect(render).toHaveBeenCalledTimes(2);
-    expect(signals[1].aborted).toBe(false);
+    const again = player.play(2, 'The Senate waits.');
+    expect(signals[0].aborted).toBe(false);
+    lands[0](new Blob(['x']));
+    await again;
+    expect(render).toHaveBeenCalledTimes(1);
     expect(player.getSnapshot()).toEqual({ index: 2, status: 'playing' });
     player.dispose();
   });
 
-  it('starting another clip tells the one being prepared, and a clip that lands anyway is kept', async () => {
-    let land: (blob: Blob) => void = () => {};
-    const signals: AbortSignal[] = [];
-    const render = vi.fn((_text: string, _index: number, signal: AbortSignal) => {
+  it('a render that gives up once unwanted is not joined again: the next press renders afresh', async () => {
+    const signals: NarrationRenderSignal[] = [];
+    let finishPrep: () => void = () => {};
+    const render = vi.fn(async (_text: string, _index: number, signal: NarrationRenderSignal) => {
       signals.push(signal);
-      return signals.length === 1 ? new Promise<Blob>(resolve => { land = resolve; }) : Promise.resolve(new Blob(['y']));
+      if (signals.length === 1) await new Promise<void>(resolve => { finishPrep = resolve; });
+      if (signal.aborted) throw new Error('stopped before the voice');
+      return new Blob(['x']);
     });
     const player = new NarrationPlayer({ createAudio: fakeAudio });
     player.setRenderer(render, 'test');
+    player.toggle(2, 'The Senate waits.');
+    player.toggle(2, 'The Senate waits.'); // stop while the first step is out
+    finishPrep();
+    for (let i = 0; i < 4; i++) await Promise.resolve();
+    expect(player.getSnapshot()).toEqual({ index: null, status: 'idle' });
+    await player.play(2, 'The Senate waits.');
+    expect(render).toHaveBeenCalledTimes(2);
+    expect(player.getSnapshot()).toEqual({ index: 2, status: 'playing' });
+    player.dispose();
+  });
+
+  it('starting another clip tells the one being prepared; going back to it while it is out rejoins it', async () => {
+    const { render, signals, lands, flush } = heldRenderer();
+    const player = new NarrationPlayer({ createAudio: fakeAudio });
+    player.setRenderer(render, 'test');
     void player.play(0, 'First.');
-    await player.play(1, 'Second.');
+    void player.play(1, 'Second.');
     expect(signals[0].aborted).toBe(true);
-    land(new Blob(['x'])); // its voice call was already out: the audio is kept
-    await Promise.resolve();
-    await Promise.resolve();
-    await player.play(0, 'First.');
+    expect(signals[1].aborted).toBe(false);
+    const back = player.play(0, 'First.');
+    expect(signals[0].aborted).toBe(false);
+    expect(signals[1].aborted).toBe(true);
+    lands[0](new Blob(['x']));
+    await back;
+    expect(render).toHaveBeenCalledTimes(2);
+    expect(player.getSnapshot()).toEqual({ index: 0, status: 'playing' });
+    // The other clip, landed after it was left, is cached: no third render.
+    lands[1](new Blob(['y']));
+    await flush();
+    await player.play(1, 'Second.');
     expect(render).toHaveBeenCalledTimes(2);
     player.dispose();
   });
 
-  it('dispose tells every preparation still out', () => {
-    const signals: AbortSignal[] = [];
+  it('dispose tells every preparation still out, and the next press renders afresh', async () => {
+    const { render, signals, lands } = heldRenderer();
     const player = new NarrationPlayer({ createAudio: fakeAudio });
-    player.setRenderer((_t, _i, signal) => { signals.push(signal); return new Promise<Blob>(() => {}); }, 'test');
+    player.setRenderer(render, 'test');
     void player.play(0, 'First.');
     player.dispose();
     expect(signals[0].aborted).toBe(true);
+    const again = player.play(0, 'First.');
+    expect(render).toHaveBeenCalledTimes(2);
+    expect(signals[0].aborted).toBe(true);
+    lands[1](new Blob(['y']));
+    await again;
+    expect(player.getSnapshot()).toEqual({ index: 0, status: 'playing' });
+    player.dispose();
   });
 
   it('a press while the same clip is still wanted joins it: no second render', async () => {

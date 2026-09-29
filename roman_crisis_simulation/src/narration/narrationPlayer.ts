@@ -6,21 +6,21 @@
  * `useSyncExternalStore` without a single setState in an effect.
  *
  *  - One clip at a time. Starting another stops the current one - and
- *    cancels one still being prepared: its renderer's `signal` aborts, so it
- *    takes no paid step it has not already begun (the TTS call after the
- *    prep call), and the preparation is let go.
+ *    tells one still being prepared that nobody waits on it: its renderer's
+ *    `signal` reads aborted, so it takes no paid step it has not already
+ *    begun (the TTS call after the prep call).
  *  - Per message, idle -> preparing -> playing -> idle, or -> error. Only
  *    the message that last asked has a non-idle state; every other is idle.
  *  - An in-memory LRU of WAV object URLs, keyed by message index plus a
  *    hash of the text (and the renderer variant - a Mock Mode tone must not
  *    answer for a real performance), capped at `maxCached`. A URL is
  *    revoked when it is evicted and when the player is disposed. Asking for
- *    a message already cached, or already being prepared for the request
- *    still waiting on it, never renders it again - no second API call for
- *    the same narration. A preparation that was stopped is let go instead:
- *    a later press renders afresh rather than waiting on it (a request that
- *    stalls would otherwise hold that message for the session), and a clip
- *    that lands anyway is still cached.
+ *    a message already cached, or already being prepared, never renders it
+ *    again - no second API call for the same narration. A press after a
+ *    stop rejoins a preparation still out and wants it again, so its
+ *    renderer goes on; a clip that lands after a stop is still cached. (A
+ *    stalled request cannot hold a message for the session: every model
+ *    call has a deadline, ai/core/geminiService.ts.)
  *  - Nothing is persisted: no save field, no localStorage, no eval-corpus
  *    entry. Audio lives in this object and dies with it.
  *  - A rejected `play()` (the browser's autoplay policy) is not an error:
@@ -36,16 +36,33 @@ export interface NarrationPlayback {
 }
 
 /**
- * Renders one narration (message `index`'s text) to playable audio. Throws
- * on failure. `signal` aborts once no request waits on this render any more
- * (stopped, superseded, disposed): a renderer checks it before each paid
- * step it has not begun, and throws instead of taking it.
+ * Whether a render is still wanted. `aborted` is true while no request waits
+ * on it (stopped, superseded, disposed). Unlike an AbortSignal it can turn
+ * back: a press that rejoins the render wants it again.
  */
-export type NarrationRenderer = (text: string, index: number, signal: AbortSignal) => Promise<Blob>;
+export interface NarrationRenderSignal {
+  readonly aborted: boolean;
+}
+
+/**
+ * Renders one narration (message `index`'s text) to playable audio. Throws
+ * on failure. A renderer reads `signal.aborted` before each paid step it has
+ * not begun, and throws instead of taking it.
+ */
+export type NarrationRenderer = (text: string, index: number, signal: NarrationRenderSignal) => Promise<Blob>;
+
+/** A render's signal: a stop or a supersede clears `wanted`, a rejoining press sets it again. */
+class RenderInterest implements NarrationRenderSignal {
+  wanted = true;
+
+  get aborted(): boolean {
+    return !this.wanted;
+  }
+}
 
 interface Preparation {
   promise: Promise<string>;
-  controller: AbortController;
+  interest: RenderInterest;
 }
 
 export const DEFAULT_NARRATION_CACHE_SIZE = 20;
@@ -73,7 +90,7 @@ export class NarrationPlayer {
   private readonly listeners = new Set<() => void>();
   private readonly cache = new Map<string, string>();
   private readonly inFlight = new Map<string, Preparation>();
-  /** The preparation the latest request waits on: the one a stop lets go. */
+  /** The preparation the latest request waits on: the one a stop no longer wants. */
   private waitedKey: string | null = null;
   private readonly maxCached: number;
   private readonly createAudio: () => HTMLAudioElement;
@@ -176,7 +193,7 @@ export class NarrationPlayer {
     }
     for (const url of this.cache.values()) URL.revokeObjectURL(url);
     this.cache.clear();
-    for (const preparation of this.inFlight.values()) preparation.controller.abort();
+    for (const preparation of this.inFlight.values()) preparation.interest.wanted = false;
     this.inFlight.clear();
   }
 
@@ -186,16 +203,14 @@ export class NarrationPlayer {
 
   /**
    * The preparation the latest request waited on is no longer wanted: its
-   * renderer is told (it takes no paid step it has not begun) and it is let
-   * go, so the next press renders afresh instead of waiting on it.
+   * renderer takes no paid step it has not begun. It stays in flight, so a
+   * press before it settles rejoins it instead of paying for it again.
    */
   private letGoOfPreparation(): void {
     const key = this.waitedKey;
     this.waitedKey = null;
     const preparation = key === null ? undefined : this.inFlight.get(key);
-    if (!key || !preparation) return;
-    this.inFlight.delete(key);
-    preparation.controller.abort();
+    if (preparation) preparation.interest.wanted = false;
   }
 
   private urlFor(key: string, index: number, text: string): Promise<string> {
@@ -208,6 +223,7 @@ export class NarrationPlayer {
     }
     const pending = this.inFlight.get(key);
     if (pending) {
+      pending.interest.wanted = true;
       this.waitedKey = key;
       return pending.promise;
     }
@@ -215,25 +231,18 @@ export class NarrationPlayer {
     const renderer = this.renderer;
     if (!renderer) return Promise.reject(new Error('NarrationPlayer: no renderer set'));
     const generation = this.generation;
-    const controller = new AbortController();
-    const promise = renderer(text, index, controller.signal).then(blob => {
+    const interest = new RenderInterest();
+    const promise = renderer(text, index, interest).then(blob => {
       const url = URL.createObjectURL(blob);
       if (generation !== this.generation) {
         URL.revokeObjectURL(url);
         throw new Error('NarrationPlayer: disposed while preparing');
       }
-      // A preparation let go earlier can land after its replacement did:
-      // the clip already cached answers, and this one is not kept twice.
-      const existing = this.cache.get(key);
-      if (existing) {
-        URL.revokeObjectURL(url);
-        return existing;
-      }
       this.cache.set(key, url);
       this.evict();
       return url;
     });
-    this.inFlight.set(key, { promise, controller });
+    this.inFlight.set(key, { promise, interest });
     this.waitedKey = key;
     const clear = () => {
       if (this.inFlight.get(key)?.promise === promise) this.inFlight.delete(key);

@@ -13,6 +13,8 @@
  * The pure pieces are pinned in tests/auditFixVoice.test.ts.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import React, { act, useCallback, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { GoogleGenAI } from '@google/genai';
@@ -36,7 +38,8 @@ import { projectPrivateSceneForPlayer } from '../perception/visibility';
 import * as voiceCasting from '../ai/tools/voiceCasting';
 import { NarrationLog, NARRATION_LOG_COPY } from '../components/NarrationLog';
 import { CustomNarratorEditor, CUSTOM_NARRATOR_COPY } from '../components/CustomNarratorEditor';
-import { PrivateScene, PRIVATE_SCENE_FAILURE_TITLES, type PrivateSceneFailure } from '../components/PrivateScene';
+import { PrivateScene } from '../components/PrivateScene';
+import { PRIVATE_SCENE_FAILURE_COPY, type PrivateSceneFailure } from '../components/ui/FailureNotices';
 import { VoiceStylePicker } from '../components/VoiceStylePicker';
 import type { CustomNarrator } from '../narration/customNarrators';
 import { makeEntity, makeWorldState } from './factories';
@@ -79,16 +82,21 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-/** A client whose prep call waits for `release`, and whose voice call answers (or fails, per `ttsFails`). */
-function heldPrepAi(options: { ttsFails?: number } = {}) {
+/**
+ * A client whose prep call waits for `release`, and whose voice call answers
+ * (or fails, per `ttsFails`) - or, with `holdVoice`, waits for `releaseVoice`.
+ */
+function heldPrepAi(options: { ttsFails?: number; holdVoice?: boolean } = {}) {
   let failures = options.ttsFails ?? 0;
   const releases: Array<() => void> = [];
+  const voiceReleases: Array<() => void> = [];
   const generateContent = vi.fn((params: ContentParams) => {
     if (params.model === GEMINI_TTS) {
       if (failures > 0) {
         failures--;
         return Promise.reject(new Error('the voice refused'));
       }
+      if (options.holdVoice) return new Promise<typeof AUDIO_RESPONSE>(resolve => voiceReleases.push(() => resolve(AUDIO_RESPONSE)));
       return Promise.resolve(AUDIO_RESPONSE);
     }
     return new Promise<{ text: string }>(resolve => releases.push(() => resolve({ text: `<grave> ${GM}` })));
@@ -96,7 +104,8 @@ function heldPrepAi(options: { ttsFails?: number } = {}) {
   const ai: GeminiClient = { models: { generateContent } };
   const models = () => generateContent.mock.calls.map(call => call[0].model);
   const release = () => { releases.splice(0).forEach(fn => fn()); };
-  return { ai, generateContent, models, release };
+  const releaseVoice = () => { voiceReleases.splice(0).forEach(fn => fn()); };
+  return { ai, generateContent, models, release, releaseVoice };
 }
 
 describe('the narration voice makes no paid call once the performance is unwanted', () => {
@@ -136,6 +145,39 @@ describe('the narration voice makes no paid call once the performance is unwante
     hook.unmount();
   });
 
+  it('a stop and a press while the script is still being written rejoin it: one prep call, one voice call', async () => {
+    const { ai, models, release } = heldPrepAi();
+    const log = new NarrationLogStore({ load: false });
+    const hook = mountVoice(ai, log);
+    act(() => hook.current.toggleNarrationVoice(1, GM)); // preparing
+    act(() => hook.current.toggleNarrationVoice(1, GM)); // stop
+    act(() => hook.current.toggleNarrationVoice(1, GM)); // press again, the prep call still out
+    release();
+    await settle();
+    expect(models()).toEqual([GEMINI_NARRATION_PREP, GEMINI_TTS]);
+    expect(hook.current.narrationPlayback).toEqual({ index: 1, status: 'playing' });
+    expect(log.getSnapshot()).toHaveLength(1);
+    hook.unmount();
+  });
+
+  it('a stop and a press while the voice call is out rejoin it: one voice call, one log entry', async () => {
+    const { ai, models, release, releaseVoice } = heldPrepAi({ holdVoice: true });
+    const log = new NarrationLogStore({ load: false });
+    const hook = mountVoice(ai, log);
+    act(() => hook.current.toggleNarrationVoice(1, GM));
+    release();
+    await settle();
+    expect(models()).toEqual([GEMINI_NARRATION_PREP, GEMINI_TTS]);
+    act(() => hook.current.toggleNarrationVoice(1, GM)); // stop
+    act(() => hook.current.toggleNarrationVoice(1, GM)); // press again
+    releaseVoice();
+    await settle();
+    expect(models()).toEqual([GEMINI_NARRATION_PREP, GEMINI_TTS]);
+    expect(hook.current.narrationPlayback).toEqual({ index: 1, status: 'playing' });
+    expect(log.getSnapshot()).toHaveLength(1);
+    hook.unmount();
+  });
+
   it('after "The voice faltered", pressing again goes straight to the voice', async () => {
     const { ai, models, release } = heldPrepAi({ ttsFails: 1 });
     const log = new NarrationLogStore({ load: false });
@@ -166,6 +208,61 @@ describe('the narration voice makes no paid call once the performance is unwante
     await settle();
     expect(models()).toEqual([GEMINI_NARRATION_PREP]);
     expect(log.getSnapshot()).toHaveLength(0);
+    hook.unmount();
+  });
+
+  const dispatchBase = (ai: GeminiClient, log: NarrationLogStore) => ({
+    ai, isMockMode: false, resolvedApiKey: 'k', worldState: makeWorldState(), entities: [], reports: [], currentEvents: [], turnNumber: 3, log,
+    narrationVoiceMode: 'on_demand' as NarrationVoiceMode,
+  });
+
+  it('the Imperial Dispatch: a stop and a press while its briefing is being written rejoin it - one briefing, one voice call', async () => {
+    const { ai, models, release } = heldPrepAi();
+    const log = new NarrationLogStore({ load: false });
+    const hook = renderHook(useImperialDispatch, dispatchBase(ai, log));
+    act(() => hook.current.toggleDispatch());
+    act(() => hook.current.toggleDispatch()); // stop
+    act(() => hook.current.toggleDispatch()); // press again
+    release();
+    await settle();
+    expect(models()).toEqual([GEMINI_NARRATION_PREP, GEMINI_TTS]);
+    expect(hook.current.dispatchStatus).toBe('playing');
+    expect(log.getSnapshot()).toHaveLength(1);
+    hook.unmount();
+  });
+
+  it('the Imperial Dispatch: stopped while its briefing is being written, no voice call; the next press voices that briefing', async () => {
+    const { ai, models, release } = heldPrepAi();
+    const log = new NarrationLogStore({ load: false });
+    const hook = renderHook(useImperialDispatch, dispatchBase(ai, log));
+    act(() => hook.current.toggleDispatch());
+    act(() => hook.current.toggleDispatch()); // stop
+    release();
+    await settle();
+    expect(models()).toEqual([GEMINI_NARRATION_PREP]);
+    expect(log.getSnapshot()).toHaveLength(0);
+    act(() => hook.current.toggleDispatch());
+    await settle();
+    expect(models()).toEqual([GEMINI_NARRATION_PREP, GEMINI_TTS]);
+    expect(hook.current.dispatchStatus).toBe('playing');
+    expect(log.getSnapshot()).toHaveLength(1);
+    hook.unmount();
+  });
+
+  it('the Imperial Dispatch: a stop and a press while its voice call is out rejoin it - one voice call, one log entry', async () => {
+    const { ai, models, release, releaseVoice } = heldPrepAi({ holdVoice: true });
+    const log = new NarrationLogStore({ load: false });
+    const hook = renderHook(useImperialDispatch, dispatchBase(ai, log));
+    act(() => hook.current.toggleDispatch());
+    release();
+    await settle();
+    act(() => hook.current.toggleDispatch()); // stop
+    act(() => hook.current.toggleDispatch()); // press again
+    releaseVoice();
+    await settle();
+    expect(models()).toEqual([GEMINI_NARRATION_PREP, GEMINI_TTS]);
+    expect(hook.current.dispatchStatus).toBe('playing');
+    expect(log.getSnapshot()).toHaveLength(1);
     hook.unmount();
   });
 
@@ -371,21 +468,33 @@ describe('the private scene dialog', () => {
     view.unmount();
   });
 
-  it('names each failure for what it was', () => {
-    const failures: PrivateSceneFailure[] = [
-      { kind: 'invite', message: 'm' }, { kind: 'eligibility', message: 'm' }, { kind: 'exchange', message: 'm' }, { kind: 'save', message: 'm' }, { kind: 'length', message: 'm' },
-    ];
-    const titles = failures.map(error => {
+  it('names each failure for what it was, in the words the failure notices keep', () => {
+    const failures = Object.keys(PRIVATE_SCENE_FAILURE_COPY) as PrivateSceneFailure[];
+    for (const error of failures) {
       const view = mountUi(<PrivateScene {...props({ error })} />);
       open(view.host);
-      const title = document.querySelector('.gor-private-scene [role="alert"]')?.textContent ?? '';
+      const alert = document.querySelector('.gor-private-scene [role="alert"]');
+      expect(alert?.querySelector('.gor-alert-title')?.textContent).toBe(PRIVATE_SCENE_FAILURE_COPY[error].title);
+      expect(alert?.textContent).toContain(PRIVATE_SCENE_FAILURE_COPY[error].message);
       view.unmount();
       document.body.innerHTML = '';
-      return title;
-    });
-    failures.forEach((failure, i) => expect(titles[i]).toContain(PRIVATE_SCENE_FAILURE_TITLES[failure.kind]));
-    expect(PRIVATE_SCENE_FAILURE_TITLES.exchange).not.toBe(PRIVATE_SCENE_FAILURE_TITLES.invite);
-    expect(PRIVATE_SCENE_FAILURE_TITLES.save).toBe('The record refuses');
+    }
+    expect(PRIVATE_SCENE_FAILURE_COPY.reply_unanswered.title).not.toBe(PRIVATE_SCENE_FAILURE_COPY.invite_unanswered.title);
+    expect(PRIVATE_SCENE_FAILURE_COPY.save.title).toBe('The record refuses');
+    // A refusal by the input bound would come again: it is never offered as a retry.
+    expect(PRIVATE_SCENE_FAILURE_COPY.invite_refused.message).not.toMatch(/retry|try again/i);
+    expect(PRIVATE_SCENE_FAILURE_COPY.reply_refused.message).not.toMatch(/retry|try again/i);
+  });
+
+  it('keeps no failure sentence at the call site: the controller and the dialog name the failure only', () => {
+    const controller = readFileSync(resolve(__dirname, '../hooks/usePrivateSceneController.ts'), 'utf8');
+    const dialog = readFileSync(resolve(__dirname, '../components/PrivateScene.tsx'), 'utf8');
+    for (const { message } of Object.values(PRIVATE_SCENE_FAILURE_COPY)) {
+      expect(controller).not.toContain(message);
+      expect(dialog).not.toContain(message);
+    }
+    expect(dialog).not.toContain('No answer came');
+    expect(dialog).not.toContain('The invitation was not sent');
   });
 
   it('prints turn counts as turns', () => {
@@ -450,13 +559,13 @@ describe('the private scene controller', () => {
     hook.unmount();
   });
 
-  it('a failure is named by kind and belongs to its turn', async () => {
+  it('a failure is named for what failed and belongs to its turn', async () => {
     const scenesRef = { current: [] as PrivateSceneRecord[] };
     const hook = renderHook(usePrivateSceneController, baseDeps(scenesRef));
     act(() => hook.current.setPrivateSceneOpeningDraft('A word.'));
     act(() => hook.current.handlePrivateSceneInvite('nobody_at_all'));
     await settle();
-    expect(hook.current.privateSceneError?.kind).toBe('eligibility');
+    expect(hook.current.privateSceneError).toBe('contact_missing');
     hook.rerender(baseDeps(scenesRef, { turnNumber: 4 }));
     expect(hook.current.privateSceneError).toBeNull();
     hook.unmount();
@@ -473,7 +582,7 @@ describe('the private scene controller', () => {
     act(() => hook.current.setPrivateSceneReplyDraft('And the Guard?'));
     act(() => hook.current.handlePrivateSceneReply(scenesRef.current[0].sceneId));
     await settle();
-    expect(hook.current.privateSceneError).toEqual({ kind: 'exchange', message: 'The scene could not continue. Your words remain ready to retry.' });
+    expect(hook.current.privateSceneError).toBe('reply_unanswered');
     expect(hook.current.privateSceneReplyDraft).toBe('And the Guard?');
     hook.unmount();
   });
@@ -485,8 +594,7 @@ describe('the private scene controller', () => {
     act(() => hook.current.setPrivateSceneOpeningDraft('A word.'));
     act(() => hook.current.handlePrivateSceneInvite('maximinus_thrax'));
     await settle();
-    expect(hook.current.privateSceneError?.kind).toBe('invite');
-    expect(hook.current.privateSceneError?.message).not.toMatch(/retry/i);
+    expect(hook.current.privateSceneError).toBe('invite_refused');
     expect(hook.current.privateSceneOpeningDraft).toBe('A word.');
     hook.unmount();
   });

@@ -219,6 +219,49 @@ export const ImportFailureNotice: React.FC<{ reason: Exclude<ImportResult, { ok:
   </Alert>
 );
 
+/**
+ * How a private scene failed (hooks/usePrivateSceneController.ts). The
+ * controller names the failure; the words live here. The title says what
+ * failed - a reply that met no answer is not a door that did not open - and
+ * a request the scene's input bound refuses (`*_refused`) is never offered
+ * as a retry, since the same words would be refused again.
+ */
+export type PrivateSceneFailure =
+  | 'invite_unanswered'
+  | 'invite_refused'
+  | 'contact_missing'
+  | 'contact_out_of_reach'
+  | 'already_held'
+  | 'reply_unanswered'
+  | 'reply_refused'
+  | 'save'
+  | 'too_long';
+
+const DOOR_DID_NOT_OPEN = 'The door did not open';
+const INVITATION_NOT_SENT = 'The invitation was not sent';
+const NO_ANSWER_CAME = 'No answer came';
+const SCENE_COULD_NOT_CONTINUE = 'The scene could not continue. Your words remain ready to retry.';
+
+export const PRIVATE_SCENE_FAILURE_COPY: Record<PrivateSceneFailure, { title: string; message: string }> = {
+  invite_unanswered: { title: DOOR_DID_NOT_OPEN, message: SCENE_COULD_NOT_CONTINUE },
+  invite_refused: { title: DOOR_DID_NOT_OPEN, message: 'This contact cannot be drawn into a private word. Your words are kept; choose another to send them to.' },
+  contact_missing: { title: INVITATION_NOT_SENT, message: 'That contact can no longer be found. Choose another and try again.' },
+  contact_out_of_reach: { title: INVITATION_NOT_SENT, message: 'That contact is no longer within reach. Choose another and try again.' },
+  already_held: { title: INVITATION_NOT_SENT, message: 'A private scene has already been held this turn.' },
+  reply_unanswered: { title: NO_ANSWER_CAME, message: SCENE_COULD_NOT_CONTINUE },
+  reply_refused: { title: NO_ANSWER_CAME, message: 'The conversation can go no further. Everything said is kept; end the scene when you are ready.' },
+  // A failed write keeps the app's one name for it.
+  save: { title: RECORD_REFUSES, message: 'The scene could not be saved. This device would not take the writing down — your words are kept here, and the scene has not moved.' },
+  too_long: { title: 'More than a private word', message: 'Private-scene messages may be at most 2,000 characters.' },
+};
+
+/** The private scene dialog's one failure surface. */
+export const PrivateSceneFailureNotice: React.FC<{ failure: PrivateSceneFailure; style?: React.CSSProperties }> = ({ failure, style }) => (
+  <Alert title={PRIVATE_SCENE_FAILURE_COPY[failure].title} style={style}>
+    {PRIVATE_SCENE_FAILURE_COPY[failure].message}
+  </Alert>
+);
+
 /** Nothing failed. The turn is on disk; only the work after it stumbled. */
 export const HalfCommitNotice: React.FC<{ style?: React.CSSProperties }> = ({ style }) => (
   <Alert tone="laurel" title="The week is written" style={style}>

@@ -3,7 +3,8 @@ import type { PrivateScenePlayerView } from '../perception/visibility';
 import type { PrivateSceneTarget } from '../privateScene/model';
 import { PRIVATE_SCENE_MAX_UTTERANCE_CHARS } from '../privateScene/model';
 import { Button, DraftGauge } from './ui/Core';
-import { Alert, RECORD_REFUSES } from './ui/Alert';
+import { Alert } from './ui/Alert';
+import { PrivateSceneFailureNotice, type PrivateSceneFailure } from './ui/FailureNotices';
 import { WaxSeal, toRoman } from './ui/Brand';
 import { radioGroupKeyDown, radioTabIndex } from './ui/rovingRadio';
 import { createFocusTrap } from './ui/focusTrap';
@@ -19,29 +20,6 @@ export function replacePrivateSceneForCommit<T extends { sceneId: string }>(
   return index < 0 ? [...scenes, candidate] : scenes.map(scene => scene.sceneId === candidate.sceneId ? candidate : scene);
 }
 
-/**
- * What went wrong in a private scene (hooks/usePrivateSceneController.ts):
- * the kind names the notice, the message says the rest (D45: specific to
- * this failure). An invitation that went out and met no answer, one that was
- * never sent, a reply that met no answer, a scene the device would not
- * write down, a word over the limit.
- */
-export type PrivateSceneFailureKind = 'invite' | 'eligibility' | 'exchange' | 'save' | 'length';
-
-export interface PrivateSceneFailure {
-  kind: PrivateSceneFailureKind;
-  message: string;
-}
-
-/** The notice's title per kind (veto queue; a failed write keeps the app's one name for it). */
-export const PRIVATE_SCENE_FAILURE_TITLES: Record<PrivateSceneFailureKind, string> = {
-  invite: 'The door did not open',
-  eligibility: 'The invitation was not sent',
-  exchange: 'No answer came',
-  save: RECORD_REFUSES,
-  length: 'More than a private word',
-};
-
 export interface PrivateSceneProps {
   scenes: readonly PrivateScenePlayerView[];
   currentMacroTurn: number;
@@ -51,6 +29,7 @@ export interface PrivateSceneProps {
   replyDraft: string;
   lastWordDraft: string;
   loading: boolean;
+  /** What failed (hooks/usePrivateSceneController.ts); its words live in components/ui/FailureNotices.tsx. */
   error: PrivateSceneFailure | null;
   onOpeningDraftChange(value: string): void;
   onReplyDraftChange(value: string): void;
@@ -226,7 +205,7 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
       )}
       {/* A failed continuation: the hour is charged on invitation, not on failure. Say so, or nobody risks a retry.
           The title names what failed - a reply that met no answer is not a door that did not open. */}
-      {error && <Alert title={PRIVATE_SCENE_FAILURE_TITLES[error.kind]} style={{ margin: '6px 0 0' }}>{error.message}</Alert>}
+      {error && <PrivateSceneFailureNotice failure={error} style={{ margin: '6px 0 0' }} />}
       {!active && <>
         {!canStartScene ? (
           <div className="gor-scene-guard">

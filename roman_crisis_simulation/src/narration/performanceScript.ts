@@ -61,13 +61,15 @@
  *     (ai/core/playerBoundary.ts). Checked before 3, so a fidelity verdict
  *     means every other rule held.
  *
- * Known limit of 3: a new name that only ever opens a sentence, or opens
- * quoted speech (after a sentence end, a comma or a colon), reads like any
- * sentence-initial word and is not caught, and numbers spelled out in
- * words are not compared. Nothing else exempts a word: after a colon, a
+ * Known limit of 3: a new name that only ever opens a sentence (at the
+ * start, after a line break or after a sentence end, quoted or not) reads
+ * like any sentence-initial word and is not caught, and numbers spelled out
+ * in words are not compared. Nothing else exempts a word: after a colon, a
  * semicolon, a bracket, a single quote or a quote inside a sentence, a
- * capitalized word is checked (`opensSentence`). The prompt's fidelity rule
- * covers those limits; the tuning harness (narration/tuning/) reports
+ * capitalized word is checked; speech quoted after a comma or a colon
+ * (`He roars, "Drink!"`) may open only with a common word - one the passage
+ * or the script uses in lower case (`opensSentence`). The prompt's fidelity
+ * rule covers those limits; the tuning harness (narration/tuning/) reports
  * refusals verbatim so a narrator can be tuned against them.
  *
  * Patching (rule 3 only, deterministic, zero tokens): a retelling that
@@ -364,9 +366,7 @@ export type CueFault =
 function cueChecker(original: string, transcript: string): (direction: string) => CueFault | null {
   const originalWords = new Set(spokenTokens(speakableText(original)));
   // Words the script and the passage use in lower case: a cue may open with one capitalized.
-  const lowerCaseWords = new Set(
-    [speakableText(original), transcript].join(' ').match(/(?<![\p{L}\p{M}'])\p{Ll}[\p{Ll}\p{M}]*/gu) ?? [],
-  );
+  const lowerCaseWords = lowerCaseWordsOf(speakableText(original), transcript);
   return direction => {
     if (!direction.trim()) return 'empty_direction';
     if (direction.length > MAX_DIRECTION_CHARS) return 'direction_too_long';
@@ -423,6 +423,11 @@ export function dropBadCues(original: string, transcript: string): { kept: strin
   return { kept, droppedCues };
 }
 
+/** Every word the texts use in lower case (a word, not the tail of one: "don't" gives "don"). */
+function lowerCaseWordsOf(...texts: string[]): Set<string> {
+  return new Set(texts.join(' ').match(/(?<![\p{L}\p{M}'])\p{Ll}[\p{Ll}\p{M}]*/gu) ?? []);
+}
+
 /** Plenty for a performed reading (about one per sentence); a wall of them is not a performance. */
 function maxDirectionsFor(wordCount: number): number {
   return 2 + Math.floor(wordCount / 5);
@@ -455,29 +460,33 @@ function numberKey(figure: string): string {
 }
 
 /**
- * Whether the word at `index` opens a sentence (or quoted speech): reading
- * backwards over spaces, the text starts, a line breaks, or a sentence ends
- * (`.`, `!`, `?`, `…`, with any closing quotes or brackets after it) - or
- * an opening double quote was crossed that itself opens speech (after a
- * sentence end, a comma or a colon: `He roars, "Soldiers!"`). Curly quotes
- * reach here straight (`normalizeQuotes`).
+ * What the word at `index` opens, reading backwards over spaces:
  *
- * Nothing else opens a sentence. A colon or semicolon, a bracket, a single
- * quote or an apostrophe, or a quote inside a sentence (`waits for
- * "Philip…"`) sits mid-sentence, so the capitalized word after it is a name
- * candidate like any other - it used to be exempt, which let a retelling
- * slip in a name after `;` or inside `(…)`.
+ *  - 'sentence': the text starts, a line breaks, or a sentence ends (`.`,
+ *    `!`, `?`, `…`, with any closing quotes or brackets after it) - also
+ *    across an opening double quote (`The camp mutters. "Drink," …`).
+ *  - 'quote': an opening double quote after a comma or a colon (`He roars,
+ *    "Drink!"`). Quoted speech, but mid-sentence - the natural place for a
+ *    retelling to bring in a name (`roars, "Philip will fall!"`) - so the
+ *    caller exempts only a common word there.
+ *  - false: anything else. A colon or semicolon, a bracket, a single quote
+ *    or an apostrophe, or a quote inside a sentence (`waits for
+ *    "Philip…"`) sits mid-sentence, so the capitalized word after it is a
+ *    name candidate like any other.
+ *
+ * Curly quotes reach here straight (`normalizeQuotes`).
  */
-function opensSentence(text: string, index: number): boolean {
+function opensSentence(text: string, index: number): 'sentence' | 'quote' | false {
   let i = index - 1;
   while (i >= 0 && text[i] !== '\n' && /\s/.test(text[i])) i--;
-  if (i < 0 || text[i] === '\n') return true;
+  if (i < 0 || text[i] === '\n') return 'sentence';
   if (text[i] === '"' && opensQuotation(text, i)) {
     let before = i - 1;
     while (before >= 0 && text[before] !== '\n' && /\s/.test(text[before])) before--;
-    return before < 0 || text[before] === '\n' || ',:'.includes(text[before]) || endsSentence(text, before);
+    if (before < 0 || text[before] === '\n' || endsSentence(text, before)) return 'sentence';
+    return ',:'.includes(text[before]) ? 'quote' : false;
   }
-  return endsSentence(text, i);
+  return endsSentence(text, i) ? 'sentence' : false;
 }
 
 /** Whether `text[end]` closes a sentence: sentence punctuation, or closing quotes and brackets right after it. */
@@ -496,7 +505,11 @@ function opensQuotation(text: string, index: number): boolean {
 /**
  * The fidelity check (rule 3 above): the first word or figure the retelling
  * introduces that the passage never mentioned, if any. Reads the spoken
- * words only: cues are ignored here (rule 2 checks them).
+ * words only: cues are ignored here (rule 2 checks them). A word opening
+ * speech quoted mid-sentence is exempt only when it is a common word - one
+ * the passage or the script uses in lower case, as for a cue's opener
+ * (`cueChecker`) - so `roars, "Drink!"` stands and `roars, "Philip will
+ * fall!"` does not.
  */
 export function findIntroducedContent(
   original: string,
@@ -509,10 +522,13 @@ export function findIntroducedContent(
   const knownNumbers = new Set((source.match(NUMBER_PATTERN) ?? []).map(numberKey));
 
   const text = normalizeQuotes(spokenPartOf(spoken));
+  const lowerCaseWords = lowerCaseWordsOf(source, text);
   for (const match of text.matchAll(WORD_PATTERN)) {
     const word = match[0];
     if (!/^\p{Lu}/u.test(word)) continue;
-    if (opensSentence(text, match.index ?? 0)) continue;
+    const opens = opensSentence(text, match.index ?? 0);
+    if (opens === 'sentence') continue;
+    if (opens === 'quote' && /^\p{Lu}\p{Ll}*$/u.test(word) && lowerCaseWords.has(word.toLowerCase())) continue;
     const key = nameKey(word);
     if (!known.has(key) && !ALWAYS_SPEAKABLE.has(key)) return { kind: 'name', value: word };
   }

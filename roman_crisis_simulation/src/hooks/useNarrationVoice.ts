@@ -149,9 +149,10 @@ const MAX_UNVOICED_SCRIPTS = 20;
 /**
  * Holds a script being written until it is voiced. A fallback is let go once
  * it lands - like the log, only a retelling the guard accepted is reused (a
- * fallback may have been a failed call worth making again).
+ * fallback may have been a failed call worth making again). The Imperial
+ * Dispatch holds its briefings the same way (hooks/useImperialDispatch.ts).
  */
-function holdUnvoiced(unvoiced: Map<string, Promise<PerformedTranscript>>, key: string, script: Promise<PerformedTranscript>): void {
+export function holdUnvoiced(unvoiced: Map<string, Promise<PerformedTranscript>>, key: string, script: Promise<PerformedTranscript>): void {
     unvoiced.set(key, script);
     while (unvoiced.size > MAX_UNVOICED_SCRIPTS) unvoiced.delete(unvoiced.keys().next().value as string);
     const release = () => {
@@ -305,7 +306,8 @@ export function useNarrationVoice({
                 // The voice is the costlier call: none once the performance is
                 // no longer wanted - SILENT, a stop, another narrator, voice or
                 // style, the key gone, another campaign's transcript (each stops
-                // the player, which aborts `signal`) - and nothing is logged.
+                // the player, and `signal` reads aborted until a press rejoins
+                // this render) - and nothing is logged.
                 if (signal.aborted || silentRef.current || !canReachVoiceRef.current) {
                     throw new Error('useNarrationVoice: the performance was stopped before it was voiced');
                 }

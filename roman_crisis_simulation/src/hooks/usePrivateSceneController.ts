@@ -31,7 +31,8 @@ import {
 } from '../privateScene/model';
 import { continuePrivateScene } from '../ai/tools/privateScene';
 import { PRIVATE_SCENE_MAX_PROMPT_INPUT_CHARS, PrivateSceneInputError } from '../ai/prompts/privateScene';
-import { replacePrivateSceneForCommit, type PrivateSceneFailure, type PrivateSceneFailureKind } from '../components/PrivateScene';
+import { replacePrivateSceneForCommit } from '../components/PrivateScene';
+import type { PrivateSceneFailure } from '../components/ui/FailureNotices';
 import { projectPrivateSceneForPlayer } from '../perception/visibility';
 import {
     type DomainCommit,
@@ -157,13 +158,12 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
     const [privateSceneReplyDraft, setPrivateSceneReplyDraft] = useState('');
     const [privateSceneLastWordDraft, setPrivateSceneLastWordDraft] = useState('');
     // A failure belongs to the turn it happened in: the next turn's door is
-    // fresh, and an old "The door did not open" must not greet it.
-    const [failure, setFailure] = useState<(PrivateSceneFailure & { turn: number }) | null>(null);
-    const privateSceneError: PrivateSceneFailure | null = failure && failure.turn === turnNumber
-        ? { kind: failure.kind, message: failure.message }
-        : null;
-    const fail = useCallback((kind: PrivateSceneFailureKind, message: string) => {
-        setFailure({ kind, message, turn: turnNumber });
+    // fresh, and an old "The door did not open" must not greet it. Only what
+    // failed is named here; the words live in components/ui/FailureNotices.tsx (D45).
+    const [failure, setFailure] = useState<{ failure: PrivateSceneFailure; turn: number } | null>(null);
+    const privateSceneError: PrivateSceneFailure | null = failure && failure.turn === turnNumber ? failure.failure : null;
+    const fail = useCallback((what: PrivateSceneFailure) => {
+        setFailure({ failure: what, turn: turnNumber });
     }, [turnNumber]);
 
     const privateSceneTargets = useMemo(
@@ -196,7 +196,7 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
             action: { type: 'PRIVATE_SCENES_COMMITTED', privateScenes: candidateScenes },
             // Same voice as every other write that would not land (D45): the
             // device is named, and what is kept is named. No bare "try again".
-            onSaveFailure: () => fail('save', 'The scene could not be saved. This device would not take the writing down — your words are kept here, and the scene has not moved.'),
+            onSaveFailure: () => fail('save'),
             beforeDispatch: () => {
                 // The durable bytes exist before this point. Set the handler-level
                 // guard before reducer dispatch so another event cannot enter an
@@ -212,7 +212,7 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
         void runDomainMutation(async transaction => {
             const opening = privateSceneOpeningDraft.trim();
             if (!transaction.isCurrent() || !playerEntity || !opening || opening.length > PRIVATE_SCENE_MAX_UTTERANCE_CHARS) {
-                if (opening.length > PRIVATE_SCENE_MAX_UTTERANCE_CHARS) fail('length', 'Private-scene messages may be at most 2,000 characters.');
+                if (opening.length > PRIVATE_SCENE_MAX_UTTERANCE_CHARS) fail('too_long');
                 return false;
             }
             const expectedScenes = privateScenesFingerprint(privateScenesRef.current);
@@ -220,15 +220,15 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
             const stillEligible = eligiblePrivateSceneTargets({ player: playerEntity, entities, knownEntityIds: privateSceneKnownIds })
                 .some(target => target.entityId === targetId);
             if (!npc) {
-                fail('eligibility', 'That contact can no longer be found. Choose another and try again.');
+                fail('contact_missing');
                 return false;
             }
             if (!stillEligible) {
-                fail('eligibility', 'That contact is no longer within reach. Choose another and try again.');
+                fail('contact_out_of_reach');
                 return false;
             }
             if (privateScenesRef.current.some(scene => scene.status === 'active' || scene.status === 'awaiting_last_word' || scene.macroTurn === turnNumber)) {
-                fail('eligibility', 'A private scene has already been held this turn.');
+                fail('already_held');
                 return false;
             }
             try {
@@ -244,8 +244,7 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
             } catch (error) {
                 if (!transaction.isCurrent()) return false;
                 // The input bound refused this contact: the same request would fail again, so no retry is offered.
-                if (error instanceof PrivateSceneInputError) fail('invite', 'This contact cannot be drawn into a private word. Your words are kept; choose another to send them to.');
-                else fail('invite', 'The scene could not continue. Your words remain ready to retry.');
+                fail(error instanceof PrivateSceneInputError ? 'invite_refused' : 'invite_unanswered');
                 return false;
             }
         }, { allowDuringPrivateScene: true });
@@ -257,7 +256,7 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
             const expectedScenes = privateScenesFingerprint(privateScenesRef.current);
             const scene = privateScenesRef.current.find(candidate => candidate.sceneId === sceneId);
             if (!transaction.isCurrent() || !scene || scene.status !== 'active' || !reply || reply.length > PRIVATE_SCENE_MAX_UTTERANCE_CHARS) {
-                if (reply.length > PRIVATE_SCENE_MAX_UTTERANCE_CHARS) fail('length', 'Private-scene messages may be at most 2,000 characters.');
+                if (reply.length > PRIVATE_SCENE_MAX_UTTERANCE_CHARS) fail('too_long');
                 return false;
             }
             const npc = entities.find(entity => entity.entity_id === scene.npcId);
@@ -274,8 +273,8 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
                 return true;
             } catch (error) {
                 if (!transaction.isCurrent()) return false;
-                if (error instanceof PrivateSceneInputError) fail('exchange', 'The conversation can go no further. Everything said is kept; end the scene when you are ready.');
-                else fail('exchange', 'The scene could not continue. Your words remain ready to retry.');
+                // As for the invitation: a refusal by the input bound is not offered as a retry.
+                fail(error instanceof PrivateSceneInputError ? 'reply_refused' : 'reply_unanswered');
                 return false;
             }
         }, { allowDuringPrivateScene: true });
@@ -298,7 +297,7 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
         void runDomainMutation(() => {
             const text = lastWord?.trim() ?? null;
             if (text !== null && text.length > PRIVATE_SCENE_MAX_UTTERANCE_CHARS) {
-                fail('length', 'Private-scene messages may be at most 2,000 characters.');
+                fail('too_long');
                 return false;
             }
             const expectedScenes = privateScenesFingerprint(privateScenesRef.current);
