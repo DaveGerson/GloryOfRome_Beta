@@ -252,8 +252,8 @@ describe('journey: a save-reload-continue campaign (mid-journey persistence roun
     try {
       await appClick(appButton(app.container, 'Structured'));
       await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Action 1'), excerpt);
-      await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Private Intent'), privateIntent);
-      await appClick(appButton(app.container, 'Submit turn'));
+      await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'What you intend'), privateIntent);
+      await appClick(appButton(app.container, 'Seal & send'));
       await waitForApp(() => expect(loadThreadState().turnNumber).toBe(2));
 
       // This state was assembled by App's private buildSaveState callback and

@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { GameState } from './types';
 
 import Header from './components/Header';
@@ -24,6 +24,7 @@ import { useGmConsole } from './hooks/useGmConsole';
 import { useIntelCommits } from './hooks/useIntelCommits';
 import { useOnboarding } from './hooks/useOnboarding';
 import { usePlayerPerception } from './hooks/usePlayerPerception';
+import { usePanelInView, useSeenRegisters, weekKeyOf } from './hooks/useSeenRegisters';
 import { usePrivateSceneController } from './hooks/usePrivateSceneController';
 import { useSettings } from './hooks/useSettings';
 import { useReadingPrefs } from './hooks/useReadingPrefs';
@@ -40,7 +41,7 @@ import { useDevSmokeTest, useUnloadGuardWhileProcessing } from './hooks/useShell
 import { CHAT_FOLLOW_COPY, useChatFollow } from './hooks/useChatFollow';
 import { useCommandPalette } from './hooks/useCommandPalette';
 import { buildGameCommands } from './app/commands';
-import { draftSuggestion, focusComposer, pressOpener, selectRegister } from './app/domCommands';
+import { draftSuggestion, focusComposer, focusDesk, pressOpener, selectRegister } from './app/domCommands';
 import { SIDE_PANEL_TABS } from './components/SidePanel';
 import type { TransactionNote } from './app/transactions';
 import { TransactionNoteView, downloadTheReign } from './app/TransactionNoteView';
@@ -150,8 +151,19 @@ const App: React.FC = () => {
     // executeTurn/handleEventChoice/handleContinue), not here.
     const isPlayerExiledOrMissing = playerEntity !== null && (playerEntity.status === 'exiled' || playerEntity.status === 'missing');
     const {
-        lastTurn, lastTurnPerceivedChanges, pulsingTabs, tabChangeCounts, illuminatedNarrations, lastGmNarration,
+        lastTurn, lastTurnPerceivedChanges, tabChangeCounts, illuminatedNarrations, lastGmNarration,
     } = usePlayerPerception(messages, turnHistory, playerCharacterId, worldState, knowledge);
+    // "What changed since you last looked": the open tab and what has been
+    // looked at since the week landed, held here so the tab rail and the
+    // command palette say the same count (hooks/useSeenRegisters.ts). The
+    // open tab counts as looked at only while the panel is on the screen -
+    // on a phone it waits a swipe away from the chronicle.
+    const weekKey = useMemo(() => weekKeyOf(lastTurn), [lastTurn]);
+    const [sidePanelElement, setSidePanelElement] = useState<HTMLElement | null>(null);
+    const panelInView = usePanelInView(sidePanelElement);
+    const {
+        activeTab: activeRegister, selectTab: handleSelectRegister, unseenCounts, unseenTabs,
+    } = useSeenRegisters({ weekKey, tabChangeCounts, panelInView });
     // Which masthead stats a 'world' delta moved last week - public by D5
     // rule 1, and the header already shows both values unconditionally.
     const worldShifts = useMemo(() => {
@@ -181,6 +193,13 @@ const App: React.FC = () => {
         runDomainMutation, commitDomainMutation, buildSaveState,
         privateSceneLockRef, privateScenesRef,
     });
+    // A scene left open - its dialog closed, or the game reloaded mid-scene -
+    // holds the desk. The tablet names it and the way back to it, rather
+    // than claiming the Senate is deliberating (TurnComposer `openScene`).
+    const openScene = useMemo(() => {
+        const scene = privateSceneViews.find(view => view.status === 'active' || view.status === 'awaiting_last_word');
+        return scene ? { npcName: scene.npcName, awaitingLastWord: scene.status === 'awaiting_last_word' } : null;
+    }, [privateSceneViews]);
 
     const { setIsCheckingEvents, eventChoiceError, handleEventChoice } = useEventFlow({
         activeEvent, playerEntity, entities, worldState, simulationState, turnNumber,
@@ -216,6 +235,18 @@ const App: React.FC = () => {
         gameState,
         streamingText: reading.narrationReveal === 'stream' ? streamingNarration : '',
     });
+    // A Settings that closes on nothing hands focus to the desk: its focus
+    // trap returns focus to the control that opened it, and "Enter your key"
+    // on the no-key notice is gone by then - the saved key took the notice
+    // with it, and focus fell to <body>. The tablet takes it, or on a touch
+    // screen the log, so no keyboard is thrown up unasked (focusDesk).
+    const settingsWasOpenRef = useRef(isSettingsMenuOpen);
+    useEffect(() => {
+        const closed = settingsWasOpenRef.current && !isSettingsMenuOpen;
+        settingsWasOpenRef.current = isSettingsMenuOpen;
+        const active = document.activeElement;
+        if (closed && (!active || active === document.body)) focusDesk(chatLogRef.current);
+    }, [isSettingsMenuOpen, chatLogRef]);
 
     const {
         savedGameInfo,
@@ -305,7 +336,8 @@ const App: React.FC = () => {
     const canWrite = gameState === GameState.AWAITING_PLAYER_INPUT && !domainMutationInFlight && !privateSceneInteractionLocked;
     const paletteCommands = paletteOpen ? buildGameCommands({
         registers: SIDE_PANEL_TABS,
-        changeCounts: tabChangeCounts,
+        // What the tab rail shows: the week's counts less what was looked at.
+        changeCounts: unseenCounts,
         singleKeys,
         canWrite,
         // Not gated on the scene lock: an active scene is exactly when the
@@ -399,7 +431,16 @@ const App: React.FC = () => {
                                 />
                             ) : (
                                 <>
-                                    <div ref={chatLogRef} onScroll={onLogScroll} style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }} role="log" aria-live="polite" aria-label="Chat log">
+                                    {/* The chronicle keeps a reading height whatever the
+                                        desk below holds (the Structured registers
+                                        once squeezed it to a sliver); the desk
+                                        scrolls within itself instead. */}
+                                    <div ref={chatLogRef} onScroll={onLogScroll} tabIndex={-1} style={{ flex: 1, minHeight: 'min(200px, 40%)', overflowY: 'auto', padding: '20px 24px' }} role="log" aria-live="polite" aria-label="Chat log">
+                                        {/* The week being sent is drawn where its committed
+                                            leaf will land - the same list, the same key - so
+                                            it stays one node from send to commit and the log
+                                            speaks the player's words once. Drawn after the
+                                            list, it was a second node, announced again. */}
                                         {messages.map((msg, index) => (
                                             <ChatMessage
                                                 key={index}
@@ -409,8 +450,9 @@ const App: React.FC = () => {
                                                 voiceState={narrationVoiceStateFor(msg, index)}
                                                 onToggleVoice={toggleNarrationVoice}
                                             />
-                                        ))}
-                                        {pendingPlayerMessage && <ChatMessage message={pendingPlayerMessage} />}
+                                        )).concat(pendingPlayerMessage
+                                            ? [<ChatMessage key={messages.length} message={pendingPlayerMessage} />]
+                                            : [])}
                                         {gameState === GameState.PROCESSING && (
                                             // "Whole" (Settings → Reading) keeps the loom up until the
                                             // week commits instead of streaming the pen's progress.
@@ -423,7 +465,11 @@ const App: React.FC = () => {
                                         )}
                                         <div ref={chatEndRef} />
                                     </div>
-                                    <div style={{ flex: 'none', borderTop: '1px solid var(--border-subtle)', padding: '12px 24px 16px', background: 'rgba(255,254,249,.55)' }}>
+                                    {/* The desk gives way before the chronicle does: a
+                                        column that may shrink, where only the Structured
+                                        registers scroll (TurnComposer), so the page itself
+                                        never scrolls and the masthead stays put. */}
+                                    <div style={{ flex: '0 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', borderTop: '1px solid var(--border-subtle)', padding: '12px 24px 16px', background: 'rgba(255,254,249,.55)' }}>
                                         {/* Scrolled back through the chronicle: the way to the
                                             latest, which says so once something has landed. It
                                             rides the desk's top edge (the log's own sibling must
@@ -462,7 +508,14 @@ const App: React.FC = () => {
                                                         document.querySelector<HTMLElement>('#chat-input, #structured-input')?.focus();
                                                     }}
                                                     onOpenSettings={openSettings}
-                                                    onEnableMockMode={() => { setIsMockMode(true); setTurnFailure(null); }}
+                                                    onEnableMockMode={() => {
+                                                        setIsMockMode(true);
+                                                        setTurnFailure(null);
+                                                        // The notice - and the pressed control with it -
+                                                        // is going; the tablet the player can now use
+                                                        // takes focus rather than <body>.
+                                                        focusComposer();
+                                                    }}
                                                     onOpenLedger={isGmConsoleEnabled ? openGmScreen : undefined}
                                                 />
                                             </div>
@@ -473,11 +526,14 @@ const App: React.FC = () => {
                                                 <Button
                                                     variant="secondary"
                                                     onClick={retryLastTurn}
-                                                    aria-label="Retry the last action"
+                                                    // Its name is its visible words, less the glyph.
+                                                    aria-label={online ? 'Retry the last action' : 'Hold until the roads reopen'}
                                                     // Item 49: this is a send like any other, so the
                                                     // shut roads hold it too — it used to be the one
-                                                    // way past the offline gate.
-                                                    disabled={domainMutationInFlight || !online}
+                                                    // way past the offline gate. An open private scene
+                                                    // holds it as it holds the tablet: pressed then,
+                                                    // it refused and did nothing.
+                                                    disabled={domainMutationInFlight || privateSceneInteractionLocked || !online}
                                                 >
                                                     {online ? '↻ Retry the last action' : '↻ Hold until the roads reopen'}
                                                 </Button>
@@ -492,6 +548,7 @@ const App: React.FC = () => {
                                             onStructuredDraftChange={setStructuredDraft}
                                             onSubmit={handleComposerSubmit}
                                             disabled={domainMutationInFlight || privateSceneInteractionLocked || gameState !== GameState.AWAITING_PLAYER_INPUT}
+                                            openScene={openScene}
                                             isProcessing={gameState === GameState.PROCESSING}
                                             turnStage={turnStage}
                                             playerInitial={playerEntity?.name}
@@ -567,8 +624,11 @@ const App: React.FC = () => {
                             isMockMode={isMockMode}
                             eventHistory={eventHistory}
                             turnHistory={turnHistory}
-                            pulsingTabs={pulsingTabs}
-                            tabChangeCounts={tabChangeCounts}
+                            pulsingTabs={unseenTabs}
+                            tabChangeCounts={unseenCounts}
+                            activeTab={activeRegister}
+                            onSelectTab={handleSelectRegister}
+                            panelRef={setSidePanelElement}
                             onOccurrenceFinding={handleOccurrenceFinding}
                             resolvedApiKey={resolvedApiKey}
                             narrationVoiceMode={narrationVoiceMode}

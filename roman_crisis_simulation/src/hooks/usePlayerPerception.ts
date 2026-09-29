@@ -33,6 +33,13 @@ export function lastGmNarrationOf(messages: readonly Message[]): string {
 }
 
 /**
+ * An observation drawn from a bought investigation: its evidence id is
+ * knowledge/relationships.ts's `investigation:…`, which the investigation
+ * commit files under its week as `turn:<n>:investigation:…`.
+ */
+const INVESTIGATION_EVIDENCE = /^(?:turn:\d+:)?investigation:/;
+
+/**
  * How many things changed on each SidePanel tab in the most recently
  * committed turn ("what changed since you last looked", ROADMAP_UPLEVEL
  * P6) - built strictly from the already-filtered perceived changes, never
@@ -41,7 +48,11 @@ export function lastGmNarrationOf(messages: readonly Message[]): string {
  * already shows. Dramatis Personae counts only relationship observations
  * first learned on the last turn (D36 - the player reads relationships from
  * sourced observations, never from engine sentiment), so a perceived change
- * naming that tab adds nothing to it. A tab with nothing new is absent.
+ * naming that tab adds nothing to it - and only observations the committed
+ * week itself brought. One drawn from an investigation the player bought in
+ * the interlude is stamped with the week then in hand (useIntelCommits), so
+ * it would otherwise be counted as new again once that week is sent, though
+ * the player bought it and read it already. A tab with nothing new is absent.
  */
 export function tabChangeCountsFor(
     perceivedChanges: readonly PerceivedChange[],
@@ -56,6 +67,7 @@ export function tabChangeCountsFor(
     if (lastTurn) {
         const observations = knowledge.filter(claim =>
             claim.relationshipObservation && claim.firstLearnedTurn === lastTurn.turnNumber
+            && !INVESTIGATION_EVIDENCE.test(claim.relationshipObservation.evidenceId)
         ).length;
         if (observations > 0) bump('dramatis_personae', observations);
     }

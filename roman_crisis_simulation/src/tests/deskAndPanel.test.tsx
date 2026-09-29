@@ -26,6 +26,7 @@ import PlayerStatus, { PLAYER_STATUS_COPY } from '../components/PlayerStatus';
 import Header, { HEADER_COPY } from '../components/Header';
 import { TurnComposer, SUGGESTION_INDEX_ATTRIBUTE, TURN_COMPOSER_COPY } from '../components/TurnComposer';
 import { CHAT_FOLLOW_COPY, FOLLOW_THRESHOLD_PX, isNearFoot, useChatFollow } from '../hooks/useChatFollow';
+import { useSeenRegisters } from '../hooks/useSeenRegisters';
 import { getDossierFolded, setDossierFolded } from '../persistence/readingPrefs';
 import * as turnModule from '../ai/core/turn';
 import App from '../App';
@@ -127,13 +128,22 @@ describe('SidePanel: what changed since you last looked', () => {
   });
 
   it('looking at a tab clears its coin until the next week brings something new', async () => {
-    const counts = new Map<TabId, number>([['reports', 2]]);
-    const { container, render } = await mount(panel(new Set<TabId>(['reports']), counts));
+    // The memory of what was looked at is App's (hooks/useSeenRegisters.ts),
+    // so the command palette reads it too; the panel draws what it is given.
+    const Remembered: React.FC<{ weekKey: string; counts: Map<TabId, number> }> = ({ weekKey, counts }) => {
+      const { activeTab, selectTab, unseenCounts, unseenTabs } = useSeenRegisters({ weekKey, tabChangeCounts: counts });
+      return React.cloneElement(panel(unseenTabs, unseenCounts), { activeTab, onSelectTab: selectTab });
+    };
+    const { container, render } = await mount(<Remembered weekKey="2:a" counts={new Map<TabId, number>([['reports', 2]])} />);
     await act(async () => tab(container, 'reports').click());
     expect(tab(container, 'reports').querySelector('.gor-tab-count')).toBeNull();
     expect(tab(container, 'reports').getAttribute('aria-label')).toBe('Reports');
-    await render(panel(new Set<TabId>(['reports', 'events']), new Map<TabId, number>([['reports', 1], ['events', 3]])));
+    // Move on to Events, then the next week lands on both.
+    await act(async () => tab(container, 'events').click());
+    await render(<Remembered weekKey="3:b" counts={new Map<TabId, number>([['reports', 1], ['events', 3]])} />);
     expect(tab(container, 'reports').querySelector('.gor-tab-count')?.textContent).toBe('1');
+    // The tab open as the week lands is looked at already.
+    expect(tab(container, 'events').querySelector('.gor-tab-count')).toBeNull();
   });
 
   it('tabAriaLabel', () => {
@@ -410,7 +420,7 @@ describe('the App: narration "As written" or "Whole"', () => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'I hold court.');
       input.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    await act(async () => buttonNamed(container, 'Send message')!.click());
+    await act(async () => buttonNamed(container, 'Speak')!.click());
     await waitFor(() => expect(mockRunNewTurn).toHaveBeenCalled());
     await flush();
     return {

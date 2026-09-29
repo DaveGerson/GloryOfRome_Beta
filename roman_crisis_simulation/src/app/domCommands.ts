@@ -27,6 +27,19 @@ export function focusComposer(doc: Document = document): boolean {
     return true;
 }
 
+/**
+ * Hand focus back to the desk after a control that took itself away: the
+ * tablet, where the player writes next - or the log (`tabIndex` -1) while
+ * the tablet is held, and on a touch screen, where focusing the tablet
+ * throws the on-screen keyboard up over the chronicle the player just
+ * asked to see. There the tablet waits for their own tap.
+ */
+export function focusDesk(log: HTMLElement | null, doc: Document = document): void {
+    const touch = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+        && window.matchMedia('(pointer: coarse)').matches;
+    if (touch || !focusComposer(doc)) log?.focus({ preventScroll: true });
+}
+
 /** Open a register: click its tab (selection + the tab's "seen" dismissal) and move focus to it. */
 export function selectRegister(id: TabId, doc: Document = document): boolean {
     const tab = doc.getElementById(sidePanelTabDomId(id));

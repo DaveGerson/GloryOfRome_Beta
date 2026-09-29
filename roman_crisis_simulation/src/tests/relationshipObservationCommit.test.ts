@@ -371,8 +371,8 @@ describe('App relationship-observation transaction', () => {
 
     await click(buttonNamed(container, 'Structured'));
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Action 1'), 'Warn the Senate');
-    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Private Intent'), 'poison Lucius');
-    await click(buttonNamed(container, 'Submit turn'));
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'What you intend'), 'poison Lucius');
+    await click(buttonNamed(container, 'Seal & send'));
     await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
 
     expect(mockGetRelationshipObservations).toHaveBeenCalledTimes(1);
@@ -398,7 +398,7 @@ describe('App relationship-observation transaction', () => {
     mockRunNewTurn.mockImplementation(async (...args) => withPoisonedPlayerResult(await defaultTurnResult(...args)));
     const container = await mountApp();
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Observe the public meeting');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
 
     expect(mockBuildPlayerPerceivedDigest).toHaveBeenCalled();
@@ -452,7 +452,7 @@ describe('App relationship-observation transaction', () => {
     });
     const container = await mountApp();
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Observe the public meeting');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
 
     expect((loadGame()!.state.knowledge ?? []).filter(claim => claim.relationshipObservation)).toHaveLength(1);
@@ -481,7 +481,7 @@ describe('App relationship-observation transaction', () => {
     const before = localStorage.getItem('gloryOfRome:autosave');
     const original = '  Exact Task 7 retry draft\nwith authored whitespace  ';
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), original);
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1));
 
     expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
@@ -569,7 +569,7 @@ describe('App relationship-observation transaction', () => {
     });
 
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Observe the public meeting');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
 
     expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);
@@ -598,7 +598,7 @@ describe('App relationship-observation transaction', () => {
     const before = localStorage.getItem('gloryOfRome:autosave');
 
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Observe the public meeting');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
 
     expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);

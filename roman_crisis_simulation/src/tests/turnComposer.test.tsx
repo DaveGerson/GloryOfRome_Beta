@@ -120,9 +120,9 @@ describe('components/TurnComposer', () => {
 
     expect(structuredMode.getAttribute('aria-pressed')).toBe('true');
     expect(localStorage.getItem('gloryOfRome:composerMode')).toBe('structured');
-    // WP-6 renamed the four visible register headings; the aria-labels each
-    // control carries ('Private Intent', 'Question / Context', 'Action 1' …)
-    // are unchanged and are still asserted below.
+    // WP-6 renamed the four visible register headings; the two fields that
+    // sit alone under theirs are named by those headings (WCAG 2.5.3), the
+    // rows by their number ('Action 1' …).
     for (const label of ['What you do', 'Whom you address', 'What you intend', 'What you ask']) {
       expect(container.textContent).toContain(label);
     }
@@ -132,11 +132,11 @@ describe('components/TurnComposer', () => {
     const action = byAriaLabel<HTMLTextAreaElement>(container, 'Action 1');
     const recipient = byAriaLabel<HTMLSelectElement>(container, 'Recipient 1');
     const command = byAriaLabel<HTMLTextAreaElement>(container, 'Message or order 1');
-    const privateIntent = byAriaLabel<HTMLTextAreaElement>(container, 'Private Intent');
-    const question = byAriaLabel<HTMLTextAreaElement>(container, 'Question / Context');
-    const addAction = buttonNamed(container, 'Add action row');
-    const addMessage = buttonNamed(container, 'Add message or order row');
-    const submit = buttonNamed(container, 'Submit turn');
+    const privateIntent = byAriaLabel<HTMLTextAreaElement>(container, 'What you intend');
+    const question = byAriaLabel<HTMLTextAreaElement>(container, 'What you ask');
+    const addAction = buttonNamed(container, 'A further order');
+    const addMessage = buttonNamed(container, 'Another letter');
+    const submit = buttonNamed(container, 'Seal & send');
 
     expect(action.value).toBe('');
     expect(recipient.value).toBe('');
@@ -174,7 +174,7 @@ describe('components/TurnComposer', () => {
 
     const { container } = await mount(<Harness />);
     await click(buttonNamed(container, 'Structured'));
-    await click(buttonNamed(container, 'Add message or order row'));
+    await click(buttonNamed(container, 'Another letter'));
 
     const selects = Array.from(container.querySelectorAll<HTMLSelectElement>('select'));
     expect(selects).toHaveLength(2);
@@ -282,8 +282,8 @@ describe('components/TurnComposer', () => {
     const { container, rerender } = await mount(<Harness />);
     await click(buttonNamed(container, 'Structured'));
 
-    await click(buttonNamed(container, 'Add action row'));
-    await click(buttonNamed(container, 'Add message or order row'));
+    await click(buttonNamed(container, 'A further order'));
+    await click(buttonNamed(container, 'Another letter'));
     expect(container.querySelectorAll('textarea[aria-label^="Action "]')).toHaveLength(2);
     expect(container.querySelectorAll('select[aria-label^="Recipient "]')).toHaveLength(2);
 
@@ -309,7 +309,7 @@ describe('components/TurnComposer', () => {
     const exactStatus = container.querySelector<HTMLElement>('#composer-submission-status');
     expect(exactStatus?.textContent).toMatch(/0 characters remaining/i);
     expect(input.getAttribute('aria-describedby')).toBe(exactStatus?.id);
-    expect(buttonNamed(container, 'Send message').disabled).toBe(false);
+    expect(buttonNamed(container, 'Speak').disabled).toBe(false);
 
     const over = `${exact}x`;
     await rerender(<TurnComposer {...defaultProps({ chatDraft: over, onSubmit })} />);
@@ -320,7 +320,7 @@ describe('components/TurnComposer', () => {
     expect(error?.textContent).toMatch(/1 character over limit/i);
     expect(overInput.getAttribute('aria-invalid')).toBe('true');
     expect(overInput.getAttribute('aria-describedby')).toBe(error?.id);
-    expect(buttonNamed(container, 'Send message').disabled).toBe(true);
+    expect(buttonNamed(container, 'Speak').disabled).toBe(true);
 
     await keyDown(overInput, { key: 'Enter' });
     expect(onSubmit).not.toHaveBeenCalled();
@@ -344,8 +344,8 @@ describe('components/TurnComposer', () => {
     await rerender(<TurnComposer {...defaultProps({ structuredDraft: oversizedStructured, onSubmit })} />);
     const alert = container.querySelector<HTMLElement>('[role="alert"]');
     expect(alert?.textContent).toMatch(/character.*over limit/i);
-    expect(buttonNamed(container, 'Submit turn').disabled).toBe(true);
-    await click(buttonNamed(container, 'Submit turn'));
+    expect(buttonNamed(container, 'Seal & send').disabled).toBe(true);
+    await click(buttonNamed(container, 'Seal & send'));
     expect(onSubmit).not.toHaveBeenCalled();
     expect(byAriaLabel<HTMLTextAreaElement>(container, 'Action 1').value).toHaveLength(20_000);
   });
@@ -363,10 +363,10 @@ describe('components/TurnComposer', () => {
     expect(action.disabled).toBe(false);
     expect(action.getAttribute('aria-invalid')).toBe('true');
     expect(action.getAttribute('aria-describedby')).toBe(error?.id);
-    expect(buttonNamed(container, 'Submit turn').disabled).toBe(true);
+    expect(buttonNamed(container, 'Seal & send').disabled).toBe(true);
     await setValue(action, 'Address the Senate');
     expect(container.querySelector('[role="alert"]')).toBeNull();
-    expect(buttonNamed(container, 'Submit turn').disabled).toBe(false);
+    expect(buttonNamed(container, 'Seal & send').disabled).toBe(false);
   });
 
   it('preserves an authored command when clearing its recipient and leaves submission truthfully blocked', async () => {
@@ -391,7 +391,7 @@ describe('components/TurnComposer', () => {
     expect(error?.textContent).toMatch(/recipient and command are both required/i);
     expect(recipient.disabled).toBe(false);
     expect(command.disabled).toBe(false);
-    expect(buttonNamed(container, 'Submit turn').disabled).toBe(true);
+    expect(buttonNamed(container, 'Seal & send').disabled).toBe(true);
   });
 
   it('blocks invalid structured submission while leaving the transient row editable', async () => {
@@ -412,7 +412,7 @@ describe('components/TurnComposer', () => {
     expect(recipient.getAttribute('aria-invalid')).toBeNull();
     expect(command.getAttribute('aria-describedby')).toBe(error?.id);
     expect(recipient.getAttribute('aria-describedby')).toBeNull();
-    expect(buttonNamed(container, 'Submit turn').disabled).toBe(true);
+    expect(buttonNamed(container, 'Seal & send').disabled).toBe(true);
   });
 
   it('keeps structured validation reasons visible and associated for stale recipients', async () => {
@@ -651,9 +651,9 @@ describe('components/TurnComposer', () => {
       .toBe('The night watch captain');
     expect(byAriaLabel<HTMLTextAreaElement>(container, 'Message or order 1').value)
       .toBe('Seal the eastern gate.\nAdmit only grain carts.');
-    expect(byAriaLabel<HTMLTextAreaElement>(container, 'Private Intent').value)
+    expect(byAriaLabel<HTMLTextAreaElement>(container, 'What you intend').value)
       .toBe('Learn who profits.');
-    expect(byAriaLabel<HTMLTextAreaElement>(container, 'Question / Context').value)
+    expect(byAriaLabel<HTMLTextAreaElement>(container, 'What you ask').value)
       .toBe('The guard rotation changed yesterday.');
   });
 
@@ -671,7 +671,7 @@ describe('components/TurnComposer', () => {
 
     expect(container.querySelector('[role="alert"]')).toBeNull();
     expect(container.querySelector('#composer-submission-status')?.textContent).toMatch(/20,000 characters remaining/i);
-    expect(buttonNamed(container, 'Submit turn').disabled).toBe(true);
+    expect(buttonNamed(container, 'Seal & send').disabled).toBe(true);
 
     const command = byAriaLabel<HTMLTextAreaElement>(container, 'Message or order 1');
     await setValue(command, 'Wait.');
