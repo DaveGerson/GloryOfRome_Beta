@@ -273,6 +273,14 @@
 .gor-scene-seal-unsealed{border-radius:50%;border:1px dashed var(--border-strong)}
 .gor-scene-seal-unsealed>*{opacity:.28;filter:grayscale(.7)}
 
+/* The desk's opener, while a scene is open or awaits the last word: a small
+   lit seal - Tyrian wax with a glow - beside its label. Decorative; the
+   button's name says it. Forced colours drop the wax and the glow, so it is
+   repainted as a plain disc in the button's own text colour (the selectors
+   carry .gor-btn so they outrank nocturne.css, loaded later). */
+.gor-scene-opener-seal{flex:none;width:10px;height:10px;border-radius:46% 54% 52% 48%/52% 46% 54% 48%;background:var(--seal-tyrian);box-shadow:0 0 0 1.5px var(--parchment-050),0 0 7px 2px rgba(142,67,104,.55)}
+@media (forced-colors:active){.gor-btn .gor-scene-opener-seal{background:ButtonText;box-shadow:none;forced-color-adjust:none}.gor-btn:disabled .gor-scene-opener-seal{background:GrayText}}
+
 /* Both guard states get a silhouette, never a bare hint line. */
 .gor-scene-guard{display:flex;flex-direction:column;align-items:center;gap:8px;padding:22px 12px;text-align:center}
 .gor-scene-guard-line{margin:0;font-size:15px;color:var(--text-body)}
