@@ -20,9 +20,12 @@ export const zPrivateScenePromptInput = z.object({
     entityId: zPrivateSceneInputText,
     displayName: zPrivateSceneInputText,
     position: zPrivateSceneInputText.optional(),
-    location: zPrivateSceneInputText,
+    // Optional: an entity may carry an empty location or self-description
+    // (a generated world's, or a fresh one's), and that is no reason to
+    // refuse the scene - the field is left out of the prompt instead.
+    location: zPrivateSceneInputText.optional(),
     voice: zPrivateSceneInputText.optional(),
-    selfDescription: zPrivateSceneInputText,
+    selfDescription: zPrivateSceneInputText.optional(),
     goals: zPrivateSceneContextList,
     beliefs: zPrivateSceneContextList,
     ownSecrets: zPrivateSceneContextList,
@@ -52,9 +55,21 @@ export const zPrivateScenePromptInput = z.object({
 
 export type PrivateScenePromptInput = z.input<typeof zPrivateScenePromptInput>;
 
+/**
+ * The scene's input broke its bound: deterministic, so the same request
+ * fails the same way however often it is retried (the controller says so,
+ * rather than inviting a retry).
+ */
+export class PrivateSceneInputError extends Error {
+  constructor() {
+    super('Private-scene input is invalid.');
+    this.name = 'PrivateSceneInputError';
+  }
+}
+
 export function parsePrivateScenePromptInput(input: PrivateScenePromptInput): z.output<typeof zPrivateScenePromptInput> {
   const parsed = zPrivateScenePromptInput.safeParse(input);
-  if (!parsed.success) throw new Error('Private-scene input is invalid.');
+  if (!parsed.success) throw new PrivateSceneInputError();
   return parsed.data;
 }
 

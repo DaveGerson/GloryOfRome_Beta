@@ -244,7 +244,8 @@ describe('journey: player private scenes across audience, reload, and macro-turn
       await openPrivateScene(app);
       expect(app.container.textContent).toContain(REFUSAL_RESPONSE);
       expect(app.container.textContent).toContain(REFUSAL_LAST_WORD);
-      expect(app.container.textContent).toContain('The door opens again on Week III.');
+      // A turn count, labelled as one (the masthead's calendar week is another fact).
+      expect(app.container.textContent).toContain('The door opens again on Turn III.');
       expect(app.container.querySelector('[aria-label="Private-scene opening"]')).toBeNull();
       for (const forbidden of [FIRST_HIDDEN, FIRST_MECHANICS, REFUSAL_HIDDEN, REFUSAL_MECHANICS, 'npcPrivate']) {
         expect(app.container.textContent).not.toContain(forbidden);

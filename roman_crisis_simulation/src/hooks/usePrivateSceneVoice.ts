@@ -52,6 +52,8 @@ export interface PrivateSceneNpcVoice {
     /** The control state for a line, or undefined when it gets no control (toggled off, a player line, nothing to say). */
     stateFor: (scene: SceneVoiceContext, line: SceneVoiceLine) => NarrationVoiceControlState | undefined;
     onToggle: (scene: SceneVoiceContext, line: SceneVoiceLine) => void;
+    /** Silences whatever line is playing (or being prepared): the scene's dialog closed. */
+    stop: () => void;
 }
 
 export function sceneSourceLabel(npcName: string): string {
@@ -158,6 +160,8 @@ export function usePrivateSceneVoice({
         player.toggle(slot(scene, line), spoken);
     }, [player, offered, canReachVoice, slot]);
 
+    const stop = useCallback(() => player.stop(), [player]);
+
     const blocked = !offered ? 'silent' : !canReachVoice ? 'unavailable' : null;
-    return { enabled, blocked, onSetEnabled, stateFor, onToggle };
+    return { enabled, blocked, onSetEnabled, stateFor, onToggle, stop };
 }

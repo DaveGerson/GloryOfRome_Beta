@@ -15,7 +15,9 @@
  *  - One structured-output entry point (`generateStructured`), one
  *    plain-prose entry point (`generateText`), and one audio entry point
  *    (`generateSpeech`, the optional narration voice).
- *  - Jittered exponential backoff on transient failures (429/5xx/network).
+ *  - Jittered exponential backoff on transient failures (429/5xx/network),
+ *    and a generous per-attempt deadline (`REQUEST_DEADLINE_MS`) so a
+ *    request that stalls fails into that same path instead of never settling.
  *  - Zod validation with a single automatic repair-retry on schema
  *    violations, so a malformed response doesn't silently corrupt game
  *    state (previously: swallowed `console.error` deep in `applyDeltas`).
@@ -176,6 +178,53 @@ export class AiServiceError extends Error {
 
 const MAX_ATTEMPTS = 3;
 const BASE_BACKOFF_MS = 1000; // sleeps ~1s then ~2s; the loop throws before a third sleep
+
+/**
+ * Request deadlines, per attempt. The SDK arms no timer of its own unless
+ * the client is built with `httpOptions.timeout` (hooks/useSettings.ts
+ * builds it with the key alone), so a response that stalls - nothing comes
+ * back, or a stream stops between chunks - would never settle, and whatever
+ * waits on it (a narration clip, the voice casting) would wait for the
+ * session. Each attempt now races its deadline; a miss is a `transient`
+ * failure like a dropped connection (its message says "timeout", which
+ * `isTransientError` matches) and takes the ordinary retry and backoff.
+ *
+ * The numbers are generous on purpose - a deadline ends a hang, it must
+ * never cut short a slow call that is still working:
+ *  - pro tier (adjudication, world generation, the streamed narration:
+ *    long JSON after a think): 5 minutes;
+ *  - text-to-speech (a two-paragraph performance is far slower to voice
+ *    than to write): 3 minutes;
+ *  - every other call (the flash tier: the narrator's prep, casting,
+ *    private scenes, minds, investigations): 2 minutes.
+ * A stream has no overall deadline once it flows - a long narration may
+ * stream as long as it keeps coming - only its tier's deadline for the
+ * silence between two chunks (and for the first response).
+ * The request itself is not aborted (the SDK only aborts on a signal in the
+ * request's config); it is abandoned, and its answer ignored if it comes.
+ */
+export const REQUEST_DEADLINE_MS = {
+  pro: 300_000,
+  speech: 180_000,
+  standard: 120_000,
+} as const;
+
+type RequestKind = 'text' | 'speech';
+
+function deadlineFor(model: string, kind: RequestKind): number {
+  if (kind === 'speech') return REQUEST_DEADLINE_MS.speech;
+  return model === GEMINI_PRO || model === GEMINI_PRO_FALLBACK ? REQUEST_DEADLINE_MS.pro : REQUEST_DEADLINE_MS.standard;
+}
+
+/** Settles as `pending` does, or rejects with a timeout once `ms` pass first. The timer never outlives the race. */
+function withDeadline<T>(pending: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`request timeout: no response within ${Math.round(ms / 1000)}s`)), ms);
+  });
+  return Promise.race([pending, deadline]).finally(() => clearTimeout(timer));
+}
+
 const MAX_RAW_RESPONSE_CHARS = 20_000;
 /**
  * Cap on captured prompt/system-instruction text per record. Generous on
@@ -300,12 +349,13 @@ interface ProFallbackResult<T> {
 async function invokeWithProFallback<T>(
   callName: string,
   model: string,
-  invoke: (model: string) => Promise<T>
+  invoke: (model: string) => Promise<T>,
+  kind: RequestKind = 'text'
 ): Promise<ProFallbackResult<T>> {
   const resolvedModel = resolveModel(model);
   const start = Date.now();
   try {
-    const { value, attempts } = await retryTransient(callName, () => invoke(resolvedModel));
+    const { value, attempts } = await retryTransient(callName, () => invoke(resolvedModel), deadlineFor(resolvedModel, kind));
     return { value, attempts, latencyMs: Date.now() - start, model: resolvedModel };
   } catch (e) {
     if (!canAttemptProFallback(resolvedModel, e)) {
@@ -314,7 +364,7 @@ async function invokeWithProFallback<T>(
     }
     proFallbackActive = true;
     try {
-      const value = await invoke(GEMINI_PRO_FALLBACK);
+      const value = await withDeadline(invoke(GEMINI_PRO_FALLBACK), deadlineFor(GEMINI_PRO_FALLBACK, kind));
       return { value, attempts: 2, latencyMs: Date.now() - start, model: GEMINI_PRO_FALLBACK };
     } catch (fallbackError) {
       const wrapped = wrapFallbackFailure(callName, fallbackError, 2);
@@ -453,9 +503,10 @@ interface RetryResult<T> {
  * exhausted. Shared by `callWithRetry` (plain-text/JSON calls) and
  * `generateTextStream`'s stream-acquisition step below - the two differ
  * only in what `invoke` resolves to (a response object vs. an async
- * generator), not in the retry semantics themselves.
+ * generator), not in the retry semantics themselves. Each attempt races
+ * `deadlineMs` (see `REQUEST_DEADLINE_MS`).
  */
-async function retryTransient<T>(callName: string, invoke: () => Promise<T>): Promise<RetryResult<T>> {
+async function retryTransient<T>(callName: string, invoke: () => Promise<T>, deadlineMs: number): Promise<RetryResult<T>> {
   const start = Date.now();
   let attempt = 0;
   let lastError: unknown;
@@ -463,7 +514,7 @@ async function retryTransient<T>(callName: string, invoke: () => Promise<T>): Pr
   while (attempt < MAX_ATTEMPTS) {
     attempt++;
     try {
-      const value = await invoke();
+      const value = await withDeadline(invoke(), deadlineMs);
       return { value, attempts: attempt, latencyMs: Date.now() - start };
     } catch (e) {
       lastError = e;
@@ -507,17 +558,33 @@ async function retryTransient<T>(callName: string, invoke: () => Promise<T>): Pr
  * connection the player is invited to retry. Breaking out of the
  * `for await` on such a throw still closes the stream (the iterator's
  * `return()` runs), so nothing keeps downloading behind the failure.
+ *
+ * IDLE DEADLINE: a stream that goes silent for `idleMs` between two chunks
+ * (see `REQUEST_DEADLINE_MS`) fails as a dropped stream would. There is no
+ * overall deadline: a healthy stream may run as long as it keeps coming.
  */
 async function consumeStream(
   callName: string,
   stream: AsyncIterable<{ text?: string }>,
-  onText: (textSoFar: string, chunkText: string) => void
+  onText: (textSoFar: string, chunkText: string) => void,
+  idleMs: number
 ): Promise<{ text: string; chunks: number }> {
   let textSoFar = '';
   let chunks = 0;
   let consumerFailure: { error: unknown } | null = null;
+  const iterator = stream[Symbol.asyncIterator]();
   try {
-    for await (const chunk of stream) {
+    for (;;) {
+      let next: IteratorResult<{ text?: string }>;
+      try {
+        next = await withDeadline(iterator.next(), idleMs);
+      } catch (e) {
+        // Stalled, not ended: ask it to close without waiting on it.
+        if (e instanceof Error && e.message.startsWith('request timeout')) void iterator.return?.()?.catch(() => {});
+        throw e;
+      }
+      if (next.done) break;
+      const chunk = next.value;
       if (!chunk.text) continue;
       textSoFar += chunk.text;
       chunks++;
@@ -525,6 +592,8 @@ async function consumeStream(
         onText(textSoFar, chunk.text);
       } catch (e) {
         consumerFailure = { error: e };
+        // As `for await` does on a break: close the stream.
+        await iterator.return?.();
         break;
       }
     }
@@ -822,8 +891,11 @@ export async function generateSpeech(ai: GeminiClient, req: GenerateSpeechReques
   };
   if (req.temperature !== undefined) config.temperature = req.temperature;
 
-  const { value: response, attempts, latencyMs, model: usedModel } = await invokeWithProFallback(callName, model, (resolvedModel) =>
-    ai.models.generateContent({ model: resolvedModel, contents: req.prompt, config })
+  const { value: response, attempts, latencyMs, model: usedModel } = await invokeWithProFallback(
+    callName,
+    model,
+    (resolvedModel) => ai.models.generateContent({ model: resolvedModel, contents: req.prompt, config }),
+    'speech'
   );
 
   const parts = response.candidates?.[0]?.content?.parts ?? [];
@@ -917,7 +989,7 @@ export async function generateStructuredStream<T>(
   // fed to `onChunk`, so an empty chunk counts for nothing. Round-trip
   // metadata of the same class as `latencyMs`, recorded on every branch
   // below via `baseRecord`.
-  const { text: rawSoFar, chunks: streamChunks } = await consumeStream(callName, stream, onChunk);
+  const { text: rawSoFar, chunks: streamChunks } = await consumeStream(callName, stream, onChunk, deadlineFor(usedModel, 'text'));
 
   const baseRecord = {
     callName,
@@ -1034,7 +1106,7 @@ export async function generateTextStream(
   // a stream failure at this point (including on the very first chunk) is
   // surfaced as transient, since the stream was already successfully
   // acquired. An `onChunk` throw propagates unchanged (see consumeStream).
-  const { text: textSoFar } = await consumeStream(callName, stream, (soFar) => onChunk(soFar));
+  const { text: textSoFar } = await consumeStream(callName, stream, (soFar) => onChunk(soFar), deadlineFor(usedModel, 'text'));
 
   recordCall({
     callName,

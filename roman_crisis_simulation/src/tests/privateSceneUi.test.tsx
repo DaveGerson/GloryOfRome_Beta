@@ -128,7 +128,8 @@ describe('private scene player UI', () => {
     const container = render([closed], false);
     act(() => Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'Private scene')!.click());
     expect(container.querySelector('[aria-label="Private-scene opening"]')).toBeNull();
-    expect(container.textContent).toMatch(/door opens again on Week IV/i);
+    // A turn count, labelled as one: the masthead's calendar week is another fact.
+    expect(container.textContent).toMatch(/door opens again on Turn IV/i);
   });
 
   it('uses a modal dialog, moves focus inside, traps Tab, closes presentation on Escape, and restores opener focus', async () => {
@@ -221,7 +222,8 @@ describe('private scene player UI', () => {
       onInvite={() => {}} onReply={() => {}} onEnd={() => {}} onLastWord={onLastWord} onSkipLastWord={() => {}} />));
     act(() => Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'Private scene')!.click());
     const field = container.querySelector<HTMLTextAreaElement>('[aria-label="Private-scene last word"]')!;
-    expect(field.maxLength).toBe(2000);
+    // No maxLength: a browser would cut a long paste silently. The draft is kept whole and the send held.
+    expect(field.hasAttribute('maxlength')).toBe(false);
     expect(field.value).toHaveLength(2001);
     expect(field.getAttribute('aria-invalid')).toBe('true');
     expect(container.querySelector('[role="alert"]')?.textContent).toMatch(/2,000/);

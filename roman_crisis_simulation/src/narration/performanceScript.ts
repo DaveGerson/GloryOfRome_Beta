@@ -61,11 +61,14 @@
  *     (ai/core/playerBoundary.ts). Checked before 3, so a fidelity verdict
  *     means every other rule held.
  *
- * Known limit of 3: a new name that only ever opens a sentence reads like
- * any sentence-initial word and is not caught, and numbers spelled out in
- * words are not compared. The prompt's fidelity rule covers those; the
- * tuning harness (narration/tuning/) reports refusals verbatim so a
- * narrator can be tuned against them.
+ * Known limit of 3: a new name that only ever opens a sentence, or opens
+ * quoted speech (after a sentence end, a comma or a colon), reads like any
+ * sentence-initial word and is not caught, and numbers spelled out in
+ * words are not compared. Nothing else exempts a word: after a colon, a
+ * semicolon, a bracket, a single quote or a quote inside a sentence, a
+ * capitalized word is checked (`opensSentence`). The prompt's fidelity rule
+ * covers those limits; the tuning harness (narration/tuning/) reports
+ * refusals verbatim so a narrator can be tuned against them.
  *
  * Patching (rule 3 only, deterministic, zero tokens): a retelling that
  * breaks the fidelity rule is not refused wholesale. It is split into
@@ -131,6 +134,39 @@ export type PerformanceRejection =
 
 export type PerformanceValidation = { ok: true } | { ok: false; reason: PerformanceRejection };
 
+/**
+ * Speaker labels a model may open a script or a line with ("Confidant:" is
+ * named in the prompt's own rule against them; "Transcript:" is the TTS
+ * heading written bare). Anything outside a cue is read aloud, so a label
+ * left in is spoken.
+ */
+const SPEAKER_LABEL = /^(?:Narrator|Storyteller|Bard|Speaker|Confidant|Transcript)[ \t]*:\s*/gim;
+
+/**
+ * A label of one to three capitalized words ("Maximinus:", "The Dramatic
+ * Reader:") at a line's start, straight before a cue: a speaker label,
+ * whoever it names. Only before a cue - "Rome: a city holding its breath"
+ * is prose, and stays.
+ */
+const NAMED_LABEL_BEFORE_CUE = /^\p{Lu}[\p{L}\p{M}'’-]*(?:[ \t]+\p{Lu}[\p{L}\p{M}'’-]*){0,2}[ \t]*:[ \t]*(?=[<[])/gmu;
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Every speaker label a narrator's script opens a line with: the fixed set,
+ * a capitalized label straight before a cue, and - whatever follows - any
+ * of `names` (the narrator in character, the listener) written as a label.
+ * Run on the narrator's raw answer, before the guard reads it, so the guard
+ * and the voice see the same words.
+ */
+function stripSpeakerLabels(text: string, names: readonly string[] = []): string {
+  const known = names.map(name => name.trim()).filter(Boolean).map(escapeRegExp);
+  const stripped = text.replace(SPEAKER_LABEL, '').replace(NAMED_LABEL_BEFORE_CUE, '');
+  return known.length > 0 ? stripped.replace(new RegExp(`^(?:${known.join('|')})[ \\t]*:\\s*`, 'gim'), '') : stripped;
+}
+
 /** The packaging a model may wrap a script in: code fences, markdown headings ("## Transcript:"), speaker labels, bold markers. */
 function stripPackaging(transcript: string): string {
   return transcript
@@ -138,7 +174,7 @@ function stripPackaging(transcript: string): string {
     .replace(/\n?```\s*$/gim, '')
     .replace(/^#+\s*(?:Transcript:?|[^\n]*)\n+/gim, '')
     .replace(/^#+\s*/gm, '')
-    .replace(/^(?:Narrator|Storyteller|Bard|Speaker)\s*:\s*/gim, '')
+    .replace(SPEAKER_LABEL, '')
     .replace(/\*\*/g, '');
 }
 
@@ -419,20 +455,42 @@ function numberKey(figure: string): string {
 }
 
 /**
- * Whether the word at `index` opens a sentence (or a quotation): reading
- * backwards over spaces, opening quotes and brackets, the text starts, or a
- * line breaks, or sentence punctuation stands - or a quote or bracket was
- * crossed, since a word right after one opens quoted speech.
+ * Whether the word at `index` opens a sentence (or quoted speech): reading
+ * backwards over spaces, the text starts, a line breaks, or a sentence ends
+ * (`.`, `!`, `?`, `…`, with any closing quotes or brackets after it) - or
+ * an opening double quote was crossed that itself opens speech (after a
+ * sentence end, a comma or a colon: `He roars, "Soldiers!"`). Curly quotes
+ * reach here straight (`normalizeQuotes`).
+ *
+ * Nothing else opens a sentence. A colon or semicolon, a bracket, a single
+ * quote or an apostrophe, or a quote inside a sentence (`waits for
+ * "Philip…"`) sits mid-sentence, so the capitalized word after it is a name
+ * candidate like any other - it used to be exempt, which let a retelling
+ * slip in a name after `;` or inside `(…)`.
  */
 function opensSentence(text: string, index: number): boolean {
-  for (let i = index - 1; i >= 0; i--) {
-    const ch = text[i];
-    if (ch === '\n') return true;
-    if (ch === '"' || ch === "'" || ch === '(' || ch === '[' || ch === '‹') return true;
-    if (/\s/.test(ch)) continue;
-    return '.!?:;…'.includes(ch);
+  let i = index - 1;
+  while (i >= 0 && text[i] !== '\n' && /\s/.test(text[i])) i--;
+  if (i < 0 || text[i] === '\n') return true;
+  if (text[i] === '"' && opensQuotation(text, i)) {
+    let before = i - 1;
+    while (before >= 0 && text[before] !== '\n' && /\s/.test(text[before])) before--;
+    return before < 0 || text[before] === '\n' || ',:'.includes(text[before]) || endsSentence(text, before);
   }
-  return true;
+  return endsSentence(text, i);
+}
+
+/** Whether `text[end]` closes a sentence: sentence punctuation, or closing quotes and brackets right after it. */
+function endsSentence(text: string, end: number): boolean {
+  let i = end;
+  while (i >= 0 && CLOSERS.includes(text[i]) && !(text[i] === '"' && opensQuotation(text, i))) i--;
+  return i >= 0 && SENTENCE_END.includes(text[i]);
+}
+
+/** A straight double quote at `index` opens a quotation when nothing but space, an opening bracket or the text's start stands before it. */
+function opensQuotation(text: string, index: number): boolean {
+  const before = index > 0 ? text[index - 1] : '';
+  return before === '' || /\s/.test(before) || before === '(';
 }
 
 /**
@@ -684,17 +742,27 @@ export interface PerformedTranscript {
 
 /**
  * The narrator's raw output, lightly unwrapped (stripping code fences,
- * markdown headings, or speaker prefixes).
+ * markdown headings, or speaker labels - `stripSpeakerLabels`, with
+ * `labelNames` as further names a label may carry).
  */
-export function unwrapDirectorOutput(raw: string): string {
-  return raw
+export function unwrapDirectorOutput(raw: string, labelNames: readonly string[] = []): string {
+  return stripSpeakerLabels(raw
     .trim()
     .replace(/^```[a-z]*\s*\n?/i, '')
     .replace(/\n?```\s*$/, '')
     .replace(/^#+\s*(?:Transcript:?|[^\n]*)\n+/i, '')
-    .replace(/^#+\s*/gm, '')
-    .replace(/^(?:Narrator|Storyteller|Bard|Speaker)\s*:\s*/i, '')
+    .replace(/^#+\s*/gm, ''), labelNames)
     .trim();
+}
+
+/**
+ * Square brackets left over once every well-formed `[cue]` is a `<cue>`:
+ * stray, and never spoken (`cleanActedScript` drops them too). Dropped
+ * BEFORE the guard reads the script, so "hides in [Emesa" is judged as the
+ * voice would speak it - mid-sentence - not as a word after a bracket.
+ */
+function dropStraySquareBrackets(script: string): string {
+  return script.replace(/[[\]]/g, ' ');
 }
 
 /**
@@ -703,12 +771,16 @@ export function unwrapDirectorOutput(raw: string): string {
  * as the patch leaves most of it standing - otherwise the fallback. An accepted script keeps its `<cues>`: the
  * transcript is exactly what the voice performs (`cleanActedScript`). A
  * `[cue]` is turned into a `<cue>` before validation, so it is checked like
- * any other.
+ * any other, and a stray square bracket is dropped before it. A speaker
+ * label is stripped first - including one naming any of `allowedNames` (the
+ * listener, the narrator in character) or `labelNames` (the narrator's own
+ * name, which is a label here and never a word it may speak).
  */
 export function performedTranscriptFor(
   original: string,
   directorOutput: string | null,
   allowedNames: readonly string[] = [],
+  labelNames: readonly string[] = [],
 ): PerformedTranscript {
   const fallback = (rejection?: PerformanceRejection): PerformedTranscript => ({
     transcript: fallbackTranscript(original),
@@ -719,7 +791,8 @@ export function performedTranscriptFor(
   });
   if (directorOutput === null) return fallback();
   // Parse, then drop each bad cue, then judge what is left.
-  const { kept: candidate, droppedCues } = dropBadCues(original, squareCuesToAngle(unwrapDirectorOutput(directorOutput)));
+  const unwrapped = dropStraySquareBrackets(squareCuesToAngle(unwrapDirectorOutput(directorOutput, [...allowedNames, ...labelNames])));
+  const { kept: candidate, droppedCues } = dropBadCues(original, unwrapped);
   const verdict = validatePerformance(original, candidate, allowedNames);
   if (verdict.ok) return { transcript: cleanActedScript(candidate), usedFallback: false, patchedOut: [], droppedCues };
   if (verdict.reason !== 'introduces_new_name' && verdict.reason !== 'introduces_new_number') return fallback(verdict.reason);

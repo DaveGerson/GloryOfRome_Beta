@@ -134,8 +134,8 @@ export function useImperialDispatch(args: UseImperialDispatchArgs) {
 
   useEffect(() => {
     player.setRenderer(
-      async (factsText) => {
-        const performed = await performImperialDispatch(ai, factsText, isMockMode, IMPERIAL_DISPATCH_VOICE);
+      async (factsText, _index, signal) => {
+        const performed = await performImperialDispatch(ai, factsText, isMockMode, IMPERIAL_DISPATCH_VOICE, signal);
         // The dispatch the player is about to hear, kept as text in the log.
         const week = weekRef.current;
         log.record({
@@ -161,10 +161,11 @@ export function useImperialDispatch(args: UseImperialDispatchArgs) {
 
   useEffect(() => () => player.dispose(), [player]);
 
-  // Turned SILENT: a reading in progress stops.
+  // Turned SILENT, or the key went away: a reading in progress stops (and one
+  // still being written is never voiced).
   useEffect(() => {
-    if (silenced) player.stop();
-  }, [player, silenced]);
+    if (silenced || !canReachVoice) player.stop();
+  }, [player, silenced, canReachVoice]);
 
   const factsText = compileTabsFactSummary({
     worldState,

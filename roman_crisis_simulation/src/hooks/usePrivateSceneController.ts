@@ -30,7 +30,8 @@ import {
     type PrivateSceneRecord,
 } from '../privateScene/model';
 import { continuePrivateScene } from '../ai/tools/privateScene';
-import { replacePrivateSceneForCommit } from '../components/PrivateScene';
+import { PRIVATE_SCENE_MAX_PROMPT_INPUT_CHARS, PrivateSceneInputError } from '../ai/prompts/privateScene';
+import { replacePrivateSceneForCommit, type PrivateSceneFailure, type PrivateSceneFailureKind } from '../components/PrivateScene';
 import { projectPrivateSceneForPlayer } from '../perception/visibility';
 import {
     type DomainCommit,
@@ -56,11 +57,56 @@ export interface PrivateSceneControllerDeps {
 }
 
 /**
- * The per-NPC prompt payload for one private-scene call. Pure: the NPC's
- * own mind (bounded to its last eight goals/beliefs/secrets/memories), the
- * player's public face, and the transcript so far.
+ * An optional prompt field as the scene's input bound accepts it: a model
+ * may leave `null` in a nullable entity field, or a blank string, and either
+ * is left out; a text longer than one line of the scene is cut to it.
  */
-export function buildPrivateScenePrompt(
+function optionalSceneText(value: string | null | undefined): string | undefined {
+    const text = typeof value === 'string' ? value.trim().slice(0, PRIVATE_SCENE_MAX_UTTERANCE_CHARS).trim() : '';
+    return text || undefined;
+}
+
+/** A context list without its blank items, each cut to one line's bound, at most `limit` long. */
+function sceneContextList(values: readonly (string | null | undefined)[], limit: number, fromEnd = false): string[] {
+    const texts = values.map(optionalSceneText).filter((text): text is string => text !== undefined);
+    return fromEnd ? texts.slice(-limit) : texts.slice(0, limit);
+}
+
+/** How much of an older line a long scene keeps once it outgrows the prompt's budget: its opening words. */
+const TRIMMED_SCENE_LINE_CHARS = 280;
+
+function clipSceneText(text: string): string {
+    return text.length > TRIMMED_SCENE_LINE_CHARS ? `${text.slice(0, TRIMMED_SCENE_LINE_CHARS).trimEnd()}…` : text;
+}
+
+/**
+ * Fits the payload to the prompt's aggregate budget (`PRIVATE_SCENE_MAX_PROMPT_INPUT_CHARS`,
+ * measured as the input bound measures it). A scene written at the per-line
+ * limit outgrows it by the sixth exchange; left alone it failed there, on
+ * every retry. So, only as far as needed: the older lines keep their opening
+ * words (the newest line - the one being answered - stays whole), then the
+ * NPC's context items do, then context items go, oldest memories first, and
+ * last the NPC's own description keeps its opening words.
+ */
+function fitSceneBudget<T extends ReturnType<typeof unfittedScenePrompt>>(input: T): T {
+    const fits = () => JSON.stringify(input).length <= PRIVATE_SCENE_MAX_PROMPT_INPUT_CHARS;
+    const { transcript, npc } = input;
+    for (let i = 0; i < transcript.length - 1 && !fits(); i++) transcript[i] = { ...transcript[i], text: clipSceneText(transcript[i].text) };
+    const lists = [npc.memories, npc.beliefs, npc.goals, npc.ownSecrets];
+    for (const list of lists) {
+        for (let i = 0; i < list.length && !fits(); i++) list[i] = clipSceneText(list[i]);
+    }
+    for (const list of lists) {
+        while (list.length > 0 && !fits()) list.shift();
+    }
+    for (const field of ['selfDescription', 'voice', 'location', 'position'] as const) {
+        const text = npc[field];
+        if (text !== undefined && !fits()) npc[field] = clipSceneText(text);
+    }
+    return input;
+}
+
+function unfittedScenePrompt(
     player: Entity,
     npc: Entity,
     transcript: PrivateSceneRecord['transcript'],
@@ -70,15 +116,34 @@ export function buildPrivateScenePrompt(
         phase: exchange === 1 ? 'invitation' as const : 'exchange' as const,
         exchange,
         npc: {
-            entityId: npc.entity_id, displayName: npc.name, position: npc.position, location: npc.location,
-            voice: npc.voice, selfDescription: npc.current_state_narrative,
-            goals: npc.short_term_goals.slice(0, 8), beliefs: (npc.beliefs ?? []).slice(0, 8),
-            ownSecrets: (npc.secrets ?? []).slice(0, 8), memories: npc.memories.slice(-8).map(memory => memory.event_description),
+            entityId: npc.entity_id, displayName: npc.name, position: optionalSceneText(npc.position),
+            location: optionalSceneText(npc.location), voice: optionalSceneText(npc.voice),
+            selfDescription: optionalSceneText(npc.current_state_narrative),
+            goals: sceneContextList(npc.short_term_goals, 8), beliefs: sceneContextList(npc.beliefs ?? [], 8),
+            ownSecrets: sceneContextList(npc.secrets ?? [], 8),
+            memories: sceneContextList(npc.memories.map(memory => memory.event_description), 8, true),
             relationshipToPlayer: undefined,
         },
-        player: { entityId: player.entity_id, displayName: player.name, position: player.position },
+        player: { entityId: player.entity_id, displayName: player.name, position: optionalSceneText(player.position) },
         transcript: transcript.map(line => ({ speaker: line.speaker, text: line.text })),
     };
+}
+
+/**
+ * The per-NPC prompt payload for one private-scene call. Pure: the NPC's
+ * own mind (bounded to its first eight goals/beliefs/secrets and last eight
+ * memories), the player's public face, and the transcript so far - every
+ * optional field that is null or blank left out, and the whole fitted to
+ * the prompt's budget (`fitSceneBudget`), so a known, reachable individual
+ * is never refused by the input bound itself.
+ */
+export function buildPrivateScenePrompt(
+    player: Entity,
+    npc: Entity,
+    transcript: PrivateSceneRecord['transcript'],
+    exchange: number,
+) {
+    return fitSceneBudget(unfittedScenePrompt(player, npc, transcript, exchange));
 }
 
 export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
@@ -91,7 +156,15 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
     const [privateSceneOpeningDraft, setPrivateSceneOpeningDraft] = useState('');
     const [privateSceneReplyDraft, setPrivateSceneReplyDraft] = useState('');
     const [privateSceneLastWordDraft, setPrivateSceneLastWordDraft] = useState('');
-    const [privateSceneError, setPrivateSceneError] = useState<string | null>(null);
+    // A failure belongs to the turn it happened in: the next turn's door is
+    // fresh, and an old "The door did not open" must not greet it.
+    const [failure, setFailure] = useState<(PrivateSceneFailure & { turn: number }) | null>(null);
+    const privateSceneError: PrivateSceneFailure | null = failure && failure.turn === turnNumber
+        ? { kind: failure.kind, message: failure.message }
+        : null;
+    const fail = useCallback((kind: PrivateSceneFailureKind, message: string) => {
+        setFailure({ kind, message, turn: turnNumber });
+    }, [turnNumber]);
 
     const privateSceneTargets = useMemo(
         () => playerEntity ? eligiblePrivateSceneTargets({ player: playerEntity, entities, knownEntityIds: privateSceneKnownIds }) : [],
@@ -123,7 +196,7 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
             action: { type: 'PRIVATE_SCENES_COMMITTED', privateScenes: candidateScenes },
             // Same voice as every other write that would not land (D45): the
             // device is named, and what is kept is named. No bare "try again".
-            onSaveFailure: () => setPrivateSceneError('The scene could not be saved. This device would not take the writing down — your words are kept here, and the scene has not moved.'),
+            onSaveFailure: () => fail('save', 'The scene could not be saved. This device would not take the writing down — your words are kept here, and the scene has not moved.'),
             beforeDispatch: () => {
                 // The durable bytes exist before this point. Set the handler-level
                 // guard before reducer dispatch so another event cannot enter an
@@ -131,15 +204,15 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
                 privateSceneLockRef.current = isPrivateSceneInteractionLocked(candidateScenes);
                 privateScenesRef.current = candidateScenes;
             },
-            onCommitted: () => setPrivateSceneError(null),
+            onCommitted: () => setFailure(null),
         });
-    }, [buildSaveState, commitDomainMutation, privateSceneLockRef, privateScenesRef]);
+    }, [buildSaveState, commitDomainMutation, fail, privateSceneLockRef, privateScenesRef]);
 
     const handlePrivateSceneInvite = useCallback((targetId: string) => {
         void runDomainMutation(async transaction => {
             const opening = privateSceneOpeningDraft.trim();
             if (!transaction.isCurrent() || !playerEntity || !opening || opening.length > PRIVATE_SCENE_MAX_UTTERANCE_CHARS) {
-                if (opening.length > PRIVATE_SCENE_MAX_UTTERANCE_CHARS) setPrivateSceneError('Private-scene messages may be at most 2,000 characters.');
+                if (opening.length > PRIVATE_SCENE_MAX_UTTERANCE_CHARS) fail('length', 'Private-scene messages may be at most 2,000 characters.');
                 return false;
             }
             const expectedScenes = privateScenesFingerprint(privateScenesRef.current);
@@ -147,15 +220,15 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
             const stillEligible = eligiblePrivateSceneTargets({ player: playerEntity, entities, knownEntityIds: privateSceneKnownIds })
                 .some(target => target.entityId === targetId);
             if (!npc) {
-                setPrivateSceneError('That contact can no longer be found. Choose another and try again.');
+                fail('eligibility', 'That contact can no longer be found. Choose another and try again.');
                 return false;
             }
             if (!stillEligible) {
-                setPrivateSceneError('That contact is no longer within reach. Choose another and try again.');
+                fail('eligibility', 'That contact is no longer within reach. Choose another and try again.');
                 return false;
             }
             if (privateScenesRef.current.some(scene => scene.status === 'active' || scene.status === 'awaiting_last_word' || scene.macroTurn === turnNumber)) {
-                setPrivateSceneError('A private scene has already been held this turn.');
+                fail('eligibility', 'A private scene has already been held this turn.');
                 return false;
             }
             try {
@@ -164,13 +237,19 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
                 const transition = beginPrivateScene({ sceneId: `private-scene-${turnNumber}-${npc.entity_id}`, macroTurn: turnNumber, player: playerEntity, npc, knownEntityIds: privateSceneKnownIds, opening, response, existing: privateScenesRef.current });
                 if (!transition.ok || !commitPrivateScene(transition.scene, expectedScenes)) return false;
                 setPrivateSceneOpeningDraft('');
+                // A new scene, a new person: nothing written for the last one carries over.
+                setPrivateSceneReplyDraft('');
+                setPrivateSceneLastWordDraft('');
                 return true;
-            } catch {
-                if (transaction.isCurrent()) setPrivateSceneError('The scene could not continue. Your words remain ready to retry.');
+            } catch (error) {
+                if (!transaction.isCurrent()) return false;
+                // The input bound refused this contact: the same request would fail again, so no retry is offered.
+                if (error instanceof PrivateSceneInputError) fail('invite', 'This contact cannot be drawn into a private word. Your words are kept; choose another to send them to.');
+                else fail('invite', 'The scene could not continue. Your words remain ready to retry.');
                 return false;
             }
         }, { allowDuringPrivateScene: true });
-    }, [ai, commitPrivateScene, entities, isMockMode, playerEntity, privateSceneKnownIds, privateSceneOpeningDraft, privateScenePromptFor, privateScenesRef, runDomainMutation, turnNumber]);
+    }, [ai, commitPrivateScene, entities, fail, isMockMode, playerEntity, privateSceneKnownIds, privateSceneOpeningDraft, privateScenePromptFor, privateScenesRef, runDomainMutation, turnNumber]);
 
     const handlePrivateSceneReply = useCallback((sceneId: string) => {
         void runDomainMutation(async transaction => {
@@ -178,7 +257,7 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
             const expectedScenes = privateScenesFingerprint(privateScenesRef.current);
             const scene = privateScenesRef.current.find(candidate => candidate.sceneId === sceneId);
             if (!transaction.isCurrent() || !scene || scene.status !== 'active' || !reply || reply.length > PRIVATE_SCENE_MAX_UTTERANCE_CHARS) {
-                if (reply.length > PRIVATE_SCENE_MAX_UTTERANCE_CHARS) setPrivateSceneError('Private-scene messages may be at most 2,000 characters.');
+                if (reply.length > PRIVATE_SCENE_MAX_UTTERANCE_CHARS) fail('length', 'Private-scene messages may be at most 2,000 characters.');
                 return false;
             }
             const npc = entities.find(entity => entity.entity_id === scene.npcId);
@@ -193,12 +272,14 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
                 if (!transition.ok || !commitPrivateScene(transition.scene, expectedScenes)) return false;
                 setPrivateSceneReplyDraft('');
                 return true;
-            } catch {
-                if (transaction.isCurrent()) setPrivateSceneError('The scene could not continue. Your words remain ready to retry.');
+            } catch (error) {
+                if (!transaction.isCurrent()) return false;
+                if (error instanceof PrivateSceneInputError) fail('exchange', 'The conversation can go no further. Everything said is kept; end the scene when you are ready.');
+                else fail('exchange', 'The scene could not continue. Your words remain ready to retry.');
                 return false;
             }
         }, { allowDuringPrivateScene: true });
-    }, [ai, commitPrivateScene, entities, isMockMode, privateScenePromptFor, privateSceneReplyDraft, privateScenesRef, runDomainMutation]);
+    }, [ai, commitPrivateScene, entities, fail, isMockMode, privateScenePromptFor, privateSceneReplyDraft, privateScenesRef, runDomainMutation]);
 
     const handlePrivateSceneEnd = useCallback((sceneId: string) => {
         void runDomainMutation(() => {
@@ -206,7 +287,10 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
             const scene = privateScenesRef.current.find(candidate => candidate.sceneId === sceneId);
             if (!scene) return false;
             const transition = endPrivateScene(scene);
-            return transition.ok && commitPrivateScene(transition.scene, expectedScenes);
+            if (!transition.ok || !commitPrivateScene(transition.scene, expectedScenes)) return false;
+            // The exchange is over: an unsent reply is not carried to the last word, or to anyone else.
+            setPrivateSceneReplyDraft('');
+            return true;
         }, { allowDuringPrivateScene: true });
     }, [commitPrivateScene, privateScenesRef, runDomainMutation]);
 
@@ -214,7 +298,7 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
         void runDomainMutation(() => {
             const text = lastWord?.trim() ?? null;
             if (text !== null && text.length > PRIVATE_SCENE_MAX_UTTERANCE_CHARS) {
-                setPrivateSceneError('Private-scene messages may be at most 2,000 characters.');
+                fail('length', 'Private-scene messages may be at most 2,000 characters.');
                 return false;
             }
             const expectedScenes = privateScenesFingerprint(privateScenesRef.current);
@@ -222,10 +306,12 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
             if (!scene) return false;
             const transition = finalizePrivateScene(scene, text);
             if (!transition.ok || !commitPrivateScene(transition.scene, expectedScenes)) return false;
+            // The scene is closed: nothing written in it waits for the next one.
             setPrivateSceneLastWordDraft('');
+            setPrivateSceneReplyDraft('');
             return true;
         }, { allowDuringPrivateScene: true });
-    }, [commitPrivateScene, privateScenesRef, runDomainMutation]);
+    }, [commitPrivateScene, fail, privateScenesRef, runDomainMutation]);
 
     // The PrivateScene component's last-word pair: the draft is read at
     // click time, exactly as App's inline lambdas did.
