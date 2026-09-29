@@ -54,6 +54,10 @@ export function useEventFlow(deps: EventFlowDeps) {
     // behind it via `transactionError` would be invisible) - mirrors
     // usePrivateSceneController's privateSceneError.
     const [eventChoiceError, setEventChoiceError] = useState<string | null>(null);
+    // Whether the open fate failed to reach disk. Only then would leaving
+    // the page lose it, so only then does the unload guard ask
+    // (hooks/useShellEffects.ts). A fate reopened on load came from disk.
+    const [openFateUnsaved, setOpenFateUnsaved] = useState(false);
 
     useEffect(() => {
         if (isCheckingEvents) {
@@ -75,8 +79,9 @@ export function useEventFlow(deps: EventFlowDeps) {
                 // a reload reopens it instead of skipping it. A write that
                 // does not land still opens the modal - the fate stands
                 // either way, and the unload guard warns before it is lost.
-                updateSavedPendingEvent(event.id, turnNumber, playerEntity?.entity_id ?? null);
+                const saved = updateSavedPendingEvent(event.id, turnNumber, playerEntity?.entity_id ?? null);
                 dispatch({ type: 'EVENT_TRIGGERED', event });
+                queueMicrotask(() => setOpenFateUnsaved(!saved));
             } else {
                 dispatch({ type: 'GAME_STATE_SET', gameState: GameState.AWAITING_PLAYER_INPUT });
             }
@@ -126,6 +131,8 @@ export function useEventFlow(deps: EventFlowDeps) {
             beforeDispatch: () => {
                 setTransactionNote(null);
                 setEventChoiceError(null);
+                // Answered and saved: no fate is left at risk.
+                setOpenFateUnsaved(false);
             },
         })) {
             return;
@@ -133,5 +140,5 @@ export function useEventFlow(deps: EventFlowDeps) {
 
     }, [activeEvent, buildSaveState, commitDomainMutation, entities, eventFirings, eventHistory, messages, playerEntity, setTransactionNote, triggeredEventIds, turnNumber, worldState]);
 
-    return { setIsCheckingEvents, eventChoiceError, handleEventChoice };
+    return { setIsCheckingEvents, eventChoiceError, handleEventChoice, openFateUnsaved };
 }
