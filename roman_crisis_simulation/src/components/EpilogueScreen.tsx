@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Entity, TurnHistoryEntry, EventHistoryEntry } from '../types';
 import { generateText, GEMINI_PRO, GeminiClient } from '../ai/core/geminiService';
 import { buildEpiloguePrompt, EpilogueTurnHeadlines, EpilogueEventChoice } from '../ai/prompts/epilogue';
@@ -46,6 +46,23 @@ function buildStaticFallbackEpitaph(player: Entity, causeNarration: string): str
 const STELE_TEXT = 'var(--stele-text)', STELE_DIM = 'var(--stele-dim)', STELE_BRIGHT = 'var(--stele-bright)';
 const steleLabel: React.CSSProperties = { fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', color: STELE_DIM };
 
+/**
+ * What the stele's one live region says (player-visible to assistive
+ * technology). Each line stands alone, since in Mock Mode the stone is
+ * written before the first could be spoken.
+ */
+export const EPILOGUE_STATUS = {
+  writing: 'The story has ended. The chroniclers take up their pens.',
+  written: 'The story has ended, and the chroniclers have written.',
+  fallback: 'The story has ended, and a quieter hand has set down the record.',
+} as const;
+
+/**
+ * A live region must exist, empty, before its words arrive or they are
+ * seldom spoken, so each line lands a beat after the state that calls for it.
+ */
+const STATUS_BEAT_MS = 150;
+
 const EpilogueScreen: React.FC<{
   player: Entity;
   /** Persisted GM narration for the final events, independent of *why* the run ended (a committed turn's death vs. a fatal event-choice) - see App.tsx's derivation from `messages`. */
@@ -60,6 +77,20 @@ const EpilogueScreen: React.FC<{
   const [isLoading, setIsLoading] = useState(true);
   const [usedFallback, setUsedFallback] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
+  const [statusLine, setStatusLine] = useState('');
+  const nameRef = useRef<HTMLHeadingElement>(null);
+
+  // The chronicle and its desk are gone, so focus would fall to the page
+  // itself: it lands on the name cut into the stone instead.
+  useEffect(() => {
+    nameRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  useEffect(() => {
+    const line = isLoading ? EPILOGUE_STATUS.writing : usedFallback ? EPILOGUE_STATUS.fallback : EPILOGUE_STATUS.written;
+    const timer = setTimeout(() => setStatusLine(line), STATUS_BEAT_MS);
+    return () => clearTimeout(timer);
+  }, [isLoading, usedFallback]);
 
   useEffect(() => {
     let cancelled = false;
@@ -167,6 +198,9 @@ const EpilogueScreen: React.FC<{
     // about four seconds in all, every step reduced-motion guarded (the
     // reduced path shows the finished stone with no movement).
     <div className="gor-stele" style={{ width: '100%', flex: 1, minHeight: 0, overflowY: 'auto', background: 'var(--stele-grad)', color: STELE_TEXT }}>
+      {/* The stele's one live region: mounted empty, always, and told when
+          the reign has ended and again when the stone is written. */}
+      <p role="status" className="gor-sr-only">{statusLine}</p>
       <div style={{ maxWidth: 720, margin: '0 auto', padding: '56px 24px 64px' }}>
         <div className="gor-stele-italia" style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
           <GildedItalia size={80} />
@@ -174,7 +208,8 @@ const EpilogueScreen: React.FC<{
         <p className="gor-stele-rise" style={{ ...steleLabel, textAlign: 'center', letterSpacing: '.3em', marginBottom: 8 }}>
           The Story Has Ended
         </p>
-        <h1 className="gor-stele-cut" style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 38, textAlign: 'center', color: STELE_BRIGHT, textShadow: '0 2px 4px rgba(0,0,0,.7)', margin: '0 0 4px' }}>{player.name}</h1>
+        {/* An h2: the masthead keeps the page's one h1. */}
+        <h2 ref={nameRef} tabIndex={-1} className="gor-stele-cut" style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 38, textAlign: 'center', color: STELE_BRIGHT, textShadow: '0 2px 4px rgba(0,0,0,.7)', margin: '0 0 4px', outline: 'none' }}>{player.name}</h2>
         <p className="gor-stele-cut" style={{ textAlign: 'center', color: STELE_DIM, fontStyle: 'italic', margin: '0 0 40px' }}>
           {player.position || player.entity_type} — {player.location}
         </p>
@@ -182,7 +217,7 @@ const EpilogueScreen: React.FC<{
         <div role="region" aria-label="Epilogue" className="gor-stele-verdict" style={{ position: 'relative', borderTop: '1px solid rgba(227,199,102,.4)', borderBottom: '1px solid rgba(227,199,102,.4)', padding: '32px 12px', minHeight: 160, boxShadow: 'inset 0 3px 0 -2px rgba(227,199,102,.15), inset 0 -3px 0 -2px rgba(227,199,102,.15)' }}>
           <span aria-hidden="true" style={{ position: 'absolute', top: -8, left: '50%', transform: 'translateX(-50%)', color: 'var(--gold-400)', fontSize: 11, background: '#161109', padding: '0 12px' }}>◆</span>
           {isLoading ? (
-            <p style={{ textAlign: 'center', fontStyle: 'italic', color: STELE_DIM, animation: 'gorEmber 2.4s ease-in-out infinite' }} aria-live="polite">
+            <p className="gor-stele-waiting" style={{ textAlign: 'center', fontStyle: 'italic', color: STELE_DIM }}>
               The chroniclers take up their pens…
             </p>
           ) : (
@@ -192,7 +227,7 @@ const EpilogueScreen: React.FC<{
         </div>
 
         {usedFallback && !isLoading && (
-          <p style={{ textAlign: 'center', color: 'rgba(161,138,92,.7)', fontSize: 13, marginTop: 16, fontStyle: 'italic' }}>
+          <p style={{ textAlign: 'center', color: STELE_DIM, fontSize: 13, marginTop: 16, fontStyle: 'italic' }}>
             (The chroniclers could not be reached — this record was set down by a steadier, quieter hand.)
           </p>
         )}
@@ -200,7 +235,7 @@ const EpilogueScreen: React.FC<{
         {!isLoading && (
           <div style={{ marginTop: 40, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, fontSize: 14 }}>
             <div style={{ background: 'rgba(0,0,0,.32)', border: '1px solid rgba(227,199,102,.25)', borderRadius: 'var(--radius-sm)', padding: '14px 16px' }}>
-              <h2 style={{ ...steleLabel, margin: '0 0 8px' }}>The Reckoning</h2>
+              <h3 style={{ ...steleLabel, margin: '0 0 8px' }}>The Reckoning</h3>
               <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 5, color: STELE_DIM }}>
                 <li>
                   Turns survived: <span style={{ color: STELE_BRIGHT, fontVariantNumeric: 'tabular-nums' }}>{toRoman(Math.max(1, turnHistory.length))} ({turnHistory.length})</span>
@@ -208,7 +243,7 @@ const EpilogueScreen: React.FC<{
               </ul>
             </div>
             <div style={{ background: 'rgba(0,0,0,.32)', border: '1px solid rgba(227,199,102,.25)', borderRadius: 'var(--radius-sm)', padding: '14px 16px' }}>
-              <h2 style={{ ...steleLabel, margin: '0 0 8px' }}>Notable Headlines</h2>
+              <h3 style={{ ...steleLabel, margin: '0 0 8px' }}>Notable Headlines</h3>
               {notableHeadlines.length > 0 ? (
                 <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 5, color: STELE_DIM }}>
                   {notableHeadlines.map((h, i) => (

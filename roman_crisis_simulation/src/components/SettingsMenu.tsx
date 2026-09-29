@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { PacingPosture } from '../types';
 import { Button, Badge, RegisterHeading } from './ui/Core';
-import { Switch, SegmentedControl } from './ui/Forms';
+import { NotedSwitch, Switch, SegmentedControl } from './ui/Forms';
 import { createFocusTrap, FocusTrap } from './ui/focusTrap';
 import { ImportFailureNotice } from './ui/FailureNotices';
 import type { ImportResult } from '../persistence/saveGame';
@@ -53,6 +53,25 @@ export const LIGHTING_COPY = {
     device: "Follows this device's light or dark appearance. Never part of your save.",
     chosen: 'Kept on this device, whatever its appearance. Never part of your save.',
 } as const;
+
+/**
+ * Player-visible copy for "Behind the curtain" (D43: every option carries a
+ * visible description). Like the Reading notes, each line describes the
+ * setting in force.
+ */
+export const CURTAIN_COPY = {
+    consoleNote: {
+        on: "The shortcut shows or hides the GM Log: the Fates' own record of all that is kept from you, spoilers and all.",
+        off: 'The shortcut does nothing, and the GM Log stays out of sight.',
+    },
+    interventionNote: {
+        on: 'The GM Log carries a directive box: what you set there is woven into the next turn.',
+        off: "The GM Log's directive box is hidden. A directive already set still stands.",
+    },
+} as const;
+
+/** Player-visible copy under "Your reign". */
+export const REIGN_COPY_NOTE = 'A raw copy of the save file — spoilers if you open it, nothing private.';
 
 const registerStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 10 };
 
@@ -194,9 +213,10 @@ const SettingsMenu: React.FC<NarrationSettingsProps & {
                     <h2 id="settings-menu-title" style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 27, color: 'var(--tyrian-600)' }}>Configuration</h2>
                     <button
                         type="button"
+                        className="gor-bare-btn"
                         onClick={onClose}
                         aria-label="Close configuration menu"
-                        style={{ all: 'unset', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 24, lineHeight: 1, padding: '2px 6px' }}
+                        style={{ color: 'var(--text-muted)', fontSize: 24, lineHeight: 1, padding: '2px 6px' }}
                     >×</button>
                 </div>
                 <div className="gor-dialog-rule"></div>
@@ -213,15 +233,19 @@ const SettingsMenu: React.FC<NarrationSettingsProps & {
                         <div className="gor-config-grid">
                             <span className="gor-label gor-config-label">Pacing</span>
                             <div>
+                                {/* One exclusive choice of three, so a radio group like
+                                    Lighting and Text size beside it. */}
                                 <SegmentedControl
+                                    radio
                                     ariaLabel="Pacing posture"
+                                    describedBy="settings-pacing-note"
                                     options={FATES_OPTIONS.map(({ posture, label, title }) => ({ value: posture, label, title }))}
                                     value={pacingPosture}
                                     onChange={onSetPacingPosture}
                                 />
                                 {/* One line about the posture in force, rather than a
                                     three-item list restating all of them each time. */}
-                                <p className="gor-config-note">{selectedPacing.label.charAt(0) + selectedPacing.label.slice(1).toLowerCase()} Fates — {selectedPacing.description}</p>
+                                <p id="settings-pacing-note" className="gor-config-note">{selectedPacing.label.charAt(0) + selectedPacing.label.slice(1).toLowerCase()} Fates — {selectedPacing.description}</p>
                             </div>
                             <span className="gor-label gor-config-label">Lighting</span>
                             <div>
@@ -258,17 +282,19 @@ const SettingsMenu: React.FC<NarrationSettingsProps & {
 
                     <section aria-labelledby="settings-curtain" style={registerStyle}>
                         <RegisterHeading headingId="settings-curtain" title="Behind the curtain" />
-                        <Switch
+                        <NotedSwitch
                             id="settings-gm-console-enabled"
                             checked={gmConsoleEnabled}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => onSetGmConsoleEnabled(e.target.checked)}
+                            onChange={onSetGmConsoleEnabled}
                             label={<span>GM console available <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>(Ctrl+Shift+G)</span></span>}
+                            note={gmConsoleEnabled ? CURTAIN_COPY.consoleNote.on : CURTAIN_COPY.consoleNote.off}
                         />
-                        <Switch
+                        <NotedSwitch
                             id="settings-gm-intervention-enabled"
                             checked={gmInterventionEnabled}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => onSetGmInterventionEnabled(e.target.checked)}
+                            onChange={onSetGmInterventionEnabled}
                             label="GM Intervention available"
+                            note={gmInterventionEnabled ? CURTAIN_COPY.interventionNote.on : CURTAIN_COPY.interventionNote.off}
                         />
                     </section>
 
@@ -299,7 +325,7 @@ const SettingsMenu: React.FC<NarrationSettingsProps & {
                                 <Button ref={restoreButtonRef} type="button" variant="ghost" disabled={interactionLocked} onClick={openFilePicker}>Restore from a copy</Button>
                             </div>
                         )}
-                        <p className="gor-config-note">A raw copy of the save file — spoilers if you open it, nothing private (D45).</p>
+                        <p className="gor-config-note">{REIGN_COPY_NOTE}</p>
                         {importFailure && <ImportFailureNotice reason={importFailure} />}
                     </section>
 

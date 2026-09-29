@@ -30,8 +30,11 @@ export interface FocusTrap {
   release(): void;
 }
 
+// `summary` is a disclosure's own toggle and Tab visits it; left out, Tab
+// from one (the GM console's raw registers, the narration log's omitted
+// lines) was taken for a boundary and thrown back to the first control.
 const FOCUSABLE_SELECTOR =
-  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+  'button, [href], input, select, textarea, summary, audio[controls], video[controls], [contenteditable]:not([contenteditable="false"]), [tabindex]:not([tabindex="-1"])';
 
 /**
  * The Tab-reachable subset of the selector's matches. `button`/`input`
@@ -73,12 +76,25 @@ export function createFocusTrap(container: HTMLElement): FocusTrap {
 
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      // Focus on something inside the dialog that Tab itself would not visit
+      // (a heading focused on purpose, say) is not a boundary: the browser
+      // moves on in document order, and the trap steps in only when there
+      // is nothing further that way inside the dialog.
+      if (active && active !== container && container.contains(active) && !focusable.includes(active)) {
+        const onward = focusable.some(el => active.compareDocumentPosition(el) &
+          (event.shiftKey ? Node.DOCUMENT_POSITION_PRECEDING : Node.DOCUMENT_POSITION_FOLLOWING));
+        if (onward) return;
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+        return;
+      }
       // An active element that is not one of the trap's focusable children -
       // the dialog root itself right after activate() (tabIndex=-1), or an
       // element behind the modal - must also be treated as a boundary, or a
       // Tab/Shift+Tab from there falls through to the browser default and
       // walks focus out of the dialog entirely.
-      const index = focusable.indexOf(document.activeElement as HTMLElement);
+      const index = focusable.indexOf(active as HTMLElement);
       if (event.shiftKey && (index === 0 || index === -1)) {
         event.preventDefault();
         last.focus();

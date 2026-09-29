@@ -41,7 +41,7 @@ export type TurnFailure =
 export const TRANSIENT_ATTEMPT_BUDGET = 3;
 
 const Pips: React.FC<{ spent: number }> = ({ spent }) => (
-  <span className="gor-pips" aria-hidden="true">
+  <span className="gor-pips gor-pips-attempts" aria-hidden="true">
     {Array.from({ length: TRANSIENT_ATTEMPT_BUDGET }, (_, index) => (
       <span key={index} className={`gor-pip${index < spent ? ' gor-pip-spent' : ''}`} />
     ))}

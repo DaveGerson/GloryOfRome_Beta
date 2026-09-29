@@ -49,8 +49,12 @@ export const ApiKeyCard: React.FC<{
         onClearApiKey();
     };
 
+    // The laurel badge is a state, so it shows only while a key is kept here:
+    // over an empty field it read as "a key is on this device" while the
+    // composer said there was none. Where a key would live is the
+    // description's job.
     return (
-        <Card gilt title="Gemini API Key" action={<Badge tone="laurel">On this device</Badge>}>
+        <Card gilt title="Gemini API Key" action={apiKey ? <Badge tone="laurel">On this device</Badge> : undefined}>
             <div style={cardBodyStyle}>
                 <p style={descriptionStyle}>
                     Play with your own Gemini API key — it is stored on this device only, never saved into your game, and never bundled into this build.
