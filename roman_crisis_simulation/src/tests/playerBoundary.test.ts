@@ -303,6 +303,67 @@ describe('no-attempt player ownership boundary', () => {
     },
   );
 
+  // D46: the world acts on the player on any turn they take, including one
+  // on which they attempt nothing - but only from someone in the world. The
+  // origin must name a non-player entity on the roster, so the model cannot
+  // launder an invented player act by stamping another name on it.
+  describe('the world acting ON the player (D46)', () => {
+    const roster: Pick<Entity, 'entity_id'>[] = [{ entity_id: 'player_1' }, { entity_id: 'npc_thrax' }];
+    const exile = {
+      type: 'status', key: 'player_1', delta: 0, reason: 'Thrax has the Senate banish the Emperor to Tomis.',
+      new_status: 'exiled', new_location: 'Tomis',
+    } satisfies Adjudication['deltas'][number];
+    const seizure = {
+      type: 'resource', key: 'player_1:denarii', delta: -500, reason: 'Thrax\'s men empty the palace strongroom.',
+    } satisfies Adjudication['deltas'][number];
+    const withDelta = (delta: Adjudication['deltas'][number]): Adjudication => ({
+      turn: 7, entityActions: [], deltas: [delta], headlines: ['The week turns against the palace.'], gm_private: [],
+    });
+
+    it.each([['an exile', exile], ['a seizure of their denarii', seizure]])(
+      'allows %s whose origin is a real non-player entity on a no-attempt turn',
+      (_label, delta) => {
+        expect(() => assertNoInventedPlayerAction(withDelta({ ...delta, origin_id: 'npc_thrax' }), player, false, roster))
+          .not.toThrow();
+      },
+    );
+
+    it.each([
+      ['no origin', undefined],
+      ['a player origin', 'player_1'],
+      ['a player alias as origin', 'the emperor'],
+      ['an origin off the roster', 'npc_invented'],
+      ['a display name instead of an id', 'Maximinus Thrax'],
+    ])('still rejects an exile or seizure with %s', (_label, origin) => {
+      for (const delta of [exile, seizure]) {
+        const stamped = origin === undefined ? delta : { ...delta, origin_id: origin };
+        expect(() => assertNoInventedPlayerAction(withDelta(stamped), player, false, roster))
+          .toThrow('player action boundary');
+      }
+    });
+
+    it('grants no carve-out when no roster is supplied (fail closed)', () => {
+      expect(() => assertNoInventedPlayerAction(withDelta({ ...exile, origin_id: 'npc_thrax' }), player, false))
+        .toThrow('player action boundary');
+    });
+
+    it('leaves the player\'s own opinions and schemes player-owned whatever their origin', () => {
+      for (const delta of [
+        { type: 'relation', key: 'player_1:npc_thrax:trust_level', delta: -3, reason: 'A new opinion forms.', origin_id: 'npc_thrax' },
+        { type: 'scheme', key: 'player_1', delta: 0, reason: '{}', origin_id: 'npc_thrax' },
+      ] satisfies Adjudication['deltas']) {
+        expect(() => assertNoInventedPlayerAction(withDelta(delta), player, false, roster))
+          .toThrow('player action boundary');
+      }
+    });
+
+    it('is unchanged on an attempt turn: every delta keyed under the player stays legal', () => {
+      expect(() => assertNoInventedPlayerAction(withDelta(seizure), player, true, roster)).not.toThrow();
+      expect(() => assertNoInventedPlayerAction(withDelta({ ...exile, origin_id: 'npc_invented' }), player, true, roster))
+        .not.toThrow();
+    });
+  });
+
   // CHANGED (prose/structural split): a rumor whose ORIGIN is not the player
   // carries no player-owned mechanical change - only its `reason` prose reads
   // as the player acting. That is a narrative blemish, redacted from the

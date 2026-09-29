@@ -82,6 +82,25 @@ async function click(element: HTMLElement): Promise<void> {
   await act(async () => element.click());
 }
 
+/** The disclosure heading of an optional register (III, IV). */
+function foldNamed(container: HTMLElement, title: string): HTMLButtonElement {
+  const fold = Array.from(container.querySelectorAll<HTMLButtonElement>('button[aria-controls]'))
+    .find(candidate => candidate.textContent?.trim() === title);
+  expect(fold, `fold named "${title}"`).toBeDefined();
+  return fold!;
+}
+
+/** Not inside a folded register (jsdom does no layout: `hidden` is the fold). */
+function isVisible(element: HTMLElement): boolean {
+  return element.closest('[hidden]') === null;
+}
+
+/** Opens an optional register, as a player does, if it is folded. */
+async function openRegister(container: HTMLElement, title: string): Promise<void> {
+  const fold = foldNamed(container, title);
+  if (fold.getAttribute('aria-expanded') !== 'true') await click(fold);
+}
+
 async function setValue(
   element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
   value: string,
@@ -142,14 +161,65 @@ describe('components/TurnComposer', () => {
     expect(recipient.value).toBe('');
     expect(command.value).toBe('');
 
+    // III and IV are optional: folded behind their headings until opened.
+    expect(isVisible(privateIntent)).toBe(false);
+    expect(isVisible(question)).toBe(false);
+    await openRegister(container, 'What you intend');
+    await openRegister(container, 'What you ask');
+
     const focusable = Array.from(container.querySelectorAll<HTMLElement>(
       'button:not([disabled]), textarea:not([disabled]), select:not([disabled]), input:not([disabled])',
     ));
     expect(submit.disabled).toBe(true);
-    const ordered = [action, addAction, recipient, command, addMessage, privateIntent, question]
-      .map(control => focusable.indexOf(control));
+    const ordered = [
+      action, addAction, recipient, command, addMessage,
+      foldNamed(container, 'What you intend'), privateIntent, foldNamed(container, 'What you ask'), question,
+    ].map(control => focusable.indexOf(control));
+    // The send follows them all, outside the registers' scroll.
+    expect(question.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(ordered.every(index => index >= 0)).toBe(true);
     expect(ordered).toEqual([...ordered].sort((a, b) => a - b));
+  });
+
+  it('folds What you intend and What you ask behind disclosure headings: closed by default, focus follows an opening, words keep them open', async () => {
+    function Harness() {
+      const [draft, setDraft] = useState(emptyStructuredDraft());
+      return <TurnComposer {...defaultProps({ structuredDraft: draft, onStructuredDraftChange: setDraft })} />;
+    }
+    const { container } = await mount(<Harness />);
+    await click(buttonNamed(container, 'Structured'));
+
+    for (const title of ['What you intend', 'What you ask']) {
+      const fold = foldNamed(container, title);
+      const field = byAriaLabel<HTMLTextAreaElement>(container, title);
+      // A disclosure button whose panel holds the field, which keeps its name.
+      expect(fold.getAttribute('aria-expanded')).toBe('false');
+      expect(container.querySelector(`#${fold.getAttribute('aria-controls')}`)?.contains(field)).toBe(true);
+      expect(isVisible(field)).toBe(false);
+
+      await click(fold);
+      expect(fold.getAttribute('aria-expanded')).toBe('true');
+      expect(isVisible(field)).toBe(true);
+      expect(document.activeElement).toBe(field);
+
+      // Empty, it folds away again.
+      await click(fold);
+      expect(fold.getAttribute('aria-expanded')).toBe('false');
+      expect(isVisible(field)).toBe(false);
+
+      // Holding words, it stays open: pressing the heading goes to the words.
+      await click(fold);
+      await setValue(field, 'Keep the Senate close.');
+      (document.activeElement as HTMLElement).blur();
+      await click(fold);
+      expect(fold.getAttribute('aria-expanded')).toBe('true');
+      expect(isVisible(field)).toBe(true);
+      expect(document.activeElement).toBe(field);
+    }
+
+    // The send is never inside the registers' scroll: it stays on the desk.
+    expect(buttonNamed(container, 'Seal & send').closest('.gor-register-scroll')).toBeNull();
+    expect(container.querySelector('.gor-register-scroll #structured-input')).not.toBeNull();
   });
 
   it('builds every recipient selector only from safe options plus placeholder/custom, and discards custom text when a known recipient is selected', async () => {
@@ -655,6 +725,11 @@ describe('components/TurnComposer', () => {
       .toBe('Learn who profits.');
     expect(byAriaLabel<HTMLTextAreaElement>(container, 'What you ask').value)
       .toBe('The guard rotation changed yesterday.');
+    // A restored draft's words are never folded out of sight.
+    for (const title of ['What you intend', 'What you ask']) {
+      expect(foldNamed(container, title).getAttribute('aria-expanded')).toBe('true');
+      expect(isVisible(byAriaLabel<HTMLTextAreaElement>(container, title))).toBe(true);
+    }
   });
 
   it('renders no validation alert for a pristine Structured draft until content is entered', async () => {

@@ -18,7 +18,7 @@
  *    to newcomers; a call that still seats none of them is not kept and not
  *    repeated for the same newcomers;
  *  - on "Recast everyone" in Settings (explicit, paid; the player's overrides
- *    are kept).
+ *    are kept; pressed while a casting is out, it waits for that one first).
  * Nothing runs while the voice is SILENT, without a key, or on the character
  * selection screen. A failure never retries by itself: the members it was
  * asked about are cast by rule and kept, and play goes on.
@@ -113,7 +113,9 @@ export function useVoiceCast({
 
   const playerCharacterId = playerEntity?.entity_id ?? null;
   const castRef = useRef(voiceCast);
-  const inFlightRef = useRef(false);
+  // The casting out now, settled when it is done (never rejects): a Recast
+  // pressed meanwhile waits on it rather than being dropped.
+  const inFlightRef = useRef<Promise<void> | null>(null);
   useEffect(() => {
     castRef.current = voiceCast;
   }, [voiceCast]);
@@ -140,7 +142,8 @@ export function useVoiceCast({
 
   const runCasting = useCallback(async (mode: 'full' | 'newcomers'): Promise<boolean | null> => {
     if (inFlightRef.current) return null;
-    inFlightRef.current = true;
+    let settle = () => {};
+    inFlightRef.current = new Promise<void>(resolve => { settle = resolve; });
     const generation = campaignGenerationRef.current;
     let dropped = false;
     try {
@@ -187,7 +190,8 @@ export function useVoiceCast({
       }
       return !result.usedFallback;
     } finally {
-      inFlightRef.current = false;
+      inFlightRef.current = null;
+      settle();
       if (dropped) setRetryTick(tick => tick + 1);
     }
   }, [ai, isMockMode, candidates, metaNarrative, player, defaultNarrator, campaignGenerationRef, keep]);
@@ -208,6 +212,10 @@ export function useVoiceCast({
   const handleRecast = useCallback(async () => {
     if (!canReach || !inPlay) return;
     setRecastStatus('casting');
+    // A casting already out (the automatic one) is waited for, then the
+    // recast runs: the press is never silently dropped (B14). The loop and
+    // the call below share one synchronous step, so nothing can slip in.
+    while (inFlightRef.current) await inFlightRef.current;
     const outcome = await runCasting('full');
     // Mock Mode always casts by rule: that is its success, not a fallback.
     setRecastStatus(outcome === null ? 'idle' : outcome || isMockMode ? 'done' : 'fell_back');

@@ -7,6 +7,7 @@ import {
   appButton,
   appClick,
   appControl,
+  appOpenRegister,
   appSetValue,
   buildSaveStateFromThread,
   clearAppGeminiScript,
@@ -181,7 +182,9 @@ describe('journey: structured player input through the real App transaction', ()
       await appSetValue(secondRecipient, customValue);
       await appSetValue(appControl<HTMLInputElement>(app.container, 'Custom recipient 2'), 'The captain at the eastern gate');
       await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Message or order 2'), 'Double the watch without public alarm.');
+      await appOpenRegister(app.container, 'What you intend');
       await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'What you intend'), privateIntent);
+      await appOpenRegister(app.container, 'What you ask');
       await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'What you ask'), question);
 
       // Drafts are separate only within this mounted session. Refresh/reload
@@ -376,6 +379,7 @@ describe('journey: structured player input through the real App transaction', ()
     const app = await mountJourneyApp(buildSaveStateFromThread(seed.thread));
     try {
       await appClick(appButton(app.container, 'Structured'));
+      await appOpenRegister(app.container, 'What you ask');
       await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'What you ask'), question);
       const expectedConsole = vi.spyOn(console, 'error').mockImplementation(() => {});
       await appClick(appButton(app.container, 'Seal & send'));
@@ -489,6 +493,7 @@ describe('journey: structured player input through the real App transaction', ()
         includeAmbition: true,
       });
       installAppGeminiScript(privateClient);
+      await appOpenRegister(app.container, 'What you intend');
       await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'What you intend'), privateIntent);
       await appClick(appButton(app.container, 'Seal & send'));
       await waitForApp(() => expect(loadThreadState().turnNumber).toBe(4));
@@ -520,7 +525,9 @@ describe('journey: structured player input through the real App transaction', ()
       });
       installAppGeminiScript(mixedClient);
       await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Action 1'), mixedAction);
+      await appOpenRegister(app.container, 'What you ask');
       await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'What you ask'), mixedQuestion);
+      await appOpenRegister(app.container, 'What you intend');
       await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'What you intend'), mixedPrivateIntent);
       await appClick(appButton(app.container, 'Seal & send'));
       await waitForApp(() => expect(loadThreadState().turnNumber).toBe(5));

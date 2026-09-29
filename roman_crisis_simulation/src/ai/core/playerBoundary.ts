@@ -631,7 +631,40 @@ function valueFlagsPlayerConduct(value: unknown, player: PlayerIdentity): boolea
  */
 const WORLD_DRIVEN_RELATION_ATTRIBUTES = new Set(['dependency_level']);
 
-export function playerOwnsDelta(delta: EventDelta, player: PlayerIdentity): boolean {
+/**
+ * Delta types through which the world acts ON the player on any turn they
+ * take (D46): an exile, arrest or attempt on their life ('status') and a
+ * seizure, fine or gift ('resource'). Keyed under the player they are the
+ * world's doing only when their origin is a real non-player entity - see
+ * `isWorldOrigin`.
+ */
+const WORLD_ACTS_ON_PLAYER_DELTA_TYPES = new Set<EventDelta['type']>(['status', 'resource']);
+
+/**
+ * TRUE when `originId` names an entity on the roster that is not the
+ * player. Exact entity_id match, so the model cannot launder an invented
+ * player action by stamping a name, a title or an invented id on it; a
+ * missing origin, a player alias, or an id off the roster all fail closed.
+ */
+function isWorldOrigin(
+  originId: string | null | undefined,
+  player: PlayerIdentity,
+  roster: readonly Pick<Entity, 'entity_id'>[],
+): boolean {
+  if (!originId || samePlayerIdentity(originId, player)) return false;
+  return roster.some(entity => entity.entity_id === originId);
+}
+
+/**
+ * `roster` is the pre-turn cast the world-origin carve-out checks against.
+ * Omitting it grants no carve-out: every status/resource delta keyed under
+ * the player stays player-owned (fail closed).
+ */
+export function playerOwnsDelta(
+  delta: EventDelta,
+  player: PlayerIdentity,
+  roster: readonly Pick<Entity, 'entity_id'>[] = [],
+): boolean {
   // A rumor's key is its subject, not its author. Only a player origin (or
   // player-attributed prose, checked separately) makes it player-authored.
   if (delta.type === 'rumor') return samePlayerIdentity(delta.origin_id, player);
@@ -641,6 +674,11 @@ export function playerOwnsDelta(delta: EventDelta, player: PlayerIdentity): bool
   // mirrors ai/core/engine.ts's 'relation' key parsing exactly.
   if (delta.type === 'relation' && WORLD_DRIVEN_RELATION_ATTRIBUTES.has(delta.key.split(':')[2] ?? '')) {
     return samePlayerIdentity(delta.origin_id, player);
+  }
+  // D46: the world acting ON the player. A death claim among these still
+  // goes through processMortality, which runs after this gate (D2).
+  if (WORLD_ACTS_ON_PLAYER_DELTA_TYPES.has(delta.type) && isWorldOrigin(delta.origin_id, player, roster)) {
+    return false;
   }
   if (samePlayerIdentity(delta.origin_id, player)) return true;
   const [rootEntityId] = delta.key.split(':');
@@ -729,11 +767,16 @@ export function assertNoPlayerRemoval(
  * Accepts EITHER the committed `Adjudication` or the attributed
  * `AdjudicationInterchange` (D42): the fields read here (entityAction ids,
  * delta identity, remove_entities) are identical across both shapes.
+ *
+ * `roster` (the pre-turn cast) lets the world act ON the player (D46): a
+ * status or resource delta keyed under them whose origin is a real
+ * non-player entity is legal. Omitted, no such delta is (fail closed).
  */
 export function assertNoInventedPlayerAction(
   adjudication: AdjudicationInterchange | Adjudication,
   player: PlayerIdentity,
   hasObservableAttempt: boolean,
+  roster: readonly Pick<Entity, 'entity_id'>[] = [],
 ): void {
   if (hasObservableAttempt) return;
 
@@ -743,7 +786,7 @@ export function assertNoInventedPlayerAction(
   // documented nullable-vs-optional gap actorsBoundary.ts's
   // stripActorsFromEventDelta already casts around; playerOwnsDelta never
   // reads a field where the gap matters.
-  const playerOriginatedDelta = adjudication.deltas.some(delta => playerOwnsDelta(delta as EventDelta, player));
+  const playerOriginatedDelta = adjudication.deltas.some(delta => playerOwnsDelta(delta as EventDelta, player, roster));
   const removesPlayer = valueRemovesPlayer({ remove_entities: adjudication.remove_entities }, player);
 
   if (inventedAction || playerOriginatedDelta || removesPlayer) {

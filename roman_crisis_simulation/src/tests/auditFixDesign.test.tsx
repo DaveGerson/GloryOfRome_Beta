@@ -28,6 +28,7 @@ import EpilogueScreen, { EPILOGUE_STATUS } from '../components/EpilogueScreen';
 import ErrorBoundary from '../components/ErrorBoundary';
 import OnboardingOverlay from '../components/OnboardingOverlay';
 import { CustomDestinyForm, ForgingScreen } from '../components/CustomDestinyForm';
+import CharacterSelection from '../components/CharacterSelection';
 import { TurnFailureNotice } from '../components/ui/FailureNotices';
 import { Tooltip } from '../components/ui/Feedback';
 import { SubRail } from '../components/ui/SubRail';
@@ -373,6 +374,36 @@ describe('Forge a New Destiny', () => {
     const host = await mount(<TypingIndicator lines={['One', 'Two']} intervalMs={50} />);
     expect(host.querySelector('.gor-typing')!.getAttribute('aria-hidden')).toBe('true');
     expect(host.querySelector('[role="status"]')).toBeNull();
+  });
+});
+
+describe('Choose Your Destiny on a short screen', () => {
+  const selectionProps = { onSelectCharacter: vi.fn(), onCreateCharacter: vi.fn(async () => {}) };
+  const saved = { characterName: 'Severus Alexander', turnNumber: 4, savedAt: '2026-08-05T12:00:00.000Z' };
+
+  it('marks the destinies only while a reign is saved, readable or not', async () => {
+    const fresh = await mount(<CharacterSelection {...selectionProps} />);
+    expect(fresh.querySelector('.gor-destinies')!.classList.contains('gor-destinies-reign')).toBe(false);
+    const withReign = await mount(<CharacterSelection {...selectionProps} savedGame={saved} onContinue={vi.fn()} />);
+    expect(withReign.querySelector('.gor-destinies')!.classList.contains('gor-destinies-reign')).toBe(true);
+    const unreadable = await mount(<CharacterSelection {...selectionProps} savedGame={{ unreadable: 'version_mismatch' }} />);
+    expect(unreadable.querySelector('.gor-destinies')!.classList.contains('gor-destinies-reign')).toBe(true);
+    for (const hero of [fresh, withReign]) {
+      expect(hero.querySelector('.gor-destinies-hero .gor-destinies-medallion')).not.toBeNull();
+      expect(hero.querySelector('.gor-destinies-hero .gor-destinies-lede')).not.toBeNull();
+    }
+  });
+
+  it('compacts the hero only below 820px of height, and only for a saved reign', () => {
+    const block = shell.slice(shell.indexOf('@media (max-height:820px){'));
+    const rules = block.slice(0, block.indexOf('\n}'));
+    expect(rules).toContain('.gor-destinies-reign .gor-destinies-medallion{zoom:.54}');
+    expect(rules).toContain('.gor-destinies-reign .gor-mosaic{display:none}');
+    expect(rules).toMatch(/\.gor-destinies-reign \.gor-destinies-title\{font-size:30px!important/);
+    // Every rule in the block is scoped to a saved reign: nothing else moves.
+    const lines = rules.split('\n').slice(1);
+    expect(lines.length).toBeGreaterThan(0);
+    for (const rule of lines) expect(rule.slice(0, rule.indexOf('{'))).toContain('.gor-destinies-reign');
   });
 });
 

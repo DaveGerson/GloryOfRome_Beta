@@ -495,10 +495,17 @@ async function submitStructured(
   if (draft.action !== undefined) {
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Action 1'), draft.action);
   }
+  // III and IV fold behind their headings until opened (or until they hold words).
+  const openRegister = async (title: string) => {
+    const fold = buttonNamed(container, title);
+    if (fold.getAttribute('aria-expanded') !== 'true') await click(fold);
+  };
   if (draft.privateIntent !== undefined) {
+    await openRegister('What you intend');
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'What you intend'), draft.privateIntent);
   }
   if (draft.questionOrContext !== undefined) {
+    await openRegister('What you ask');
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'What you ask'), draft.questionOrContext);
   }
   await click(buttonNamed(container, 'Seal & send'));

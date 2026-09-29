@@ -418,7 +418,14 @@ export async function processMortality(
       if (unauthorized.length > 0) {
         throw new Error(MORTALITY_OUTCOME_BOUNDARY_ERROR);
       }
-      extraDeltas.push(...safe);
+      // The loss or boon a fate leaves on what the candidate holds is the
+      // doing of whoever made the attempt, so an origin-less resource
+      // delta inherits the claim's. On a no-attempt turn this is what lets
+      // the world's attempt on the player commit its cost (D46); the
+      // post-mortality gate still checks that origin against the roster.
+      const claimOrigin = claim.delta.origin_id;
+      extraDeltas.push(...safe.map(delta =>
+        delta.type === 'resource' && !delta.origin_id && claimOrigin ? { ...delta, origin_id: claimOrigin } : delta));
       authoredSideEffects = safe.length;
       for (const dropped of rejected) {
         gmPrivateNotes.push(

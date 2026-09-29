@@ -70,6 +70,26 @@ describe('private scene player UI', () => {
     expect(container.textContent).not.toContain('HIDDEN_INTENT_POISON');
   });
 
+  it('the opener carries a lit seal and says the scene is open, or awaits the last word; a name that starts with its visible words', () => {
+    const opener = (container: HTMLElement) => container.querySelector<HTMLButtonElement>('[data-gor-command="private-scene"]')!;
+    const seal = (container: HTMLElement) => opener(container).querySelector('.gor-scene-opener-seal');
+
+    const idle = render([projectPrivateSceneForPlayer({ ...rawScene, status: 'closed' })]);
+    expect(opener(idle).hasAttribute('aria-label')).toBe(false);
+    expect(seal(idle)).toBeNull();
+
+    const open = render([projectPrivateSceneForPlayer({ ...rawScene, status: 'active' })]);
+    expect(opener(open).getAttribute('aria-label')).toBe('Private scene (open)');
+    expect(seal(open)?.getAttribute('aria-hidden')).toBe('true');
+
+    const awaiting = render();
+    const name = opener(awaiting).getAttribute('aria-label')!;
+    expect(name).toBe('Private scene (awaiting your last word)');
+    expect(name.startsWith(opener(awaiting).textContent!)).toBe(true);
+    expect(opener(awaiting).textContent).toBe('Private scene');
+    expect(seal(awaiting)?.getAttribute('aria-hidden')).toBe('true');
+  });
+
   it('shows completed history while restoring invite controls only when this turn still has entitlement', () => {
     const closed = projectPrivateSceneForPlayer({ ...rawScene, status: 'closed', macroTurn: 2 });
     const container = render([closed], true);

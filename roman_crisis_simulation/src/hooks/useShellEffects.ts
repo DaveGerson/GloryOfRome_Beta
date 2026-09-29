@@ -45,15 +45,19 @@ export function useDevSmokeTest(): void {
  * outcome hasn't committed yet. A committed-and-saved state doesn't need
  * the scare dialog.
  *
- * A fate awaiting its choice (AWAITING_EVENT_CHOICE) is guarded too. It is
- * written into the save when it fires, but that write is a best-effort
- * patch (persistence/saveGame.ts's updateSavedPendingEvent), and the fate's
- * dialog has no close control by design - leaving the page must not be a
- * quiet way out of it.
+ * A fate awaiting its choice (AWAITING_EVENT_CHOICE) is guarded only when
+ * it failed to reach disk (`openFateUnsaved`, hooks/useEventFlow.ts). It is
+ * written into the save when it fires (persistence/saveGame.ts's
+ * updateSavedPendingEvent) and a reload reopens it, so normally nothing is
+ * at risk - and a prompt with nothing at risk teaches players to dismiss
+ * it. When that best-effort write did not land, the fate's dialog has no
+ * close control by design, so leaving must not be a quiet way out of it.
  */
-export function useUnloadGuardWhileProcessing(gameState: GameState): void {
+export function useUnloadGuardWhileProcessing(gameState: GameState, openFateUnsaved: boolean): void {
+    const guarded = gameState === GameState.PROCESSING
+        || (gameState === GameState.AWAITING_EVENT_CHOICE && openFateUnsaved);
     useEffect(() => {
-        if (gameState !== GameState.PROCESSING && gameState !== GameState.AWAITING_EVENT_CHOICE) return;
+        if (!guarded) return;
 
         const handleBeforeUnload = (event: BeforeUnloadEvent) => {
             event.preventDefault();
@@ -62,5 +66,5 @@ export function useUnloadGuardWhileProcessing(gameState: GameState): void {
 
         window.addEventListener('beforeunload', handleBeforeUnload);
         return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-    }, [gameState]);
+    }, [guarded]);
 }

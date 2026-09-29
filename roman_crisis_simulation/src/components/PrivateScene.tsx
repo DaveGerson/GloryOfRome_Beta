@@ -167,10 +167,18 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
   };
 
   const heldThisWeek = scenes.find(scene => scene.macroTurn === currentMacroTurn);
+  // While a scene is open or awaits the last word, the opener says so: a lit
+  // seal for the eye, and a name that starts with its visible words for a
+  // screen reader or voice control (WCAG 2.5.3).
+  const openerName = active
+    ? `Private scene (${active.status === 'awaiting_last_word' ? 'awaiting your last word' : 'open'})`
+    : undefined;
 
   return <>
     {/* The desk's tools share one look: the same button as the Narration log beside it. */}
-    <Button ref={openerRef} type="button" variant="secondary" onClick={() => setOpen(true)} disabled={disabled} data-gor-command="private-scene">Private scene</Button>
+    <Button ref={openerRef} type="button" variant="secondary" onClick={() => setOpen(true)} disabled={disabled} data-gor-command="private-scene" aria-label={openerName}>
+      Private scene{active && <span className="gor-scene-opener-seal" aria-hidden="true" />}
+    </Button>
     {open && <dialog ref={dialogRef} className="gor-private-scene" aria-label="Private scene"
       onCancel={event => { event.preventDefault(); closePresentation(); }} onKeyDown={handleDialogKeyDown}>
       <header>

@@ -236,12 +236,14 @@ const CharacterSelection: React.FC<{
     }
 
     return (
-        <div className="gor-destinies" style={{ flex: 1, overflowY: 'auto', padding: '38px 32px 56px' }}>
-            <div style={{ maxWidth: 1080, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 22 }}>
-                <div style={{ textAlign: 'center' }}>
-                    <Medallion size={96} />
+        // With a reign saved, a short screen compacts the hero so the Continue
+        // card and the first destinies clear the fold (design/shell.css).
+        <div className={savedGame ? 'gor-destinies gor-destinies-reign' : 'gor-destinies'} style={{ flex: 1, overflowY: 'auto', padding: '38px 32px 56px' }}>
+            <div className="gor-destinies-column" style={{ maxWidth: 1080, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 22 }}>
+                <div className="gor-destinies-hero" style={{ textAlign: 'center' }}>
+                    <Medallion size={96} className="gor-destinies-medallion" />
                     <h2 className="gor-destinies-title" style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 44, color: 'var(--tyrian-600)', marginTop: 8 }}>Choose Your Destiny</h2>
-                    <p style={{ margin: '8px auto 0', maxWidth: '52ch' }}>The year is 235 CE. The Empire teeters on the brink of chaos. Who will you be?</p>
+                    <p className="gor-destinies-lede" style={{ margin: '8px auto 0', maxWidth: '52ch' }}>The year is 235 CE. The Empire teeters on the brink of chaos. Who will you be?</p>
                     <div className="gor-mosaic" style={{ width: 260, margin: '18px auto 0' }}></div>
                 </div>
 

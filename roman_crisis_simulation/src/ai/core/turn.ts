@@ -88,13 +88,17 @@ export {
  * `redactInventedPlayerProse`, and `assertPlayerVisibleAdjudicationSafe` all
  * accept either shape directly (declared in playerBoundary.ts) and examine
  * nothing that behaves differently between the two shapes.
+ *
+ * `roster` is the pre-turn cast: a status or resource delta on the player
+ * whose origin is someone on it is the world acting ON them (D46).
  */
 function enforceNoAttemptBoundary(
     adjudication: AdjudicationInterchange | Adjudication,
     playerEntity: Entity,
     hasObservableAttempt: boolean,
+    roster: readonly Entity[],
 ): PlayerProseRedaction[] {
-    assertNoInventedPlayerAction(adjudication, playerEntity, hasObservableAttempt);
+    assertNoInventedPlayerAction(adjudication, playerEntity, hasObservableAttempt, roster);
     const redactions = redactInventedPlayerProse(adjudication, playerEntity, hasObservableAttempt);
     adjudication.gm_private.push(...playerProseRedactionNotes(redactions));
     assertPlayerVisibleAdjudicationSafe(adjudication);
@@ -835,7 +839,7 @@ async function runAdjudicationStage(
     // persistence/saveGame.ts strips it on serialize exactly as it strips
     // captured prompt text.
     const proseRedactions: PlayerProseRedaction[] = [];
-    proseRedactions.push(...enforceNoAttemptBoundary(rawAdjudication, playerEntity, narrationSubmission.hasObservableAttempt));
+    proseRedactions.push(...enforceNoAttemptBoundary(rawAdjudication, playerEntity, narrationSubmission.hasObservableAttempt, ctx.currentEntities));
     const adjudication = stripActorsFromAdjudication(rawAdjudication);
 
     const trustedResolutionContext = recordResolutionNote(adjudication, playerAction.resolutionTrace, ctx.resolutionAttempt);
@@ -859,7 +863,7 @@ async function runAdjudicationStage(
     adjudication.gm_private.push(...minds.mindFailureNotes);
 
     foldMindSchemeDeltas(adjudication, minds.npcMindResults, ctx.currentEntities);
-    proseRedactions.push(...enforceNoAttemptBoundary(adjudication, playerEntity, narrationSubmission.hasObservableAttempt));
+    proseRedactions.push(...enforceNoAttemptBoundary(adjudication, playerEntity, narrationSubmission.hasObservableAttempt, ctx.currentEntities));
 
     return { adjudication, trustedResolutionContext, proseRedactions };
 }
@@ -974,7 +978,7 @@ async function runMortalityStage(ctx: TurnContext, adjudicated: AdjudicationStag
         ctx.turnRng,
         { trustedResolutionContext: adjudicated.trustedResolutionContext }
     );
-    const proseRedactions = enforceNoAttemptBoundary(transformedAdjudication, playerEntity, ctx.narrationSubmission.hasObservableAttempt);
+    const proseRedactions = enforceNoAttemptBoundary(transformedAdjudication, playerEntity, ctx.narrationSubmission.hasObservableAttempt, ctx.currentEntities);
     return { transformedAdjudication, mortalityEvents, playerOutcomeDirective, proseRedactions };
 }
 

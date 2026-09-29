@@ -94,6 +94,12 @@ async function click(element: HTMLElement): Promise<void> {
   await act(async () => element.click());
 }
 
+/** Opens an optional Structured register (III, IV) by its heading, if it is folded. */
+async function openRegister(container: HTMLElement, title: string): Promise<void> {
+  const fold = buttonNamed(container, title);
+  if (fold.getAttribute('aria-expanded') !== 'true') await click(fold);
+}
+
 async function setValue(
   element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
   value: string,
@@ -555,7 +561,9 @@ describe('App turn-submission orchestration', () => {
     await setValue(recipientTwo, customOption.value);
     await setValue(byAriaLabel<HTMLInputElement>(container, 'Custom recipient 2'), 'HIDDEN_ACTOR_SENTINEL');
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Message or order 2'), 'Keep the eastern gate open');
+    await openRegister(container, 'What you intend');
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'What you intend'), 'Preserve room to bargain');
+    await openRegister(container, 'What you ask');
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'What you ask'), 'Which benches are empty?');
 
     await click(buttonNamed(container, 'Seal & send'));
@@ -761,7 +769,9 @@ describe('App turn-submission orchestration', () => {
     await setValue(recipientTwo, Array.from(recipientTwo.options).find(option => option.textContent?.startsWith('Someone else'))!.value);
     await setValue(byAriaLabel<HTMLInputElement>(container, 'Custom recipient 2'), '  A courier  ');
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Message or order 2'), 'Deliver\nthis exact order');
+    await openRegister(container, 'What you intend');
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'What you intend'), 'Keep leverage  private');
+    await openRegister(container, 'What you ask');
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'What you ask'), 'Who  is absent?');
     await click(buttonNamed(container, 'Seal & send'));
     await waitFor(() => expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1));

@@ -1094,6 +1094,12 @@ export async function appClick(element: HTMLElement): Promise<void> {
   await act(async () => element.click());
 }
 
+/** Opens an optional Structured register (III "What you intend", IV "What you ask") by its heading, if it is folded. */
+export async function appOpenRegister(container: HTMLElement, title: string): Promise<void> {
+  const fold = appButton(container, title);
+  if (fold.getAttribute('aria-expanded') !== 'true') await appClick(fold);
+}
+
 export async function appSetValue(
   element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
   value: string,

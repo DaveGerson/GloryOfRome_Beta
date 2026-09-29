@@ -113,7 +113,6 @@ const App: React.FC = () => {
     const reading = useReadingPrefs();
     useDevSmokeTest();
     usePreloadLazyScreens();
-    useUnloadGuardWhileProcessing(gameState);
     // The game screen proper: a week to write, being written, or a fate
     // awaiting its choice (whose modal holds the room - the palette never
     // opens over it). Character selection keeps the full masthead ceremony;
@@ -201,11 +200,12 @@ const App: React.FC = () => {
         return scene ? { npcName: scene.npcName, awaitingLastWord: scene.status === 'awaiting_last_word' } : null;
     }, [privateSceneViews]);
 
-    const { setIsCheckingEvents, eventChoiceError, handleEventChoice } = useEventFlow({
+    const { setIsCheckingEvents, eventChoiceError, handleEventChoice, openFateUnsaved } = useEventFlow({
         activeEvent, playerEntity, entities, worldState, simulationState, turnNumber,
         eventFirings, eventHistory, triggeredEventIds, messages,
         dispatch, buildSaveState, commitDomainMutation, setTransactionNote,
     });
+    useUnloadGuardWhileProcessing(gameState, openFateUnsaved);
 
     const {
         chatDraft, setChatDraft,

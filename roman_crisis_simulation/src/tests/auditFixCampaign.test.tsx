@@ -585,10 +585,11 @@ describe('state-active-event-lost-on-reload: a fate awaiting its choice survives
     expect(loadGame()!.state.turnNumber).toBe(3);
     expect(loadGame()!.state.pendingEventId).toBe(fate.id);
 
-    // Leaving is guarded while the fate waits.
+    // The fate is on disk and a reload reopens it, so leaving asks nothing:
+    // a prompt with nothing at risk teaches players to dismiss it (B14).
     const leave = new Event('beforeunload', { cancelable: true });
     window.dispatchEvent(leave);
-    expect(leave.defaultPrevented).toBe(true);
+    expect(leave.defaultPrevented).toBe(false);
 
     await unmountLatest();
     const reloaded = await mountApp();
@@ -607,6 +608,48 @@ describe('state-active-event-lost-on-reload: a fate awaiting its choice survives
     const afterChoice = new Event('beforeunload', { cancelable: true });
     window.dispatchEvent(afterChoice);
     expect(afterChoice.defaultPrevented).toBe(false);
+  });
+
+  it('asks before leaving only while a fate that failed to reach disk waits, and stops once it is answered', async () => {
+    const container = await mountFromSave();
+    // The turn autosaves first; the fate's own patch is the write that fails.
+    let setItem: ReturnType<typeof vi.spyOn> | undefined;
+    mockCheckForTriggeredEvent.mockImplementationOnce(() => {
+      setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota exceeded'); });
+      return fate;
+    });
+    await speak(container, 'Hold the grain fleet');
+    await waitFor(() => expect(fateDialog(container)).not.toBeNull());
+    expect(loadGame()!.state.pendingEventId).toBeUndefined();
+
+    const leave = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(leave);
+    expect(leave.defaultPrevented).toBe(true);
+
+    setItem!.mockRestore();
+    await click(container.querySelector<HTMLButtonElement>('.gor-event-choice')!);
+    await waitFor(() => expect(fateDialog(container)).toBeNull());
+    const afterChoice = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(afterChoice);
+    expect(afterChoice.defaultPrevented).toBe(false);
+  });
+
+  it('still asks before leaving while a turn is in flight', async () => {
+    const container = await mountFromSave();
+    let release!: () => void;
+    mockRunNewTurn.mockImplementationOnce(async (...args) => {
+      await new Promise<void>(resolve => { release = resolve; });
+      return defaultRunNewTurn(...args);
+    });
+    await speak(container, 'Hold the grain fleet');
+    await waitFor(() => expect(release).toBeTypeOf('function'));
+
+    const leave = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(leave);
+    expect(leave.defaultPrevented).toBe(true);
+
+    await act(async () => release());
+    await waitFor(() => expect(chatInput(container).disabled).toBe(false));
   });
 
   it('GAME_LOADED reopens a known fate, ignores an unknown id, and never opens one for a dead player', () => {

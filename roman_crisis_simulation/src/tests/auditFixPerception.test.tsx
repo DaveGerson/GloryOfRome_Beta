@@ -356,6 +356,21 @@ describe('a tab coin points only at a tab that shows the change', () => {
       }
     }
   });
+
+  it('puts a Reports coin on the player\'s own treasury notice, which never passes through the digest (B14)', async () => {
+    const deltas: EventDelta[] = [{ type: 'resource', key: 'player:denarii', delta: -150, reason: 'The donative is paid.' }];
+    const applied = applyAdjudication(adjudication(deltas), [player, marcus], world, [], [], { playerEntityId: 'player', turnNumber: 2 });
+    const notices = applied.updatedReports.filter(report => report.source === 'merchant');
+    expect(notices.length).toBeGreaterThan(0);
+    const playerAfter = applied.updatedEntities.find(entity => entity.entity_id === 'player')!;
+    const digest = buildPlayerPerceivedDigest(deltas, playerAfter, applied.updatedEntities, applied.updatedWorldState, [player, marcus]);
+    const knowledge = computeTurnKnowledge({ prev: [], perceivedChanges: digest, reportsBefore: [], reportsAfter: applied.updatedReports, turnNumber: 2 });
+
+    const counts = tabChangeCountsFor(digest, knowledge, makeTurnHistoryEntry({ turnNumber: 2 }));
+    expect(counts.get('reports')).toBe(notices.length);
+    await mount(<ReportsTab reports={applied.updatedReports} knowledge={knowledge} />);
+    for (const notice of notices) expect(container.textContent).toContain(notice.claim);
+  });
 });
 
 // ---------------------------------------------------------------------------

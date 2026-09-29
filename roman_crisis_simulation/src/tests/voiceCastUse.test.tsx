@@ -334,6 +334,37 @@ describe('useVoiceCast: when the casting director runs', () => {
     hook.unmount();
   });
 
+  it('Recast pressed while the automatic casting is out waits for it, then recasts - never dropped', async () => {
+    const answers = [
+      { narrator: { narratorId: 'senatorial-partner', voiceName: 'Charon', style: '', rationale: 'r' }, cast: [{ entityId: 'julia', voiceName: 'Kore', style: 'cool', rationale: 'r' }] },
+      { narrator: { narratorId: 'senatorial-partner', voiceName: 'Charon', style: '', rationale: 'r' }, cast: [{ entityId: 'julia', voiceName: 'Aoede', style: 'bright', rationale: 'r' }] },
+    ];
+    let releaseFirst!: () => void;
+    const firstHeld = new Promise<void>(resolve => { releaseFirst = resolve; });
+    const generateContent = vi.fn(async () => {
+      const call = generateContent.mock.calls.length;
+      if (call === 1) await firstHeld;
+      return { text: JSON.stringify(answers[call - 1]) };
+    });
+    const ai: GeminiClient = { models: { generateContent } };
+    const hook = renderHook(useHarness, { ai, mode: 'on_demand', entities: [player, julia] });
+    await settle();
+    expect(generateContent).toHaveBeenCalledTimes(1);
+
+    let pressed!: Promise<void>;
+    act(() => { pressed = hook.current.cast.handleRecast(); });
+    await settle();
+    // The press shows the control busy and waits; it does not start a second call yet.
+    expect(hook.current.cast.recastStatus).toBe('casting');
+    expect(generateContent).toHaveBeenCalledTimes(1);
+
+    await act(async () => { releaseFirst(); await pressed; });
+    expect(generateContent).toHaveBeenCalledTimes(2);
+    expect(hook.current.cast.recastStatus).toBe('done');
+    expect(hook.current.voiceCast!.members.julia).toMatchObject({ voiceName: 'Aoede', source: 'agent' });
+    hook.unmount();
+  });
+
   it('the retired "Bespoke character voices" switch: an old stored value is never read, and changes nothing', () => {
     localStorage.setItem('gloryOfRome:bespokeVoices', '0');
     const { ai } = makeAi();

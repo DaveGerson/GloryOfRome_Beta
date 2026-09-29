@@ -397,17 +397,15 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
               <p id={statusId} className="gor-gauge-count">{formatCharacterCount(remaining ?? 0)} characters remaining</p>
             </div>
           )}
-          {/* The registers scroll within the desk when they outgrow it, so
-              the chronicle above keeps its reading height (design/shell.css). */}
-          <div className="gor-register-scroll" style={{ position: 'relative' }}>
-            <StructuredTurnComposer draft={structuredDraft} recipientOptions={recipientOptions} disabled={locked} online={online} submissionBlocked={overLimit || !artifactStatus.ok || !online || !canReachTheFates}
-              aggregateIssue={overLimit} validationIssues={shownIssues} statusId={statusId}
-              onLetterFocus={setWritingLetter}
-              // Tried to send an unfinished letter: its issue is shown now.
-              onSubmitBlocked={() => setWritingLetter(null)}
-              onChange={onStructuredDraftChange} onSubmit={submitStructured} />
-            {waxSeal}
-          </div>
+          {/* The registers scroll within the desk when they outgrow it; Seal
+              & send stays below them (StructuredTurnComposer). */}
+          <StructuredTurnComposer draft={structuredDraft} recipientOptions={recipientOptions} disabled={locked} online={online} submissionBlocked={overLimit || !artifactStatus.ok || !online || !canReachTheFates}
+            aggregateIssue={overLimit} validationIssues={shownIssues} statusId={statusId}
+            onLetterFocus={setWritingLetter}
+            // Tried to send an unfinished letter: its issue is shown now.
+            onSubmitBlocked={() => setWritingLetter(null)}
+            overlay={waxSeal}
+            onChange={onStructuredDraftChange} onSubmit={submitStructured} />
         </>
       )}
     </div>
