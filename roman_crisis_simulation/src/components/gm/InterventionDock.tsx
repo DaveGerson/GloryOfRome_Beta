@@ -52,6 +52,7 @@ export const InterventionDock: React.FC<{
                             type="button"
                             onClick={handleSetIntervention}
                             disabled={interactionLocked}
+                            className="gor-gm-gold-btn"
                             style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, letterSpacing: '.08em', textTransform: 'uppercase', color: '#241C11', background: 'var(--metal-gold)', border: '1px solid #8A6D14', clipPath: 'var(--chamfer-sm)', padding: '9px 16px', cursor: 'pointer', boxShadow: 'var(--bevel)' }}
                         >
                             Set Directive for Next Turn

@@ -176,7 +176,7 @@ button,input,select,textarea{font-family:inherit}
    so it is repainted in the selection colours, as the chosen segment is. */
 @media (forced-colors:active){
 :focus-visible{outline:2px solid Highlight!important}
-.gor-btn:focus-visible,.gor-pill:focus-visible,.gor-event-choice:focus-visible,.gor-tab:focus-visible,.gor-seg-btn:focus-visible,.gor-pointer:focus-visible,.gor-subrail-btn:focus-visible,.gor-gm-rail-btn:focus-visible{outline-offset:-4px}
+.gor-btn:focus-visible,.gor-pill:focus-visible,.gor-event-choice:focus-visible,.gor-tab:focus-visible,.gor-seg-btn:focus-visible,.gor-pointer:focus-visible,.gor-subrail-btn:focus-visible,.gor-gm-rail-btn:focus-visible,.gor-gm-gold-btn:focus-visible{outline-offset:-4px}
 .gor-tab[role="tab"][aria-selected="true"]{background:Highlight;color:HighlightText;forced-color-adjust:none;box-shadow:none;text-shadow:none}
 .gor-tab[role="tab"][aria-selected="true"]:focus-visible,.gor-seg-btn[aria-checked="true"]:focus-visible,.gor-seg-btn[aria-pressed="true"]:focus-visible{outline-color:HighlightText!important}
 }

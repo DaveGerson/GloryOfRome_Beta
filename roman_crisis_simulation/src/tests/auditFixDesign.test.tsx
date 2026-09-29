@@ -23,7 +23,7 @@ import { resolve } from 'node:path';
 import type { GoogleGenAI } from '@google/genai';
 import SettingsMenu, { CURTAIN_COPY, REIGN_COPY_NOTE } from '../components/SettingsMenu';
 import { ApiKeyCard } from '../components/ApiKeyCard';
-import GameMasterScreen from '../components/GameMasterScreen';
+import GameMasterScreen, { FixturesView } from '../components/GameMasterScreen';
 import EpilogueScreen, { EPILOGUE_STATUS } from '../components/EpilogueScreen';
 import ErrorBoundary from '../components/ErrorBoundary';
 import OnboardingOverlay from '../components/OnboardingOverlay';
@@ -236,6 +236,34 @@ describe('the GM console', () => {
 
   it('cuts the narration tablet\'s drop cap in the tablet\'s own heading ink', () => {
     expect(components).toContain('.gor-gm-tablet.gor-dropcap::first-letter{color:var(--tablet-head);text-shadow:none}');
+  });
+});
+
+describe('the GM console\'s gold buttons', () => {
+  const goldEntry = makeTurnHistoryEntry({
+    turnNumber: 4, turnSeed: 0x5EEDF00D,
+    resolutionTrace: {
+      assessment: { is_consequential: true, action_category: 'oratory', relevant_skill: 'oratory', difficulty: 12, opposing_entity_id: null, rationale: 'Addressed the Senate.' },
+      roll: 11, total: 15, margin: 3, tier: 'success',
+    },
+  });
+
+  it('puts the directive and both Fixtures buttons on the class that rings them inside their chamfer', async () => {
+    const gm = await mount(<GameMasterScreen {...gmProps()} />);
+    const directive = Array.from(gm.querySelectorAll('button')).find(button => button.textContent === 'Set Directive for Next Turn')!;
+    expect(directive.classList.contains('gor-gm-gold-btn')).toBe(true);
+    expect(directive.style.clipPath).toBe('var(--chamfer-sm)');
+
+    const fixtures = await mount(<FixturesView entry={goldEntry} history={[goldEntry]} sessionCalls={0} hasTruthLedger={false} hasKnowledge={false} onExport={vi.fn()} />);
+    const gold = Array.from(fixtures.querySelectorAll('button')).filter(button => button.style.clipPath === 'var(--chamfer-sm)');
+    expect(gold.map(button => button.textContent)).toEqual(['Strike the mould again', 'Take the impression']);
+    expect(gold.every(button => button.classList.contains('gor-gm-gold-btn'))).toBe(true);
+  });
+
+  it('draws their ring as an inset outline, which neither the clip nor the inline bevel can hide', () => {
+    expect(components).toContain('.gor-gm-gold-btn:focus-visible{outline:2px solid var(--ink-950);outline-offset:-5px}');
+    const forced = shell.split('@media (forced-colors:active){').slice(1).map(block => block.slice(0, block.indexOf('\n}'))).join('\n');
+    expect(forced).toMatch(/\.gor-gm-gold-btn:focus-visible[^{]*\{outline-offset:-4px\}/);
   });
 });
 
