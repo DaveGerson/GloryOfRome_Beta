@@ -31,14 +31,21 @@ const LIGHTING_OPTIONS = [
     { value: 'nox', label: '☾ NOX', title: 'Nox Romae — torchlit' },
 ] as const;
 
+/** A glyph drawn beside a word, but never read as part of the option's name. */
+const glyphed = (glyph: string, word: string) => <><span aria-hidden="true">{glyph}</span> {word}</>;
+
 /**
  * Lighting as the platforms offer appearance: follow the device, or always
  * one skin (Apple HIG, Material). "Device" is the default for a device that
  * never chose, and the way back to it after a choice (hooks/useSettings.ts).
+ * One exclusive choice of three, so a radio group - like Text size - with
+ * its note as its description; the glyphs are hidden from the names, which
+ * read "Device", "LVX", "NOX".
  */
 const LIGHTING_CHOICES = [
-    { value: 'device', label: '◐ Device', title: 'Follow this device — light or dark' },
-    ...LIGHTING_OPTIONS,
+    { value: 'device', label: glyphed('◐', 'Device'), title: 'Follow this device — light or dark' },
+    { value: 'lux', label: glyphed('☼', 'LVX'), title: 'Marble — day' },
+    { value: 'nox', label: glyphed('☾', 'NOX'), title: 'Nox Romae — torchlit' },
 ] as const;
 
 /** Player-visible copy (veto queue: roadmaps/BACKLOG.md, "Reading, motion and the command palette"). */
@@ -221,12 +228,14 @@ const SettingsMenu: React.FC<NarrationSettingsProps & {
                                 {onSetLightingChoice && lightingChoice !== undefined ? (
                                     <>
                                         <SegmentedControl
+                                            radio
                                             ariaLabel="Lighting: follow this device, marble day or torchlit night"
+                                            describedBy="settings-lighting-note"
                                             options={LIGHTING_CHOICES}
                                             value={lightingChoice ?? 'device'}
                                             onChange={(value) => onSetLightingChoice(value === 'device' ? null : value)}
                                         />
-                                        <p className="gor-config-note">{lightingChoice ? LIGHTING_COPY.chosen : LIGHTING_COPY.device}</p>
+                                        <p id="settings-lighting-note" className="gor-config-note">{lightingChoice ? LIGHTING_COPY.chosen : LIGHTING_COPY.device}</p>
                                     </>
                                 ) : (
                                     <>

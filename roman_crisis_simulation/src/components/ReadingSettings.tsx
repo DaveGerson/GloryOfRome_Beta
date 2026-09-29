@@ -17,9 +17,9 @@ export const READING_SETTINGS_COPY = {
     textSize: 'Text size',
     textSizeOptions: { standard: 'Standard', large: 'Large', larger: 'Larger' } satisfies Record<ReadingScale, string>,
     textSizeNote: {
-        standard: 'The chronicle, the side panel, fates and private scenes at their written size; buttons and menus keep theirs.',
-        large: 'The chronicle, the side panel, fates and private scenes a size larger; buttons and menus keep theirs.',
-        larger: 'The chronicle, the side panel, fates and private scenes two sizes larger; buttons and menus keep theirs.',
+        standard: 'The chronicle, the side panel, fates and private scenes at their written size; the masthead, tabs and menus keep theirs.',
+        large: 'The chronicle, the side panel, fates and private scenes a size larger; the masthead, tabs and menus keep theirs.',
+        larger: 'The chronicle, the side panel, fates and private scenes two sizes larger; the masthead, tabs and menus keep theirs.',
     } satisfies Record<ReadingScale, string>,
     reduceMotion: 'Reduce motion',
     reduceMotionNote: {

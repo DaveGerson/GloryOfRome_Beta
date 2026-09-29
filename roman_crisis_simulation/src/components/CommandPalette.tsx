@@ -35,7 +35,11 @@ export const COMMAND_PALETTE_COPY = {
  * (`aria-activedescendant`), Enter runs it, Escape closes. Each option is
  * named in words ("Reports, 2 new") rather than by its run-together text.
  * A search tells a screen reader how many commands answer once typing
- * pauses - never per keystroke. The listbox holds only groups and options;
+ * pauses - never per keystroke - counting the rows actually shown, and
+ * through two alternating regions, so a second search with the same count
+ * is still spoken. An option's id is its command's, not its position, so
+ * `aria-activedescendant` changes whenever the active command does - after a
+ * search as well as an arrow key. The listbox holds only groups and options;
  * the empty state sits outside it. The same focus trap as every gor-dialog
  * returns focus to the invoker on close - and a command runs only AFTER
  * that return, so a command that moves focus (the tablet, a tab) keeps it.
@@ -46,14 +50,17 @@ export const CommandPalette: React.FC<{
 }> = ({ commands, onClose }) => {
     const [query, setQuery] = useState('');
     const [activeIndex, setActiveIndex] = useState(0);
-    const [announcement, setAnnouncement] = useState('');
-    const announceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // Two regions take turns (the accessible-autocomplete pattern): an
+    // identical sentence written into the same region is no change at all,
+    // so "4 commands" after "open" and again after "draft" would be silent.
+    const [announcement, setAnnouncement] = useState<{ text: string; region: 0 | 1 }>({ text: '', region: 0 });
+    const queryTouchedRef = useRef(false);
     const dialogRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const trapRef = useRef<FocusTrap | null>(null);
     const uid = useId();
     const listId = `${uid}-list`;
-    const optionId = (index: number) => `${uid}-option-${index}`;
+    const optionId = (command: PaletteCommand) => `${uid}-option-${command.id.replace(/[^A-Za-z0-9_-]/g, '-')}`;
 
     const matches = filterCommands(commands, query);
     // With no query the list keeps its groups; a search is one ranked list.
@@ -73,26 +80,38 @@ export const CommandPalette: React.FC<{
         return () => {
             trap.release();
             trapRef.current = null;
-            if (announceTimerRef.current !== null) clearTimeout(announceTimerRef.current);
         };
     }, []);
 
+    // Once the player has searched, how many commands answer - counted from
+    // the rows on screen, re-counted if the list itself changes under the
+    // same search (a week finishing adds counsel), and spoken once typing
+    // pauses. Opening the palette announces nothing: the dialog and its
+    // field already do.
+    const answering = ordered.length;
+    useEffect(() => {
+        if (!queryTouchedRef.current) return;
+        const timer = setTimeout(() => {
+            setAnnouncement(previous => ({
+                text: answering === 0 ? COMMAND_PALETTE_COPY.empty : COMMAND_PALETTE_COPY.count(answering),
+                region: previous.region === 0 ? 1 : 0,
+            }));
+        }, RESULTS_ANNOUNCE_DELAY_MS);
+        return () => clearTimeout(timer);
+    }, [query, answering]);
+
     const handleQueryChange = (next: string) => {
+        queryTouchedRef.current = true;
         setQuery(next);
         setActiveIndex(0);
-        if (announceTimerRef.current !== null) clearTimeout(announceTimerRef.current);
-        announceTimerRef.current = setTimeout(() => {
-            announceTimerRef.current = null;
-            const answering = filterCommands(commands, next).length;
-            setAnnouncement(answering === 0 ? COMMAND_PALETTE_COPY.empty : COMMAND_PALETTE_COPY.count(answering));
-        }, RESULTS_ANNOUNCE_DELAY_MS);
     };
 
     // Keep the active option in view as the arrows walk the list.
+    const activeId = active >= 0 ? optionId(ordered[active]) : undefined;
     useEffect(() => {
-        if (active < 0) return;
-        document.getElementById(`${uid}-option-${active}`)?.scrollIntoView?.({ block: 'nearest' });
-    }, [active, uid]);
+        if (!activeId) return;
+        document.getElementById(activeId)?.scrollIntoView?.({ block: 'nearest' });
+    }, [activeId]);
 
     const run = (command: PaletteCommand) => {
         onClose();
@@ -146,7 +165,7 @@ export const CommandPalette: React.FC<{
                         aria-expanded="true"
                         aria-controls={listId}
                         aria-autocomplete="list"
-                        aria-activedescendant={active >= 0 ? optionId(active) : undefined}
+                        aria-activedescendant={activeId}
                         placeholder={COMMAND_PALETTE_COPY.placeholder}
                         autoComplete="off"
                         spellCheck={false}
@@ -166,7 +185,7 @@ export const CommandPalette: React.FC<{
                             return (
                                 <div
                                     key={command.id}
-                                    id={optionId(index)}
+                                    id={optionId(command)}
                                     role="option"
                                     aria-selected={selected}
                                     aria-label={command.note ? `${command.label}, ${command.note}` : command.label}
@@ -189,7 +208,8 @@ export const CommandPalette: React.FC<{
                     })}
                 </div>
                 {ordered.length === 0 && <p className="gor-palette-empty">{COMMAND_PALETTE_COPY.empty}</p>}
-                <p className="gor-sr-only" role="status" aria-live="polite">{announcement}</p>
+                <p className="gor-sr-only" role="status" aria-live="polite">{announcement.region === 0 ? announcement.text : ''}</p>
+                <p className="gor-sr-only" role="status" aria-live="polite">{announcement.region === 1 ? announcement.text : ''}</p>
                 <p className="gor-palette-foot" aria-hidden="true">
                     <span>{COMMAND_PALETTE_COPY.keys}</span>
                     <kbd className="gor-kbd">{paletteChordLabel()}</kbd>

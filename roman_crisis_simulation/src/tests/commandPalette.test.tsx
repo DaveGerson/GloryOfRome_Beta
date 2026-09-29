@@ -71,6 +71,15 @@ async function mount(element: React.ReactElement): Promise<HTMLElement> {
   return container;
 }
 
+async function mountRerenderable(element: React.ReactElement): Promise<{ render: (next: React.ReactElement) => Promise<void> }> {
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  mounted.push({ root, container });
+  await act(async () => root.render(element));
+  return { render: async next => { await act(async () => root.render(next)); } };
+}
+
 const command = (label: string, overrides: Partial<PaletteCommand> = {}): PaletteCommand => ({
   id: label, group: 'Actions', label, run: vi.fn(), ...overrides,
 });
@@ -325,22 +334,67 @@ describe('CommandPalette', () => {
     expect([...listbox.children].every(child => child.getAttribute('role') === 'group')).toBe(true);
   });
 
+  /** The palette's announcement regions, and what they say between them. */
+  const regions = () => [...document.querySelectorAll<HTMLElement>('.gor-palette [role="status"]')];
+  const spoken = () => regions().map(region => region.textContent).join('');
+
   it('tells a screen reader how many commands answer once typing pauses, never per keystroke', async () => {
     vi.useFakeTimers();
     await mount(<CommandPalette commands={list()} onClose={vi.fn()} />);
-    const status = () => document.querySelector('.gor-palette [role="status"]')!;
-    expect(status().getAttribute('aria-live')).toBe('polite');
-    expect(status().textContent).toBe('');
+    expect(regions()).toHaveLength(2);
+    expect(regions().every(region => region.getAttribute('aria-live') === 'polite')).toBe(true);
+    // Opening announces nothing of its own: the dialog and its field do.
+    act(() => { vi.advanceTimersByTime(RESULTS_ANNOUNCE_DELAY_MS * 2); });
+    expect(spoken()).toBe('');
     type('r');
     act(() => { vi.advanceTimersByTime(RESULTS_ANNOUNCE_DELAY_MS - 1); });
     type('re');
     act(() => { vi.advanceTimersByTime(RESULTS_ANNOUNCE_DELAY_MS - 1); });
-    expect(status().textContent).toBe('');
+    expect(spoken()).toBe('');
     act(() => { vi.advanceTimersByTime(1); });
-    expect(status().textContent).toBe(COMMAND_PALETTE_COPY.count(1));
+    expect(spoken()).toBe(COMMAND_PALETTE_COPY.count(1));
     type('zzz');
     act(() => { vi.advanceTimersByTime(RESULTS_ANNOUNCE_DELAY_MS); });
-    expect(status().textContent).toBe(COMMAND_PALETTE_COPY.empty);
+    expect(spoken()).toBe(COMMAND_PALETTE_COPY.empty);
+  });
+
+  it('speaks a second search with the same count, by writing it into the other region', async () => {
+    vi.useFakeTimers();
+    await mount(<CommandPalette commands={list()} onClose={vi.fn()} />);
+    type('world');
+    act(() => { vi.advanceTimersByTime(RESULTS_ANNOUNCE_DELAY_MS); });
+    const first = regions().findIndex(region => region.textContent === COMMAND_PALETTE_COPY.count(1));
+    expect(first).toBeGreaterThanOrEqual(0);
+    type('write');
+    act(() => { vi.advanceTimersByTime(RESULTS_ANNOUNCE_DELAY_MS); });
+    const second = regions().findIndex(region => region.textContent === COMMAND_PALETTE_COPY.count(1));
+    // The same words, in the region that was empty - a change a screen reader hears.
+    expect(second).toBe(1 - first);
+    expect(regions()[first].textContent).toBe('');
+  });
+
+  it('counts the rows on screen, and re-counts when the list changes under the same search', async () => {
+    vi.useFakeTimers();
+    const { render } = await mountRerenderable(<CommandPalette commands={list()} onClose={vi.fn()} />);
+    type('o');
+    act(() => { vi.advanceTimersByTime(RESULTS_ANNOUNCE_DELAY_MS); });
+    const shown = options().length;
+    expect(spoken()).toBe(COMMAND_PALETTE_COPY.count(shown));
+    // A week finishes while the palette is open: a counsel joins the list.
+    await render(<CommandPalette commands={[...list(), command('Draft: Hold the Forum', { group: 'Counsel' })]} onClose={vi.fn()} />);
+    act(() => { vi.advanceTimersByTime(RESULTS_ANNOUNCE_DELAY_MS); });
+    expect(options()).toHaveLength(shown + 1);
+    expect(spoken()).toBe(COMMAND_PALETTE_COPY.count(shown + 1));
+  });
+
+  it('names each option by its command, so the active descendant changes when a search changes the active command', async () => {
+    await mount(<CommandPalette commands={list()} onClose={vi.fn()} />);
+    const before = input().getAttribute('aria-activedescendant');
+    type('write');
+    const after = input().getAttribute('aria-activedescendant');
+    // Still the first row - but a different command, so a different id.
+    expect(after).not.toBe(before);
+    expect(document.getElementById(after!)?.textContent).toContain('Write your action');
   });
 
   it('Enter closes the palette and runs the active command only afterwards', async () => {

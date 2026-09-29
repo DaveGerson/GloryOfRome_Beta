@@ -33,6 +33,7 @@ import {
 import { useReadingPrefs } from '../hooks/useReadingPrefs';
 import { ReadingSettings, READING_SETTINGS_COPY, type ReadingSettingsProps } from '../components/ReadingSettings';
 import SettingsMenu, { LIGHTING_COPY } from '../components/SettingsMenu';
+import { resolveLighting } from '../hooks/useSettings';
 import { renderHook } from './renderHook';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -43,13 +44,17 @@ beforeEach(() => {
   localStorage.clear();
   html().removeAttribute('data-gor-reading');
   html().removeAttribute('data-gor-motion');
+  html().removeAttribute('data-gor-dusk');
 });
 
 afterEach(() => {
   localStorage.clear();
   html().removeAttribute('data-gor-reading');
   html().removeAttribute('data-gor-motion');
+  html().removeAttribute('data-gor-dusk');
   vi.restoreAllMocks();
+  // A stub left by a failing test must not leak into the next.
+  vi.unstubAllGlobals();
 });
 
 describe('persistence/readingPrefs', () => {
@@ -218,9 +223,28 @@ describe('Settings → Reading', () => {
   });
 
   it('shares no label with any other control in the menu - "As written" belongs to Voice style alone', () => {
-    const view = renderReading();
-    expect(view.host.textContent).not.toContain('As written');
-    view.cleanup();
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    act(() => root.render(<SettingsMenu
+      onClose={vi.fn()} apiKey={null} onSaveApiKey={vi.fn()} onClearApiKey={vi.fn()}
+      pacingPosture="balanced" onSetPacingPosture={vi.fn()} isNox={false} onSetIsNox={vi.fn()}
+      gmConsoleEnabled onSetGmConsoleEnabled={vi.fn()} gmInterventionEnabled onSetGmInterventionEnabled={vi.fn()}
+      narrationVoiceMode="on_demand" onSetNarrationVoiceMode={vi.fn()}
+      isMockMode={false} onSetIsMockMode={vi.fn()} gmConsoleOpen={false} onSetGmConsoleOpen={vi.fn()}
+      hasSavedReign={false} onExportReign={vi.fn()}
+      narrators={[]} narratorId="dramatic-reader" onSetNarrator={vi.fn()} onSetNarratorCharacter={vi.fn()} onSetVoiceStyle={vi.fn()}
+      reading={{
+        readingScale: 'standard', onSetReadingScale: vi.fn(), motion: 'device', onSetMotion: vi.fn(),
+        narrationReveal: 'stream', onSetNarrationReveal: vi.fn(), shortcuts: 'on', onSetShortcuts: vi.fn(),
+      }}
+    />));
+    const reading = host.querySelector('section[aria-labelledby="settings-reading"]')!;
+    expect(reading.textContent).not.toContain('As written');
+    // ...while Voice style, in the same menu, still offers it.
+    expect(host.textContent).toContain('As written');
+    act(() => root.unmount());
+    host.remove();
   });
 
   it('sends each choice to its handler, in the stored vocabulary', () => {
@@ -261,6 +285,46 @@ describe('Settings → Reading', () => {
   });
 });
 
+describe('index.html: the pre-paint lighting script agrees with the hook', () => {
+  const indexHtml = readFileSync(resolve(__dirname, '../index.html'), 'utf8');
+  const script = indexHtml.slice(indexHtml.indexOf('<script>') + '<script>'.length, indexHtml.indexOf('</script>'));
+  const runScript = () => new Function(script)();
+
+  for (const stored of [null, 'lux', 'nox'] as const) {
+    for (const systemLight of [true, false]) {
+      it(`stored ${stored ?? 'nothing'}, a ${systemLight ? 'light' : 'dark'} system: the same lighting as resolveLighting`, () => {
+        if (stored) localStorage.setItem('gor-theme', stored);
+        vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: systemLight }));
+        runScript();
+        expect(html().hasAttribute('data-gor-dusk')).toBe(resolveLighting(stored, systemLight) === 'nox');
+        // It never writes a choice the player did not make.
+        expect(localStorage.getItem('gor-theme')).toBe(stored);
+        vi.unstubAllGlobals();
+      });
+    }
+  }
+
+  it('blocked storage still follows the system, as the hook does', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new DOMException('denied', 'SecurityError'); });
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: false }));
+    runScript();
+    expect(html().hasAttribute('data-gor-dusk')).toBe(true);
+    html().removeAttribute('data-gor-dusk');
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
+    runScript();
+    expect(html().hasAttribute('data-gor-dusk')).toBe(false);
+    vi.unstubAllGlobals();
+  });
+
+  it('seeds the reading attributes before first paint', () => {
+    localStorage.setItem(READING_SCALE_KEY, 'larger');
+    localStorage.setItem(MOTION_PREFERENCE_KEY, 'reduced');
+    runScript();
+    expect(html().getAttribute('data-gor-reading')).toBe('larger');
+    expect(html().getAttribute('data-gor-motion')).toBe('reduced');
+  });
+});
+
 describe('Settings → Lighting: follow the device, or always one skin', () => {
   const base = {
     onClose: vi.fn(), apiKey: null, onSaveApiKey: vi.fn(), onClearApiKey: vi.fn(),
@@ -273,6 +337,12 @@ describe('Settings → Lighting: follow the device, or always one skin', () => {
   };
   const lightingButtons = (host: HTMLElement) =>
     [...host.querySelectorAll<HTMLButtonElement>('[aria-label^="Lighting"] button')];
+  /** The name a screen reader computes: the text, less anything aria-hidden. */
+  const spokenName = (button: HTMLElement) => {
+    const clone = button.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('[aria-hidden="true"]').forEach(node => node.remove());
+    return clone.textContent?.trim();
+  };
 
   it('offers Device, LVX and NOX; Device is chosen while nothing is stored, and choosing it clears the choice', () => {
     const onSetLightingChoice = vi.fn();
@@ -281,13 +351,19 @@ describe('Settings → Lighting: follow the device, or always one skin', () => {
     const root = createRoot(host);
     act(() => root.render(<SettingsMenu {...base} lightingChoice={null} onSetLightingChoice={onSetLightingChoice} />));
     expect(lightingButtons(host).map(b => b.textContent)).toEqual(['◐ Device', '☼ LVX', '☾ NOX']);
-    expect(lightingButtons(host)[0].getAttribute('aria-pressed')).toBe('true');
-    expect(host.textContent).toContain(LIGHTING_COPY.device);
+    // One exclusive choice of three: a radio group, named without its glyphs,
+    // and described by its note.
+    const group = host.querySelector('[aria-label^="Lighting"]')!;
+    expect(group.getAttribute('role')).toBe('radiogroup');
+    expect(lightingButtons(host).map(b => b.getAttribute('role'))).toEqual(['radio', 'radio', 'radio']);
+    expect(lightingButtons(host).map(spokenName)).toEqual(['Device', 'LVX', 'NOX']);
+    expect(lightingButtons(host)[0].getAttribute('aria-checked')).toBe('true');
+    expect(host.querySelector(`#${group.getAttribute('aria-describedby')}`)?.textContent).toBe(LIGHTING_COPY.device);
     act(() => lightingButtons(host)[2].click());
     expect(onSetLightingChoice).toHaveBeenLastCalledWith('nox');
 
     act(() => root.render(<SettingsMenu {...base} isNox lightingChoice="nox" onSetLightingChoice={onSetLightingChoice} />));
-    expect(lightingButtons(host)[2].getAttribute('aria-pressed')).toBe('true');
+    expect(lightingButtons(host)[2].getAttribute('aria-checked')).toBe('true');
     expect(host.textContent).toContain(LIGHTING_COPY.chosen);
     act(() => lightingButtons(host)[0].click());
     expect(onSetLightingChoice).toHaveBeenLastCalledWith(null);
@@ -318,17 +394,29 @@ describe('the reading stylesheet contract', () => {
   it('scales everything the player reads, and nothing that is chrome', () => {
     for (const surface of [
       'section[data-screen-label="Chat"]>[role="log"]>*', '.gor-panel-body>*', '.gor-dossier-head',
-      '.gor-event-body', '.gor-event-choices', '.gor-private-scene [role="log"]>*', '.gor-narration-log-entry',
+      '.gor-event-body', '.gor-event-choices', '.gor-private-scene [role="log"]>*',
+      '.gor-shelf-pane [role="region"]>*', '.gor-narration-log-transcript', '.gor-narration-log-excerpt',
     ]) {
       expect(zoomSelectors, surface).toContain(`html[data-gor-reading] ${surface}`);
     }
-    for (const chrome of ['.gor-masthead', '.gor-panel-tabs', '.gor-btn', '.gor-dialog-head']) {
+    // The chrome - and the narration log's own buttons - keep their size,
+    // as the Text size note says.
+    for (const chrome of ['.gor-masthead', '.gor-panel-tabs', '.gor-btn', '.gor-dialog-head', '.gor-narration-log-entry', '.gor-narration-log-actions', '.gor-voice']) {
       expect(zoomSelectors, chrome).not.toContain(chrome);
     }
   });
 
-  it('lets a tall dialog scroll from its top instead of being cut off at both ends', () => {
-    expect(shell).toMatch(/\.gor-dialog-backdrop\{overflow-y:auto;[^}]*place-items:center;place-items:safe center\}/);
+  it('lets a tall dialog scroll from its top instead of being cut off at both ends - without shrinking the GM console', () => {
+    expect(shell).toContain('.gor-dialog-backdrop{overflow-y:auto;place-items:center;place-items:safe center}');
+    // The GM console sizes itself against the backdrop; padding would shrink it.
+    expect(shell).not.toMatch(/\.gor-dialog-backdrop\{[^}]*padding/);
+  });
+
+  it('repaints a switch\'s state and the chosen segment in system colours when forced colours drop the backgrounds', () => {
+    const forced = shell.slice(shell.indexOf('@media (forced-colors:active){\n.gor-switch'));
+    expect(forced).toContain('.gor-switch input[role="switch"]::before{background:CanvasText}');
+    expect(forced).toContain('.gor-switch input[role="switch"]:checked{background:Highlight}');
+    expect(forced).toContain('.gor-seg-btn[aria-checked="true"],.gor-seg-btn[aria-pressed="true"]{background:Highlight;color:HighlightText;forced-color-adjust:none}');
   });
 
   it('draws a fate\'s reading parts with the classes the scale reaches', async () => {

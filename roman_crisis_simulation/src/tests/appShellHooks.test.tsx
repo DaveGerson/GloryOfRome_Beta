@@ -25,6 +25,8 @@ function pressCtrlShiftG(): KeyboardEvent {
 
 beforeEach(() => localStorage.clear());
 afterEach(() => {
+    // A matchMedia stub left by a failing test must not leak into the next.
+    vi.unstubAllGlobals();
     document.getElementById('nox-css')?.remove();
     vi.useRealTimers();
 });
@@ -129,7 +131,6 @@ describe('useSettings (D23/D31/D34)', () => {
         expect(localStorage.getItem('gor-theme')).toBe('lux');
         expect(document.documentElement.hasAttribute('data-gor-dusk')).toBe(false);
         hook.unmount();
-        vi.unstubAllGlobals();
     });
 
     it('a device that never chose follows the system, live; an explicit choice always wins', () => {
@@ -175,7 +176,6 @@ describe('useSettings (D23/D31/D34)', () => {
         act(() => listener!({ matches: false }));
         expect(hook.current.isNox).toBe(true);
         hook.unmount();
-        vi.unstubAllGlobals();
     });
 
     it('resolveLighting: a stored choice, else the system, else the house night', () => {

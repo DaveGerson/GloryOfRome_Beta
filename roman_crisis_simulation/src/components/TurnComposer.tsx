@@ -70,6 +70,15 @@ const SEAL_PRESS_HOLD_MS = 620;
 
 const formatCharacterCount = (count: number): string => count.toLocaleString('en-US');
 
+/**
+ * The GOV.UK character count, both halves: the remaining count is spoken
+ * only once typing pauses (never per keystroke), and only within a
+ * threshold of the limit (its `threshold` option) - 20,000 characters from
+ * a limit, a count is noise. Over the limit the alert branch speaks at once.
+ */
+export const COUNT_ANNOUNCE_DELAY_MS = 1000;
+export const COUNT_ANNOUNCE_THRESHOLD = Math.floor(MAX_TURN_SUBMISSION_CHARACTERS / 10);
+
 const isBlankStructuredDraft = (draft: StructuredTurnDraft): boolean =>
   draft.actions.every(action => !action.trim())
   && draft.messagesOrOrders.every(row => row.recipient === null && !row.command.trim())
@@ -113,6 +122,18 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
   const overLimit = artifactStatus.ok && artifactStatus.overLimit;
   const remainingShare = Math.min(100, Math.max(0, ((remaining ?? 0) / MAX_TURN_SUBMISSION_CHARACTERS) * 100));
   const statusId = 'composer-submission-status';
+  // Near the limit, the count is spoken once typing pauses (see
+  // COUNT_ANNOUNCE_THRESHOLD); set from a timer, never on the keystroke.
+  const [countAnnouncement, setCountAnnouncement] = useState('');
+  const nearLimit = remaining !== null && !overLimit && remaining <= COUNT_ANNOUNCE_THRESHOLD;
+  useEffect(() => {
+    if (!nearLimit || remaining === null) return;
+    const timer = setTimeout(
+      () => setCountAnnouncement(`${formatCharacterCount(remaining)} characters remaining`),
+      COUNT_ANNOUNCE_DELAY_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [nearLimit, remaining]);
   const validationMessage = artifactStatus.ok || pristine
     ? null
     : artifactStatus.issues.map(issue => issue.message).join(' ');
@@ -239,6 +260,9 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
       <p className={isProcessing ? 'gor-hint' : 'gor-sr-only'} role="status" aria-live="polite" style={{ margin: 0 }}>
         {isProcessing ? TURN_STAGE_STATUS_COPY[turnStage ?? 'story_relevance'] : ''}
       </p>
+      {/* The near-limit count, spoken after a pause. Always present, like the
+          stage line above, for the same reason. */}
+      <p className="gor-sr-only" aria-live="polite" aria-atomic="true">{countAnnouncement}</p>
       {mode === 'chat' ? (
         <form
           onSubmit={event => { event.preventDefault(); submitChat(); }}
@@ -276,8 +300,9 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
               // The count describes the tablet (aria-describedby) and is read
               // with it; it is NOT a live region. As one it re-announced
               // itself after every keystroke - the chatter the GOV.UK character
-              // count pattern exists to prevent. Going over the limit, or an
-              // invalid draft, still interrupts as an alert (the branches above).
+              // count pattern exists to prevent. Near the limit it is spoken
+              // after a pause (COUNT_ANNOUNCE_THRESHOLD); going over the limit,
+              // or an invalid draft, interrupts as an alert (the branches above).
               <p id={statusId} className="gor-hint" style={{ margin: 0 }}>{formatCharacterCount(remaining ?? 0)} characters remaining</p>
             )}
             <Button

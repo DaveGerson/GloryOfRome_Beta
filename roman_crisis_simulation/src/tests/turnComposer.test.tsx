@@ -8,7 +8,7 @@
 import React, { act, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
-import { TurnComposer, type TurnComposerProps } from '../components/TurnComposer';
+import { COUNT_ANNOUNCE_DELAY_MS, COUNT_ANNOUNCE_THRESHOLD, TurnComposer, type TurnComposerProps } from '../components/TurnComposer';
 import { TURN_STAGE_STATUS_COPY } from '../components/Chat';
 import { emptyStructuredDraft } from '../playerInput/composerState';
 import { TURN_SUBMISSION_PREFIX } from '../playerInput/turnSubmission';
@@ -485,6 +485,34 @@ describe('components/TurnComposer', () => {
     expect(count.hasAttribute('role')).toBe(false);
     expect(count.hasAttribute('aria-live')).toBe(false);
     expect(count.closest('[aria-live]')).toBeNull();
+  });
+
+  // ...and GOV.UK's other half: near the limit, the count IS spoken - once
+  // typing pauses, never on the keystroke.
+  it('speaks the remaining count near the limit once typing pauses, and never far from it', async () => {
+    vi.useFakeTimers();
+    try {
+      const announcer = (host: HTMLElement) => host.querySelector<HTMLElement>('.gor-composer > p[aria-live="polite"]:not([role])')!;
+      const far = await mount(<TurnComposer {...defaultProps({ chatDraft: 'Hold court' })} />);
+      await act(async () => { vi.advanceTimersByTime(COUNT_ANNOUNCE_DELAY_MS * 2); });
+      expect(announcer(far.container).textContent).toBe('');
+
+      const nearDraft = 'x'.repeat(20_000 - COUNT_ANNOUNCE_THRESHOLD + 200);
+      const near = await mount(<TurnComposer {...defaultProps({ chatDraft: nearDraft })} />);
+      const visibleCount = near.container.querySelector('#composer-submission-status')!.textContent!;
+      await act(async () => { vi.advanceTimersByTime(COUNT_ANNOUNCE_DELAY_MS - 1); });
+      expect(announcer(near.container).textContent).toBe('');
+      // Another keystroke restarts the pause.
+      await near.rerender(<TurnComposer {...defaultProps({ chatDraft: `${nearDraft}y` })} />);
+      await act(async () => { vi.advanceTimersByTime(COUNT_ANNOUNCE_DELAY_MS - 1); });
+      expect(announcer(near.container).textContent).toBe('');
+      await act(async () => { vi.advanceTimersByTime(1); });
+      const spokenCount = near.container.querySelector('#composer-submission-status')!.textContent!;
+      expect(spokenCount).not.toBe(visibleCount);
+      expect(announcer(near.container).textContent).toBe(spokenCount);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('keeps Chat Enter/Shift+Enter behavior while Structured uses newline Enter and Ctrl/Cmd+Enter submission', async () => {

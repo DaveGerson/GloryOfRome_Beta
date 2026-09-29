@@ -32,11 +32,14 @@
       frame is not a flash of daylight.
     -->
     <script>
-      try {
-        var gorTheme = localStorage.getItem('gor-theme');
-        var gorSystemLight = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
-        if (gorTheme === 'nox' || (gorTheme !== 'lux' && !gorSystemLight)) document.documentElement.setAttribute('data-gor-dusk', '');
-      } catch (e) { /* private mode: the day skin stands */ }
+      /* Storage and the system are read apart: blocked storage (private
+         mode) means "never chose", and the system still decides - exactly
+         as useSettings's storedLighting/systemPrefersLight resolve it. */
+      var gorTheme = null;
+      try { gorTheme = localStorage.getItem('gor-theme'); } catch (e) { /* private mode: no stored choice */ }
+      var gorSystemLight = false;
+      try { gorSystemLight = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches); } catch (e) { /* no media queries: the house night */ }
+      if (gorTheme === 'nox' || (gorTheme !== 'lux' && !gorSystemLight)) document.documentElement.setAttribute('data-gor-dusk', '');
       /* Text size and motion (persistence/readingPrefs.ts), seeded before the
          first paint so a large-type reader never sees a frame of small type.
          The hook re-applies the same keys once React mounts. */

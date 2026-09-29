@@ -988,7 +988,8 @@ Nothing here blocks; all are one edit from rewording.
     - The register is "Reading".
     - "Text size": "Standard" / "Large" / "Larger", noted "The chronicle,
       the side panel, fates and private scenes at their written size; /
-      a size larger; / two sizes larger; buttons and menus keep theirs."
+      a size larger; / two sizes larger; the masthead, tabs and menus keep
+      theirs."
     - Switch "Reduce motion": off "Animation plays unless your device asks
       for less motion."; on "Nothing moves that need not: no rising leaves,
       no smoulder, no gliding scroll."
@@ -1014,8 +1015,9 @@ Nothing here blocks; all are one edit from rewording.
       the latest", "Draft: <counsel>", "Open Settings", "Open the GM log".
   - *Settings → Lighting* (`components/SettingsMenu.tsx`, `LIGHTING_COPY`):
     - A third option, "◐ Device" (hover title "Follow this device — light or
-      dark"), before "☼ LVX" / "☾ NOX". The group is named "Lighting: follow
-      this device, marble day or torchlit night".
+      dark"), before "☼ LVX" / "☾ NOX". The group is a radio group named
+      "Lighting: follow this device, marble day or torchlit night"; its
+      options are named without their glyphs.
     - Notes: "Follows this device's light or dark appearance. Never part of
       your save." / "Kept on this device, whatever its appearance. Never
       part of your save." These replace "A device preference, never part of
@@ -1036,9 +1038,11 @@ Nothing here blocks; all are one edit from rewording.
     - The Imperial Dispatch keeps every word; its 📜 emoji is replaced by a
       small crimson seal.
   - *The desk*:
-    - "Counsel" labels the week's suggested actions, which are now set in
-      the body face in sentence case (`components/TurnComposer.tsx`,
-      `TURN_COMPOSER_COPY`).
+    - "Counsel" labels the week's suggested actions (a named group), which
+      are now set in the body face in sentence case
+      (`components/TurnComposer.tsx`, `TURN_COMPOSER_COPY`).
+    - Within 10% of the limit, a screen reader hears the visible "<N>
+      characters remaining" once typing pauses; no new words.
     - "Back to the latest" and, once a leaf has landed unseen, "New in the
       chronicle" (`hooks/useChatFollow.ts`, `CHAT_FOLLOW_COPY`).
 ---

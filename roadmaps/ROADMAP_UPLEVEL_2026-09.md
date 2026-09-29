@@ -307,8 +307,9 @@ same moment as its message, the first stage is often not heard at all.
 re-announced itself after every keystroke. That is the chatter the GOV.UK
 character-count pattern exists to prevent.
 - *What changed:* the count still describes the tablet (read with it when
-  focused). Going over the limit or an invalid draft still interrupts as an
-  alert.
+  focused). Within 10% of the limit it is spoken once typing pauses, which
+  is GOV.UK's other half, its threshold. Going over the limit or an invalid
+  draft still interrupts as an alert.
 
 **On/off preferences are switches, and no two controls share a label.**
 Reduce motion, Show the narration word by word, and Single-key shortcuts
@@ -351,11 +352,15 @@ the layout types another script (Cyrillic, Greek).
 
 **The palette is accessible in the details.**
 - Each option is named in words ("Reports, 2 new"), not by its run-together
-  text.
+  text. Its id is its command's, so `aria-activedescendant` changes when a
+  search changes the active command, not only when an arrow does.
 - The listbox holds only groups and options; the empty state moved outside
   it.
 - The number of matching commands is announced once typing pauses (GOV.UK
-  autocomplete pattern), never per keystroke.
+  autocomplete pattern), never per keystroke. It counts the rows actually
+  shown and re-counts when the list changes under the same search. It is
+  written into two alternating regions, so a second search with the same
+  count is still heard.
 - The active row keeps a visible outline in forced-colours mode.
 - The search affordance is an inline SVG magnifier. The ❖ glyph had fallen
   back to a bare ◆, which read as ornament on phones, where the button's
@@ -367,19 +372,26 @@ capitals. Long all-caps text costs legibility, and these are sentences the
 player reads to decide. They now use the body face, in sentence case, at
 15px, inside the same pill frame.
 
-**Text size covers everything the player reads.** That means fates, the
-private-scene transcript and the narration log, beside the chronicle, the
-side panel and the dossier. The note states the scope. A dialog taller than
-the window now scrolls from its top instead of being clipped at both ends.
+**Text size covers everything the player reads.** That means fates, private
+scenes (live and archived) and the narration log's words, beside the
+chronicle, the side panel and the dossier. The note says the masthead, tabs
+and menus keep their size, which is true. A dialog taller than the window
+now scrolls from its top instead of being clipped at both ends.
 - *Why it matters:* a fate has no close control, so on a short screen, or
   at a larger size, its choices must stay reachable (WCAG 1.4.10).
+- *No padding on the backdrop:* the GM console sizes itself against it, and
+  padding shrank the console by 32px.
 
 **First visit follows the system's appearance.** A light system opens on
 LVX; a dark one, or one that does not say, on NOX. An explicit choice
 always wins. Until the player makes one, the lighting follows the system
 as it changes. The Lighting control gains "◐ Device": the default for a
 device that never chose, and the way back to following the system after
-a choice. Without it, following the system would be a one-way door.
+a choice. Without it, following the system would be a one-way door. It is
+one exclusive choice of three, so it is a radio group, like Text size. Its
+note is its description, and the glyphs stay out of the names ("Device",
+"LVX", "NOX"). The pre-paint script reads storage and the system apart, so
+blocked storage still follows the system, as the hook does.
 - *Principle:* Apple HIG and Material both say to respect the system
   appearance when an app ships both, and to offer "follow the system"
   beside light and dark. People who need light or dark for their eyes
@@ -390,12 +402,26 @@ a choice. Without it, following the system would be a one-way door.
   'nox' in the `index.html` script and in `resolveLighting`
   (`hooks/useSettings.ts`).
 
+**Switches and segments keep their state in forced colours.** Background
+colour was all that told an on switch from an off one, or the chosen
+segment from the rest, and forced colours drop it. The state is repainted
+in system colours, which survive (checked in Chromium's forced-colours
+emulation).
+
+**An independent review.** A reviewer who had not written the code checked
+this part against the same standards. It found two minor bugs (the
+pre-paint script and the palette count), the gaps listed above, the
+backdrop padding's cost to the GM console, and weak spots in the tests. All
+are fixed and tested: the pre-paint script now runs in a test against
+`resolveLighting`, and test stubs and `<html>` state are reset between
+tests.
+
 **The Events tab refusal copy (recommendation only).** Reusing the
 dossier's line is right: the same refusal should read the same everywhere
 (Nielsen #4, consistency). No change was made; the owner keeps the veto.
 
-Checks after Part 4: 2466 unit tests (from 2450), 10 journeys, typecheck,
+Checks after Part 4: 2479 unit tests (from 2450), 10 journeys, typecheck,
 lint with zero warnings, the deterministic eval and the build all pass.
-Over Parts 3 and 4 together the main chunk grew by about 12.5 kB (4.4 kB
+Over Parts 3 and 4 together the main chunk grew by about 13 kB (4.5 kB
 gzipped); the palette is its own 4 kB chunk. Screenshots:
 `docs/ui-refresh/16-*.png` (refreshed) and `17-first-visit-light-system.png`.

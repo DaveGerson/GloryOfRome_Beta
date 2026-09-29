@@ -150,8 +150,22 @@ button,input,select,textarea{font-family:inherit}
    ends: `safe` centring falls back to the top when the content overflows,
    and the backdrop scrolls. A fate has no close control, so a long fate on a
    short screen (or at a larger text size) must never hide its choices. The
-   plain `center` stays first for engines without `safe`. */
-.gor-dialog-backdrop{overflow-y:auto;padding:16px 0;box-sizing:border-box;place-items:center;place-items:safe center}
+   plain `center` stays first for engines without `safe`. No padding: the GM
+   console sizes itself against this box (`calc(100% - 56px)`, and 16px on
+   a phone), so padding here would shrink it. */
+.gor-dialog-backdrop{overflow-y:auto;place-items:center;place-items:safe center}
+/* Forced colours drop background colour - all that told an on switch from
+   an off one, or the chosen segment from the rest. System colours survive
+   forced colours, so the state is repainted in them; the segment opts out
+   of the system backplate, which would otherwise cover its label. The
+   switch selectors carry [role] so they outrank nocturne.css, loaded
+   later, whose thumb colour forced colours would otherwise turn to Canvas
+   (an off switch then showed no thumb at all). */
+@media (forced-colors:active){
+.gor-switch input[role="switch"]::before{background:CanvasText}
+.gor-switch input[role="switch"]:checked{background:Highlight}
+.gor-seg-btn[aria-checked="true"],.gor-seg-btn[aria-pressed="true"]{background:Highlight;color:HighlightText;forced-color-adjust:none}
+}
 /* Dialogs arrive: the backdrop dims and softens the room, the tablet settles. */
 .gor-dialog-backdrop{-webkit-backdrop-filter:blur(3px) saturate(.85);backdrop-filter:blur(3px) saturate(.85);animation:gorFadeIn 220ms var(--ease-standard) both}
 .gor-dialog{animation:gorDialogIn 300ms var(--ease-out-soft) both}
@@ -249,7 +263,12 @@ html[data-gor-reading] .gor-dossier-head,
 html[data-gor-reading] .gor-event-body,
 html[data-gor-reading] .gor-event-choices,
 html[data-gor-reading] .gor-private-scene [role="log"]>*,
-html[data-gor-reading] .gor-narration-log-entry{zoom:var(--reading-zoom)}
+html[data-gor-reading] .gor-shelf-pane [role="region"]>*,
+html[data-gor-reading] .gor-narration-log-source,
+html[data-gor-reading] .gor-narration-log-meta,
+html[data-gor-reading] .gor-narration-log-excerpt,
+html[data-gor-reading] .gor-narration-log-transcript,
+html[data-gor-reading] .gor-narration-log-omitted{zoom:var(--reading-zoom)}
 html[data-gor-reading="large"] .gor-textarea{font-size:18px}
 html[data-gor-reading="larger"] .gor-textarea{font-size:20px}
 /* "Still": the player's own reduced-motion switch, for a device that does
@@ -370,6 +389,7 @@ html[data-gor-motion="reduced"] *,html[data-gor-motion="reduced"] *::before,html
 .gor-masthead-commands{left:auto;right:8px}
 .gor-composer-tools{margin-left:0}
 .gor-composer-pills-label{display:none}
+.gor-composer-pills .gor-pill{max-width:78vw}
 .gor-palette-backdrop{padding-top:12px}
 .gor-palette-foot>span{display:none}
 /* The 2x2 stat grid has no room for the pips; the grade word stays. */
