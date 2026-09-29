@@ -76,7 +76,8 @@ const SidePanel: React.FC<{
     knowledge: KnowledgeClaim[];
     /** The App's authoritative turn counter - the staleness clock D27 prices a dossier refresh against. */
     turnNumber: number;
-    onSpendDeepAnalysis: (cost: number, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
+    /** One atomic callback per commissioned assessment - the deep_analyses spend and the assessment itself (hooks/useIntelCommits.ts). */
+    onSpendDeepAnalysis: (targetId: string, cost: number, analysis: string, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
     /** One atomic callback per investigation reveal - spend + blackmail + fallout in a single state/save pass (see App.tsx's handleInvestigationOutcome). */
     onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult, request: DomainMutationContext) => Promise<boolean | void>;
     runDomainMutation: RunDomainMutation;

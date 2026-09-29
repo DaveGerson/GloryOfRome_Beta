@@ -1109,7 +1109,8 @@ async function runPlayerSurfacesStage(
         transformedAdjudication.deltas,
         updatedPlayerEntity,
         updatedEntities,
-        updatedWorldState
+        updatedWorldState,
+        ctx.currentEntities
     );
     const playerNarrationEvents = playerPerceivedDigest
         .map(({ text, source }) => ({ text, source }));

@@ -5,7 +5,7 @@ import { AxesSilhouette, EmptyRegister } from './EmptyRegister';
 type Props = {
   observations: KnowledgeClaim[];
   currentTurn: number;
-  /** Named so the zero state can say who you have never been in a room with. */
+  /** Named so the zero state can say whose dealings nothing on record shows yet. */
   subjectName?: string;
 };
 
@@ -36,11 +36,15 @@ const ObservationLine: React.FC<{ claim: KnowledgeClaim; currentTurn: number }> 
  * relationship score, synthesis, or sentiment interpretation. */
 const RelationshipObservations: React.FC<Props> = ({ observations, currentTurn, subjectName }) => {
   const newestFirst = [...observations].sort((a, b) => learnedTurn(b) - learnedTurn(a));
+  // D45: the zero state names its actual cause - no observation has been
+  // recorded yet - rather than a claim about presence it cannot know (the
+  // player may stand beside this figure every week without anyone's
+  // dealings being set down).
   if (newestFirst.length === 0) {
     return (
       <EmptyRegister
         silhouette={<AxesSilhouette />}
-        line={`You have never been in a room with ${subjectName ?? 'them'}.`}
+        line={`Nothing you have seen or been told yet shows ${subjectName ?? 'them'} dealing with anyone.`}
         hint="What you observe yourself is the only account nobody can colour."
       />
     );

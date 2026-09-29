@@ -1,4 +1,6 @@
 import type { EventHistoryEntry, TurnHistoryEntry } from '../../types';
+import { projectForPlayerHistory } from '../../playerInput/turnSubmission';
+import { structuredSubmissionForHistory } from '../TurnSubmissionHistory';
 
 /**
  * components/tabs/chronicleSpine.ts — the Reign register's rows (audit item 37).
@@ -30,7 +32,7 @@ export interface ChronicleRow {
   /** Stable across renders: the first week the row covers. */
   key: string;
   marker: ChronicleMarker;
-  /** "Week VI" or "Weeks I–IX". */
+  /** "Turn VI" or "Turns I–IX" - the turn counter, not the calendar week the masthead shows. */
   weekLabel: string;
   /** The headline for a single week, or the count line for a collapsed run. */
   headline: string;
@@ -60,13 +62,39 @@ function headlineOf(entry: TurnHistoryEntry): string {
   return firstSentence.length > 160 ? `${firstSentence.slice(0, 157)}…` : firstSentence;
 }
 
+/**
+ * The order a row quotes, in the player's own words. For a Structured turn
+ * `playerIntent` holds the canonical wire form (the submission namespace and
+ * the recipients' entity ids), which must never reach a player surface - the
+ * same three-way rule the chat history applies (TurnSubmissionHistory): a
+ * parsed submission is summarised by display name, a reserved artifact that
+ * fails to parse is canonical-only and quotes nothing, and a legacy freeform
+ * string passes through. Private intent and questions are not orders.
+ */
+function orderOf(playerIntent: string): string | undefined {
+  const submission = structuredSubmissionForHistory(playerIntent);
+  if (!submission) return playerIntent || undefined;
+  if (submission.kind === 'invalid_artifact') return undefined;
+  const history = projectForPlayerHistory(submission);
+  if (history.kind === 'freeform') return history.text || undefined;
+  const parts = [
+    ...(history.actions ?? []),
+    ...(history.messagesOrOrders ?? []).map(({ recipient, command }) => `To ${recipient}: ${command}`),
+  ];
+  return parts.length > 0 ? parts.join(' · ') : undefined;
+}
+
 function rowFor(entry: TurnHistoryEntry, fate: EventHistoryEntry | undefined, isEnd: boolean): ChronicleRow {
+  const order = orderOf(entry.playerIntent);
   return {
     key: `week-${entry.turnNumber}`,
     marker: isEnd ? 'end' : fate ? 'fate' : 'week',
-    weekLabel: `Week ${toRomanNumeral(entry.turnNumber)}`,
+    // The row counts turns (D44 keeps Roman numerals for the turn count);
+    // the calendar week wraps at 52 and may not start at I, so a turn stamp
+    // labelled "Week" would drift from the masthead's date.
+    weekLabel: `Turn ${toRomanNumeral(entry.turnNumber)}`,
     headline: fate ? fate.eventTitle : headlineOf(entry),
-    order: entry.playerIntent,
+    ...(order ? { order } : {}),
     ...(isEnd ? { badge: 'The end' } : fate ? { badge: 'A fate' } : {}),
   };
 }
@@ -93,7 +121,7 @@ export function buildChronicleSpine(
     rowFor(entry, fateByTurn.get(entry.turnNumber), reignEnded && entry.turnNumber === lastTurn));
 
   // Collapse in chronological order first, so a collapsed range reads
-  // "Weeks I–IX" rather than backwards, then reverse the finished list.
+  // "Turns I–IX" rather than backwards, then reverse the finished list.
   const folded: ChronicleRow[] = [];
   let run: ChronicleRow[] = [];
   const flushRun = () => {
@@ -105,7 +133,7 @@ export function buildChronicleSpine(
       folded.push({
         key: `${first.key}-through-${last.key}`,
         marker: 'collapsed',
-        weekLabel: `${first.weekLabel.replace('Week', 'Weeks')}–${last.weekLabel.replace('Week ', '')}`,
+        weekLabel: `${first.weekLabel.replace('Turn', 'Turns')}–${last.weekLabel.replace('Turn ', '')}`,
         headline: `${run.length} quieter weeks`,
         collapsed: run,
       });

@@ -111,6 +111,17 @@ export interface PerceivedChange {
   deltaType: EventDeltaType;
   /** The underlying delta's raw key (e.g. 'A:B:trust_level') - the knowledge store's deterministic claim-matching granularity. */
   deltaKey: string;
+  /**
+   * 'status' changes only: the life/freedom status the line shows the
+   * subject in - what the viewer now BELIEVES of them. Structured so the
+   * roster can read a believed status without parsing the line's prose.
+   */
+  perceivedStatus?: Entity['status'];
+  /**
+   * 'faction' changes only: the faction id the line shows the subject
+   * joining, or null when it shows them breaking away.
+   */
+  perceivedFaction?: string | null;
 }
 
 /** Shown in place of the digest when nothing beyond the player's own
@@ -166,6 +177,50 @@ function entityLocation(id: string, entities: Entity[]): string | undefined {
   return entities.find(e => e.entity_id === id)?.location;
 }
 
+const ENTITY_STATUSES: readonly Entity['status'][] = ['alive', 'dead', 'exiled', 'missing'];
+
+/**
+ * What a 'status' delta visibly DID, mirroring ai/core/engine.ts's 'status'
+ * case: nothing unless the key is exactly an entity's id (the engine looks
+ * it up whole), then the structured new_status when set (else whatever the
+ * legacy reason-parse fallback left on the post-turn roster), and a move
+ * only to a region that exists - the engine ignores any other
+ * new_location. With the pre-turn roster a status the entity already had,
+ * or a move to where it already stood, is no change at all. A dead entity
+ * is never seen to move: a corpse does not walk, and a presumed-dead NPC's
+ * movements are exactly the hint at survival D3 forbids. Returns null when
+ * nothing perceptible happened, so the delta is never announced.
+ */
+function statusDeltaEffect(
+  delta: EventDelta,
+  entities: Entity[],
+  worldState: WorldState,
+  preTurnEntities?: Entity[]
+): { status?: Entity['status']; moveTo?: string; after: Entity } | null {
+  const after = entities.find(e => e.entity_id === delta.key);
+  if (!after) return null;
+  const before = preTurnEntities?.find(e => e.entity_id === delta.key);
+  const claimed = delta.new_status && ENTITY_STATUSES.includes(delta.new_status)
+    ? delta.new_status
+    : after.status !== 'alive' ? after.status : undefined;
+  const status = claimed && (!before || before.status !== claimed) ? claimed : undefined;
+  const resulting = status ?? after.status;
+  const moveTo = delta.new_location
+    && worldState.regions[delta.new_location]
+    && resulting !== 'dead'
+    && (!before || before.location !== delta.new_location)
+    ? delta.new_location
+    : undefined;
+  return status || moveTo ? { status, moveTo, after } : null;
+}
+
+/** The only region delta the engine applies: '<existing region>:stability'
+ * (ai/core/engine.ts's 'region' case). Every other key changed nothing. */
+function isAppliedRegionDelta(delta: EventDelta, worldState: WorldState): boolean {
+  const [regionName, property] = delta.key.split(':');
+  return !!worldState.regions[regionName] && property === 'stability';
+}
+
 /**
  * Entity ids "involved" in a delta, OTHER than the viewer. Used only for the
  * witnessed/network checks below. The viewer's own id is always excluded
@@ -210,6 +265,19 @@ function involvedOtherEntityIds(delta: EventDelta, viewer: Entity): string[] {
  * read only the viewer's identity, location, and visibility_network (see
  * the module doc's viewer-agnostic contract).
  *
+ * `preTurnEntities` is the roster as the turn BEGAN (optional: callers that
+ * have no record of it keep the post-turn-only rules). It lets a status
+ * delta that changed nothing stay unannounced, and lets a departure count
+ * as witnessed (rule 3).
+ *
+ * First, a delta that changed nothing a witness could see is invisible to
+ * every viewer: a 'status' delta with no perceptible effect (see
+ * statusDeltaEffect), a 'region' delta the engine did not apply (only
+ * '<existing region>:stability' is), and a 'scheme' delta about an entity
+ * the world now holds dead - its mind may still plot as GM-side truth
+ * (a presumed-dead NPC keeps its scheme), but nobody can see a dead man
+ * plotting, and saying so would hint at his survival (D3).
+ *
  * Rules (checked in this order - the first that matches wins):
  *
  * 1. 'public' for rumor deltas (they exist specifically to arrive as
@@ -242,7 +310,11 @@ function involvedOtherEntityIds(delta: EventDelta, viewer: Entity): string[] {
  *    see involvedOtherEntityIds) shares the viewer's current location, or
  *    (for 'region' deltas) the delta's region IS the viewer's current
  *    location. A 'status' delta that moves an entity INTO the viewer's
- *    region (new_location) also counts - you saw them arrive.
+ *    region (new_location) also counts - you saw them arrive - and so,
+ *    given the pre-turn roster, does a 'status' delta about someone who
+ *    stood where the viewer stood when the turn began: you saw them go.
+ *    That pre-turn rule is deliberately limited to status (and movement)
+ *    deltas.
  *
  * 4. 'network' when an involved entity is one of the viewer's
  *    visibility_network contacts, or (for 'region' deltas) one of those
@@ -262,8 +334,21 @@ export function classifyDelta(
   delta: EventDelta,
   viewer: Entity,
   entities: Entity[],
-  worldState: WorldState
+  worldState: WorldState,
+  preTurnEntities?: Entity[]
 ): Visibility {
+  // --- Nothing perceptible happened ---
+  if (delta.type === 'status' && !statusDeltaEffect(delta, entities, worldState, preTurnEntities)) {
+    return { visible: false, source: null };
+  }
+  if (delta.type === 'region' && !isAppliedRegionDelta(delta, worldState)) {
+    return { visible: false, source: null };
+  }
+  if (delta.type === 'scheme') {
+    const [schemerId] = delta.key.split(':');
+    if (entities.find(e => e.entity_id === schemerId)?.status === 'dead') return { visible: false, source: null };
+  }
+
   // --- Rule 1: public ---
   if (
     delta.type === 'rumor' ||
@@ -298,7 +383,10 @@ export function classifyDelta(
     const others = involvedOtherEntityIds(delta, viewer);
     const atViewerLocation = others.some(id => entityLocation(id, entities) === viewer.location);
     const arrivesAtViewerLocation = delta.type === 'status' && delta.new_location === viewer.location;
-    if (atViewerLocation || arrivesAtViewerLocation) {
+    const viewerStartedAt = preTurnEntities ? entityLocation(viewer.entity_id, preTurnEntities) ?? viewer.location : undefined;
+    const leavesViewerLocation = delta.type === 'status' && preTurnEntities !== undefined
+      && others.some(id => entityLocation(id, preTurnEntities) === viewerStartedAt);
+    if (atViewerLocation || arrivesAtViewerLocation || leavesViewerLocation) {
       return { visible: true, source: 'witnessed' };
     }
   }
@@ -325,27 +413,34 @@ export function classifyDelta(
 }
 
 /** Which SidePanel tabs display data touched by this delta type - used to
- * decide which tab buttons get a "something changed here" pulse. */
-export function tabsForDelta(delta: EventDelta): TabId[] {
+ * decide which tab buttons get a "something changed here" pulse. A tab is
+ * named only when it actually renders the delta's subject (a coin that
+ * points at a tab showing nothing new misdirects the player): Assets shows
+ * only the viewer's OWN holdings, so another's resources pulse nothing;
+ * Personae renders the other figures - who is about (status), who is
+ * plotting (scheme), whom they stand with (faction) - never the viewer;
+ * regions render only on Empire (D44: World no longer owns them). */
+export function tabsForDelta(delta: EventDelta, viewerId?: string): TabId[] {
+  const [subjectId] = delta.key.split(':');
   switch (delta.type) {
     case 'resource':
-      return ['resources'];
+      return viewerId !== undefined && subjectId === viewerId ? ['resources'] : [];
     case 'relation':
+      return ['dramatis_personae'];
     case 'status':
     case 'scheme':
-      return ['dramatis_personae'];
     case 'faction':
-      return ['dramatis_personae', 'locations'];
+      return subjectId === viewerId ? [] : ['dramatis_personae'];
     case 'region':
     case 'add_region':
     case 'remove_region':
-      return ['locations', 'world_state'];
+      return ['locations'];
     case 'world':
-      // The two macro WorldState fields a 'world' delta can change render
-      // in the always-visible Header, not in any SidePanel tab (WorldStateTab
-      // surfaces SimulationState macro fields and region detail, not these) -
-      // so there is no tab to pulse. The change still reaches the player as a
-      // public digest line via classifyDelta/describeDelta.
+      // The two macro WorldState fields a 'world' delta can change are
+      // marked in the always-visible Header ('Changed this week'), which is
+      // their designated change mark - so there is no tab to pulse. The
+      // change still reaches the player as a public digest line via
+      // classifyDelta/describeDelta.
       return [];
     case 'rumor':
       return ['reports'];
@@ -387,7 +482,7 @@ function subjectForDelta(delta: EventDelta): string {
 /** Renders a delta as a plain-language line from the viewer's vantage -
  * second-person phrasing ("you"/"your") always addresses the viewer, so the
  * same delta reads correctly whether the viewer is the player or an NPC. */
-function describeDelta(delta: EventDelta, viewer: Entity, entities: Entity[]): string {
+function describeDelta(delta: EventDelta, viewer: Entity, entities: Entity[], worldState: WorldState, preTurnEntities?: Entity[]): string {
   switch (delta.type) {
     case 'relation': {
       const [aId, bId, attr = 'trust_level'] = delta.key.split(':');
@@ -401,12 +496,28 @@ function describeDelta(delta: EventDelta, viewer: Entity, entities: Entity[]): s
       return `You notice ${displayName(aId, entities)}'s ${attrLabel} toward ${displayName(bId, entities)} shifting.`;
     }
     case 'status': {
+      // Only what the delta visibly did (statusDeltaEffect - classifyDelta
+      // has already dropped one that did nothing): a changed status, else a
+      // move to a region the engine actually applied. A move reads from the
+      // viewer's side of the door - arriving where they stand, else leaving.
       const [entityId] = delta.key.split(':');
-      const statusLabel = delta.new_status ?? 'changed';
-      if (entityId === viewer.entity_id) {
-        return `Your own fate turns: you are now ${statusLabel}.`;
+      const effect = statusDeltaEffect(delta, entities, worldState, preTurnEntities);
+      const isViewer = entityId === viewer.entity_id;
+      const name = displayName(entityId, entities);
+      if (effect?.status) {
+        return isViewer
+          ? `Your own fate turns: you are now ${effect.status}.`
+          : `${name} is now ${effect.status}.`;
       }
-      return `${displayName(entityId, entities)} is now ${statusLabel}.`;
+      if (effect?.moveTo) {
+        if (isViewer) return `You make your way to ${effect.moveTo}.`;
+        return effect.moveTo === viewer.location
+          ? `${name} arrives at ${effect.moveTo}.`
+          : `${name} leaves for ${effect.moveTo}.`;
+      }
+      // Unreachable through buildPerceivedDigest (classifyDelta drops a
+      // delta with no effect); kept honest rather than claiming a change.
+      return isViewer ? 'You are as you were.' : `${name} is as before.`;
     }
     case 'resource': {
       const [entityId, resourceName] = delta.key.split(':');
@@ -488,20 +599,32 @@ export function buildPerceivedDigest(
   deltas: EventDelta[],
   viewer: Entity,
   entities: Entity[],
-  worldState: WorldState
+  worldState: WorldState,
+  preTurnEntities?: Entity[]
 ): PerceivedChange[] {
   const changes: PerceivedChange[] = [];
   for (const delta of deltas) {
-    const { visible, source } = classifyDelta(delta, viewer, entities, worldState);
+    const { visible, source } = classifyDelta(delta, viewer, entities, worldState, preTurnEntities);
     if (!visible || !source) continue;
-    changes.push({
-      text: describeDelta(delta, viewer, entities),
+    const change: PerceivedChange = {
+      text: describeDelta(delta, viewer, entities, worldState, preTurnEntities),
       source,
-      tabs: tabsForDelta(delta),
+      tabs: tabsForDelta(delta, viewer.entity_id),
       subject: subjectForDelta(delta),
       deltaType: delta.type,
       deltaKey: delta.key,
-    });
+    };
+    // The believed state the line itself conveys, in structured form (the
+    // knowledge store keeps it so the roster never parses prose). A seen
+    // move shows the subject about, in whatever state they already stood.
+    if (delta.type === 'status') {
+      const effect = statusDeltaEffect(delta, entities, worldState, preTurnEntities);
+      const perceivedStatus = effect?.status ?? effect?.after.status;
+      if (perceivedStatus) change.perceivedStatus = perceivedStatus;
+    } else if (delta.type === 'faction') {
+      change.perceivedFaction = !delta.reason || delta.reason === 'null' ? null : delta.reason;
+    }
+    changes.push(change);
   }
   return changes;
 }
@@ -512,8 +635,9 @@ export function buildPlayerPerceivedDigest(
   deltas: EventDelta[],
   player: Entity,
   entities: Entity[],
-  world: WorldState
+  world: WorldState,
+  preTurnEntities?: Entity[]
 ): PerceivedChange[] {
-  return buildPerceivedDigest(deltas, player, entities, world)
+  return buildPerceivedDigest(deltas, player, entities, world, preTurnEntities)
     .filter(change => change.deltaType !== 'relation');
 }

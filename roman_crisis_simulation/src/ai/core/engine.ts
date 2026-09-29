@@ -482,7 +482,7 @@ export function applyAdjudication(
         perceptionContext.spotlightIds ?? [],
         adjudication.deltas
     );
-    const npcPerceptions = buildNpcPerceptions(adjudication.deltas, perceivers, entitiesAfterDeltas, updatedWorldState);
+    const npcPerceptions = buildNpcPerceptions(adjudication.deltas, perceivers, entitiesAfterDeltas, updatedWorldState, currentEntities);
     // Memory stamps use the AUTHORITATIVE turn counter when the caller
     // provides one (see PerceptionStampContext.turnNumber) - never trusting
     // the model-echoed `adjudication.turn` for provenance when the real

@@ -4,7 +4,10 @@ import { GoogleGenAI } from '@google/genai';
 import InfoTooltip from '../InfoTooltip';
 import { Card, Button } from '../ui/Core';
 import { Alert } from '../ui/Alert';
-import { InvestigationKind, KnowledgeClaim, SCHEME_CLUES_TO_REVEAL, deriveDossier } from '../../knowledge/store';
+import {
+  InvestigationKind, KnowledgeClaim, SCHEME_CLUES_TO_REVEAL, deriveDossier,
+  hasUnstructuredStatusRecord, perceivedFactionOf, perceivedStatusOf,
+} from '../../knowledge/store';
 import { DOSSIER_COLD_THRESHOLD } from '../../knowledge/dossierCost';
 import { knowledgeSourceLead } from '../../knowledge/credibilityFraming';
 import { isEntityKnownToPlayer, relationshipTimelineFor } from '../../knowledge/relationships';
@@ -22,7 +25,8 @@ import { PersonaVoiceRow, PERSONA_VOICE_COPY } from './PersonaVoiceRow';
 type Wiring = {
   knowledge: KnowledgeClaim[];
   turnNumber: number;
-  onSpendDeepAnalysis: (cost: number, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
+  /** Commits the deep_analyses spend and the assessment together (hooks/useIntelCommits.ts). */
+  onSpendDeepAnalysis: (targetId: string, cost: number, analysis: string, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
   onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
   runDomainMutation: RunDomainMutation;
   interactionLocked?: boolean;
@@ -39,12 +43,14 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
   personaeVoice, paidNoteId,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const briefingId = useId();
   // One ❧ Glossary control per dossier instead of five † daggers (audit item
   // 25) - open it and every gloss in this card appears inline as marginalia.
   const [glossaryOpen, setGlossaryOpen] = useState(false);
-  const { uncoveredIntel, loadingState, requestError, handleRequest } = useIntelGathering({
+  const { loadingState, requestError, handleRequest, landed } = useIntelGathering({
     entity, playerEntity, knowledge, ai, isMockMode, interactionLocked, runDomainMutation, onSpendDeepAnalysis, onInvestigationOutcome,
   });
+  const landedSeq = (type: NonNullable<typeof landed>['type']) => landed?.type === type ? landed.seq : undefined;
   const price = (kind: InvestigationKind) => priceInvestigation(knowledge, entity.entity_id, kind);
   const schemeDiscovery = schemeDiscoveryFor(knowledge, entity.entity_id);
   const observations = relationshipTimelineFor(knowledge, entity.entity_id);
@@ -59,12 +65,14 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
     if (!held) return undefined;
     return {
       latestText: held.latestText,
+      ...(held.latestItems ? { items: held.latestItems } : {}),
       firstLearnedTurn: held.firstLearnedTurn,
       lastRefreshedTurn: held.lastRefreshedTurn,
       sourceLead: knowledgeSourceLead(held.source),
       stale: turnNumber - held.lastRefreshedTurn > DOSSIER_COLD_THRESHOLD,
     };
   };
+  const heldAssessment = dossier.entries.find(candidate => candidate.kind === 'deep_analysis');
 
   const investigations = (playerEntity.resources.investigations as number) || 0;
   const deepAnalyses = (playerEntity.resources.deep_analyses as number) || 0;
@@ -74,7 +82,16 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
       // The Intel/Collapse control stays first in the header, and so first in
       // the card's DOM order.
       action={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-        <Button size="sm" variant={isExpanded ? 'ghost' : 'secondary'} onClick={() => setIsExpanded(value => !value)}>{isExpanded ? 'Collapse' : 'Intel'}</Button>
+        {/* A disclosure (APG): it says whether the briefing is open, which
+            briefing it controls, and - repeated on every card - whose. */}
+        <Button
+          size="sm"
+          variant={isExpanded ? 'ghost' : 'secondary'}
+          aria-expanded={isExpanded}
+          aria-controls={isExpanded ? briefingId : undefined}
+          aria-label={`${isExpanded ? 'Collapse' : 'Intel'} (${entity.name})`}
+          onClick={() => setIsExpanded(value => !value)}
+        >{isExpanded ? 'Collapse' : 'Intel'}</Button>
         {isExpanded && (
           <button
             type="button"
@@ -91,12 +108,12 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
         {personaeVoice && <PersonaVoiceRow entityId={entity.entity_id} name={entity.name} voice={personaeVoice} paidNoteId={paidNoteId} />}
         <RelationshipObservations observations={observations} currentTurn={turnNumber} subjectName={entity.name} />
         {requestError && <Alert title="Your agents return empty-handed">{requestError}</Alert>}
-        {isExpanded && <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 8, borderTop: '1px solid var(--border-faint)' }}>
+        {isExpanded && <div id={briefingId} style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 8, borderTop: '1px solid var(--border-faint)' }}>
           <span className="gor-label" style={{ color: 'var(--tyrian-500)' }}>Intelligence Briefing</span>
-          <IntelSection title="Beliefs" {...price('beliefs')} heldSinceTurn={heldSinceTurn(knowledge, entity.entity_id, 'beliefs')} heldReading={heldReadingFor('beliefs')} resourceName="Inv." resourceCount={investigations} uncoveredData={uncoveredIntel.beliefs} onUncover={() => handleRequest('beliefs')} isLoading={loadingState === 'beliefs'} interactionLocked={interactionLocked} showGloss={glossaryOpen} tooltip="Uncover the core ideologies and principles that drive this character's decisions." />
-          <SchemeIntelSection discovery={schemeDiscovery} threshold={SCHEME_CLUES_TO_REVEAL} cost={price('scheme').cost} resourceCount={investigations} onInvestigate={() => handleRequest('scheme')} isLoading={loadingState === 'scheme'} interactionLocked={interactionLocked} showGloss={glossaryOpen} tooltip="Piece together what this character is quietly plotting. Each investigation earns one clue toward its true nature." />
-          <IntelSection title="Secrets" {...price('secrets')} heldSinceTurn={heldSinceTurn(knowledge, entity.entity_id, 'secrets')} heldReading={heldReadingFor('secrets')} resourceName="Inv." resourceCount={investigations} uncoveredData={uncoveredIntel.secrets} onUncover={() => handleRequest('secrets')} isLoading={loadingState === 'secrets'} interactionLocked={interactionLocked} showGloss={glossaryOpen} tooltip="Use high-risk, high-reward investigation to uncover hidden fears, blackmail material, or secret plots." />
-          <DeepAnalysisSection analysis={uncoveredIntel.deep_analysis} cost={DEEP_ANALYSIS_COST} resourceCount={deepAnalyses} onCommission={() => handleRequest('deep_analysis')} isLoading={loadingState === 'deep_analysis'} interactionLocked={interactionLocked} showGloss={glossaryOpen} />
+          <IntelSection title="Beliefs" {...price('beliefs')} heldSinceTurn={heldSinceTurn(knowledge, entity.entity_id, 'beliefs')} heldReading={heldReadingFor('beliefs')} resourceName="Inv." resourceCount={investigations} onUncover={() => handleRequest('beliefs')} isLoading={loadingState === 'beliefs'} interactionLocked={interactionLocked} showGloss={glossaryOpen} landedSeq={landedSeq('beliefs')} tooltip="Uncover the core ideologies and principles that drive this character's decisions." />
+          <SchemeIntelSection discovery={schemeDiscovery} threshold={SCHEME_CLUES_TO_REVEAL} cost={price('scheme').cost} resourceCount={investigations} onInvestigate={() => handleRequest('scheme')} isLoading={loadingState === 'scheme'} interactionLocked={interactionLocked} showGloss={glossaryOpen} landedSeq={landedSeq('scheme')} tooltip="Piece together what this character is quietly plotting. Each investigation earns one clue toward its true nature." />
+          <IntelSection title="Secrets" {...price('secrets')} heldSinceTurn={heldSinceTurn(knowledge, entity.entity_id, 'secrets')} heldReading={heldReadingFor('secrets')} resourceName="Inv." resourceCount={investigations} onUncover={() => handleRequest('secrets')} isLoading={loadingState === 'secrets'} interactionLocked={interactionLocked} showGloss={glossaryOpen} landedSeq={landedSeq('secrets')} tooltip="Use high-risk, high-reward investigation to uncover hidden fears, blackmail material, or secret plots." />
+          <DeepAnalysisSection held={heldAssessment ? { analysis: heldAssessment.latestText, asOfTurn: heldAssessment.lastRefreshedTurn } : undefined} cost={DEEP_ANALYSIS_COST} resourceCount={deepAnalyses} onCommission={() => handleRequest('deep_analysis')} isLoading={loadingState === 'deep_analysis'} interactionLocked={interactionLocked} showGloss={glossaryOpen} landedSeq={landedSeq('deep_analysis')} />
         </div>}
       </div>
     </Card>
@@ -136,10 +153,26 @@ const DramatisPersonaeTab: React.FC<{ playerEntity: Entity | null; entities: Ent
   const known = entities.filter(entity => isEntityKnownToPlayer(playerEntity, entity, wiring.knowledge));
   // Knownness is deliberately evaluated before status and faction grouping:
   // an unseen death or affiliation must not establish a hidden identity.
-  const knownLiving = known.filter(entity => entity.entity_id !== playerEntity.entity_id && entity.entity_type !== 'faction' && entity.status === 'alive');
-  const knownFactions = known.filter(entity => entity.entity_type === 'faction' && entity.status === 'alive');
+  // Nor may either be READ off the roster (D5): who is still about, and whom
+  // they stand with, is what the player last SAW (the structured status /
+  // allegiance on their perceived digest lines), never the live entity. A
+  // figure the player has seen no change in is believed alive; a perceived
+  // status line recorded before the structured field existed (a legacy
+  // save) falls back to the live status it was, in its day, reporting.
+  const believedStatus = (entity: Entity): Entity['status'] =>
+    perceivedStatusOf(wiring.knowledge, entity.entity_id)
+      ?? (hasUnstructuredStatusRecord(wiring.knowledge, entity.entity_id) ? entity.status : 'alive');
+  const believedFaction = (entity: Entity): string | null | undefined => {
+    const perceived = perceivedFactionOf(wiring.knowledge, entity.entity_id);
+    return perceived === undefined ? entity.faction_id : perceived;
+  };
+  const knownLiving = known.filter(entity => entity.entity_id !== playerEntity.entity_id && entity.entity_type !== 'faction' && believedStatus(entity) === 'alive');
+  const knownFactions = known.filter(entity => entity.entity_type === 'faction' && believedStatus(entity) === 'alive');
   const factionIds = new Set(knownFactions.map(faction => faction.entity_id));
-  const neutral = knownLiving.filter(entity => !entity.faction_id || !factionIds.has(entity.faction_id));
+  const neutral = knownLiving.filter(entity => {
+    const faction = believedFaction(entity);
+    return !faction || !factionIds.has(faction);
+  });
   const investigations = (playerEntity.resources.investigations as number) || 0;
   const observationCount = wiring.knowledge.filter(claim => claim.relationshipObservation).length;
 
@@ -169,7 +202,7 @@ const DramatisPersonaeTab: React.FC<{ playerEntity: Entity | null; entities: Ent
           <span className="gor-label" style={{ color: investigations > 0 ? 'var(--gold-700)' : 'var(--crimson-500)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>Investigations: {investigations}<InfoTooltip text="Your capacity for espionage. Spend to reveal beliefs, schemes, or secrets." /></span>
         </span>
         {wiring.personaeVoice && <p className="gor-config-note" id={paidNoteId} style={{ margin: 0 }}>{PERSONA_VOICE_COPY.paidNote}</p>}
-        {knownFactions.map(faction => <FactionSection key={faction.entity_id} faction={faction} members={knownLiving.filter(member => member.faction_id === faction.entity_id)} playerEntity={playerEntity} {...wiring} />)}
+        {knownFactions.map(faction => <FactionSection key={faction.entity_id} faction={faction} members={knownLiving.filter(member => believedFaction(member) === faction.entity_id)} playerEntity={playerEntity} {...wiring} />)}
         {neutral.length > 0 && <><span className="gor-label">Other known figures</span>{neutral.map(entity => <EntityDetails key={entity.entity_id} entity={entity} playerEntity={playerEntity} {...wiring} />)}</>}
       </>
     )}

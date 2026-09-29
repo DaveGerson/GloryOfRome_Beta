@@ -126,7 +126,7 @@ const RelationshipsTab: React.FC<Props> = ({ knowledge, entities, currentTurn })
         </section>
       ))}
       <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-        As of Week {toRoman(Math.max(1, currentTurn))}. Older word may no longer hold.
+        As of Turn {toRoman(Math.max(1, currentTurn))}. Older word may no longer hold.
       </span>
     </div>
   );

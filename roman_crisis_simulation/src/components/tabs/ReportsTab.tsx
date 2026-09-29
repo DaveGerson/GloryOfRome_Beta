@@ -103,7 +103,7 @@ const ReportCard: React.FC<{ report: Report; group: readonly Report[] }> = ({ re
                 <span style={{ fontSize: 15 }}>“{report.claim}”</span>
                 <span style={{ fontSize: 14, fontStyle: 'italic', color: clauseTone }}>
                     {certaintyClause(report.credibility)}
-                    {contradicts && ' — and it contradicts the accounts above.'}
+                    {contradicts && ' — and it contradicts a firmer account.'}
                 </span>
                 <span><Badge tone={tone}>{badgeWord}</Badge></span>
             </div>
@@ -111,11 +111,14 @@ const ReportCard: React.FC<{ report: Report; group: readonly Report[] }> = ({ re
     );
 };
 
-/** What a group of accounts about one subject amounts to. Never a number. */
+/** What a group of accounts about one subject amounts to. Never a number
+ *  but a count: agreement names how many DIFFERENT sources stand behind
+ *  one matter, and anything short of that is only a tally of accounts. */
 const GroupVerdict: React.FC<{ reports: readonly Report[] }> = ({ reports }) => {
     const { verdict, sources } = corroboration(reports);
     if (verdict === 'conflict') return <span className="gor-verdict gor-verdict-conflict">⚠ Accounts conflict</span>;
     if (verdict === 'agree') return <span className="gor-verdict gor-verdict-agree">{sources} sources agree</span>;
+    if (verdict === 'uncorroborated') return <span className="gor-verdict">{reports.length} accounts</span>;
     return <span className="gor-verdict">One account</span>;
 };
 
@@ -158,7 +161,9 @@ const ReportsTab: React.FC<{ reports: Report[]; knowledge?: KnowledgeClaim[] }> 
         .map(([about, group]) => ({ about, group: group.slice().sort((a, b) => b.turn - a.turn) }))
         .sort((a, b) => b.group[0].turn - a.group[0].turn);
 
-    // By week: the chronology this tab used to be, kept as the second register.
+    // By turn: the chronology this tab used to be, kept as the second register.
+    // It groups by the turn counter a report was stamped with, not the
+    // calendar week the masthead shows, so it is labelled a Turn.
     const byWeek = new Map<number, Report[]>();
     for (const report of reports) {
         const week = byWeek.get(report.turn) ?? [];
@@ -175,7 +180,7 @@ const ReportsTab: React.FC<{ reports: Report[]; knowledge?: KnowledgeClaim[] }> 
                 onChange={selectRegister}
                 options={[
                     { value: 'subject', label: 'By subject', count: subjects.length },
-                    { value: 'week', label: 'By week', count: weeks.length },
+                    { value: 'week', label: 'By turn', count: weeks.length },
                     { value: 'rumors', label: 'Rumors', count: feedClaims.length },
                 ]}
             />
@@ -211,7 +216,7 @@ const ReportsTab: React.FC<{ reports: Report[]; knowledge?: KnowledgeClaim[] }> 
                 : weeks.map(([week, group]) => (
                     <section key={week} className="gor-report-group">
                         <header className="gor-report-group-head">
-                            <span className="gor-report-subject">Week {toRoman(week)}</span>
+                            <span className="gor-report-subject">Turn {toRoman(week)}</span>
                             <span className="gor-verdict">{group.length} account{group.length === 1 ? '' : 's'}</span>
                         </header>
                         {group.map(report => <ReportCard key={report.id} report={report} group={bySubject.get(report.about) ?? [report]} />)}

@@ -139,6 +139,18 @@ export function buildPlayerSafeEvidence(
   return result;
 }
 
+/**
+ * Whether an evidence item's text may introduce a figure the player does not
+ * yet know. Only world-authored evidence may (the digest, reports, paid
+ * investigations): the player's own order ('self') names whoever the player
+ * guesses at, and custom text never proves that its named person exists
+ * (D35) - otherwise typing a hidden character's exact name would put them
+ * on the roster (D36).
+ */
+export function evidenceMayDiscover(evidence: Pick<PlayerSafeEvidence, 'source'>): boolean {
+  return evidence.source !== 'self';
+}
+
 /** Validates model selections without retaining any model-authored extra fields. */
 export function validateRelationshipObservationDrafts(input: ValidationInput): RelationshipObservationDraft[] {
   if (hasDuplicateEvidenceIds(input.evidence)) return [];
@@ -154,7 +166,7 @@ export function validateRelationshipObservationDrafts(input: ValidationInput): R
     if (participantIds.some(id => {
       if (knownIds.has(id)) return false;
       const entity = entityById.get(id);
-      return !entity || !evidenceContainsExactEntityName(evidence.text, entity.name);
+      return !entity || !evidenceMayDiscover(evidence) || !evidenceContainsExactEntityName(evidence.text, entity.name);
     })) continue;
     accepted.push({ evidenceId: raw.evidenceId, participantIds, excerpt: raw.excerpt });
   }

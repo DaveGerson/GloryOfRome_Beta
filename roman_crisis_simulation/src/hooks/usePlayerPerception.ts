@@ -102,11 +102,14 @@ export function usePlayerPerception(
     // One illuminated initial per week (audit item 13) — derived from the
     // ribbon dividers already in the stream, so no message gains a field.
     const illuminatedNarrations = useMemo(() => illuminatedNarrationIndices(messages), [messages]);
+    // The turn's pre-turn roster is the previous entry's snapshot (absent on
+    // the first turn, which then keeps the post-turn-only rules).
+    const preTurnEntities = turnHistory.length > 1 ? turnHistory[turnHistory.length - 2].postTurnEntities : undefined;
     const lastTurnPerceivedChanges = useMemo(
         () => (lastTurn?.postTurnEntities && lastTurnPlayer)
-            ? buildPlayerPerceivedDigest(lastTurn.adjudication.deltas, lastTurnPlayer, lastTurn.postTurnEntities, worldState)
+            ? buildPlayerPerceivedDigest(lastTurn.adjudication.deltas, lastTurnPlayer, lastTurn.postTurnEntities, worldState, preTurnEntities)
             : [],
-        [lastTurn, lastTurnPlayer, worldState]
+        [lastTurn, lastTurnPlayer, worldState, preTurnEntities]
     );
     const tabChangeCounts = useMemo(
         () => tabChangeCountsFor(lastTurnPerceivedChanges, knowledge, lastTurn),

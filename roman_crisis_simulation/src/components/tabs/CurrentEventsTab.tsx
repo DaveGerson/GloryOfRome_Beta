@@ -1,14 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Entity } from '../../types';
 import { GoogleGenAI } from "@google/genai";
 import { getClarificationOnEvent } from '../../ai/tools/intelligence';
 import { WaxSeal, toRoman } from '../ui/Brand';
-import { Button } from '../ui/Core';
 import { Alert } from '../ui/Alert';
 import { SubRail } from '../ui/SubRail';
 import {
-    KnowledgeClaim, OCCURRENCE_QUESTIONS, OccurrenceQuestion, occurrenceFindings,
+    KnowledgeClaim, OCCURRENCE_QUESTIONS, OccurrenceQuestion, examinedOccurrences, occurrenceFindings,
 } from '../../knowledge/store';
+import { FocusKeepingButton } from './dramatisPersonaeUi';
 import { getTabRegister, setTabRegister } from '../../persistence/uiPrefs';
 import { EmptyRegister, QuietWeekSilhouette } from './EmptyRegister';
 import type { DomainMutationContext, RunDomainMutation } from '../../state/domainMutation';
@@ -48,16 +48,25 @@ const quiet: React.CSSProperties = { fontSize: 14, fontStyle: 'italic', color: '
 /**
  * What your agents brought back, in a register of its own — a Tyrian seal, a
  * kicker naming the question, and the body in italic behind a Tyrian rule.
+ * `landedSeq` is set on the finding that just came back: the question button
+ * the player pressed is gone once answered, so focus moves here rather than
+ * falling to the page body (WCAG 2.4.3).
  */
-const Finding: React.FC<{ kicker: string; text: string }> = ({ kicker, text }) => (
-    <div className="gor-finding">
-        <WaxSeal letter="A" size={20} tone="tyrian" />
-        <div style={{ minWidth: 0 }}>
-            <span className="gor-finding-kicker">Your agents · {kicker}</span>
-            <p className="gor-finding-body">{text}</p>
+const Finding: React.FC<{ kicker: string; text: string; landedSeq?: number }> = ({ kicker, text, landedSeq }) => {
+    const ref = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (landedSeq !== undefined) ref.current?.focus();
+    }, [landedSeq]);
+    return (
+        <div className="gor-finding" ref={ref} tabIndex={-1}>
+            <WaxSeal letter="A" size={20} tone="tyrian" />
+            <div style={{ minWidth: 0 }}>
+                <span className="gor-finding-kicker">Your agents · {kicker}</span>
+                <p className="gor-finding-body">{text}</p>
+            </div>
         </div>
-    </div>
-);
+    );
+};
 
 const CurrentEventsTab: React.FC<{
     events: string[];
@@ -82,6 +91,8 @@ const CurrentEventsTab: React.FC<{
     // reject out of a `void`ed promise: an unhandled rejection in the console
     // and, for the player, a "Seeking…" that simply vanished.
     const [failedOccurrence, setFailedOccurrence] = useState<string | null>(null);
+    // The finding that last came back, so focus can follow it (see Finding).
+    const [landed, setLanded] = useState<{ occurrence: string; question: OccurrenceQuestion; seq: number } | null>(null);
 
     const selectRegister = (next: EventRegister) => {
         setRegister(next);
@@ -106,7 +117,8 @@ const CurrentEventsTab: React.FC<{
                     ai, occurrence, QUESTIONS[question].prompt, playerEntity, allEntities, isMockMode,
                 );
                 if (!request.isCurrent()) return;
-                await onFinding(occurrence, question, text, request);
+                const committed = await onFinding(occurrence, question, text, request);
+                if (committed !== false) setLanded(previous => ({ occurrence, question, seq: (previous?.seq ?? 0) + 1 }));
             });
         } catch (error) {
             console.error('Error seeking the causes of an occurrence:', error);
@@ -118,27 +130,43 @@ const CurrentEventsTab: React.FC<{
 
     // "Examined" is the register that accumulates: every occurrence this reign
     // that the player has asked anything about, whether or not it is still in
-    // this week's cry.
-    const examinedThisWeek = events.filter(occurrence => occurrenceFindings(knowledge, occurrence).length > 0);
-    const shown = register === 'examined' ? examinedThisWeek : events;
+    // this week's cry - read from the knowledge store, newest asked first,
+    // because the week's cry is replaced every turn and what was paid for in
+    // attention persists for the reign.
+    const examined = examinedOccurrences(knowledge, events);
+    const shown = register === 'examined' ? examined : events;
 
     const slip = (occurrence: string, index: number) => {
         const findings = occurrenceFindings(knowledge, occurrence);
         const asked = new Set(findings.map(finding => finding.question));
         const isOpen = open.has(occurrence);
         const inFlight = seeking?.startsWith(`${occurrence}:`) ?? false;
+        const criedThisWeek = events.includes(occurrence);
+        const lastAskedTurn = findings.length > 0 ? Math.max(...findings.map(finding => finding.turn)) : null;
         return (
             <div key={`${occurrence}-${index}`} className="gor-card" style={{ padding: '10px 12px' }}>
-                <button type="button" onClick={() => toggle(occurrence)} aria-expanded={isOpen} style={{ all: 'unset', cursor: 'pointer', display: 'flex', gap: 10, alignItems: 'baseline', width: '100%' }}>
+                <button type="button" className="gor-bare-btn" onClick={() => toggle(occurrence)} aria-expanded={isOpen} style={{ cursor: 'pointer', display: 'flex', gap: 10, alignItems: 'baseline', width: '100%' }}>
                     <span aria-hidden="true" style={{ color: 'var(--gold-600)', flex: 'none' }}>❧</span>
                     <span style={{ fontSize: 15 }}>{occurrence}</span>
                 </button>
-                <span className="gor-slip-date">Cried in the forum · Week {toRoman(week)}</span>
+                {/* The calendar week belongs only to what was cried THIS week;
+                    an older occurrence is dated by the turn it was last asked
+                    about, the one stamp the store holds for it. */}
+                <span className="gor-slip-date">
+                    {criedThisWeek || lastAskedTurn === null
+                        ? `Cried in the forum · Week ${toRoman(week)}`
+                        : `Asked of your agents · Turn ${toRoman(lastAskedTurn)}`}
+                </span>
                 {inFlight && <span className="gor-slip-progress" aria-hidden="true" />}
                 {isOpen && (
                     <div className="gor-slip-open">
                         {findings.map(finding => (
-                            <Finding key={finding.question} kicker={QUESTIONS[finding.question].kicker} text={finding.text} />
+                            <Finding
+                                key={finding.question}
+                                kicker={QUESTIONS[finding.question].kicker}
+                                text={finding.text}
+                                landedSeq={landed && landed.occurrence === occurrence && landed.question === finding.question ? landed.seq : undefined}
+                            />
                         ))}
                         {inFlight && <span role="status" style={quiet}>Seeking…</span>}
                         {/* Same words as the dossier's failed request (useIntelGathering). */}
@@ -146,14 +174,17 @@ const CurrentEventsTab: React.FC<{
                             <Alert title="Your agents return empty-handed">The intelligence request could not be completed. Please try again.</Alert>
                         )}
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {/* Busy (a question in flight, or the desk locked)
+                                keeps the pressed button focusable: a disabled
+                                one would throw focus to the page body. */}
                             {OCCURRENCE_QUESTIONS.filter(question => !asked.has(question)).map(question => (
-                                <Button
+                                <FocusKeepingButton
                                     key={question}
-                                    size="sm"
                                     variant="ghost"
-                                    disabled={interactionLocked || seeking !== null || !playerEntity}
-                                    onClick={() => void ask(occurrence, question)}
-                                >{QUESTIONS[question].ask}</Button>
+                                    unaffordable={!playerEntity}
+                                    busy={interactionLocked || seeking !== null}
+                                    onPress={() => void ask(occurrence, question)}
+                                >{QUESTIONS[question].ask}</FocusKeepingButton>
                             ))}
                         </div>
                     </div>
@@ -170,7 +201,7 @@ const CurrentEventsTab: React.FC<{
                 onChange={selectRegister}
                 options={[
                     { value: 'week', label: 'This week', count: events.length },
-                    { value: 'examined', label: 'Examined', count: examinedThisWeek.length },
+                    { value: 'examined', label: 'Examined', count: examined.length },
                 ]}
             />
             {/* A standing instruction renders only when there is something to press. */}
@@ -179,7 +210,7 @@ const CurrentEventsTab: React.FC<{
                 <EmptyRegister
                     silhouette={<QuietWeekSilhouette />}
                     line={register === 'examined'
-                        ? 'You have put no questions to this week’s occurrences.'
+                        ? 'You have put no questions to any occurrence yet.'
                         : 'Nothing was cried in the forum this week.'}
                     hint={register === 'examined'
                         ? 'Press an occurrence and your agents will seek its causes.'

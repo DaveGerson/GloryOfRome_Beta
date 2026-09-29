@@ -67,9 +67,11 @@ describe('corroboration (audit item 35 — the signal D25 promises)', () => {
     expect(corroboration(group).verdict).toBe('conflict');
   });
 
-  it('does not call two accounts of DIFFERENT topics a conflict', () => {
+  it('calls two accounts of DIFFERENT topics neither a conflict nor an agreement', () => {
+    // Distinct matters about one subject do not corroborate each other: the
+    // verdict is read per topic, so this is a count of accounts, not "agree".
     const group = [report({ topic: 'praetorians', credibility: 0.9 }), report({ topic: 'grain', credibility: 0.2 })];
-    expect(corroboration(group).verdict).toBe('agree');
+    expect(corroboration(group).verdict).toBe('uncorroborated');
   });
 
   it('marks only the refuting account as contradicting the ones above it', () => {
@@ -107,7 +109,7 @@ describe('buildChronicleSpine (audit item 37 — a reign, not three entries)', (
     const spine = buildChronicleSpine(weeks, [fate(5, 'The Donative')]);
     expect(spine.map(row => row.marker)).toEqual(['fate', 'collapsed']);
     const collapsed = spine[1];
-    expect(collapsed.weekLabel).toBe('Weeks I–IV');
+    expect(collapsed.weekLabel).toBe('Turns I–IV');
     expect(collapsed.headline).toBe('4 quieter weeks');
     expect(collapsed.collapsed).toHaveLength(4);
   });
@@ -128,7 +130,7 @@ describe('buildChronicleSpine (audit item 37 — a reign, not three entries)', (
   it('runs newest week first and carries the order the player gave', () => {
     const weeks = [turn(1, 'One.'), turn(2, 'Two.')];
     const spine = buildChronicleSpine(weeks, []);
-    expect(spine[0].weekLabel).toBe('Week II');
+    expect(spine[0].weekLabel).toBe('Turn II');
     expect(spine[0].order).toBe('Order 2');
   });
 

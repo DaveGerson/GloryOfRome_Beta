@@ -370,7 +370,7 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
             // nothing.
             const playerAfterTurn = result.updatedEntities.find(e => e.entity_id === playerCharacterId) ?? null;
             const perceivedThisTurn = playerAfterTurn
-                ? buildPlayerPerceivedDigest(baseHistoryEntryWithState.adjudication.deltas, playerAfterTurn, result.updatedEntities, newWorldState)
+                ? buildPlayerPerceivedDigest(baseHistoryEntryWithState.adjudication.deltas, playerAfterTurn, result.updatedEntities, newWorldState, entities)
                 : [];
             const priorReportIds = new Set(reports.map(report => report.id));
             const reportsThisTurn = result.updatedReports.filter(report => !priorReportIds.has(report.id));
