@@ -391,6 +391,12 @@ function involvedOtherEntityIds(delta: EventDelta, viewer: Entity): string[] {
   return ids.filter((id): id is string => !!id && id !== viewer.entity_id);
 }
 
+/** Whether a viewer knows a figure at all: someone they hold a view of, or one of their contacts (npcPerception's figuresInViewOf reads the same). */
+function knowsFigure(viewer: Entity, entityId: string): boolean {
+  return Object.prototype.hasOwnProperty.call(viewer.relationships ?? {}, entityId)
+    || (viewer.visibility_network ?? []).includes(entityId);
+}
+
 /**
  * Classifies a single EventDelta from the viewer's point of view. The
  * viewer may be ANY Entity - the player character or an NPC; the rules
@@ -497,13 +503,15 @@ export function classifyDelta(
   if (delta.type === 'affiliation') {
     // D49 has its own rules, ahead of the generic ones: its holder always
     // knows; a change made in the open (a tie openly professed, or one going
-    // public or exposed) is public knowledge; a change made in secret is
-    // seen only by a witness in the room - never through a contact.
+    // public or exposed) is public knowledge to anyone who KNOWS the figure
+    // (their relationships or contacts - the same test the minds' "figures
+    // around you" uses), never an introduction to a stranger; anything else
+    // is seen only by a witness in the room - never through a contact.
     const effect = affiliationEffectFor(delta, entities, preTurnEntities);
     if (!effect) return { visible: false, source: null };
     const [holderId] = delta.key.split(':');
     if (holderId === viewer.entity_id) return { visible: true, source: 'self' };
-    if (effect.public) return { visible: true, source: 'public' };
+    if (effect.public && knowsFigure(viewer, holderId)) return { visible: true, source: 'public' };
     return entityLocation(holderId, entities) === viewer.location
       ? { visible: true, source: 'witnessed' }
       : { visible: false, source: null };

@@ -754,7 +754,7 @@ async function runNpcMindsStage(ctx: TurnContext, storyRelevance: StoryRelevance
                 // mind prompt renders separately (see
                 // selectUnrememberedChanges above).
                 perceivedChanges: selectUnrememberedChanges(
-                    buildPerceivedDigest(previousDeltas, npc, currentEntities, currentWorldState),
+                    buildPerceivedDigest(previousDeltas, npc, currentEntities, currentWorldState, previousEntry?.preTurnRoster),
                     npc.memories,
                     previousEntry?.turnNumber
                 ),
@@ -999,7 +999,7 @@ async function runMortalityStage(ctx: TurnContext, adjudicated: AdjudicationStag
         ctx.turnNumber,
         ctx.isMockMode,
         ctx.turnRng,
-        { trustedResolutionContext: adjudicated.trustedResolutionContext }
+        { trustedResolutionContext: adjudicated.trustedResolutionContext, hasObservableAttempt: ctx.narrationSubmission.hasObservableAttempt }
     );
     const proseRedactions = enforceNoAttemptBoundary(transformedAdjudication, playerEntity, ctx.narrationSubmission.hasObservableAttempt, ctx.currentEntities);
     return { transformedAdjudication, mortalityEvents, playerOutcomeDirective, proseRedactions };
@@ -1204,7 +1204,11 @@ async function runPlayerSurfacesStage(
     // chunk.
     const onNarrationChunk = options?.onNarrationChunk;
     const payloadTextExtractor = createPayloadTextExtractor();
-    const narrationPromise = noAttemptResponse
+    // A no-attempt turn is answered, not narrated - unless the world made an
+    // attempt on the player's life this turn: that settled fate is theirs,
+    // and D2 has the narration convey it (D46 - the world acts whether or
+    // not they do). The client sets the narration ahead of the answer.
+    const narrationPromise = noAttemptResponse && playerOutcomeDirective === undefined
         ? Promise.resolve<NarrationPayloadInterchange>({ text: '', actors: [] })
         : onNarrationChunk
             ? generateStructuredStream<NarrationPayloadInterchange>(ai, narrationRequest, (_rawJsonSoFar, chunkText) => {

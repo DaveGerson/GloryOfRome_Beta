@@ -442,10 +442,11 @@ export interface EventDelta {
      * On 'rumor' deltas: the entity_id of whoever originated
      * or is spreading the rumor. Omitted/empty when the rumor is organic
      * (no single attributable source). Renders only in GameMasterScreen.
-     * Also carried by a 'status'/'resource' delta keyed under the player
-     * (and a creditor's 'dependency_level' rise): the world entity acting
-     * ON them, which ai/core/playerBoundary.ts checks against the roster on
-     * a no-attempt turn (D46).
+     * Also carried by a 'status'/'resource'/'condition' delta keyed under
+     * the player, an 'affiliation' exposure of one of their secret ties (and
+     * a creditor's 'dependency_level' rise): the world entity acting ON
+     * them, which ai/core/playerBoundary.ts checks against the roster on a
+     * no-attempt turn (D46).
      */
     origin_id?: string;
     /**

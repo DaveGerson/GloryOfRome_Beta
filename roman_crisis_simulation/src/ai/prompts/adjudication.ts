@@ -94,7 +94,7 @@ PRINCIPLES:
     - seizing, confiscating, or fining what the player holds (or a gift pressed on them): a 'resource' delta keyed under the player, 'origin_id' naming who took or gave it;
     - a patron or ally turning against the player: 'relation' deltas keyed under that entity, i.e. their view of the player;
     - debt raising the indebted player's 'dependency_level' toward a creditor via a 'relation' delta keyed under the player (set its 'origin_id' to the creditor's entity_id, or omit it - never the player's id; see DEBT HAS TEETH);
-    - a lasting mark the world leaves on them: a 'condition' delta keyed under the player - a wound dealt, a grief suffered, never a mark of their own doing ('origin_id' names who dealt it, when someone did);
+    - a lasting mark the world leaves on them: a 'condition' delta keyed under the player, 'origin_id' naming who dealt it - a wound, a grief a rival's deed caused, never a mark of their own doing;
     - a secret tie of theirs laid bare by someone else: an 'affiliation' delta keyed under the player with change 'expose' and 'origin_id' naming the exposer - never 'join', 'leave' or 'go_public', which are the player's own acts;
     - rumors about the player ('origin_id' names the actual spreader, never the player).
     Phrase every such effect as the world's doing - the player's circumstances may change; the player does nothing. The player's own opinions of others ('trust_level', 'respect_level', 'perceived_threat', or 'ideological_alignment' keyed under the player) belong to the player alone: never emit them on a no-attempt turn.

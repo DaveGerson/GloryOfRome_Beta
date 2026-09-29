@@ -697,12 +697,18 @@ function assertNoLeaks(outcome: {
     ...client.systemInstructionsFor('npcMind').map((text, i) => ({ surface: `npcMind systemInstruction #${i}`, text })),
     ...client.promptsFor('privateScene').map((text, i) => ({ surface: `privateScene prompt #${i}`, text })),
   ];
-  const witnessedByAnyone = (name: string) => result.updatedEntities.some(entity =>
-    entity.entity_id !== playerId && entity.memories.some(memory => memory.event_description.includes(name)));
+  // Per NPC: a prompt may carry the tie only when ITS OWN character
+  // witnessed it (a mind prompt names its self by entity_id); one NPC's
+  // memory never exempts another's prompt.
+  const witnessedBy = (npcId: string | undefined, name: string) => npcId !== undefined && npcId !== playerId
+    && result.updatedEntities.some(entity => entity.entity_id === npcId
+      && entity.memories.some(memory => memory.event_description.includes(name)));
+  const selfIdOf = (text: string) => /\(entity_id: ([^)\s]+)\)/.exec(text)?.[1] ?? /"(?:npcId|npc_id)"\s*:\s*"([^"]+)"/.exec(text)?.[1];
   for (const tie of secretAffiliationsOf(player)) {
-    if (witnessedByAnyone(tie.name)) continue;
     for (const { surface, text } of npcFacing) {
-      if (text.includes(tie.name)) violations.push(`the player's secret tie "${tie.name}" leaked into ${surface}`);
+      if (text.includes(tie.name) && !witnessedBy(selfIdOf(text), tie.name)) {
+        violations.push(`the player's secret tie "${tie.name}" leaked into ${surface}`);
+      }
     }
   }
 

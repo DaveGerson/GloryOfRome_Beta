@@ -48,6 +48,7 @@
  */
 import type { Adjudication, Entity, EntityAction, EventDelta } from '../../types';
 import type { AdjudicationInterchange } from './actorsBoundary';
+import { affiliationIdOfDelta } from './affiliations';
 
 const PLAYER_ACTION_BOUNDARY_ERROR = 'AI output violated the player action boundary.';
 const PLAYER_MECHANICS_BOUNDARY_ERROR = 'AI output violated the player-visible mechanics boundary.';
@@ -633,12 +634,16 @@ const WORLD_DRIVEN_RELATION_ATTRIBUTES = new Set(['dependency_level']);
 
 /**
  * Delta types through which the world acts ON the player on any turn they
- * take (D46): an exile, arrest or attempt on their life ('status') and a
- * seizure, fine or gift ('resource'). Keyed under the player they are the
+ * take (D46): an exile, arrest or attempt on their life ('status'), a
+ * seizure, fine or gift ('resource'), and a lasting mark dealt them - a
+ * wound, a grief (D48 'condition'). Keyed under the player they are the
  * world's doing only when their origin is a real non-player entity - see
- * `isWorldOrigin`.
+ * `isWorldOrigin`. (An exposure of a tie, D49, has its own rule below.)
  */
-const WORLD_ACTS_ON_PLAYER_DELTA_TYPES = new Set<EventDelta['type']>(['status', 'resource']);
+const WORLD_ACTS_ON_PLAYER_DELTA_TYPES = new Set<EventDelta['type']>(['status', 'resource', 'condition']);
+
+/** The pre-turn cast the carve-out reads: ids, and each entity's ties for an exposure. */
+type BoundaryRoster = readonly (Pick<Entity, 'entity_id'> & Partial<Pick<Entity, 'affiliations'>>)[];
 
 /**
  * TRUE when `originId` names an entity on the roster that is not the
@@ -649,7 +654,7 @@ const WORLD_ACTS_ON_PLAYER_DELTA_TYPES = new Set<EventDelta['type']>(['status', 
 function isWorldOrigin(
   originId: string | null | undefined,
   player: PlayerIdentity,
-  roster: readonly Pick<Entity, 'entity_id'>[],
+  roster: BoundaryRoster,
 ): boolean {
   if (!originId || samePlayerIdentity(originId, player)) return false;
   return roster.some(entity => entity.entity_id === originId);
@@ -663,7 +668,7 @@ function isWorldOrigin(
 export function playerOwnsDelta(
   delta: EventDelta,
   player: PlayerIdentity,
-  roster: readonly Pick<Entity, 'entity_id'>[] = [],
+  roster: BoundaryRoster = [],
 ): boolean {
   // A rumor's key is its subject, not its author. Only a player origin (or
   // player-attributed prose, checked separately) makes it player-authored.
@@ -680,15 +685,21 @@ export function playerOwnsDelta(
   if (WORLD_ACTS_ON_PLAYER_DELTA_TYPES.has(delta.type) && isWorldOrigin(delta.origin_id, player, roster)) {
     return false;
   }
-  // A lasting mark (D48) is something that befalls its bearer - a wound
-  // dealt, a grief suffered - so its key names who bears it, not who acted:
-  // like the world-leverage relation, only a player origin claims it.
-  if (delta.type === 'condition') return samePlayerIdentity(delta.origin_id, player);
-  // A tie EXPOSED (D49) is laid bare by someone else - the world acting on
-  // its holder - so it too is the player's only through a player origin.
-  // Joining, leaving or avowing a tie is its holder's own act and stays
-  // keyed to them below.
-  if (delta.type === 'affiliation' && delta.affiliation?.change === 'expose') return samePlayerIdentity(delta.origin_id, player);
+  // A tie EXPOSED (D49) is laid bare by someone else. Of the player's own,
+  // that is the world acting on them (D46) only when a named world figure
+  // does it AND the player held that tie in secret as the turn began -
+  // otherwise "exposing" a tie they never held would be joining it by the
+  // back door. Of anyone else's, it is the player's act only through a
+  // player origin. Joining, leaving or avowing a tie is its holder's own
+  // act and stays keyed to them below.
+  if (delta.type === 'affiliation' && delta.affiliation?.change === 'expose') {
+    const [holderId] = delta.key.split(':');
+    if (!samePlayerIdentity(holderId, player)) return samePlayerIdentity(delta.origin_id, player);
+    const id = affiliationIdOfDelta(delta);
+    const heldInSecret = roster.some(entity => samePlayerIdentity(entity.entity_id, player)
+      && (entity.affiliations ?? []).some(tie => tie.id === id && !tie.public));
+    return !(heldInSecret && isWorldOrigin(delta.origin_id, player, roster));
+  }
   if (samePlayerIdentity(delta.origin_id, player)) return true;
   const [rootEntityId] = delta.key.split(':');
   return samePlayerIdentity(rootEntityId, player);
@@ -785,7 +796,7 @@ export function assertNoInventedPlayerAction(
   adjudication: AdjudicationInterchange | Adjudication,
   player: PlayerIdentity,
   hasObservableAttempt: boolean,
-  roster: readonly Pick<Entity, 'entity_id'>[] = [],
+  roster: BoundaryRoster = [],
 ): void {
   if (hasObservableAttempt) return;
 

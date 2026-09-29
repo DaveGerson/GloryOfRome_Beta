@@ -2246,6 +2246,7 @@ describe('ai/core/turn.ts runNewTurn - the world acts ON the player on a no-atte
         narrative_directive: 'The Emperor survives the blade, but the price of it lingers.',
       }],
     }));
+    h.response.narration.resolve(narrationPayloadJson); // the settled fate is told
 
     const result = await runNewTurn(
       h.ai, questionOnly, player, 2, [player, thrax], worldWithTomis, simulationState,
@@ -2262,6 +2263,61 @@ describe('ai/core/turn.ts runNewTurn - the world acts ON the player on a no-atte
     expect(updatedPlayer?.resources.denarii).toBe(700);
   });
 
+  it('keeps a no-attempt fate\'s cost the world\'s doing: a mark inherits the attempt\'s origin, the player\'s own opinions and scheme are dropped, and the fate is narrated', async () => {
+    mockRoll(8); // survive_with_loss
+    const h = createHarness(false);
+    const player = makeEntity();
+    const thrax = makeEntity({ entity_id: 'npc_thrax', name: 'Maximinus Thrax' });
+    scriptWorldTurn(h, [{
+      type: 'status', key: 'player_1', delta: 0, reason: 'Thrax\'s assassin strikes at the Emperor in the baths.',
+      new_status: 'dead', origin_id: 'npc_thrax', actors: ['npc_thrax'],
+    }]);
+    h.response.mortalityValidation.resolve(JSON.stringify({
+      dispositions: [{ entity_id: 'player_1', valid: true, reasoning: 'Thrax has means and motive.' }],
+    }));
+    h.response.mortalityOutcome.resolve(JSON.stringify({
+      outcomes: [{
+        entity_id: 'player_1',
+        deltas: [
+          { type: 'condition', key: 'player_1:blade_scar', delta: 0, reason: 'The blade leaves its mark.', actors: [],
+            condition: { change: 'add', name: 'a scar from the baths', description: 'A long pale seam across the ribs.', outward: true, severity: 'serious' } },
+          { type: 'relation', key: 'player_1:npc_thrax:trust_level', delta: -5, reason: 'He trusts Thrax no more.', actors: [] },
+          { type: 'scheme', key: 'player_1', delta: 0, reason: 'null', actors: [] },
+        ],
+        narrative_directive: 'The Emperor survives the blade, and bears its mark.',
+      }],
+    }));
+    h.response.narration.resolve(narrationPayloadJson);
+
+    const result = await runNewTurn(
+      h.ai, questionOnly, player, 2, [player, thrax], worldWithTomis, simulationState,
+      [], [], [], [], '', false, 'Grim political thriller',
+    );
+
+    const updatedPlayer = result.updatedEntities.find(e => e.entity_id === 'player_1');
+    expect(updatedPlayer?.status).toBe('alive');
+    expect(updatedPlayer?.conditions?.map(c => c.name)).toEqual(['a scar from the baths']);
+    expect(updatedPlayer?.relationships.npc_thrax?.trust_level).toBe(player.relationships.npc_thrax?.trust_level);
+    expect(result.newHistoryEntry.adjudication.gm_private.filter(note => note.includes('DROPPED'))).toHaveLength(2);
+    // The settled fate is told, even on a turn that is otherwise only answered.
+    expect(h.order).toContain('narration');
+    expect(result.narration).toBeTruthy();
+  });
+
+  it('still refuses a world mark on an idle player with no world origin', async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+    const thrax = makeEntity({ entity_id: 'npc_thrax', name: 'Maximinus Thrax' });
+    scriptWorldTurn(h, [{
+      type: 'condition', key: 'player_1:limp', delta: 0, reason: 'A limp.', actors: [],
+      condition: { change: 'add', name: 'a limp', description: 'An old wound aches.', outward: true, severity: 'light' },
+    }]);
+    await expect(runNewTurn(
+      h.ai, questionOnly, player, 2, [player, thrax], worldWithTomis, simulationState,
+      [], [], [], [], '', false, 'Grim political thriller',
+    )).rejects.toThrow('player action boundary');
+  });
+
   it('a world-origin death claim the roll upholds kills the player: the save decides, not the gate', async () => {
     mockRoll(3); // dies
     const h = createHarness(false);
@@ -2274,6 +2330,7 @@ describe('ai/core/turn.ts runNewTurn - the world acts ON the player on a no-atte
     h.response.mortalityValidation.resolve(JSON.stringify({
       dispositions: [{ entity_id: 'player_1', valid: true, reasoning: 'Thrax has means and motive.' }],
     }));
+    h.response.narration.resolve(narrationPayloadJson); // the settled fate is told
 
     const result = await runNewTurn(
       h.ai, questionOnly, player, 2, [player, thrax], worldWithTomis, simulationState,

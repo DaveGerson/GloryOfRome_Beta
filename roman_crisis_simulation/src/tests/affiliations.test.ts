@@ -35,6 +35,7 @@ import {
   makeAdjudication,
   makeEntity as baseMakeEntity,
   makeLegacySaveState,
+  makeRelationship,
   makeSimulationState,
 } from './factories';
 
@@ -140,13 +141,19 @@ describe('D49 perception: an open tie is public knowledge, a secret one is seen 
     expect(classifyDelta(viaContact[0], second.after[0], second.after, world, second.before)).toEqual({ visible: false, source: null });
   });
 
-  it('an open change is public knowledge wherever it happens; leaving, avowing and exposure read as such', () => {
+  it('an open change is public knowledge to whoever knows the figure; leaving, avowing and exposure read as such', () => {
     const openJoin = [tieDelta('distant:boosters', { change: 'join', name: 'the boosters of the triumph', kind: 'cause', public: true })];
-    const joined = turn(openJoin);
+    // Anyone who knows the figure knows an openly professed tie (D49) - but
+    // news of a stranger is no introduction: the player who has never heard
+    // of Far Senator learns nothing of him from it.
+    const stranger = turn(openJoin);
+    expect(buildPlayerPerceivedDigest(openJoin, stranger.after[0], stranger.after, world, stranger.before)).toEqual([]);
+    const acquainted = [{ ...player, relationships: { distant: makeRelationship() } }, courtier, spy, distant];
+    const joined = turn(openJoin, acquainted);
     expect(buildPlayerPerceivedDigest(openJoin, joined.after[0], joined.after, world, joined.before)[0])
       .toMatchObject({ source: 'public', text: 'Far Senator is now openly of the boosters of the triumph.' });
 
-    const holder = [player, courtier, spy, { ...distant, affiliations: [{ ...npcSecret }, { id: 'boosters', name: 'the boosters of the triumph', kind: 'cause' as const, public: true }] }];
+    const holder = [acquainted[0], courtier, spy, { ...distant, affiliations: [{ ...npcSecret }, { id: 'boosters', name: 'the boosters of the triumph', kind: 'cause' as const, public: true }] }];
     const leave = [tieDelta('distant:boosters', { change: 'leave' })];
     const left = turn(leave, holder);
     expect(buildPlayerPerceivedDigest(leave, left.after[0], left.after, world, toPreTurnRoster(holder))[0].text)
@@ -173,7 +180,9 @@ describe('D49 perception: an open tie is public knowledge, a secret one is seen 
     const exposed = turn(expose);
     expect(buildPlayerPerceivedDigest(expose, exposed.after[0], exposed.after, world, roster)[0].text)
       .toBe(`Your hidden tie to ${PLAYER_SECRET} stands exposed.`);
-    expect(buildPerceivedDigest(expose, exposed.after[3], exposed.after, world, roster)[0].source).toBe('public');
+    // Every viewer who knows the player hears of it.
+    const knowsPlayer = { ...exposed.after[3], relationships: { player: makeRelationship() } };
+    expect(buildPerceivedDigest(expose, knowsPlayer, exposed.after, world, roster)[0].source).toBe('public');
     const restate = [tieDelta('player:state_cult', { change: 'join', name: 'the gods of the Roman state', kind: 'religion', public: true })];
     const restated = turn(restate);
     expect(buildPlayerPerceivedDigest(restate, restated.after[0], restated.after, world, roster)).toEqual([]);
@@ -285,9 +294,20 @@ describe('D49 prompts: the GM knows every tie; a mind and a scene never the play
 });
 
 describe('D49 player boundary: joining is the holder\'s act, exposure the world\'s', () => {
-  it('an exposure keyed under the player is theirs only through a player origin; a join, leave or avowal is theirs', () => {
-    expect(playerOwnsDelta(tieDelta('player:player_secret', { change: 'expose' }, 'Laid bare.', { origin_id: 'distant' }), player)).toBe(false);
-    expect(playerOwnsDelta(tieDelta('player:player_secret', { change: 'expose' }), player)).toBe(false);
+  it('an exposure of the player\'s tie is the world\'s only from a named world figure, of a tie they held in secret; a join, leave or avowal is theirs', () => {
+    const expose = (key: string, extra: Partial<EventDelta> = {}) => tieDelta(key, { change: 'expose', name: 'the cult of Isis', kind: 'cult' }, 'Laid bare.', extra);
+    expect(playerOwnsDelta(expose('player:player_secret', { origin_id: 'distant' }), player, roster)).toBe(false);
+    // No origin, an origin off the roster, or no roster to check against: theirs, so refused on a no-attempt turn.
+    expect(playerOwnsDelta(expose('player:player_secret'), player, roster)).toBe(true);
+    expect(playerOwnsDelta(expose('player:player_secret', { origin_id: 'npc_invented' }), player, roster)).toBe(true);
+    expect(playerOwnsDelta(expose('player:player_secret', { origin_id: 'distant' }), player)).toBe(true);
+    // "Exposing" a tie the player never held would be joining it by the back door.
+    expect(playerOwnsDelta(expose('player:cult_of_isis', { origin_id: 'distant' }), player, roster)).toBe(true);
+    // Nor is an openly professed tie any secret to expose.
+    expect(playerOwnsDelta(expose('player:state_cult', { origin_id: 'distant' }), player, roster)).toBe(true);
+    // Someone else's tie, exposed: the player's act only through a player origin.
+    expect(playerOwnsDelta(expose('distant:npc_secret'), player, roster)).toBe(false);
+    expect(playerOwnsDelta(expose('distant:npc_secret', { origin_id: 'player' }), player, roster)).toBe(true);
     expect(playerOwnsDelta(tieDelta('player:x', { change: 'join', name: 'x' }), player)).toBe(true);
     expect(playerOwnsDelta(tieDelta('player:player_secret', { change: 'go_public' }), player)).toBe(true);
   });

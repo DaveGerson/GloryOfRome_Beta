@@ -410,6 +410,10 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
             });
             let finalNarration = result.narration;
             let finalAdjudication = baseHistoryEntryWithState.adjudication;
+            // On a no-attempt turn the narration is empty unless the world made
+            // an attempt on the player's life (ai/core/turn.ts): then that fate
+            // is told first, and the answer or acknowledgement follows it.
+            const withSettledFate = (reply: string) => result.narration.trim() ? `${result.narration.trim()}\n\n${reply}` : reply;
             if (noAttemptResponse?.kind === 'question') {
                 const evidence = buildNoAttemptEvidence(newKnowledge);
                 const selection = await selectNoAttemptEvidence(
@@ -419,7 +423,7 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
                     isMockMode,
                 );
                 if (!transaction.isCurrent() || !turnSnapshotIsCurrent()) return;
-                finalNarration = renderNoAttemptResponse(selection);
+                finalNarration = withSettledFate(renderNoAttemptResponse(selection));
                 if (selection.kind === 'no_answer'
                     && (selection.reason === 'invalid_selection' || selection.reason === 'selector_failure')) {
                     finalAdjudication = {
@@ -431,7 +435,7 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
                     };
                 }
             } else if (noAttemptResponse?.kind === 'private_intent') {
-                finalNarration = PRIVATE_INTENT_ACKNOWLEDGEMENT;
+                finalNarration = withSettledFate(PRIVATE_INTENT_ACKNOWLEDGEMENT);
             }
 
             const historyEntryWithState = {

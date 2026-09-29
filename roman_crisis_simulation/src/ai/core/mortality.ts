@@ -60,6 +60,14 @@ interface DeathClaim {
  */
 export interface MortalityValidationContext {
   trustedResolutionContext?: string;
+  /**
+   * False on a turn the player attempted nothing (D46): the world may still
+   * make an attempt on their life, but the fate's cost then lands only as
+   * what the world does to them - never as an opinion, scheme or act of
+   * their own, which the no-attempt boundary would refuse. Omitted = the
+   * player acted.
+   */
+  hasObservableAttempt?: boolean;
 }
 
 /**
@@ -298,6 +306,7 @@ export async function processMortality(
         cause: r.originalCause,
         entityBrief: getEntityBrief(r.claim.entity),
       })),
+      playerIdle: validationContext.hasObservableAttempt === false,
     });
 
     const outcomeResult = await generateStructured<MortalityOutcomeInterchange>(ai, {
@@ -431,15 +440,30 @@ export async function processMortality(
       if (unauthorized.length > 0) {
         throw new Error(MORTALITY_OUTCOME_BOUNDARY_ERROR);
       }
-      // The loss or boon a fate leaves on what the candidate holds is the
-      // doing of whoever made the attempt, so an origin-less resource
-      // delta inherits the claim's. On a no-attempt turn this is what lets
-      // the world's attempt on the player commit its cost (D46); the
-      // post-mortality gate still checks that origin against the roster.
+      // On a turn the player attempted nothing (D46), a fate's cost to the
+      // player is what the world does to them - a lost holding, a mark,
+      // another's view of them. Their own opinions or scheme would be an
+      // act of theirs, which the no-attempt boundary refuses; drop those
+      // here rather than fail the whole turn after every call was made.
+      const idlePlayer = claim.isPlayer && validationContext.hasObservableAttempt === false;
+      const ownAct = (delta: EventDelta) => (delta.type === 'relation' && delta.key.split(':')[0] === claim.entity.entity_id)
+        || (delta.type === 'scheme' && delta.key === claim.entity.entity_id);
+      const kept = idlePlayer ? safe.filter(delta => !ownAct(delta)) : safe;
+      for (const dropped of idlePlayer ? safe.filter(ownAct) : []) {
+        gmPrivateNotes.push(
+          `[Mortality] ${entityLabel}: DROPPED a '${dropped.type}' delta authored by the outcome call (key: ${dropped.key}) - on a turn the player attempted nothing, a fate's cost to them is the world's doing, never an opinion or scheme of their own (D46).`
+        );
+      }
+      // The loss or boon a fate leaves on the candidate - what they hold,
+      // the marks they bear - is the doing of whoever made the attempt, so
+      // an origin-less resource or condition delta inherits the claim's. On
+      // a no-attempt turn this is what lets the world's attempt on the
+      // player commit its cost (D46); the post-mortality gate still checks
+      // that origin against the roster.
       const claimOrigin = claim.delta.origin_id;
-      extraDeltas.push(...safe.map(delta =>
-        delta.type === 'resource' && !delta.origin_id && claimOrigin ? { ...delta, origin_id: claimOrigin } : delta));
-      authoredSideEffects = safe.length;
+      extraDeltas.push(...kept.map(delta =>
+        (delta.type === 'resource' || delta.type === 'condition') && !delta.origin_id && claimOrigin ? { ...delta, origin_id: claimOrigin } : delta));
+      authoredSideEffects = kept.length;
       for (const dropped of rejected) {
         gmPrivateNotes.push(
           `[Mortality] ${entityLabel}: REJECTED a 'status' delta authored by the outcome call (key: ${dropped.key}) - status changes may only come from the validated fate roll.`

@@ -94,6 +94,8 @@ export interface MortalityOutcomeCandidate {
 
 export interface MortalityOutcomePromptInput {
   candidates: MortalityOutcomeCandidate[];
+  /** True on a turn the player attempted nothing (D46): their cost may only be the world's doing. */
+  playerIdle?: boolean;
 }
 
 /** Per-band authoring guidance, keyed by the exact band strings from ai/core/resolution.ts. */
@@ -146,7 +148,7 @@ OUTPUT: A single JSON object per the schema. Do not include any explanatory text
 export function buildMortalityOutcomePrompt(
   input: MortalityOutcomePromptInput
 ): { systemInstruction: string; prompt: string } {
-  const { candidates } = input;
+  const { candidates, playerIdle } = input;
 
   const prompt = `
 CANDIDATES (fate band already decided by a hidden roll - narrate/apply content only, do not change the band):
@@ -154,7 +156,8 @@ ${candidates
   .map(
     c => `- entity_id: "${c.entity_id}" (${c.isPlayer ? 'PLAYER CHARACTER' : 'NPC'}), band: "${c.band}"
   Original claimed cause: "${c.cause}"
-  Entity brief: ${c.entityBrief}`
+  Entity brief: ${c.entityBrief}${c.isPlayer && playerIdle ? `
+  The player attempted nothing this turn: the world acted on them. Author their cost or gain only as the world's doing - a 'resource' or 'condition' delta keyed under them, or another figure's view of them (a 'relation' keyed under that figure) - never their own opinion of anyone or a scheme of theirs.` : ''}`
   )
   .join('\n')}
 `;

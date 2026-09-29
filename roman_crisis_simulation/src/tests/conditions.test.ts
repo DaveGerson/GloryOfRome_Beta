@@ -376,10 +376,14 @@ describe('D48 mortality: a loss band\'s loss is a removed asset and/or a conditi
 });
 
 describe('D48 player boundary: a mark befalls its bearer', () => {
-  it('a condition keyed under the player is the world acting on them - theirs only through a player origin', () => {
+  it('a condition keyed under the player is the world acting on them only from a named world origin (D46)', () => {
     const wound = conditionDelta('player:scar', { change: 'add', name: 'a scar' });
-    expect(playerOwnsDelta(wound, player)).toBe(false);
-    expect(playerOwnsDelta({ ...wound, origin_id: 'player' }, player)).toBe(true);
+    const roster = [player, makeEntity({ entity_id: 'thrax', name: 'Maximinus Thrax' })];
+    expect(playerOwnsDelta({ ...wound, origin_id: 'thrax' }, player, roster)).toBe(false);
+    // No origin, an origin off the roster, or the player's own: theirs, so refused on a no-attempt turn.
+    expect(playerOwnsDelta(wound, player, roster)).toBe(true);
+    expect(playerOwnsDelta({ ...wound, origin_id: 'npc_invented' }, player, roster)).toBe(true);
+    expect(playerOwnsDelta({ ...wound, origin_id: 'player' }, player, roster)).toBe(true);
   });
 
   it('on a no-attempt turn a description inventing the player\'s conduct is cut; the mark stays', () => {
