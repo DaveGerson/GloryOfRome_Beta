@@ -14,9 +14,10 @@ import { renderHook } from './renderHook';
 import { lastGmNarrationOf, pulsingTabsFor, tabChangeCountsFor } from '../hooks/usePlayerPerception';
 import { useOnboarding } from '../hooks/useOnboarding';
 import { hasSeenOnboarding } from '../persistence/onboarding';
-import { GameState, type KnownRecipientOption, type StructuredTurnDraft, type TurnSubmission } from '../types';
+import { GameState, type KnownRecipientOption, type Report, type StructuredTurnDraft, type TurnSubmission } from '../types';
 import { emptyStructuredDraft } from '../playerInput/composerState';
-import { makeKnowledgeClaim, makePerceivedChange, makeTurnHistoryEntry } from './factories';
+import { computeTurnKnowledge } from '../knowledge/commit';
+import { makeEntity, makeKnowledgeClaim, makePerceivedChange, makeTurnHistoryEntry } from './factories';
 
 const executeTurn = vi.fn<(submission: TurnSubmission, draft: string | StructuredTurnDraft) => Promise<boolean>>(
     async () => true,
@@ -92,6 +93,34 @@ describe('tabChangeCountsFor', () => {
         ], lastTurn);
         expect(counts.get('dramatis_personae')).toBe(2);
         expect(tabChangeCountsFor([], [makeKnowledgeClaim({ firstLearnedTurn: 5, relationshipObservation: observation })], null).size).toBe(0);
+    });
+
+    it('counts the player\'s own treasury notices on Reports, one per notice the week brought, and never a rumor twice', () => {
+        const player = makeEntity({ entity_id: 'player_1', name: 'Gaius Testus' });
+        const notice = (id: string, turn: number, claim: string): Report => ({
+            id, turn, source: 'merchant', about: player.entity_id, claim, credibility: 1,
+        });
+        const rumor: Report = { id: 'r_rumor', turn: 5, source: 'rumor', about: 'npc_thrax', claim: 'Thrax is said to be ill.', credibility: 0.5, topic: 'health' };
+        // An older notice, then this week's: the same claim restated, plus a rumor.
+        const before = computeTurnKnowledge({
+            prev: [], perceivedChanges: [], reportsBefore: [],
+            reportsAfter: [notice('r_low_3', 3, 'Your treasury has fallen low.')], turnNumber: 3,
+        });
+        const reportsBefore = [notice('r_low_3', 3, 'Your treasury has fallen low.')];
+        const knowledge = computeTurnKnowledge({
+            prev: before, perceivedChanges: [], reportsBefore,
+            reportsAfter: [...reportsBefore, notice('r_debt_5', 5, 'Your coffers run dry.'), notice('r_low_5', 5, 'Your treasury has fallen low.'), rumor],
+            turnNumber: 5,
+        });
+        // The rumor reaches Reports through the digest's own line; the merchant notices never do.
+        const rumorLine = makePerceivedChange({ deltaType: 'rumor', tabs: ['reports'] });
+
+        expect(tabChangeCountsFor([rumorLine], knowledge, lastTurn).get('reports')).toBe(3);
+        expect(tabChangeCountsFor([], knowledge, lastTurn).get('reports')).toBe(2);
+        // A week that brought no notice leaves the older one uncounted.
+        expect(tabChangeCountsFor([], before, lastTurn).has('reports')).toBe(false);
+        expect(tabChangeCountsFor([], knowledge, null).size).toBe(0);
+        expect([...tabChangeCountsFor([], knowledge, lastTurn).keys()]).toEqual([...pulsingTabsFor([], knowledge, lastTurn)]);
     });
 
     it('names exactly the tabs pulsingTabsFor pulses - a count never appears where no pulse would', () => {

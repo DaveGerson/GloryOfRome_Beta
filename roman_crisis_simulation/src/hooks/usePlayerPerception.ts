@@ -52,7 +52,13 @@ const INVESTIGATION_EVIDENCE = /^(?:turn:\d+:)?investigation:/;
  * week itself brought. One drawn from an investigation the player bought in
  * the interlude is stamped with the week then in hand (useIntelCommits), so
  * it would otherwise be counted as new again once that week is sent, though
- * the player bought it and read it already. A tab with nothing new is absent.
+ * the player bought it and read it already. Reports also counts the
+ * player's own treasury notices (the merchant's debt and low-treasury
+ * Reports, ai/core/resources.ts): they are minted by the engine, never pass
+ * through the digest, and would otherwise arrive with no coin (B14). One per
+ * notice the committed week brought, as each is a card of its own; rumors
+ * already count through the digest, so only the merchant source is read. A
+ * tab with nothing new is absent.
  */
 export function tabChangeCountsFor(
     perceivedChanges: readonly PerceivedChange[],
@@ -70,6 +76,14 @@ export function tabChangeCountsFor(
             && !INVESTIGATION_EVIDENCE.test(claim.relationshipObservation.evidenceId)
         ).length;
         if (observations > 0) bump('dramatis_personae', observations);
+        // A report claim's updates carry the commit's turn (knowledge/commit.ts),
+        // so a notice created or restated this week is an update stamped with it.
+        const treasuryNotices = knowledge
+            .filter(claim => claim.claimKey.startsWith('report:'))
+            .flatMap(claim => claim.updates)
+            .filter(update => update.source === 'merchant' && update.turn === lastTurn.turnNumber)
+            .length;
+        if (treasuryNotices > 0) bump('reports', treasuryNotices);
     }
     return counts;
 }
