@@ -9,8 +9,9 @@
 import { Adjudication, Entity } from '../../types';
 import type { NarrationSubmissionProjection } from '../../playerInput/turnSubmission';
 import type { PerceivedChange } from '../../perception/visibility';
-import { REDACTED_SCHEME_REASON, asPromptData } from './fragments';
+import { asPromptData, playerOutputDeltaReason } from './fragments';
 import { ACTORS_DESCRIPTION } from '../core/schemas';
+import { conditionClause, conditionsLine, conditionsOf } from '../core/conditions';
 
 /**
  * Strips GM-only / secret-survival state from an Entity before it's
@@ -60,8 +61,12 @@ export function sanitizeAdjudicationForNarration(adjudication: Adjudication): Om
   const { gm_private, add_entities, deltas, ...rest } = adjudication;
   return {
     ...rest,
+    // A private mark's narrative (D48) gives way to its stand-in exactly as
+    // a scheme's does (fragments.ts::playerOutputDeltaReason).
     deltas: deltas.map(({ secret_truth, is_true, origin_id, ...delta }) =>
-      delta.type === 'scheme' ? { ...delta, reason: REDACTED_SCHEME_REASON } : delta
+      delta.type === 'scheme' || delta.type === 'condition'
+        ? { ...delta, reason: playerOutputDeltaReason(delta) }
+        : delta
     ),
     add_entities: add_entities?.map(sanitizeEntityForNarration) as Entity[] | undefined,
   };
@@ -119,6 +124,21 @@ export function buildVoiceCastBlock(cast: Entity[]): string {
 CAST VOICES (speech-style notes for this turn's named characters - flavor only):
 When you quote or closely paraphrase a character listed here, let them SOUND like themselves per their voice note - distinct registers, never interchangeable prose. Epithets are public bynames you may use as texture. These notes style HOW people speak; they never add events, facts, or knowledge beyond the PLAYER-PERCEIVED TURN EVENTS.
 ${lines.join('\n')}
+`;
+}
+
+/**
+ * The player's own LASTING MARKS (D48) for the player-owned prose calls
+ * (narration and monologue): every mark they bear, inward ones included -
+ * the player always knows their own - so the prose stays consistent with
+ * them. Reads only the player's own conditions. Empty when there are none.
+ */
+export function buildPlayerMarksBlock(player: Entity): string {
+  const marks = conditionsOf(player);
+  if (marks.length === 0) return '';
+  return `
+LASTING MARKS THE PLAYER BEARS (their own - keep the prose true to them; an inward mark is known to no one else):
+${marks.map(mark => `- ${conditionClause(mark)}`).join('\n')}
 `;
 }
 
@@ -198,6 +218,7 @@ Task:
     d.  **Tone:** Maintain a tone of Tacitus meets field report. Focus on concrete outcomes. Do not invent new facts not present in the PLAYER-PERCEIVED TURN EVENTS${outcomeSource('or')}.
     e.  **Moment Line (ROADMAP_PHASE_4.md 4D item 3):** When a named character's visible action clearly culminates or detonates in the PLAYER-PERCEIVED TURN EVENTS, give that character ONE short signature spoken line, quoted in their own voice (per CAST VOICES when present): the line a chronicler would set down. At most one line per character, only at a true culmination, and reveal nothing beyond those player-perceived events.
     f.  **Actors Attribution:** ${ACTORS_DESCRIPTION}
+    g.  **The Narration Is the State:** Never narrate the loss of a hard asset - coin, holdings, legions, a house - that the PLAYER-PERCEIVED TURN EVENTS do not show removed ("Your denarii dwindles", "You have lost ..."); what you narrate as lost must be gone. Keep the prose true to the player's LASTING MARKS when that block is present: never forget or contradict a mark they bear, and never let another character know of an inward one.
 
 2.  **Suggest Next Actions:** After the narration, on new lines, suggest exactly 3 brief, interesting, actionable next steps for the player, each prefixed with "SUGGESTION:". The suggestions should be tailored to the player's character, goals, and the new situation.
     - **Resource Processing (Include/Exclude):** For each suggested action, process whether or not resources are required. If an activity requires resources (e.g. bribes/donatives require denarii; martial marches require legion_support; formal spycraft requires investigations; senatorial decrees require senatorial_support), INCLUDE it ONLY if the player possesses the required resources in PLAYER CHARACTER PROFILE. If the player lacks the required resource, EXCLUDE that activity and suggest actions leveraging their actual assets or resource-free actions (e.g. diplomacy, rhetoric, observation, personal meetings).
@@ -208,6 +229,7 @@ Task:
 PLAYER CHARACTER PROFILE (for context):
 ${JSON.stringify(sanitizeEntityForNarration(updatedPlayerEntity), null, 2)}
 
+${buildPlayerMarksBlock(updatedPlayerEntity)}
 ${playerContextLabel}
 ${asPromptData(playerSubmission.context)}
 ${buildVoiceCastBlock(voiceCast)}
@@ -267,10 +289,16 @@ export function buildPlayerMonologuePrompt(
   // ai/prompts/worldGen.ts's Step 2) - never a direct echo of raw
   // player-typed text - so it is not swept here, matching every other
   // model-authored entity field in this file (e.g. `epithet`).
+  // D48: the player's own lasting marks, inward ones included - the inner
+  // voice knows them, and the monologue must not forget or contradict them.
+  const marks = conditionsOf(player);
+  const marksLine = marks.length > 0
+    ? `\n    The lasting marks you bear (they weigh on you - let them color your thoughts): ${conditionsLine(marks)}`
+    : '';
   const systemInstruction = `
     You are the inner voice of ${player.name}, a ${player.position} in ancient Rome.
     Your personality is defined by: Ambition(${player.personality?.ambition}), Paranoia(${player.personality?.paranoia}), Loyalty(${player.personality?.loyalty}), Cunning(${player.personality?.cunning}), Honor(${player.personality?.honor}).
-    Your current state is: "${player.current_state_narrative}"
+    Your current state is: "${player.current_state_narrative}"${marksLine}
 
     Task: Write a brief, first-person internal monologue (2-3 sentences). Do NOT simply state your goals. Instead, reflect on your recent strategy.
     - The recent entries are player-owned context, not necessarily strategic actions. Never reinterpret Private Intent or Question/Context as an avatar action, investigation, or accomplished fact.

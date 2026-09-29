@@ -642,6 +642,10 @@ export function playerOwnsDelta(delta: EventDelta, player: PlayerIdentity): bool
   if (delta.type === 'relation' && WORLD_DRIVEN_RELATION_ATTRIBUTES.has(delta.key.split(':')[2] ?? '')) {
     return samePlayerIdentity(delta.origin_id, player);
   }
+  // A lasting mark (D48) is something that befalls its bearer - a wound
+  // dealt, a grief suffered - so its key names who bears it, not who acted:
+  // like the world-leverage relation, only a player origin claims it.
+  if (delta.type === 'condition') return samePlayerIdentity(delta.origin_id, player);
   if (samePlayerIdentity(delta.origin_id, player)) return true;
   const [rootEntityId] = delta.key.split(':');
   return samePlayerIdentity(rootEntityId, player);
@@ -958,9 +962,23 @@ function redactDeltaReason(
   }
 
   const redacted = redactDeclarationAwareText(delta.reason, delta.actors, player);
-  if (redacted === null) return;
-  redactions.push({ surface, original: delta.reason });
-  delta.reason = redacted || REDACTED_PLAYER_PROSE_PLACEHOLDER;
+  if (redacted !== null) {
+    redactions.push({ surface, original: delta.reason });
+    delta.reason = redacted || REDACTED_PLAYER_PROSE_PLACEHOLDER;
+  }
+
+  // A condition's description is prose its bearer reads on their own panel
+  // (D48) - and a mark may befall an idle player - so it is audited like a
+  // reason, by the tripwire alone (no declaration covers it). The mark stays;
+  // only a sentence inventing the player's conduct goes.
+  const description = delta.condition?.description;
+  if (typeof description === 'string') {
+    const cleaned = redactProseString(description, player);
+    if (cleaned !== null) {
+      redactions.push({ surface: `deltas[${index}].condition.description`, original: description });
+      delta.condition = { ...delta.condition!, description: cleaned };
+    }
+  }
 }
 
 /**

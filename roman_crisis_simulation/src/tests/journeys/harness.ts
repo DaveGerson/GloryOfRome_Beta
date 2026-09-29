@@ -23,7 +23,8 @@
  *                  (gm_private notes, rolls/seed, fate bands/tiers,
  *                  secret_truth/actually_alive/motive, rumor is_true/origin_id,
  *                  mind private_reasoning, a NON-player scheme's name/steps,
- *                  the mortality validator's reasoning) reaches ANY
+ *                  a NON-player's inward mark (D48), the mortality
+ *                  validator's reasoning) reaches ANY
  *                  player-facing surface: the narration/monologue PROMPTS and
  *                  system instructions (the true enforcement seam), the
  *                  narration/monologue/suggestions text, headlines, the
@@ -50,6 +51,7 @@ import { endTurnCapture } from '../../ai/core/geminiService';
 import { getInvestigationResult } from '../../ai/tools/intelligence';
 import { createSeededRng, rollD20 } from '../../ai/core/resolution';
 import { buildPlayerPerceivedDigest, PerceivedChange } from '../../perception/visibility';
+import { conditionsOf } from '../../ai/core/conditions';
 import { computeTurnKnowledge, computeInvestigationKnowledge } from '../../knowledge/commit';
 import type { KnowledgeClaim, InvestigationKind } from '../../knowledge/store';
 import { saveGame, loadGame, clearSave as clearPersistedSave, SaveGameState } from '../../persistence/saveGame';
@@ -622,6 +624,16 @@ function assertNoLeaks(outcome: {
       forbidden.push({ label: `scheme goal of ${entity.entity_id}`, value: s.overall_goal });
       for (const step of s.steps) {
         forbidden.push({ label: `scheme step of ${entity.entity_id}`, value: step.objective });
+      }
+    }
+    // D48: an NPC's INWARD mark is known to its bearer alone - its account
+    // never reaches a player surface (the player's own inward marks are
+    // self-knowledge and legitimately ride their own narration).
+    if (entity.entity_id !== playerId) {
+      for (const mark of conditionsOf(entity)) {
+        if (!mark.outward && mark.description) {
+          forbidden.push({ label: `inward mark of ${entity.entity_id}`, value: mark.description });
+        }
       }
     }
   }

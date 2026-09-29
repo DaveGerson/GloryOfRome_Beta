@@ -79,7 +79,7 @@ import {
 import { buildInterventionTextWithFallout } from '../components/investigationLoop';
 import { toRoman } from '../components/ui/Brand';
 import type { TurnFailure } from '../components/ui/FailureNotices';
-import { buildPlayerPerceivedDigest } from '../perception/visibility';
+import { buildPlayerPerceivedDigest, toPreTurnRoster } from '../perception/visibility';
 // The two pure helpers executeTurn shares with the other commit sites
 // (commitPrivateScene, buildSaveState, the ambition-tracking effect) - once
 // App.tsx-local values passed through `deps`, now one module-scope import.
@@ -350,7 +350,7 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
             // the same inputs as the commit below.
             const baseHistoryEntryWithState = {
                 ...result.newHistoryEntry, playerIntent: serialized, postTurnEntities: result.updatedEntities,
-                preTurnRoster: entities.map(({ entity_id, location, status }) => ({ entity_id, location, status })),
+                preTurnRoster: toPreTurnRoster(entities),
                 preTurnSimulationState: simulationState,
             };
             const newTurnNumber = turnNumber + 1;

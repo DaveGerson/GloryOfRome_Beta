@@ -146,6 +146,43 @@ export interface Scheme {
   steps: SchemeStep[];
 }
 
+/**
+ * How heavily a condition weighs on its bearer (D48). Words, not a number:
+ * the prompts carry the weight, and no modifier is computed from it.
+ */
+export const ConditionSeverityEnum = ['light', 'serious', 'grave'] as const;
+export type ConditionSeverity = typeof ConditionSeverityEnum[number];
+
+/** What a 'condition' delta does to the mark its key names (D48). */
+export const ConditionChangeEnum = ['add', 'deepen', 'ease', 'heal'] as const;
+export type ConditionChange = typeof ConditionChangeEnum[number];
+
+/**
+ * A lasting mark a character bears (DESIGN_DECISIONS.md D48): a nasty scar,
+ * a limp, nightmares, grief, a broken oath. It comes from what happened, and
+ * it shapes what the character sets out to do - the adjudicator weighs the
+ * actor's conditions and a mind weighs its own. Changed only by 'condition'
+ * deltas (ai/core/conditions.ts); see there for the rules.
+ *
+ * `outward` decides who can know it: an outward mark (a scar the room can
+ * see) is perceived like a status change; an inward one (nightmares) is known
+ * to its bearer alone and never reaches another viewer - so an NPC's inward
+ * condition never reaches the player. The player always knows their own.
+ */
+export interface Condition {
+  /** Stable snake_case handle, unique per bearer: the second half of a 'condition' delta's key. */
+  id: string;
+  /** A few words, as the fiction names it: "a nasty scar", "nightmares". */
+  name: string;
+  /** One short sentence: what it is, and how it shows or weighs. */
+  description: string;
+  /** True when others can see it; false when only its bearer knows. */
+  outward: boolean;
+  severity: ConditionSeverity;
+  /** The turn it was taken (0 = carried from before the story began). */
+  since_turn: number;
+}
+
 
 /**
  * Represents an entity in the game world, which can be an individual, group, or faction.
@@ -195,6 +232,13 @@ export interface Entity {
   secrets?: string[];
   skills?: Record<string, number>;
   active_scheme?: Scheme;
+  /**
+   * Lasting marks this character bears (D48) - see `Condition`. OPTIONAL for
+   * save compatibility: an entity saved before conditions existed loads with
+   * none, and every reader treats absent as empty. An NPC's INWARD conditions
+   * are GM-private (never on a player surface or a player-facing prompt).
+   */
+  conditions?: Condition[];
   /**
    * GM-PRIVATE. Set by the mortality pipeline (ai/core/mortality.ts) when
    * this entity's PUBLIC `status` is 'dead' but the NPC fate table
@@ -260,7 +304,12 @@ export type EntityActionIntent = typeof EntityActionIntentEnum[number];
  * string value. Previously no delta type could touch these, so the Header
  * meters could never change.
  */
-export const EventDeltaTypeEnum = ['resource', 'relation', 'region', 'status', 'rumor', 'scheme', 'add_region', 'remove_region', 'faction', 'world'] as const;
+/**
+ * 'condition' (D48): adds, deepens, eases or heals a lasting mark - key is
+ * 'entity_id:condition_id', the change rides on `condition` (see
+ * ai/core/conditions.ts).
+ */
+export const EventDeltaTypeEnum = ['resource', 'relation', 'region', 'status', 'rumor', 'scheme', 'add_region', 'remove_region', 'faction', 'world', 'condition'] as const;
 export type EventDeltaType = typeof EventDeltaTypeEnum[number];
 
 export const ReportSourceEnum = ['scout', 'spy', 'merchant', 'messenger', 'rumor'] as const;
@@ -362,6 +411,30 @@ export interface EventDelta {
      * emission or an ordinary restatement.
      */
     stance?: RumorStance;
+    /**
+     * 'condition' deltas only (D48): what happens to the mark the key names.
+     * `name`/`description`/`outward`/`severity` are required to add one and
+     * optional otherwise (a deepen or ease may restate them). ai/core/
+     * conditions.ts applies it; an absent or malformed payload is refused and
+     * recorded, never guessed at.
+     */
+    condition?: ConditionDeltaChange;
+    /**
+     * 'resource' deltas only (D48 - a hard asset lost is REMOVED): the item
+     * lost from a list resource (e.g. one estate), or - on a text resource -
+     * marks the whole holding as lost. A numeric resource ignores it and takes
+     * `delta` as usual.
+     */
+    lost_item?: string;
+}
+
+/** The payload of a 'condition' delta - see EventDelta.condition. */
+export interface ConditionDeltaChange {
+    change: ConditionChange;
+    name?: string;
+    description?: string;
+    outward?: boolean;
+    severity?: ConditionSeverity;
 }
 
 /**
@@ -596,8 +669,13 @@ export interface TurnHistoryEntry {
    * digest is re-derived from it, so the re-derivation matches the commit
    * even on the first turn (no earlier snapshot) or after anything moved
    * between turns. Trimmed with `postTurnEntities`; absent on older entries.
+   * An entity's conditions ride along only when it bore any, and its text
+   * and list holdings (never its numbers) only when it held any, so a mark
+   * healed or a holding lost this turn can be told from one never there
+   * (D48 - perception/visibility.ts::toPreTurnRoster); entries written
+   * before that lack them.
    */
-  preTurnRoster?: Pick<Entity, 'entity_id' | 'location' | 'status'>[];
+  preTurnRoster?: (Pick<Entity, 'entity_id' | 'location' | 'status'> & Partial<Pick<Entity, 'conditions' | 'resources'>>)[];
   /**
    * The macro SimulationState as it stood before this turn resolved - what
    * the briefing's "fell this week" mark compares the committed state

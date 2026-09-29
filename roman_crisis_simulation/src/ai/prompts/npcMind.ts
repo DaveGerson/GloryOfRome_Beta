@@ -17,7 +17,11 @@
  * THE ASYMMETRY CONTRACT (D10/D22 - the point of the whole feature): this
  * prompt may contain ONLY what the character plausibly knows -
  *  - its OWN full brief (its own secrets, scheme, personality, skills,
- *    beliefs, goals, resources, and its own outbound relationship reads),
+ *    beliefs, goals, resources, every lasting mark it bears - D48, inward
+ *    ones included - and its own outbound relationship reads),
+ *  - what shows on the figures it can see: their OUTWARD marks only, as the
+ *    typed projection perception/npcPerception.ts::figuresInViewOf builds -
+ *    never another entity's record, never an inward mark,
  *  - its OWN perception-grounded memories (Entity.memories, the D10 stamp),
  *  - its OWN perceived digest of the previous turn's events (the same
  *    viewer-agnostic filter in perception/visibility.ts, run from THIS
@@ -51,8 +55,10 @@
 
 import { Entity, NpcIntent } from '../../types';
 import type { PerceivedChange } from '../../perception/visibility';
+import { MAX_FIGURES_IN_VIEW, type FigureInView } from '../../perception/npcPerception';
 import type { PrivateSceneNpcMemoryProjection } from '../../privateScene/model';
 import { asPromptData } from './fragments';
+import { conditionsLine, conditionsOf } from '../core/conditions';
 
 /**
  * Cost/latency cap on mind calls per turn (D16/D22): at most this many
@@ -92,6 +98,30 @@ export interface NpcMindPromptInput {
   turnNumber: number;
   /** This NPC's own completed private audiences only, newest first; raw records and other NPCs never cross this seam. */
   privateSceneMemories?: readonly PrivateSceneNpcMemoryProjection[];
+  /**
+   * The other figures this character can see, as the typed projection
+   * perception/npcPerception.ts::figuresInViewOf builds - only what shows on
+   * them (their OUTWARD marks, D48), never a record of theirs. Optional:
+   * absent or empty, no block.
+   */
+  figuresInView?: readonly FigureInView[];
+}
+
+/**
+ * The FIGURES YOU CAN SEE block (D48): what shows on the people around this
+ * character, rendered field by field from the typed projection. Empty when
+ * no one in view carries a visible mark.
+ */
+export function buildFiguresInViewBlock(figures: readonly FigureInView[] | undefined): string {
+  if (!figures || figures.length === 0) return '';
+  const lines = figures.slice(0, MAX_FIGURES_IN_VIEW).map(figure =>
+    `- ${figure.name} (here with you): bears ${figure.outwardConditions
+      .map(mark => `${mark.name} (${mark.severity})${mark.description ? `: ${mark.description}` : ''}`)
+      .join('; ')}`);
+  return `
+FIGURES YOU CAN SEE (only what anyone near them could see):
+${lines.join('\n')}
+`;
 }
 
 /**
@@ -175,6 +205,12 @@ export function buildMindSelfBrief(self: Entity): string {
   if (self.active_scheme) {
     lines.push(`Your active scheme (your own plan): ${JSON.stringify(self.active_scheme)}`);
   }
+  // D48: every mark of your own, inward ones included - they are yours to
+  // know, and they weigh on what you set out to do.
+  const marks = conditionsOf(self);
+  if (marks.length > 0) {
+    lines.push(`Lasting marks you bear (let them weigh on what you set out to do): ${conditionsLine(marks)}`);
+  }
   if (Object.keys(self.resources).length > 0) {
     lines.push(`Your resources: ${Object.entries(self.resources).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(' / ') : v}`).join(', ')}.`);
   }
@@ -189,7 +225,7 @@ export function buildMindSelfBrief(self: Entity): string {
 
 /** Builds the { systemInstruction, prompt } pair for one character's per-turn mind call. */
 export function buildNpcMindPrompt(input: NpcMindPromptInput): { systemInstruction: string; prompt: string } {
-  const { self, directorIntent, perceivedChanges, publicHeadlines, worldSummary, turnNumber, privateSceneMemories } = input;
+  const { self, directorIntent, perceivedChanges, publicHeadlines, worldSummary, turnNumber, privateSceneMemories, figuresInView } = input;
 
   const systemInstruction = `
 ROLE: A character's own private mind.
@@ -237,7 +273,7 @@ ${perceivedChanges.length > 0 ? perceivedChanges.map(c => `- [${c.source}] ${c.t
 
 WHAT ALL OF ROME HAS HEARD (public news):
 ${publicHeadlines.length > 0 ? publicHeadlines.map(h => `- ${h}`).join('\n') : '- The city was quiet.'}
-${directorIntent ? `
+${buildFiguresInViewBlock(figuresInView)}${directorIntent ? `
 YOUR RESOLVE (the aim you have been carrying forward):
 "${directorIntent.intent}"
 Decide this week's move in service of it - or against it, if what you now know demands a change of course.

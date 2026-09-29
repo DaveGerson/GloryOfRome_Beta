@@ -751,7 +751,9 @@ describe('mortality outcome prompt authorization contract', () => {
       }],
     });
 
-    expect(systemInstruction).toContain('resource and scheme deltas MUST target the candidate');
+    // D48 widened the candidate-owned set: a loss band's loss is a removed
+    // hard asset and/or a condition, both on the candidate.
+    expect(systemInstruction).toContain('resource, condition and scheme deltas MUST target the candidate');
     expect(systemInstruction).toContain('relation delta may place the candidate on either side');
     expect(systemInstruction).toContain('rumor key MUST be the candidate entity_id');
     expect(systemInstruction).toContain('origin_id may name any real entity who spreads it');

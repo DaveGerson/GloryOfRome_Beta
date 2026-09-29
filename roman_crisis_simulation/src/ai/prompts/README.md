@@ -273,6 +273,39 @@ texture. Production and consumption:
   existed, and the literal string "undefined" must never appear
   (pinned by tests/voice.test.ts).
 
+## Lasting marks: conditions, and hard assets removed (D48)
+
+"The narration is the game's state." `Entity.conditions` holds the lasting
+marks a character bears (a nasty scar, nightmares, a broken oath); the rules
+live in `ai/core/conditions.ts`, shared by the engine, perception and every
+builder below. Each mark is OUTWARD (others can see it) or INWARD (its
+bearer alone knows it); an NPC's inward mark is GM-private.
+
+- **Authored** by the adjudicator (the CONDITIONS rule: a 'condition' delta
+  keyed `entity_id:condition_id` - add / deepen / ease / heal - from what
+  happened, never flavour) and by the mortality outcome call (a loss band's
+  loss IS a removed hard asset and/or a condition; a boon may ease one; the
+  band itself is never a state). Model-authored entities may carry marks
+  they already bear (`EntitySchema.conditions`, optional).
+- **Weighed** where intended actions are decided: `getEntityBrief` (every
+  mark, inward included, with its handle - adjudicator, mortality, the
+  GM-only assessment), `adjudication.ts::buildPlayerMarksLine` (the
+  player's marks in the PLAYER CHARACTER block), and a mind's own self
+  brief. A mind sees the OUTWARD marks of the figures it can see only
+  through the typed projection `perception/npcPerception.ts::
+  figuresInViewOf` (the FIGURES YOU CAN SEE block) - never a record.
+- **Kept consistent** in the player's own prose: `narration.ts::
+  buildPlayerMarksBlock` and the monologue carry the player's own marks.
+- **Never leaked:** `fragments.ts::playerOutputDeltaReason` swaps a
+  condition delta's reason for `REDACTED_PRIVATE_MARK_REASON` unless its
+  payload says the mark is outward, in every prompt whose output the player
+  reads (the sim-state prompt; the narration sanitizer).
+- **Hard assets:** the HARD ASSETS rule (adjudication), the band guidance
+  (mortality) and narration rule g say the same thing three ways - a hard
+  asset lost is REMOVED by a 'resource' delta (`lost_item` names a text or
+  list holding), and the narrator never narrates a loss the perceived
+  events do not show.
+
 ## System vs. user split
 
 Every builder returns `{ systemInstruction, prompt }`:

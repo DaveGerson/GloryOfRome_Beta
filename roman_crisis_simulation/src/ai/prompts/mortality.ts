@@ -99,11 +99,11 @@ export interface MortalityOutcomePromptInput {
 /** Per-band authoring guidance, keyed by the exact band strings from ai/core/resolution.ts. */
 const BAND_GUIDANCE: Record<string, string> = {
   survive_with_loss:
-    "The PLAYER survives but suffers a REAL, concrete loss - a resource, a relationship, an exposed scheme. Not just prose: emit at least one delta (resource/relation/scheme/rumor - never a 'status' delta, that part is already decided).",
+    "The PLAYER survives but suffers a REAL, lasting loss. The loss IS a removed hard asset (a negative 'resource' delta on their denarii, holdings, legions or a house - 'lost_item' for a holding kept as text or a list) and/or a new 'condition' (the wound, the scar, the nightmares the attempt left). A relationship, an exposed scheme or a rumor may follow as fallout. Not just prose: emit at least one such delta - never a 'status' delta, that part is already decided.",
   survive_with_boon:
-    "The PLAYER survives and gains a REAL, concrete boon - a resource, a relationship, new leverage. Emit at least one delta (never a 'status' delta).",
+    "The PLAYER survives and gains a REAL, concrete boon - an asset granted (a positive 'resource' delta), a condition they bear eased or healed (a 'condition' delta with change 'ease' or 'heal'), a relationship, new leverage. Emit at least one delta (never a 'status' delta).",
   gravely_wounded:
-    "The NPC survives PUBLICLY but is gravely wounded - weakened. Emit at least one delta reflecting the toll (e.g. a resource or skill drop, lost standing, a damaged relationship). Never emit a 'status' delta - their public status is already decided as alive.",
+    "The NPC survives PUBLICLY but is gravely wounded - weakened. The toll IS a 'condition' for the wound (outward when it shows - a maimed arm, a ruined eye) and/or a removed hard asset; lost standing or a damaged relationship may follow. Emit at least one such delta. Never emit a 'status' delta - their public status is already decided as alive.",
   presumed_dead:
     "The world and the player believe this NPC is dead. They are secretly alive, in hiding, and may return later as a nemesis. Do NOT emit any delta that reveals this to the public - deltas here (if any) must be consistent with a confirmed death. Any 'rumor' delta claiming or reporting the death is 'is_true' FALSE: the world-truth is that they live, however universally the death is believed (see the RUMOR DELTAS rule). Provide a short 'secret_motive': why they are hiding and what they might want if they return.",
   escapes_openly:
@@ -113,7 +113,7 @@ const BAND_GUIDANCE: Record<string, string> = {
 const OUTCOME_SYSTEM_INSTRUCTION = `
 ROLE: Mortality Outcome Author.
 A hidden dice roll has ALREADY decided each candidate's fate band - you do not choose, influence, or second-guess the outcome, only give it concrete content. For each candidate, produce:
-1. 'deltas': EventDeltas (type/key/delta/reason, per the existing delta contract) that apply the band's concrete SIDE-EFFECT consequence (resource, relation, scheme, rumor). Do NOT include a 'status' delta - the life/death/public-status change has already been decided and will be applied elsewhere; these deltas are only the loss/boon/wounding side effects.
+1. 'deltas': EventDeltas (type/key/delta/reason, per the existing delta contract) that apply the band's concrete SIDE-EFFECT consequence (resource, condition, relation, scheme, rumor). Do NOT include a 'status' delta - the life/death/public-status change has already been decided and will be applied elsewhere; these deltas are only the loss/boon/wounding side effects.
 2. 'narrative_directive': one line telling the narrator exactly how to narrate this outcome, consistent with the band. This is a STEERING instruction for a later prose pass, not the prose itself.
 3. 'secret_motive' (presumed_dead candidates ONLY, omit/null otherwise): a short reason they are hiding and what they might want if they return.
 
@@ -124,8 +124,12 @@ ${Object.entries(BAND_GUIDANCE)
 
 Valid delta types: ${EventDeltaTypeEnum.join(', ')}. Every candidate MUST receive exactly one outcome entry, matched by its exact entity_id.
 
+THE BAND IS NOT A STATE: only its consequences are recorded. What the narration will say was lost IS the delta that removes it - a hard asset lost (denarii, holdings, legions, a house) is a 'resource' delta that removes it, never a loss left standing in the ledger while the story says it is gone.
+
+CONDITIONS: a lasting mark is a 'condition' delta keyed 'candidate_entity_id:condition_id' with 'condition' carrying 'change' ('add', or 'deepen'/'ease'/'heal' for a mark listed in the entity brief, reusing its handle) and, to add, a 'name' (a few lowercase words for the mark itself - 'a spear wound in the thigh', 'nightmares' - never the band or the outcome), a one-sentence 'description', 'outward' (true if others can see it) and 'severity' ('light', 'serious' or 'grave'). A mark comes from what happened in the attempt - never flavour for its own sake.
+
 OUTCOME DELTA AUTHORIZATION (preserve the established side-effect mechanics):
-- resource and scheme deltas MUST target the candidate whose fate is being dressed.
+- resource, condition and scheme deltas MUST target the candidate whose fate is being dressed.
 - A relation delta may place the candidate on either side of the directional candidate-to-other relationship key; the other endpoint MUST also be the exact entity_id of a real entity from the available context.
 - A rumor key MUST be the candidate entity_id because the rumor concerns that candidate. Its origin_id may name any real entity who spreads it, including a third party, or be omitted only for a genuinely organic rumor.
 - Region, faction, world, unrelated-entity, and any other effects are outside this mortality outcome. Never emit them here.

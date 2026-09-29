@@ -10,6 +10,7 @@ import { getNpcMindDecision } from '../tools/npcMind';
 import { MAX_MINDS_PER_TURN } from '../prompts/npcMind';
 import { buildWorldSummary } from '../prompts/fragments';
 import { buildPerceivedDigest, buildPlayerPerceivedDigest, PerceivedChange } from '../../perception/visibility';
+import { figuresInViewOf } from '../../perception/npcPerception';
 import { generateStructured, generateStructuredStream, GEMINI_PRO, beginTurnCapture, endTurnCapture } from './geminiService';
 import { zAdjudication, zNarrationPayload } from './zodSchemas';
 import {
@@ -743,6 +744,10 @@ async function runNpcMindsStage(ctx: TurnContext, storyRelevance: StoryRelevance
                 worldSummary,
                 turnNumber: ctx.turnNumber,
                 privateSceneMemories: ctx.options?.privateSceneNpcMemoriesByNpcId?.[npc.entity_id],
+                // What shows on the people this character can see (D48):
+                // a typed projection of their outward marks, never their
+                // records.
+                figuresInView: figuresInViewOf(npc, currentEntities),
             }, ctx.isMockMode);
         } catch (e) {
             mindFailureNotes.push(`[Mind] ${npc.entity_id}'s mind call failed (${e instanceof Error ? e.message : String(e)}) - proceeding without it; the adjudicator falls back to this spotlight's Director intent alone.`);

@@ -39,6 +39,7 @@ import type { KnowledgeClaim } from '../knowledge/store';
 import type { PrivateSceneRecord } from '../privateScene/model';
 import type { VoiceCast } from '../narration/voiceCast';
 import { migrateSaveEnvelope } from './saveMigrations';
+import { normalizeConditions } from '../ai/core/conditions';
 
 /**
  * Bump this whenever `SaveGameState`'s shape changes in a backwards-
@@ -500,6 +501,25 @@ function isPersistedPrivateScene(value: unknown): value is PrivateSceneRecord {
 export function normalizeLoadedPrivateScenes(value: unknown): PrivateSceneRecord[] {
   if (!Array.isArray(value)) return [];
   return value.filter(isPersistedPrivateScene).map(canonicalPrivateScene);
+}
+
+/**
+ * The per-entity load seam for the optional D48 field: an entity's
+ * `conditions`, when present, are rebuilt record by record
+ * (ai/core/conditions.ts::normalizeConditions) so a hand-edited or damaged
+ * mark is dropped instead of crashing the status panel or a prompt on
+ * render. An entity without the field - every save written before it
+ * existed - is returned as the very same object, and a roster in which no
+ * entity carries it as the very same array, so an old save loads unchanged.
+ */
+export function normalizeLoadedEntities(entities: Entity[]): Entity[] {
+  if (!entities.some(entity => isRecord(entity) && 'conditions' in entity)) return entities;
+  return entities.map(entity => {
+    if (!isRecord(entity) || !('conditions' in entity)) return entity;
+    const { conditions, ...rest } = entity;
+    const marks = normalizeConditions(conditions);
+    return marks ? { ...rest, conditions: marks } : rest;
+  });
 }
 
 /**

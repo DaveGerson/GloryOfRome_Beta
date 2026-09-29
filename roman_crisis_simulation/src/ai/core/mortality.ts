@@ -38,7 +38,7 @@ import { buildMortalityValidationPrompt, buildMortalityOutcomePrompt } from '../
 import { MortalityValidationSchema, MortalityOutcomeSchema } from './schemas';
 import { zMortalityValidation, zMortalityOutcome } from './zodSchemas';
 import { stripActorsFromEventDelta } from './actorsBoundary';
-import { assertPlayerVisibleTextSafe } from './playerBoundary';
+import { assertPlayerVisibleTextSafe, assertPlayerVisibleValueSafe } from './playerBoundary';
 import type { z } from 'zod';
 
 // Module-local generic pin for generateStructured below - TS cannot always
@@ -126,11 +126,13 @@ function isNpcFateOutcome(outcome: ResolvedOutcome): outcome is NpcFateOutcome {
 
 /**
  * Classifies outcome-call-authored deltas against the candidate whose fate
- * is being dressed. Resource and scheme effects belong directly to that
- * candidate; relation fallout may put the candidate on either endpoint;
- * rumor authorship is independent of its candidate subject key, so any real
- * entity may be its origin (or it may be organic and omit origin_id).
- * These are the four side-effect types promised by the outcome prompt.
+ * is being dressed. Resource, scheme and condition effects belong directly
+ * to that candidate (D48: a loss band's loss is a removed hard asset and/or a
+ * new condition, a boon may ease one); relation fallout may put the candidate
+ * on either endpoint; rumor authorship is independent of its candidate
+ * subject key, so any real entity may be its origin (or it may be organic and
+ * omit origin_id). These are the five side-effect types promised by the
+ * outcome prompt.
  * Status remains a separately traced rejection because only the validated
  * fate roll may author it; every other unauthorized effect invalidates the
  * whole response rather than being silently sanitized into a partial commit.
@@ -165,6 +167,11 @@ export function partitionOutcomeDeltas(
               .includes(keyParts[2]);
         case 'scheme':
           return delta.key === candidateId;
+        case 'condition':
+          return keyParts.length === 2
+            && keyParts[0] === candidateId
+            && keyParts[1].length > 0
+            && !!delta.condition;
         case 'rumor':
           return delta.key === candidateId
             && (!delta.origin_id || knownEntityIds.has(delta.origin_id))
@@ -317,6 +324,11 @@ export async function processMortality(
       const deltas = o.deltas.map(stripActorsFromEventDelta);
       for (const delta of deltas) {
         if (delta.type !== 'scheme') assertPlayerVisibleTextSafe(delta.reason);
+        // A condition's name and description reach the bearer's own panel
+        // and (when outward) a witness's dispatch: the band that caused it
+        // must never ride in on them (D4 - the band is not a state, D48).
+        if (delta.condition) assertPlayerVisibleValueSafe(delta.condition);
+        if (typeof delta.lost_item === 'string') assertPlayerVisibleTextSafe(delta.lost_item);
       }
       outcomeByEntity.set(o.entity_id, { deltas, narrative_directive: o.narrative_directive, secret_motive: o.secret_motive });
     }
@@ -401,7 +413,8 @@ export async function processMortality(
     let authoredSideEffects = 0;
     if (contentOverride?.deltas && contentOverride.deltas.length > 0) {
       // SECURITY GATE (D2/D4): the outcome call authors SIDE-EFFECT content
-      // (resource losses, relationship shifts, rumors, scheme changes) - it
+      // (resource losses, conditions, relationship shifts, rumors, scheme
+      // changes) - it
       // must never author life/freedom status itself. A 'status' delta
       // emitted here would be appended AFTER the one detectDeathClaims/
       // validation/roll pass and applied unchecked by applyAdjudication,
@@ -438,7 +451,9 @@ export async function processMortality(
     gmPrivateNotes.push(
       `[Mortality] ${entityLabel}: validated death claim -> roll ${roll} -> ${outcome.band} (${outcome.label})`
     );
-    // D2 makes the loss (or boon) real deltas, "not just prose". The band
+    // D2 makes the loss (or boon) real deltas, "not just prose" - D48 names
+    // them: a removed hard asset and/or a condition (a boon may grant an
+    // asset or ease one). The band itself is never recorded as a state. It
     // still commits when the outcome call authored none - no fallback is
     // invented here - but the GM console must not read the band's label
     // above as if the loss had happened.

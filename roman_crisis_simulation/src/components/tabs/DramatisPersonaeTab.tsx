@@ -6,8 +6,9 @@ import { Card, Button } from '../ui/Core';
 import { Alert } from '../ui/Alert';
 import {
   InvestigationKind, KnowledgeClaim, SCHEME_CLUES_TO_REVEAL, deriveDossier,
-  perceivedFactionOf, perceivedStatusOf,
+  perceivedConditionsOf, perceivedFactionOf, perceivedStatusOf,
 } from '../../knowledge/store';
+import { MARKS_COPY, MarkList } from '../ui/Marks';
 import { DOSSIER_COLD_THRESHOLD } from '../../knowledge/dossierCost';
 import { knowledgeSourceLead } from '../../knowledge/credibilityFraming';
 import { isEntityKnownToPlayer, relationshipTimelineFor } from '../../knowledge/relationships';
@@ -76,6 +77,10 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
     };
   };
   const heldAssessment = dossier.entries.find(candidate => candidate.kind === 'deep_analysis');
+  // D48: the marks the player has SEEN on this figure (outward ones, from
+  // their perceived dispatches) - never read off the live entity, so a wound
+  // taken out of sight is not here and one healed unseen still is.
+  const seenMarks = perceivedConditionsOf(knowledge, entity.entity_id);
 
   const investigations = (playerEntity.resources.investigations as number) || 0;
   const deepAnalyses = (playerEntity.resources.deep_analyses as number) || 0;
@@ -108,7 +113,13 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <span style={quiet}>{entity.position || entity.entity_type}</span>
-        {personaeVoice && <PersonaVoiceRow entityId={entity.entity_id} name={entity.name} voice={personaeVoice} paidNoteId={paidNoteId} />}
+        {seenMarks.length > 0 && (
+          <div className="gor-persona-marks">
+            <span className="gor-label">{MARKS_COPY.seenLabel}</span>
+            <MarkList marks={seenMarks} />
+          </div>
+        )}
+        {personaeVoice &&<PersonaVoiceRow entityId={entity.entity_id} name={entity.name} voice={personaeVoice} paidNoteId={paidNoteId} />}
         <RelationshipObservations observations={observations} currentTurn={turnNumber} subjectName={entity.name} />
         {requestError && <Alert title="Your agents return empty-handed">{requestError}</Alert>}
         {isExpanded && <div id={briefingId} style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 8, borderTop: '1px solid var(--border-faint)' }}>

@@ -24,11 +24,14 @@
 
 import { z } from 'zod';
 import {
+  ConditionChangeEnum,
+  ConditionSeverityEnum,
   EntityActionIntentEnum,
   EventDeltaTypeEnum,
   NpcIntentContinuityEnum,
   RumorStanceEnum,
 } from '../../types';
+import { normalizeConditions } from './conditions';
 import {
   PRIVATE_SCENE_MAX_NPC_RESPONSES,
   PRIVATE_SCENE_MAX_UTTERANCE_CHARS,
@@ -178,6 +181,10 @@ export const zEntity = z.object({
   secrets: z.array(z.string()).nullable().optional(),
   skills: z.record(z.string(), z.number()).nullable().optional(),
   active_scheme: zScheme.nullable().optional(),
+  // D48 lasting marks. Accepted loosely and rebuilt record by record in the
+  // transform below (ai/core/conditions.ts::normalizeConditions), so one
+  // malformed mark is dropped instead of failing a whole generated cast.
+  conditions: z.array(z.unknown()).nullable().optional(),
 }).passthrough().transform(entity => {
   // D3 model-boundary redaction: a model-invented add_entities roster member
   // (applied wholesale at engine.ts:538-540) or world-gen/character-creation
@@ -185,8 +192,9 @@ export const zEntity = z.object({
   // buildSecretSurvivorsBlock, ai/prompts/fragments.ts:210-215). zEntity is
   // used only at model boundaries (zAdjudication.add_entities, zEntityBatch,
   // characterCreator.ts:28, eval harness) - never save-load.
-  const { secret_truth, ...modelEntity } = entity;
-  return modelEntity;
+  const { secret_truth, conditions, ...modelEntity } = entity;
+  const marks = normalizeConditions(conditions);
+  return marks ? { ...modelEntity, conditions: marks } : modelEntity;
 });
 
 export const zEntityStub = z.object({
@@ -212,6 +220,15 @@ export const zWorldState = z.object({
 }).passthrough();
 
 // --- Turn pipeline shapes --------------------------------------------------
+
+/** A 'condition' delta's payload (D48) - mirrors types.ts's ConditionDeltaChange. */
+const zConditionDeltaChange = z.object({
+  change: z.enum(ConditionChangeEnum),
+  name: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  outward: z.boolean().nullable().optional(),
+  severity: z.enum(ConditionSeverityEnum).nullable().optional(),
+}).passthrough();
 
 export const zEventDelta = z.object({
   type: z.enum(EventDeltaTypeEnum),
@@ -249,6 +266,14 @@ export const zEventDelta = z.object({
   // rather than failing the turn. See types.ts's EventDelta.
   topic: z.string().nullable().optional(),
   stance: z.enum(RumorStanceEnum).nullable().optional(),
+  // 'condition' deltas only (D48): what happens to the lasting mark the key
+  // names. Nullable/optional so every other delta type need not carry it;
+  // the engine (ai/core/conditions.ts) refuses and records a condition delta
+  // whose payload is missing or incomplete rather than failing the turn.
+  condition: zConditionDeltaChange.nullable().optional(),
+  // 'resource' deltas only (D48): the text or list holding lost - see
+  // types.ts's EventDelta.lost_item.
+  lost_item: z.string().nullable().optional(),
 }).passthrough().transform(delta => {
   // Model-boundary redaction (D3): `secret_truth` is CODE-GENERATED ONLY
   // (types.ts) - only ai/core/mortality.ts::processMortality may attach it,

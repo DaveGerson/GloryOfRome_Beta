@@ -33,7 +33,7 @@ import {
   TruthLedgerEntry,
   NpcIntent,
 } from '../types';
-import { normalizeLoadedPrivateScenes, type SaveGameState, type InferredAmbitionState } from '../persistence/saveGame';
+import { normalizeLoadedEntities, normalizeLoadedPrivateScenes, type SaveGameState, type InferredAmbitionState } from '../persistence/saveGame';
 import type { KnowledgeClaim } from '../knowledge/store';
 import type { PrivateSceneRecord } from '../privateScene/model';
 import { INITIAL_WORLD_STATE, INITIAL_SIMULATION_STATE } from '../constants/baseScenario';
@@ -473,7 +473,10 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         : null;
       return {
         ...state,
-        entities: s.entities,
+        // Optional per-entity fields (D48) are rebuilt record by record; an
+        // entity without them loads as the same object - see
+        // persistence/saveGame.ts::normalizeLoadedEntities.
+        entities: normalizeLoadedEntities(s.entities),
         worldState: s.worldState,
         simulationState: s.simulationState,
         reports: s.reports,

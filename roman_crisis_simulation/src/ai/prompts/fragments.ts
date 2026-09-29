@@ -12,7 +12,8 @@
  * (function signatures, JSDoc) is new.
  */
 
-import { Entity, WorldState, SimulationState, StoryRelevance, NpcIntent, NpcMindDecision } from '../../types';
+import { Entity, EventDelta, WorldState, SimulationState, StoryRelevance, NpcIntent, NpcMindDecision } from '../../types';
+import { conditionsLine, conditionsOf } from '../core/conditions';
 
 /**
  * The opaque stand-in that REPLACES a 'scheme' delta's `reason` before that
@@ -28,6 +29,28 @@ import { Entity, WorldState, SimulationState, StoryRelevance, NpcIntent, NpcMind
  * reason, and the delta object itself is never mutated.
  */
 export const REDACTED_SCHEME_REASON = 'A character quietly advanced a private design this turn; its nature is not observable.';
+
+/**
+ * The same stand-in for a 'condition' delta that is not plainly OUTWARD
+ * (D48): an inward mark - nightmares, a private grief - is known to its
+ * bearer alone, so its narrative must not reach a prompt whose output the
+ * player reads. Only a delta whose own payload says the mark shows keeps its
+ * reason; one that does not say (a deepen or heal restating nothing) is
+ * treated as private, never guessed public.
+ */
+export const REDACTED_PRIVATE_MARK_REASON = 'A character bore a private change within themselves this turn; it is not observable.';
+
+/**
+ * A delta's `reason` as it may enter a prompt whose OUTPUT the player reads:
+ * the private designs (D28) and private marks (D48) swapped for their opaque
+ * stand-ins, every other reason untouched. Only the string handed to such a
+ * prompt changes; the committed delta the engine parses never does.
+ */
+export function playerOutputDeltaReason(delta: EventDelta): string {
+  if (delta.type === 'scheme') return REDACTED_SCHEME_REASON;
+  if (delta.type === 'condition' && delta.condition?.outward !== true) return REDACTED_PRIVATE_MARK_REASON;
+  return delta.reason;
+}
 
 // U+2028 LINE SEPARATOR, U+2029 PARAGRAPH SEPARATOR, and U+0085 NEXT LINE
 // (NEL), built from their code points so the invisible characters never sit
@@ -80,6 +103,12 @@ export function asPromptData(value: unknown, space?: number): string {
  * mind prompt (ai/prompts/npcMind.ts) and the narration prompt's bounded
  * voice-cast block (ai/prompts/narration.ts). Both fields are OPTIONAL: a
  * legacy entity without them renders exactly as before (never "undefined").
+ *
+ * `conditions` (D48): every lasting mark, inward ones included - this brief
+ * feeds only the omniscient adjudicator, the mortality calls and the
+ * GM-only action assessment, which weigh an actor's marks when resolving
+ * what they attempt. Each carries its handle so a later 'condition' delta
+ * can deepen, ease or heal it. An entity without any renders as before.
  */
 export function getEntityBrief(entity: Entity): string {
   const relationships = Object.values(entity.relationships)
@@ -92,7 +121,9 @@ export function getEntityBrief(entity: Entity): string {
   const resources = entity.resources && Object.keys(entity.resources).length > 0
     ? `Resources: ${Object.entries(entity.resources).map(([name, value]) => `${name}:${value}`).join(', ')}`
     : '';
-  const middle = [scheme, personality, skills, beliefs, resources].filter(Boolean).join('. ');
+  const marks = conditionsOf(entity);
+  const conditions = marks.length > 0 ? `Conditions: ${conditionsLine(marks, { handle: true })}` : '';
+  const middle = [scheme, personality, skills, beliefs, resources, conditions].filter(Boolean).join('. ');
   return `${entity.name}${entity.epithet ? ` "${entity.epithet}"` : ''} (${entity.position || entity.entity_type}) [Status: ${entity.status}, Location: ${entity.location}] Goals: ${entity.short_term_goals.join(', ')}.${middle ? ` ${middle}.` : ''} Relationships: ${relationships}`;
 }
 

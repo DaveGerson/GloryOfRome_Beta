@@ -2,6 +2,7 @@ import React from 'react';
 import { Entity, Relationship, Memory } from '../../types';
 import { well, DIM, PARCH, RED, MONO } from './shared';
 import { SchemeLine } from './SchemeLine';
+import { conditionsOf } from '../../ai/core/conditions';
 
 export const EntityStatesView: React.FC<{ entities: Entity[] }> = ({ entities }) => (
     <>
@@ -21,6 +22,16 @@ export const EntityStatesView: React.FC<{ entities: Entity[] }> = ({ entities })
                 </div>
                 {entity.active_scheme && (
                     <div style={{ fontSize: 13, marginTop: 6 }}><SchemeLine scheme={entity.active_scheme} /></div>
+                )}
+                {/* D48 ground truth: every mark, inward ones included - the
+                    console is the one place an NPC's inward mark may show. */}
+                {conditionsOf(entity).length > 0 && (
+                    <div style={{ fontSize: 13, marginTop: 6, color: PARCH }}>
+                        <strong style={{ color: DIM }}>Conditions:</strong>{' '}
+                        {conditionsOf(entity).map((condition, i) => (
+                            <span key={condition.id}>{i > 0 && ' · '}{condition.name} <span style={{ color: DIM }}>[{condition.outward ? 'outward' : 'INWARD'}, {condition.severity}, since T{condition.since_turn}]</span></span>
+                        ))}
+                    </div>
                 )}
                 {((entity.beliefs && entity.beliefs.length > 0) || (entity.secrets && entity.secrets.length > 0)) && (
                     <div style={{ fontSize: 13, marginTop: 6, borderTop: '1px solid rgba(201,162,39,.15)', paddingTop: 6, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px' }}>

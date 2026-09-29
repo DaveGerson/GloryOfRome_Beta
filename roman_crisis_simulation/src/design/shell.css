@@ -84,6 +84,21 @@
 .gor-dossier-goal{font-size:15.5px;font-style:italic;color:var(--text-heading)}
 .gor-dossier-state{font-size:14.5px;line-height:1.5}
 
+/* A register of lasting marks (D48) - the player's own on the dossier, those
+   seen on a figure on their Personae card (components/ui/Marks.tsx). The
+   inward flag is an inscription, not a badge: Tyrian ink ruled in its own
+   colour, so it re-lights with the token by torchlight. */
+.gor-marks{list-style:none;margin:2px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.gor-mark{font-size:14.5px;line-height:1.4;color:var(--text-body);overflow-wrap:anywhere}
+.gor-mark-name{font-weight:600;color:var(--text-heading)}
+.gor-mark-weight{font-style:italic;color:var(--text-muted)}
+.gor-mark-flag{display:inline-block;margin-left:8px;padding:0 5px;border:1px solid currentColor;border-radius:var(--radius-sm);font-family:var(--font-display);font-size:10.5px;font-weight:600;letter-spacing:.1em;line-height:1.5;text-transform:uppercase;color:var(--tyrian-500);vertical-align:1px}
+.gor-mark-desc{display:block;font-size:13.5px;font-style:italic;color:var(--text-muted)}
+.gor-marks-compact{gap:2px}
+.gor-mark-name-gloss{cursor:help;border-bottom:1px dotted var(--border-strong)}
+.gor-mark-name-gloss:focus-visible{outline:none;box-shadow:var(--focus-ring);border-radius:2px}
+.gor-persona-marks{display:flex;flex-direction:column;gap:3px}
+
 /* ── IV · The manuscript: the chat log as a reading column ─────────────────
    App.tsx's log (`role="log"`, inline padding) spans the whole column; the
    inline padding is widened here so its contents sit in a centred measure.

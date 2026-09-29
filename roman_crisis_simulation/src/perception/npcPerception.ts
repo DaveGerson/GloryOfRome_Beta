@@ -18,8 +18,9 @@
  * Same discipline as visibility.ts: pure - no React, no AI imports.
  */
 
-import { Entity, EventDelta, WorldState } from '../types';
+import { Condition, Entity, EventDelta, WorldState } from '../types';
 import { buildPerceivedDigest, PerceivedChange, PerceptionSource, type PreTurnRoster } from './visibility';
+import { outwardConditionsOf } from '../ai/core/conditions';
 
 /**
  * Upper bound on how many NPCs run the perception pass in a single turn.
@@ -66,9 +67,9 @@ export interface NpcPerception {
  * Entity ids a turn's deltas involve, in delta order (duplicates included -
  * callers dedupe). Mirrors the key conventions classifyDelta relies on:
  * 'relation' keys are 'A:B:attr' (both involved); 'resource'/'status'/
- * 'scheme'/'faction' keys lead with the owning entity id; 'rumor' keys are
- * the entity (or region) the rumor is about. 'region'/'add_region'/
- * 'remove_region'/'world' keys carry no entity ids.
+ * 'scheme'/'faction'/'condition' keys lead with the owning entity id;
+ * 'rumor' keys are the entity (or region) the rumor is about. 'region'/
+ * 'add_region'/'remove_region'/'world' keys carry no entity ids.
  */
 function entityIdsInDeltas(deltas: EventDelta[]): string[] {
   const ids: string[] = [];
@@ -83,7 +84,8 @@ function entityIdsInDeltas(deltas: EventDelta[]): string[] {
       case 'resource':
       case 'status':
       case 'scheme':
-      case 'faction': {
+      case 'faction':
+      case 'condition': {
         const [entityId] = delta.key.split(':');
         if (entityId) ids.push(entityId);
         break;
@@ -150,6 +152,45 @@ export function buildNpcPerceptions(
     name: viewer.name,
     changes: buildPerceivedDigest(deltas, viewer, entities, worldState, preTurnEntities),
   }));
+}
+
+/**
+ * Upper bound on the other figures one mind prompt describes (D48): a mind
+ * needs the people around it, not the whole roster, and every mind input is
+ * bounded.
+ */
+export const MAX_FIGURES_IN_VIEW = 8;
+
+/**
+ * One other figure as an NPC can see them - a typed projection, rebuilt field
+ * by field, so no other entity's record ever crosses into a mind prompt
+ * (ai/prompts/npcMind.ts's asymmetry contract). Carries only what anyone
+ * standing near them could see: their OUTWARD marks (D48). Never an inward
+ * mark, a secret, a scheme.
+ */
+export interface FigureInView {
+  entity_id: string;
+  name: string;
+  outwardConditions: Array<Pick<Condition, 'name' | 'description' | 'severity'>>;
+}
+
+/**
+ * The figures `viewer` could see this turn and what shows on them: the
+ * living others at the viewer's own location (the witness rule
+ * classifyDelta applies to a status change) who carry an outward mark,
+ * capped at MAX_FIGURES_IN_VIEW in roster order. The player is a figure like
+ * any other here - their outward marks show, their inward ones never do.
+ */
+export function figuresInViewOf(viewer: Entity, entities: readonly Entity[]): FigureInView[] {
+  const figures: FigureInView[] = [];
+  for (const other of entities) {
+    if (figures.length >= MAX_FIGURES_IN_VIEW) break;
+    if (other.entity_id === viewer.entity_id || other.status !== 'alive' || other.location !== viewer.location) continue;
+    const outwardConditions = outwardConditionsOf(other).map(({ name, description, severity }) => ({ name, description, severity }));
+    if (outwardConditions.length === 0) continue;
+    figures.push({ entity_id: other.entity_id, name: other.name, outwardConditions });
+  }
+  return figures;
 }
 
 /**

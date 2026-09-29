@@ -76,7 +76,7 @@
  * evicted are pruned so the graph never dangles.
  */
 
-import type { PerceivedChange, PerceptionSource } from '../perception/visibility';
+import type { PerceivedChange, PerceivedCondition, PerceptionSource } from '../perception/visibility';
 import type { Entity, Report, ReportSource, RumorStance } from '../types';
 
 /**
@@ -142,6 +142,13 @@ export interface KnowledgeUpdate {
   status?: Entity['status'];
   /** Digest 'faction' updates only: the faction id the subject was seen to join, or null when seen to break away. */
   faction?: string | null;
+  /**
+   * Digest 'condition' updates only (D48): the mark as the perceived line
+   * showed it (PerceivedChange.perceivedCondition) - what the player believes
+   * the subject bears as of this stamp, `gone` once seen healed. Optional:
+   * legacy saves and every other channel omit it.
+   */
+  condition?: PerceivedCondition;
   /**
    * Bought beliefs/secrets readings only: the itemised findings the agent
    * brought back with this reading, frozen at its stamp (D14) so the held
@@ -324,7 +331,7 @@ function evictionTier(claim: KnowledgeClaim): number {
   const channel = channelOf(claim);
   if (channel === 'investigation' || channel === 'scheme') return 2;
   if (claim.relationshipObservation) return 1;
-  if (claim.updates.some(update => update.status !== undefined || update.faction !== undefined)) return 1;
+  if (claim.updates.some(update => update.status !== undefined || update.faction !== undefined || update.condition !== undefined)) return 1;
   return 0;
 }
 
@@ -391,9 +398,10 @@ interface IngestArtifact {
   credibility?: number;
   /** 'contradicts' forces a distinct claim node and a 'contradicts' edge (D29). */
   stance?: RumorStance;
-  /** See KnowledgeUpdate.status / .faction / .items. */
+  /** See KnowledgeUpdate.status / .faction / .condition / .items. */
   status?: Entity['status'];
   faction?: string | null;
+  condition?: PerceivedCondition;
   items?: string[];
   /** See KnowledgeClaim.occurrence - frozen when the claim opens. */
   occurrence?: string;
@@ -475,6 +483,11 @@ function upsertClaim(store: KnowledgeClaim[], artifact: IngestArtifact): Knowled
   }
   if (artifact.status !== undefined) update.status = artifact.status;
   if (artifact.faction !== undefined) update.faction = artifact.faction;
+  if (artifact.condition !== undefined) {
+    // Field by field, like every artifact copy here: the perceived mark only.
+    const { id, name, description, severity, outward, gone } = artifact.condition;
+    update.condition = { id, name, description, severity, outward, gone };
+  }
   if (artifact.items && artifact.items.length > 0) update.items = [...artifact.items];
 
   // A counterplay contradiction is a distinct node, never a continuation of
@@ -572,9 +585,11 @@ export function ingestPerceivedChanges(
       turn,
       source: change.source,
       // The believed state the line conveyed, structured (never re-parsed
-      // from the prose) - see perceivedStatusOf / perceivedFactionOf.
+      // from the prose) - see perceivedStatusOf / perceivedFactionOf /
+      // perceivedConditionsOf.
       status: change.perceivedStatus,
       faction: change.perceivedFaction,
+      condition: change.perceivedCondition,
     });
   }
   return next;
@@ -619,6 +634,25 @@ export function perceivedStatusOf(store: KnowledgeClaim[], entityId: string): En
 /** The faction the player last saw `entityId` join (null: seen breaking away), or undefined when they have seen no such change. */
 export function perceivedFactionOf(store: KnowledgeClaim[], entityId: string): string | null | undefined {
   return latestStructured(store, `digest:faction:${entityId}`, update => update.faction);
+}
+
+/**
+ * The marks the player has SEEN on `entityId` and not since seen gone (D48)
+ * - each mark's latest perceived state, oldest first seen first. A read
+ * model over the digest claims, never live ground truth: a mark gained out
+ * of the player's sight is not here, and one that healed unseen still is.
+ * Only outward marks can ever be perceived on another figure, so no inward
+ * mark reaches this list.
+ */
+export function perceivedConditionsOf(store: KnowledgeClaim[], entityId: string): PerceivedCondition[] {
+  const prefix = `digest:condition:${entityId}:`;
+  const marks: PerceivedCondition[] = [];
+  for (const claim of store) {
+    if (!claim.claimKey.startsWith(prefix)) continue;
+    const latest = latestStructured([claim], claim.claimKey, update => update.condition);
+    if (latest && !latest.gone && typeof latest.name === 'string') marks.push(latest);
+  }
+  return marks;
 }
 
 /**
