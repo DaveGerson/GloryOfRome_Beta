@@ -63,8 +63,13 @@ export function SubRail<T extends string>({ options, value, onChange, ariaLabel 
           onClick={() => onChange(option.value)}
         >
           {option.label}
+          {/* The count sits flush against the label, so without a spoken
+              separator the button was named "This week2". */}
           {typeof option.count === 'number' && (
-            <span className={`gor-subrail-count${option.countIsLeverage ? ' gor-subrail-count-leverage' : ''}`}>{option.count}</span>
+            <>
+              <span className="gor-sr-only">, </span>
+              <span className={`gor-subrail-count${option.countIsLeverage ? ' gor-subrail-count-leverage' : ''}`}>{option.count}</span>
+            </>
           )}
         </button>
       ))}

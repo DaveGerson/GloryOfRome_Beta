@@ -16,7 +16,7 @@
  * every replay that misses the cache is a paid call).
  */
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import type { GeminiClient } from '../ai/core/geminiService';
 import { speakTranscript } from '../ai/tools/narrationVoice';
 import { NarrationPlayer, type NarrationVoiceStatus } from '../narration/narrationPlayer';
@@ -37,6 +37,11 @@ export interface UseNarrationLogArgs {
 /** The Dispatch was voiced a touch cooler than the narrator (ai/tools/narrationVoice.ts). */
 const REPLAY_TEMPERATURE: Record<NarrationLogEntry['kind'], number> = { chronicle: 1, dispatch: 0.8, private_scene: 1, voice_sample: 1 };
 
+/** What a replayed clip is: this entry, in this voice. */
+function replayKey(entry: NarrationLogEntry): string {
+    return `${entry.id}|${entry.voice}`;
+}
+
 export function useNarrationLog({ ai, isMockMode, resolvedApiKey, narrationVoiceMode, log = sharedNarrationLog }: UseNarrationLogArgs) {
     const entries = useSyncExternalStore(log.subscribe, log.getSnapshot, log.getSnapshot);
     const [player] = useState(() => new NarrationPlayer());
@@ -44,15 +49,17 @@ export function useNarrationLog({ ai, isMockMode, resolvedApiKey, narrationVoice
     const canReachVoice = isMockMode || Boolean(resolvedApiKey);
     const silenced = narrationVoiceMode === 'off';
 
-    const entriesRef = useRef(entries);
-    useEffect(() => {
-        entriesRef.current = entries;
-    }, [entries]);
+    // Each entry replays as its own clip: the player's index is a number
+    // given once to an entry's id and voice, never reused. Not the entry's
+    // `seq`, which starts again at 1 after "Clear log" - the same words
+    // logged again in another voice (a voice sample after a recast) were
+    // answered by the old voice's clip.
+    const [replays] = useState(() => ({ index: new Map<string, number>(), entry: new Map<number, NarrationLogEntry>() }));
 
     useEffect(() => {
         player.setRenderer(
-            async (transcript, seq) => {
-                const entry = entriesRef.current.find(e => e.seq === seq);
+            async (transcript, index) => {
+                const entry = replays.entry.get(index);
                 const wav = await speakTranscript(ai, transcript, isMockMode, {
                     callName: 'narrationReplay',
                     voiceName: entry?.voice ?? 'Enceladus',
@@ -62,7 +69,7 @@ export function useNarrationLog({ ai, isMockMode, resolvedApiKey, narrationVoice
             },
             isMockMode ? 'mock-replay' : 'live-replay',
         );
-    }, [player, ai, isMockMode]);
+    }, [player, ai, isMockMode, replays]);
 
     useEffect(() => () => player.dispose(), [player]);
 
@@ -73,14 +80,21 @@ export function useNarrationLog({ ai, isMockMode, resolvedApiKey, narrationVoice
 
     const toggleReplay = useCallback((entry: NarrationLogEntry) => {
         if (!canReachVoice || silenced) return;
-        player.toggle(entry.seq, entry.transcript);
-    }, [player, canReachVoice, silenced]);
+        const key = replayKey(entry);
+        let index = replays.index.get(key);
+        if (index === undefined) {
+            index = replays.index.size + 1;
+            replays.index.set(key, index);
+            replays.entry.set(index, entry);
+        }
+        player.toggle(index, entry.transcript);
+    }, [player, canReachVoice, silenced, replays]);
 
     const replayStateFor = useCallback((entry: NarrationLogEntry): NarrationLogControlState => {
         if (silenced) return 'silenced';
         if (!canReachVoice) return 'unavailable';
-        return playback.index === entry.seq ? playback.status : 'idle';
-    }, [silenced, canReachVoice, playback]);
+        return playback.index !== null && playback.index === replays.index.get(replayKey(entry)) ? playback.status : 'idle';
+    }, [silenced, canReachVoice, playback, replays]);
 
     const stopReplay = useCallback(() => player.stop(), [player]);
 

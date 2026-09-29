@@ -4,7 +4,7 @@
 import { Entity, NpcIntent, NpcMindDecision, Report, SimulationState, StoryRelevance, TruthLedgerEntry, TurnHistoryEntry, WorldState, EventDelta, EntityStub, TurnSubmission } from '../types';
 import { applyAdjudication } from './core/engine';
 import { MAX_MINDS_PER_TURN } from './prompts/npcMind';
-import { normalizeTurnSubmissionInput, projectForNoAttemptResponse, projectForPlayerReflection, projectForResolution, serializeTurnSubmission } from '../playerInput/turnSubmission';
+import { normalizeTurnSubmissionInput, projectForNoAttemptResponse, projectForPlayerHistory, projectForPlayerReflection, projectForResolution, serializeTurnSubmission } from '../playerInput/turnSubmission';
 import type { PrivateSceneAdjudicatorProjection, PrivateSceneModelResponse, PrivateSceneNpcMemoryProjection } from '../privateScene/model';
 import type { PrivateScenePromptInput } from './prompts/privateScene';
 import {
@@ -374,6 +374,22 @@ function projectMockAdjudicationForNoAttempt(adjudication: AdjudicationInterchan
   };
 }
 
+/**
+ * The canned narration's quote of the player's observable attempt, built
+ * from the player-safe history projection: recipients appear by display
+ * name only, never as "Name [entity_id]" (the model-facing resolution
+ * form). Canned play ships to keyless players, so this is player-facing
+ * text.
+ */
+function quoteObservableAttemptForPlayer(submission: TurnSubmission): string {
+    const history = projectForPlayerHistory(submission);
+    if (history.kind === 'freeform') return history.text ?? '';
+    return [
+        ...(history.actions ?? []),
+        ...(history.messagesOrOrders ?? []).map(({ recipient, command }) => `To: ${recipient}\n${command}`),
+    ].join('\n\n');
+}
+
 export const mockRunNewTurn = async (
     submission: TurnSubmission | string,
     playerEntity: Entity,
@@ -522,16 +538,22 @@ export const mockRunNewTurn = async (
     const isThrax = playerEntity.entity_id === 'maximinus_thrax';
     const denarii = typeof playerEntity.resources?.denarii === 'number' ? playerEntity.resources.denarii : 0;
     const isBroke = denarii <= 0;
+    // The chronicle quotes the player's action as the player wrote it:
+    // recipients by display name (the player-safe history projection), never
+    // the "Name [entity_id]" form the resolution projection feeds a model.
+    // Only the observable part is quoted - private intent and questions are
+    // not the action being noted.
+    const quotedAttempt = quoteObservableAttemptForPlayer(normalizedSubmission);
 
     const narrationPayload = noAttemptResponse
         ? { text: '', actors: [] as string[] }
         : isThrax
             ? {
-                text: `(Mock Mode) Your action to "${observableAttempt}" has been noted. Across Rome, your frontier legions hold their ground as whisperers carry word of the boy emperor's panic. The Senate trembles at your advance.`,
+                text: `(Mock Mode) Your action to "${quotedAttempt}" has been noted. Across Rome, your frontier legions hold their ground as whisperers carry word of the boy emperor's panic. The Senate trembles at your advance.`,
                 actors: [playerEntity.entity_id, 'severus_alexander', 'roman_senate'],
             }
             : {
-                text: `(Mock Mode) Your action to "${observableAttempt}" has been noted. In the city, Maximinus Thrax continues to stir up trouble, spreading rumors about the Emperor's weakness. The mood in the Praetorian Camp grows darker.`,
+                text: `(Mock Mode) Your action to "${quotedAttempt}" has been noted. In the city, Maximinus Thrax continues to stir up trouble, spreading rumors about the Emperor's weakness. The mood in the Praetorian Camp grows darker.`,
                 actors: [playerEntity.entity_id, 'maximinus_thrax'],
             };
 
@@ -568,7 +590,7 @@ export const mockRunNewTurn = async (
     // instead of the raw, unfiltered Director output - so a spotlighted
     // entity absent from (or dead in) the current roster never persists a
     // phantom intent.
-    const durableIntents = selectDurableIntents(storyRelevance, currentEntities);
+    const durableIntents = selectDurableIntents(storyRelevance, currentEntities, playerEntity.entity_id);
 
     // Visible-surface gates (E2): the same redact-or-throw wiring the real
     // pipeline runs on updatedSimulationState/narration/playerMonologue

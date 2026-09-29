@@ -137,7 +137,9 @@ describe('applyAdjudication', () => {
         // severus_alexander starts with 50000 denarii.
         adjudication.deltas.push({ type: 'resource', key: 'severus_alexander:denarii', delta: -60000, reason: 'A disastrous campaign bankrupts the treasury' });
 
-        const { updatedEntities, updatedReports } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
+        // The treasury Reports are the PLAYER'S own (D6): minted only for the
+        // entity named as the player.
+        const { updatedEntities, updatedReports } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports, [], { playerEntityId: 'severus_alexander' });
         const entity = updatedEntities.find(e => e.entity_id === 'severus_alexander');
 
         expect(entity?.resources.denarii).toBe(0);
@@ -172,7 +174,7 @@ describe('applyAdjudication', () => {
         const firstAdjudication = deepCopy(baseAdjudication);
         firstAdjudication.deltas.push({ type: 'resource', key: 'severus_alexander:denarii', delta: -46000, reason: 'Crosses below the low-treasury threshold' }); // 50000 -> 4000
 
-        const first = applyAdjudication(firstAdjudication, mockEntities, mockWorldState, mockReports);
+        const first = applyAdjudication(firstAdjudication, mockEntities, mockWorldState, mockReports, [], { playerEntityId: 'severus_alexander' });
         const entityAfterFirst = first.updatedEntities.find(e => e.entity_id === 'severus_alexander')!;
         expect(entityAfterFirst.resources.denarii).toBe(4000);
 
@@ -184,7 +186,7 @@ describe('applyAdjudication', () => {
         const secondAdjudication = deepCopy(baseAdjudication);
         secondAdjudication.deltas.push({ type: 'resource', key: 'severus_alexander:denarii', delta: -1000, reason: 'Still below threshold' }); // 4000 -> 3000
 
-        const second = applyAdjudication(secondAdjudication, first.updatedEntities, first.updatedWorldState, first.updatedReports);
+        const second = applyAdjudication(secondAdjudication, first.updatedEntities, first.updatedWorldState, first.updatedReports, [], { playerEntityId: 'severus_alexander' });
         const entityAfterSecond = second.updatedEntities.find(e => e.entity_id === 'severus_alexander')!;
         expect(entityAfterSecond.resources.denarii).toBe(3000);
 

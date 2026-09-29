@@ -18,9 +18,15 @@ export interface ResourceRequirementRule {
   pattern: RegExp;
 }
 
-export const FINANCIAL_ACTION_REGEX = /\b(?:brib\w*|bribery|pay\s*off\w*|donative\w*|(?:buy|purchase)\s+(?:the\s+)?(?:loyalty|support)|hire\s+(?:mercenar\w*|informant\w*|assassin\w*|sp\w+|guard\w*)|pay\s+(?:(?:off|out|to|the)\s+)*(?:senat\w*|guard\w*|praetorian\w*|legion\w*|soldier\w*|mob|cohort\w*|troops?|informant\w*|sp\w+))\b/i;
+// "bribe(s)"/"bribed"/"bribing" but not "bribery" (a scandal to expose, not
+// a payment), and "spy"/"spies" rather than any word opening with "sp"
+// ("Pay special attention..." is not a payment). Framings that name a bribe
+// without paying one are excluded in getActivityResourceRequirement.
+export const FINANCIAL_ACTION_REGEX = /\b(?:brib(?:e[sd]?|ing)|pay\s*off\w*|donative\w*|(?:buy|purchase)\s+(?:the\s+)?(?:loyalty|support)|hire\s+(?:mercenar\w*|informant\w*|assassin\w*|sp(?:ies|y\w*)|guard\w*)|pay\s+(?:(?:off|out|to|the)\s+)*(?:senat\w*|guard\w*|praetorian\w*|legion\w*|soldier\w*|mob|cohort\w*|troops?|informant\w*|sp(?:ies|y\w*)))\b/i;
 
-export const MILITARY_ACTION_REGEX = /\b(?:march\s+(?:the\s+)?legions?|order\s+(?:the\s+)?(?:legions?|cohorts?)\s+to\s+(?:attack|seize|advance|march)|deploy\s+(?:the\s+)?legions?|enforce\s+martial\s+law|command\s+(?:the\s+)?cohorts?\s+to\s+seize|besiege\s+(?:the\s+)?(?:palace|curia|camp|city))\b/i;
+// "Thrax may march the legions" names a rival's march; only the actor's own
+// ("March the legions on Rome") needs legions.
+export const MILITARY_ACTION_REGEX = /\b(?:(?<!\b(?:may|might|will|would|could|can|shall)\s+)march\s+(?:the\s+)?legions?|order\s+(?:the\s+)?(?:legions?|cohorts?)\s+to\s+(?:attack|seize|advance|march)|deploy\s+(?:the\s+)?legions?|enforce\s+martial\s+law|command\s+(?:the\s+)?cohorts?\s+to\s+seize|besiege\s+(?:the\s+)?(?:palace|curia|camp|city))\b/i;
 
 export const ESPIONAGE_ACTION_REGEX = /\b(?:deploy\s+(?:an?\s+)?(?:informant|spy)\s+network|commission\s+(?:a\s+)?deep\s+(?:investigation|analysis)|infiltrate\s+undercover\s+agents?|intercept\s+(?:secret|coded)\s+dispatches)\b/i;
 
@@ -50,10 +56,22 @@ export const RESOURCE_REQUIREMENT_RULES: readonly ResourceRequirementRule[] = [
 ] as const;
 
 /**
+ * Suggestions that NAME a costly act without the actor paying for it:
+ * refusing, exposing, warning of or denying someone else's bribe or march,
+ * or a negated instruction ("Do not bribe the Guard"). Anchored at the start
+ * of the suggestion, after an optional "Try to"/"Attempt to".
+ */
+const NON_SPENDING_FRAMING_REGEX = /^\s*(?:(?:try|attempt)\s+to\s+)?(?:refuse|reject|decline|rebuff|spurn|resist|accept|expose|denounce|reveal|unmask|warn|deny|accuse|condemn|avoid|never|do\s+not|don['’]t)\b/i;
+
+/**
  * Checks whether an activity requires specific resources.
  * Returns the matching rule or null if the activity requires no systemic resources.
+ * Only an act the actor would pay for counts - a suggestion that merely
+ * mentions a bribe or a legion (see NON_SPENDING_FRAMING_REGEX) requires
+ * nothing, so it is never swapped for generic filler.
  */
 export function getActivityResourceRequirement(activity: string): ResourceRequirementRule | null {
+  if (NON_SPENDING_FRAMING_REGEX.test(activity)) return null;
   for (const rule of RESOURCE_REQUIREMENT_RULES) {
     if (rule.pattern.test(activity)) {
       return rule;

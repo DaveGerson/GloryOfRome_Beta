@@ -77,7 +77,7 @@
  */
 
 import type { PerceivedChange, PerceptionSource } from '../perception/visibility';
-import type { Report, ReportSource, RumorStance } from '../types';
+import type { Entity, Report, ReportSource, RumorStance } from '../types';
 
 /**
  * Where a knowledge update came from. Reuses the two provenance
@@ -133,6 +133,21 @@ export interface KnowledgeUpdate {
   text: string;
   /** Only present when the channel carries one (Reports do; digest entries are binary-fidelity per D5 v1). 0.0-1.0. */
   credibility?: number;
+  /**
+   * Digest 'status' updates only: the life/freedom status the perceived line
+   * showed the subject in (PerceivedChange.perceivedStatus) - what the
+   * player believes of them as of this stamp. Optional: legacy saves and
+   * every other channel omit it.
+   */
+  status?: Entity['status'];
+  /** Digest 'faction' updates only: the faction id the subject was seen to join, or null when seen to break away. */
+  faction?: string | null;
+  /**
+   * Bought beliefs/secrets readings only: the itemised findings the agent
+   * brought back with this reading, frozen at its stamp (D14) so the held
+   * dossier shows exactly what was paid for.
+   */
+  items?: string[];
 }
 
 /**
@@ -175,6 +190,13 @@ export interface KnowledgeClaim {
   schemeDiscovery?: SchemeDiscovery;
   /** A sourced, perception-safe observation of named participants. Optional for save-v1 compatibility. */
   relationshipObservation?: RelationshipObservationMarker;
+  /**
+   * Occurrence findings only: the public headline the finding answers, as it
+   * was cried - so the Events tab can list what the player examined after
+   * the occurrence has left the week's cry (the claim key holds only a
+   * slug). Optional: findings recorded before the field existed omit it.
+   */
+  occurrence?: string;
 }
 
 /** Player-safe evidence that may be offered to the relationship selector. */
@@ -205,8 +227,12 @@ export interface RelationshipObservationMarker {
  * every accreting slice (truth ledger, memories, snapshots) it must stay
  * bounded. Generous: the claim entity is the substrate for all later
  * intelligence surfaces, so eviction should be rare in practice. When the
- * cap is exceeded, the OLDEST-UPDATED claims are dropped first (ties break
- * toward the earlier-created claim).
+ * cap is exceeded, claims are dropped in tiers - word received (digest and
+ * report claims) first, then what the player holds as belief (relationship
+ * observations, a figure's last seen status or allegiance), and what they
+ * PAID for (investigation and scheme claims) last - the OLDEST-UPDATED
+ * first within a tier (ties break toward the earlier-created claim). See
+ * enforceKnowledgeClaimCap.
  */
 export const MAX_KNOWLEDGE_CLAIMS = 300;
 
@@ -290,21 +316,59 @@ function lastUpdatedTurn(claim: KnowledgeClaim): number {
 }
 
 /**
- * Drops the oldest-updated claims past MAX_KNOWLEDGE_CLAIMS, preserving the
+ * The eviction tier of a claim (lower goes first): word received, then
+ * what the player holds as belief, then what they paid for (D14 - a bought
+ * dossier and its scheme clues must outlive the rumor mill's chatter).
+ */
+function evictionTier(claim: KnowledgeClaim): number {
+  const channel = channelOf(claim);
+  if (channel === 'investigation' || channel === 'scheme') return 2;
+  if (claim.relationshipObservation) return 1;
+  if (claim.updates.some(update => update.status !== undefined || update.faction !== undefined)) return 1;
+  return 0;
+}
+
+/** Every id a claim makes known to the player (relationships.ts's isEntityKnownToPlayer reads the same two fields). */
+function idsMadeKnownBy(claim: KnowledgeClaim): string[] {
+  return [claim.subject, ...(claim.relationshipObservation?.participantIds ?? [])];
+}
+
+/**
+ * Drops claims past MAX_KNOWLEDGE_CLAIMS in eviction-tier order (see
+ * evictionTier), oldest-updated first within a tier, preserving the
  * survivors' order, then prunes any edge whose target was evicted so the
- * graph never dangles (D29). Returns the input reference when nothing needs
- * evicting.
+ * graph never dangles (D29). A claim that is the LAST one naming some
+ * subject or observed participant is skipped, so eviction never quietly
+ * un-learns a figure the player knows (D36); only a store in which every
+ * remaining candidate is somebody's last word - more distinct subjects than
+ * the cap - falls back to evicting in plain tier order. Returns the input
+ * reference when nothing needs evicting.
  */
 export function enforceKnowledgeClaimCap(store: KnowledgeClaim[]): KnowledgeClaim[] {
   if (store.length <= MAX_KNOWLEDGE_CLAIMS) return store;
   const excess = store.length - MAX_KNOWLEDGE_CLAIMS;
-  const evictIndices = new Set(
-    store
-      .map((claim, index) => [lastUpdatedTurn(claim), index] as const)
-      .sort((a, b) => a[0] - b[0] || a[1] - b[1])
-      .slice(0, excess)
-      .map(([, index]) => index)
-  );
+  const order = store
+    .map((claim, index) => ({ claim, index }))
+    .sort((a, b) =>
+      evictionTier(a.claim) - evictionTier(b.claim)
+      || lastUpdatedTurn(a.claim) - lastUpdatedTurn(b.claim)
+      || a.index - b.index);
+  const mentions = new Map<string, number>();
+  for (const claim of store) {
+    for (const id of new Set(idsMadeKnownBy(claim))) mentions.set(id, (mentions.get(id) ?? 0) + 1);
+  }
+  const evictIndices = new Set<number>();
+  for (const { claim, index } of order) {
+    if (evictIndices.size >= excess) break;
+    const ids = [...new Set(idsMadeKnownBy(claim))];
+    if (ids.some(id => mentions.get(id) === 1)) continue;
+    ids.forEach(id => mentions.set(id, (mentions.get(id) ?? 1) - 1));
+    evictIndices.add(index);
+  }
+  for (const { index } of order) {
+    if (evictIndices.size >= excess) break;
+    evictIndices.add(index);
+  }
   const survivors = store.filter((_, index) => !evictIndices.has(index));
   const survivorIds = new Set(survivors.map(c => c.id));
   return survivors.map(claim => {
@@ -327,6 +391,12 @@ interface IngestArtifact {
   credibility?: number;
   /** 'contradicts' forces a distinct claim node and a 'contradicts' edge (D29). */
   stance?: RumorStance;
+  /** See KnowledgeUpdate.status / .faction / .items. */
+  status?: Entity['status'];
+  faction?: string | null;
+  items?: string[];
+  /** See KnowledgeClaim.occurrence - frozen when the claim opens. */
+  occurrence?: string;
 }
 
 /**
@@ -403,6 +473,9 @@ function upsertClaim(store: KnowledgeClaim[], artifact: IngestArtifact): Knowled
   if (typeof artifact.credibility === 'number') {
     update.credibility = artifact.credibility;
   }
+  if (artifact.status !== undefined) update.status = artifact.status;
+  if (artifact.faction !== undefined) update.faction = artifact.faction;
+  if (artifact.items && artifact.items.length > 0) update.items = [...artifact.items];
 
   // A counterplay contradiction is a distinct node, never a continuation of
   // the timeline it disputes - so it never matches an existing key (D29).
@@ -449,6 +522,7 @@ function upsertClaim(store: KnowledgeClaim[], artifact: IngestArtifact): Knowled
   if (edges.length > 0) {
     newClaim.edges = edges;
   }
+  if (artifact.occurrence !== undefined) newClaim.occurrence = artifact.occurrence;
   return enforceKnowledgeClaimCap([...store, newClaim]);
 }
 
@@ -497,9 +571,54 @@ export function ingestPerceivedChanges(
       text: change.text,
       turn,
       source: change.source,
+      // The believed state the line conveyed, structured (never re-parsed
+      // from the prose) - see perceivedStatusOf / perceivedFactionOf.
+      status: change.perceivedStatus,
+      faction: change.perceivedFaction,
     });
   }
   return next;
+}
+
+/** The newest structured value `read` finds on the claim keyed `claimKey` (ingestPerceivedChanges's `digest:{deltaType}:{deltaKey}`), walking its timeline back from the latest update. */
+function latestStructured<T>(store: KnowledgeClaim[], claimKey: string, read: (update: KnowledgeUpdate) => T | undefined): T | undefined {
+  const claim = store.find(candidate => candidate.claimKey === claimKey);
+  if (!claim) return undefined;
+  for (let i = claim.updates.length - 1; i >= 0; i--) {
+    const value = read(claim.updates[i]);
+    if (value !== undefined) return value;
+  }
+  return undefined;
+}
+
+/**
+ * The fixed line the perception layer wrote for every status delta before
+ * updates carried a structured status ("{name} is now {status}." / "Your
+ * own fate turns: you are now {status}."). Its status word was the delta's
+ * raw new_status, or "changed" for a move.
+ */
+const LEGACY_STATUS_LINE = /(?:is|you are) now (alive|dead|exiled|missing)\.$/;
+
+/**
+ * The life/freedom status the player last SAW `entityId` in (their latest
+ * perceived status line), or undefined when they hold no such line. A read
+ * model over the store - never live ground truth - so a death the
+ * perception layer withheld cannot be read off the roster (D5). A line
+ * saved before the structured field existed is read from the fixed
+ * template that wrote it: its status word, or about ('alive') for a move
+ * ("is now changed.") or any word that was no status.
+ */
+export function perceivedStatusOf(store: KnowledgeClaim[], entityId: string): Entity['status'] | undefined {
+  const claim = store.find(candidate => candidate.claimKey === `digest:status:${entityId}`);
+  const latest = claim?.updates[claim.updates.length - 1];
+  if (!latest) return undefined;
+  if (latest.status !== undefined) return latest.status;
+  return (LEGACY_STATUS_LINE.exec(latest.text)?.[1] as Entity['status'] | undefined) ?? 'alive';
+}
+
+/** The faction the player last saw `entityId` join (null: seen breaking away), or undefined when they have seen no such change. */
+export function perceivedFactionOf(store: KnowledgeClaim[], entityId: string): string | null | undefined {
+  return latestStructured(store, `digest:faction:${entityId}`, update => update.faction);
 }
 
 /**
@@ -509,10 +628,11 @@ export function ingestPerceivedChanges(
  *
  * `atTurn`, when provided, stamps the knowledge UPDATES with that turn
  * instead (the Report object itself keeps its own `turn` field). A Report's
- * `turn` descends from the model-echoed `adjudication.turn`
- * (ai/core/engine.ts's rumor case), so turn-commit callers pass the App's
- * authoritative turn counter here - a model that mislabels its turn must
- * not skew the claim timeline (see knowledge/commit.ts).
+ * `turn` falls back to the model-echoed `adjudication.turn` when a caller
+ * of ai/core/engine.ts's applyAdjudication gives no authoritative counter,
+ * so turn-commit callers pass the App's authoritative turn counter here - a
+ * model that mislabels its turn must not skew the claim timeline (see
+ * knowledge/commit.ts).
  *
  * Leak guard (D5/D11): only the whitelisted fields below are read off each
  * Report. A Report never legitimately carries truth-ledger data
@@ -553,13 +673,16 @@ export type InvestigationKind = 'beliefs' | 'scheme' | 'secrets';
  * stage). For 'beliefs'/'secrets' the reveal opens/continues a full-dossier
  * claim: re-investigating the same aspect appends a freshly stamped update
  * to the same claim, the earlier reveal frozen at its own stamp (D14), the
- * reveal kind the claim's topic (D29). The 'scheme' aspect instead takes the
- * D28 clue path (ingestSchemeClue): it adds a clue toward earning the
- * scheme's nature rather than dumping the whole scheme.
+ * reveal kind the claim's topic (D29). The itemised findings the agent
+ * brought back (`items`) ride on that update, so the held dossier shows
+ * the list that was paid for, not only the agent's one-line summary. The
+ * 'scheme' aspect instead takes the D28 clue path (ingestSchemeClue): it
+ * adds a clue toward earning the scheme's nature rather than dumping the
+ * whole scheme, and keeps no items.
  */
 export function ingestInvestigationReveal(
   store: KnowledgeClaim[],
-  reveal: { targetId: string; kind: InvestigationKind; text: string; turn: number }
+  reveal: { targetId: string; kind: InvestigationKind; text: string; turn: number; items?: readonly string[] }
 ): KnowledgeClaim[] {
   // D28: buying intel on a plotting target earns a NATURE clue toward the
   // reveal (advancesNature) - it does not dump the whole scheme. The bought
@@ -583,6 +706,31 @@ export function ingestInvestigationReveal(
     channel: 'investigation',
     text: reveal.text,
     turn: reveal.turn,
+    source: 'spy',
+    items: reveal.items?.filter((item): item is string => typeof item === 'string' && item.trim().length > 0),
+  });
+}
+
+/**
+ * Ingests a commissioned Spymaster's Assessment (the deep-analysis tier)
+ * about `targetId`. It used to live only in the dossier card's component
+ * state, so the rare deep_analyses spent on it bought a reading that
+ * vanished on the next tab switch (D14: dossiers persist; the ephemeral
+ * component-local intel state is retired). It is a paid dossier aspect like
+ * any investigation, keyed `investigation:{targetId}:deep_analysis`, and a
+ * re-commission appends a freshly stamped reading to the same claim.
+ */
+export function ingestDeepAnalysis(
+  store: KnowledgeClaim[],
+  analysis: { targetId: string; text: string; turn: number }
+): KnowledgeClaim[] {
+  return upsertClaim(store, {
+    claimKey: `investigation:${analysis.targetId}:deep_analysis`,
+    subject: analysis.targetId,
+    topic: normalizeTopic('deep_analysis'),
+    channel: 'investigation',
+    text: analysis.text,
+    turn: analysis.turn,
     source: 'spy',
   });
 }
@@ -625,7 +773,35 @@ export function ingestOccurrenceFinding(
     text: finding.text,
     turn: finding.turn,
     source: 'spy',
+    occurrence: finding.occurrence,
   });
+}
+
+/**
+ * Every occurrence the player has put a question to this reign, newest
+ * asked first - the Events tab's Examined register, which must still reach
+ * a finding after its occurrence has left the week's cry (the store says
+ * these persist for the reign). A read model: the headline is the one each
+ * finding froze when first asked. `alsoCried` - this week's occurrences -
+ * recovers findings recorded before that field existed, which can only be
+ * matched against headlines still in view.
+ */
+export function examinedOccurrences(store: KnowledgeClaim[], alsoCried: readonly string[] = []): string[] {
+  const newestTurn = new Map<string, number>();
+  const note = (occurrence: string, turn: number) =>
+    newestTurn.set(occurrence, Math.max(turn, newestTurn.get(occurrence) ?? -Infinity));
+  for (const claim of store) {
+    if (claim.occurrence !== undefined && claim.claimKey.startsWith('investigation:occurrence:')) {
+      note(claim.occurrence, claim.firstLearnedTurn);
+    }
+  }
+  const bySlug = new Set([...newestTurn.keys()].map(occurrenceSlug));
+  for (const occurrence of alsoCried) {
+    if (bySlug.has(occurrenceSlug(occurrence))) continue;
+    const findings = occurrenceFindings(store, occurrence);
+    if (findings.length > 0) note(occurrence, Math.max(...findings.map(finding => finding.turn)));
+  }
+  return [...newestTurn.entries()].sort((a, b) => b[1] - a[1]).map(([occurrence]) => occurrence);
 }
 
 /** One answered question about one occurrence, as held by the player. */
@@ -679,13 +855,18 @@ function resolveSchemeDiscovery(
  * of the latest reading. Derived from the store, never stored separately -
  * this is a read model over the investigation/scheme claims about a subject.
  */
+/** Every aspect a dossier can hold: the investigation kinds plus the commissioned Spymaster's Assessment. */
+export type DossierKind = InvestigationKind | 'deep_analysis';
+
 export interface DossierEntry {
-  /** The aspect held - an investigation kind (D14 dossier) or 'scheme' (D28 clue trail). */
-  kind: InvestigationKind;
+  /** The aspect held - an investigation kind (D14 dossier), 'scheme' (D28 clue trail) or 'deep_analysis' (the Spymaster's Assessment). */
+  kind: DossierKind;
   /** D29 topic slug of the underlying claim (the reveal kind for investigations, 'scheme' for schemes). */
   topic: string;
   /** The freshest frozen reading held for this aspect - the snapshot as last refreshed (D14). */
   latestText: string;
+  /** The itemised findings that came with the freshest reading, when the aspect carries them (beliefs/secrets). */
+  latestItems?: string[];
   /** The turn this aspect was FIRST acquired - frozen origin (D14/D21). */
   firstLearnedTurn: number;
   /**
@@ -719,15 +900,15 @@ export interface Dossier {
 /**
  * The investigation/scheme aspect a claim represents, read from its claimKey,
  * or undefined for a non-dossier claim (digest/report). Deterministic, no AI:
- *   - `investigation:{subject}:{kind}` -> that kind (beliefs | secrets)
+ *   - `investigation:{subject}:{kind}` -> that kind (beliefs | secrets | deep_analysis)
  *   - `scheme:{subject}`               -> 'scheme'
  */
-function dossierKindOf(claim: KnowledgeClaim): InvestigationKind | undefined {
+function dossierKindOf(claim: KnowledgeClaim): DossierKind | undefined {
   const parts = claim.claimKey.split(':');
   if (parts[0] === 'scheme') return 'scheme';
   if (parts[0] === 'investigation') {
     const kind = parts[2];
-    if (kind === 'beliefs' || kind === 'secrets' || kind === 'scheme') return kind;
+    if (kind === 'beliefs' || kind === 'secrets' || kind === 'scheme' || kind === 'deep_analysis') return kind;
   }
   return undefined;
 }
@@ -763,6 +944,7 @@ export function deriveDossier(store: KnowledgeClaim[], subject: string): Dossier
       lastRefreshedTurn: latest.turn,
       source: latest.source,
     };
+    if (latest.items && latest.items.length > 0) entry.latestItems = latest.items;
     if (claim.schemeDiscovery) entry.schemeDiscovery = claim.schemeDiscovery;
     entries.push(entry);
   }

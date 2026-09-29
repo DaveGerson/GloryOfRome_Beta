@@ -1,5 +1,6 @@
-import React, { useId, useRef, useState } from 'react';
+import React, { useId, useRef, useState, type RefObject } from 'react';
 import { Button } from './ui/Core';
+import { useFocusRequest } from './ui/useFocusRequest';
 import { NARRATOR_VOICES, DEFAULT_NARRATOR_VOICE_ID } from '../persistence/uiPrefs';
 import {
     CUSTOM_NARRATOR_LIMITS,
@@ -10,7 +11,7 @@ import {
 } from '../narration/customNarrators';
 import { voiceStyleLabel, type VoiceStyle } from '../narration/voiceStyle';
 import { VOICE_CATALOG, catalogVoiceLabel } from '../narration/voiceCatalog';
-import { VoiceStylePicker, VOICE_GROUP_COPY, narrationSelectStyle } from './VoiceStylePicker';
+import { VoiceStylePicker, VOICE_GROUP_COPY, NARRATION_SELECT_CLASS, narrationSelectStyle } from './VoiceStylePicker';
 
 /** Player-visible copy for the custom-narrator editor (veto-queue: roadmaps/BACKLOG.md B13). */
 export const CUSTOM_NARRATOR_COPY = {
@@ -61,6 +62,15 @@ export const CustomNarratorEditor: React.FC<{
     const [confirming, setConfirming] = useState<string | null>(null);
     const nameRef = useRef<HTMLInputElement>(null);
     const toggleRef = useRef<HTMLButtonElement>(null);
+    const keepRef = useRef<HTMLButtonElement>(null);
+    const addRef = useRef<HTMLButtonElement>(null);
+    // Each row's "Remove <name>", by narrator id, so Keep can hand focus back to it.
+    const removeButtons = useRef(new Map<string, HTMLButtonElement>());
+    const requestFocus = useFocusRequest();
+    // Resolved after the swap renders: the row's Remove is a new node by then.
+    const removeButtonOf = (id: string): RefObject<HTMLElement | null> => ({ get current() { return removeButtons.current.get(id) ?? null; } });
+    // Once a narrator is gone, "New narrator" - or, while a form is open, the disclosure.
+    const afterRemoval: RefObject<HTMLElement | null> = { get current() { return addRef.current ?? toggleRef.current; } };
 
     const startForm = (next: FormState) => {
         setForm(next);
@@ -105,19 +115,27 @@ export const CustomNarratorEditor: React.FC<{
                                 <li key={n.id}>
                                     <span className="gor-narrator-editor-name">{n.name}</span>
                                     <span className="gor-narrator-editor-meta">{n.voiceName} · {voiceStyleLabel(n.voiceStyle)}</span>
+                                    {/* KEYED, and focus lands on Keep: unkeyed, React reused the
+                                        focused ghost "Remove" as the danger confirm at the same
+                                        child index, so a double Enter removed the narrator
+                                        (the defect ErrorBoundary.tsx documents). */}
                                     {confirming === n.id ? (
-                                        <span className="gor-narrator-editor-actions" role="group" aria-label={CUSTOM_NARRATOR_COPY.confirmRemove(n.name)}>
+                                        <span key="confirm" className="gor-narrator-editor-actions" role="group" aria-label={CUSTOM_NARRATOR_COPY.confirmRemove(n.name)}>
                                             <span className="gor-narrator-editor-confirm">{CUSTOM_NARRATOR_COPY.confirmRemove(n.name)}</span>
-                                            <Button type="button" size="sm" variant="danger" onClick={() => { onDelete(n.id); setConfirming(null); }}>{CUSTOM_NARRATOR_COPY.remove}</Button>
-                                            <Button type="button" size="sm" variant="ghost" onClick={() => setConfirming(null)}>{CUSTOM_NARRATOR_COPY.keep}</Button>
+                                            <Button type="button" size="sm" variant="danger" onClick={() => { onDelete(n.id); setConfirming(null); requestFocus(afterRemoval); }}>{CUSTOM_NARRATOR_COPY.remove}</Button>
+                                            <Button ref={keepRef} type="button" size="sm" variant="ghost" onClick={() => { setConfirming(null); requestFocus(removeButtonOf(n.id)); }}>{CUSTOM_NARRATOR_COPY.keep}</Button>
                                         </span>
                                     ) : (
-                                        <span className="gor-narrator-editor-actions">
+                                        <span key="idle" className="gor-narrator-editor-actions">
                                             <Button type="button" size="sm" variant="ghost" aria-label={`${CUSTOM_NARRATOR_COPY.edit} ${n.name}`}
                                                 onClick={() => startForm({ id: n.id, name: n.name, description: n.description, brief: n.brief, voiceName: n.voiceName, voiceStyle: n.voiceStyle })}>
                                                 {CUSTOM_NARRATOR_COPY.edit}
                                             </Button>
-                                            <Button type="button" size="sm" variant="ghost" aria-label={`${CUSTOM_NARRATOR_COPY.remove} ${n.name}`} onClick={() => setConfirming(n.id)}>
+                                            <Button
+                                                ref={(el: HTMLButtonElement | null) => { if (el) removeButtons.current.set(n.id, el); else removeButtons.current.delete(n.id); }}
+                                                type="button" size="sm" variant="ghost" aria-label={`${CUSTOM_NARRATOR_COPY.remove} ${n.name}`}
+                                                onClick={() => { setConfirming(n.id); requestFocus(keepRef); }}
+                                            >
                                                 {CUSTOM_NARRATOR_COPY.remove}
                                             </Button>
                                         </span>
@@ -147,7 +165,7 @@ export const CustomNarratorEditor: React.FC<{
                             {issueFor('brief') && <p className="gor-narrator-editor-issue" id={`${ids}-brief-issue`}>{issueFor('brief')}</p>}
 
                             <label className="gor-label" style={fieldLabelStyle} htmlFor={`${ids}-voice`}>{CUSTOM_NARRATOR_COPY.voice}</label>
-                            <select id={`${ids}-voice`} value={form.voiceName} onChange={e => set('voiceName', e.target.value)} style={narrationSelectStyle}>
+                            <select id={`${ids}-voice`} value={form.voiceName} onChange={e => set('voiceName', e.target.value)} className={NARRATION_SELECT_CLASS} style={narrationSelectStyle}>
                                 <optgroup label={VOICE_GROUP_COPY.curated}>
                                     {NARRATOR_VOICES.map(v => <option key={v.id} value={v.id}>{v.label} — {v.role}</option>)}
                                 </optgroup>
@@ -170,7 +188,7 @@ export const CustomNarratorEditor: React.FC<{
                     ) : narrators.length >= MAX_CUSTOM_NARRATORS ? (
                         <p className="gor-config-note">{CUSTOM_NARRATOR_COPY.full}</p>
                     ) : (
-                        <Button type="button" size="sm" variant="ghost" onClick={() => startForm(BLANK)}>{CUSTOM_NARRATOR_COPY.add}</Button>
+                        <Button ref={addRef} type="button" size="sm" variant="ghost" onClick={() => startForm(BLANK)}>{CUSTOM_NARRATOR_COPY.add}</Button>
                     )}
                 </fieldset>
             )}

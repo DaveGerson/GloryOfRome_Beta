@@ -133,7 +133,7 @@ describe('journey: relationship observations discover a previously hidden charac
 
       const clock = vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
       await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Chat input'), 'Receive the public dispatches from the Forum.');
-      await appClick(appButton(app.container, 'Send message'));
+      await appClick(appButton(app.container, 'Speak'));
       await waitForApp(() => expect(loadThreadState().turnNumber).toBe(2));
       clock.mockRestore();
 

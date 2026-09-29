@@ -39,6 +39,9 @@ const EventModal: React.FC<{
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="event-modal-title"
+                // The fate's own words, announced with its title when focus
+                // lands on the dialog - not only once the reader finds them.
+                aria-describedby="event-modal-body"
                 tabIndex={-1}
                 // No Escape here, deliberately - this dialog has no close
                 // affordance. Tab containment only.
@@ -49,9 +52,9 @@ const EventModal: React.FC<{
                     <h2 id="event-modal-title" style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 27, color: 'var(--tyrian-600)' }}>{event.title}</h2>
                     <div className="gor-dialog-rule"></div>
                 </div>
-                <div className="gor-dialog-body" style={{ textAlign: 'center', whiteSpace: 'pre-wrap' }}>{event.description}</div>
+                <div id="event-modal-body" className="gor-dialog-body gor-event-body" style={{ textAlign: 'center', whiteSpace: 'pre-wrap' }}>{event.description}</div>
                 {error && <Alert title={RECORD_REFUSES} style={{ margin: '0 22px 4px' }}>{error}</Alert>}
-                <div style={{ padding: '0 22px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div className="gor-event-choices" style={{ padding: '0 22px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {event.options.map((option, index) => (
                         <button key={index} type="button" className="gor-event-choice" onClick={() => onChoose(option)} disabled={interactionLocked}>
                             <span className="gor-event-choice-title">{option.text}</span>

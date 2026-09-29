@@ -11,7 +11,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { renderHook } from './renderHook';
-import { lastGmNarrationOf, pulsingTabsFor } from '../hooks/usePlayerPerception';
+import { lastGmNarrationOf, pulsingTabsFor, tabChangeCountsFor } from '../hooks/usePlayerPerception';
 import { useOnboarding } from '../hooks/useOnboarding';
 import { hasSeenOnboarding } from '../persistence/onboarding';
 import { GameState, type KnownRecipientOption, type StructuredTurnDraft, type TurnSubmission } from '../types';
@@ -67,6 +67,38 @@ describe('pulsingTabsFor', () => {
         expect(pulsingTabsFor([], [fresh], lastTurn).has('dramatis_personae')).toBe(true);
         expect(pulsingTabsFor([], [stale, plain], lastTurn).has('dramatis_personae')).toBe(false);
         expect(pulsingTabsFor([], [fresh], null).size).toBe(0);
+    });
+});
+
+describe('tabChangeCountsFor', () => {
+    const lastTurn = makeTurnHistoryEntry({ turnNumber: 5 });
+    const observation = { evidenceId: 'e1', participantIds: ['a', 'b'] };
+
+    it('counts each perceived change once per tab it names', () => {
+        const counts = tabChangeCountsFor([
+            makePerceivedChange({ tabs: ['reports'] }),
+            makePerceivedChange({ tabs: ['reports', 'world_state'] }),
+            makePerceivedChange({ tabs: ['resources', 'resources'] }),
+        ], [], lastTurn);
+        expect(Object.fromEntries(counts)).toEqual({ reports: 2, world_state: 1, resources: 1 });
+    });
+
+    it('counts Dramatis Personae only by relationship observations first learned on the last turn', () => {
+        const counts = tabChangeCountsFor([makePerceivedChange({ tabs: ['dramatis_personae'] })], [
+            makeKnowledgeClaim({ firstLearnedTurn: 5, relationshipObservation: observation }),
+            makeKnowledgeClaim({ firstLearnedTurn: 5, relationshipObservation: { ...observation, evidenceId: 'e2' } }),
+            makeKnowledgeClaim({ firstLearnedTurn: 4, relationshipObservation: observation }),
+            makeKnowledgeClaim({ firstLearnedTurn: 5 }),
+        ], lastTurn);
+        expect(counts.get('dramatis_personae')).toBe(2);
+        expect(tabChangeCountsFor([], [makeKnowledgeClaim({ firstLearnedTurn: 5, relationshipObservation: observation })], null).size).toBe(0);
+    });
+
+    it('names exactly the tabs pulsingTabsFor pulses - a count never appears where no pulse would', () => {
+        const changes = [makePerceivedChange({ tabs: ['locations', 'world_state'] }), makePerceivedChange({ tabs: ['dramatis_personae'] })];
+        const knowledge = [makeKnowledgeClaim({ firstLearnedTurn: 5, relationshipObservation: observation })];
+        expect([...tabChangeCountsFor(changes, knowledge, lastTurn).keys()].sort())
+            .toEqual([...pulsingTabsFor(changes, knowledge, lastTurn)].sort());
     });
 });
 

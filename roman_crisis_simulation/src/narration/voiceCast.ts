@@ -420,6 +420,11 @@ export function fallbackNarrator(defaults: DefaultNarrator): CastNarrator {
  * Builds a cast: the narrator first, then `keep` (existing members, left
  * as they are unless they collide), then the new proposals; uniqueness
  * enforced over all of them. Overrides on kept members are preserved.
+ *
+ * Over `MAX_CAST_MEMBERS`, a kept member who is no longer among `liveIds`
+ * (dead, or no longer known) gives way - the oldest first - to a proposal
+ * for someone who is, so a newcomer is never cut off by the departed. With
+ * no `liveIds`, or no one departed, the cap cuts the newest proposals.
  */
 export function assembleCast(
   narrator: CastNarrator,
@@ -427,13 +432,18 @@ export function assembleCast(
   proposals: readonly ProposedMember[],
   revision: number,
   overrides: Readonly<Record<string, CastOverride | undefined>> = {},
+  liveIds?: ReadonlySet<string>,
 ): VoiceCast {
   const kept = Object.entries(keep).map(([id, m]): ProposedMember => ({
     id, name: m.name, voiceName: m.voiceName, style: m.style, rationale: m.rationale, source: m.source,
   }));
   const keptIds = new Set(kept.map(k => k.id));
   const fresh = proposals.filter(p => !keptIds.has(p.id) && p.id !== NARRATOR_SLOT_ID);
-  const all = [...kept, ...fresh].slice(0, MAX_CAST_MEMBERS);
+  const over = kept.length + fresh.length - MAX_CAST_MEMBERS;
+  const departing = over > 0 && liveIds
+    ? new Set(kept.filter(k => !liveIds.has(k.id)).slice(0, over).map(k => k.id))
+    : new Set<string>();
+  const all = [...kept.filter(k => !departing.has(k.id)), ...fresh].slice(0, MAX_CAST_MEMBERS);
   const slots = ensureUniqueCast([
     { id: NARRATOR_SLOT_ID, voiceName: narrator.voiceName, style: narrator.style },
     ...all,
@@ -463,7 +473,8 @@ export function completeCast(stored: VoiceCast | null, candidates: readonly Cast
   if (missing.length === 0 && seated) return stored;
   // An older cast whose director chose another reader or voice: the default
   // reader takes the slot back, and anyone who held its voice is re-voiced.
-  return assembleCast(seated ? stored.narrator : fallbackNarrator(defaults), stored.members, missing.map(fallbackProposal), stored.revision);
+  const live = new Set(candidates.map(c => c.entityId));
+  return assembleCast(seated ? stored.narrator : fallbackNarrator(defaults), stored.members, missing.map(fallbackProposal), stored.revision, {}, live);
 }
 
 /** Whether a cast's narrator slot already holds the default reader, in its own voice and manner. */

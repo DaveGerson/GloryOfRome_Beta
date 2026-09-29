@@ -80,11 +80,16 @@ describe("the Fates' loom (WP-1 — invisible to a Mock-Mode playthrough)", () =
     expect(container.querySelector('.gor-loom-count')?.textContent).toBe('1 of 7');
   });
 
-  it('keeps the live-region contract the three dots had', async () => {
+  // Resolved open decision (ROADMAP_UPLEVEL_2026-09.md, "Turn progress is
+  // announced twice"): the composer's stage line is the one voice for a
+  // week's progress; the loom sits inside the chat log and is drawn, not
+  // spoken - the same call as the streaming narration bubble.
+  it('is drawn, not spoken: hidden from assistive tech, with no live region of its own', async () => {
     const container = await mount(<TypingIndicator stage="monologue" />);
-    const status = container.querySelector('[role="status"]');
-    expect(status?.getAttribute('aria-live')).toBe('polite');
-    expect(status?.textContent).toContain('Your own thoughts gather');
+    const loom = container.firstElementChild!;
+    expect(loom.getAttribute('aria-hidden')).toBe('true');
+    expect(container.querySelector('[aria-live], [role="status"]')).toBeNull();
+    expect(container.textContent).toContain('Your own thoughts gather');
   });
 });
 
@@ -303,10 +308,12 @@ describe('the four turn failures (WP-21)', () => {
 });
 
 describe('the save notice and the half-commit (WP-21)', () => {
-  it('names the last safe week in ceremonial numerals and keeps the site’s own sentence', async () => {
+  it('names the last safe turn in ceremonial numerals and keeps the site’s own sentence', async () => {
     const container = await mount(<SaveFailureNotice lead="Your investigation could not be saved." lastSafeTurn={11} />);
     expect(container.textContent).toContain('Your investigation could not be saved.');
-    expect(container.textContent).toContain('Week XI');
+    // A turn counter, so it reads 'Turn' (2026-09-29 audit: only the calendar
+    // surfaces say 'Week').
+    expect(container.textContent).toContain('Turn XI');
     expect(container.querySelector('.gor-alert-title')?.textContent).toBe('The record refuses');
   });
 

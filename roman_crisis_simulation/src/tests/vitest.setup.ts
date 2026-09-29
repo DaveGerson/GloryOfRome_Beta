@@ -1,3 +1,5 @@
+import { afterEach } from 'vitest';
+
 /**
  * Main-suite baseline: a device key is PRESENT, and it is plainly fake.
  *
@@ -12,3 +14,19 @@
  */
 process.env.API_KEY = 'gor-vitest-fake-key';
 process.env.GEMINI_API_KEY = 'gor-vitest-fake-key';
+
+/**
+ * The document outlives each test in a file, so page-level state the app
+ * paints onto <html> (hooks/useSettings.ts's lighting, hooks/useReadingPrefs.ts's
+ * text size and motion) or <head> (the NOX stylesheet link) is reset between
+ * tests - one test's lighting or reading scale is never the next one's
+ * starting point.
+ */
+afterEach(() => {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  root.removeAttribute('data-gor-dusk');
+  root.removeAttribute('data-gor-reading');
+  root.removeAttribute('data-gor-motion');
+  document.getElementById('nox-css')?.remove();
+});

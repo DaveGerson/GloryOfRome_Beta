@@ -10,6 +10,30 @@ export const Switch: React.FC<SwitchProps> =
         <label className="gor-switch" style={style}><input type="checkbox" role="switch" {...rest} />{label}</label>
     );
 
+/**
+ * A switch with its note under the label, the note tied to it as its
+ * description - the configuration menu's grammar for an option (D43: every
+ * option carries a visible description).
+ */
+export const NotedSwitch: React.FC<{
+    id: string;
+    label: React.ReactNode;
+    checked: boolean;
+    note: string;
+    onChange: (checked: boolean) => void;
+}> = ({ id, label, checked, note, onChange }) => (
+    <div className="gor-config-switch">
+        <Switch
+            id={id}
+            checked={checked}
+            aria-describedby={`${id}-note`}
+            onChange={(event: React.ChangeEvent<HTMLInputElement>) => onChange(event.target.checked)}
+            label={label}
+        />
+        <p id={`${id}-note`} className="gor-config-note">{note}</p>
+    </div>
+);
+
 export interface SegmentedOption<T extends string> {
     value: T;
     label: React.ReactNode;

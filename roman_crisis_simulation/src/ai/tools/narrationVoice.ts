@@ -165,7 +165,7 @@ export async function directNarrationPerformance(
   if (error !== undefined) {
     console.warn('narrationVoice: the narrator call failed; performing the plain narration instead', error);
   }
-  const performed = performedTranscriptFor(narration, output, [...listenerNames(playerContext), ...allowedNames]);
+  const performed = performedTranscriptFor(narration, output, [...listenerNames(playerContext), ...allowedNames], [narrator.name]);
   if (performed.rejection) {
     console.warn(`narrationVoice: the narrator's script was refused (${performed.rejection}); performing the plain narration instead`);
   } else {
@@ -270,6 +270,17 @@ export async function directImperialDispatch(
   return { transcript: clean, usedFallback: !rawDispatch, patchedOut: [], droppedCues: [] };
 }
 
+export interface DispatchVoicingOptions {
+  /**
+   * Read once the briefing is written: aborted (the reading was stopped, or
+   * the voice turned SILENT, while the scriptwriter was out), the voice call
+   * is never made.
+   */
+  signal?: { readonly aborted: boolean };
+  /** A briefing already written, or being written, for these facts: no second scriptwriter call. */
+  script?: Promise<PerformedTranscript>;
+}
+
 /**
  * Voicing step for the Imperial Dispatch. Uses Sadaltager (or the configured voice)
  * for a crisp, knowledgeable intelligence briefing. The briefing is plain
@@ -281,8 +292,10 @@ export async function performImperialDispatch(
   factsSummary: string,
   isMockMode: boolean,
   voiceName?: string,
+  options: DispatchVoicingOptions = {},
 ): Promise<NarrationPerformance> {
-  const performed = await directImperialDispatch(ai, factsSummary, isMockMode);
+  const performed = await (options.script ?? directImperialDispatch(ai, factsSummary, isMockMode));
+  if (options.signal?.aborted) throw new Error('imperialDispatch: the reading was stopped before it was voiced');
   if (isMockMode) {
     return { ...performed, wav: pcmToWav(synthesizeMockTone(), MOCK_TONE_MIME_TYPE) };
   }

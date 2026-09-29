@@ -2,9 +2,10 @@
  * hooks/useIntelCommits.ts
  *
  * The three durable commits SidePanel's intelligence surfaces hand back to
- * the composition root - a deep-analysis spend, an occurrence finding, and
- * a bought investigation reveal - plus the GM console's directive, the one
- * other side-surface write. Moved verbatim out of App.tsx (2026-09-23).
+ * the composition root - a commissioned deep analysis, an occurrence
+ * finding, and a bought investigation reveal - plus the GM console's
+ * directive, the one other side-surface write. Moved verbatim out of
+ * App.tsx (2026-09-23).
  *
  * Each handler receives the DomainMutationContext of the runDomainMutation
  * lease its caller acquired, and re-checks `request.isCurrent()` adjacent
@@ -16,7 +17,7 @@ import type { GoogleGenAI } from '@google/genai';
 import type { Entity, InvestigationResult, Message } from '../types';
 import type { DomainMutationContext } from '../state/domainMutation';
 import type { SaveGameState } from '../persistence/saveGame';
-import { computeInvestigationKnowledge } from '../knowledge/commit';
+import { computeDeepAnalysisKnowledge, computeInvestigationKnowledge } from '../knowledge/commit';
 import { ingestOccurrenceFinding, type KnowledgeClaim, type OccurrenceQuestion } from '../knowledge/store';
 import {
     buildInvestigationRelationshipEvidence,
@@ -46,25 +47,42 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
         buildSaveState, commitDomainMutation, setTransactionNote,
     } = deps;
 
-    const handleSpendResource = (
-        resourceName: 'deep_analyses' | 'investigations',
+    /**
+     * A commissioned Spymaster's Assessment: the deep_analyses spend AND the
+     * assessment itself, in one atomic commit (D14). The spend used to commit
+     * alone, with the text kept only in the dossier card's component state -
+     * so a tab switch (which unmounts the card) lost the reading the rare
+     * resource had already paid for, and offered to sell it again.
+     */
+    const handleDeepAnalysis = (
+        targetId: string,
         cost: number,
+        analysis: string,
         request: DomainMutationContext,
     ): boolean => {
         if (!request.isCurrent()) return false;
         const newEntities = entities.map(e => {
             if (e.entity_id === playerCharacterId) {
                 const newResources = {...e.resources};
-                const currentAmount = (newResources[resourceName] as number) || 0;
-                newResources[resourceName] = Math.max(0, currentAmount - cost);
+                const currentAmount = (newResources.deep_analyses as number) || 0;
+                newResources.deep_analyses = Math.max(0, currentAmount - cost);
                 return {...e, resources: newResources};
             }
             return e;
         });
+        const nextKnowledge = computeDeepAnalysisKnowledge({ prev: knowledge, targetId, analysis, turnNumber });
         if (!request.isCurrent()) return false;
         return commitDomainMutation({
-            candidate: buildSaveState({ entities: newEntities }),
-            action: { type: 'RESOURCE_SPENT', entities: newEntities },
+            candidate: buildSaveState({ entities: newEntities, knowledge: nextKnowledge }),
+            // The same commit shape a bought reveal uses; an assessment
+            // carries no consequences, so the fallout queue is handed back
+            // unchanged.
+            action: {
+                type: 'INVESTIGATION_COMMITTED',
+                entities: newEntities,
+                pendingIntelligenceFallout,
+                knowledge: nextKnowledge,
+            },
             onSaveFailure: () => setTransactionNote({ kind: 'save', lead: 'Your change could not be saved.' }),
             beforeDispatch: () => setTransactionNote(null),
         });
@@ -132,7 +150,12 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
             entity_id: entity.entity_id,
             name: entity.name,
         }));
-        const relationshipEvidence = [buildInvestigationRelationshipEvidence({
+        // D28: a 'scheme' buy is ONE clue - its report is held back as a
+        // nature hint until enough clues cross the reveal (ingestSchemeClue).
+        // Offering that same report to the relationship selector would let a
+        // single buy publish the plot on both conspirators' cards, so a
+        // scheme report is never relationship evidence.
+        const relationshipEvidence = kind === 'scheme' ? [] : [buildInvestigationRelationshipEvidence({
             reportText: result.report,
             targetId,
             kind,
@@ -147,7 +170,7 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
                     .map(option => option.entityId),
             ]
             : [];
-        const relationshipDrafts = await getRelationshipObservations(
+        const relationshipDrafts = relationshipEvidence.length === 0 ? [] : await getRelationshipObservations(
             ai,
             relationshipEvidence,
             entityDirectory,
@@ -175,12 +198,17 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
         // the intel finally persists (in state and in the save) instead of
         // evaporating with DramatisPersonaeTab's component-local display
         // state. Only the player-facing report text is ingested - never the
-        // resolution trace or anything GM-private.
+        // resolution trace or anything GM-private - with, for beliefs and
+        // secrets, the itemised findings the player was shown alongside it
+        // (player-facing too), so the held dossier keeps the whole reading.
         const nextKnowledge = computeInvestigationKnowledge({
             prev: knowledge,
             targetId,
             kind,
             reportText: result.report,
+            items: kind !== 'scheme' && Array.isArray(reportData)
+                ? reportData.filter((item): item is string => typeof item === 'string')
+                : undefined,
             turnNumber,
             relationshipObservations: {
                 evidence: relationshipEvidence,
@@ -220,5 +248,5 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
         });
     };
 
-    return { handleSpendResource, handleOccurrenceFinding, handleInvestigationOutcome, handleSetIntervention };
+    return { handleDeepAnalysis, handleOccurrenceFinding, handleInvestigationOutcome, handleSetIntervention };
 }

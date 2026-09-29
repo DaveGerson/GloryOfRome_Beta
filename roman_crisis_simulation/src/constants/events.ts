@@ -19,6 +19,14 @@ import { isEconomyAtOrWorseThan } from '../events/stabilityVocabulary';
  *    (events/engine.ts::applyEventChoiceDeltas) and only delta types that
  *    mint no Reports/ledger entries - see the DISCARD CONSTRAINT note
  *    there before adding 'rumor' deltas to any authored choice.
+ *  - Relation deltas are keyed '<faction>:PLAYER_CHARACTER': a choice moves
+ *    the FACTION'S opinion of the player (the engine's directional 'A:B'
+ *    rule changes A's perception of B), which is what every authored reason
+ *    describes and what triggers such as whispers_of_mutiny read. The
+ *    player's own opinions are theirs alone and no choice dictates them.
+ *  - Every roster id a choice acts on must exist for the event to fire at
+ *    all (events/engine.ts::isEventForThisWorld): these are Rome's events,
+ *    never a generated world's.
  *  - `worldState.economic_stability` is a free string the adjudicator
  *    writes; triggers MUST read it through events/stabilityVocabulary.ts
  *    (canonical grades + synonym normalizer), never by raw `===`, so a
@@ -54,7 +62,7 @@ export const ALL_EVENTS: GameEvent[] = [
                 description: 'The wealthy can surely afford to solve this problem, but they will not thank whoever forces their hand.',
                 deltas: [
                     { type: 'resource', key: 'PLAYER_CHARACTER:denarii', delta: 25000, reason: 'Senatorial grain levy, extracted under your pressure.' },
-                    { type: 'relation', key: 'PLAYER_CHARACTER:senatorial_party', delta: -2, reason: 'Angered by a forced grain levy.' },
+                    { type: 'relation', key: 'senatorial_party:PLAYER_CHARACTER', delta: -2, reason: 'Angered by a forced grain levy.' },
                 ]
             },
             {
@@ -62,7 +70,7 @@ export const ALL_EVENTS: GameEvent[] = [
                 description: 'A show of composure, or callousness? The risk of a riot is high.',
                 deltas: [
                      { type: 'region', key: 'The Suburra:stability', delta: 0, reason: 'Riots' },
-                     { type: 'relation', key: 'PLAYER_CHARACTER:roman_senate', delta: -1, reason: 'Seen as indifferent during the grain crisis.' },
+                     { type: 'relation', key: 'roman_senate:PLAYER_CHARACTER', delta: -1, reason: 'Seen as indifferent during the grain crisis.' },
                 ]
             }
         ]
@@ -104,23 +112,23 @@ export const ALL_EVENTS: GameEvent[] = [
                 description: 'Their loyalty can always be bought... for a price.',
                 deltas: [
                     { type: 'resource', key: 'PLAYER_CHARACTER:denarii', delta: -50000, reason: 'Massive bonus to ensure Praetorian loyalty.' },
-                    { type: 'relation', key: 'PLAYER_CHARACTER:praetorian_guard', delta: 4, reason: 'Promised a massive loyalty bonus.' },
+                    { type: 'relation', key: 'praetorian_guard:PLAYER_CHARACTER', delta: 4, reason: 'Promised a massive loyalty bonus.' },
                 ]
             },
             {
                 text: 'Arrest the suspected ringleaders.',
                 description: 'A risky show of force. This could quell the dissent or ignite an open revolt.',
                 deltas: [
-                    { type: 'relation', key: 'PLAYER_CHARACTER:praetorian_guard', delta: -3, reason: 'Attempted to arrest ringleaders, causing fear and anger.' },
-                    { type: 'relation', key: 'PLAYER_CHARACTER:military_cabal', delta: -2, reason: 'Seen as a direct attack on military personnel.' },
+                    { type: 'relation', key: 'praetorian_guard:PLAYER_CHARACTER', delta: -3, reason: 'Attempted to arrest ringleaders, causing fear and anger.' },
+                    { type: 'relation', key: 'military_cabal:PLAYER_CHARACTER', delta: -2, reason: 'Seen as a direct attack on military personnel.' },
                 ]
             },
             {
                 text: 'Expose the plot before the Senate.',
                 description: 'Bring the whispers into the open and force everyone to choose a side.',
                 deltas: [
-                    { type: 'relation', key: 'PLAYER_CHARACTER:roman_senate', delta: 2, reason: 'Applauded for exposing a plot within the Guard.' },
-                    { type: 'relation', key: 'PLAYER_CHARACTER:praetorian_guard', delta: -2, reason: 'Humiliated before the Senate by your denunciation.' },
+                    { type: 'relation', key: 'roman_senate:PLAYER_CHARACTER', delta: 2, reason: 'Applauded for exposing a plot within the Guard.' },
+                    { type: 'relation', key: 'praetorian_guard:PLAYER_CHARACTER', delta: -2, reason: 'Humiliated before the Senate by your denunciation.' },
                 ]
             }
         ]
@@ -134,11 +142,14 @@ export const ALL_EVENTS: GameEvent[] = [
         // Historical seed: March 235, the Rhine legions at Mogontiacum
         // acclaimed Maximinus Thrax against Severus Alexander. Keys off the
         // empire-level meta-state: a rebellious army acclaims outright; a
-        // divided one does so once a major crisis gives it cover.
+        // divided one does so once a major crisis gives it cover. "A crisis"
+        // means what the crisis banner means (components/crisisGrade.ts): a
+        // blank crisis string - turn.ts commits '' for a fully redacted one -
+        // is no crisis.
         trigger: (worldState: WorldState, entities: Entity[], player: Entity | null, simulationState?: SimulationState) => {
             if (!player || !simulationState) return false;
             return simulationState.military_status === 'Rebellious'
-                || (simulationState.military_status === 'Divided' && simulationState.major_ongoing_crisis !== null);
+                || (simulationState.military_status === 'Divided' && Boolean(simulationState.major_ongoing_crisis?.trim()));
         },
         // Acclamations recur while soldiers make emperors; each one buys a
         // season of wary quiet at most.
@@ -150,23 +161,23 @@ export const ALL_EVENTS: GameEvent[] = [
                 description: 'A donative may hold the frontier - and teach the army that acclamation pays.',
                 deltas: [
                     { type: 'resource', key: 'PLAYER_CHARACTER:denarii', delta: -30000, reason: 'Donative dispatched to the Rhine legions.' },
-                    { type: 'relation', key: 'PLAYER_CHARACTER:military_cabal', delta: 2, reason: 'Bought goodwill among the commanders.' },
+                    { type: 'relation', key: 'military_cabal:PLAYER_CHARACTER', delta: 2, reason: 'Bought goodwill among the commanders.' },
                 ]
             },
             {
                 text: 'Denounce the acclaimed usurper as an enemy of Rome.',
                 description: 'Force the Senate and the city to close ranks - and make the frontier your open enemy.',
                 deltas: [
-                    { type: 'relation', key: 'PLAYER_CHARACTER:roman_senate', delta: 2, reason: 'Rallied the Senate against a usurper.' },
-                    { type: 'relation', key: 'PLAYER_CHARACTER:military_cabal', delta: -3, reason: 'Declared against the soldiers\' choice.' },
+                    { type: 'relation', key: 'roman_senate:PLAYER_CHARACTER', delta: 2, reason: 'Rallied the Senate against a usurper.' },
+                    { type: 'relation', key: 'military_cabal:PLAYER_CHARACTER', delta: -3, reason: 'Declared against the soldiers\' choice.' },
                 ]
             },
             {
                 text: 'Open secret talks with the acclaimed general\'s camp.',
                 description: 'Every usurper needs friends in Rome. Better to be owed by the next emperor than proscribed by him.',
                 deltas: [
-                    { type: 'relation', key: 'PLAYER_CHARACTER:military_cabal', delta: 3, reason: 'Quietly courted the acclaimed general\'s partisans.' },
-                    { type: 'relation', key: 'PLAYER_CHARACTER:roman_senate', delta: -2, reason: 'Rumbles that you treat with usurpers.' },
+                    { type: 'relation', key: 'military_cabal:PLAYER_CHARACTER', delta: 3, reason: 'Quietly courted the acclaimed general\'s partisans.' },
+                    { type: 'relation', key: 'roman_senate:PLAYER_CHARACTER', delta: -2, reason: 'Rumbles that you treat with usurpers.' },
                 ]
             }
         ]
@@ -193,23 +204,23 @@ export const ALL_EVENTS: GameEvent[] = [
                 description: 'Bind yourself early to the rival regime the Senate may yet bless.',
                 deltas: [
                     { type: 'resource', key: 'PLAYER_CHARACTER:denarii', delta: -15000, reason: 'Gold and pledges sent to the African estates.' },
-                    { type: 'relation', key: 'PLAYER_CHARACTER:senatorial_party', delta: 3, reason: 'Seen as a friend of the senatorial cause in Africa.' },
+                    { type: 'relation', key: 'senatorial_party:PLAYER_CHARACTER', delta: 3, reason: 'Seen as a friend of the senatorial cause in Africa.' },
                 ]
             },
             {
                 text: 'Expose the conspiracy\'s correspondents in Rome.',
                 description: 'Name the senators counting votes for Africa - and let the reigning power owe you for it.',
                 deltas: [
-                    { type: 'relation', key: 'PLAYER_CHARACTER:senatorial_party', delta: -3, reason: 'Betrayed the African cause\'s friends in the Curia.' },
-                    { type: 'relation', key: 'PLAYER_CHARACTER:military_cabal', delta: 2, reason: 'Handed the soldiers a list of senatorial conspirators.' },
+                    { type: 'relation', key: 'senatorial_party:PLAYER_CHARACTER', delta: -3, reason: 'Betrayed the African cause\'s friends in the Curia.' },
+                    { type: 'relation', key: 'military_cabal:PLAYER_CHARACTER', delta: 2, reason: 'Handed the soldiers a list of senatorial conspirators.' },
                 ]
             },
             {
                 text: 'Stay silent and let Africa and the throne bleed each other.',
                 description: 'Neither letter nor denunciation leaves your hand. Patience is also a weapon.',
                 deltas: [
-                    { type: 'relation', key: 'PLAYER_CHARACTER:roman_senate', delta: -1, reason: 'Your silence during the African crisis was noted.' },
-                    { type: 'relation', key: 'PLAYER_CHARACTER:senatorial_party', delta: -1, reason: 'The African cause\'s friends remember who stood aside.' },
+                    { type: 'relation', key: 'roman_senate:PLAYER_CHARACTER', delta: -1, reason: 'Your silence during the African crisis was noted.' },
+                    { type: 'relation', key: 'senatorial_party:PLAYER_CHARACTER', delta: -1, reason: 'The African cause\'s friends remember who stood aside.' },
                 ]
             }
         ]
@@ -238,7 +249,7 @@ export const ALL_EVENTS: GameEvent[] = [
                 description: 'Empty the chests and keep the Guard\'s swords sheathed - until the next reckoning.',
                 deltas: [
                     { type: 'resource', key: 'PLAYER_CHARACTER:denarii', delta: -40000, reason: 'Praetorian donative paid in full.' },
-                    { type: 'relation', key: 'PLAYER_CHARACTER:praetorian_guard', delta: 3, reason: 'Paid the donative without haggling.' },
+                    { type: 'relation', key: 'praetorian_guard:PLAYER_CHARACTER', delta: 3, reason: 'Paid the donative without haggling.' },
                 ]
             },
             {
@@ -246,15 +257,15 @@ export const ALL_EVENTS: GameEvent[] = [
                 description: 'Split the difference - and hope the Guard\'s arithmetic is forgiving.',
                 deltas: [
                     { type: 'resource', key: 'PLAYER_CHARACTER:denarii', delta: -20000, reason: 'Half the donative paid, the rest promised.' },
-                    { type: 'relation', key: 'PLAYER_CHARACTER:praetorian_guard', delta: -1, reason: 'The Guard counts promises at half their face value.' },
+                    { type: 'relation', key: 'praetorian_guard:PLAYER_CHARACTER', delta: -1, reason: 'The Guard counts promises at half their face value.' },
                 ]
             },
             {
                 text: 'Refuse, and remind them of their oath.',
                 description: 'Oaths are cheaper than denarii. The Guard has broken both before.',
                 deltas: [
-                    { type: 'relation', key: 'PLAYER_CHARACTER:praetorian_guard', delta: -4, reason: 'Refused the donative outright.' },
-                    { type: 'relation', key: 'PLAYER_CHARACTER:military_cabal', delta: -1, reason: 'Word spreads that you stint the soldiers.' },
+                    { type: 'relation', key: 'praetorian_guard:PLAYER_CHARACTER', delta: -4, reason: 'Refused the donative outright.' },
+                    { type: 'relation', key: 'military_cabal:PLAYER_CHARACTER', delta: -1, reason: 'Word spreads that you stint the soldiers.' },
                 ]
             }
         ]

@@ -16,7 +16,7 @@ import {
 import { IN_CHARACTER_NARRATOR_ID, type NarratorCharacter } from '../narration/narratorChoice';
 import { CUSTOM_NARRATOR_DEFAULT_DESCRIPTION, type CustomNarrator, type CustomNarratorDraft, type CustomNarratorSaveResult } from '../narration/customNarrators';
 import { sanitizeVoiceStyleText, voiceStyleLabel, type VoiceStyle } from '../narration/voiceStyle';
-import { VoiceStylePicker, VOICE_GROUP_COPY, narrationSelectStyle } from './VoiceStylePicker';
+import { VoiceStylePicker, VOICE_GROUP_COPY, NARRATION_SELECT_CLASS, narrationSelectStyle } from './VoiceStylePicker';
 
 /** The slice of a narrator profile (narration/narrators.ts) the picker shows. */
 export interface NarratorChoice {
@@ -183,6 +183,7 @@ export const NarrationSettings: React.FC<NarrationSettingsProps> = ({
                             disabled={off}
                             value={selectValue}
                             onChange={e => onSetNarrator(e.target.value)}
+                            className={NARRATION_SELECT_CLASS}
                             style={narrationSelectStyle}
                         >
                             <optgroup label={NARRATION_SETTINGS_COPY.readersGroup}>
@@ -202,6 +203,7 @@ export const NarrationSettings: React.FC<NarrationSettingsProps> = ({
                                 disabled={off}
                                 value={character.entityId}
                                 onChange={e => onSetNarratorCharacter?.(e.target.value)}
+                                className={NARRATION_SELECT_CLASS}
                                 style={{ ...narrationSelectStyle, marginTop: 6 }}
                             >
                                 {narratorCharacters.map(c => (
@@ -225,6 +227,7 @@ export const NarrationSettings: React.FC<NarrationSettingsProps> = ({
                             disabled={off}
                             value={voiceChoice ?? ''}
                             onChange={(e) => handleVoiceChange(e.target.value)}
+                            className={NARRATION_SELECT_CLASS}
                             style={narrationSelectStyle}
                         >
                             <option value="">{narratorVoiceFromCast ? NARRATION_SETTINGS_COPY.castVoice(ownVoice) : NARRATION_SETTINGS_COPY.ownVoice(ownVoice)}</option>

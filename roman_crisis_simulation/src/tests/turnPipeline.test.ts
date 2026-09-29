@@ -776,7 +776,7 @@ describe('ai/core/turn.ts runNewTurn - campaign truth-ledger threading (D11)', (
 // --- Mortality directives: no validator reasoning on the player surface (D4) ---
 
 describe('ai/core/turn.ts runNewTurn - mortality directives feed narration from VALID events only (D4)', () => {
-  it("an invalidated death claim: the validator's GM-only reasoning never reaches the narration prompt, only the diegetic delta rewrite does", async () => {
+  it("an invalidated death claim: the validator's GM-only reasoning never reaches the narration prompt, and the overruled claim is not announced as a change", async () => {
     const h = createHarness(false);
     const player = makeEntity();
     const npc = makeEntity({ entity_id: 'npc_1', name: 'Senator Rufus' });
@@ -820,10 +820,11 @@ describe('ai/core/turn.ts runNewTurn - mortality directives feed narration from 
     expect(narrationPrompt).not.toContain(VALIDATION_REASONING);
     expect(narrationPrompt).not.toContain('Death claim invalidated');
     expect(narrationPrompt).not.toContain('MORTALITY NARRATION DIRECTIVES');
-    // What the player SHOULD read crosses the existing visibility seam: the
-    // invalid claim's authoritative rewrite to alive remains visible without
-    // forwarding the raw delta reason.
-    expect(narrationPrompt).toContain('Senator Rufus is now alive.');
+    // The invalid claim's authoritative rewrite keeps the senator's status
+    // exactly as it was, so the visibility seam has no change to announce:
+    // an overruled death is not news, and "is now alive" would surface the
+    // internal claim as if something had happened (D4).
+    expect(narrationPrompt).not.toContain('Senator Rufus is now alive.');
 
     // The reasoning is still recorded GM-side for the console (D4): on the
     // mortalityTrace and in gm_private.
@@ -1548,7 +1549,9 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
       expect(narrationPrompt).not.toContain(RAW_OUTCOME_DIRECTIVE);
       expect(narrationPrompt).not.toContain('MORTALITY NARRATION DIRECTIVES');
       if (shouldBeVisible) {
-        expect(narrationPrompt).toContain('MORTALITY_NPC_NAME is now alive.');
+        // Publicly surviving leaves the status as it was (alive), so even a
+        // witness is told of no status change - never "is now alive".
+        expect(narrationPrompt).not.toContain('MORTALITY_NPC_NAME is now alive.');
       } else {
         expect(narrationPrompt).not.toContain('MORTALITY_NPC_NAME');
         expect(narrationPrompt).not.toContain('npc_mortality');
@@ -1557,6 +1560,63 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
       expect(result.updatedEntities.find(e => e.entity_id === 'npc_mortality')?.status).toBe('alive');
     },
   );
+});
+
+// --- The player's own death save reaches narration as its settled outcome (D2) ---
+
+describe("ai/core/turn.ts runNewTurn - the player's own settled death save is narrated (D2)", () => {
+  it('hands the resolved band directive to narration as OUTCOME TO NARRATE, never the validator reasoning', async () => {
+    const randomSpy = mockRoll(14); // player death save 11-17: 'survive', no outcome call
+    const h = createHarness(false);
+    const player = makeEntity();
+    const VALIDATION_REASONING = 'VALIDATOR_REASONING_MUST_STAY_GM_SIDE';
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    h.response.adjudication.resolve(JSON.stringify({
+      turn: 2,
+      entityActions: [],
+      deltas: [{ type: 'status', key: 'player_1', delta: 0, reason: 'An assassin lunges at you on the Senate steps.', new_status: 'dead', actors: [] }],
+      headlines: [{ text: 'A blade flashes on the Senate steps.', actors: [] }],
+      gm_private: [],
+    }));
+    h.response.mortalityValidation.resolve(JSON.stringify({
+      dispositions: [{ entity_id: 'player_1', valid: true, reasoning: VALIDATION_REASONING }],
+    }));
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologuePayloadJson);
+    h.response.narration.resolve(narrationPayloadJson);
+
+    const result = await runNewTurn(
+      h.ai, freeform('Hold court'), player, 2, [player], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller',
+    );
+    randomSpy.mockRestore();
+
+    expect(result.updatedEntities.find(e => e.entity_id === 'player_1')?.status).toBe('alive');
+    expect(result.newHistoryEntry.mortalityTrace?.[0]).toMatchObject({ entity_id: 'player_1', valid: true, band: 'survive' });
+    const narrationPrompt = h.promptsByKind.narration ?? '';
+    expect(narrationPrompt).toContain('OUTCOME TO NARRATE');
+    expect(narrationPrompt).toContain('Narrate a tense but clean escape from death - no lasting cost, no windfall.');
+    expect(narrationPrompt).not.toContain(VALIDATION_REASONING);
+    expect(narrationPrompt).not.toContain('[Mortality]');
+  });
+
+  it('gives an ordinary turn with no death claim no OUTCOME TO NARRATE block', async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    h.response.adjudication.resolve(adjudicationJson);
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologuePayloadJson);
+    h.response.narration.resolve(narrationPayloadJson);
+
+    await runNewTurn(
+      h.ai, freeform('Hold court'), player, 2, [player], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller',
+    );
+
+    expect(h.promptsByKind.narration ?? '').not.toContain('OUTCOME TO NARRATE');
+  });
 });
 
 describe('ai/core/turn.ts runNewTurn - player-perceived narration input', () => {
@@ -1805,9 +1865,13 @@ describe('ai/core/turn.ts runNewTurn - pacing posture threading (4D.1, D23)', ()
     resolveWholePipeline(h);
 
     // A failing economy makes grain_shortage's trigger fire for any player;
-    // empty bookkeeping means it has never fired, so it is RIPE.
+    // empty bookkeeping means it has never fired, so it is RIPE. The roster
+    // carries the Roman bodies its choices act on - an authored event is
+    // material only in a world that has them (events/engine.ts).
+    const romanBodies = ['senatorial_party', 'roman_senate'].map(entity_id =>
+      makeEntity({ entity_id, name: entity_id, entity_type: 'faction' }));
     await runNewTurn(
-      h.ai, freeform('Hold court'), player, 2, [player], { ...worldState, economic_stability: 'Failing' },
+      h.ai, freeform('Hold court'), player, 2, [player, ...romanBodies], { ...worldState, economic_stability: 'Failing' },
       simulationState, [], [], [], [], '', false, 'Grim political thriller',
       { eventFirings: [] }
     );

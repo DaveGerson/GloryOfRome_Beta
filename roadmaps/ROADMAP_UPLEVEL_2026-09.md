@@ -180,8 +180,8 @@ already there rather than replacing it.
 | P2 | **Browser end-to-end tests with Playwright** as a fourth CI job, running Mock Mode in preview. Cover boot, a turn, reload, export/import, two-tab play and the GM hotkey. | jsdom does not exercise real storage events, focus, layout or bundle loading. | 2–3 d |
 | P3 | **IndexedDB storage with multiple save slots** and autosave history (undo to turn N), plus a `BroadcastChannel` tab lock. | Lifts the ~5 MB ceiling. The migration registry makes the move safe. | 1 wk |
 | P4 | **Mobile single-column layout.** Below about 900 px, show a Chat ↔ Intel switcher, collapse player status into a bar, and make dialogs full-screen. | The biggest reach gain (UI doc item 10.2). | 1–2 wk |
-| P5 | **Reading and motion settings**: text size, reduced motion, streaming off, progress announcements. | Also settles the double progress announcement noted in the UI track. | 3 d |
-| P6 | **Per-tab "what changed since you last looked"** counts instead of the pulse dot. | Turns the intel panel into a to-do list and helps screen-reader users. | 3–4 d |
+| P5 | **Reading and motion settings**: text size, reduced motion, streaming off, progress announcements. *(LANDED 2026-09-28 except progress announcements — see Part 3.)* | Also settles the double progress announcement noted in the UI track. | 3 d |
+| P6 | **Per-tab "what changed since you last looked"** counts instead of the pulse dot. *(LANDED 2026-09-28 — see Part 3.)* | Turns the intel panel into a to-do list and helps screen-reader users. | 3–4 d |
 | P7 | **Shareable end-of-reign recap** built from the Chronicle and the epilogue. | Players share their story, which is a growth loop. | 1 wk |
 | P8 | **Opt-in telemetry** for stage latency, retry and validation rates, save failure reasons and error-boundary crashes. | Tuning becomes measurement, and it feeds the eval corpus. | 2–3 d |
 | P9 | **Hosted mode (B9)**: a Gemini proxy, optional sign-in, and saves on the server. | No need to bring your own key; saves follow the player across devices. | 2+ wk |
@@ -199,9 +199,321 @@ already there rather than replacing it.
   which authored event it wove in. That is a schema change; ruling needed.
 - **Turn progress is announced twice**: in the chat loom and in the
   composer's stage line. Which surface keeps the announcement?
+  *Resolved on best practice, 2026-09-28 (Part 4): the composer's stage
+  line.*
 - **The Events tab refusal copy** reuses the dossier's line word for word.
   It is new on this screen, so it goes in the veto queue.
+  *Recommended on best practice (Part 4): keep the shared line. The copy
+  is still the owner's to veto.*
 - **NOX as the default theme.** Is the night skin the right first
   impression? To revert, delete the one small script block in `index.html`.
+  *Resolved on best practice, 2026-09-28 (Part 4): a device that never
+  chose follows the system's appearance. Reverting is now a two-line
+  change (see Part 4).*
 - **CI check names changed** from `ci` to `verify:static`, `verify:unit`
   and `verify:integration`. Update branch protection if it requires `ci`.
+
+---
+
+## Part 3 — Landed since: the game-screen UI pass (2026-09-28)
+
+One pass over the game screen, aimed at the two things a player feels
+every week: how much of the screen the chronicle gets, and how quickly
+they can reach what they need. New copy is in the veto queue
+(`BACKLOG.md`, "Reading, motion and the command palette"); nothing here
+touches the save format, the AI pipeline or any ruling in
+`DESIGN_DECISIONS.md`.
+
+- **P5, reading and motion.** A new Reading register in the configuration
+  menu (D43: the single home for options). As amended in Part 4, it has
+  four controls:
+  - *Text size* (Standard / Large / Larger) scales everything the player
+    reads (the chronicle, the side panel, the dossier, fates, private
+    scenes, the narration log), not the chrome.
+  - *Reduce motion* turns off every animation and the gliding scroll, even
+    when the device does not ask for less motion.
+  - *Show the narration word by word*, turned off, keeps the loom up
+    instead of streaming the pen.
+  - *Single-key shortcuts* can be turned off (WCAG 2.1.4).
+
+  All four are device preferences (`persistence/readingPrefs.ts`), painted
+  on `<html>` as data attributes (absent by default, so a device that never
+  chose renders as before) and seeded in `index.html` before first paint.
+  The double progress announcement is settled in Part 4.
+- **P6, what changed since you last looked.** A pulsing tab now shows how
+  many perceived changes landed on it, as a gold coin and in its
+  accessible name ("Reports (2 new)"). The count comes from the same
+  filtered digest as the pulse (`tabChangeCountsFor`,
+  `hooks/usePlayerPerception.ts`), so it can say nothing the Dispatches
+  card did not. Personae counts relationship observations only (D36).
+- **A command palette** (Ctrl+K / ⌘K, the masthead's Commands button, or
+  `?`). It reaches the side panel's seven tabs (with their counts), the
+  tablet, a private scene, the narration log, the week's counsel, the
+  latest line, Settings and, when on, the GM log. Outside a text field,
+  1–7 open the tabs and `/` goes to the tablet. It only reaches
+  things, never sets an option (D43), and offers only what can run now.
+  Each command presses the same control the player would
+  (`app/domCommands.ts`), so every guard on those controls still applies.
+  Lazy-loaded like the other overlays.
+- **The chat log follows only a reader at the foot**
+  (`hooks/useChatFollow.ts`). The old hook scrolled to the bottom on every
+  change, yanking a reader who had scrolled back, and never followed the
+  streamed narration. Now it follows the pen while you are at the foot,
+  always returns you there when you send a week, and otherwise offers "Back
+  to the latest" (gold "New in the chronicle" once something has landed).
+- **The screen gives the chronicle its height back.** On the game screen
+  the masthead is compact (about 40px back). The player's dossier folds to
+  its name line (a device preference). The tablet takes the full width of
+  the column, with the desk's tools (Private scene, Narration log, GM Log)
+  on its mode bar. The week's counsel is a compact, labelled row. The
+  Imperial Dispatch bar moved from inline styles to classes, so the night
+  skin reaches it. Economic stability gains a five-pip grade meter, and a
+  world stat a public 'world' delta moved last week carries a "changed
+  this week" mark (UI_SYSTEMS 6.5, partly).
+
+Checks: 2450 unit tests (from 2385), 10 journeys, typecheck, lint with
+zero warnings, the deterministic eval and the build all pass. The main
+chunk grew by about 11 kB (3.9 kB gzipped); the palette is its own 3.6 kB
+chunk. Screenshots: `docs/ui-refresh/16-*.png`.
+
+---
+
+## Part 4 — Design review: open questions settled on best practice (2026-09-28)
+
+The open design questions from Part 3 were settled on design best practice
+rather than left open, as this pass was asked to. Each entry names the question,
+the answer, the principle it rests on, and how to reverse it. None of these
+changes a ruling in `DESIGN_DECISIONS.md`. All new or changed copy is in the
+veto queue (`BACKLOG.md`, "Reading, motion and the command palette").
+
+**Turn progress is announced once, by the composer's stage line.** The loom
+sat inside the chat log (`role="log"`) as a live region of its own, so a
+screen reader heard each stage twice. When the stage line is created at the
+same moment as its message, the first stage is often not heard at all.
+- *Principle:* one status message, one live region (WCAG 4.1.3). A live
+  region must exist before its message arrives (ARIA practice; this repo
+  already applies it to the API-key notice).
+- *What changed:* the stage line is always in the DOM. It is visually hidden
+  and empty while idle. The loom is drawn but not spoken (`aria-hidden`),
+  the same call as the streaming bubble beside it.
+- *Why this surface:* it lasts the whole turn, in both narration modes (the
+  loom gives way to the pen as soon as narration streams). It sits where
+  the week was sent. The code already named it the progress voice while
+  streaming.
+- *To reverse:* restore `role="status"` on `.gor-loom` and conditional
+  rendering in `TurnComposer`.
+
+**The character count is no longer a live region.** As one, it
+re-announced itself after every keystroke. That is the chatter the GOV.UK
+character-count pattern exists to prevent.
+- *What changed:* the count still describes the tablet (read with it when
+  focused). Within 10% of the limit it is spoken once typing pauses, which
+  is GOV.UK's other half, its threshold. Going over the limit or an invalid
+  draft still interrupts as an alert.
+
+**On/off preferences are switches, and no two controls share a label.**
+Reduce motion, Show the narration word by word, and Single-key shortcuts
+are switches. Text size keeps its three-way radio group.
+- *Principle:* a binary setting that takes effect at once is a switch
+  (NN/g, Apple HIG, Material). Its visible label is its accessible name
+  (WCAG 2.5.3). "Reduce motion" is the platforms' own term.
+- *What it fixes:* the first cut's "As written" / "Whole" collided with
+  Voice style's "As written". A mismatch between the visible label "Keys"
+  and the accessible name is also gone.
+- *Storage:* the stored values are unchanged, so earlier choices survive.
+
+**The economy meter shows no direction arrow.**
+- *Principle:* D26, the system is an honest window. An arrow needs last
+  week's value, and none is kept: the pre-turn snapshot lives only in
+  session, so an arrow that vanished on reload would be worse than none.
+- *What stands:* the level (five pips) and the fact of change (✦ "Changed
+  this week") are shown. The Dispatches card says what changed.
+- *To add trends honestly later:* a bounded per-week history of the two
+  macro values in the save, through the migration registry. That would
+  also feed the sparkline in UI_SYSTEMS 6.5.
+
+**Copy speaks the screen's own words.** The palette and the Reading notes
+had leaked the code's vocabulary: "registers" for the tabs the onboarding
+calls "the side panel", "the desk", "the house".
+- *Principle:* recognition over recall, and one name per action (Nielsen
+  #2 and #4).
+- *Labels match what they press:* Open Settings, Open a private scene,
+  Open the GM log. "Back to the latest" is the same words on the palette
+  row and the follow button.
+- *Grammar:* the placeholder read "a counsel". It is now "Seek a tab, a
+  tool or counsel…".
+- *Platform wording:* the chord is written ⌘K on Apple devices and Ctrl+K
+  elsewhere.
+
+**Keys work on every keyboard layout.** Single keys match the character
+typed and ignore Shift: `/` is Shift+7 on German keyboards, and the digits
+are shifted on French AZERTY. Ctrl+K falls back to the physical K key when
+the layout types another script (Cyrillic, Greek).
+
+**The palette is accessible in the details.**
+- Each option is named in words ("Reports, 2 new"), not by its run-together
+  text. Its id is its command's, so `aria-activedescendant` changes when a
+  search changes the active command, not only when an arrow does.
+- The listbox holds only groups and options; the empty state moved outside
+  it.
+- The number of matching commands is announced once typing pauses (GOV.UK
+  autocomplete pattern), never per keystroke. It counts the rows actually
+  shown and re-counts when the list changes under the same search. It is
+  written into two alternating regions, so a second search with the same
+  count is still heard.
+- The active row keeps a visible outline in forced-colours mode.
+- The search affordance is an inline SVG magnifier. The ❖ glyph had fallen
+  back to a bare ◆, which read as ornament on phones, where the button's
+  word is hidden.
+- The fold chevron shows its name on hover.
+
+**Counsel is set to be read.** The suggestions had shrunk to 11.5px display
+capitals. Long all-caps text costs legibility, and these are sentences the
+player reads to decide. They now use the body face, in sentence case, at
+15px, inside the same pill frame.
+
+**Text size covers everything the player reads.** That means fates, private
+scenes (live and archived) and the narration log's words, beside the
+chronicle, the side panel and the dossier. The note says the masthead, tabs
+and menus keep their size, which is true. A dialog taller than the window
+now scrolls from its top instead of being clipped at both ends.
+- *Why it matters:* a fate has no close control, so on a short screen, or
+  at a larger size, its choices must stay reachable (WCAG 1.4.10).
+- *No padding on the backdrop:* the GM console sizes itself against it, and
+  padding shrank the console by 32px.
+
+**First visit follows the system's appearance.** A light system opens on
+LVX; a dark one, or one that does not say, on NOX. An explicit choice
+always wins. Until the player makes one, the lighting follows the system
+as it changes. The Lighting control gains "◐ Device": the default for a
+device that never chose, and the way back to following the system after
+a choice. Without it, following the system would be a one-way door. It is
+one exclusive choice of three, so it is a radio group, like Text size. Its
+note is its description, and the glyphs stay out of the names ("Device",
+"LVX", "NOX"). The pre-paint script reads storage and the system apart, so
+blocked storage still follows the system, as the hook does.
+- *Principle:* Apple HIG and Material both say to respect the system
+  appearance when an app ships both, and to offer "follow the system"
+  beside light and dark. People who need light or dark for their eyes
+  set it there.
+- *Returning players:* the old script stored "nox" on first visit, so they
+  keep what they saw.
+- *To open every new device on NOX again:* treat a null `gor-theme` as
+  'nox' in the `index.html` script and in `resolveLighting`
+  (`hooks/useSettings.ts`).
+
+**Switches and segments keep their state in forced colours.** Background
+colour was all that told an on switch from an off one, or the chosen
+segment from the rest, and forced colours drop it. The state is repainted
+in system colours, which survive (checked in Chromium's forced-colours
+emulation).
+
+**An independent review.** A reviewer who had not written the code checked
+this part against the same standards. It found two minor bugs (the
+pre-paint script and the palette count), the gaps listed above, the
+backdrop padding's cost to the GM console, and weak spots in the tests. All
+are fixed and tested: the pre-paint script now runs in a test against
+`resolveLighting`, and test stubs and `<html>` state are reset between
+tests.
+
+**The Events tab refusal copy (recommendation only).** Reusing the
+dossier's line is right: the same refusal should read the same everywhere
+(Nielsen #4, consistency). No change was made; the owner keeps the veto.
+
+Checks after Part 4: 2479 unit tests (from 2450), 10 journeys, typecheck,
+lint with zero warnings, the deterministic eval and the build all pass.
+Over Parts 3 and 4 together the main chunk grew by about 13 kB (4.5 kB
+gzipped); the palette is its own 4 kB chunk. Screenshots:
+`docs/ui-refresh/16-*.png` (refreshed) and `17-first-visit-light-system.png`.
+
+## Part 5 — The fan-out audit: every mechanic and the GUI, checked and fixed (2026-09-29)
+
+The owner asked for every mechanic to be checked, the GUI included, to be
+sure it works as intended. The check ran as a fan-out: twelve auditors, one
+per area, each with its own lens (game rules, knowledge and perception,
+state and persistence, the narration voice, and the GUI both live in a
+browser and in the code), and an independent skeptic behind each one that
+tried to refute every finding before it counted. **122 findings survived**
+(some found by more than one auditor). Two need an owner ruling and were
+left whole; everything else was fixed.
+
+**How it was fixed.** The fixes ran in six groups, each owning its own
+files and working in its own git worktree: rules, design system,
+perception and knowledge, voice and private scenes, the desk, and campaign
+state. Each group re-confirmed its findings against the code before
+changing anything, and added regression tests. A reviewer who had not
+written the code then re-traced every repro against each group's commit.
+The reviewers found 20 defects (6 of them serious). A follow-up pass fixed
+all of them except one, a docs edit, which is made in BACKLOG B7. The six
+branches were then merged, and the seams between them fixed and tested
+(`tests/auditIntegration.test.ts`).
+
+**What was wrong, in brief** (the full record is in the fix commits each
+"Merge the … audit fixes" commit brings in):
+- *Rules.* A survived death save could still ship an "assassinated"
+  headline, and it restored an exiled player to "alive". The player's own
+  settled fate never reached the narrator. Authored events moved the
+  player's trust in a faction instead of the faction's trust in the player.
+  An NPC's overdraft was reported to the player as their own treasury.
+  Other defects: a malformed scheme could wedge every later turn; a
+  relocation whose reason mentioned a killing was read as a death; Rome's
+  events fired in generated worlds; the Rhine acclamation fired on an empty
+  crisis; off-scale model traits pre-decided rolls; and a suggestion could
+  stream into the narration.
+- *Perception and knowledge.* A witnessed move read "X is now changed." A
+  departure from the player's own room went unwitnessed. A dead NPC could
+  still be "sensed plotting". Paid deep analysis vanished on a tab switch.
+  One rumour repeated four times read as "4 sources agree". The player's own
+  order could reveal a hidden figure's existence. The cap evicted paid
+  dossiers first. The Chronicle printed raw submission JSON.
+- *Campaign state.* One click on a destiny overwrote a saved reign without
+  a word; a newer build's save was hidden and then overwritten. A fate
+  awaiting its choice was lost on reload. Retry clobbered an edited draft.
+  A keyless send offered a Retry that could not work, and a keyless custom
+  destiny fired three doomed requests.
+- *Voice and private scenes.* SILENT did not stop a TTS call already in
+  flight. A stalled request could wedge a clip for the session. The
+  fidelity guard let unmentioned names through mid-sentence. The sixth
+  exchange of a long scene always failed. A reply draft carried over to the
+  next NPC. Closing a scene left the NPC talking.
+- *The desk.* A counsel pill replaced a typed draft. A streaming chunk
+  yanked a reader back down. The log announced the player's words twice.
+  Tab counts stuck across weeks and disagreed with the palette. The
+  Structured tablet squeezed the chronicle to 56px at 1280x720.
+- *Design system.* Unstyled buttons had no focus ring, and focus vanished
+  in forced colours. Inline animations ignored the device's reduced-motion
+  setting. The Settings dialog was clipped on a phone, and the GM console
+  was taller than the window. There were contrast failures in both skins,
+  and the favicon was missing.
+
+**Calls made on best practice** (each reversible, none changes a ruling):
+- *Turn vs Week.* Every stamp that holds a turn counter now reads "Turn";
+  only calendar surfaces read "Week" (D44 note of the same date). The
+  alternative, a turn-to-week map, would need a new per-turn record that
+  old saves lack, so the labels would have been mixed.
+- *Death headlines are fixed in the prompt, not by redaction.* Rewriting
+  headlines after the roll would take another model call per death claim.
+  The adjudicator now phrases a death as the attempt; the residual risk is
+  in BACKLOG.
+- *Label in name (WCAG 2.5.3).* Controls are named by their visible words
+  ("Speak", "Seal & send", "Settings", "Commands"), so a speech-input user
+  can say what they see.
+- *A seen tab is keyed to the week.* The "N new" memory is held by App per
+  committed turn, shared by the tab rail and the palette, and kept on the
+  device so a reload does not re-announce it. On a phone the open tab
+  counts as seen only once the panel is actually in view.
+- *Failure copy lives in one place (D45).* The private scene's notices
+  moved into `components/ui/FailureNotices.tsx`, each titled by what failed.
+
+**Left for the owner** (BACKLOG B14): whether the world may act on an idle
+player on a no-attempt turn; whether investigations should draw on ground
+truth; what a loss band with no loss authored should do; whether a figure's
+faction is public; and four smaller design calls. New copy is in the veto
+queue ("The fan-out audit's fixes (2026-09-29)"); residuals are listed at
+the end of BACKLOG.
+
+Checks after Part 5: 2785 unit tests (from 2479), 10 journeys, typecheck,
+lint, the deterministic eval and the build all pass. A live tour on the
+merged build (1280x720 LVX, 375px NOX, forced colours) found no console
+errors and no 404s, no page scroll in either composer mode, and no raw JSON
+in the Chronicle. Screenshots: `docs/ui-refresh/18-*.png`.

@@ -19,6 +19,39 @@ import { getApiKey, setApiKey, clearApiKey, resolveApiKey } from '../persistence
 import nocturneUrl from '../design/nocturne.css?url';
 import { readDevApiKey } from '../app/transactions';
 
+export type Lighting = 'nox' | 'lux';
+
+/** The lighting this device explicitly chose, or null when it never chose. */
+export function storedLighting(): Lighting | null {
+    try {
+        const stored = localStorage.getItem('gor-theme');
+        return stored === 'nox' || stored === 'lux' ? stored : null;
+    } catch {
+        return null;
+    }
+}
+
+/** True when the system asks for a light appearance; false when dark or unknown. */
+export function systemPrefersLight(): boolean {
+    try {
+        return typeof window !== 'undefined'
+            && typeof window.matchMedia === 'function'
+            && window.matchMedia('(prefers-color-scheme: light)').matches;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * The lighting to show: an explicit choice always wins; otherwise the
+ * system's appearance - light for a light system, NOX (the house lighting)
+ * for a dark one or one that does not say.
+ */
+export function resolveLighting(stored: Lighting | null, systemLight: boolean): Lighting {
+    if (stored) return stored;
+    return systemLight ? 'lux' : 'nox';
+}
+
 export function useSettings() {
     // D31 - the configuration menu's own open/closed flag. Purely transient
     // UI state, never part of the save bundle.
@@ -29,11 +62,15 @@ export function useSettings() {
 
     // LVX/NOX lighting. Nox Romae (design/nocturne.css) is an override
     // stylesheet loaded after styles.css; toggling swaps the whole client
-    // between marble day and the torchlit night skin. Persisted so the
-    // choice survives reloads. Presentation-only - never part of the save.
-    const [isNox, setIsNox] = useState<boolean>(() => {
-        try { return localStorage.getItem('gor-theme') === 'nox'; } catch { return false; }
-    });
+    // between marble day and the torchlit night skin. Presentation-only -
+    // never part of the save. Two inputs, one answer (resolveLighting): the
+    // player's explicit choice, stored, which always wins; and, until there
+    // is one, the system's appearance, followed live. "Device" in the menu
+    // clears the choice and hands the room back to the system. index.html
+    // resolves the same way before first paint.
+    const [lightingChoice, setLightingChoiceState] = useState<Lighting | null>(() => storedLighting());
+    const [systemLight, setSystemLight] = useState<boolean>(() => systemPrefersLight());
+    const isNox = resolveLighting(lightingChoice, systemLight) === 'nox';
 
     useEffect(() => {
         let link = document.getElementById('nox-css') as HTMLLinkElement | null;
@@ -46,8 +83,31 @@ export function useSettings() {
         } else if (link) {
             link.disabled = !isNox;
         }
-        try { localStorage.setItem('gor-theme', isNox ? 'nox' : 'lux'); } catch { /* private mode */ }
+        // index.html's basalt first-frame ground follows the lighting too,
+        // so a switch to LVX leaves no night behind the page.
+        document.documentElement.toggleAttribute('data-gor-dusk', isNox);
     }, [isNox]);
+
+    // The player's choice: LVX or NOX is stored and from then on wins; null
+    // ("Device") clears it, so the system's appearance decides again.
+    const setLightingChoice = useCallback((choice: Lighting | null) => {
+        setLightingChoiceState(choice);
+        try {
+            if (choice) localStorage.setItem('gor-theme', choice);
+            else localStorage.removeItem('gor-theme');
+        } catch { /* private mode */ }
+    }, []);
+    const setIsNox = useCallback((nox: boolean) => setLightingChoice(nox ? 'nox' : 'lux'), [setLightingChoice]);
+
+    // The system's appearance, followed as it changes (a device that turns
+    // dark at dusk takes the game with it - unless the player has chosen).
+    useEffect(() => {
+        if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+        const query = window.matchMedia('(prefers-color-scheme: light)');
+        const follow = (event: MediaQueryListEvent) => setSystemLight(event.matches);
+        query.addEventListener?.('change', follow);
+        return () => query.removeEventListener?.('change', follow);
+    }, []);
 
     // The Fates pacing posture (ROADMAP_PHASE_4.md 4D item 1, D23) - a
     // device-level USER PREFERENCE beside the theme/onboarding keys
@@ -99,6 +159,7 @@ export function useSettings() {
         isSettingsMenuOpen, openSettings, closeSettings,
         isMockMode, setIsMockMode,
         isNox, setIsNox,
+        lightingChoice, setLightingChoice,
         pacingPosture, handleSetPacingPosture,
         userApiKey, resolvedApiKey, handleSaveApiKey, handleClearApiKey,
         ai,

@@ -4,7 +4,9 @@ import { replayTurnDraws, type TurnReplayResult } from '../../ai/core/turnReplay
 import { evalCorpusFilename } from '../../persistence/evalCorpus';
 import { well, lbl, GOLD, DIM, PARCH, RED, GREEN, MONO, TYRIAN_KICKER } from './shared';
 
-/** The pane's one button treatment, worn by both of its controls. */
+/** The pane's one button treatment, worn by both of its controls. Its
+ *  chamfer clips an outside ring, so each also wears .gor-gm-gold-btn,
+ *  whose focus outline is drawn inside the cut (components.css). */
 const gmButton: React.CSSProperties = { fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, letterSpacing: '.08em', textTransform: 'uppercase', color: '#241C11', background: 'var(--metal-gold)', border: '1px solid #8A6D14', clipPath: 'var(--chamfer-sm)', padding: '9px 16px', cursor: 'pointer', boxShadow: 'var(--bevel)' };
 
 /**
@@ -85,7 +87,7 @@ export const FixturesView: React.FC<{
                     </div>
                     {entry.turnSeed !== undefined && draws.length > 0 && (
                         <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
-                            <button type="button" onClick={() => setStruck({ entry, result: replayTurnDraws(entry) })} style={gmButton}>
+                            <button type="button" onClick={() => setStruck({ entry, result: replayTurnDraws(entry) })} className="gor-gm-gold-btn" style={gmButton}>
                                 Strike the mould again
                             </button>
                             {replay && (
@@ -129,7 +131,7 @@ export const FixturesView: React.FC<{
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <span style={{ fontFamily: MONO, fontSize: 11, color: DIM }}>{evalCorpusFilename(entry.turnNumber)}</span>
                     <span style={{ fontSize: 12.5, color: DIM, fontStyle: 'italic' }}>Never written into the save.</span>
-                    <button type="button" onClick={onExport} style={gmButton}>
+                    <button type="button" onClick={onExport} className="gor-gm-gold-btn" style={gmButton}>
                         Take the impression
                     </button>
                 </div>

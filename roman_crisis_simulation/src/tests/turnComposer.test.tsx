@@ -8,7 +8,7 @@
 import React, { act, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
-import { TurnComposer, type TurnComposerProps } from '../components/TurnComposer';
+import { COUNT_ANNOUNCE_DELAY_MS, COUNT_ANNOUNCE_THRESHOLD, TurnComposer, type TurnComposerProps } from '../components/TurnComposer';
 import { TURN_STAGE_STATUS_COPY } from '../components/Chat';
 import { emptyStructuredDraft } from '../playerInput/composerState';
 import { TURN_SUBMISSION_PREFIX } from '../playerInput/turnSubmission';
@@ -114,15 +114,15 @@ describe('components/TurnComposer', () => {
     expect(chatMode.getAttribute('aria-pressed')).toBe('true');
     expect(container.querySelector('textarea[aria-label="Chat input"]')).not.toBeNull();
     expect(container.querySelector('[role="alert"]')).toBeNull();
-    expect(container.querySelector('[role="status"]')?.textContent).toMatch(/20,000 characters remaining/i);
+    expect(container.querySelector('#composer-submission-status')?.textContent).toMatch(/20,000 characters remaining/i);
 
     await click(structuredMode);
 
     expect(structuredMode.getAttribute('aria-pressed')).toBe('true');
     expect(localStorage.getItem('gloryOfRome:composerMode')).toBe('structured');
-    // WP-6 renamed the four visible register headings; the aria-labels each
-    // control carries ('Private Intent', 'Question / Context', 'Action 1' …)
-    // are unchanged and are still asserted below.
+    // WP-6 renamed the four visible register headings; the two fields that
+    // sit alone under theirs are named by those headings (WCAG 2.5.3), the
+    // rows by their number ('Action 1' …).
     for (const label of ['What you do', 'Whom you address', 'What you intend', 'What you ask']) {
       expect(container.textContent).toContain(label);
     }
@@ -132,11 +132,11 @@ describe('components/TurnComposer', () => {
     const action = byAriaLabel<HTMLTextAreaElement>(container, 'Action 1');
     const recipient = byAriaLabel<HTMLSelectElement>(container, 'Recipient 1');
     const command = byAriaLabel<HTMLTextAreaElement>(container, 'Message or order 1');
-    const privateIntent = byAriaLabel<HTMLTextAreaElement>(container, 'Private Intent');
-    const question = byAriaLabel<HTMLTextAreaElement>(container, 'Question / Context');
-    const addAction = buttonNamed(container, 'Add action row');
-    const addMessage = buttonNamed(container, 'Add message or order row');
-    const submit = buttonNamed(container, 'Submit turn');
+    const privateIntent = byAriaLabel<HTMLTextAreaElement>(container, 'What you intend');
+    const question = byAriaLabel<HTMLTextAreaElement>(container, 'What you ask');
+    const addAction = buttonNamed(container, 'A further order');
+    const addMessage = buttonNamed(container, 'Another letter');
+    const submit = buttonNamed(container, 'Seal & send');
 
     expect(action.value).toBe('');
     expect(recipient.value).toBe('');
@@ -174,7 +174,7 @@ describe('components/TurnComposer', () => {
 
     const { container } = await mount(<Harness />);
     await click(buttonNamed(container, 'Structured'));
-    await click(buttonNamed(container, 'Add message or order row'));
+    await click(buttonNamed(container, 'Another letter'));
 
     const selects = Array.from(container.querySelectorAll<HTMLSelectElement>('select'));
     expect(selects).toHaveLength(2);
@@ -282,8 +282,8 @@ describe('components/TurnComposer', () => {
     const { container, rerender } = await mount(<Harness />);
     await click(buttonNamed(container, 'Structured'));
 
-    await click(buttonNamed(container, 'Add action row'));
-    await click(buttonNamed(container, 'Add message or order row'));
+    await click(buttonNamed(container, 'A further order'));
+    await click(buttonNamed(container, 'Another letter'));
     expect(container.querySelectorAll('textarea[aria-label^="Action "]')).toHaveLength(2);
     expect(container.querySelectorAll('select[aria-label^="Recipient "]')).toHaveLength(2);
 
@@ -306,10 +306,10 @@ describe('components/TurnComposer', () => {
     );
 
     const input = byAriaLabel<HTMLTextAreaElement>(container, 'Chat input');
-    const exactStatus = container.querySelector<HTMLElement>('[role="status"]');
+    const exactStatus = container.querySelector<HTMLElement>('#composer-submission-status');
     expect(exactStatus?.textContent).toMatch(/0 characters remaining/i);
     expect(input.getAttribute('aria-describedby')).toBe(exactStatus?.id);
-    expect(buttonNamed(container, 'Send message').disabled).toBe(false);
+    expect(buttonNamed(container, 'Speak').disabled).toBe(false);
 
     const over = `${exact}x`;
     await rerender(<TurnComposer {...defaultProps({ chatDraft: over, onSubmit })} />);
@@ -320,7 +320,7 @@ describe('components/TurnComposer', () => {
     expect(error?.textContent).toMatch(/1 character over limit/i);
     expect(overInput.getAttribute('aria-invalid')).toBe('true');
     expect(overInput.getAttribute('aria-describedby')).toBe(error?.id);
-    expect(buttonNamed(container, 'Send message').disabled).toBe(true);
+    expect(buttonNamed(container, 'Speak').disabled).toBe(true);
 
     await keyDown(overInput, { key: 'Enter' });
     expect(onSubmit).not.toHaveBeenCalled();
@@ -332,7 +332,7 @@ describe('components/TurnComposer', () => {
     const { container, rerender } = await mount(
       <TurnComposer {...defaultProps({ chatDraft: `  ${reserved}  ` , onSubmit })} />,
     );
-    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+    expect(container.querySelector('#composer-submission-status')?.textContent).toContain(
       `${(20_000 - (TURN_SUBMISSION_PREFIX.length + JSON.stringify({ version: 1, kind: 'freeform', text: reserved }).length)).toLocaleString('en-US')} characters remaining`,
     );
 
@@ -344,8 +344,8 @@ describe('components/TurnComposer', () => {
     await rerender(<TurnComposer {...defaultProps({ structuredDraft: oversizedStructured, onSubmit })} />);
     const alert = container.querySelector<HTMLElement>('[role="alert"]');
     expect(alert?.textContent).toMatch(/character.*over limit/i);
-    expect(buttonNamed(container, 'Submit turn').disabled).toBe(true);
-    await click(buttonNamed(container, 'Submit turn'));
+    expect(buttonNamed(container, 'Seal & send').disabled).toBe(true);
+    await click(buttonNamed(container, 'Seal & send'));
     expect(onSubmit).not.toHaveBeenCalled();
     expect(byAriaLabel<HTMLTextAreaElement>(container, 'Action 1').value).toHaveLength(20_000);
   });
@@ -363,10 +363,10 @@ describe('components/TurnComposer', () => {
     expect(action.disabled).toBe(false);
     expect(action.getAttribute('aria-invalid')).toBe('true');
     expect(action.getAttribute('aria-describedby')).toBe(error?.id);
-    expect(buttonNamed(container, 'Submit turn').disabled).toBe(true);
+    expect(buttonNamed(container, 'Seal & send').disabled).toBe(true);
     await setValue(action, 'Address the Senate');
     expect(container.querySelector('[role="alert"]')).toBeNull();
-    expect(buttonNamed(container, 'Submit turn').disabled).toBe(false);
+    expect(buttonNamed(container, 'Seal & send').disabled).toBe(false);
   });
 
   it('preserves an authored command when clearing its recipient and leaves submission truthfully blocked', async () => {
@@ -391,7 +391,7 @@ describe('components/TurnComposer', () => {
     expect(error?.textContent).toMatch(/recipient and command are both required/i);
     expect(recipient.disabled).toBe(false);
     expect(command.disabled).toBe(false);
-    expect(buttonNamed(container, 'Submit turn').disabled).toBe(true);
+    expect(buttonNamed(container, 'Seal & send').disabled).toBe(true);
   });
 
   it('blocks invalid structured submission while leaving the transient row editable', async () => {
@@ -412,7 +412,7 @@ describe('components/TurnComposer', () => {
     expect(recipient.getAttribute('aria-invalid')).toBeNull();
     expect(command.getAttribute('aria-describedby')).toBe(error?.id);
     expect(recipient.getAttribute('aria-describedby')).toBeNull();
-    expect(buttonNamed(container, 'Submit turn').disabled).toBe(true);
+    expect(buttonNamed(container, 'Seal & send').disabled).toBe(true);
   });
 
   it('keeps structured validation reasons visible and associated for stale recipients', async () => {
@@ -457,6 +457,62 @@ describe('components/TurnComposer', () => {
     const status = container.querySelector<HTMLElement>('[role="status"]');
     expect(status?.getAttribute('aria-live')).toBe('polite');
     expect(status?.textContent).toBe(TURN_STAGE_STATUS_COPY.narration);
+  });
+
+  // The one voice for a week's progress must exist BEFORE its first message:
+  // a live region created together with its text is often never announced.
+  it('keeps the stage region in the DOM while idle - empty and visually hidden - so the first stage is heard', async () => {
+    const { container, rerender } = await mount(<TurnComposer {...defaultProps()} />);
+    const idle = container.querySelectorAll<HTMLElement>('[role="status"]');
+    expect(idle).toHaveLength(1);
+    expect(idle[0].textContent).toBe('');
+    expect(idle[0].classList.contains('gor-sr-only')).toBe(true);
+
+    await rerender(<TurnComposer {...defaultProps({ isProcessing: true, turnStage: 'npc_minds' })} />);
+    const busy = container.querySelectorAll<HTMLElement>('[role="status"]');
+    expect(busy).toHaveLength(1);
+    expect(busy[0]).toBe(idle[0]);
+    expect(busy[0].textContent).toBe(TURN_STAGE_STATUS_COPY.npc_minds);
+    expect(busy[0].classList.contains('gor-hint')).toBe(true);
+  });
+
+  // GOV.UK character count pattern: the count describes the field and is
+  // read with it, but never re-announces itself on every keystroke.
+  it('describes the tablet by its character count without making the count a live region', async () => {
+    const { container } = await mount(<TurnComposer {...defaultProps({ chatDraft: 'Hold court' })} />);
+    const count = container.querySelector<HTMLElement>('#composer-submission-status')!;
+    expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').getAttribute('aria-describedby')).toBe(count.id);
+    expect(count.hasAttribute('role')).toBe(false);
+    expect(count.hasAttribute('aria-live')).toBe(false);
+    expect(count.closest('[aria-live]')).toBeNull();
+  });
+
+  // ...and GOV.UK's other half: near the limit, the count IS spoken - once
+  // typing pauses, never on the keystroke.
+  it('speaks the remaining count near the limit once typing pauses, and never far from it', async () => {
+    vi.useFakeTimers();
+    try {
+      const announcer = (host: HTMLElement) => host.querySelector<HTMLElement>('.gor-composer > p[aria-live="polite"]:not([role])')!;
+      const far = await mount(<TurnComposer {...defaultProps({ chatDraft: 'Hold court' })} />);
+      await act(async () => { vi.advanceTimersByTime(COUNT_ANNOUNCE_DELAY_MS * 2); });
+      expect(announcer(far.container).textContent).toBe('');
+
+      const nearDraft = 'x'.repeat(20_000 - COUNT_ANNOUNCE_THRESHOLD + 200);
+      const near = await mount(<TurnComposer {...defaultProps({ chatDraft: nearDraft })} />);
+      const visibleCount = near.container.querySelector('#composer-submission-status')!.textContent!;
+      await act(async () => { vi.advanceTimersByTime(COUNT_ANNOUNCE_DELAY_MS - 1); });
+      expect(announcer(near.container).textContent).toBe('');
+      // Another keystroke restarts the pause.
+      await near.rerender(<TurnComposer {...defaultProps({ chatDraft: `${nearDraft}y` })} />);
+      await act(async () => { vi.advanceTimersByTime(COUNT_ANNOUNCE_DELAY_MS - 1); });
+      expect(announcer(near.container).textContent).toBe('');
+      await act(async () => { vi.advanceTimersByTime(1); });
+      const spokenCount = near.container.querySelector('#composer-submission-status')!.textContent!;
+      expect(spokenCount).not.toBe(visibleCount);
+      expect(announcer(near.container).textContent).toBe(spokenCount);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('keeps Chat Enter/Shift+Enter behavior while Structured uses newline Enter and Ctrl/Cmd+Enter submission', async () => {
@@ -595,9 +651,9 @@ describe('components/TurnComposer', () => {
       .toBe('The night watch captain');
     expect(byAriaLabel<HTMLTextAreaElement>(container, 'Message or order 1').value)
       .toBe('Seal the eastern gate.\nAdmit only grain carts.');
-    expect(byAriaLabel<HTMLTextAreaElement>(container, 'Private Intent').value)
+    expect(byAriaLabel<HTMLTextAreaElement>(container, 'What you intend').value)
       .toBe('Learn who profits.');
-    expect(byAriaLabel<HTMLTextAreaElement>(container, 'Question / Context').value)
+    expect(byAriaLabel<HTMLTextAreaElement>(container, 'What you ask').value)
       .toBe('The guard rotation changed yesterday.');
   });
 
@@ -614,8 +670,8 @@ describe('components/TurnComposer', () => {
     await click(buttonNamed(container, 'Structured'));
 
     expect(container.querySelector('[role="alert"]')).toBeNull();
-    expect(container.querySelector('[role="status"]')?.textContent).toMatch(/20,000 characters remaining/i);
-    expect(buttonNamed(container, 'Submit turn').disabled).toBe(true);
+    expect(container.querySelector('#composer-submission-status')?.textContent).toMatch(/20,000 characters remaining/i);
+    expect(buttonNamed(container, 'Seal & send').disabled).toBe(true);
 
     const command = byAriaLabel<HTMLTextAreaElement>(container, 'Message or order 1');
     await setValue(command, 'Wait.');

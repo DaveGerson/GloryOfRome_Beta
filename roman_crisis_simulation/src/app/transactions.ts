@@ -10,15 +10,15 @@
  * duplication hooks/useExecuteTurn.ts's extraction had to accept, because
  * a hook must never import its own composition root.
  *
- * Nothing here touches React. The only side effects are the two
- * persistence reads in `loadSavedGameSummary` (hasSave/loadGame) and the
- * dev-only env read in `readDevApiKey`.
+ * Nothing here touches React. The only side effects are the persistence
+ * read in `loadSavedGameSummary` (readSaveSlot) and the dev-only env read
+ * in `readDevApiKey`.
  */
 
 import type { GameAction } from '../state/gameReducer';
 import type { GameDomainState } from '../state/gameReducer';
-import type { SavedGameSummary } from '../components/CharacterSelection';
-import { hasSave, loadGame } from '../persistence/saveGame';
+import type { SavedReign } from '../components/CharacterSelection';
+import { readSaveSlot } from '../persistence/saveGame';
 import type { SaveGameState, InferredAmbitionState } from '../persistence/saveGame';
 import type { PrivateSceneRecord } from '../privateScene/model';
 
@@ -68,10 +68,17 @@ export function readDevApiKey(): string | undefined {
     return typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : undefined;
 }
 
-export function loadSavedGameSummary(): SavedGameSummary | null {
-    if (!hasSave()) return null;
-    const save = loadGame();
-    if (!save) return null;
+/**
+ * What the destiny screen says about the autosave slot: nothing when it is
+ * empty, the "Continue your reign" summary when it loads, and - when it
+ * holds a reign this build refuses - the refusal reason, so the screen can
+ * say so and gate the overwrite rather than look like a fresh device.
+ */
+export function loadSavedGameSummary(): SavedReign | null {
+    const slot = readSaveSlot();
+    if (slot.kind === 'empty') return null;
+    if (slot.kind === 'refused') return { unreadable: slot.reason };
+    const { save } = slot;
     const savedCharacter = save.state.entities.find(entity => entity.entity_id === save.state.playerCharacterId);
     // B7a 1a (spec: 2026-08-05-b7a-hardening-and-tablist-design.md): mirrors
     // importSaveBlob's derive - a non-string name is malformed data, not a
@@ -164,5 +171,8 @@ export function pickSaveState(state: GameDomainState): SaveGameState {
         inferredAmbition: state.inferredAmbition,
         pendingIntelligenceFallout: state.pendingIntelligenceFallout,
         voiceCast: state.voiceCast,
+        // A fate awaiting its choice is part of the reign (see the field's
+        // doc in persistence/saveGame.ts); absent whenever none is open.
+        pendingEventId: state.activeEvent?.id,
     };
 }

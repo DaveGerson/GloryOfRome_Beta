@@ -212,6 +212,7 @@ describe('the private scene surface', () => {
     onSetEnabled: vi.fn(),
     stateFor: vi.fn((_scene, line) => (enabled && line.speaker === 'npc' ? (blocked ?? 'idle') : undefined)),
     onToggle: vi.fn(),
+    stop: vi.fn(),
   });
 
   it('shows no switch when no voice is wired at all', () => {

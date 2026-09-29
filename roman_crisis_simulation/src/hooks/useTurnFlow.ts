@@ -33,6 +33,7 @@ export interface TurnFlowDeps extends Omit<ExecuteTurnDeps, OwnedSetters> {
 
 export function useTurnFlow(deps: TurnFlowDeps) {
     const { gameState, privateSceneInteractionLocked, recipientOptions, ...executeTurnDeps } = deps;
+    const { isMockMode, resolvedApiKey } = deps;
 
     const [chatDraft, setChatDraft] = useState('');
     const [structuredDraft, setStructuredDraft] = useState<StructuredTurnDraft>(() => emptyStructuredDraft());
@@ -72,15 +73,27 @@ export function useTurnFlow(deps: TurnFlowDeps) {
     };
 
     // The retry affordance re-sends the exact frozen submission that failed,
-    // restoring the exact draft it came from if it fails again.
+    // restoring the exact draft it came from if it fails again - and on
+    // success clearing the tablet it came from. D45 calls Retry and Send
+    // with the restored draft the same act, which holds only while the
+    // tablet still carries that draft: once the player has changed it,
+    // Retry would send the old words and then write them back over (or
+    // clear away) the new ones. So it steps aside, and Send is the honest
+    // action. It steps aside too while no key is resolved (D34): the send
+    // is held then, and the standing no-key notice names what works.
+    const retryDraftUnedited = retryDraft !== null && (typeof retryDraft === 'string'
+        ? chatDraft === retryDraft
+        : structuredDraft === retryDraft || JSON.stringify(structuredDraft) === JSON.stringify(retryDraft));
+    const canRetry = Boolean(retrySubmission && retryDraft) && retryDraftUnedited
+        && (isMockMode || Boolean(resolvedApiKey));
     const retryLastTurn = () => {
-        if (retrySubmission && retryDraft) void executeTurn(retrySubmission, retryDraft);
+        if (canRetry && retrySubmission && retryDraft) void executeTurn(retrySubmission, retryDraft);
     };
 
     return {
         chatDraft, setChatDraft,
         structuredDraft, setStructuredDraft,
-        canRetry: Boolean(retrySubmission && retryDraft),
+        canRetry,
         retryLastTurn,
         pendingPlayerMessage,
         turnFailure, setTurnFailure,

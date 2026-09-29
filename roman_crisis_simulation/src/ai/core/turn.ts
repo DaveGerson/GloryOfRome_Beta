@@ -24,7 +24,7 @@ import type { PrivateSceneAdjudicatorProjection, PrivateSceneNpcMemoryProjection
 import { selectRipeEventMaterial } from '../../events/engine';
 import { buildNarrationPrompt, selectVoiceCast } from '../prompts/narration';
 import { processMortality, detectDeathClaims } from './mortality';
-import { createNarrationStreamGate, createPayloadTextExtractor } from './streamSplit';
+import { createNarrationStreamGate, createPayloadTextExtractor, splitNarrationSuggestions } from './streamSplit';
 import { rollD20, resolveAction, clampDifficulty, derivePersonalityModifier, deriveOppositionModifier, createSeededRng, generateSeed, type Rng } from './resolution';
 import { deserializeTurnSubmission, isReservedTurnSubmissionArtifact, normalizeTurnSubmissionInput, projectForAdjudication, projectForNarration, projectForNoAttemptResponse, projectForPlayerReflection, projectForResolution, serializeTurnSubmission } from '../../playerInput/turnSubmission';
 import {
@@ -233,13 +233,16 @@ export const MAX_SCHEME_STEPS = 8;
  * representing that note as the plan's next step keeps `active_scheme`
  * faithful to its existing shape and never corrupts engine.ts's parsing. An
  * entity with no prior scheme is SEEDED from the note (a minded character may
- * establish a scheme, not only evolve one). Steps are capped at
- * MAX_SCHEME_STEPS, dropping oldest. Pure; exported for direct unit testing.
+ * establish a scheme, not only evolve one) - as is one whose stored scheme
+ * has no steps list (a malformed scheme committed before the engine
+ * validated schemes), which would otherwise throw here and fail every turn
+ * that minds this character. Steps are capped at MAX_SCHEME_STEPS, dropping
+ * oldest. Pure; exported for direct unit testing.
  */
 export function evolveSchemeFromAdjustment(current: Scheme | undefined, adjustment: string): Scheme {
     const note = adjustment.trim();
     const newStep: SchemeStep = { objective: note, status: 'in_progress' };
-    if (!current) {
+    if (!current || !Array.isArray(current.steps)) {
         return { name: 'Evolving design', overall_goal: note, steps: [newStep] };
     }
     const steps = [...current.steps, newStep];
@@ -550,7 +553,7 @@ export async function runNewTurn(
         const adjudicated = await runAdjudicationStage(ctx, director, playerAction, minds);
         const mortality = await runMortalityStage(ctx, adjudicated);
         const applied = applyTurnState(ctx, director.storyRelevance, mortality.transformedAdjudication);
-        const surfaces = await runPlayerSurfacesStage(ctx, mortality.transformedAdjudication, applied);
+        const surfaces = await runPlayerSurfacesStage(ctx, mortality.transformedAdjudication, applied, mortality.playerOutcomeDirective);
         return assembleTurnResult(ctx, {
             npcIntents: director.npcIntents,
             resolutionTrace: playerAction.resolutionTrace,
@@ -611,7 +614,7 @@ async function runDirectorStage(ctx: TurnContext): Promise<DirectorStageResult> 
     return {
         storyRelevance,
         actionAssessment,
-        npcIntents: selectDurableIntents(storyRelevance, ctx.currentEntities),
+        npcIntents: selectDurableIntents(storyRelevance, ctx.currentEntities, ctx.playerEntity.entity_id),
     };
 }
 
@@ -931,6 +934,8 @@ function foldMindSchemeDeltas(adjudication: Adjudication, npcMindResults: NpcMin
 interface MortalityStageResult {
     transformedAdjudication: Adjudication;
     mortalityEvents: MortalityEvent[];
+    /** The resolved directive for the PLAYER'S own validated death claim, if any - see processMortality. */
+    playerOutcomeDirective: string | undefined;
     proseRedactions: PlayerProseRedaction[];
 }
 
@@ -939,8 +944,11 @@ interface MortalityStageResult {
  * Runs BEFORE applyAdjudication and BEFORE narration: any death claim in
  * `adjudication.deltas` is validated by a second, independent model
  * call, then resolved by a hidden code-side roll. The model never
- * decides death - it only narrates the pre-decided outcome (via
- * `mortalityEvents`' directives, fed into the narration prompt).
+ * decides death - it only narrates the pre-decided outcome. For the
+ * PLAYER'S own claim that outcome reaches narration as its own input
+ * (`playerOutcomeDirective`, the narration prompt's OUTCOME TO NARRATE
+ * block); an NPC's fate reaches it only through the player-perceived
+ * digest, never through its directive.
  * In mock mode this is a no-op (see ai/core/mortality.ts's doc comment).
  *
  * `onStage('mortality')` only fires when there's actually at least one
@@ -956,7 +964,7 @@ async function runMortalityStage(ctx: TurnContext, adjudicated: AdjudicationStag
     if (detectDeathClaims(adjudication.deltas, ctx.currentEntities, playerEntity.entity_id).length > 0) {
         ctx.options?.onStage?.('mortality');
     }
-    const { transformedAdjudication, mortalityEvents } = await processMortality(
+    const { transformedAdjudication, mortalityEvents, playerOutcomeDirective } = await processMortality(
         ctx.ai,
         adjudication,
         ctx.currentEntities,
@@ -967,7 +975,7 @@ async function runMortalityStage(ctx: TurnContext, adjudicated: AdjudicationStag
         { trustedResolutionContext: adjudicated.trustedResolutionContext }
     );
     const proseRedactions = enforceNoAttemptBoundary(transformedAdjudication, playerEntity, ctx.narrationSubmission.hasObservableAttempt);
-    return { transformedAdjudication, mortalityEvents, proseRedactions };
+    return { transformedAdjudication, mortalityEvents, playerOutcomeDirective, proseRedactions };
 }
 
 // --- Stage 4: apply ---------------------------------------------------------
@@ -998,9 +1006,10 @@ function applyTurnState(ctx: TurnContext, storyRelevance: StoryRelevance, transf
         {
             playerEntityId: playerEntity.entity_id,
             spotlightIds: storyRelevance.spotlight_entities.map(s => s.entity_id),
-            // The App's authoritative counter - the memory stamp's `turn`
-            // provenance, never the model-echoed adjudication.turn (see
-            // PerceptionStampContext in ai/core/engine.ts).
+            // The App's authoritative counter - the memory, Report and
+            // truth-ledger `turn` provenance, never the model-echoed
+            // adjudication.turn (see PerceptionStampContext in
+            // ai/core/engine.ts).
             turnNumber: ctx.turnNumber,
         }
     );
@@ -1064,6 +1073,7 @@ async function runPlayerSurfacesStage(
     ctx: TurnContext,
     transformedAdjudication: Adjudication,
     applied: AppliedTurnState,
+    playerOutcomeDirective: string | undefined,
 ): Promise<PlayerSurfacesStageResult> {
     const { ai, playerEntity, narrationSubmission, noAttemptResponse, isMockMode, options } = ctx;
     const { updatedEntities, updatedWorldState, updatedPlayerEntity } = applied;
@@ -1109,7 +1119,8 @@ async function runPlayerSurfacesStage(
         transformedAdjudication.deltas,
         updatedPlayerEntity,
         updatedEntities,
-        updatedWorldState
+        updatedWorldState,
+        ctx.currentEntities
     );
     const playerNarrationEvents = playerPerceivedDigest
         .map(({ text, source }) => ({ text, source }));
@@ -1125,7 +1136,12 @@ async function runPlayerSurfacesStage(
         explicitlyVisibleEntityIds,
         updatedEntities
     );
-    const narrationPrompt = buildNarrationPrompt(ctx.metaNarrative, updatedPlayerEntity, narrationSubmission, playerNarrationEvents, voiceCast);
+    // The one outcome the narrator is TOLD rather than shown: the settled
+    // result of an attempt on the player's own life (D2 - "Narration
+    // explains the escape"). Re-checked at this seam although both of its
+    // sources already pass the mechanics boundary.
+    if (playerOutcomeDirective !== undefined) assertPlayerVisibleTextSafe(playerOutcomeDirective);
+    const narrationPrompt = buildNarrationPrompt(ctx.metaNarrative, updatedPlayerEntity, narrationSubmission, playerNarrationEvents, voiceCast, playerOutcomeDirective);
     const narrationRequest = {
         callName: 'narration',
         model: GEMINI_PRO,
@@ -1145,9 +1161,8 @@ async function runPlayerSurfacesStage(
     // `narrationStreamGate` -> `playerVisibleStreamGate.push` ->
     // `onNarrationChunk` - the two gates and the callback are byte-identical
     // to the pre-Task-4 plain-text stream; only what feeds them (a decoded
-    // JSON-prefix vs. raw prose) changed. `\n` escapes decode to a real
-    // newline before the gate's `\nSUGGESTION:` marker check, so the
-    // suggestion split below is untouched.
+    // JSON-prefix vs. raw prose) changed. The gate and the committed split
+    // below share one `SUGGESTION:` marker definition (streamSplit.ts).
     //
     // The extraction itself is the resumable `createPayloadTextExtractor`,
     // fed only each chunk's NEW text (BACKLOG B7 item (a)): byte-identical
@@ -1241,9 +1256,10 @@ async function runPlayerSurfacesStage(
         ...monologueRedaction.redactions,
     ];
     transformedAdjudication.gm_private.push(...playerProseRedactionNotes(proseRedactions));
-    const narrationParts = fullText.split('SUGGESTION:');
-    const narration = narrationParts[0].trim();
-    const rawSuggestedActions = narrationParts.slice(1).map(s => s.trim()).filter(s => s.length > 0);
+    // The same marker, and the same cut, the stream gate used while this
+    // text streamed (ai/core/streamSplit.ts) - so nothing the player saw
+    // streaming can disagree with what commits.
+    const { narration, suggestions: rawSuggestedActions } = splitNarrationSuggestions(fullText);
     const suggestedActions = filterFeasibleSuggestedActions(rawSuggestedActions, updatedPlayerEntity);
     if (onNarrationChunk) {
         const finalNarration = playerVisibleStreamGate.finish(narration);

@@ -184,14 +184,15 @@ const OnboardingOverlay: React.FC<OnboardingOverlayProps> = ({ isOpen, onClose }
         aria-describedby="onboarding-body"
         tabIndex={-1}
         onKeyDown={handleKeyDown}
-        className="gor-dialog"
+        className="gor-dialog gor-rite"
         style={{ maxWidth: 540, padding: '0 0 22px' }}
       >
         <button
           type="button"
+          className="gor-bare-btn"
           onClick={onClose}
           aria-label="Close introduction"
-          style={{ all: 'unset', position: 'absolute', top: 12, right: 16, cursor: 'pointer', color: 'var(--text-muted)', fontSize: 24, lineHeight: 1, zIndex: 1 }}
+          style={{ position: 'absolute', top: 12, right: 16, color: 'var(--text-muted)', fontSize: 24, lineHeight: 1, zIndex: 1 }}
         >
           ×
         </button>
@@ -210,14 +211,18 @@ const OnboardingOverlay: React.FC<OnboardingOverlayProps> = ({ isOpen, onClose }
           <div className="gor-dialog-rule"></div>
         </div>
 
-        <p id="onboarding-body" className="gor-dialog-body" style={{ textAlign: 'center', whiteSpace: 'pre-wrap', margin: 0 }}>
-          {current.body}
-        </p>
+        {/* The rite keeps one height through its steps (`.gor-rite`), so
+            Next stays under the pointer; each step's leaf is centred in it. */}
+        <div className="gor-rite-leaf">
+          <p id="onboarding-body" className="gor-dialog-body" style={{ textAlign: 'center', whiteSpace: 'pre-wrap', margin: 0 }}>
+            {current.body}
+          </p>
 
-        {/* Each pillar shows its claim rather than asserting it. */}
-        <p className="gor-specimen-caption">{current.specimenCaption}</p>
-        <div className="gor-specimen">{current.specimen}</div>
-        {current.note && <p className="gor-specimen-note">{current.note}</p>}
+          {/* Each pillar shows its claim rather than asserting it. */}
+          <p className="gor-specimen-caption">{current.specimenCaption}</p>
+          <div className="gor-specimen">{current.specimen}</div>
+          {current.note && <p className="gor-specimen-note">{current.note}</p>}
+        </div>
 
         <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
           {/* Numerals, matching the seals — three dots said nothing about which rite you are in. */}

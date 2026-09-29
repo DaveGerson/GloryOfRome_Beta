@@ -164,7 +164,7 @@ function buttonContaining(container: HTMLElement, text: string): HTMLButtonEleme
 // (they were Header pills before) - reach them through the menu the way a
 // developer does.
 async function clickDevSwitch(container: HTMLElement, id: string): Promise<void> {
-  await click(buttonNamed(container, 'Open configuration menu'));
+  await click(buttonNamed(container, 'Settings'));
   const control = container.querySelector<HTMLInputElement>(id);
   expect(control, `dev switch "${id}"`).not.toBeNull();
   await click(control!);
@@ -238,6 +238,21 @@ function makeAppSave(overrides: Partial<SaveGameState> = {}): SaveGameState {
   });
 }
 
+/**
+ * Adds the Senate's bodies the grain-shortage choices act on: an authored
+ * event fires only in a world whose roster holds them
+ * (events/engine.ts::isEventForThisWorld).
+ */
+function withSenateBodies(entities: Entity[]): Entity[] {
+  const template = entities.find(entity => entity.entity_id === 'gaius_pontius_magnus')!;
+  return [
+    ...entities,
+    ...[['senatorial_party', 'Senatorial Party'], ['roman_senate', 'Roman Senate']].map(([entity_id, name]): Entity => ({
+      ...template, entity_id, name, entity_type: 'faction', relationships: {}, memories: [], visibility_network: [],
+    })),
+  ];
+}
+
 async function renderApp(continueSave: boolean, mockMode = true): Promise<HTMLDivElement> {
   const container = document.createElement('div');
   document.body.appendChild(container);
@@ -254,7 +269,7 @@ async function renderApp(continueSave: boolean, mockMode = true): Promise<HTMLDi
   await click(buttonNamed(container, 'Continue Your Reign'));
   await waitFor(() => expect(container.querySelector('[aria-label="Chat input"]')).not.toBeNull());
   if (mockMode) {
-    await click(buttonNamed(container, 'Open configuration menu'));
+    await click(buttonNamed(container, 'Settings'));
     const mockToggle = container.querySelector<HTMLInputElement>('#mock-toggle');
     expect(mockToggle).not.toBeNull();
     await click(mockToggle!);
@@ -269,6 +284,14 @@ async function mountApp(state = makeAppSave(), continueSave = true, mockMode = t
   return renderApp(continueSave, mockMode);
 }
 
+// A destiny chosen over a saved reign asks the same Abandon question as
+// Start anew (state-destiny-click-overwrites-saved-reign); answering it is
+// what begins the new campaign.
+async function chooseOverSavedReign(container: HTMLElement, destiny: HTMLElement): Promise<void> {
+  await click(destiny);
+  await click(buttonNamed(container, 'Abandon'));
+}
+
 function failBothSaveWrites(): ReturnType<typeof vi.spyOn> {
   return vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
     throw new DOMException('quota', 'QuotaExceededError');
@@ -279,7 +302,8 @@ function failBothSaveWrites(): ReturnType<typeof vi.spyOn> {
  * The laurel half-commit notice (WP-21), found by what it says. It is the
  * one notice in the app that reports a SUCCESS, so it takes `role="status"`
  * rather than `role="alert"` — and that role is shared with the composer's
- * character count, so a bare count would prove nothing.
+ * stage line (always present, the one voice for a week's progress), so a
+ * bare count would prove nothing.
  */
 function halfCommitNotes(container: HTMLElement): HTMLElement[] {
   return Array.from(container.querySelectorAll<HTMLElement>('[role="status"]'))
@@ -361,7 +385,7 @@ function revealSecretsButton(container: HTMLElement): HTMLButtonElement {
 
 async function playOneTurn(container: HTMLElement, text = 'Open the transaction ledger'): Promise<void> {
   await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), text);
-  await click(buttonNamed(container, 'Send message'));
+  await click(buttonNamed(container, 'Speak'));
   await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
 }
 
@@ -472,12 +496,12 @@ async function submitStructured(
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Action 1'), draft.action);
   }
   if (draft.privateIntent !== undefined) {
-    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Private Intent'), draft.privateIntent);
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'What you intend'), draft.privateIntent);
   }
   if (draft.questionOrContext !== undefined) {
-    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Question / Context'), draft.questionOrContext);
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'What you ask'), draft.questionOrContext);
   }
-  await click(buttonNamed(container, 'Submit turn'));
+  await click(buttonNamed(container, 'Seal & send'));
 }
 
 describe('App non-turn save atomicity', () => {
@@ -495,7 +519,7 @@ describe('App non-turn save atomicity', () => {
     const storageSpy = failBothSaveWrites();
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    await click(preset);
+    await chooseOverSavedReign(container, preset);
     await waitFor(() => expect(storageSpy).toHaveBeenCalledTimes(2));
 
     expect(container.textContent).toContain('Choose Your Destiny');
@@ -506,7 +530,7 @@ describe('App non-turn save atomicity', () => {
     expect(container.contains(preset)).toBe(true);
 
     storageSpy.mockRestore();
-    await click(preset);
+    await chooseOverSavedReign(container, preset);
     await waitFor(() => expect(container.querySelector('[aria-label="Chat input"]')).not.toBeNull());
     expect(loadGame()!.state.messages).toHaveLength(1);
     expectV1BuildSaveShape(localStorage.getItem('gloryOfRome:autosave'));
@@ -591,6 +615,7 @@ describe('App non-turn save atomicity', () => {
   it('keeps a triggered event modal and all event/domain/transcript slices unchanged when its choice cannot persist', async () => {
     const base = makeAppSave();
     const state = makeAppSave({
+      entities: withSenateBodies(base.entities),
       worldState: { ...base.worldState, economic_stability: 'Failing' },
     });
     const container = await mountApp(state);
@@ -674,7 +699,7 @@ describe('App in-flight transaction barrier', () => {
       return new Promise(() => {});
     });
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Hold callbacks past unmount');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(capturedOptions).toBeDefined());
 
     const oldInstance = mounted.pop()!;
@@ -702,7 +727,7 @@ describe('App in-flight transaction barrier', () => {
       rejectTurn = reject;
     }));
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Reject after unmount');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(mockRunNewTurnCore).toHaveBeenCalledTimes(1));
 
     const oldInstance = mounted.pop()!;
@@ -726,7 +751,7 @@ describe('App in-flight transaction barrier', () => {
     it(`cancels custom-character ${outcome} after App unmount without child state writes or save replacement`, async () => {
       const container = await mountApp(makeAppSave(), false);
       await clickDevSwitch(container, '#mock-toggle');
-      await click(buttonContaining(container, 'Create Your Own'));
+      await chooseOverSavedReign(container, buttonContaining(container, 'Create Your Own'));
       const description = `Custom lifecycle ${outcome}`;
       await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Custom character description'), description);
       let settle!: () => void;
@@ -791,7 +816,10 @@ describe('App in-flight transaction barrier', () => {
     await waitFor(() => expect(mockGetDeepAnalysis).toHaveBeenCalledTimes(1));
 
     expect(container.textContent).toContain('The assessment is being drawn up');
-    expect(investigation.disabled).toBe(true);
+    // A busy intel button is aria-disabled, not disabled, so it keeps
+    // keyboard focus while the desk is locked (WCAG 2.4.3); presses are
+    // refused all the same.
+    expect(investigation.getAttribute('aria-disabled')).toBe('true');
     expect(directiveButton.disabled).toBe(true);
     expect(chatInput.disabled).toBe(true);
 
@@ -816,7 +844,7 @@ describe('App in-flight transaction barrier', () => {
     expect(storageSpy).toHaveBeenCalledTimes(1);
 
     expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').value).toBe(queuedDraft);
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(loadGame()!.state.turnNumber).toBe(4));
     expect(mockRunNewTurn).toHaveBeenCalledTimes(2);
     expect(loadGame()!.state.messages.some(message => message.text.includes(queuedDraft))).toBe(true);
@@ -845,7 +873,8 @@ describe('App in-flight transaction barrier', () => {
 
     await click(firstCommission);
     await waitFor(() => expect(mockGetDeepAnalysis).toHaveBeenCalledTimes(1));
-    expect(secondCommission.disabled).toBe(true);
+    // Busy, not disabled: the button stays focusable and refuses the press.
+    expect(secondCommission.getAttribute('aria-disabled')).toBe('true');
     secondCommission.disabled = false;
     await click(secondCommission);
 
@@ -870,6 +899,7 @@ describe('App in-flight transaction barrier', () => {
   it('rejects a forced event choice while an intel request owns the shared mutex', async () => {
     const base = makeAppSave();
     const container = await mountApp(makeAppSave({
+      entities: withSenateBodies(base.entities),
       worldState: { ...base.worldState, economic_stability: 'Failing' },
     }));
     await playOneTurn(container, 'Bring the grain crisis to a decision');
@@ -927,7 +957,7 @@ describe('App in-flight transaction barrier', () => {
     mockRunNewTurnCore.mockRejectedValueOnce(new Error('turn provider offline'));
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), exactDraft);
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(container.textContent).toMatch(/your draft is kept/i));
     expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').value).toBe(exactDraft);
     const retry = buttonNamed(container, 'Retry the last action');
@@ -1054,7 +1084,7 @@ describe('App in-flight transaction barrier', () => {
   it('keeps one custom creation lease across duplicate submits, then restores the exact live draft for retry', async () => {
     const container = await mountApp(makeAppSave(), false);
     await clickDevSwitch(container, '#mock-toggle');
-    await click(buttonContaining(container, 'Create Your Own'));
+    await chooseOverSavedReign(container, buttonContaining(container, 'Create Your Own'));
     const draft = 'A veteran jurist with an exact retryable history';
     const input = byAriaLabel<HTMLTextAreaElement>(container, 'Custom character description');
     await setValue(input, draft);
@@ -1092,6 +1122,10 @@ describe('App in-flight transaction barrier', () => {
     const container = await mountApp(makeAppSave(), false);
     const firstDestiny = buttonContaining(container, 'The Young Emperor');
     const staleSecondDestiny = buttonContaining(container, 'The Ambitious General');
+    // A destiny over a saved reign asks the Abandon question first; the
+    // campaign starts from its answer.
+    await click(firstDestiny);
+    const staleAbandon = buttonNamed(container, 'Abandon');
     const originalSetItem = Storage.prototype.setItem;
     let forcedReentry = false;
     const storageSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
@@ -1099,11 +1133,13 @@ describe('App in-flight transaction barrier', () => {
         forcedReentry = true;
         staleSecondDestiny.disabled = false;
         staleSecondDestiny.click();
+        staleAbandon.disabled = false;
+        staleAbandon.click();
       }
       return originalSetItem.call(this, key, value);
     });
 
-    await click(firstDestiny);
+    await click(staleAbandon);
     await waitFor(() => expect(container.querySelector('[aria-label="Chat input"]')).not.toBeNull());
 
     expect(storageSpy).toHaveBeenCalledTimes(1);
@@ -1245,6 +1281,8 @@ describe('App in-flight transaction barrier', () => {
     await click(buttonNamed(container, 'Start anew'));
     const preset = buttonContaining(container, 'The Young Emperor');
     const staleAbandon = buttonNamed(container, 'Abandon');
+    // A preset chosen while the confirm is open becomes what it abandons for.
+    await click(preset);
     const originalSetItem = Storage.prototype.setItem;
     const removeSpy = vi.spyOn(Storage.prototype, 'removeItem');
     let forcedReentry = false;
@@ -1257,7 +1295,7 @@ describe('App in-flight transaction barrier', () => {
       return originalSetItem.call(this, key, value);
     });
 
-    await click(preset);
+    await click(buttonNamed(container, 'Abandon'));
     await waitFor(() => expect(container.querySelector('[aria-label="Chat input"]')).not.toBeNull());
 
     expect(forcedReentry).toBe(true);
@@ -1282,7 +1320,7 @@ describe('App in-flight transaction barrier', () => {
     const input = byAriaLabel<HTMLTextAreaElement>(container, 'Chat input');
 
     await setValue(input, 'Hold the candidate open');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(mockRunNewTurn).toHaveBeenCalledTimes(1));
 
     expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
@@ -1300,7 +1338,7 @@ describe('App in-flight transaction barrier', () => {
     mockInferAmbition.mockImplementationOnce(() => new Promise(resolve => { resolveAmbition = resolve; }));
 
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Trigger the old campaign inference');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(mockInferAmbition).toHaveBeenCalledTimes(1));
 
     const oldInstance = mounted.pop()!;
@@ -1333,7 +1371,7 @@ describe('App in-flight transaction barrier', () => {
     }));
 
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Trigger the periodic ambition read');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(4));
     await waitFor(() => expect(mockInferAmbition).toHaveBeenCalledTimes(1));
     expect(loadGame()!.state.inferredAmbition).toBeNull();
@@ -1347,7 +1385,7 @@ describe('App in-flight transaction barrier', () => {
       return defaultRunNewTurnCore(...args);
     });
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Commit after ambition');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(mockRunNewTurnCore).toHaveBeenCalledTimes(2));
 
     const newestAmbition = {
@@ -1408,7 +1446,7 @@ describe('App in-flight transaction barrier', () => {
     const input = byAriaLabel<HTMLTextAreaElement>(container, 'Chat input');
     const beforeTurn = loadGame()!.state.turnNumber;
     await setValue(input, 'Commit a clean durable turn');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(mockRunNewTurn).toHaveBeenCalledTimes(2));
 
     expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1);
@@ -1456,8 +1494,10 @@ describe('App in-flight transaction barrier', () => {
       await waitFor(() => expect(mockRunNewTurn).toHaveBeenCalledTimes(2));
 
       expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').disabled).toBe(true);
-      expect(commission.disabled).toBe(true);
-      expect(investigation.disabled).toBe(true);
+      // The intel buttons are busy (aria-disabled) rather than disabled, so
+      // they keep keyboard focus; the presses below are refused regardless.
+      expect(commission.getAttribute('aria-disabled')).toBe('true');
+      expect(investigation.getAttribute('aria-disabled')).toBe('true');
       expect(directiveButton.disabled).toBe(true);
 
       // Force adversarial stale controls enabled. The handler barrier, not
@@ -1821,8 +1861,8 @@ describe('App no-attempt response privacy and atomicity', () => {
     expect(localStorage.getItem('gloryOfRome:autosave')).toBe(beforeBytes);
     expect(loadGame()!.state).toEqual(beforeState);
     expect(selectorCalls).toHaveLength(1);
-    expect(byAriaLabel<HTMLTextAreaElement>(container, 'Question / Context').value).toBe(question);
-    expect(byAriaLabel<HTMLTextAreaElement>(container, 'Private Intent').value).toBe(privateIntent);
+    expect(byAriaLabel<HTMLTextAreaElement>(container, 'What you ask').value).toBe(question);
+    expect(byAriaLabel<HTMLTextAreaElement>(container, 'What you intend').value).toBe(privateIntent);
     expect(container.textContent).not.toContain(SAFE_EVIDENCE_ANSWER);
     expect(JSON.stringify(loadGame()!.state.knowledge)).not.toContain(SAFE_EVIDENCE_TEXT);
     errorSpy.mockRestore();
@@ -1842,7 +1882,7 @@ describe('App turn-commit boundary and hidden-error surfacing (C1)', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Trigger post-commit failure');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(4));
 
     // Autosave stays at N+1.
@@ -1867,7 +1907,7 @@ describe('App turn-commit boundary and hidden-error surfacing (C1)', () => {
     // Liveness: no PROCESSING soft-lock, and no double resolution.
     await waitFor(() => expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').disabled).toBe(false));
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Play continues');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(loadGame()!.state.turnNumber).toBe(5));
     // And it clears on the next successful commit, as it always did.
     expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);
@@ -1879,6 +1919,7 @@ describe('App turn-commit boundary and hidden-error surfacing (C1)', () => {
   it('surfaces a failed event-choice save inside the modal dialog and keeps the choice retryable', async () => {
     const base = makeAppSave();
     const state = makeAppSave({
+      entities: withSenateBodies(base.entities),
       worldState: { ...base.worldState, economic_stability: 'Failing' },
     });
     const container = await mountApp(state);
@@ -1981,11 +2022,11 @@ describe('App commit-site success paths clear the transaction alert (Task 7 pins
     const storageSpy = failBothSaveWrites();
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    await click(preset);
+    await chooseOverSavedReign(container, preset);
     await waitFor(() => expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1));
 
     storageSpy.mockRestore();
-    await click(preset);
+    await chooseOverSavedReign(container, preset);
     await waitFor(() => expect(container.querySelector('[aria-label="Chat input"]')).not.toBeNull());
     expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);
     warnSpy.mockRestore();
@@ -2122,7 +2163,7 @@ describe('App reign export/import wiring (VERIFY pins)', () => {
     const storageSpy = failBothSaveWrites();
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    await click(preset);
+    await chooseOverSavedReign(container, preset);
     await waitFor(() => expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1));
 
     // The notice ITSELF — not some other control on the screen — offers the
@@ -2135,7 +2176,7 @@ describe('App reign export/import wiring (VERIFY pins)', () => {
     // exists for. The filename carries the SLOT's week (the failed campaign
     // never landed), and the blob handed over is the slot byte-for-byte.
     await click(buttonNamed(alert, 'Take a copy of the reign'));
-    expect(anchorDownloads).toEqual(['gor-reign-week2.json']);
+    expect(anchorDownloads).toEqual(['gor-reign-turn2.json']);
     expect(createdObjectUrlBlobs).toHaveLength(1);
     expect(await readBlobText(createdObjectUrlBlobs[0])).toBe(slotBefore);
 
@@ -2237,7 +2278,7 @@ describe('B7a hardening — the import-review residuals (spec: 2026-08-05-b7a-ha
     mockInferAmbition.mockImplementationOnce(() => new Promise(resolve => { resolveAmbition = resolve; }));
 
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Arm the ambition tail');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(4));
     await waitFor(() => expect(mockInferAmbition).toHaveBeenCalledTimes(1));
 
@@ -2249,7 +2290,7 @@ describe('B7a hardening — the import-review residuals (spec: 2026-08-05-b7a-ha
       state: makeAppSave({ turnNumber: 9 }),
     });
 
-    await click(buttonNamed(container, 'Open configuration menu'));
+    await click(buttonNamed(container, 'Settings'));
     await chooseImportFile(container, imported);
     // A reign is at stake, so the Abandon-grammar confirm gates the write.
     await waitFor(() => expect(container.textContent).toContain('Keep my reign'));

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from './ui/Core';
 import { createFocusTrap, type FocusTrap } from './ui/focusTrap';
+import { useFocusRequest } from './ui/useFocusRequest';
 import type { NarrationLogEntry } from '../narration/narrationLog';
 import { voiceStyleLabel } from '../narration/voiceStyle';
 import type { NarrationLogControlState } from '../hooks/useNarrationLog';
@@ -139,7 +140,10 @@ const EntryView: React.FC<{
  * patch left out, replay and copy (the script, cues included) - with a
  * two-step "Clear log". Same dialog contract as Settings: focus moves in on
  * open, Tab is trapped (components/ui/focusTrap.ts), Escape closes, focus
- * returns to the opener.
+ * returns to the opener. The clear's swaps move focus themselves - to Keep
+ * when the confirm opens, back to "Clear log" on Keep, to the close button
+ * once the log is cleared - since a focused button that unmounts drops focus
+ * to <body>, behind the dialog, where its Escape and Tab no longer hear.
  */
 export const NarrationLog: React.FC<{
     entries: readonly NarrationLogEntry[];
@@ -153,6 +157,10 @@ export const NarrationLog: React.FC<{
     const [confirmingClear, setConfirmingClear] = useState(false);
     const dialogRef = useRef<HTMLDivElement>(null);
     const trapRef = useRef<FocusTrap | null>(null);
+    const closeRef = useRef<HTMLButtonElement>(null);
+    const clearRef = useRef<HTMLButtonElement>(null);
+    const keepRef = useRef<HTMLButtonElement>(null);
+    const requestFocus = useFocusRequest();
 
     useEffect(() => {
         if (!open || !dialogRef.current) return;
@@ -181,7 +189,7 @@ export const NarrationLog: React.FC<{
 
     return (
         <>
-            <Button variant="secondary" onClick={() => setOpen(true)} aria-haspopup="dialog">{NARRATION_LOG_COPY.open}</Button>
+            <Button variant="secondary" onClick={() => setOpen(true)} aria-haspopup="dialog" data-gor-command="narration-log">{NARRATION_LOG_COPY.open}</Button>
             {/* Portalled to <body>: rendered inside the composer, the backdrop sat
                 under the side panel's tab rail in the stacking order. */}
             {open && createPortal(
@@ -199,10 +207,12 @@ export const NarrationLog: React.FC<{
                         <div className="gor-dialog-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
                             <h2 id="narration-log-title" style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 27, color: 'var(--tyrian-600)' }}>{NARRATION_LOG_COPY.title}</h2>
                             <button
+                                ref={closeRef}
                                 type="button"
+                                className="gor-bare-btn"
                                 onClick={close}
                                 aria-label={NARRATION_LOG_COPY.close}
-                                style={{ all: 'unset', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 24, lineHeight: 1, padding: '2px 6px' }}
+                                style={{ cursor: 'pointer', color: 'var(--text-muted)', fontSize: 24, lineHeight: 1, padding: '2px 6px' }}
                             >×</button>
                         </div>
                         <div className="gor-dialog-rule"></div>
@@ -222,11 +232,11 @@ export const NarrationLog: React.FC<{
                                     {confirmingClear ? (
                                         <span role="group" aria-label={NARRATION_LOG_COPY.confirmClear} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                                             <span className="gor-narration-log-note">{NARRATION_LOG_COPY.confirmClear}</span>
-                                            <Button type="button" size="sm" variant="danger" onClick={() => { onClear(); setConfirmingClear(false); }}>{NARRATION_LOG_COPY.confirm}</Button>
-                                            <Button type="button" size="sm" variant="ghost" onClick={() => setConfirmingClear(false)}>{NARRATION_LOG_COPY.keep}</Button>
+                                            <Button type="button" size="sm" variant="danger" onClick={() => { onClear(); setConfirmingClear(false); requestFocus(closeRef); }}>{NARRATION_LOG_COPY.confirm}</Button>
+                                            <Button ref={keepRef} type="button" size="sm" variant="ghost" onClick={() => { setConfirmingClear(false); requestFocus(clearRef); }}>{NARRATION_LOG_COPY.keep}</Button>
                                         </span>
                                     ) : (
-                                        <Button type="button" size="sm" variant="ghost" onClick={() => setConfirmingClear(true)}>{NARRATION_LOG_COPY.clear}</Button>
+                                        <Button ref={clearRef} type="button" size="sm" variant="ghost" onClick={() => { setConfirmingClear(true); requestFocus(keepRef); }}>{NARRATION_LOG_COPY.clear}</Button>
                                     )}
                                 </div>
                             )}

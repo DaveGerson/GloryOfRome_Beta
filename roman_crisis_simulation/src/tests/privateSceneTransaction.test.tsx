@@ -93,7 +93,7 @@ async function mount(state = appSave(), openPrivateScene = true): Promise<HTMLDi
 // The dev-only Mock Mode / GM-console runtime switches live in the
 // configuration menu's Developer card since the options-consolidation pass.
 async function clickDevSwitch(container: HTMLElement, id: string): Promise<void> {
-  await click(container.querySelector<HTMLButtonElement>('[aria-label="Open configuration menu"]')!);
+  await click(container.querySelector<HTMLButtonElement>('[aria-label="Settings"]')!);
   await click(container.querySelector<HTMLInputElement>(id)!);
   await click(container.querySelector<HTMLButtonElement>('[aria-label="Close configuration menu"]')!);
 }
@@ -106,7 +106,7 @@ async function mountForMacroTurn(state: SaveGameState): Promise<HTMLDivElement> 
 
 async function submitMacroTurn(container: HTMLElement, text: string): Promise<void> {
   await setValue(container.querySelector<HTMLTextAreaElement>('[aria-label="Chat input"]')!, text);
-  await click(container.querySelector<HTMLButtonElement>('[aria-label="Send message"]')!);
+  await click(container.querySelector<HTMLButtonElement>('.gor-composer button[type="submit"]')!);
 }
 
 async function invite(container: HTMLElement, text = 'Speak with me.'): Promise<void> {
@@ -468,7 +468,7 @@ describe('private-scene App transaction boundary', () => {
     const macro = container.querySelector<HTMLTextAreaElement>('[aria-label="Chat input"]')!;
     macro.disabled = false;
     await setValue(macro, 'Force a macro action');
-    const submit = container.querySelector<HTMLButtonElement>('[aria-label="Send message"]')!; submit.disabled = false;
+    const submit = container.querySelector<HTMLButtonElement>('.gor-composer button[type="submit"]')!; submit.disabled = false;
     await click(submit); await flush();
     expect(mockRunNewTurn).not.toHaveBeenCalled();
     expect(loadGame()!.state.turnNumber).toBe(3);

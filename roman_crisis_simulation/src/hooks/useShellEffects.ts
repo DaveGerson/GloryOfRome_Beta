@@ -1,14 +1,14 @@
 /**
  * hooks/useShellEffects.ts
  *
- * The composition root's three stateless window-level effects, moved
- * verbatim out of App.tsx (2026-09-23). None of them owns state; each is a
- * named hook so App reads as a list of what the shell does rather than
- * three anonymous effect bodies.
+ * The composition root's stateless window-level effects, moved verbatim out
+ * of App.tsx (2026-09-23). None of them owns state; each is a named hook so
+ * App reads as a list of what the shell does rather than anonymous effect
+ * bodies. (The third, `useScrollToLatest`, grew state - whether the reader
+ * is at the foot of the log - and became hooks/useChatFollow.ts.)
  */
 
-import { useEffect, useRef } from 'react';
-import type { RefObject } from 'react';
+import { useEffect } from 'react';
 import { GameState } from '../types';
 import { runSmokeTest } from '../tests/smokeTest';
 
@@ -44,10 +44,16 @@ export function useDevSmokeTest(): void {
  * (PROCESSING) - the pre-turn snapshot was already saved, but this turn's
  * outcome hasn't committed yet. A committed-and-saved state doesn't need
  * the scare dialog.
+ *
+ * A fate awaiting its choice (AWAITING_EVENT_CHOICE) is guarded too. It is
+ * written into the save when it fires, but that write is a best-effort
+ * patch (persistence/saveGame.ts's updateSavedPendingEvent), and the fate's
+ * dialog has no close control by design - leaving the page must not be a
+ * quiet way out of it.
  */
 export function useUnloadGuardWhileProcessing(gameState: GameState): void {
     useEffect(() => {
-        if (gameState !== GameState.PROCESSING) return;
+        if (gameState !== GameState.PROCESSING && gameState !== GameState.AWAITING_EVENT_CHOICE) return;
 
         const handleBeforeUnload = (event: BeforeUnloadEvent) => {
             event.preventDefault();
@@ -57,17 +63,4 @@ export function useUnloadGuardWhileProcessing(gameState: GameState): void {
         window.addEventListener('beforeunload', handleBeforeUnload);
         return () => window.removeEventListener('beforeunload', handleBeforeUnload);
     }, [gameState]);
-}
-
-/**
- * Keeps the chat log pinned to its newest line: returns the ref for the
- * sentinel div at the log's foot, scrolled into view whenever the messages
- * or the game phase change.
- */
-export function useScrollToLatest(messages: unknown, gameState: GameState): RefObject<HTMLDivElement | null> {
-    const messagesEndRef = useRef<HTMLDivElement>(null);
-    useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages, gameState]);
-    return messagesEndRef;
 }

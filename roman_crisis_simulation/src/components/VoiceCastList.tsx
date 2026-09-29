@@ -1,6 +1,6 @@
 import React, { useId, useState } from 'react';
 import { Button } from './ui/Core';
-import { narrationSelectStyle } from './VoiceStylePicker';
+import { NARRATION_SELECT_CLASS, narrationSelectStyle } from './VoiceStylePicker';
 import { VOICE_CATALOG, catalogVoiceLabel } from '../narration/voiceCatalog';
 import { MAX_CAST_STYLE_CHARS, effectiveMember, sanitizeCastStyle, type CastOverride, type CastingCandidate, type VoiceCast } from '../narration/voiceCast';
 import { filterVoiceStyleInput } from '../narration/voiceStyle';
@@ -79,7 +79,7 @@ const StyleField: React.FC<{ label: string; value: string; onCommit: (style: str
 };
 
 const VoiceSelect: React.FC<{ label: string; value: string; onChange: (voice: string) => void }> = ({ label, value, onChange }) => (
-  <select aria-label={label} value={value} onChange={e => onChange(e.target.value)} style={narrationSelectStyle} className="gor-cast-voice">
+  <select aria-label={label} value={value} onChange={e => onChange(e.target.value)} style={narrationSelectStyle} className={`${NARRATION_SELECT_CLASS} gor-cast-voice`}>
     {VOICE_CATALOG.map(v => <option key={v.id} value={v.id}>{catalogVoiceLabel(v.id)}</option>)}
   </select>
 );

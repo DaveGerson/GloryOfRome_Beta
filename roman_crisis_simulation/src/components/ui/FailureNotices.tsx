@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Alert, RECORD_REFUSES } from './Alert';
 import { Button } from './Core';
 import { toRoman } from './Brand';
-import type { ImportResult } from '../../persistence/saveGame';
+import type { ImportResult, SaveRefusalReason } from '../../persistence/saveGame';
 
 /**
  * Every failure the player can meet (WP-21, audit items 46–49), in one
@@ -41,7 +41,7 @@ export type TurnFailure =
 export const TRANSIENT_ATTEMPT_BUDGET = 3;
 
 const Pips: React.FC<{ spent: number }> = ({ spent }) => (
-  <span className="gor-pips" aria-hidden="true">
+  <span className="gor-pips gor-pips-attempts" aria-hidden="true">
     {Array.from({ length: TRANSIENT_ATTEMPT_BUDGET }, (_, index) => (
       <span key={index} className={`gor-pip${index < spent ? ' gor-pip-spent' : ''}`} />
     ))}
@@ -162,9 +162,9 @@ export const SaveFailureNotice: React.FC<{
   /** The site's own sentence: "Your investigation could not be saved." */
   lead: string;
   /**
-   * The last week that is safely on disk, or `null` when NOTHING is: storage
+   * The last turn that is safely on disk, or `null` when NOTHING is: storage
    * dead since boot, a corrupted blob, a version the loader rejects. Naming a
-   * week in that case would be the one lie this notice must not tell — there
+   * turn in that case would be the one lie this notice must not tell — there
    * is no reign on disk to be safe up to.
    */
   lastSafeTurn: number | null;
@@ -187,7 +187,7 @@ export const SaveFailureNotice: React.FC<{
     {lead} This device would not take the writing down.{' '}
     {lastSafeTurn === null
       ? 'Nothing of this reign has been written down yet — all of it is only on this screen.'
-      : `Your reign is safe up to Week ${toRoman(lastSafeTurn)} — everything since is only on this screen.`}
+      : `Your reign is safe up to Turn ${toRoman(lastSafeTurn)} — everything since is only on this screen.`}
   </Alert>
 );
 
@@ -216,6 +216,79 @@ const IMPORT_FAILURE_LEAD: Record<Exclude<ImportResult, { ok: true }>['reason'],
 export const ImportFailureNotice: React.FC<{ reason: Exclude<ImportResult, { ok: true }>['reason'] }> = ({ reason }) => (
   <Alert tone="crimson" title="The scroll is refused">
     {IMPORT_FAILURE_LEAD[reason]} Your current reign is untouched.
+  </Alert>
+);
+
+/**
+ * How a private scene failed (hooks/usePrivateSceneController.ts). The
+ * controller names the failure; the words live here. The title says what
+ * failed - a reply that met no answer is not a door that did not open - and
+ * a request the scene's input bound refuses (`*_refused`) is never offered
+ * as a retry, since the same words would be refused again.
+ */
+export type PrivateSceneFailure =
+  | 'invite_unanswered'
+  | 'invite_refused'
+  | 'contact_missing'
+  | 'contact_out_of_reach'
+  | 'already_held'
+  | 'reply_unanswered'
+  | 'reply_refused'
+  | 'save'
+  | 'too_long';
+
+const DOOR_DID_NOT_OPEN = 'The door did not open';
+const INVITATION_NOT_SENT = 'The invitation was not sent';
+const NO_ANSWER_CAME = 'No answer came';
+const SCENE_COULD_NOT_CONTINUE = 'The scene could not continue. Your words remain ready to retry.';
+
+export const PRIVATE_SCENE_FAILURE_COPY: Record<PrivateSceneFailure, { title: string; message: string }> = {
+  invite_unanswered: { title: DOOR_DID_NOT_OPEN, message: SCENE_COULD_NOT_CONTINUE },
+  invite_refused: { title: DOOR_DID_NOT_OPEN, message: 'This contact cannot be drawn into a private word. Your words are kept; choose another to send them to.' },
+  contact_missing: { title: INVITATION_NOT_SENT, message: 'That contact can no longer be found. Choose another and try again.' },
+  contact_out_of_reach: { title: INVITATION_NOT_SENT, message: 'That contact is no longer within reach. Choose another and try again.' },
+  already_held: { title: INVITATION_NOT_SENT, message: 'A private scene has already been held this turn.' },
+  reply_unanswered: { title: NO_ANSWER_CAME, message: SCENE_COULD_NOT_CONTINUE },
+  reply_refused: { title: NO_ANSWER_CAME, message: 'The conversation can go no further. Everything said is kept; end the scene when you are ready.' },
+  // A failed write keeps the app's one name for it.
+  save: { title: RECORD_REFUSES, message: 'The scene could not be saved. This device would not take the writing down — your words are kept here, and the scene has not moved.' },
+  too_long: { title: 'More than a private word', message: 'Private-scene messages may be at most 2,000 characters.' },
+};
+
+/** The private scene dialog's one failure surface. */
+export const PrivateSceneFailureNotice: React.FC<{ failure: PrivateSceneFailure; style?: React.CSSProperties }> = ({ failure, style }) => (
+  <Alert title={PRIVATE_SCENE_FAILURE_COPY[failure].title} style={style}>
+    {PRIVATE_SCENE_FAILURE_COPY[failure].message}
+  </Alert>
+);
+
+/**
+ * The destiny screen's word on a reign this device holds but this copy of the
+ * game cannot read - saved by a newer version (a stale tab, a cached deploy)
+ * or damaged. It used to be hidden: the screen looked like a fresh device and
+ * the next destiny wrote over it without a word. The blob is left exactly as
+ * it is; "Take a copy of the reign" hands it over verbatim (`rawSaveBlob`
+ * never validates), and the destiny screen's Abandon confirm gates any
+ * overwrite. `unreadable` and `not_a_reign` share a sentence, as they do for
+ * an import.
+ */
+const UNREADABLE_REIGN_LEAD: Record<SaveRefusalReason, string> = {
+  unreadable: 'The reign saved on this device could not be read.',
+  not_a_reign: 'The reign saved on this device could not be read.',
+  version_mismatch: 'The reign saved on this device was written in another age of the Republic, and this copy of the game cannot read it.',
+};
+
+export const UnreadableReignNotice: React.FC<{
+  reason: SaveRefusalReason;
+  onTakeCopy?: () => void;
+}> = ({ reason, onTakeCopy }) => (
+  <Alert
+    tone="crimson"
+    title="The saved reign cannot be read"
+    actions={onTakeCopy && <Button size="sm" onClick={onTakeCopy}>Take a copy of the reign</Button>}
+  >
+    {UNREADABLE_REIGN_LEAD[reason]} It is still here, untouched, and nothing will replace it unless
+    you choose to.
   </Alert>
 );
 

@@ -134,7 +134,7 @@ async function openPrivateScene(app: MountedJourneyApp): Promise<void> {
 
 async function submitMacroTurn(app: MountedJourneyApp, intent: string, expectedTurn: number): Promise<void> {
   await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Chat input'), intent);
-  await appClick(appButton(app.container, 'Send message'));
+  await appClick(appButton(app.container, 'Speak'));
   await waitForApp(() => expect(loadGame()?.state.turnNumber).toBe(expectedTurn));
 }
 
@@ -244,7 +244,8 @@ describe('journey: player private scenes across audience, reload, and macro-turn
       await openPrivateScene(app);
       expect(app.container.textContent).toContain(REFUSAL_RESPONSE);
       expect(app.container.textContent).toContain(REFUSAL_LAST_WORD);
-      expect(app.container.textContent).toContain('The door opens again on Week III.');
+      // A turn count, labelled as one (the masthead's calendar week is another fact).
+      expect(app.container.textContent).toContain('The door opens again on Turn III.');
       expect(app.container.querySelector('[aria-label="Private-scene opening"]')).toBeNull();
       for (const forbidden of [FIRST_HIDDEN, FIRST_MECHANICS, REFUSAL_HIDDEN, REFUSAL_MECHANICS, 'npcPrivate']) {
         expect(app.container.textContent).not.toContain(forbidden);
@@ -253,7 +254,7 @@ describe('journey: player private scenes across audience, reload, and macro-turn
       await appClick(appControl<HTMLButtonElement>(app.container, 'Close private scene'));
       // The GM console's runtime switch lives in the configuration menu's
       // Developer card since the options-consolidation pass.
-      await appClick(appButton(app.container, 'Open configuration menu'));
+      await appClick(appButton(app.container, 'Settings'));
       const gmToggle = app.container.querySelector<HTMLInputElement>('#gm-console-toggle')!;
       if (!gmToggle.checked) await appClick(gmToggle);
       await appClick(appButton(app.container, 'Close configuration menu'));

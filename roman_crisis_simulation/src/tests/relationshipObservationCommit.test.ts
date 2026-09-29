@@ -371,8 +371,8 @@ describe('App relationship-observation transaction', () => {
 
     await click(buttonNamed(container, 'Structured'));
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Action 1'), 'Warn the Senate');
-    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Private Intent'), 'poison Lucius');
-    await click(buttonNamed(container, 'Submit turn'));
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'What you intend'), 'poison Lucius');
+    await click(buttonNamed(container, 'Seal & send'));
     await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
 
     expect(mockGetRelationshipObservations).toHaveBeenCalledTimes(1);
@@ -398,7 +398,7 @@ describe('App relationship-observation transaction', () => {
     mockRunNewTurn.mockImplementation(async (...args) => withPoisonedPlayerResult(await defaultTurnResult(...args)));
     const container = await mountApp();
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Observe the public meeting');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
 
     expect(mockBuildPlayerPerceivedDigest).toHaveBeenCalled();
@@ -409,6 +409,23 @@ describe('App relationship-observation transaction', () => {
     const personaeTab = Array.from(container.querySelectorAll<HTMLButtonElement>('button[role="tab"]'))
       .find(button => button.getAttribute('aria-label')?.startsWith('Dramatis Personae'))!;
     expect(personaeTab.classList.contains('gor-tab-pulse')).toBe(false);
+  });
+
+  it('records the pre-turn roster, and gives the commit and the Dispatches re-derivation that same roster on the first turn', async () => {
+    const save = makeAppSave();
+    expect(save.turnHistory).toEqual([]);
+    const container = await mountApp(save);
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Hold court on the Palatine');
+    await click(buttonNamed(container, 'Speak'));
+    await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
+
+    const roster = save.entities.map(({ entity_id, location, status }) => ({ entity_id, location, status }));
+    expect(loadGame()!.state.turnHistory[0].preTurnRoster).toEqual(roster);
+    const playerCalls = mockBuildPlayerPerceivedDigest.mock.calls.filter(([, viewer]) => viewer.entity_id === 'severus_alexander');
+    expect(playerCalls.length).toBeGreaterThanOrEqual(2);
+    for (const call of playerCalls) {
+      expect(call[4]?.map(({ entity_id, location, status }) => ({ entity_id, location, status }))).toEqual(roster);
+    }
   });
 
   it('pulses Personae from a relationship claim learned on the committed turn, not from relation deltas', async () => {
@@ -435,13 +452,15 @@ describe('App relationship-observation transaction', () => {
     });
     const container = await mountApp();
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Observe the public meeting');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
 
     expect((loadGame()!.state.knowledge ?? []).filter(claim => claim.relationshipObservation)).toHaveLength(1);
     const personaeTab = Array.from(container.querySelectorAll<HTMLButtonElement>('button[role="tab"]'))
       .find(button => button.getAttribute('aria-label')?.startsWith('Dramatis Personae'))!;
-    expect(personaeTab.getAttribute('aria-label')).toBe('Dramatis Personae (new intelligence)');
+    // One observation learned on the committed turn: the tab says how much is new.
+    expect(personaeTab.getAttribute('aria-label')).toBe('Dramatis Personae (1 new)');
+    expect(personaeTab.querySelector('.gor-tab-count')?.textContent).toBe('1');
     expect(personaeTab.classList.contains('gor-tab-pulse')).toBe(true);
   });
 
@@ -462,7 +481,7 @@ describe('App relationship-observation transaction', () => {
     const before = localStorage.getItem('gloryOfRome:autosave');
     const original = '  Exact Task 7 retry draft\nwith authored whitespace  ';
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), original);
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1));
 
     expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
@@ -550,7 +569,7 @@ describe('App relationship-observation transaction', () => {
     });
 
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Observe the public meeting');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
 
     expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);
@@ -579,7 +598,7 @@ describe('App relationship-observation transaction', () => {
     const before = localStorage.getItem('gloryOfRome:autosave');
 
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Observe the public meeting');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
 
     expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);

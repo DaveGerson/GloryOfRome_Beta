@@ -20,6 +20,12 @@
 .gor-iconbtn{padding:0;width:38px}
 .gor-iconbtn.gor-btn-sm{width:30px}
 .gor-iconbtn.gor-btn-lg{width:46px}
+/* A <button> stripped to its content (a dialog's ×, a console rail). The reset
+   lives here, not in an inline `all:unset`: an inline reset out-ranks every
+   stylesheet rule, so no focus ring could ever reach it. The transparent
+   outline is invisible until forced colours repaint it. */
+.gor-bare-btn{all:unset;box-sizing:border-box;cursor:pointer}
+.gor-bare-btn:focus-visible{outline:2px solid transparent;outline-offset:2px;box-shadow:var(--focus-ring)}
 .gor-badge{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-display);font-size:11px;font-weight:600;letter-spacing:var(--tracking-label);text-transform:uppercase;padding:3px 10px;border-radius:5px 8px 6px 9px/7px 5px 8px 6px;border:1px solid;box-shadow:inset 0 1px 2px rgba(0,0,0,.10),inset 0 -1px 0 rgba(255,255,255,.35)}
 .gor-badge-gold{color:#6E5710;border-color:var(--border-strong);background:var(--accent-quiet)}
 .gor-badge-crimson{color:#7A1810;border-color:rgba(179,58,43,.5);background:rgba(140,28,19,.10)}
@@ -44,7 +50,7 @@
 .gor-input:focus,.gor-select:focus,.gor-textarea:focus{outline:none;border-color:var(--gold-500)}
 .gor-input[aria-invalid="true"]{border-color:var(--crimson-400)}
 .gor-hint{font-size:14px;color:var(--text-muted);font-style:italic}
-.gor-hint-error{color:#E0968B}
+.gor-hint-error{color:var(--danger)}
 .gor-select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--text-muted) 50%),linear-gradient(135deg,var(--text-muted) 50%,transparent 50%);background-position:calc(100% - 18px) 50%,calc(100% - 13px) 50%;background-size:5px 5px;background-repeat:no-repeat;padding-right:36px;cursor:pointer}
 .gor-check{display:inline-flex;align-items:center;gap:10px;cursor:pointer;font-size:16px;color:var(--text-body)}
 .gor-check input{appearance:none;margin:0;width:17px;height:17px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--surface-inset);cursor:pointer;display:grid;place-content:center;transition:background var(--duration-fast) var(--ease-standard)}
@@ -73,7 +79,7 @@
 .gor-seg-btn{border:none;cursor:pointer;font-family:inherit;font-size:inherit;font-weight:inherit;letter-spacing:inherit;text-transform:uppercase;padding:7px 12px;background:var(--surface-card);color:var(--text-muted);transition:background var(--duration-fast) var(--ease-standard),color var(--duration-fast) var(--ease-standard)}
 .gor-seg-btn+.gor-seg-btn,.gor-seg-lead+.gor-seg-btn{border-left:1px solid var(--border-subtle)}
 .gor-seg-btn:hover:not(:disabled){color:var(--text-heading)}
-.gor-seg-btn[aria-pressed="true"],.gor-seg-btn[aria-checked="true"]{background:var(--gold-600);color:#241C11}
+.gor-seg-btn[aria-pressed="true"],.gor-seg-btn[aria-checked="true"]{background:var(--gold-600);color:var(--ink-950)}
 .gor-seg-btn:focus-visible{outline:none;box-shadow:var(--focus-ring)}
 .gor-seg-btn:disabled{cursor:not-allowed;opacity:.55}
 .gor-meter{display:flex;flex-direction:column;gap:5px}
@@ -83,7 +89,10 @@
 .gor-meter-row{display:flex;justify-content:space-between;align-items:baseline}
 .gor-meter-val{font-family:var(--font-body);font-size:var(--text-numeral);font-variant-numeric:tabular-nums;color:var(--text-heading)}
 .gor-dialog-backdrop{position:fixed;inset:0;background:radial-gradient(80% 80% at 50% 40%,rgba(46,24,40,.4),rgba(22,9,18,.66));display:grid;place-items:center;z-index:100}
-.gor-dialog{position:relative;background:var(--dentil) left top/100% 4px no-repeat,var(--surface-card);border:1px solid var(--border-strong);clip-path:var(--chamfer-lg);filter:drop-shadow(0 18px 30px rgba(58,44,16,.45));max-width:480px;width:calc(100% - 48px)}
+/* The dialog is a grid item: without `min-width:0` its track grows to the
+   widest thing inside it (the API-key field), and on a phone it ran past the
+   right edge. */
+.gor-dialog{position:relative;background:var(--dentil) left top/100% 4px no-repeat,var(--surface-card);border:1px solid var(--border-strong);clip-path:var(--chamfer-lg);filter:drop-shadow(0 18px 30px rgba(58,44,16,.45));max-width:480px;width:calc(100% - 48px);min-width:0}
 .gor-dialog::after{content:"";position:absolute;inset:6px;border:1px solid var(--border-subtle);clip-path:var(--chamfer-sm);pointer-events:none}
 .gor-dialog-head{padding:18px 22px 0}
 .gor-dialog-rule{position:relative;height:1px;background:linear-gradient(90deg,transparent,var(--border-strong),transparent);margin:16px 0 2px}
@@ -109,10 +118,12 @@
 .gor-alert-laurel .gor-alert-bar{background:linear-gradient(180deg,#8DA45C,#5A6B3B)}
 .gor-alert-laurel .gor-alert-title{color:#46552B}
 .gor-alert-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:7px}
-/* Attempts already spent, drawn rather than counted in prose. */
-.gor-pips{display:inline-flex;gap:4px;align-items:center}
-.gor-pip{width:7px;height:7px;border-radius:50%;border:1px solid var(--border-strong)}
-.gor-pip-spent{background:var(--metal-crimson);border-color:transparent}
+/* Attempts already spent, drawn rather than counted in prose. The pips
+   themselves are the dossier's coins (`.gor-pips` below); a failure notice's
+   spent attempts are crimson and sit flush. The doubled class keeps these
+   ahead of the coin rules, which come later in the file. */
+.gor-pips.gor-pips-attempts{margin-left:0}
+.gor-pips-attempts .gor-pip.gor-pip-spent{background:var(--metal-crimson);border-color:transparent}
 .gor-evidence{font-family:var(--font-display);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted)}
 /* No word can leave the city. */
 .gor-offline{display:flex;align-items:center;gap:12px;padding:8px 20px 9px;background:linear-gradient(180deg,rgba(162,96,31,.18),rgba(162,96,31,.06));border-bottom:1px solid rgba(199,123,43,.45);animation:gorFadeIn .3s ease-out both}
@@ -125,7 +136,12 @@
 .gor-alert-dark .gor-alert-title{color:#E89A8C}
 .gor-alert-dark .gor-alert-msg{color:#F2E3BE}
 .gor-tooltip-wrap{position:relative;display:inline-flex}
-.gor-tooltip{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);background:var(--ink-800);border:1px solid var(--border-subtle);color:#F4ECD8;font-size:14px;font-family:var(--font-body);padding:6px 11px;border-radius:var(--radius-sm);white-space:nowrap;box-shadow:var(--shadow-raised);pointer-events:none;z-index:50}
+/* A tooltip is a sentence, whatever it hangs from: it drops the small caps
+   and tracking of a `.gor-label` it sits inside. ui/Feedback.tsx flips it
+   below its trigger and nudges it sideways (`--gor-tip-shift`) when the
+   window or a scrolling panel would cut it off. */
+.gor-tooltip{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(calc(-50% + var(--gor-tip-shift,0px)));background:var(--ink-800);border:1px solid var(--border-subtle);color:#F4ECD8;font-size:14px;font-family:var(--font-body);font-weight:400;font-style:normal;letter-spacing:0;text-transform:none;padding:6px 11px;border-radius:var(--radius-sm);white-space:nowrap;box-shadow:var(--shadow-raised);pointer-events:none;z-index:50}
+.gor-tooltip-below{bottom:auto;top:calc(100% + 8px)}
 .gor-divider{position:relative;border:none;height:1px;overflow:visible;background:linear-gradient(90deg,transparent 0,var(--border-subtle) 12%,var(--border-subtle) 44%,transparent 46%),linear-gradient(90deg,transparent 54%,var(--border-subtle) 56%,var(--border-subtle) 88%,transparent 100%);margin:0}
 .gor-divider::after{content:"\2766";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:11px;line-height:1;color:var(--gold-600)}
 
@@ -363,6 +379,8 @@
 .gor-stele-cut{animation:gorCutIn 520ms var(--ease-standard) 1740ms both}
 .gor-stele-cut+.gor-stele-cut{animation-delay:2000ms}
 .gor-stele-verdict{animation:gorFadeIn 600ms ease-out 2600ms both}
+/* The chroniclers at work: an ember's breath on the waiting line. */
+.gor-stele-waiting{animation:gorEmber 2.4s ease-in-out infinite}
 @keyframes gorItaliaStrike{
 0%{opacity:0;transform:scale(1.34);filter:drop-shadow(0 0 26px rgba(232,201,89,.85))}
 70%{opacity:1;filter:drop-shadow(0 0 18px rgba(232,201,89,.6))}
@@ -479,6 +497,19 @@
 /* The narration reads on the tablet register, so it inverts under NOX with
    the Dispatches tablet rather than staying dark against a lit room. */
 .gor-gm-tablet{margin-top:6px;padding:12px 14px;background:var(--tablet-grad);border:1px solid var(--tablet-edge);border-radius:var(--radius-sm);color:var(--tablet-text);font-size:15px;line-height:1.6}
+/* Its drop cap follows the tablet, not the page: crimson on the dark day
+   tablet and gold on the lit night one were each ~1.5:1. The tablet's own
+   heading ink holds on both. */
+.gor-gm-tablet.gor-dropcap::first-letter{color:var(--tablet-head);text-shadow:none}
+/* The console's rails (turns, raw calls) sit flush in scrolling columns that
+   would clip an outset ring at their edges, so their focus is drawn inside
+   the row. */
+.gor-bare-btn.gor-gm-rail-btn:focus-visible{box-shadow:inset 0 0 0 2px var(--gold-500)}
+/* The console's gold buttons (the dock's directive, the Fixtures pane's two)
+   are cut to the small chamfer inline, which clips any ring drawn outside
+   them, and their inline bevel would outrank a class box-shadow. So their
+   focus is an outline drawn inside the cut, in the ink of their label. */
+.gor-gm-gold-btn:focus-visible{outline:2px solid var(--ink-950);outline-offset:-5px}
 .gor-gm-struck{text-decoration:line-through;background:repeating-linear-gradient(102deg,rgba(179,58,43,.12) 0 1px,transparent 1px 7px)}
 .gor-gm-weave{background:repeating-linear-gradient(102deg,rgba(179,58,43,.12) 0 1px,transparent 1px 7px);padding:3px 5px;border-radius:2px}
 /* An empty boundary is a result, not an absence — so it is laurel, not grey. */
@@ -522,6 +553,11 @@
 .gor-decided-col-body{font-size:13.5px;color:var(--text-body)}
 
 .gor-foot-bar{position:sticky;bottom:0;z-index:2;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;background:linear-gradient(180deg,transparent,var(--surface-page) 34%);border-top:1px solid var(--border-faint)}
+/* The room below the form the sticky bar unsticks into (132px with the
+   column's 18px gap; 120px on a phone). It is a spacer, not the scroller's
+   padding: a sticky box keeps clear of its scroller's padding, so that
+   padding floated the bar 132px above the bottom, over the form. */
+.gor-forge-runout{flex:none;height:114px}
 
 @media (prefers-reduced-motion:reduce){.gor-tessera{transition:none}.gor-tablet-unroll{animation:none}}
 
@@ -552,6 +588,14 @@
 .gor-rite-steps{display:flex;gap:14px}
 .gor-rite-step{font-family:var(--font-display);font-size:11px;font-weight:700;letter-spacing:.16em;color:var(--text-quiet);padding-bottom:3px;border-bottom:2px solid transparent;transition:color var(--duration-slow) var(--ease-standard)}
 .gor-rite-step-now{color:var(--gold-700);border-bottom-color:var(--gold-600)}
+/* The rite holds one height through its three steps. Centred at its own
+   height, each step moved the dialog and Next jumped ~76px under a pointer
+   about to press it again. The floor is the tallest step (~604px at desktop
+   widths, ~666px on a 375px phone), never more than the window; each
+   step's leaf is centred in the room between the seal and the buttons. */
+.gor-rite{box-sizing:border-box;display:flex;flex-direction:column;min-height:min(612px,calc(100dvh - 48px))}
+.gor-rite-leaf{flex:1;display:flex;flex-direction:column;justify-content:center}
+@media (max-width:600px){.gor-rite{min-height:min(676px,calc(100dvh - 24px))}}
 
 @media (prefers-reduced-motion:reduce){.gor-rite-step{transition:none}}
 
@@ -572,7 +616,9 @@
 .gor-reckoned-track{display:block;height:7px;border:1px dashed var(--border-strong);border-radius:var(--radius-sm);background:transparent}
 .gor-reckoned-mark{margin-left:7px;font-size:9px;color:var(--tyrian-500)}
 .gor-vellum{background:repeating-linear-gradient(102deg,rgba(169,154,118,.09) 0 1px,transparent 1px 6px),var(--surface-card);border-style:dashed;border-color:var(--border-strong)}
-.gor-vellum-name{font-family:var(--font-display);font-weight:600;font-size:14px;letter-spacing:.06em;text-transform:uppercase;color:transparent;-webkit-text-stroke:.6px var(--parchment-400)}
+/* The name of a place you have no eyes on is still a name you can read: the
+   blanked, dashed card carries the absence, the ink does not. */
+.gor-vellum-name{font-family:var(--font-display);font-weight:600;font-size:14px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted)}
 
 /* ── The dossier folio (audit items 24–26) ──
    Three aspects, three silhouettes, so a glance tells them apart. */
@@ -657,7 +703,9 @@
 /* Every WP-13 flourish keeps its FINAL state and drops the movement: the
    nib stops blinking but stays visible, the tablet is already unrolled, and
    the stele is already struck rather than blank. */
-.gor-nib,.gor-tablet,.gor-tablet-line,.gor-stele-italia,.gor-stele-rise,.gor-stele-cut,.gor-stele-cut+.gor-stele-cut,.gor-stele-verdict,.gor-slip-progress{animation:none}
+.gor-nib,.gor-tablet,.gor-tablet-line,.gor-stele-italia,.gor-stele-rise,.gor-stele-cut,.gor-stele-cut+.gor-stele-cut,.gor-stele-verdict,.gor-stele-waiting,.gor-slip-progress{animation:none}
+/* The gold never sweeps across a primary button. */
+.gor-btn-primary:hover:not(:disabled)::after{animation:none}
 body{transition:none}
 }
 
@@ -676,7 +724,7 @@ body{transition:none}
 /* The shell itself (main, the two columns, the masthead) stacks in
    shell.css, by class - see its section VII. */
 .gor-dialog{width:calc(100% - 24px)}
-[aria-labelledby="gm-screen-title"]{width:calc(100% - 16px)!important;height:calc(100% - 16px)!important;padding:14px 14px 12px!important}
+[aria-labelledby="gm-screen-title"]{width:calc(100% - 16px)!important;height:calc(100dvh - 16px)!important;padding:14px 14px 12px!important}
 /* App.tsx's chat-input row sits the TurnComposer beside the Private
    scene / GM Log buttons with no wrap - at this width they can exceed
    the viewport together. Selected structurally via the chat textarea's
@@ -780,6 +828,10 @@ div:has(>div>form>#chat-input){flex-wrap:wrap}
 .gor-mosaic{max-width:100%}
 /* Once the foot bar wraps to two rows it is ~118px of a short viewport. */
 .gor-foot-bar{padding:10px 0}
+/* A dialog title is one ceremonial line beside its ×: "Configuration" in
+   27px Cinzel Decorative is ~290px alone, which pushed the × out past the
+   chamfer. It shrinks with the window (inline sizes, hence !important). */
+.gor-dialog-head h2{font-size:clamp(18px,5.6vw,27px)!important;min-width:0;overflow-wrap:anywhere}
 }
 /* The voice cast (components/VoiceCastList.tsx): one row per speaker. */
 .gor-cast-list{list-style:none;margin:6px 0 8px;padding:0;display:flex;flex-direction:column;gap:8px}

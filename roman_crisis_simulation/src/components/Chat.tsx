@@ -5,7 +5,7 @@ import { structuredSubmissionForHistory, TurnSubmissionHistory } from './TurnSub
 import { deserializeTurnSubmission } from '../playerInput/turnSubmission';
 import { TurnRibbon } from './ui/Brand';
 import { romanDate } from './ui/romanDate';
-import { toSegments } from './textFormat';
+import { isEventLeaf, toSegments } from './textFormat';
 import type { NarrationVoiceControlState } from '../hooks/useNarrationVoice';
 
 // Themed status copy for the "thinking" theater (ROADMAP_0_MASTER_PLAN.md
@@ -63,7 +63,8 @@ const MORTALITY_STAGE: TurnStage = 'mortality';
  *
  * Bound to the same `stage` prop the old three-dot indicator took — no new
  * API and no new state. Reduced motion renders every woven thread at its
- * final height with no movement (see components.css).
+ * final height with no movement (see components.css). Hidden from assistive
+ * tech: the composer's stage line announces the same stage, once.
  */
 export const TypingIndicator: React.FC<{ stage?: TurnStage | null }> = ({ stage = null }) => {
     const statusText = getStageStatusText(stage);
@@ -73,8 +74,12 @@ export const TypingIndicator: React.FC<{ stage?: TurnStage | null }> = ({ stage 
     const activeIndex = reportedIndex < 0 ? 0 : reportedIndex;
 
     return (
-        <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 14 }}>
-            <div className="gor-loom" role="status" aria-live="polite">
+        // Drawn, not spoken: it sits inside the chat log (itself role="log"),
+        // and as a status region of its own it announced every stage a second
+        // time beside the composer's stage line - which is the one voice for
+        // turn progress (TurnComposer). Same call as StreamingNarrationBubble.
+        <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 14 }} aria-hidden="true">
+            <div className="gor-loom">
                 <div className="gor-loom-threads" aria-hidden="true">
                     {TURN_STAGE_ORDER.map((name, index) => (
                         <div
@@ -128,14 +133,16 @@ export const StreamingNarrationBubble: React.FC<{ text: string }> = ({ text }) =
 };
 
 /**
- * Renders **bold** only; everything else is plain text rendered as React
+ * Renders **bold** and *emphasis* only; everything else is plain text rendered as React
  * text nodes, so it is escaped-by-construction - no HTML parsing ever runs
  * on model/narration output. See ./textFormat.ts.
  */
 const FormattedText: React.FC<{ text: string }> = ({ text }) => (
     <>
         {toSegments(text).map((segment, i) =>
-            segment.bold ? <strong key={i}>{segment.text}</strong> : <React.Fragment key={i}>{segment.text}</React.Fragment>
+            segment.bold ? <strong key={i}>{segment.text}</strong>
+                : segment.italic ? <em key={i}>{segment.text}</em>
+                : <React.Fragment key={i}>{segment.text}</React.Fragment>
         )}
     </>
 );
@@ -159,7 +166,8 @@ export function illuminatedNarrationIndices(messages: readonly Message[]): Reado
             weekOpen = true;
             return;
         }
-        if (message.sender !== 'gm') return;
+        // A fate's leaf is a record of a choice, not the week's narration.
+        if (message.sender !== 'gm' || isEventLeaf(message.text)) return;
         if (weekOpen) {
             illuminated.add(index);
             weekOpen = false;
@@ -231,6 +239,17 @@ export const NarrationVoiceControl: React.FC<{
 };
 
 /**
+ * Who is speaking, for a screen reader: the player's leaf and the
+ * chronicle's differ only in how they are drawn (WCAG 1.3.1), so each opens
+ * with a hidden lead, as the private scene's transcript names its speakers.
+ * (Player-visible copy: veto queue.)
+ */
+export const CHAT_LEAF_COPY = {
+    player: 'You wrote:',
+    chronicle: 'The chronicle:',
+} as const;
+
+/**
  * Memoised: App re-renders on every streamed narration chunk and every
  * pipeline stage, and the committed transcript only ever grows. Committed
  * `Message` objects are never mutated in place, so a shallow prop check lets
@@ -277,7 +296,13 @@ const ChatMessageView: React.FC<{
     const illuminate = illuminated && !isPlayer;
     const showVoice = message.sender === 'gm' && voiceState !== undefined && onToggleVoice !== undefined && index !== undefined;
     return (
-        <div style={{ display: 'flex', justifyContent: isPlayer ? 'flex-end' : 'flex-start', marginBottom: 14 }}>
+        // Positioned, so the hidden lead (absolute, as every gor-sr-only is)
+        // is placed within its row and scrolls with the log. Unpositioned, it
+        // was placed against the chat section, outside the log's scroll, and
+        // a long transcript's leads stretched the page itself.
+        <div style={{ display: 'flex', justifyContent: isPlayer ? 'flex-end' : 'flex-start', marginBottom: 14, position: 'relative' }}>
+            {/* Outside the leaf, so the drop cap still takes the leaf's own first letter. */}
+            <span className="gor-sr-only">{isPlayer ? CHAT_LEAF_COPY.player : CHAT_LEAF_COPY.chronicle} </span>
             <div className={`gor-msg ${isPlayer ? 'gor-msg-player' : 'gor-msg-gm'}${illuminate ? ' gor-dropcap' : ''}`}>
                 {historySubmission && historySubmission.kind !== 'freeform'
                     ? <TurnSubmissionHistory submission={historySubmission} audience="player" />

@@ -19,7 +19,7 @@
  */
 
 import { Entity, EventDelta, WorldState } from '../types';
-import { buildPerceivedDigest, PerceivedChange, PerceptionSource } from './visibility';
+import { buildPerceivedDigest, PerceivedChange, PerceptionSource, type PreTurnRoster } from './visibility';
 
 /**
  * Upper bound on how many NPCs run the perception pass in a single turn.
@@ -134,18 +134,21 @@ export function selectPerceivingNpcs(
  * Runs the viewer-agnostic digest (perception/visibility.ts) once per
  * viewer over the same ground-truth deltas. Each viewer's `changes` is
  * exactly what THEY could perceive - the same delta may appear in one
- * viewer's digest and not another's.
+ * viewer's digest and not another's. `preTurnEntities` (the roster as the
+ * turn began) is forwarded so each viewer, like the player, sees who left
+ * their room and is never told of a status that did not change.
  */
 export function buildNpcPerceptions(
   deltas: EventDelta[],
   viewers: Entity[],
   entities: Entity[],
-  worldState: WorldState
+  worldState: WorldState,
+  preTurnEntities?: PreTurnRoster
 ): NpcPerception[] {
   return viewers.map(viewer => ({
     entityId: viewer.entity_id,
     name: viewer.name,
-    changes: buildPerceivedDigest(deltas, viewer, entities, worldState),
+    changes: buildPerceivedDigest(deltas, viewer, entities, worldState, preTurnEntities),
   }));
 }
 

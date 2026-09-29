@@ -407,8 +407,10 @@ describe('the durable dossier reading (D14/D27)', () => {
     await click(buttonNamed(container, 'Intel'));
 
     expect(container.textContent).toContain('Aulus believes the Senate is beyond saving.');
-    expect(container.textContent).toContain('First learned Week III');
-    expect(container.textContent).toContain('as of Week III');
+    // The stamps count turns, so they say Turn: the masthead's calendar week
+    // wraps at 52 and may not start at I (the perception audit).
+    expect(container.textContent).toContain('First learned Turn III');
+    expect(container.textContent).toContain('as of Turn III');
     expect(container.textContent).toContain('Your agent');
   });
 

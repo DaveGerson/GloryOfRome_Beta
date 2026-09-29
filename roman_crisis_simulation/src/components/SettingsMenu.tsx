@@ -1,13 +1,15 @@
 import React, { useEffect, useRef } from 'react';
 import { PacingPosture } from '../types';
 import { Button, Badge, RegisterHeading } from './ui/Core';
-import { Switch, SegmentedControl } from './ui/Forms';
+import { NotedSwitch, Switch, SegmentedControl } from './ui/Forms';
 import { createFocusTrap, FocusTrap } from './ui/focusTrap';
 import { ImportFailureNotice } from './ui/FailureNotices';
 import type { ImportResult } from '../persistence/saveGame';
 import { useReignImport } from './ui/useReignImport';
 import { ApiKeyCard } from './ApiKeyCard';
+import { LightingGlyph } from './ui/Icons';
 import { NarrationSettings, type NarrationSettingsProps } from './NarrationSettings';
+import { ReadingSettings, type ReadingSettingsProps } from './ReadingSettings';
 
 export type { NarratorChoice } from './NarrationSettings';
 
@@ -25,10 +27,52 @@ const FATES_OPTIONS: { posture: PacingPosture; label: string; title: string; des
     { posture: 'dramatic', label: 'EAGER', title: 'Eager Fates — the threads pull taut sooner', description: 'the threads pull taut sooner.' },
 ];
 
+/** A mark drawn beside a word, but never read as part of the option's name. */
+const glyphed = (kind: 'device' | 'lux' | 'nox', word: string) => <><LightingGlyph kind={kind} /> {word}</>;
+
 const LIGHTING_OPTIONS = [
-    { value: 'lux', label: '☼ LVX', title: 'Marble — day' },
-    { value: 'nox', label: '☾ NOX', title: 'Nox Romae — torchlit' },
+    { value: 'lux', label: glyphed('lux', 'LVX'), title: 'Marble — day' },
+    { value: 'nox', label: glyphed('nox', 'NOX'), title: 'Nox Romae — torchlit' },
 ] as const;
+
+/**
+ * Lighting as the platforms offer appearance: follow the device, or always
+ * one skin (Apple HIG, Material). "Device" is the default for a device that
+ * never chose, and the way back to it after a choice (hooks/useSettings.ts).
+ * One exclusive choice of three, so a radio group - like Text size - with
+ * its note as its description; the glyphs are hidden from the names, which
+ * read "Device", "LVX", "NOX".
+ */
+const LIGHTING_CHOICES = [
+    { value: 'device', label: glyphed('device', 'Device'), title: 'Follow this device — light or dark' },
+    { value: 'lux', label: glyphed('lux', 'LVX'), title: 'Marble — day' },
+    { value: 'nox', label: glyphed('nox', 'NOX'), title: 'Nox Romae — torchlit' },
+] as const;
+
+/** Player-visible copy (veto queue: roadmaps/BACKLOG.md, "Reading, motion and the command palette"). */
+export const LIGHTING_COPY = {
+    device: "Follows this device's light or dark appearance. Never part of your save.",
+    chosen: 'Kept on this device, whatever its appearance. Never part of your save.',
+} as const;
+
+/**
+ * Player-visible copy for "Behind the curtain" (D43: every option carries a
+ * visible description). Like the Reading notes, each line describes the
+ * setting in force.
+ */
+export const CURTAIN_COPY = {
+    consoleNote: {
+        on: "The shortcut shows or hides the GM Log: the Fates' own record of all that is kept from you, spoilers and all.",
+        off: 'The shortcut does nothing, and the GM Log stays out of sight.',
+    },
+    interventionNote: {
+        on: 'The GM Log carries a directive box: what you set there is woven into the next turn.',
+        off: "The GM Log's directive box is hidden. A directive already set still stands.",
+    },
+} as const;
+
+/** Player-visible copy under "Your reign". */
+export const REIGN_COPY_NOTE = 'A raw copy of the save file — spoilers if you open it, nothing private.';
 
 const registerStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 10 };
 
@@ -37,7 +81,8 @@ const registerStyle: React.CSSProperties = { display: 'flex', flexDirection: 'co
  * GameMasterScreen's dark tablinum), opened from a Header affordance.
  * Since the options-consolidation pass this is the single home for EVERY
  * option: the player's own Gemini API key (D34), the D23 pacing posture,
- * the LVX/NOX lighting (formerly floating bottom-right chrome), the
+ * the LVX/NOX lighting (formerly floating bottom-right chrome), the Reading
+ * register (text size, motion, narration reveal, single-key shortcuts), the
  * D32/D33 GM availability toggles, and - dev builds only - the Mock Mode
  * and GM-console runtime switches that used to sit in the Header.
  */
@@ -56,6 +101,13 @@ const SettingsMenu: React.FC<NarrationSettingsProps & {
     /** LVX/NOX - a device preference (localStorage 'gor-theme'), never save state. */
     isNox: boolean;
     onSetIsNox: (isNox: boolean) => void;
+    /**
+     * The explicit choice behind `isNox` - null while the lighting follows
+     * the device. With its setter, the control offers Device / LVX / NOX;
+     * without them (a surface that predates the choice), LVX / NOX only.
+     */
+    lightingChoice?: 'lux' | 'nox' | null;
+    onSetLightingChoice?: (choice: 'lux' | 'nox' | null) => void;
     gmConsoleEnabled: boolean;
     onSetGmConsoleEnabled: (enabled: boolean) => void;
     gmInterventionEnabled: boolean;
@@ -84,6 +136,12 @@ const SettingsMenu: React.FC<NarrationSettingsProps & {
      * Export stays live: a read races nothing.
      */
     interactionLocked?: boolean;
+    /**
+     * The Reading register (components/ReadingSettings.tsx): text size,
+     * motion, how the narration arrives, single-key shortcuts. Optional so a
+     * surface that renders the menu without it (a test) keeps its shape.
+     */
+    reading?: ReadingSettingsProps;
 }> = ({
     onClose,
     apiKey,
@@ -93,6 +151,8 @@ const SettingsMenu: React.FC<NarrationSettingsProps & {
     onSetPacingPosture,
     isNox,
     onSetIsNox,
+    lightingChoice,
+    onSetLightingChoice,
     gmConsoleEnabled,
     onSetGmConsoleEnabled,
     gmInterventionEnabled,
@@ -105,6 +165,7 @@ const SettingsMenu: React.FC<NarrationSettingsProps & {
     onExportReign,
     onImportReign,
     interactionLocked = false,
+    reading,
     ...narration
 }) => {
     const dialogRef = useRef<HTMLDivElement>(null);
@@ -153,9 +214,10 @@ const SettingsMenu: React.FC<NarrationSettingsProps & {
                     <h2 id="settings-menu-title" style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 27, color: 'var(--tyrian-600)' }}>Configuration</h2>
                     <button
                         type="button"
+                        className="gor-bare-btn"
                         onClick={onClose}
                         aria-label="Close configuration menu"
-                        style={{ all: 'unset', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 24, lineHeight: 1, padding: '2px 6px' }}
+                        style={{ color: 'var(--text-muted)', fontSize: 24, lineHeight: 1, padding: '2px 6px' }}
                     >×</button>
                 </div>
                 <div className="gor-dialog-rule"></div>
@@ -172,44 +234,68 @@ const SettingsMenu: React.FC<NarrationSettingsProps & {
                         <div className="gor-config-grid">
                             <span className="gor-label gor-config-label">Pacing</span>
                             <div>
+                                {/* One exclusive choice of three, so a radio group like
+                                    Lighting and Text size beside it. */}
                                 <SegmentedControl
+                                    radio
                                     ariaLabel="Pacing posture"
+                                    describedBy="settings-pacing-note"
                                     options={FATES_OPTIONS.map(({ posture, label, title }) => ({ value: posture, label, title }))}
                                     value={pacingPosture}
                                     onChange={onSetPacingPosture}
                                 />
                                 {/* One line about the posture in force, rather than a
                                     three-item list restating all of them each time. */}
-                                <p className="gor-config-note">{selectedPacing.label.charAt(0) + selectedPacing.label.slice(1).toLowerCase()} Fates — {selectedPacing.description}</p>
+                                <p id="settings-pacing-note" className="gor-config-note">{selectedPacing.label.charAt(0) + selectedPacing.label.slice(1).toLowerCase()} Fates — {selectedPacing.description}</p>
                             </div>
                             <span className="gor-label gor-config-label">Lighting</span>
                             <div>
-                                <SegmentedControl
-                                    ariaLabel="Lighting: marble day or torchlit night"
-                                    options={LIGHTING_OPTIONS}
-                                    value={isNox ? 'nox' : 'lux'}
-                                    onChange={(value) => onSetIsNox(value === 'nox')}
-                                    style={{ width: 172 }}
-                                />
-                                <p className="gor-config-note">A device preference, never part of your save.</p>
+                                {onSetLightingChoice && lightingChoice !== undefined ? (
+                                    <>
+                                        <SegmentedControl
+                                            radio
+                                            ariaLabel="Lighting: follow this device, marble day or torchlit night"
+                                            describedBy="settings-lighting-note"
+                                            options={LIGHTING_CHOICES}
+                                            value={lightingChoice ?? 'device'}
+                                            onChange={(value) => onSetLightingChoice(value === 'device' ? null : value)}
+                                        />
+                                        <p id="settings-lighting-note" className="gor-config-note">{lightingChoice ? LIGHTING_COPY.chosen : LIGHTING_COPY.device}</p>
+                                    </>
+                                ) : (
+                                    <>
+                                        <SegmentedControl
+                                            ariaLabel="Lighting: marble day or torchlit night"
+                                            options={LIGHTING_OPTIONS}
+                                            value={isNox ? 'nox' : 'lux'}
+                                            onChange={(value) => onSetIsNox(value === 'nox')}
+                                            style={{ width: 172 }}
+                                        />
+                                        <p className="gor-config-note">A device preference, never part of your save.</p>
+                                    </>
+                                )}
                             </div>
                             <NarrationSettings {...narration} />
                         </div>
                     </section>
 
+                    {reading && <ReadingSettings {...reading} />}
+
                     <section aria-labelledby="settings-curtain" style={registerStyle}>
                         <RegisterHeading headingId="settings-curtain" title="Behind the curtain" />
-                        <Switch
+                        <NotedSwitch
                             id="settings-gm-console-enabled"
                             checked={gmConsoleEnabled}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => onSetGmConsoleEnabled(e.target.checked)}
+                            onChange={onSetGmConsoleEnabled}
                             label={<span>GM console available <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>(Ctrl+Shift+G)</span></span>}
+                            note={gmConsoleEnabled ? CURTAIN_COPY.consoleNote.on : CURTAIN_COPY.consoleNote.off}
                         />
-                        <Switch
+                        <NotedSwitch
                             id="settings-gm-intervention-enabled"
                             checked={gmInterventionEnabled}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => onSetGmInterventionEnabled(e.target.checked)}
+                            onChange={onSetGmInterventionEnabled}
                             label="GM Intervention available"
+                            note={gmInterventionEnabled ? CURTAIN_COPY.interventionNote.on : CURTAIN_COPY.interventionNote.off}
                         />
                     </section>
 
@@ -240,7 +326,7 @@ const SettingsMenu: React.FC<NarrationSettingsProps & {
                                 <Button ref={restoreButtonRef} type="button" variant="ghost" disabled={interactionLocked} onClick={openFilePicker}>Restore from a copy</Button>
                             </div>
                         )}
-                        <p className="gor-config-note">A raw copy of the save file — spoilers if you open it, nothing private (D45).</p>
+                        <p className="gor-config-note">{REIGN_COPY_NOTE}</p>
                         {importFailure && <ImportFailureNotice reason={importFailure} />}
                     </section>
 

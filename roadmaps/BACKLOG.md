@@ -119,6 +119,15 @@ actor in its own right.
 ### B7 — Deferred edge cleanups
 - `secret_truth` is not cleared on NPC revival — a publicly-returned NPC stays
   in the GM secret-survivors block.
+  **CLOSED 2026-09-29** - `applyDeltas`' `status` case (ai/core/engine.ts)
+  now deletes `secret_truth` on any ACTUAL status change that carries no
+  pipeline `secret_truth` - a hidden survivor who returns alive (dead ->
+  alive) or a survivor later confirmed dead on the fate table; an unchanged
+  status (dead -> dead, a re-declared death) keeps it, and the mortality
+  pipeline's own presumed-dead write still lands. `buildSecretSurvivorsBlock`
+  (ai/prompts/fragments.ts) lists only entities whose status is `dead`. Both
+  pinned in `tests/auditFixRules.test.tsx` ("secret survival ends with a
+  real status change").
 - The D29 report-claim keying change (`report:{about}:{source}` →
   `report:{about}:{topic}:{source}`) orphans legacy rumor-claim timelines; no
   released saves are affected pre-merge, so migration is deferred.
@@ -150,7 +159,11 @@ actor in its own right.
 - A presumed-dead NPC keeps its `active_scheme` as GM ground truth (never
   leaked to the player; pinned by the `mortalityFates` journey). Kept as-is;
   if a future fix clears it on revival, update that journey's expectation.
-  Related to the `secret_truth`-not-cleared-on-revival item above.
+  Related to the `secret_truth`-on-revival item above (CLOSED 2026-09-29 -
+  revival now clears `secret_truth`, but not `active_scheme`). Since the
+  same audit, the player never perceives that retained scheme either:
+  `classifyDelta` treats a scheme delta for a publicly-dead entity as
+  invisible, so "X is plotting" can no longer follow "X is now dead".
 - One remaining player-text prompt-interpolation gap (D41), found while closing
   out the rest of the sweep: `ai/prompts/intelligence.ts`'s
   `buildClarificationPrompt` `event`/`question` params (currently fed a headline
@@ -770,6 +783,78 @@ Open follow-ups:
 - **A castVoices call made while a turn is processing** lands in that
   turn's `rawCalls`, which is the same bracket-timing caveat as a clip.
 
+### B14 — Owner questions from the 2026-09-29 mechanics and GUI audit
+The fan-out audit (ROADMAP_UPLEVEL_2026-09.md Part 5) confirmed 122
+findings; everything that could be fixed without a ruling was. These
+remain because the answer is a game-design choice, not a bug fix. Each
+names what already landed, so the question is only the part left.
+
+- **The world acting on an idle player** (audit id
+  `rules-no-attempt-world-acts-on-player`, verdict *uncertain*).
+  `playerOwnsDelta` (ai/core/playerBoundary.ts) treats every delta keyed to
+  the player as player-owned, apart from rumors and a creditor's
+  `dependency_level`. On a question-only or private-intent turn, a
+  world-authored exile, killing or seizure of the player's denarii therefore
+  fails the turn closed (PLAYER_ACTION_BOUNDARY_ERROR) after 4-8 provider
+  calls. The NO-ATTEMPT prompt lists only the permitted channels, so prompt
+  and code mostly agree. The gap is a GM intervention (or re-injected
+  investigation fallout) that inherently needs such a change: it fails on
+  every retry. *Question:* extend the origin-based carve-out to status and
+  seizure-style resource deltas with a non-player `origin_id` (a death would
+  still be rolled by `processMortality`, which runs after this gate), or
+  have the NO-ATTEMPT prompt and the intervention block say these effects
+  wait for the next observable turn?
+- **Investigations are not grounded in the truth** (`knowledge-investigations-ungrounded`).
+  `buildInvestigationPrompt` sees only name, position, personality and
+  goals, never the target's real `beliefs`, `secrets` or `active_scheme`,
+  so no tier (not even a critical success) can return the truth. D28's
+  "true nature" after three scheme clues is the model's guess, and an
+  invented secret is stored as `blackmail_on_<id>` leverage the adjudicator
+  treats as real, with no truth flag (D11). *Question:* feed a tier-scoped
+  fragment of ground truth on success tiers (never the whole plan, never
+  `secret_truth`), have failure tiers fabricate knowingly, and record a
+  GM-private truth flag per finding as rumors do? This touches the prompts'
+  player-visible output and the D26 framing, so it wants a ruling first.
+- **A loss band with no loss authored** (`rules-loss-band-without-loss`).
+  Landed: outcomes are matched by candidate id, and a GM-private
+  "[Mortality] … band required a loss but none was authored" note records
+  it. *Question:* when the outcome call authors no loss for
+  survive_with_loss / gravely_wounded (or no boon for survive_with_boon),
+  should the engine (a) apply a deterministic fallback (a fraction of
+  denarii, a relation hit toward the attacker), (b) fail closed so the
+  turn's retry asks again, or (c) keep committing with only the note?
+- **Is a figure's faction public?** (`knowledge-personae-hides-unseen-death`).
+  Landed: the Personae roster reads each figure's *believed* status from
+  structured digest claims, so an unseen death no longer quietly removes a
+  card. Allegiance follows any perceived faction line; with none, it still
+  falls back to the live `faction_id`, because nothing records the
+  affiliation when a figure first becomes known. *Question:* is affiliation
+  public knowledge (D5 crude-v1 style), or should the roster snapshot it at
+  first learning (a new optional save field)?
+- **The unload guard on an open fate.** The browser's leave-page prompt now
+  also covers AWAITING_EVENT_CHOICE. The fate is normally on disk
+  (`pendingEventId`), so the prompt is belt-and-braces. *Question:* keep it
+  unconditional, or guard only when writing the pending fate failed?
+- **"Recast everyone" while a casting is out.** With request deadlines a
+  wedged casting no longer lasts the session, but pressing Recast while the
+  automatic casting is in flight still quietly returns to idle
+  (`runCasting` returns null). *Question:* wait for that casting and then
+  recast, or say a casting is already under way (new copy)?
+- **Design calls the desk fixes stopped short of:**
+  - Should the "Private scene" opener carry a visible mark (a lit seal)
+    while a scene is open or awaiting the last word? The tablet already
+    names the open scene.
+  - Should the Structured tablet's "What you intend" and "What you ask"
+    fold behind a disclosure (closed by default), so Seal & send shows
+    without scrolling the desk on a 720px laptop? The log now keeps ~250px
+    and the registers scroll inside the desk.
+  - On a short laptop with a saved reign, should Choose Your Destiny shrink
+    its hero (medallion, title, mosaic) so the cards show whole above the
+    fold? At 1280x720 the first card starts at ~600px.
+- **Should the Reports coin count the player's own treasury notices?**
+  Rumors count on Reports through the digest; the merchant debt and
+  low-treasury Reports (now minted only for the player) arrive with no coin.
+
 ---
 
 ## Veto queue (authored content awaiting owner review)
@@ -974,6 +1059,167 @@ Nothing here blocks; all are one edit from rewording.
     answer." (replaces the READERS ask), and "VOICES ALREADY TAKEN
     (JSON-quoted data - give the cast other voices while any suitable one
     remains):" in a full cast.
+- **Reading, motion and the command palette (2026-09-28)**: the UI pass
+  that shipped ROADMAP_UPLEVEL P5 (reading and motion settings) and P6
+  (per-tab "what changed" counts), a command palette, a chat log that
+  stops yanking a reader who scrolled back, and a game screen that gives
+  the chronicle its height back. The copy was reworked the same day on
+  design best practice (ROADMAP_UPLEVEL Part 4): labels in the player's
+  vocabulary, one name per action, switches for on/off preferences. Every
+  string below is new player-visible copy. Each lives in one exported
+  constant, named here, so a rewording is one edit.
+  - *Settings → Reading* (`components/ReadingSettings.tsx`,
+    `READING_SETTINGS_COPY`):
+    - The register is "Reading".
+    - "Text size": "Standard" / "Large" / "Larger", noted "The chronicle,
+      the side panel, fates and private scenes at their written size; /
+      a size larger; / two sizes larger; the masthead, tabs and menus keep
+      theirs."
+    - Switch "Reduce motion": off "Animation plays unless your device asks
+      for less motion."; on "Nothing moves that need not: no rising leaves,
+      no smoulder, no gliding scroll."
+    - Switch "Show the narration word by word": on "The week appears as the
+      chronicler writes it."; off "The week appears whole once it is
+      written; the loom shows the work meanwhile."
+    - Switch "Single-key shortcuts": on "Outside a text field, 1–7 open the
+      side panel's tabs, / goes to your action and ? opens the commands.
+      <Ctrl+K | ⌘K> always opens them."; off "Single keys do nothing.
+      <Ctrl+K | ⌘K> still opens the commands."
+  - *The command palette* (`components/CommandPalette.tsx`,
+    `COMMAND_PALETTE_COPY`; `app/commands.ts`, `COMMAND_COPY`):
+    - The dialog is "Commands", its field "Seek a command", with the
+      placeholder "Seek a tab, a tool or counsel…".
+    - Empty state "No command answers to that."; a screen reader hears "<N>
+      command(s)" once typing pauses.
+    - Foot "↑ ↓ to choose · Enter to act · Esc to close"; close button "Close
+      the commands".
+    - Groups: "Side panel", "Actions", "Counsel", "Settings", "Behind the
+      curtain".
+    - Commands: each tab's full name (with "<N> new" beside it), "Write your
+      action", "Open a private scene", "Open the narration log", "Back to
+      the latest", "Draft: <counsel>", "Open Settings", "Open the GM log".
+  - *Settings → Lighting* (`components/SettingsMenu.tsx`, `LIGHTING_COPY`):
+    - A third option, "◐ Device" (hover title "Follow this device — light or
+      dark"), before "☼ LVX" / "☾ NOX". (Since 2026-09-29 the three marks are
+      drawn icons of the same shapes, not font glyphs; the words are unchanged.) The group is a radio group named
+      "Lighting: follow this device, marble day or torchlit night"; its
+      options are named without their glyphs.
+    - Notes: "Follows this device's light or dark appearance. Never part of
+      your save." / "Kept on this device, whatever its appearance. Never
+      part of your save." These replace "A device preference, never part of
+      your save." where the choice is offered.
+  - *The masthead* (`components/Header.tsx`, `HEADER_COPY`):
+    - "Commands", with a magnifier icon. (Its accessible name was "Open the
+      command palette" until the 2026-09-29 audit; it is now "Commands", its
+      visible word, per WCAG 2.5.3. The Settings button is likewise named
+      "Settings", no longer "Open configuration menu".)
+    - "Changed this week", the ✦ beside a world stat that a public 'world'
+      delta moved last week.
+    - The Settings button's hover title gains "reading": "Configuration —
+      API key, pacing, lighting, reading, GM console".
+  - *The side panel*:
+    - A pulsing tab's name becomes "<Tab> (<N> new)"
+      (`components/SidePanel.tsx`, `tabAriaLabel`). The older "(new
+      intelligence)" stays where no count is known.
+    - The dossier's fold control is "Your goal and state", shown on hover
+      too (`components/PlayerStatus.tsx`, `PLAYER_STATUS_COPY`).
+    - The Imperial Dispatch keeps every word; its 📜 emoji is replaced by a
+      small crimson seal.
+  - *The desk*:
+    - "Counsel" labels the week's suggested actions (a named group), which
+      are now set in the body face in sentence case
+      (`components/TurnComposer.tsx`, `TURN_COMPOSER_COPY`).
+    - Within 10% of the limit, a screen reader hears the visible "<N>
+      characters remaining" once typing pauses; no new words.
+    - "Back to the latest" and, once a leaf has landed unseen, "New in the
+      chronicle" (`hooks/useChatFollow.ts`, `CHAT_FOLLOW_COPY`).
+- **The fan-out audit's fixes (2026-09-29)**: the words that fixes from the
+  mechanics and GUI audit needed (ROADMAP_UPLEVEL Part 5). Each replaced
+  something false, missing or unreadable; none is a rewording for taste.
+  - *Turn, not Week, wherever a turn counter is printed* (D44 note of the
+    same date): the dossier's "First learned Turn <N> · as of Turn <N> ·
+    <source>" and "On file since Turn <N> — may be stale"; the Spymaster's
+    assessment "As of Turn <N>"; the relationship map "As of Turn <N>. Older
+    word may no longer hold."; Reports "By turn" with "Turn <N>" groups; the
+    Chronicle's "Turn <N>" / "Turns <N>–<M>" and "Turn I · The reign
+    begins"; the private scene's "The door opens again on Turn <N>." and
+    "Last alone · Turn <N>"; the GM dock "GM Intervention — lands in Turn
+    <N>" (now the turn it really lands in); and "Your reign is safe up to
+    Turn <N> — everything since is only on this screen." The reign download
+    is named `gor-reign-turn<N>.json`.
+  - *Dispatches* (`perception/visibility.ts`, `describeDelta`): "<name>
+    arrives at <region>.", "<name> leaves for <region>." and "You make your
+    way to <region>." replace the broken "<name> is now changed." A status
+    line that changes nothing is dropped (its unreachable fallback reads
+    "You are as you were." / "<name> is as before.").
+  - *Reports*: a subject heard from one source, or about several matters,
+    reads "<N> accounts" (was "<N> sources agree"); the contradiction note
+    reads "— and it contradicts a firmer account." (was "… the accounts
+    above", which pointed the wrong way in a newest-first list).
+  - *Personae*: the relationship zero state reads "Nothing you have seen or
+    been told yet shows <name> dealing with anyone." (was "You have never
+    been in a room with <name>.", false for anyone the player had shared a
+    room with). The Intel toggle is named "Intel (<name>)" / "Collapse
+    (<name>)" for screen readers.
+  - *Events*: Examined keeps every occurrence ever asked about; an old
+    one's slip reads "Asked of your agents · Turn <N>", and the zero state
+    "You have put no questions to any occurrence yet."
+  - *Chronicle*: a Structured turn's "Your order" reads "<action> ·
+    <action> · To <recipient>: <command>" (was raw submission JSON).
+  - *The desk* (`components/TurnComposer.tsx`, `TURN_COMPOSER_COPY`;
+    `components/Chat.tsx`, `CHAT_LEAF_COPY`): while a private scene holds
+    it, the tablet's placeholder is "The week waits on your private scene
+    with <npc>…", over the line "Your private scene with <npc> is still
+    open. Return to it through Private scene; the week waits until it
+    ends." or "<npc> awaits your last word. Give it, or let it stand,
+    through Private scene; the week waits until then." Screen readers hear
+    "You wrote:" / "The chronicle:" before each leaf. Controls are named by
+    their visible words: "Speak" (offline "Hold until the roads reopen"),
+    "Seal & send", "A further order", "Another letter", and the Structured
+    fields "What you intend" / "What you ask".
+  - *The Imperial Dispatch*: the button keeps "Hear Report" as its name
+    (hover "Stop the performance" while it plays); its note reuses "No
+    token on this device" without a key and "The voice faltered — press
+    again." after a failure (both were the unrelated subtitle).
+  - *A fate's leaf*: "You chose to: “<choice>”" in curly quotes (was
+    literal asterisks). A tight single-asterisk span now renders as
+    emphasis wherever the chronicle's formatter runs, narration included.
+  - *The destiny screen* (`components/ui/FailureNotices.tsx`): a save this
+    build cannot read shows "The saved reign cannot be read" — "The reign
+    saved on this device was written in another age of the Republic, and
+    this copy of the game cannot read it." (newer build) or "The reign
+    saved on this device could not be read." (damaged) — then "It is still
+    here, untouched, and nothing will replace it unless you choose to.",
+    with "Take a copy of the reign". The existing "Abandon your saved
+    reign? It cannot be undone." now also guards a preset destiny and
+    Create Your Own; on Create Your Own the reign actually survives until
+    the new destiny commits, so "cannot be undone" arrives a step early
+    there. Forge a New Destiny without a key shows the existing no-key
+    notice before anything is sent.
+  - *Private scenes* (`PRIVATE_SCENE_FAILURE_COPY`): each failure says what
+    failed — "The door did not open" (the invitation went unanswered or was
+    refused), "The invitation was not sent" (contact gone, out of reach, or
+    a scene already held this turn), "No answer came" (a reply inside an
+    open scene), "The record refuses" (not saved), "More than a private
+    word" (too long). Requests the scene can never accept say so, with no
+    retry: "This contact cannot be drawn into a private word. Your words are
+    kept; choose another to send them to." and "The conversation can go no
+    further. Everything said is kept; end the scene when you are ready."
+  - *Settings*: "Your reign"'s note drops "(D45)". The GM switches gain
+    notes — GM console on: "The shortcut shows or hides the GM Log: the
+    Fates' own record of all that is kept from you, spoilers and all."; off:
+    "The shortcut does nothing, and the GM Log stays out of sight." GM
+    Intervention on: "The GM Log carries a directive box: what you set there
+    is woven into the next turn."; off: "The GM Log's directive box is
+    hidden. A directive already set still stands."
+  - *The epilogue* (screen readers only): "The story has ended. The
+    chroniclers take up their pens.", then "The story has ended, and the
+    chroniclers have written." (or "… and a quieter hand has set down the
+    record." for the fallback).
+  - *GM console only* (`gm_private`, not player copy): "[Engine] Refused a
+    numeric 'resource' delta …", "[Engine] Refused a 'scheme' delta …" and
+    "[Mortality] <name>: the <band> band required a <loss|boon> but none was
+    authored - it committed without one."
 ---
 
 ## Residuals from the visual-enhancement pass (WP-1…WP-21 + adversarial review)
@@ -1074,3 +1320,48 @@ rather than rediscover it.
   query.
 - **Gaps C and I remain undrawn** — Consulting the Fates, and the player
   dossier header. Gap H was closed by this pass and is recorded in D45.
+
+---
+
+## Residuals from the fan-out audit fixes (2026-09-29)
+
+Found or left while fixing the audit (ROADMAP_UPLEVEL_2026-09.md Part 5),
+each deliberately not done, with the reason. Owner questions are in B14.
+
+- **The death headline is fixed in the prompt only.** The adjudicator is
+  told a `new_status: 'dead'` delta is a claim the hidden roll settles, and
+  to phrase every trace of it as the attempt. Nothing redacts headlines in
+  code, so a model that ignores DEATHS ARE CLAIMS can still headline a death
+  the roll overturned. A code-side redaction would need a rewrite call.
+- **The narrator's fidelity guard is stricter, and its cut rate is
+  unmeasured.** `opensSentence` no longer exempts words after `:`, `;`, `(`,
+  `[` or a crossed quote, so `patchIntroducedContent` cuts more sentences in
+  those positions. Measure the cut and fallback rates with
+  `GOR_NARRATOR_AUDIO=1 npm run narrator:tune` against a live key.
+- **Request deadlines are generous by design.** A deadline miss is transient
+  and retried up to three times, so the worst case before the player sees an
+  error is about 6 minutes for a flash call, 9 for TTS and 15 for a pro
+  call. Bounded, but long; tune once real latencies are known.
+- **Three GM-side views classify without the pre-turn roster**: the GM
+  console's GroundTruthView and NpcPerceptionView, and a mind's
+  previous-turn digest (`ai/core/turn.ts`). A departure or no-op status line
+  can differ there from what the player saw. GM-only, minor.
+- **World State takes no tab count.** Regions now count on Locations
+  (D44's one owner per fact), and world deltas mark the masthead's ✦, so
+  nothing bumps World State. A fallen standing (the briefing's new ▾ mark,
+  persisted as `TurnHistoryEntry.preTurnSimulationState`) could count there
+  if a coin is wanted.
+- **Dead code left in place**: the `RESOURCE_SPENT` reducer action has no
+  production caller now that deep analysis commits through
+  `INVESTIGATION_COMMITTED`; `IntelRequestOutcome.display` is no longer
+  read; `usePlayerPerception` still returns `pulsingTabs`, which only its
+  tests use.
+- **New device-local key**: `gloryOfRome:seenRegisters` (`{ week, tabs }`),
+  the tabs the player has looked at this week, so a reload does not
+  re-announce the same counts. A convenience in the reading-prefs mould,
+  never save state.
+- **New optional save fields, no version bump**: `SaveGameState.pendingEventId`
+  (a fate awaiting its choice survives a reload), and on history entries
+  `preTurnSimulationState` and `preTurnRoster` (the Dispatches re-derive from
+  the same inputs as the commit, first turn included). The history-entry
+  fields trim with the snapshot window; older saves load unchanged.

@@ -244,12 +244,13 @@ describe('ai/core/resolution.ts deriveInvestigationDifficulty', () => {
     expect(deriveInvestigationDifficulty(target)).toBe(12 + (2 - 5) + (2 - 5)); // 6
   });
 
-  it('clamps to ACTION_DIFFICULTY_RANGE (5-25) at both ends', () => {
-    // Deliberately out-of-normal-range trait values to exercise the clamp -
-    // paranoia/intrigue are documented 1-10, but the helper must not
-    // silently produce an out-of-contract difficulty even given odd inputs.
+  it('stays within ACTION_DIFFICULTY_RANGE (5-25) at both ends', () => {
+    // Deliberately out-of-normal-range trait values to exercise the clamps -
+    // paranoia/intrigue are documented 1-10, so an off-scale value counts at
+    // its scale's edge (a 30 as a 10: 22, the on-scale maximum), and the
+    // helper never produces an out-of-contract difficulty even given odd inputs.
     const veryHard = makeEntity({ personality: makePersonality({ paranoia: 30 }), skills: { intrigue: 30 } });
-    expect(deriveInvestigationDifficulty(veryHard)).toBe(ACTION_DIFFICULTY_RANGE.MAX);
+    expect(deriveInvestigationDifficulty(veryHard)).toBe(12 + (10 - 5) + (10 - 5));
 
     const veryEasy = makeEntity({ personality: makePersonality({ paranoia: -10 }), skills: { intrigue: -10 } });
     expect(deriveInvestigationDifficulty(veryEasy)).toBe(ACTION_DIFFICULTY_RANGE.MIN);

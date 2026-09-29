@@ -66,10 +66,49 @@ export function recordEventFiring(
 }
 
 /**
+ * The roster ids an authored event's choices act upon - every entity id its
+ * option deltas key (the PLAYER_CHARACTER placeholder aside). Derived from
+ * the choices themselves, so the requirement can never drift from what the
+ * event would actually write. Pure; exported for direct unit testing.
+ */
+export function eventRosterIds(event: GameEvent): string[] {
+    const ids = new Set<string>();
+    for (const option of event.options) {
+        for (const delta of option.deltas) {
+            const parts = delta.key.split(':');
+            const named = delta.type === 'relation' ? parts.slice(0, 2)
+                : delta.type === 'resource' || delta.type === 'status' || delta.type === 'scheme' || delta.type === 'faction' ? parts.slice(0, 1)
+                : [];
+            for (const id of named) {
+                if (id && id !== 'PLAYER_CHARACTER') ids.add(id);
+            }
+        }
+    }
+    return [...ids];
+}
+
+/**
+ * Whether an authored event belongs to THIS world (D24: a historical event
+ * "whose time has plausibly come"). The library is the 235-238 AD Roman
+ * crisis, and its triggers read only macro strings and simulation enums a
+ * generated world shares - so without this gate a custom campaign in
+ * another place and age met the Suburra's grain riots and the Praetorian
+ * donative verbatim. An event is at home only where every roster id its
+ * choices act on is present; the metaNarrative cannot decide this, since
+ * the base scenario always carries one. Pure; exported for direct unit
+ * testing.
+ */
+export function isEventForThisWorld(event: GameEvent, entities: Entity[]): boolean {
+    const present = new Set(entities.map(e => e.entity_id));
+    return eventRosterIds(event).every(id => present.has(id));
+}
+
+/**
  * Checks if any new event should be triggered based on the current game state.
  * Honors each event's repeatable/cooldown contract via `isEventEligible`
  * (4D.2, D12): a fire-once event that has fired never returns; a repeatable
  * one returns again once its cooldown since its last firing has elapsed.
+ * Events whose cast is not in this world never fire (`isEventForThisWorld`).
  * @returns The first eligible event whose trigger fires, or null.
  */
 export function checkForTriggeredEvent(
@@ -81,6 +120,7 @@ export function checkForTriggeredEvent(
     turnNumber: number
 ): GameEvent | null {
     for (const event of ALL_EVENTS) {
+        if (!isEventForThisWorld(event, entities)) continue;
         if (isEventEligible(event, eventFirings, turnNumber)) {
             if (event.trigger(worldState, entities, player, simulationState)) {
                 return event;
@@ -117,7 +157,8 @@ export const NEAR_COOLDOWN_WINDOW = 3;
  * state and that are eligible now ('ripe') or within NEAR_COOLDOWN_WINDOW
  * turns of cooldown expiry ('near'). Cooldown-suppressed events further
  * from re-eligibility - and fired non-repeatable ones - are excluded
- * entirely. The result feeds the adjudication prompt's GM-private
+ * entirely, as are events whose cast is not in this world
+ * (`isEventForThisWorld`). The result feeds the adjudication prompt's GM-private
  * HISTORICAL MATERIAL block (ai/prompts/adjudication.ts) so the
  * adjudicator's PACING JUDGMENT can prefer a due historical current over a
  * custom crisis; it never fires anything itself. Pure; exported for direct
@@ -139,6 +180,7 @@ export function selectRipeEventMaterial(
 ): RipeEventMaterial[] {
     const material: RipeEventMaterial[] = [];
     for (const event of ALL_EVENTS) {
+        if (!isEventForThisWorld(event, entities)) continue;
         if (!event.trigger(worldState, entities, player, simulationState)) continue;
         const premise = event.premise ?? event.title;
         if (isEventEligible(event, eventFirings, turnNumber)) {
@@ -198,6 +240,6 @@ export function applyEventChoiceDeltas(
     // the entity, only the notification Report is lost on this path. An
     // authored event that mints rumors - or that must surface debt notices -
     // needs this signature extended to return them.
-    const { updatedEntities, updatedWorldState } = applyDeltas(processedDeltas, currentEntities, currentWorldState, resolvedTurnNumber);
+    const { updatedEntities, updatedWorldState } = applyDeltas(processedDeltas, currentEntities, currentWorldState, resolvedTurnNumber, player.entity_id);
     return { updatedEntities, updatedWorldState };
 }

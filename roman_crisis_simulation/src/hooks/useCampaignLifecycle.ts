@@ -12,13 +12,13 @@
  * through the shared commit kernel.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Dispatch, MutableRefObject } from 'react';
 import type { GoogleGenAI } from '@google/genai';
 import type { Entity, Message, PlayerCharacterOption, WorldState } from '../types';
 import type { GameAction } from '../state/gameReducer';
 import type { DomainMutationContext } from '../state/domainMutation';
-import type { SavedGameSummary } from '../components/CharacterSelection';
+import type { SavedReign } from '../components/CharacterSelection';
 import { deriveStarterActions } from '../components/starterActions';
 import { ALL_INITIAL_ENTITIES } from '../constants/baseScenario';
 import { createCharacter } from '../ai/tools/characterCreator';
@@ -26,10 +26,13 @@ import { initiateWorld } from '../ai/core/initiator';
 import { loadGame, clearSave, importSaveBlob } from '../persistence/saveGame';
 import type { SaveGameState } from '../persistence/saveGame';
 import { loadSavedGameSummary, type DomainCommit, type TransactionNote } from '../app/transactions';
+import { focusComposer } from '../app/domCommands';
 
 export interface CampaignLifecycleDeps {
     ai: GoogleGenAI;
     isMockMode: boolean;
+    /** D34 - a custom destiny is never forged keyless (see handleCustomCreation). */
+    resolvedApiKey: string | null;
     worldState: WorldState;
     metaNarrative: string;
     messages: Message[];
@@ -45,7 +48,7 @@ export interface CampaignLifecycleDeps {
 
 export function useCampaignLifecycle(deps: CampaignLifecycleDeps) {
     const {
-        ai, isMockMode, worldState, metaNarrative, messages,
+        ai, isMockMode, resolvedApiKey, worldState, metaNarrative, messages,
         dispatch, buildSaveState, commitDomainMutation, beginCampaignSession, campaignGenerationRef,
         setTransactionNote, offerOnboarding,
     } = deps;
@@ -53,7 +56,25 @@ export function useCampaignLifecycle(deps: CampaignLifecycleDeps) {
     // Transient UI state for the persistence/retry flow (P0.2/P0.3 - see
     // ROADMAP_3_UX_INTERACTIONS.md and ROADMAP_5_TECH_PERFORMANCE.md). Never
     // part of the save bundle - see persistence/saveGame.ts.
-    const [savedGameInfo, setSavedGameInfo] = useState<SavedGameSummary | null>(loadSavedGameSummary);
+    // A readable reign's summary, or the reason the slot's reign cannot be
+    // read - either way a reign is at stake, and the destiny screen gates
+    // its overwrite behind the Abandon confirm.
+    const [savedGameInfo, setSavedGameInfo] = useState<SavedReign | null>(loadSavedGameSummary);
+
+    // Continue and a chosen destiny both unmount the very button that was
+    // pressed, dropping focus to <body>. Once the game screen's tablet is
+    // mounted and writable (the composer stays held until the campaign's
+    // lease is released - a later commit), it takes the focus: the next
+    // act is to write the week. Unless something else has claimed focus
+    // first - the onboarding letter, or a fate's dialog - which keeps it.
+    // Dependency-free, like components/ui/useFocusRequest.ts: it must run
+    // after whichever commit renders the writable tablet.
+    const tabletFocusPendingRef = useRef(false);
+    useEffect(() => {
+        if (!tabletFocusPendingRef.current) return;
+        const active = document.activeElement;
+        if ((active && active !== document.body) || focusComposer()) tabletFocusPendingRef.current = false;
+    });
 
     const startGameWithCharacter = (characterEntity: Entity, allInitialEntities: Entity[], initialWorldState?: WorldState, initialMetaNarrative?: string) => {
         const resolvedWorldState = initialWorldState ?? worldState;
@@ -86,6 +107,7 @@ export function useCampaignLifecycle(deps: CampaignLifecycleDeps) {
         })) {
             return;
         }
+        tabletFocusPendingRef.current = true;
 
         // Show the first-turn onboarding overlay exactly once ever -
         // covers both a preset character (handleSelectCharacter) and a
@@ -114,6 +136,11 @@ export function useCampaignLifecycle(deps: CampaignLifecycleDeps) {
         { description, metaNarrative: newMetaNarrative, useCustomGamestate }: { description: string, metaNarrative?: string, useCustomGamestate: boolean },
         transaction: DomainMutationContext,
     ) => {
+        // D34 - the same keyless backstop as a turn's (useExecuteTurn.ts):
+        // with no key and no canned responses, nothing is sent. The destiny
+        // screen already holds the forge and shows the no-key notice; this
+        // guard only stops a request that got past it, keeping the draft.
+        if (!isMockMode && !resolvedApiKey) return;
         // Per-campaign-session log (see handleSelectCharacter). Reset here -
         // not in startGameWithCharacter - so the world/character-generation
         // calls made just below already belong to the NEW campaign's log.
@@ -123,11 +150,13 @@ export function useCampaignLifecycle(deps: CampaignLifecycleDeps) {
             const { worldState: newWorldState, entities: newEntities, playerCharacterId: newPlayerId } = await initiateWorld(ai, newMetaNarrative, description, isMockMode);
             if (!transaction.isCurrent()) return;
             const playerChar = newEntities.find(e => e.entity_id === newPlayerId);
-            if (playerChar) {
-                startGameWithCharacter(playerChar, newEntities, newWorldState, newMetaNarrative);
-            } else {
-                 dispatch({ type: 'MESSAGE_ADDED', message: { sender: 'gm', text: "Error: Failed to generate a valid player character in the new world."} });
-            }
+            // A world that names no player cannot begin. Thrown, never
+            // written into the chat log: at this screen nothing renders the
+            // log, and the line would open the NEXT campaign's chronicle.
+            // CharacterSelection's refusal says what happened and keeps the
+            // words for another attempt - generation is not deterministic.
+            if (!playerChar) throw new Error('WORLD_GENERATION_NAMED_NO_PLAYER');
+            startGameWithCharacter(playerChar, newEntities, newWorldState, newMetaNarrative);
         } else {
             // Existing custom character in default world
             const newCharacter = await createCharacter(ai, description, isMockMode);
@@ -142,7 +171,11 @@ export function useCampaignLifecycle(deps: CampaignLifecycleDeps) {
     const handleContinue = useCallback(() => {
         const save = loadGame();
         if (!save) {
-            setSavedGameInfo(null);
+            // Re-read, never assume "no reign": another tab may have written
+            // a newer build's save (or damaged the slot) since this screen
+            // mounted. A refused reign keeps its card, its copy and the
+            // Abandon gate; only an emptied slot drops the card.
+            setSavedGameInfo(loadSavedGameSummary());
             return;
         }
         // Per-campaign-session log (see handleSelectCharacter): the loaded
@@ -159,6 +192,7 @@ export function useCampaignLifecycle(deps: CampaignLifecycleDeps) {
         // run when the player closed the tab on the epilogue screen).
         dispatch({ type: 'GAME_LOADED', save: save.state });
         setTransactionNote(null);
+        tabletFocusPendingRef.current = true;
     }, [beginCampaignSession, dispatch, setTransactionNote]);
 
     const handleStartAnew = useCallback(() => {

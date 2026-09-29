@@ -40,13 +40,22 @@ export const MAX_NPC_INTENTS = 4;
  * everything downstream consumes - the adjudication prompt's intents block,
  * the code-side consistency check, the history entry, and the reducer's
  * persisted `npcIntents` slice. Pure; exported for direct unit testing.
+ *
+ * `playerEntityId`: intents are NPC direction (D10/D22), exactly as
+ * selectMindEntities (ai/core/turn.ts) keeps the player out of the minds -
+ * the player's own intent is theirs alone (D35/D37). An intent naming the
+ * player would otherwise tell the adjudicator to author the player's
+ * conduct, so it is dropped however the Director came to emit it (Mock
+ * Mode's canned Director spotlights a playable preset). Optional only so
+ * callers that pass an NPC-only roster need not repeat the id.
  */
-export function selectDurableIntents(storyRelevance: StoryRelevance, roster: readonly Pick<Entity, 'entity_id' | 'status'>[]): NpcIntent[] {
+export function selectDurableIntents(storyRelevance: StoryRelevance, roster: readonly Pick<Entity, 'entity_id' | 'status'>[], playerEntityId?: string): NpcIntent[] {
     const spotlightIds = new Set(storyRelevance.spotlight_entities.map(s => s.entity_id));
     const aliveIds = new Set(roster.filter(e => e.status === 'alive').map(e => e.entity_id));
     const seen = new Set<string>();
     const durable: NpcIntent[] = [];
     for (const intent of storyRelevance.spotlight_intents ?? []) {
+        if (intent.entity_id === playerEntityId) continue;
         if (!spotlightIds.has(intent.entity_id) || !aliveIds.has(intent.entity_id) || seen.has(intent.entity_id)) continue;
         seen.add(intent.entity_id);
         durable.push(intent);

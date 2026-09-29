@@ -10,8 +10,10 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { GeminiClient } from '../ai/core/geminiService';
 import type { WorldState, Entity, Report, SimulationState } from '../types';
-import { performImperialDispatch } from '../ai/tools/narrationVoice';
-import { NarrationPlayer, type NarrationVoiceStatus } from '../narration/narrationPlayer';
+import { directImperialDispatch, performImperialDispatch } from '../ai/tools/narrationVoice';
+import { NarrationPlayer, hashText, type NarrationVoiceStatus } from '../narration/narrationPlayer';
+import type { PerformedTranscript } from '../narration/performanceScript';
+import { holdUnvoiced } from './useNarrationVoice';
 import type { NarrationVoiceMode } from '../persistence/uiPrefs';
 import { toRoman } from '../components/ui/Brand';
 import { narrationLog, type NarrationLogStore } from '../narration/narrationLog';
@@ -132,10 +134,21 @@ export function useImperialDispatch(args: UseImperialDispatchArgs) {
     turnRef.current = turnNumber;
   }, [worldState.week, turnNumber]);
 
+  // Briefings written but not yet voiced, by their facts: a reading stopped
+  // while its briefing was being written makes no voice call, and the next
+  // press voices that briefing with no second scriptwriter call.
+  const [unvoiced] = useState(() => new Map<string, Promise<PerformedTranscript>>());
   useEffect(() => {
     player.setRenderer(
-      async (factsText) => {
-        const performed = await performImperialDispatch(ai, factsText, isMockMode, IMPERIAL_DISPATCH_VOICE);
+      async (factsText, _index, signal) => {
+        const scriptKey = hashText(factsText);
+        let script = isMockMode ? undefined : unvoiced.get(scriptKey);
+        if (!script) {
+          script = directImperialDispatch(ai, factsText, isMockMode);
+          if (!isMockMode) holdUnvoiced(unvoiced, scriptKey, script);
+        }
+        const performed = await performImperialDispatch(ai, factsText, isMockMode, IMPERIAL_DISPATCH_VOICE, { signal, script });
+        if (unvoiced.get(scriptKey) === script) unvoiced.delete(scriptKey);
         // The dispatch the player is about to hear, kept as text in the log.
         const week = weekRef.current;
         log.record({
@@ -156,15 +169,16 @@ export function useImperialDispatch(args: UseImperialDispatchArgs) {
       },
       isMockMode ? 'mock-dispatch' : 'live-dispatch',
     );
-  }, [player, ai, isMockMode, log]);
+  }, [player, ai, isMockMode, log, unvoiced]);
 
 
   useEffect(() => () => player.dispose(), [player]);
 
-  // Turned SILENT: a reading in progress stops.
+  // Turned SILENT, or the key went away: a reading in progress stops (and one
+  // still being written is never voiced).
   useEffect(() => {
-    if (silenced) player.stop();
-  }, [player, silenced]);
+    if (silenced || !canReachVoice) player.stop();
+  }, [player, silenced, canReachVoice]);
 
   const factsText = compileTabsFactSummary({
     worldState,

@@ -244,7 +244,20 @@ describe('components/tabs/DramatisPersonaeTab - player-safe Personae', () => {
   }
 
   it('filters the poisoned roster before grouping and masks an unknown faction heading', async () => {
-    await render(observations);
+    // The dead actor sits in the player's network, so his (presumed) death
+    // reached the player as a perceived status line. The roster drops him
+    // because the player SAW him fall - it reads the believed status off
+    // that line, never the live entity status (the perception audit).
+    const perceivedDeath: KnowledgeClaim = {
+      id: 'claim_8_digest:status:dead_secret_actor',
+      subject: deadSecretActor.entity_id,
+      claim: 'A contact is now dead.',
+      topic: 'status',
+      claimKey: `digest:status:${deadSecretActor.entity_id}`,
+      firstLearnedTurn: 8,
+      updates: [{ turn: 8, source: 'network', text: 'A contact is now dead.', status: 'dead' }],
+    };
+    await render([...observations, perceivedDeath]);
     const text = container.textContent ?? '';
 
     expect(text).toContain('Marcus the Known');
@@ -279,8 +292,11 @@ describe('components/tabs/DramatisPersonaeTab - player-safe Personae', () => {
 
     expect(text).toContain(knownActor.position);
     // WP-20: the zero state names the cause, not the absence — and names
-    // the person, so it never has to guess a pronoun.
-    expect(text).toContain(`You have never been in a room with ${knownActor.name}.`);
+    // the person, so it never has to guess a pronoun. The cause is that no
+    // observation is on record yet; the old "never been in a room with"
+    // was a presence claim it could not know (the perception audit).
+    expect(text).toContain(`Nothing you have seen or been told yet shows ${knownActor.name} dealing with anyone.`);
+    expect(text).not.toContain('never been in a room');
     // This fixture carries extreme hidden scores. The old TrustBar expressed
     // them through a meter, signed number, and laurel/crimson heat color;
     // none of those interpretations may return under a different label.

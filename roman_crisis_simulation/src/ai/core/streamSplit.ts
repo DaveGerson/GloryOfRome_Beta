@@ -2,8 +2,8 @@
  * ai/core/streamSplit.ts
  *
  * The narration call's raw response is prose followed by zero or more
- * `\nSUGGESTION: ...` lines (see turn.ts, which splits the completed text on
- * the literal string `'SUGGESTION:'` into `narration` + `suggestedActions`).
+ * `SUGGESTION: ...` lines (see turn.ts, which splits the completed text into
+ * `narration` + `suggestedActions` with `splitNarrationSuggestions` below).
  * That split is trivial once the FULL response is in hand, but streaming
  * narration onto the page (ROADMAP_0_MASTER_PLAN.md Phase 3 item 2) means we
  * only ever have a PREFIX of the eventual response - and that prefix must
@@ -16,12 +16,63 @@
  */
 
 /**
- * The exact marker `turn.ts` splits the completed narration response on.
- * Includes the leading newline so a marker that happens to start a fresh
- * line mid-prose can't be mistaken for narration text that merely contains
- * the word "SUGGESTION".
+ * The marker the narration prompt asks every suggested next step to carry
+ * (ai/prompts/narration.ts). ONE definition, shared by the live stream gate
+ * and the committed split, which both cut at its FIRST occurrence anywhere:
+ * a model that writes the marker mid-line ("...the gate holds. SUGGESTION:
+ * Bribe the guards.") or wraps it in markdown ("**SUGGESTION:**") has still
+ * started its suggestions - so what streams is never more than what
+ * commits.
  */
-const SUGGESTION_MARKER = '\nSUGGESTION:';
+export const SUGGESTION_MARKER = 'SUGGESTION:';
+
+/**
+ * Markup left standing in front of a marker - a bold or italic opener, a
+ * list bullet, a heading - when it stands on its own (at the start, or after
+ * whitespace), or a list number ("1.", "2)") opening its own line. Stripped
+ * from the text before a marker. An asterisk that closes a word
+ * ("...*Alea iacta est*") is attached to it and is kept, as is a number
+ * that ends a sentence ("...in the year 235.").
+ */
+const DANGLING_MARKUP = /(?:(?<=^|\s)[*_#•-]+(?:\s+|$)|(?<=^|\n)[ \t]*\d{1,2}[.)](?:\s+|$))+$/;
+
+/** The closing half of a wrapped marker ("**SUGGESTION:**"), detached from the suggestion's first word. */
+const LEADING_MARKUP = /^\s*[*_]+(?=\s|$)/;
+
+/** Emphasis closing a suggestion's last word ("Bribe the guards.**"). */
+const TRAILING_CLOSER = /(?<=\S)[*_]+$/;
+
+/**
+ * Drops a trailing emphasis closer that nothing in the suggestion opened -
+ * the other half of a whole line wrapped around its marker
+ * ("**SUGGESTION: Bribe the guards.**"). A closed phrase
+ * ("Whisper *alea iacta est*") keeps its closer.
+ */
+function stripUnpairedCloser(suggestion: string): string {
+  const closer = TRAILING_CLOSER.exec(suggestion);
+  if (!closer) return suggestion;
+  const opener = new RegExp(`(?:^|\\s)${closer[0].replace(/\*/g, '\\*')}(?=\\S)`);
+  return opener.test(suggestion.slice(0, closer.index)) ? suggestion : suggestion.slice(0, closer.index);
+}
+
+/**
+ * Splits a COMPLETE narration response into the narration and its
+ * suggested next steps at every `SUGGESTION_MARKER` - the committed form of
+ * what `createNarrationStreamGate` releases while streaming. Markup the
+ * marker left behind (a dangling "**", "- " or "1." before it, a closing
+ * "**" after it or at the end of its line) is removed from both sides so it
+ * never renders as literal asterisks or stray numbers. Empty suggestions
+ * are dropped.
+ */
+export function splitNarrationSuggestions(fullText: string): { narration: string; suggestions: string[] } {
+  const [head, ...rest] = fullText.split(SUGGESTION_MARKER);
+  return {
+    narration: head.replace(DANGLING_MARKUP, '').trim(),
+    suggestions: rest
+      .map(part => stripUnpairedCloser(part.replace(LEADING_MARKUP, '').replace(DANGLING_MARKUP, '').trim()))
+      .filter(suggestion => suggestion.length > 0),
+  };
+}
 
 /**
  * Creates a gate function scoped to one streaming narration call. The
@@ -34,38 +85,50 @@ const SUGGESTION_MARKER = '\nSUGGESTION:';
  * memoized callback.
  *
  * Behavior:
- *  - If `\nSUGGESTION:` has fully arrived in `cumulativeText`, returns
- *    everything before it (trimmed) - cutting cleanly the instant the
- *    marker completes, no matter how many further SUGGESTION lines follow.
+ *  - If `SUGGESTION:` has fully arrived anywhere in `cumulativeText`,
+ *    returns everything before it, exactly as `splitNarrationSuggestions`
+ *    will commit it (trimmed, dangling markup removed) - cutting cleanly
+ *    the instant the marker completes, no matter how many further
+ *    SUGGESTION lines follow.
  *  - Otherwise, holds back the longest trailing suffix of `cumulativeText`
  *    that is itself a PREFIX of the marker (e.g. a buffer ending in
  *    "...arrives.\nSUGGE" must not render "SUGGE" as prose) - buffer-
  *    boundary safety for a marker that arrived split across two or more
- *    stream chunks. That suffix is re-evaluated fresh on every call, so it
- *    either gets swallowed into a completed marker on a later call, or
- *    turns out to have been ordinary prose all along and is released once
- *    more text proves it isn't the marker.
+ *    stream chunks - together with the whitespace and any standalone markup
+ *    ("**", "- ", a line's "1.") in front of it, which would otherwise
+ *    flash as literal asterisks or a stray number before the marker lands.
+ *    That suffix is re-evaluated fresh on every call, so it either gets
+ *    swallowed into a completed marker on a later call, or turns out to
+ *    have been ordinary prose all along and is released once more text
+ *    proves it isn't the marker.
  */
 export function createNarrationStreamGate(): (cumulativeText: string) => string {
   return (cumulativeText: string): string => {
     const markerIndex = cumulativeText.indexOf(SUGGESTION_MARKER);
     if (markerIndex !== -1) {
-      return cumulativeText.slice(0, markerIndex).trim();
+      return splitNarrationSuggestions(cumulativeText.slice(0, markerIndex)).narration;
     }
 
     // No complete marker yet - find the longest suffix of what we have that
     // could still grow into the marker, and withhold it. Checked longest
-    // first so e.g. a trailing "\nSUGGESTION" (11 chars) isn't reported as
+    // first so e.g. a trailing "SUGGESTION" (10 chars) isn't reported as
     // just its own trailing "N" (1 char) being held back.
+    let end = cumulativeText.length;
     const maxCheck = Math.min(SUGGESTION_MARKER.length - 1, cumulativeText.length);
     for (let len = maxCheck; len > 0; len--) {
       const suffix = cumulativeText.slice(cumulativeText.length - len);
       if (SUGGESTION_MARKER.startsWith(suffix)) {
-        return cumulativeText.slice(0, cumulativeText.length - len);
+        end -= len;
+        break;
       }
     }
 
-    return cumulativeText;
+    let visible = cumulativeText.slice(0, end);
+    const dangling = DANGLING_MARKUP.exec(visible);
+    if (dangling) visible = visible.slice(0, dangling.index);
+    // Trailing whitespace is trimmed only in front of something withheld;
+    // plain prose keeps it, so it does not flicker in and out mid-stream.
+    return end < cumulativeText.length || dangling ? visible.trimEnd() : visible;
   };
 }
 

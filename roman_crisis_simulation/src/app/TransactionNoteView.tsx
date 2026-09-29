@@ -21,11 +21,18 @@ import type { TransactionNote } from './transactions';
 export function downloadTheReign(): void {
     const blob = rawSaveBlob();
     if (!blob) return;
-    const parsed = JSON.parse(blob) as { state?: { turnNumber?: number } };
+    // The destiny screen also offers this for a reign the loader refuses -
+    // a damaged blob need not even parse, and it is handed over verbatim.
+    let turnNumber: unknown;
+    try {
+        turnNumber = (JSON.parse(blob) as { state?: { turnNumber?: unknown } } | null)?.state?.turnNumber;
+    } catch {
+        turnNumber = undefined;
+    }
     const url = URL.createObjectURL(new Blob([blob], { type: 'application/json' }));
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `gor-reign-week${parsed.state?.turnNumber ?? 0}.json`;
+    anchor.download = `gor-reign-turn${typeof turnNumber === 'number' ? turnNumber : 0}.json`;
     anchor.click();
     // Same deferral as the eval-corpus export: revoking synchronously can
     // abort the download in Firefox/Safari.
@@ -36,10 +43,10 @@ export const TransactionNoteView: React.FC<{ note: TransactionNote; style?: Reac
     if (note.kind === 'half_commit') return <HalfCommitNotice style={style} />;
     if (note.kind === 'plain') return <Alert title={RECORD_REFUSES} style={style}>{note.message}</Alert>;
     // Derived from whether a save actually loads, never defaulted to a
-    // week: with storage dead since boot, a corrupted blob or a version
-    // the loader rejects there IS no last safe week, and "safe up to
-    // Week I" would be the notice's one falsehood. `null` says so — and the
-    // copy action gates on the SAME read, so "there is no last safe week"
+    // turn: with storage dead since boot, a corrupted blob or a version
+    // the loader rejects there IS no last safe turn, and "safe up to
+    // Turn I" would be the notice's one falsehood. `null` says so — and the
+    // copy action gates on the SAME read, so "there is no last safe turn"
     // and "no copy to take" can never disagree.
     const lastSafe = loadGame()?.state.turnNumber ?? null;
     return (

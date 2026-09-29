@@ -10,7 +10,7 @@ import PlayerStatus from './PlayerStatus';
 import ResourcesTab from './tabs/ResourcesTab';
 import ChronicleTab from './tabs/ChronicleTab';
 import { CoinPips } from './tabs/dramatisPersonaeUi';
-import WorldStateTab from './tabs/WorldStateTab';
+import WorldStateTab, { fellStandings } from './tabs/WorldStateTab';
 import { TabId } from '../perception/visibility';
 import { corroboration } from '../knowledge/credibilityFraming';
 import { isRegionKnownToPlayer } from '../perception/visibility';
@@ -19,11 +19,33 @@ import type { KnowledgeClaim, OccurrenceQuestion } from '../knowledge/store';
 import { occurrenceFindings } from '../knowledge/store';
 import type { DomainMutationContext, RunDomainMutation } from '../state/domainMutation';
 import { radioGroupKeyDown } from './ui/rovingRadio';
-import { useImperialDispatch } from '../hooks/useImperialDispatch';
+import { useImperialDispatch, type ImperialDispatchStatus } from '../hooks/useImperialDispatch';
 import type { NarrationVoiceMode } from '../persistence/uiPrefs';
+import { NARRATION_VOICE_COPY } from './Chat';
 
 /** Shown under the Imperial Dispatch while the narration voice is SILENT (veto queue, B13). */
 export const DISPATCH_SILENCED_NOTE = "Turn on the narrator's voice in Settings to hear this.";
+
+/** The Imperial Dispatch control's constant name - its visible label. */
+export const DISPATCH_BUTTON_LABEL = 'Hear Report';
+
+/**
+ * The line under the Imperial Dispatch, which describes its button. A
+ * failure and a missing key say so in the words every other voice control
+ * uses (Chat's NarrationVoiceControl) - they used to fall through to the
+ * idle subtitle, so a failed reading ended in silence and a disabled button
+ * gave no reason.
+ */
+export function dispatchNote(status: ImperialDispatchStatus): string {
+    switch (status) {
+        case 'silenced': return DISPATCH_SILENCED_NOTE;
+        case 'unavailable': return NARRATION_VOICE_COPY.unavailable;
+        case 'error': return NARRATION_VOICE_COPY.error;
+        case 'preparing': return 'Drafting situation report…';
+        case 'playing': return 'Reading all tabs aloud…';
+        case 'idle': return 'High English tab report';
+    }
+}
 
 /**
  * The intelligence dashboard — player dossier header, Tyrian-pennant tab bar,
@@ -48,7 +70,21 @@ const TABS: { id: TabId; label: string; fullLabel: string }[] = [
  * swaps, `aria-controls`/`aria-labelledby` tying the two together.
  */
 const SIDEPANEL_TABPANEL_ID = 'sidepanel-tabpanel';
-const sidePanelTabDomId = (id: TabId): string => `sidepanel-tab-${id}`;
+export const sidePanelTabDomId = (id: TabId): string => `sidepanel-tab-${id}`;
+
+/** The seven registers in rail order - the command palette and the 1-7 keys read the same list. */
+export const SIDE_PANEL_TABS: readonly { id: TabId; label: string; fullLabel: string }[] = TABS;
+
+/**
+ * A pulsing tab's accessible name says how much is new when the count is
+ * known ("Reports (2 new)"), and falls back to the older wording when it is
+ * not (veto queue: roadmaps/BACKLOG.md, "Reading, motion and the command
+ * palette").
+ */
+export function tabAriaLabel(fullLabel: string, pulsing: boolean, count: number | undefined): string {
+    if (!pulsing) return fullLabel;
+    return count ? `${fullLabel} (${count} new)` : `${fullLabel} (new intelligence)`;
+}
 
 const SidePanel: React.FC<{
     gameState: GameState;
@@ -62,7 +98,8 @@ const SidePanel: React.FC<{
     knowledge: KnowledgeClaim[];
     /** The App's authoritative turn counter - the staleness clock D27 prices a dossier refresh against. */
     turnNumber: number;
-    onSpendDeepAnalysis: (cost: number, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
+    /** One atomic callback per commissioned assessment - the deep_analyses spend and the assessment itself (hooks/useIntelCommits.ts). */
+    onSpendDeepAnalysis: (targetId: string, cost: number, analysis: string, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
     /** One atomic callback per investigation reveal - spend + blackmail + fallout in a single state/save pass (see App.tsx's handleInvestigationOutcome). */
     onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult, request: DomainMutationContext) => Promise<boolean | void>;
     runDomainMutation: RunDomainMutation;
@@ -77,8 +114,28 @@ const SidePanel: React.FC<{
      * tabsForDelta and App.tsx's pulsingTabs). Gets a brief CSS pulse so the
      * player notices where to look, without leaking anything the perception
      * filter didn't already let through - this set is built strictly from
-     * buildPlayerPerceivedDigest's output, never raw deltas. */
-    pulsingTabs: Set<TabId>;
+     * buildPlayerPerceivedDigest's output, never raw deltas. App passes only
+     * the tabs not yet looked at since the week landed
+     * (hooks/useSeenRegisters.ts); the panel draws exactly what it is given. */
+    pulsingTabs: ReadonlySet<TabId>;
+    /**
+     * How many perceived changes landed on each pulsing tab last turn
+     * (hooks/usePlayerPerception.ts's tabChangeCountsFor - built from the
+     * same filtered digest as `pulsingTabs`, so it can say nothing the
+     * digest did not). With it, a pulsing tab carries its count instead of a
+     * bare dot; without it (or for a tab it has no count for) the dot stays.
+     */
+    tabChangeCounts?: ReadonlyMap<TabId, number>;
+    /**
+     * The open tab, when App holds it (hooks/useSeenRegisters.ts - the
+     * command palette reads the same memory). Without it the panel keeps
+     * its own.
+     */
+    activeTab?: TabId;
+    /** Told whenever the player opens a tab (a click, the arrows, a briefing pointer, the palette). */
+    onSelectTab?: (id: TabId) => void;
+    /** The panel's own element, so App can tell whether it is on the screen (hooks/useSeenRegisters.ts). */
+    panelRef?: React.Ref<HTMLElement>;
     /** Commits one occurrence finding to the knowledge store (audit item 40). */
     onOccurrenceFinding: (occurrence: string, question: OccurrenceQuestion, text: string, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
     resolvedApiKey?: string | null;
@@ -86,8 +143,9 @@ const SidePanel: React.FC<{
     narrationVoiceMode?: NarrationVoiceMode;
     /** The voice row on each Personae card (hooks/usePersonaeVoice.ts). */
     personaeVoice?: PersonaeVoice;
-}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, turnHistory, pulsingTabs, onOccurrenceFinding, resolvedApiKey, narrationVoiceMode, personaeVoice }) => {
-    const [activeTab, setActiveTab] = useState<TabId>('world_state');
+}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, turnHistory, pulsingTabs, tabChangeCounts, activeTab: heldTab, onSelectTab, panelRef, onOccurrenceFinding, resolvedApiKey, narrationVoiceMode, personaeVoice }) => {
+    const [ownTab, setOwnTab] = useState<TabId>('world_state');
+    const activeTab = heldTab ?? ownTab;
     const { dispatchStatus, toggleDispatch } = useImperialDispatch({
         ai,
         isMockMode,
@@ -102,29 +160,16 @@ const SidePanel: React.FC<{
         playerEntity,
         turnNumber,
     });
-    // Tabs the player has already looked at since the current pulsingTabs
-    // set arrived - clicking a pulsing tab dismisses its own pulse
-    // immediately rather than waiting for the next turn to clear it.
-    const pulseKey = [...pulsingTabs].sort().join('|');
-    const [dismissal, setDismissal] = useState<{ pulseKey: string; tabs: Set<TabId> }>({ pulseKey, tabs: new Set() });
-    const dismissed = dismissal.pulseKey === pulseKey ? dismissal.tabs : new Set<TabId>();
-
-    if (gameState === GameState.SETUP) {
-        return (
-            <aside data-screen-label="Side Panel" className="gor-panel gor-panel-waiting">
-                <span aria-hidden="true" className="gor-panel-waiting-mark">❦</span>
-                <p className="gor-panel-waiting-line">Awaiting the choice of a destiny…</p>
-            </aside>
-        );
-    }
+    // Choose Your Destiny has nothing to brief yet: the panel steps aside and
+    // the destinies take the width (it used to hold a third of the screen for
+    // one waiting line, and pushed every card below the fold on a laptop).
+    if (gameState === GameState.SETUP) return null;
 
     const handleTabClick = (id: TabId) => {
-        setActiveTab(id);
-        setDismissal(previous => ({
-            pulseKey,
-            tabs: new Set(previous.pulseKey === pulseKey ? previous.tabs : []).add(id),
-        }));
+        setOwnTab(id);
+        onSelectTab?.(id);
     };
+    const dispatchEngaged = dispatchStatus === 'preparing' || dispatchStatus === 'playing';
 
     /**
      * "Where to look" (WP-15): one row per tab that has something waiting,
@@ -191,7 +236,7 @@ const SidePanel: React.FC<{
     }
 
     return (
-        <aside data-screen-label="Side Panel" className="gor-panel">
+        <aside ref={panelRef} data-screen-label="Side Panel" className="gor-panel">
             <style>{`
                 @keyframes gorTabPulse {
                     0%, 100% { box-shadow: inset 0 0 0 rgba(158,126,27,0); }
@@ -201,44 +246,31 @@ const SidePanel: React.FC<{
                 @media (prefers-reduced-motion: reduce) { .gor-tab-pulse { animation: none; } }
             `}</style>
             <PlayerStatus playerEntity={playerEntity} />
-            <div className="gor-dispatch-bar" style={{
-                margin: '8px 12px 6px 12px',
-                padding: '6px 10px',
-                background: 'var(--surface-hover, rgba(201,162,39,.06))',
-                border: '1px solid var(--border-subtle, rgba(201,162,39,.2))',
-                borderRadius: '4px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '8px',
-            }}>
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <span style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--gold-500)' }}>
-                        📜 Imperial Dispatch
-                    </span>
-                    <span id="imperial-dispatch-note" style={{ fontSize: '11px', color: 'var(--text-quiet)', fontStyle: 'italic' }}>
-                        {dispatchStatus === 'silenced'
-                            ? DISPATCH_SILENCED_NOTE
-                            : dispatchStatus === 'preparing'
-                            ? 'Drafting situation report…'
-                            : dispatchStatus === 'playing'
-                                ? 'Reading all tabs aloud…'
-                                : 'High English tab report'}
-                    </span>
+            {/* The Imperial Dispatch: a spoken briefing of every register.
+                Presentation lives in design/shell.css (`gor-dispatch-*`).
+                One toggle with a constant name, its visible label, as
+                NarrationVoiceControl: pressed while the report is drafted
+                or read (pressing again stops it), busy while drafted. */}
+            <div className="gor-dispatch-bar">
+                <span className="gor-dispatch-seal" aria-hidden="true">✉</span>
+                <div className="gor-dispatch-text">
+                    <span className="gor-dispatch-title">Imperial Dispatch</span>
+                    <span id="imperial-dispatch-note" className="gor-dispatch-note">{dispatchNote(dispatchStatus)}</span>
                 </div>
                 <button
                     type="button"
-                    className="gor-voice-btn"
-                    aria-label={dispatchStatus === 'playing' ? 'Stop Imperial Dispatch' : 'Hear Imperial Dispatch'}
+                    className="gor-voice-btn gor-dispatch-btn"
+                    aria-pressed={dispatchEngaged}
+                    aria-busy={dispatchStatus === 'preparing' || undefined}
                     disabled={dispatchStatus === 'unavailable' || dispatchStatus === 'silenced'}
                     aria-describedby="imperial-dispatch-note"
+                    title={dispatchEngaged ? NARRATION_VOICE_COPY.stop : undefined}
                     onClick={toggleDispatch}
-                    style={{ fontSize: '11px', padding: '3px 8px', height: '24px' }}
                 >
                     <span className="gor-voice-glyph" aria-hidden="true">
                         {dispatchStatus === 'preparing' ? <span className="gor-voice-spinner" /> : dispatchStatus === 'playing' ? '■' : '▶'}
                     </span>
-                    {dispatchStatus === 'playing' ? 'Stop' : 'Hear Report'}
+                    {DISPATCH_BUTTON_LABEL}
                 </button>
             </div>
             <div
@@ -248,7 +280,8 @@ const SidePanel: React.FC<{
                 onKeyDown={radioGroupKeyDown(TABS.map(tab => tab.id), activeTab, handleTabClick, { role: 'tab' })}
             >
                 {TABS.map(tab => {
-                    const shouldPulse = pulsingTabs.has(tab.id) && !dismissed.has(tab.id);
+                    const shouldPulse = pulsingTabs.has(tab.id);
+                    const count = shouldPulse ? tabChangeCounts?.get(tab.id) : undefined;
                     return (
                         <button
                             key={tab.id}
@@ -259,10 +292,19 @@ const SidePanel: React.FC<{
                             aria-controls={SIDEPANEL_TABPANEL_ID}
                             tabIndex={activeTab === tab.id ? 0 : -1}
                             onClick={() => handleTabClick(tab.id)}
-                            aria-label={shouldPulse ? `${tab.fullLabel} (new intelligence)` : tab.fullLabel}
+                            aria-label={tabAriaLabel(tab.fullLabel, shouldPulse, count)}
                         >
-                            {tab.label}
-                            {shouldPulse && <span aria-hidden="true" className="gor-tab-dot" />}
+                            {/* The label carries the coin, so where the rail
+                                stretches its tabs (a phone, a tablet) the coin
+                                rides its word instead of floating between two
+                                labels, or off the screen's edge (shell.css). */}
+                            <span className="gor-tab-label">
+                                {tab.label}
+                                {shouldPulse && count
+                                    ? <span aria-hidden="true" className="gor-tab-count">{count > 9 ? '9+' : count}</span>
+                                    : null}
+                            </span>
+                            {shouldPulse && !count && <span aria-hidden="true" className="gor-tab-dot" />}
                         </button>
                     );
                 })}
@@ -276,6 +318,7 @@ const SidePanel: React.FC<{
                 {activeTab === 'world_state' && <WorldStateTab
                     simulationState={simulationState}
                     week={worldState.week}
+                    fellThisWeek={fellStandings(turnHistory[turnHistory.length - 1]?.preTurnSimulationState, simulationState)}
                     pointers={briefingPointers}
                     onNavigate={handleTabClick}
                 />}

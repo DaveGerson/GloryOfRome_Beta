@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Button, RegisterHeading, DraftGauge } from './ui/Core';
 import { Textarea } from './ui/Forms';
 import { Medallion, WaxSeal } from './ui/Brand';
@@ -47,18 +47,29 @@ function appendPersonaScaffold(current: string, scaffold: string): string {
     return current.trim() ? `${current.trimEnd()}\n${scaffold}` : scaffold;
 }
 
-export const ForgingScreen: React.FC<{ useCustomGamestate: boolean }> = ({ useCustomGamestate }) => (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18, padding: 32, textAlign: 'center' }}>
-        <Medallion size={110} />
-        <h2 className="gor-destinies-title" style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 38, color: 'var(--tyrian-600)' }}>Consulting the Fates…</h2>
-        <p style={{ maxWidth: '46ch', margin: 0 }}>
-            {useCustomGamestate
-                ? 'A world is being woven to your design — its people, its factions, its knives.'
-                : 'Your destiny is being written into the annals of 235 CE.'}
-        </p>
-        <TypingIndicator lines={FATE_LINES} intervalMs={1100} />
-    </div>
-);
+/**
+ * The wait is announced once: the form (and the button that held focus) is
+ * gone, so focus moves to this heading, which a screen reader speaks. The
+ * rotating fate lines beneath it are decorative and stay silent.
+ */
+export const ForgingScreen: React.FC<{ useCustomGamestate: boolean }> = ({ useCustomGamestate }) => {
+    const headingRef = useRef<HTMLHeadingElement>(null);
+    useEffect(() => {
+        headingRef.current?.focus({ preventScroll: true });
+    }, []);
+    return (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18, padding: 32, textAlign: 'center' }}>
+            <Medallion size={110} />
+            <h2 ref={headingRef} tabIndex={-1} className="gor-destinies-title" style={{ fontFamily: 'var(--font-epic)', fontWeight: 700, fontSize: 38, color: 'var(--tyrian-600)', outline: 'none' }}>Consulting the Fates…</h2>
+            <p style={{ maxWidth: '46ch', margin: 0 }}>
+                {useCustomGamestate
+                    ? 'A world is being woven to your design — its people, its factions, its knives.'
+                    : 'Your destiny is being written into the annals of 235 CE.'}
+            </p>
+            <TypingIndicator lines={FATE_LINES} intervalMs={1100} />
+        </div>
+    );
+};
 
 export const CustomDestinyForm: React.FC<{
     description: string;
@@ -78,10 +89,13 @@ export const CustomDestinyForm: React.FC<{
     // The foot bar is sticky, so the scrollport needs room BELOW the form
     // for the bar to unstick into — otherwise the last screenful of
     // content can never be scrolled clear of it and the bar simply sits on
-    // top of the persona field you are typing into. `scrollPaddingBottom`
-    // covers the other half: a field focused by keyboard scrolls to above
-    // the bar rather than under it.
-    <div className="gor-destinies gor-destinies-forge" style={{ flex: 1, overflowY: 'auto', padding: '40px 32px 132px', scrollPaddingBottom: 96 }}>
+    // top of the persona field you are typing into. That room is the
+    // `.gor-forge-runout` spacer after the form, never this scroller's
+    // bottom padding: a sticky bar keeps clear of the padding, so it would
+    // float that far above the edge. `scrollPaddingBottom` covers the
+    // other half: a field focused by keyboard scrolls to above the bar
+    // rather than under it.
+    <div className="gor-destinies gor-destinies-forge" style={{ flex: 1, overflowY: 'auto', padding: '40px 32px 0', scrollPaddingBottom: 96 }}>
         <div style={{ maxWidth: 660, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 18 }}>
             <div style={{ textAlign: 'center' }}>
                 <WaxSeal letter="V" size={54} />
@@ -183,6 +197,7 @@ export const CustomDestinyForm: React.FC<{
                     <Button type="submit" size="lg" disabled={interactionLocked}>{useCustomGamestate ? 'Weave the world' : 'Take your place'}</Button>
                 </div>
             </form>
+            <div className="gor-forge-runout" aria-hidden="true" />
         </div>
     </div>
 );

@@ -195,6 +195,11 @@ const GameMasterScreen: React.FC<{
 
     return (
         <div className="gor-dialog-backdrop">
+            {/* Sized to the window (100dvh): as a grid item of the backdrop
+                a percentage height never resolved, and the console grew to
+                its content, pushing the directive dock off the screen. Its
+                gradient ends on a plain ground colour, which forced colours
+                repaint; without one the console went transparent there. */}
             <div
                 ref={dialogRef}
                 role="dialog"
@@ -202,7 +207,7 @@ const GameMasterScreen: React.FC<{
                 aria-labelledby="gm-screen-title"
                 tabIndex={-1}
                 onKeyDown={handleDialogKeyDown}
-                style={{ width: 'min(1060px, calc(100% - 48px))', height: 'calc(100% - 56px)', display: 'flex', flexDirection: 'column', background: 'var(--dentil) left top/100% 4px no-repeat, linear-gradient(180deg,#2A231A,#161209 60%,#131009)', border: '1px solid rgba(201,162,39,.45)', clipPath: 'var(--chamfer-lg)', filter: 'drop-shadow(0 24px 60px rgba(0,0,0,.55))', padding: '20px 24px 18px', gap: 12, boxSizing: 'border-box' }}
+                style={{ width: 'min(1060px, calc(100% - 48px))', height: 'calc(100dvh - 56px)', minHeight: 0, display: 'flex', flexDirection: 'column', background: 'var(--dentil) left top/100% 4px no-repeat, linear-gradient(180deg,#2A231A,#161209 60%,#131009) #131009', border: '1px solid rgba(201,162,39,.45)', clipPath: 'var(--chamfer-lg)', filter: 'drop-shadow(0 24px 60px rgba(0,0,0,.55))', padding: '20px 24px 18px', gap: 12, boxSizing: 'border-box' }}
             >
                 <div style={{ flex: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, borderBottom: '1px solid rgba(201,162,39,.25)', paddingBottom: 12 }}>
                     <div>
@@ -212,105 +217,113 @@ const GameMasterScreen: React.FC<{
                     {/* The export moved to `fixtures` (WP-19), where the manifest
                         states what would leave the room before you take it. */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <button type="button" onClick={onClose} aria-label="Close Game Master screen" style={{ all: 'unset', cursor: 'pointer', color: DIM, fontSize: 26, lineHeight: 1, padding: '2px 8px' }}>×</button>
+                        <button type="button" className="gor-bare-btn" onClick={onClose} aria-label="Close Game Master screen" style={{ color: DIM, fontSize: 26, lineHeight: 1, padding: '2px 8px' }}>×</button>
                     </div>
                 </div>
 
-                <CampaignWells
-                    inferredAmbition={inferredAmbition}
-                    npcIntents={npcIntents}
-                    pendingIntelligenceFallout={pendingIntelligenceFallout}
-                />
-
-                <div
-                    style={{ flex: 'none', display: 'flex', gap: 2, borderBottom: '1px solid rgba(201,162,39,.25)', flexWrap: 'wrap' }}
-                    role="tablist"
-                    aria-label="Ledger views"
-                    onKeyDown={radioGroupKeyDown(TABS, activeTab, setActiveTab, { role: 'tab' })}
-                >
-                    {TABS.map(tab => (
-                        <button
-                            key={tab}
-                            id={gmTabDomId(tab)}
-                            role="tab"
-                            aria-selected={tab === activeTab}
-                            aria-controls={GM_TABPANEL_ID}
-                            tabIndex={tab === activeTab ? 0 : -1}
-                            onClick={() => setActiveTab(tab)}
-                            style={{ all: 'unset', cursor: 'pointer', fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase', padding: '8px 12px', color: tab === activeTab ? GOLD : DIM, borderBottom: tab === activeTab ? '2px solid var(--gold-500)' : '2px solid transparent', background: tab === activeTab ? 'rgba(201,162,39,.08)' : 'transparent' }}
-                        >
-                            {tab}
-                        </button>
-                    ))}
-                </div>
-
-                {/* The turn rail (WP-12). Every per-turn tab is scoped to the
-                    one turn selected here; the two campaign-wide collections
-                    ignore it. Retry counts and mortality checks flag on the
-                    rail so anomalies surface without opening anything. */}
-                <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: 14 }}>
-                    {!CAMPAIGN_WIDE_TABS.has(activeTab) && history.length > 0 && (
-                        <nav
-                            aria-label="Turns"
-                            style={{ flex: 'none', width: 172, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2, borderRight: '1px solid rgba(201,162,39,.2)', paddingRight: 8 }}
-                        >
-                            {railTurns.map(entry => {
-                                const selected = selectedEntry?.turnNumber === entry.turnNumber;
-                                const flags = railFlags(entry);
-                                return (
-                                    <button
-                                        key={entry.turnNumber}
-                                        type="button"
-                                        aria-current={selected ? 'true' : undefined}
-                                        onClick={() => setSelectedTurnNumber(entry.turnNumber)}
-                                        style={{ all: 'unset', boxSizing: 'border-box', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, padding: '7px 10px', borderLeft: `3px solid ${selected ? 'var(--gold-500)' : 'transparent'}`, background: selected ? 'rgba(201,162,39,.10)' : 'transparent', color: selected ? GOLD : DIM, fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase' }}
-                                    >
-                                        <span>Turn {toRoman(entry.turnNumber)}</span>
-                                        {flags && <span style={{ fontFamily: MONO, fontSize: 9, letterSpacing: 0, color: RED }}>{flags}</span>}
-                                    </button>
-                                );
-                            })}
-                        </nav>
-                    )}
+                {/* Between the pinned header and the pinned dock. The console is
+                    sized to the window, so on a short one the campaign wells and
+                    the tab rows scroll away above the turn rail and its pane,
+                    which never drop below a usable height. */}
+                <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <CampaignWells
+                        inferredAmbition={inferredAmbition}
+                        npcIntents={npcIntents}
+                        pendingIntelligenceFallout={pendingIntelligenceFallout}
+                    />
 
                     <div
-                        role="tabpanel"
-                        id={GM_TABPANEL_ID}
-                        aria-labelledby={gmTabDomId(activeTab)}
-                        style={{ flex: 1, minWidth: 0, overflowY: 'auto', paddingRight: 6, display: 'flex', flexDirection: 'column', gap: 20, color: PARCH }}
+                        style={{ flex: 'none', display: 'flex', gap: 2, borderBottom: '1px solid rgba(201,162,39,.25)', flexWrap: 'wrap' }}
+                        role="tablist"
+                        aria-label="Ledger views"
+                        onKeyDown={radioGroupKeyDown(TABS, activeTab, setActiveTab, { role: 'tab' })}
                     >
-                        {activeTab === 'private' && <PrivateSceneGmView scenes={privateScenes ?? []} />}
-                        {/* The truth ledger and the player knowledge store are each one campaign-wide bounded collection (D11/D21), not per-turn data - rendered whole, ignoring the rail. */}
-                        {activeTab === 'truth ledger' ? (
-                            <TruthLedgerView ledger={truthLedger ?? []} reports={reports ?? []} />
-                        ) : activeTab === 'player knowledge' ? (
-                            <PlayerKnowledgeView knowledge={knowledge ?? []} />
-                        ) : !selectedEntry ? (
-                            <p style={{ color: DIM }}>No turns have been processed yet.</p>
-                        ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 17, letterSpacing: '.1em', color: GOLD }}>TURN {toRoman(selectedEntry.turnNumber)}</span>
-                                <LatencyStrip rawCalls={selectedEntry.rawCalls} />
-                                {activeTab === 'summary' && <SummaryView entry={selectedEntry} />}
-                                {activeTab === 'what changed' && <WhatChangedView entry={selectedEntry} />}
-                                {activeTab === 'actions' && <ActionsView entry={selectedEntry} />}
-                                {activeTab === 'private' && <PrivateView adjudication={selectedEntry.adjudication} />}
-                                {activeTab === 'ground truth' && <GroundTruthView entry={selectedEntry} playerCharacterId={playerCharacterId} worldState={worldState} />}
-                                {activeTab === 'npc perception' && <NpcPerceptionView entry={selectedEntry} worldState={worldState} />}
-                                {activeTab === 'narration' && <NarrationView entry={selectedEntry} />}
-                                {activeTab === 'raw json' && <RawView adjudication={selectedEntry.adjudication} rawCalls={selectedEntry.rawCalls} />}
-                                {activeTab === 'fixtures' && (
-                                    <FixturesView
-                                        entry={selectedEntry}
-                                        history={history}
-                                        sessionCalls={getSessionCallLog().length}
-                                        hasTruthLedger={Boolean(truthLedger)}
-                                        hasKnowledge={Boolean(knowledge)}
-                                        onExport={handleExportEvalCorpus}
-                                    />
-                                )}
-                            </div>
+                        {TABS.map(tab => (
+                            <button
+                                key={tab}
+                                id={gmTabDomId(tab)}
+                                role="tab"
+                                aria-selected={tab === activeTab}
+                                aria-controls={GM_TABPANEL_ID}
+                                tabIndex={tab === activeTab ? 0 : -1}
+                                onClick={() => setActiveTab(tab)}
+                                className="gor-bare-btn"
+                                style={{ fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase', padding: '8px 12px', color: tab === activeTab ? GOLD : DIM, borderBottom: tab === activeTab ? '2px solid var(--gold-500)' : '2px solid transparent', background: tab === activeTab ? 'rgba(201,162,39,.08)' : 'transparent' }}
+                            >
+                                {tab}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* The turn rail (WP-12). Every per-turn tab is scoped to the
+                        one turn selected here; the two campaign-wide collections
+                        ignore it. Retry counts and mortality checks flag on the
+                        rail so anomalies surface without opening anything. */}
+                    <div style={{ flex: '1 1 0', minHeight: 'min(280px, 100%)', display: 'flex', gap: 14 }}>
+                        {!CAMPAIGN_WIDE_TABS.has(activeTab) && history.length > 0 && (
+                            <nav
+                                aria-label="Turns"
+                                style={{ flex: 'none', width: 172, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2, borderRight: '1px solid rgba(201,162,39,.2)', paddingRight: 8 }}
+                            >
+                                {railTurns.map(entry => {
+                                    const selected = selectedEntry?.turnNumber === entry.turnNumber;
+                                    const flags = railFlags(entry);
+                                    return (
+                                        <button
+                                            key={entry.turnNumber}
+                                            type="button"
+                                            aria-current={selected ? 'true' : undefined}
+                                            onClick={() => setSelectedTurnNumber(entry.turnNumber)}
+                                            className="gor-bare-btn gor-gm-rail-btn"
+                                            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, padding: '7px 10px', borderLeft: `3px solid ${selected ? 'var(--gold-500)' : 'transparent'}`, background: selected ? 'rgba(201,162,39,.10)' : 'transparent', color: selected ? GOLD : DIM, fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase' }}
+                                        >
+                                            <span>Turn {toRoman(entry.turnNumber)}</span>
+                                            {flags && <span style={{ fontFamily: MONO, fontSize: 9, letterSpacing: 0, color: RED }}>{flags}</span>}
+                                        </button>
+                                    );
+                                })}
+                            </nav>
                         )}
+
+                        <div
+                            role="tabpanel"
+                            id={GM_TABPANEL_ID}
+                            aria-labelledby={gmTabDomId(activeTab)}
+                            style={{ flex: 1, minWidth: 0, overflowY: 'auto', paddingRight: 6, display: 'flex', flexDirection: 'column', gap: 20, color: PARCH }}
+                        >
+                            {activeTab === 'private' && <PrivateSceneGmView scenes={privateScenes ?? []} />}
+                            {/* The truth ledger and the player knowledge store are each one campaign-wide bounded collection (D11/D21), not per-turn data - rendered whole, ignoring the rail. */}
+                            {activeTab === 'truth ledger' ? (
+                                <TruthLedgerView ledger={truthLedger ?? []} reports={reports ?? []} />
+                            ) : activeTab === 'player knowledge' ? (
+                                <PlayerKnowledgeView knowledge={knowledge ?? []} />
+                            ) : !selectedEntry ? (
+                                <p style={{ color: DIM }}>No turns have been processed yet.</p>
+                            ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                    <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 17, letterSpacing: '.1em', color: GOLD }}>TURN {toRoman(selectedEntry.turnNumber)}</span>
+                                    <LatencyStrip rawCalls={selectedEntry.rawCalls} />
+                                    {activeTab === 'summary' && <SummaryView entry={selectedEntry} />}
+                                    {activeTab === 'what changed' && <WhatChangedView entry={selectedEntry} />}
+                                    {activeTab === 'actions' && <ActionsView entry={selectedEntry} />}
+                                    {activeTab === 'private' && <PrivateView adjudication={selectedEntry.adjudication} />}
+                                    {activeTab === 'ground truth' && <GroundTruthView entry={selectedEntry} playerCharacterId={playerCharacterId} worldState={worldState} />}
+                                    {activeTab === 'npc perception' && <NpcPerceptionView entry={selectedEntry} worldState={worldState} />}
+                                    {activeTab === 'narration' && <NarrationView entry={selectedEntry} />}
+                                    {activeTab === 'raw json' && <RawView adjudication={selectedEntry.adjudication} rawCalls={selectedEntry.rawCalls} />}
+                                    {activeTab === 'fixtures' && (
+                                        <FixturesView
+                                            entry={selectedEntry}
+                                            history={history}
+                                            sessionCalls={getSessionCallLog().length}
+                                            hasTruthLedger={Boolean(truthLedger)}
+                                            hasKnowledge={Boolean(knowledge)}
+                                            onExport={handleExportEvalCorpus}
+                                        />
+                                    )}
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
 

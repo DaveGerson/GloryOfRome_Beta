@@ -14,7 +14,14 @@
  *   input  { entity, playerEntity, knowledge, ai, isMockMode,
  *            interactionLocked, runDomainMutation, onSpendDeepAnalysis,
  *            onInvestigationOutcome }
- *   output { uncoveredIntel, loadingState, requestError, handleRequest }
+ *   output { loadingState, requestError, handleRequest, landed }
+ *
+ * The perception audit retired `uncoveredIntel` (D14: the ephemeral
+ * component-local intel state is retired): the hook keeps no copy of what
+ * was bought - every finding, the deep analysis included, reaches the
+ * knowledge store through its commit callback and renders from there. What
+ * it reports instead is `landed`, the aspect whose paid finding last
+ * committed (the card moves focus to it).
  *
  * Environment note: the whole suite pins `jsdom` (happy-dom is not a
  * dependency of this project), so this file follows the suite's idiom —
@@ -33,7 +40,7 @@ import type { DomainMutationContext, RunDomainMutation } from '../state/domainMu
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 type RequestType = 'secrets' | 'beliefs' | 'scheme' | 'deep_analysis';
-type UncoveredIntel = { secrets?: string[]; beliefs?: string[]; deep_analysis?: string };
+type Landed = { type: RequestType; seq: number } | null;
 
 type HookInput = {
   entity: Entity;
@@ -43,7 +50,7 @@ type HookInput = {
   isMockMode: boolean;
   interactionLocked?: boolean;
   runDomainMutation: RunDomainMutation;
-  onSpendDeepAnalysis: (cost: number, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
+  onSpendDeepAnalysis: (targetId: string, cost: number, analysis: string, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
   onInvestigationOutcome: (
     kind: 'beliefs' | 'scheme' | 'secrets',
     targetId: string,
@@ -55,10 +62,10 @@ type HookInput = {
 };
 
 type HookResult = {
-  uncoveredIntel: UncoveredIntel;
   loadingState: RequestType | null;
   requestError: string | null;
   handleRequest: (type: RequestType) => Promise<void>;
+  landed: Landed;
 };
 
 // ---------------------------------------------------------------------------
@@ -137,7 +144,7 @@ const Probe: React.FC<{ input: HookInput; capturedRef: Captured }> = ({ input, c
     <div>
       <span data-testid="loading">{result.loadingState ?? 'idle'}</span>
       <span data-testid="error">{result.requestError ?? ''}</span>
-      <span data-testid="intel">{JSON.stringify(result.uncoveredIntel)}</span>
+      <span data-testid="landed">{JSON.stringify(result.landed)}</span>
     </div>
   );
 };
@@ -164,7 +171,7 @@ describe('components/tabs/useIntelGathering — extracted intel async core', () 
     vi.restoreAllMocks();
   });
 
-  const readout = (id: 'loading' | 'error' | 'intel'): string =>
+  const readout = (id: 'loading' | 'error' | 'landed'): string =>
     container.querySelector(`[data-testid="${id}"]`)?.textContent ?? '';
 
   async function mountProbe(input: HookInput): Promise<Captured> {
@@ -232,9 +239,9 @@ describe('components/tabs/useIntelGathering — extracted intel async core', () 
     await settle(() => release(true));
 
     // request.isCurrent() is false at every write guard, so neither the
-    // uncovered display nor the loading reset may land.
+    // landing nor the loading reset may be recorded.
     expect(readout('loading')).toBe('secrets');
-    expect(readout('intel')).toBe('{}');
+    expect(readout('landed')).toBe('null');
   });
 
   // -------------------------------------------------------------------------
@@ -253,7 +260,7 @@ describe('components/tabs/useIntelGathering — extracted intel async core', () 
     expect(readout('error')).toBe(USER_FACING_ERROR);
     // The finally ran while still current, so the spinner is gone even on failure.
     expect(readout('loading')).toBe('idle');
-    expect(readout('intel')).toBe('{}');
+    expect(readout('landed')).toBe('null');
     expect(consoleError).toHaveBeenCalledWith(CONSOLE_ERROR_PREFIX, expect.any(Error));
 
     // Next request clears the error BEFORE resolving — observable mid-flight.
@@ -263,21 +270,23 @@ describe('components/tabs/useIntelGathering — extracted intel async core', () 
 
     await settle(() => release(true));
     expect(readout('error')).toBe('');
-    expect(JSON.parse(readout('intel'))).toEqual({ secrets: MOCK_SECRETS_DISPLAY });
+    expect(JSON.parse(readout('landed'))).toEqual({ type: 'secrets', seq: 1 });
   });
 
   // -------------------------------------------------------------------------
-  // uncoveredIntel accumulation
+  // Commits and landings - nothing bought is held in the hook itself
   // -------------------------------------------------------------------------
-  it('charged deep_analysis: spends through the callback then stores the analysis when the commit is not false', async () => {
+  it('charged deep_analysis: hands the target, cost AND the analysis to one commit callback, then records the landing', async () => {
     const onSpendDeepAnalysis = vi.fn<HookInput['onSpendDeepAnalysis']>(() => {});
     const captured = await mountProbe(wire({ onSpendDeepAnalysis }));
 
     await fire(captured, 'deep_analysis');
 
     expect(onSpendDeepAnalysis).toHaveBeenCalledTimes(1);
-    expect(onSpendDeepAnalysis).toHaveBeenCalledWith(1, anyContext());
-    expect(JSON.parse(readout('intel'))).toEqual({ deep_analysis: MOCK_DEEP_ANALYSIS });
+    // The spend and the assessment travel together, so the commit that
+    // charges the rare resource is the commit that keeps what it bought.
+    expect(onSpendDeepAnalysis).toHaveBeenCalledWith('maximinus_thrax', 1, MOCK_DEEP_ANALYSIS, anyContext());
+    expect(JSON.parse(readout('landed'))).toEqual({ type: 'deep_analysis', seq: 1 });
     expect(readout('loading')).toBe('idle');
     expect(readout('error')).toBe('');
   });
@@ -291,23 +300,20 @@ describe('components/tabs/useIntelGathering — extracted intel async core', () 
     await fire(captured, 'deep_analysis');
 
     expect(onSpendDeepAnalysis).not.toHaveBeenCalled();
-    expect(readout('intel')).toBe('{}');
+    expect(readout('landed')).toBe('null');
     expect(readout('loading')).toBe('idle');
     expect(readout('error')).toBe('');
   });
 
-  it('beliefs then secrets: each committed display is stored and they accumulate side by side', async () => {
+  it('beliefs then secrets: each commit carries its itemised findings to the store callback, and each lands in turn', async () => {
     const onInvestigationOutcome = vi.fn<HookInput['onInvestigationOutcome']>(() => {});
     const captured = await mountProbe(wire({ onInvestigationOutcome }));
 
     await fire(captured, 'beliefs');
-    expect(JSON.parse(readout('intel'))).toEqual({ beliefs: MOCK_BELIEFS_DISPLAY });
+    expect(JSON.parse(readout('landed'))).toEqual({ type: 'beliefs', seq: 1 });
 
     await fire(captured, 'secrets');
-    expect(JSON.parse(readout('intel'))).toEqual({
-      beliefs: MOCK_BELIEFS_DISPLAY,
-      secrets: MOCK_SECRETS_DISPLAY,
-    });
+    expect(JSON.parse(readout('landed'))).toEqual({ type: 'secrets', seq: 2 });
 
     expect(onInvestigationOutcome).toHaveBeenNthCalledWith(
       1,
@@ -329,7 +335,7 @@ describe('components/tabs/useIntelGathering — extracted intel async core', () 
     );
   });
 
-  it('charged scheme: the outcome callback fires with the clue payload but NOTHING is stored in uncoveredIntel', async () => {
+  it('charged scheme: the outcome callback fires with the clue payload, and the clue lands', async () => {
     const onInvestigationOutcome = vi.fn<HookInput['onInvestigationOutcome']>(() => {});
     const captured = await mountProbe(wire({ onInvestigationOutcome }));
 
@@ -344,20 +350,20 @@ describe('components/tabs/useIntelGathering — extracted intel async core', () 
       expect.objectContaining({ target_id: 'maximinus_thrax', consequences: RISKY_CONSEQUENCE }),
       anyContext(),
     );
-    expect(readout('intel')).toBe('{}');
+    expect(JSON.parse(readout('landed'))).toEqual({ type: 'scheme', seq: 1 });
     expect(readout('loading')).toBe('idle');
   });
 
-  it('a commit callback returning false vetoes storage for both investigation display and deep analysis', async () => {
+  it('a commit callback returning false vetoes the landing for both an investigation and a deep analysis', async () => {
     const captured = await mountProbe(
       wire({ onInvestigationOutcome: () => false, onSpendDeepAnalysis: () => false }),
     );
 
     await fire(captured, 'secrets');
-    expect(readout('intel')).toBe('{}');
+    expect(readout('landed')).toBe('null');
 
     await fire(captured, 'deep_analysis');
-    expect(readout('intel')).toBe('{}');
+    expect(readout('landed')).toBe('null');
     expect(readout('loading')).toBe('idle');
     expect(readout('error')).toBe('');
   });
@@ -371,7 +377,7 @@ describe('components/tabs/useIntelGathering — extracted intel async core', () 
     await fire(captured, 'secrets');
 
     expect(onInvestigationOutcome).not.toHaveBeenCalled();
-    expect(readout('intel')).toBe('{}');
+    expect(readout('landed')).toBe('null');
     expect(readout('loading')).toBe('idle');
     expect(readout('error')).toBe('');
   });
@@ -441,7 +447,7 @@ describe('components/tabs/useIntelGathering — extracted intel async core', () 
 
     expect(readout('error')).toBe(USER_FACING_ERROR);
     expect(readout('loading')).toBe('idle');
-    expect(readout('intel')).toBe('{}');
+    expect(readout('landed')).toBe('null');
     expect(onInvestigationOutcome).toHaveBeenCalledTimes(1);
   });
 
@@ -470,6 +476,6 @@ describe('components/tabs/useIntelGathering — extracted intel async core', () 
     expect(onSpendDeepAnalysis).not.toHaveBeenCalled();
     expect(readout('loading')).toBe('idle');
     expect(readout('error')).toBe('');
-    expect(readout('intel')).toBe('{}');
+    expect(readout('landed')).toBe('null');
   });
 });

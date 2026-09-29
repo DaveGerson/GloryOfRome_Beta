@@ -47,6 +47,7 @@ You do NOT decide the mechanical outcome. A separate, hidden dice roll decides t
 RULES:
 - Validate (valid: true) only when the claimed cause of death is a direct, earned consequence of what actually happened this turn - a real ambush, a real battle, a real poisoning, a real execution order actually carried out, etc.
 - Invalidate (valid: false) melodrama, hallucinated causes not supported by the turn's actual events, deaths that contradict the entity's established situation (e.g. they were never in danger this turn), or vague/unsupported claims.
+- The adjudicator phrases every declared death as the ATTEMPT on that life (the outcome is not settled until after you rule), so the headlines and the claimed cause describe an attempt, not a confirmed death. Judge whether that attempt is real and deadly enough that death would be its earned consequence - never invalidate a claim merely because the text describes an attempt rather than a death.
 - Every candidate MUST receive exactly one disposition, matched by its exact entity_id.
 - 'reasoning' is a short (1-2 sentence) justification. It is logged for the GM only and is never shown to the player.
 

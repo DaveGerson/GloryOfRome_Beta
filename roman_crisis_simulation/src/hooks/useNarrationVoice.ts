@@ -26,7 +26,8 @@
  * (narration/narratorChoice.ts). The cast also
  * tells the scriptwriter how the people a passage names speak: each named
  * member's player-visible note reaches the prep prompt's cast block
- * (`performNarration`'s `cast`), for every narrator, in character or not.
+ * (`directNarrationPerformance`'s `cast`), for every narrator, in character
+ * or not.
  *
  * Each is a device preference, never save state, and together they key the
  * clip cache - a change is a new performance, never an old clip replayed.
@@ -51,7 +52,9 @@
  *
  * SILENT (the default): nothing is called, ever - not a prep call, not a TTS
  * call. Every committed GM narration still carries its control, disabled,
- * reading 'silent', whose line points to Settings.
+ * reading 'silent', whose line points to Settings. A performance whose prep
+ * call was already out when the player chose SILENT (or stopped it, or lost
+ * the key) ends there: its TTS call is never made.
  *
  * Nothing here is persisted. Audio lives in the player's in-memory cache
  * and every object URL is revoked on eviction and on unmount.
@@ -60,7 +63,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { GameState, type Message, type Entity } from '../types';
 import type { GeminiClient } from '../ai/core/geminiService';
-import { performNarration, speakTranscript } from '../ai/tools/narrationVoice';
+import { directNarrationPerformance, speakTranscript } from '../ai/tools/narrationVoice';
 import { narrationLog as sharedNarrationLog, type NarrationLogStore } from '../narration/narrationLog';
 import { castInPassage, describeListener } from '../ai/prompts/narrationPerformance';
 import { toRoman } from '../components/ui/Brand';
@@ -75,7 +78,7 @@ import {
 } from '../narration/customNarrators';
 import { parseVoiceStyle, voiceStyleKey, type VoiceStyle } from '../narration/voiceStyle';
 import { castMannersFor, type CastingCandidate, type VoiceCast } from '../narration/voiceCast';
-import { speakableText } from '../narration/performanceScript';
+import { speakableText, type PerformedTranscript } from '../narration/performanceScript';
 import {
     getNarrationVoiceMode, setNarrationVoiceMode, type NarrationVoiceMode,
     getNarratorProfileId, setNarratorProfileId,
@@ -139,6 +142,24 @@ export function chronicleSourceLabel(week: number | undefined): string {
 
 const NO_CHARACTERS: readonly NarratorCharacter[] = [];
 const NO_CANDIDATES: readonly Pick<CastingCandidate, 'entityId' | 'epithet'>[] = [];
+
+/** Scripts held for a voicing still to come; a handful is plenty. */
+const MAX_UNVOICED_SCRIPTS = 20;
+
+/**
+ * Holds a script being written until it is voiced. A fallback is let go once
+ * it lands - like the log, only a retelling the guard accepted is reused (a
+ * fallback may have been a failed call worth making again). The Imperial
+ * Dispatch holds its briefings the same way (hooks/useImperialDispatch.ts).
+ */
+export function holdUnvoiced(unvoiced: Map<string, Promise<PerformedTranscript>>, key: string, script: Promise<PerformedTranscript>): void {
+    unvoiced.set(key, script);
+    while (unvoiced.size > MAX_UNVOICED_SCRIPTS) unvoiced.delete(unvoiced.keys().next().value as string);
+    const release = () => {
+        if (unvoiced.get(key) === script) unvoiced.delete(key);
+    };
+    script.then(performed => { if (performed.usedFallback) release(); }, release);
+}
 
 export function useNarrationVoice({
     ai, isMockMode, resolvedApiKey, messages, gameState, playerEntity,
@@ -255,9 +276,15 @@ export function useNarrationVoice({
         messagesRef.current = messages;
         weekRef.current = { week, turnNumber };
     }, [messages, week, turnNumber]);
+    // Scripts not yet voiced, by passage: one being written (a press after a
+    // stop joins it, so the prep call is never paid twice), or one the guard
+    // accepted whose voicing has not happened (the TTS call failed, or the
+    // performance was stopped before it) - a retry goes straight to the
+    // voice. In memory only: the log keeps only what was voiced.
+    const [unvoiced] = useState(() => new Map<string, Promise<PerformedTranscript>>());
     useEffect(() => {
         player.setRenderer(
-            async (text, index) => {
+            async (text, index, signal) => {
                 const present = castInPassage(speakableText(text), castManners);
                 const passageKey = present.length > 0
                     ? `${reuseKey}|cast:${hashText(JSON.stringify(present.map(m => [m.name, m.manner])))}`
@@ -269,14 +296,25 @@ export function useNarrationVoice({
                     });
                     return new Blob([wav], { type: 'audio/wav' });
                 }
-                const performed = await performNarration(ai, text, isMockMode, {
-                    narrator,
-                    voiceName: voice,
-                    style,
-                    allowedNames,
-                    playerContext: listener,
-                    cast: castManners,
+                const scriptKey = `${passageKey}|${hashText(text)}`;
+                let script = isMockMode ? undefined : unvoiced.get(scriptKey);
+                if (!script) {
+                    script = directNarrationPerformance(ai, text, isMockMode, listener, narrator, allowedNames, style, castManners);
+                    if (!isMockMode) holdUnvoiced(unvoiced, scriptKey, script);
+                }
+                const performed = await script;
+                // The voice is the costlier call: none once the performance is
+                // no longer wanted - SILENT, a stop, another narrator, voice or
+                // style, the key gone, another campaign's transcript (each stops
+                // the player, and `signal` reads aborted until a press rejoins
+                // this render) - and nothing is logged.
+                if (signal.aborted || silentRef.current || !canReachVoiceRef.current) {
+                    throw new Error('useNarrationVoice: the performance was stopped before it was voiced');
+                }
+                const wav = await speakTranscript(ai, performed.transcript, isMockMode, {
+                    model: narrator.voice.model, voiceName: voice, temperature: narrator.voice.temperature,
                 });
+                if (unvoiced.get(scriptKey) === script) unvoiced.delete(scriptKey);
                 const messageWeek = weekOfMessage(messagesRef.current, index, weekRef.current.week);
                 log.record({
                     kind: 'chronicle',
@@ -293,11 +331,11 @@ export function useNarrationVoice({
                     week: messageWeek ?? null,
                     turn: weekRef.current.turnNumber ?? null,
                 });
-                return new Blob([performed.wav], { type: 'audio/wav' });
+                return new Blob([wav], { type: 'audio/wav' });
             },
             variant,
         );
-    }, [player, ai, isMockMode, narrator, voice, style, allowedNames, listener, variant, log, reuseKey, resolved.displayName, castManners]);
+    }, [player, ai, isMockMode, narrator, voice, style, allowedNames, listener, variant, log, reuseKey, resolved.displayName, castManners, unvoiced]);
 
     // A different narrator, voice or style was chosen: the old performance stops.
     // Keyed on the style's instruction, not its object: a recast that leaves
