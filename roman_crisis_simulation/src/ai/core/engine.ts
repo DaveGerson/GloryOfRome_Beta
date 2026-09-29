@@ -4,6 +4,7 @@ import { zScheme } from './zodSchemas';
 import { buildNpcPerceptions, selectMemoryChanges, selectPerceivingNpcs } from '../../perception/npcPerception';
 import { legacyReasonIndicatesDeath, legacyStatusFromReason } from './legacyStatus';
 import { applyConditionDelta } from './conditions';
+import { applyAffiliationDelta } from './affiliations';
 
 // The legacy reason-parse lives in ./legacyStatus.ts, where the perception
 // layer can mirror it without importing this module.
@@ -470,6 +471,20 @@ export function applyDeltas(
                         break;
                     }
                     const refusal = applyConditionDelta(entity, delta, turnNumber);
+                    if (refusal) gmNotes.push(refusal);
+                    break;
+                }
+                case 'affiliation': {
+                    // D49: a tie taken up, given up, avowed or exposed - the
+                    // rules live in ./affiliations.ts. The openly professed
+                    // political faction stays the 'faction' case's.
+                    const [entityId] = delta.key.split(':');
+                    const entity = updatedEntities.find(e => e.entity_id === entityId);
+                    if (!entity) {
+                        gmNotes.push(`[Engine] Refused an 'affiliation' delta on '${delta.key}' - no entity '${entityId}' is on the roster.`);
+                        break;
+                    }
+                    const refusal = applyAffiliationDelta(entity, delta);
                     if (refusal) gmNotes.push(refusal);
                     break;
                 }

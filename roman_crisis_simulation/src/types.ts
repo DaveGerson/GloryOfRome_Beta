@@ -183,6 +183,43 @@ export interface Condition {
   since_turn: number;
 }
 
+/** What kind of tie an affiliation is (D49). */
+export const AffiliationKindEnum = ['faction', 'cause', 'cult', 'religion', 'other'] as const;
+export type AffiliationKind = typeof AffiliationKindEnum[number];
+
+/**
+ * What an 'affiliation' delta does to the tie its key names (D49): take it
+ * up, give it up, profess a secret one openly, or have it exposed.
+ */
+export const AffiliationChangeEnum = ['join', 'leave', 'go_public', 'expose'] as const;
+export type AffiliationChange = typeof AffiliationChangeEnum[number];
+
+/**
+ * A tie a character holds (DESIGN_DECISIONS.md D49): a political faction, a
+ * cause, a cult, a religion - "boosters of the triumph", "the cult of
+ * Bacchus", "the Christians". Each is OPENLY PROFESSED (public knowledge:
+ * anyone who knows the figure knows it) or KEPT SECRET (known to its holder
+ * and the GM, learned by others only as secrets are - witnessed, found out,
+ * confided, avowed or exposed). Changed only by 'affiliation' deltas
+ * (ai/core/affiliations.ts).
+ *
+ * `Entity.faction_id` stays what it was: the entity's openly professed
+ * political faction, moved by 'faction' deltas. An affiliation may point at
+ * a faction entity (`faction_id`) - e.g. a SECRET tie to a faction the
+ * holder does not openly profess.
+ */
+export interface Affiliation {
+  /** Stable snake_case handle, unique per holder: the second half of an 'affiliation' delta's key. */
+  id: string;
+  /** As the fiction names the tie: "the cult of Bacchus". */
+  name: string;
+  kind: AffiliationKind;
+  /** True when openly professed; false when kept secret. */
+  public: boolean;
+  /** Optional link to a faction entity the tie is to. */
+  faction_id?: string;
+}
+
 
 /**
  * Represents an entity in the game world, which can be an individual, group, or faction.
@@ -239,6 +276,14 @@ export interface Entity {
    * are GM-private (never on a player surface or a player-facing prompt).
    */
   conditions?: Condition[];
+  /**
+   * The ties this character holds (D49) - see `Affiliation`. OPTIONAL for
+   * save compatibility, like `conditions`. Another entity's SECRET ties are
+   * GM-private (never on a player surface or a player-facing or NPC-facing
+   * prompt unless learned); the player's own secret ties are shown to the
+   * player, marked as secret, and never to an NPC who has not learned them.
+   */
+  affiliations?: Affiliation[];
   /**
    * GM-PRIVATE. Set by the mortality pipeline (ai/core/mortality.ts) when
    * this entity's PUBLIC `status` is 'dead' but the NPC fate table
@@ -308,8 +353,12 @@ export type EntityActionIntent = typeof EntityActionIntentEnum[number];
  * 'condition' (D48): adds, deepens, eases or heals a lasting mark - key is
  * 'entity_id:condition_id', the change rides on `condition` (see
  * ai/core/conditions.ts).
+ *
+ * 'affiliation' (D49): takes up, gives up, avows or exposes a tie - key is
+ * 'entity_id:affiliation_id', the change rides on `affiliation` (see
+ * ai/core/affiliations.ts).
  */
-export const EventDeltaTypeEnum = ['resource', 'relation', 'region', 'status', 'rumor', 'scheme', 'add_region', 'remove_region', 'faction', 'world', 'condition'] as const;
+export const EventDeltaTypeEnum = ['resource', 'relation', 'region', 'status', 'rumor', 'scheme', 'add_region', 'remove_region', 'faction', 'world', 'condition', 'affiliation'] as const;
 export type EventDeltaType = typeof EventDeltaTypeEnum[number];
 
 export const ReportSourceEnum = ['scout', 'spy', 'merchant', 'messenger', 'rumor'] as const;
@@ -426,6 +475,22 @@ export interface EventDelta {
      * `delta` as usual.
      */
     lost_item?: string;
+    /**
+     * 'affiliation' deltas only (D49): what happens to the tie the key names.
+     * `name`/`kind` are required to take up a new tie; `public` says whether
+     * it is taken up openly (absent = in secret). ai/core/affiliations.ts
+     * applies it, refusing and recording an absent or malformed payload.
+     */
+    affiliation?: AffiliationDeltaChange;
+}
+
+/** The payload of an 'affiliation' delta - see EventDelta.affiliation. */
+export interface AffiliationDeltaChange {
+    change: AffiliationChange;
+    name?: string;
+    kind?: AffiliationKind;
+    public?: boolean;
+    faction_id?: string;
 }
 
 /** The payload of a 'condition' delta - see EventDelta.condition. */
@@ -669,13 +734,13 @@ export interface TurnHistoryEntry {
    * digest is re-derived from it, so the re-derivation matches the commit
    * even on the first turn (no earlier snapshot) or after anything moved
    * between turns. Trimmed with `postTurnEntities`; absent on older entries.
-   * An entity's conditions ride along only when it bore any, and its text
-   * and list holdings (never its numbers) only when it held any, so a mark
-   * healed or a holding lost this turn can be told from one never there
-   * (D48 - perception/visibility.ts::toPreTurnRoster); entries written
-   * before that lack them.
+   * An entity's conditions and affiliations ride along only when it held
+   * any, and its text and list holdings (never its numbers) only when it
+   * held any, so a mark healed, a tie given up or a holding lost this turn
+   * can be told from one never there (D48/D49 - perception/visibility.ts::
+   * toPreTurnRoster); entries written before that lack them.
    */
-  preTurnRoster?: (Pick<Entity, 'entity_id' | 'location' | 'status'> & Partial<Pick<Entity, 'conditions' | 'resources'>>)[];
+  preTurnRoster?: (Pick<Entity, 'entity_id' | 'location' | 'status'> & Partial<Pick<Entity, 'conditions' | 'affiliations' | 'resources'>>)[];
   /**
    * The macro SimulationState as it stood before this turn resolved - what
    * the briefing's "fell this week" mark compares the committed state

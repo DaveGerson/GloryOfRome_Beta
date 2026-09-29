@@ -197,6 +197,12 @@ const MOCK_NEW_CHARACTER: Entity = {
     },
     visibility_network: ["severus_alexander", "maximinus_thrax", "praetorian_guard"],
     memories: [],
+    // D49: a created character's ties, one worn openly and one kept - the
+    // soldiers' mystery of Mithras met underground.
+    affiliations: [
+        { id: "veterans_of_the_second_parthica", name: "the veterans of the Second Parthica", kind: "cause", public: true },
+        { id: "mysteries_of_mithras", name: "the mysteries of Mithras", kind: "cult", public: false },
+    ],
 };
 
 const MOCK_CUSTOM_WORLD_STATE: WorldState = {

@@ -24,6 +24,8 @@
 
 import { z } from 'zod';
 import {
+  AffiliationChangeEnum,
+  AffiliationKindEnum,
   ConditionChangeEnum,
   ConditionSeverityEnum,
   EntityActionIntentEnum,
@@ -32,6 +34,7 @@ import {
   RumorStanceEnum,
 } from '../../types';
 import { normalizeConditions } from './conditions';
+import { normalizeAffiliations } from './affiliations';
 import {
   PRIVATE_SCENE_MAX_NPC_RESPONSES,
   PRIVATE_SCENE_MAX_UTTERANCE_CHARS,
@@ -181,10 +184,12 @@ export const zEntity = z.object({
   secrets: z.array(z.string()).nullable().optional(),
   skills: z.record(z.string(), z.number()).nullable().optional(),
   active_scheme: zScheme.nullable().optional(),
-  // D48 lasting marks. Accepted loosely and rebuilt record by record in the
-  // transform below (ai/core/conditions.ts::normalizeConditions), so one
-  // malformed mark is dropped instead of failing a whole generated cast.
+  // D48 lasting marks and D49 ties. Accepted loosely and rebuilt record by
+  // record in the transform below (ai/core/conditions.ts /
+  // ai/core/affiliations.ts), so one malformed record is dropped instead of
+  // failing a whole generated cast.
   conditions: z.array(z.unknown()).nullable().optional(),
+  affiliations: z.array(z.unknown()).nullable().optional(),
 }).passthrough().transform(entity => {
   // D3 model-boundary redaction: a model-invented add_entities roster member
   // (applied wholesale at engine.ts:538-540) or world-gen/character-creation
@@ -192,9 +197,10 @@ export const zEntity = z.object({
   // buildSecretSurvivorsBlock, ai/prompts/fragments.ts:210-215). zEntity is
   // used only at model boundaries (zAdjudication.add_entities, zEntityBatch,
   // characterCreator.ts:28, eval harness) - never save-load.
-  const { secret_truth, conditions, ...modelEntity } = entity;
+  const { secret_truth, conditions, affiliations, ...modelEntity } = entity;
   const marks = normalizeConditions(conditions);
-  return marks ? { ...modelEntity, conditions: marks } : modelEntity;
+  const ties = normalizeAffiliations(affiliations);
+  return Object.assign(modelEntity, marks ? { conditions: marks } : {}, ties ? { affiliations: ties } : {});
 });
 
 export const zEntityStub = z.object({
@@ -228,6 +234,15 @@ const zConditionDeltaChange = z.object({
   description: z.string().nullable().optional(),
   outward: z.boolean().nullable().optional(),
   severity: z.enum(ConditionSeverityEnum).nullable().optional(),
+}).passthrough();
+
+/** An 'affiliation' delta's payload (D49) - mirrors types.ts's AffiliationDeltaChange. */
+const zAffiliationDeltaChange = z.object({
+  change: z.enum(AffiliationChangeEnum),
+  name: z.string().nullable().optional(),
+  kind: z.enum(AffiliationKindEnum).nullable().optional(),
+  public: z.boolean().nullable().optional(),
+  faction_id: z.string().nullable().optional(),
 }).passthrough();
 
 export const zEventDelta = z.object({
@@ -274,6 +289,10 @@ export const zEventDelta = z.object({
   // 'resource' deltas only (D48): the text or list holding lost - see
   // types.ts's EventDelta.lost_item.
   lost_item: z.string().nullable().optional(),
+  // 'affiliation' deltas only (D49): what happens to the tie the key names.
+  // Same fail-soft policy as `condition`: the engine refuses and records an
+  // incomplete payload (ai/core/affiliations.ts).
+  affiliation: zAffiliationDeltaChange.nullable().optional(),
 }).passthrough().transform(delta => {
   // Model-boundary redaction (D3): `secret_truth` is CODE-GENERATED ONLY
   // (types.ts) - only ai/core/mortality.ts::processMortality may attach it,

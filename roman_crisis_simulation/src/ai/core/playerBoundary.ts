@@ -646,6 +646,11 @@ export function playerOwnsDelta(delta: EventDelta, player: PlayerIdentity): bool
   // dealt, a grief suffered - so its key names who bears it, not who acted:
   // like the world-leverage relation, only a player origin claims it.
   if (delta.type === 'condition') return samePlayerIdentity(delta.origin_id, player);
+  // A tie EXPOSED (D49) is laid bare by someone else - the world acting on
+  // its holder - so it too is the player's only through a player origin.
+  // Joining, leaving or avowing a tie is its holder's own act and stays
+  // keyed to them below.
+  if (delta.type === 'affiliation' && delta.affiliation?.change === 'expose') return samePlayerIdentity(delta.origin_id, player);
   if (samePlayerIdentity(delta.origin_id, player)) return true;
   const [rootEntityId] = delta.key.split(':');
   return samePlayerIdentity(rootEntityId, player);

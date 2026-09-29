@@ -23,13 +23,15 @@
  *                  (gm_private notes, rolls/seed, fate bands/tiers,
  *                  secret_truth/actually_alive/motive, rumor is_true/origin_id,
  *                  mind private_reasoning, a NON-player scheme's name/steps,
- *                  a NON-player's inward mark (D48), the mortality
- *                  validator's reasoning) reaches ANY
+ *                  a NON-player's inward mark (D48) or unlearned secret tie
+ *                  (D49), the mortality validator's reasoning) reaches ANY
  *                  player-facing surface: the narration/monologue PROMPTS and
  *                  system instructions (the true enforcement seam), the
  *                  narration/monologue/suggestions text, headlines, the
  *                  perceived digest, new report claims, or the player
- *                  knowledge store's committed contents
+ *                  knowledge store's committed contents - and, the other way
+ *                  round, no PLAYER's secret tie (D49) reaches an NPC-facing
+ *                  prompt (a mind, a private scene) no NPC witnessed it in
  *   INV-DIGEST     every perceived change is source-attributed (D5)
  *   INV-ROLL       the dice the journey scripted are EXACTLY the dice the
  *                  pipeline made and recorded (resolutionTrace + validated
@@ -52,8 +54,9 @@ import { getInvestigationResult } from '../../ai/tools/intelligence';
 import { createSeededRng, rollD20 } from '../../ai/core/resolution';
 import { buildPlayerPerceivedDigest, PerceivedChange } from '../../perception/visibility';
 import { conditionsOf } from '../../ai/core/conditions';
+import { secretAffiliationsOf } from '../../ai/core/affiliations';
 import { computeTurnKnowledge, computeInvestigationKnowledge } from '../../knowledge/commit';
-import type { KnowledgeClaim, InvestigationKind } from '../../knowledge/store';
+import { knownAffiliationsOf, type KnowledgeClaim, type InvestigationKind } from '../../knowledge/store';
 import { saveGame, loadGame, clearSave as clearPersistedSave, SaveGameState } from '../../persistence/saveGame';
 import { normalizeTurnSubmissionInput, projectForExternalInference } from '../../playerInput/turnSubmission';
 import { getRelationshipObservations } from '../../ai/tools/relationshipObservations';
@@ -635,6 +638,12 @@ function assertNoLeaks(outcome: {
           forbidden.push({ label: `inward mark of ${entity.entity_id}`, value: mark.description });
         }
       }
+      // D49: an NPC's SECRET tie is GM-private until the player learns it
+      // (witnessed, or found out) - then it is theirs to see.
+      const learned = new Set(knownAffiliationsOf(knowledge, entity.entity_id).map(tie => tie.id));
+      for (const tie of secretAffiliationsOf(entity)) {
+        if (!learned.has(tie.id)) forbidden.push({ label: `secret tie of ${entity.entity_id}`, value: tie.name });
+      }
     }
   }
   // NOTE: a rumor's originId is a bare entity id (often the player's own),
@@ -667,6 +676,24 @@ function assertNoLeaks(outcome: {
       if (item.pattern && item.pattern.test(text)) {
         violations.push(`${item.label} (pattern ${item.pattern}) leaked into ${surface}`);
       }
+    }
+  }
+
+  // D49 the other way round: the PLAYER's secret ties never reach an
+  // NPC-facing prompt (a mind, a private scene) - unless that NPC witnessed
+  // one, which then lives in its own memories and may.
+  const player = result.updatedEntities.find(entity => entity.entity_id === playerId);
+  const npcFacing = [
+    ...client.promptsFor('npcMind').map((text, i) => ({ surface: `npcMind prompt #${i}`, text })),
+    ...client.systemInstructionsFor('npcMind').map((text, i) => ({ surface: `npcMind systemInstruction #${i}`, text })),
+    ...client.promptsFor('privateScene').map((text, i) => ({ surface: `privateScene prompt #${i}`, text })),
+  ];
+  const witnessedByAnyone = (name: string) => result.updatedEntities.some(entity =>
+    entity.entity_id !== playerId && entity.memories.some(memory => memory.event_description.includes(name)));
+  for (const tie of secretAffiliationsOf(player)) {
+    if (witnessedByAnyone(tie.name)) continue;
+    for (const { surface, text } of npcFacing) {
+      if (text.includes(tie.name)) violations.push(`the player's secret tie "${tie.name}" leaked into ${surface}`);
     }
   }
 

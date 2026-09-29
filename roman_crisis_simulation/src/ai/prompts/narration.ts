@@ -9,9 +9,10 @@
 import { Adjudication, Entity } from '../../types';
 import type { NarrationSubmissionProjection } from '../../playerInput/turnSubmission';
 import type { PerceivedChange } from '../../perception/visibility';
-import { asPromptData, playerOutputDeltaReason } from './fragments';
+import { asPromptData, isPrivateMarkOrTieDelta, playerOutputDeltaKey, playerOutputDeltaReason } from './fragments';
 import { ACTORS_DESCRIPTION } from '../core/schemas';
 import { conditionClause, conditionsLine, conditionsOf } from '../core/conditions';
+import { affiliationClause, affiliationsLine, affiliationsOf, publicAffiliationsOf } from '../core/affiliations';
 
 /**
  * Strips GM-only / secret-survival state from an Entity before it's
@@ -61,13 +62,15 @@ export function sanitizeAdjudicationForNarration(adjudication: Adjudication): Om
   const { gm_private, add_entities, deltas, ...rest } = adjudication;
   return {
     ...rest,
-    // A private mark's narrative (D48) gives way to its stand-in exactly as
-    // a scheme's does (fragments.ts::playerOutputDeltaReason).
-    deltas: deltas.map(({ secret_truth, is_true, origin_id, ...delta }) =>
-      delta.type === 'scheme' || delta.type === 'condition'
-        ? { ...delta, reason: playerOutputDeltaReason(delta) }
-        : delta
-    ),
+    // A private mark (D48) or a secret tie (D49) gives way to its stand-in
+    // exactly as a scheme's reason does - and loses the payload and the key
+    // handle that would name it (fragments.ts::isPrivateMarkOrTieDelta).
+    deltas: deltas.map(({ secret_truth, is_true, origin_id, ...delta }) => {
+      if (delta.type === 'scheme') return { ...delta, reason: playerOutputDeltaReason(delta) };
+      if (!isPrivateMarkOrTieDelta(delta)) return delta;
+      const { condition, affiliation, ...rest } = delta;
+      return { ...rest, key: playerOutputDeltaKey(delta), reason: playerOutputDeltaReason(delta) };
+    }),
     add_entities: add_entities?.map(sanitizeEntityForNarration) as Entity[] | undefined,
   };
 }
@@ -128,17 +131,43 @@ ${lines.join('\n')}
 }
 
 /**
- * The player's own LASTING MARKS (D48) for the player-owned prose calls
- * (narration and monologue): every mark they bear, inward ones included -
- * the player always knows their own - so the prose stays consistent with
- * them. Reads only the player's own conditions. Empty when there are none.
+ * The player's own LASTING MARKS (D48) and TIES (D49) for the narration:
+ * every mark they bear, inward ones included, and every tie they hold, the
+ * secret ones marked - the player always knows their own - so the prose
+ * stays consistent with them. Reads only the player's own record. Empty
+ * when there is nothing to carry.
  */
 export function buildPlayerMarksBlock(player: Entity): string {
   const marks = conditionsOf(player);
-  if (marks.length === 0) return '';
+  const ties = affiliationsOf(player);
+  const blocks: string[] = [];
+  if (marks.length > 0) {
+    blocks.push(`LASTING MARKS THE PLAYER BEARS (their own - keep the prose true to them; an inward mark is known to no one else):
+${marks.map(mark => `- ${conditionClause(mark)}`).join('\n')}`);
+  }
+  if (ties.length > 0) {
+    blocks.push(`THE PLAYER'S OWN TIES (a tie kept secret is known to no one who has not learned it - never let another character know of or act on one unless the PLAYER-PERCEIVED TURN EVENTS show it exposed):
+${ties.map(tie => `- ${affiliationClause(tie, { voice: 'own' })}`).join('\n')}`);
+  }
+  return blocks.length > 0 ? `\n${blocks.join('\n\n')}\n` : '';
+}
+
+/**
+ * The OPENLY PROFESSED ties (D49) of the figures on stage this turn - public
+ * knowledge, carried as texture for the player-owned prose. Reads ONLY
+ * publicAffiliationsOf, so a secret tie can never enter by construction; a
+ * figure professing nothing is left out, and no line at all when none does.
+ * Exported for direct unit testing.
+ */
+export function buildPublicTiesBlock(figures: readonly Entity[]): string {
+  const lines = figures
+    .map(figure => ({ figure, ties: publicAffiliationsOf(figure) }))
+    .filter(({ ties }) => ties.length > 0)
+    .map(({ figure, ties }) => `- ${figure.name}: ${ties.map(tie => `${tie.name} (${tie.kind})`).join('; ')}`);
+  if (lines.length === 0) return '';
   return `
-LASTING MARKS THE PLAYER BEARS (their own - keep the prose true to them; an inward mark is known to no one else):
-${marks.map(mark => `- ${conditionClause(mark)}`).join('\n')}
+OPENLY PROFESSED TIES OF THE FIGURES AT HAND (public knowledge - texture only, never a new event):
+${lines.join('\n')}
 `;
 }
 
@@ -185,7 +214,11 @@ export function buildNarrationPrompt(
   // The resolved outcome of a validated attempt on the player's own life
   // this turn (see the doc comment above). Absent: no OUTCOME TO NARRATE
   // block, the instruction and prompt exactly as before.
-  playerOutcomeDirective?: string
+  playerOutcomeDirective?: string,
+  // D49: the figures named in this turn's player-perceived events, whose
+  // OPENLY professed ties the prose may use as texture
+  // (buildPublicTiesBlock reads nothing else). Defaults to [] - no block.
+  figuresAtHand: readonly Entity[] = []
 ): { systemInstruction: string; prompt: string } {
   // String callers are legacy direct prompt tests. The real pipeline passes
   // the typed projection so private-only text can never be mistaken for an
@@ -218,7 +251,7 @@ Task:
     d.  **Tone:** Maintain a tone of Tacitus meets field report. Focus on concrete outcomes. Do not invent new facts not present in the PLAYER-PERCEIVED TURN EVENTS${outcomeSource('or')}.
     e.  **Moment Line (ROADMAP_PHASE_4.md 4D item 3):** When a named character's visible action clearly culminates or detonates in the PLAYER-PERCEIVED TURN EVENTS, give that character ONE short signature spoken line, quoted in their own voice (per CAST VOICES when present): the line a chronicler would set down. At most one line per character, only at a true culmination, and reveal nothing beyond those player-perceived events.
     f.  **Actors Attribution:** ${ACTORS_DESCRIPTION}
-    g.  **The Narration Is the State:** Never narrate the loss of a hard asset - coin, holdings, legions, a house - that the PLAYER-PERCEIVED TURN EVENTS do not show removed ("Your denarii dwindles", "You have lost ..."); what you narrate as lost must be gone. Keep the prose true to the player's LASTING MARKS when that block is present: never forget or contradict a mark they bear, and never let another character know of an inward one.
+    g.  **The Narration Is the State:** Never narrate the loss of a hard asset - coin, holdings, legions, a house - that the PLAYER-PERCEIVED TURN EVENTS do not show removed ("Your denarii dwindles", "You have lost ..."); what you narrate as lost must be gone. Keep the prose true to the player's LASTING MARKS when that block is present: never forget or contradict a mark they bear, and never let another character know of an inward one. Likewise the player's OWN TIES: a secret one is theirs alone - never let another character know of it unless the PLAYER-PERCEIVED TURN EVENTS show it exposed.
 
 2.  **Suggest Next Actions:** After the narration, on new lines, suggest exactly 3 brief, interesting, actionable next steps for the player, each prefixed with "SUGGESTION:". The suggestions should be tailored to the player's character, goals, and the new situation.
     - **Resource Processing (Include/Exclude):** For each suggested action, process whether or not resources are required. If an activity requires resources (e.g. bribes/donatives require denarii; martial marches require legion_support; formal spycraft requires investigations; senatorial decrees require senatorial_support), INCLUDE it ONLY if the player possesses the required resources in PLAYER CHARACTER PROFILE. If the player lacks the required resource, EXCLUDE that activity and suggest actions leveraging their actual assets or resource-free actions (e.g. diplomacy, rhetoric, observation, personal meetings).
@@ -232,7 +265,7 @@ ${JSON.stringify(sanitizeEntityForNarration(updatedPlayerEntity), null, 2)}
 ${buildPlayerMarksBlock(updatedPlayerEntity)}
 ${playerContextLabel}
 ${asPromptData(playerSubmission.context)}
-${buildVoiceCastBlock(voiceCast)}
+${buildVoiceCastBlock(voiceCast)}${buildPublicTiesBlock(figuresAtHand)}
 PLAYER-PERCEIVED TURN EVENTS:
 ${JSON.stringify(perceivedEvents.map(({ text, source }) => ({ text, source })), null, 2)}
 ${buildPlayerOutcomeBlock(playerOutcomeDirective)}`;
@@ -281,7 +314,13 @@ export function buildPlayerMonologuePrompt(
    * same prompt they always have; only an explicit `false` adds the
    * no-attempt player-exclusion line below.
    */
-  hasObservableAttempt: boolean = true
+  hasObservableAttempt: boolean = true,
+  /**
+   * D49: the figures this week's headlines name, whose OPENLY professed ties
+   * the inner voice may weigh (buildPublicTiesBlock reads nothing else).
+   * Defaults to [] - no block, the prompt exactly as before.
+   */
+  figuresAtHand: readonly Entity[] = []
 ): { systemInstruction: string; prompt: string } {
   // `current_state_narrative` is left bare-quoted deliberately (D41 scope
   // note): it is a model-authored, schema-required string produced during
@@ -295,10 +334,15 @@ export function buildPlayerMonologuePrompt(
   const marksLine = marks.length > 0
     ? `\n    The lasting marks you bear (they weigh on you - let them color your thoughts): ${conditionsLine(marks)}`
     : '';
+  // D49: the player's own ties, the secret ones marked as theirs to keep.
+  const ties = affiliationsOf(player);
+  const tiesLine = ties.length > 0
+    ? `\n    Your ties: ${affiliationsLine(ties, { voice: 'own' })}`
+    : '';
   const systemInstruction = `
     You are the inner voice of ${player.name}, a ${player.position} in ancient Rome.
     Your personality is defined by: Ambition(${player.personality?.ambition}), Paranoia(${player.personality?.paranoia}), Loyalty(${player.personality?.loyalty}), Cunning(${player.personality?.cunning}), Honor(${player.personality?.honor}).
-    Your current state is: "${player.current_state_narrative}"${marksLine}
+    Your current state is: "${player.current_state_narrative}"${marksLine}${tiesLine}
 
     Task: Write a brief, first-person internal monologue (2-3 sentences). Do NOT simply state your goals. Instead, reflect on your recent strategy.
     - The recent entries are player-owned context, not necessarily strategic actions. Never reinterpret Private Intent or Question/Context as an avatar action, investigation, or accomplished fact.
@@ -318,7 +362,7 @@ export function buildPlayerMonologuePrompt(
 
     Here is a summary of your recent player-owned context over the last few weeks:
     ${recentActionsString}
-    `;
+    ${buildPublicTiesBlock(figuresAtHand)}`;
 
   return { systemInstruction, prompt };
 }

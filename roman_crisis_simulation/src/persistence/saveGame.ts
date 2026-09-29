@@ -39,7 +39,8 @@ import type { KnowledgeClaim } from '../knowledge/store';
 import type { PrivateSceneRecord } from '../privateScene/model';
 import type { VoiceCast } from '../narration/voiceCast';
 import { migrateSaveEnvelope } from './saveMigrations';
-import { normalizeConditions } from '../ai/core/conditions';
+import { conditionsOf, normalizeConditions } from '../ai/core/conditions';
+import { affiliationsOf, normalizeAffiliations } from '../ai/core/affiliations';
 
 /**
  * Bump this whenever `SaveGameState`'s shape changes in a backwards-
@@ -504,21 +505,28 @@ export function normalizeLoadedPrivateScenes(value: unknown): PrivateSceneRecord
 }
 
 /**
- * The per-entity load seam for the optional D48 field: an entity's
- * `conditions`, when present, are rebuilt record by record
- * (ai/core/conditions.ts::normalizeConditions) so a hand-edited or damaged
- * mark is dropped instead of crashing the status panel or a prompt on
- * render. An entity without the field - every save written before it
- * existed - is returned as the very same object, and a roster in which no
- * entity carries it as the very same array, so an old save loads unchanged.
+ * The per-entity load seam for the optional D48/D49 fields: an entity's
+ * `conditions` and `affiliations`, when present, are rebuilt record by
+ * record (ai/core/conditions.ts::normalizeConditions,
+ * ai/core/affiliations.ts::normalizeAffiliations) so a hand-edited or
+ * damaged record is dropped instead of crashing the status panel or a prompt
+ * on render. An entity whose fields are absent (every save written before
+ * they existed) or already sound is returned as the very same object, and a
+ * roster needing no repair as the very same array, so an old save - or a
+ * sound new one - loads unchanged.
  */
 export function normalizeLoadedEntities(entities: Entity[]): Entity[] {
-  if (!entities.some(entity => isRecord(entity) && 'conditions' in entity)) return entities;
+  const sound = (entity: Entity) => !isRecord(entity) || (
+    (entity.conditions === undefined || (Array.isArray(entity.conditions) && conditionsOf(entity).length === entity.conditions.length))
+    && (entity.affiliations === undefined || (Array.isArray(entity.affiliations) && affiliationsOf(entity).length === entity.affiliations.length))
+  );
+  if (entities.every(sound)) return entities;
   return entities.map(entity => {
-    if (!isRecord(entity) || !('conditions' in entity)) return entity;
-    const { conditions, ...rest } = entity;
+    if (sound(entity)) return entity;
+    const { conditions, affiliations, ...rest } = entity;
     const marks = normalizeConditions(conditions);
-    return marks ? { ...rest, conditions: marks } : rest;
+    const ties = normalizeAffiliations(affiliations);
+    return { ...rest, ...(marks ? { conditions: marks } : {}), ...(ties ? { affiliations: ties } : {}) };
   });
 }
 

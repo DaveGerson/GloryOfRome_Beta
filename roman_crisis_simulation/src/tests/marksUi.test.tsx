@@ -1,13 +1,16 @@
 /**
  * @vitest-environment jsdom
  *
- * The D48 marks on the player's surfaces and the GM console:
+ * The D48 marks and D49 ties on the player's surfaces and the GM console:
  *  - the player's own status panel lists every mark they bear, flagging the
- *    inward ones, and draws no register at all until the story leaves one;
+ *    inward ones, and every tie they hold, flagging the secret ones - and
+ *    draws neither register until there is something to show;
  *  - a Personae card shows only the marks the player has SEEN (read from the
  *    knowledge store), never the live entity's - an inward mark, or an
- *    outward one taken out of sight, never renders;
- *  - the GM console's entity view shows every mark (ground truth).
+ *    outward one taken out of sight, never renders - and a figure's openly
+ *    professed ties plus any secret tie the player has LEARNED, never live
+ *    secret state;
+ *  - the GM console's entity view shows every mark and tie (ground truth).
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import React, { act } from 'react';
@@ -18,7 +21,7 @@ import DramatisPersonaeTab from '../components/tabs/DramatisPersonaeTab';
 import { EntityStatesView } from '../components/gm/EntityStatesView';
 import { MARKS_COPY } from '../components/ui/Marks';
 import type { KnowledgeClaim } from '../knowledge/store';
-import type { Condition, Entity } from '../types';
+import type { Affiliation, Condition, Entity } from '../types';
 import type { RunDomainMutation } from '../state/domainMutation';
 import { makeEntity } from './factories';
 
@@ -46,6 +49,8 @@ async function mount(node: React.ReactNode): Promise<HTMLElement> {
 
 const scar: Condition = { id: 'scarred_cheek', name: 'a nasty scar', description: 'A jagged line from brow to jaw.', outward: true, severity: 'serious', since_turn: 2 };
 const nightmares: Condition = { id: 'nightmares', name: 'nightmares', description: 'He wakes screaming of the Rhine.', outward: false, severity: 'grave', since_turn: 3 };
+const openTie: Affiliation = { id: 'college_of_pontiffs', name: 'the college of pontiffs', kind: 'religion', public: true };
+const secretTie: Affiliation = { id: 'cult_of_bacchus', name: 'the cult of Bacchus', kind: 'cult', public: false };
 
 describe('PlayerStatus: the marks you bear', () => {
   it('draws no register until the story leaves a mark', async () => {
@@ -54,21 +59,22 @@ describe('PlayerStatus: the marks you bear', () => {
     expect(container.textContent).not.toContain(MARKS_COPY.ownLabel);
   });
 
-  it('lists every mark with its weight, flags the inward ones, and opens each account on focus (one line a mark)', async () => {
+  it('lists every mark, flags the inward ones, and opens each one\'s weight and account on focus (one running line)', async () => {
     const container = await mount(<PlayerStatus playerEntity={makeEntity({ current_state_narrative: 'Watchful.', conditions: [scar, nightmares] })} />);
     expect(container.textContent).toContain(MARKS_COPY.ownLabel);
+    expect(container.querySelector('.gor-marks')?.classList.contains('gor-marks-compact')).toBe(true);
     const items = Array.from(container.querySelectorAll('.gor-mark'));
     expect(items.map(item => item.querySelector('.gor-mark-name')?.textContent)).toEqual(['A nasty scar', 'Nightmares']);
-    expect(items[0].textContent).toContain('· serious');
     expect(items[0].querySelector('.gor-mark-flag')).toBeNull();
     expect(items[1].querySelector('.gor-mark-flag')?.textContent).toBe(MARKS_COPY.inward);
-    // Compact: the account is not a paragraph in the panel...
+    // Compact: neither the weight nor the account takes room in the panel...
+    expect(items[1].querySelector('.gor-mark-weight')).toBeNull();
     expect(items[1].querySelector('.gor-mark-desc')).toBeNull();
-    // ...it opens on focus, and describes the mark to assistive tech.
+    // ...they open on focus, and describe the mark to assistive tech.
     const name = items[1].querySelector<HTMLElement>('.gor-mark-name')!;
     await act(async () => name.focus());
     const tip = container.querySelector('[role="tooltip"]');
-    expect(tip?.textContent).toBe(nightmares.description);
+    expect(tip?.textContent).toBe(`Grave — ${nightmares.description}`);
     expect(name.getAttribute('aria-describedby')).toBe(tip?.id);
   });
 
@@ -137,12 +143,74 @@ describe('Personae: the marks the player has seen', () => {
   });
 });
 
-describe('GM console: every mark, ground truth', () => {
+describe('GM console: every mark and every tie, ground truth', () => {
   it('shows inward marks too, with how they show, their weight and the turn they were taken', async () => {
     const npc: Entity = makeEntity({ entity_id: 'courtier', name: 'Marcus', conditions: [scar, nightmares] });
     const container = await mount(<EntityStatesView entities={[npc]} />);
     expect(container.textContent).toContain('Conditions:');
     expect(container.textContent).toContain('a nasty scar [outward, serious, since T2]');
     expect(container.textContent).toContain('nightmares [INWARD, grave, since T3]');
+  });
+
+  it('shows secret ties too, marked, with their kind and faction link', async () => {
+    const npc: Entity = makeEntity({ entity_id: 'courtier', name: 'Marcus', affiliations: [openTie, { ...secretTie, faction_id: 'military_cabal' }] });
+    const container = await mount(<EntityStatesView entities={[npc]} />);
+    expect(container.textContent).toContain('Affiliations:');
+    expect(container.textContent).toContain('the college of pontiffs [public, religion]');
+    expect(container.textContent).toContain('the cult of Bacchus [SECRET, cult, military_cabal]');
+  });
+});
+
+describe('PlayerStatus: your ties', () => {
+  it('draws no register without a tie', async () => {
+    const container = await mount(<PlayerStatus playerEntity={makeEntity({})} />);
+    expect(container.textContent).not.toContain(MARKS_COPY.ownTiesLabel);
+  });
+
+  it('lists every tie of the player\'s own, the secret ones marked as kept secret', async () => {
+    const container = await mount(<PlayerStatus playerEntity={makeEntity({ affiliations: [openTie, secretTie, { id: 'x', name: 'the old families', kind: 'other', public: true }] })} />);
+    expect(container.textContent).toContain(MARKS_COPY.ownTiesLabel);
+    const items = Array.from(container.querySelectorAll('.gor-mark'));
+    // One running line on the panel: the name speaks for the kind.
+    expect(items.map(item => item.textContent)).toEqual([
+      'The college of pontiffs',
+      `The cult of Bacchus${MARKS_COPY.keptSecret}`,
+      'The old families',
+    ]);
+  });
+});
+
+describe('Personae: ties openly professed, and secret ones the player has learned', () => {
+  const runDomainMutation: RunDomainMutation = async work => ({ acquired: true, value: await work({ isCurrent: () => true }) });
+  const player = makeEntity({ entity_id: 'player', name: 'Severus Alexander', visibility_network: ['courtier'] });
+  const courtier = makeEntity({
+    entity_id: 'courtier', name: 'Marcus the Courtier', position: 'Chamberlain',
+    affiliations: [openTie, secretTie, { id: 'unlearned', name: 'LIVE_SECRET_TIE_SENTINEL', kind: 'cult', public: false }],
+  });
+  const witnessed: KnowledgeClaim = {
+    id: 'claim_3_digest:affiliation:courtier:cult_of_bacchus', subject: 'courtier', claim: 'You glimpse Marcus the Courtier among the cult of Bacchus, in secret.',
+    topic: 'affiliation', claimKey: 'digest:affiliation:courtier:cult_of_bacchus', firstLearnedTurn: 3,
+    updates: [{ turn: 3, source: 'witnessed', text: 'You glimpse Marcus the Courtier among the cult of Bacchus, in secret.', affiliation: { id: 'cult_of_bacchus', name: 'the cult of Bacchus', kind: 'cult', public: false, member: true } }],
+  };
+
+  async function render(knowledge: KnowledgeClaim[]) {
+    return mount(
+      <DramatisPersonaeTab playerEntity={player} entities={[player, courtier]} knowledge={knowledge} turnNumber={5}
+        onSpendDeepAnalysis={() => {}} onInvestigationOutcome={() => {}} runDomainMutation={runDomainMutation}
+        ai={{} as GoogleGenAI} isMockMode />,
+    );
+  }
+
+  it('shows the open tie always, a secret one only once learned - marked as known to the player - and never live secret state', async () => {
+    const before = await render([]);
+    expect(before.textContent).toContain('The college of pontiffs');
+    expect(before.textContent).not.toContain('The cult of Bacchus');
+    expect(before.textContent).not.toContain('LIVE_SECRET_TIE_SENTINEL');
+
+    const after = await render([witnessed]);
+    const items = Array.from(after.querySelectorAll('.gor-persona-marks .gor-mark')).map(item => item.textContent);
+    expect(items).toContain('The college of pontiffs · religion');
+    expect(items).toContain(`The cult of Bacchus · cult${MARKS_COPY.knownToYou}`);
+    expect(after.textContent).not.toContain('LIVE_SECRET_TIE_SENTINEL');
   });
 });

@@ -18,10 +18,14 @@
  * prompt may contain ONLY what the character plausibly knows -
  *  - its OWN full brief (its own secrets, scheme, personality, skills,
  *    beliefs, goals, resources, every lasting mark it bears - D48, inward
- *    ones included - and its own outbound relationship reads),
- *  - what shows on the figures it can see: their OUTWARD marks only, as the
- *    typed projection perception/npcPerception.ts::figuresInViewOf builds -
- *    never another entity's record, never an inward mark,
+ *    ones included - every tie it holds - D49, secret ones included - and
+ *    its own outbound relationship reads),
+ *  - what anyone could know of the figures it knows: the OUTWARD marks of
+ *    those in its room and the ties each OPENLY professes, as the typed
+ *    projection perception/npcPerception.ts::figuresInViewOf builds - never
+ *    another entity's record, an inward mark or a secret tie (the player's
+ *    included: an NPC learns a secret tie only by witnessing it, in its own
+ *    memories),
  *  - its OWN perception-grounded memories (Entity.memories, the D10 stamp),
  *  - its OWN perceived digest of the previous turn's events (the same
  *    viewer-agnostic filter in perception/visibility.ts, run from THIS
@@ -59,6 +63,7 @@ import { MAX_FIGURES_IN_VIEW, type FigureInView } from '../../perception/npcPerc
 import type { PrivateSceneNpcMemoryProjection } from '../../privateScene/model';
 import { asPromptData } from './fragments';
 import { conditionsLine, conditionsOf } from '../core/conditions';
+import { affiliationsLine, affiliationsOf } from '../core/affiliations';
 
 /**
  * Cost/latency cap on mind calls per turn (D16/D22): at most this many
@@ -99,27 +104,36 @@ export interface NpcMindPromptInput {
   /** This NPC's own completed private audiences only, newest first; raw records and other NPCs never cross this seam. */
   privateSceneMemories?: readonly PrivateSceneNpcMemoryProjection[];
   /**
-   * The other figures this character can see, as the typed projection
-   * perception/npcPerception.ts::figuresInViewOf builds - only what shows on
-   * them (their OUTWARD marks, D48), never a record of theirs. Optional:
+   * The other figures this character knows of, as the typed projection
+   * perception/npcPerception.ts::figuresInViewOf builds - only what anyone
+   * could know of them (the OUTWARD marks of those in the room, D48; the
+   * ties they openly profess, D49), never a record of theirs. Optional:
    * absent or empty, no block.
    */
   figuresInView?: readonly FigureInView[];
 }
 
 /**
- * The FIGURES YOU CAN SEE block (D48): what shows on the people around this
- * character, rendered field by field from the typed projection. Empty when
- * no one in view carries a visible mark.
+ * The FIGURES AROUND YOU block (D48/D49): what anyone could know of the
+ * people this character knows - the marks showing on those in the room and
+ * the ties each openly professes - rendered field by field from the typed
+ * projection. Empty when no one known has anything to show.
  */
 export function buildFiguresInViewBlock(figures: readonly FigureInView[] | undefined): string {
   if (!figures || figures.length === 0) return '';
-  const lines = figures.slice(0, MAX_FIGURES_IN_VIEW).map(figure =>
-    `- ${figure.name} (here with you): bears ${figure.outwardConditions
-      .map(mark => `${mark.name} (${mark.severity})${mark.description ? `: ${mark.description}` : ''}`)
-      .join('; ')}`);
+  const lines = figures.slice(0, MAX_FIGURES_IN_VIEW).map(figure => {
+    const shown = [
+      figure.outwardConditions.length > 0
+        ? `bears ${figure.outwardConditions.map(mark => `${mark.name} (${mark.severity})${mark.description ? `: ${mark.description}` : ''}`).join('; ')}`
+        : '',
+      figure.publicAffiliations.length > 0
+        ? `openly of ${figure.publicAffiliations.map(tie => `${tie.name} (${tie.kind})`).join('; ')}`
+        : '',
+    ].filter(Boolean).join(' - ');
+    return `- ${figure.name}${figure.present ? ' (here with you)' : ''}: ${shown}`;
+  });
   return `
-FIGURES YOU CAN SEE (only what anyone near them could see):
+FIGURES AROUND YOU (only what anyone could know: the marks showing on those beside you, and the ties each openly professes):
 ${lines.join('\n')}
 `;
 }
@@ -210,6 +224,11 @@ export function buildMindSelfBrief(self: Entity): string {
   const marks = conditionsOf(self);
   if (marks.length > 0) {
     lines.push(`Lasting marks you bear (let them weigh on what you set out to do): ${conditionsLine(marks)}`);
+  }
+  // D49: every tie of your own, the secret ones marked as yours to keep.
+  const ties = affiliationsOf(self);
+  if (ties.length > 0) {
+    lines.push(`Your ties: ${affiliationsLine(ties, { voice: 'own' })}`);
   }
   if (Object.keys(self.resources).length > 0) {
     lines.push(`Your resources: ${Object.entries(self.resources).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(' / ') : v}`).join(', ')}.`);

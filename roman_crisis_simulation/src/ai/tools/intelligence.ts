@@ -172,7 +172,17 @@ export const getInvestigationResult = async (ai: GoogleGenAI, target: Entity, pl
  * (defense-in-depth per the design doc's REACHABILITY FINDING - this call is
  * never reached on a validated no-attempt submission).
  */
-export const getPlayerMonologue = async (ai: GoogleGenAI, player: Entity, turnHeadlines: string[], recentPlayerIntents: string[], hasObservableAttempt: boolean, isMockMode: boolean): Promise<PlayerMonologuePayloadInterchange> => {
+export const getPlayerMonologue = async (
+    ai: GoogleGenAI,
+    player: Entity,
+    turnHeadlines: string[],
+    recentPlayerIntents: string[],
+    hasObservableAttempt: boolean,
+    isMockMode: boolean,
+    // D49: the figures the headlines name - only their OPENLY professed ties
+    // reach the prompt (buildPlayerMonologuePrompt). Optional, [] = none.
+    figuresAtHand: readonly Entity[] = [],
+): Promise<PlayerMonologuePayloadInterchange> => {
     if (isMockMode) {
         if(!mockGetPlayerMonologue) throw new Error("Mock function 'mockGetPlayerMonologue' is not implemented.");
         const payload = await mockGetPlayerMonologue(player, turnHeadlines, recentPlayerIntents);
@@ -180,7 +190,7 @@ export const getPlayerMonologue = async (ai: GoogleGenAI, player: Entity, turnHe
         return payload;
     }
 
-    const { systemInstruction, prompt } = buildPlayerMonologuePrompt(player, turnHeadlines, recentPlayerIntents, hasObservableAttempt);
+    const { systemInstruction, prompt } = buildPlayerMonologuePrompt(player, turnHeadlines, recentPlayerIntents, hasObservableAttempt, figuresAtHand);
     const payload = await generateStructured<PlayerMonologuePayloadInterchange>(ai, {
         callName: 'playerMonologue',
         model: GEMINI_FLASH,

@@ -23,7 +23,7 @@ import {
 import { buildAdjudicationPrompt, PlayerActionOutcomeContext, HistoricalMaterialEntry } from '../prompts/adjudication';
 import type { PrivateSceneAdjudicatorProjection, PrivateSceneNpcMemoryProjection } from '../../privateScene/model';
 import { selectRipeEventMaterial } from '../../events/engine';
-import { buildNarrationPrompt, selectVoiceCast } from '../prompts/narration';
+import { buildNarrationPrompt, MAX_VOICE_CAST, selectVoiceCast } from '../prompts/narration';
 import { processMortality, detectDeathClaims } from './mortality';
 import { createNarrationStreamGate, createPayloadTextExtractor, splitNarrationSuggestions } from './streamSplit';
 import { rollD20, resolveAction, clampDifficulty, derivePersonalityModifier, deriveOppositionModifier, createSeededRng, generateSeed, type Rng } from './resolution';
@@ -127,6 +127,19 @@ function textContainsWholeDisplayName(text: string, displayName: string): boolea
         'iu'
     );
     return pattern.test(normalizedText);
+}
+
+/**
+ * The figures (other than the player) whose display name the given
+ * player-visible texts render, in roster order, bounded like the voice cast
+ * (MAX_VOICE_CAST). D49: the player-owned prose may carry their OPENLY
+ * professed ties - public knowledge about figures already in view.
+ */
+function figuresNamedIn(texts: readonly string[], entities: Entity[], playerId: string): Entity[] {
+    return entities
+        .filter(entity => entity.entity_id !== playerId && entity.name.trim().length > 0
+            && texts.some(text => textContainsWholeDisplayName(text, entity.name)))
+        .slice(0, MAX_VOICE_CAST);
 }
 
 // MAX_NPC_INTENTS/selectDurableIntents now live in ./directorIntents (moved
@@ -744,8 +757,9 @@ async function runNpcMindsStage(ctx: TurnContext, storyRelevance: StoryRelevance
                 worldSummary,
                 turnNumber: ctx.turnNumber,
                 privateSceneMemories: ctx.options?.privateSceneNpcMemoriesByNpcId?.[npc.entity_id],
-                // What shows on the people this character can see (D48):
-                // a typed projection of their outward marks, never their
+                // What anyone could know of the people this character knows
+                // (D48/D49): a typed projection of the outward marks of those
+                // in its room and the ties each openly professes, never their
                 // records.
                 figuresInView: figuresInViewOf(npc, currentEntities),
             }, ctx.isMockMode);
@@ -1109,9 +1123,12 @@ async function runPlayerSurfacesStage(
     // Task 4: getPlayerMonologue now returns the structured { text, actors }
     // payload; the no-attempt short-circuit mirrors that shape exactly (an
     // empty declaration on an empty string is always inert).
+    // D49: the figures this week's public headlines name - the inner voice
+    // may weigh the ties they OPENLY profess (public knowledge), never more.
+    const headlineFigures = figuresNamedIn(transformedAdjudication.headlines, updatedEntities, playerEntity.entity_id);
     const monologuePromise = noAttemptResponse
         ? Promise.resolve<PlayerMonologuePayloadInterchange>({ text: '', actors: [] })
-        : getPlayerMonologue(ai, updatedPlayerEntity, transformedAdjudication.headlines, recentPlayerIntents, narrationSubmission.hasObservableAttempt, isMockMode);
+        : getPlayerMonologue(ai, updatedPlayerEntity, transformedAdjudication.headlines, recentPlayerIntents, narrationSubmission.hasObservableAttempt, isMockMode, headlineFigures);
 
     // Get narration and suggested actions. The event input crosses the D5
     // visibility seam first, then is narrowed field-by-field to text/source.
@@ -1146,7 +1163,10 @@ async function runPlayerSurfacesStage(
     // explains the escape"). Re-checked at this seam although both of its
     // sources already pass the mechanics boundary.
     if (playerOutcomeDirective !== undefined) assertPlayerVisibleTextSafe(playerOutcomeDirective);
-    const narrationPrompt = buildNarrationPrompt(ctx.metaNarrative, updatedPlayerEntity, narrationSubmission, playerNarrationEvents, voiceCast, playerOutcomeDirective);
+    // D49: the same identities the voice cast may draw on - named in the
+    // player's own perceived events - carry their OPENLY professed ties.
+    const figuresAtHand = figuresNamedIn(playerNarrationEvents.map(event => event.text), updatedEntities, playerEntity.entity_id);
+    const narrationPrompt = buildNarrationPrompt(ctx.metaNarrative, updatedPlayerEntity, narrationSubmission, playerNarrationEvents, voiceCast, playerOutcomeDirective, figuresAtHand);
     const narrationRequest = {
         callName: 'narration',
         model: GEMINI_PRO,

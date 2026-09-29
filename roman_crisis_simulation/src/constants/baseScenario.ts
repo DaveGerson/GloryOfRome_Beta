@@ -65,7 +65,15 @@ export const ROME_INITIAL_STATE: Entity[] = [
         },
         memories: [{ turn: 0, event_description: "Ascended to the throne under the regency of his mother, Julia Mamaea.", emotional_impact: "Hopeful but pressured", involved_entities: ["julia_mamaea"] }],
         resources: { denarii: 50000, deep_analyses: 4, investigations: 1 },
-        visibility_network: ["julia_mamaea", "maximinus_thrax", "praetorian_guard", "roman_senate", "senatorial_party", "military_cabal"]
+        visibility_network: ["julia_mamaea", "maximinus_thrax", "praetorian_guard", "roman_senate", "senatorial_party", "military_cabal"],
+        // D49: as emperor he keeps the state cult in the open; the Historia
+        // Augusta has him honouring Christ, Abraham and Orpheus with the
+        // deified emperors at his private lararium - a devotion for his own
+        // chapel, not the Forum.
+        affiliations: [
+            { id: "gods_of_the_roman_state", name: "the gods of the Roman state", kind: "religion", public: true },
+            { id: "sages_of_his_private_lararium", name: "the sages of his private lararium", kind: "religion", public: false },
+        ]
     },
     {
         entity_id: "maximinus_thrax", name: "Maximinus Thrax", entity_type: "individual", status: "alive", position: "General of the Legions", location: "Praetorian Camp", faction_id: "military_cabal",
@@ -94,7 +102,11 @@ export const ROME_INITIAL_STATE: Entity[] = [
         },
         memories: [{ turn: 0, event_description: "Was scorned by the Senate for his 'barbarian' origins despite his military victories.", emotional_impact: "Resentful", involved_entities: ["roman_senate"] }],
         resources: { denarii: 0, legion_support: 85, deep_analyses: 4, investigations: 1 },
-        visibility_network: ["severus_alexander", "roman_senate", "senatorial_party"]
+        visibility_network: ["severus_alexander", "roman_senate", "senatorial_party"],
+        // D49: the grievance he wears in the open.
+        affiliations: [
+            { id: "cause_of_the_frontier_legions", name: "the cause of the frontier legions", kind: "cause", public: true },
+        ]
     },
     {
         entity_id: "praetorian_guard", name: "Praetorian Guard", entity_type: "group", status: "alive", location: "Praetorian Camp",
@@ -149,7 +161,12 @@ export const ROME_INITIAL_STATE: Entity[] = [
             "severus_alexander": { entity_id: "severus_alexander", relationship_type: "family (son)", trust_level: 9, respect_level: 8, perceived_threat: 0, ideological_alignment: 8, dependency_level: 10, recent_interactions: [] }
         },
         memories: [], resources: { personal_fortune: 100000 },
-        visibility_network: ["severus_alexander", "praetorian_guard", "roman_senate", "senatorial_party", "military_cabal"]
+        visibility_network: ["severus_alexander", "praetorian_guard", "roman_senate", "senatorial_party", "military_cabal"],
+        // D49: historically she sought out the Christian teacher Origen - a
+        // quiet sympathy, kept private.
+        affiliations: [
+            { id: "circle_of_origen", name: "the circle of Origen", kind: "religion", public: false },
+        ]
     },
     {
         entity_id: "gaius_pontius_magnus", name: "Gaius Pontius Magnus", entity_type: "individual", status: "alive", position: "Senior Senator", location: "The Curia", faction_id: "senatorial_party",
@@ -180,7 +197,11 @@ export const ROME_INITIAL_STATE: Entity[] = [
         },
         memories: [],
         resources: { denarii: 250000, senatorial_support: 80, deep_analyses: 2, investigations: 2 },
-        visibility_network: ["severus_alexander", "maximinus_thrax", "praetorian_guard", "roman_senate", "julia_mamaea", "military_cabal"]
+        visibility_network: ["severus_alexander", "maximinus_thrax", "praetorian_guard", "roman_senate", "julia_mamaea", "military_cabal"],
+        // D49: an old family's priesthood, worn as openly as the toga.
+        affiliations: [
+            { id: "college_of_pontiffs", name: "the college of pontiffs", kind: "religion", public: true },
+        ]
     },
     {
         entity_id: "lycinia_stolo", name: "Lycinia Stolo", entity_type: "individual", status: "alive", position: "Informant Broker", location: "The Suburra",
@@ -211,7 +232,12 @@ export const ROME_INITIAL_STATE: Entity[] = [
         },
         memories: [],
         resources: { denarii: 20000, deep_analyses: 6, investigations: 5 },
-        visibility_network: ["severus_alexander", "maximinus_thrax", "praetorian_guard", "roman_senate", "julia_mamaea", "senatorial_party", "military_cabal"]
+        visibility_network: ["severus_alexander", "maximinus_thrax", "praetorian_guard", "roman_senate", "julia_mamaea", "senatorial_party", "military_cabal"],
+        // D49: the rites the Senate outlawed four centuries ago still meet in
+        // the Suburra's cellars, and she keeps her place among them quiet.
+        affiliations: [
+            { id: "cult_of_bacchus", name: "the cult of Bacchus", kind: "cult", public: false },
+        ]
     }
 ];
 

@@ -3,6 +3,7 @@ import { Entity, Relationship, Memory } from '../../types';
 import { well, DIM, PARCH, RED, MONO } from './shared';
 import { SchemeLine } from './SchemeLine';
 import { conditionsOf } from '../../ai/core/conditions';
+import { affiliationsOf } from '../../ai/core/affiliations';
 
 export const EntityStatesView: React.FC<{ entities: Entity[] }> = ({ entities }) => (
     <>
@@ -30,6 +31,15 @@ export const EntityStatesView: React.FC<{ entities: Entity[] }> = ({ entities })
                         <strong style={{ color: DIM }}>Conditions:</strong>{' '}
                         {conditionsOf(entity).map((condition, i) => (
                             <span key={condition.id}>{i > 0 && ' · '}{condition.name} <span style={{ color: DIM }}>[{condition.outward ? 'outward' : 'INWARD'}, {condition.severity}, since T{condition.since_turn}]</span></span>
+                        ))}
+                    </div>
+                )}
+                {/* D49 ground truth: every tie, secret ones included. */}
+                {affiliationsOf(entity).length > 0 && (
+                    <div style={{ fontSize: 13, marginTop: 6, color: PARCH }}>
+                        <strong style={{ color: DIM }}>Affiliations:</strong>{' '}
+                        {affiliationsOf(entity).map((affiliation, i) => (
+                            <span key={affiliation.id}>{i > 0 && ' · '}{affiliation.name} <span style={{ color: DIM }}>[{affiliation.public ? 'public' : 'SECRET'}, {affiliation.kind}{affiliation.faction_id ? `, ${affiliation.faction_id}` : ''}]</span></span>
                         ))}
                     </div>
                 )}

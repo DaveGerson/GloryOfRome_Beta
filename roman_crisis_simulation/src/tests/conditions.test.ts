@@ -315,12 +315,12 @@ describe('D48 prompts: conditions shape intended actions, and an inward mark rea
     const rival = makeEntity({ entity_id: 'rival', name: 'Gaius Pontius', conditions: [scar, nightmares] });
     const away = makeEntity({ entity_id: 'away', name: 'Far Senator', location: 'The Suburra', conditions: [{ ...scar, description: 'FAR_SCAR_SENTINEL' }] });
     const figures = figuresInViewOf(selfMarked, [selfMarked, rival, away]);
-    expect(figures).toEqual([{ entity_id: 'rival', name: 'Gaius Pontius', outwardConditions: [{ name: 'a nasty scar', description: scar.description, severity: 'serious' }] }]);
+    expect(figures).toEqual([{ entity_id: 'rival', name: 'Gaius Pontius', present: true, outwardConditions: [{ name: 'a nasty scar', description: scar.description, severity: 'serious' }], publicAffiliations: [] }]);
     const { prompt } = buildNpcMindPrompt({
       self: selfMarked, perceivedChanges: [], publicHeadlines: [], worldSummary: 'Year 235.', turnNumber: 5, figuresInView: figures,
     });
     expect(prompt).toContain('Lasting marks you bear (let them weigh on what you set out to do): nightmares (grave; inward - known only to its bearer): OWN_INWARD_MARK');
-    expect(prompt).toContain('FIGURES YOU CAN SEE');
+    expect(prompt).toContain('FIGURES AROUND YOU');
     expect(prompt).toContain('- Gaius Pontius (here with you): bears a nasty scar (serious): A jagged line from brow to jaw.');
     expect(prompt).not.toContain('INWARD_MARK_SENTINEL');
     expect(prompt).not.toContain('FAR_SCAR_SENTINEL');

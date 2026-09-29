@@ -132,7 +132,7 @@ OUTCOME DELTA AUTHORIZATION (preserve the established side-effect mechanics):
 - resource, condition and scheme deltas MUST target the candidate whose fate is being dressed.
 - A relation delta may place the candidate on either side of the directional candidate-to-other relationship key; the other endpoint MUST also be the exact entity_id of a real entity from the available context.
 - A rumor key MUST be the candidate entity_id because the rumor concerns that candidate. Its origin_id may name any real entity who spreads it, including a third party, or be omitted only for a genuinely organic rumor.
-- Region, faction, world, unrelated-entity, and any other effects are outside this mortality outcome. Never emit them here.
+- Region, faction, affiliation, world, unrelated-entity, and any other effects are outside this mortality outcome. Never emit them here.
 
 RUMOR DELTAS: EVERY 'rumor' delta you emit MUST also carry two GM-private bookkeeping fields:
 - 'is_true' (boolean, ALWAYS set): whether the claim is ACTUALLY TRUE in the simulation's reality, ruled STRICTLY by world-truth - never omit it, and there is no "unknown". For a 'presumed_dead' candidate the world-truth is that they secretly LIVE: a rumor claim asserting or confirming their death is 'is_true' FALSE, however completely the world believes it.

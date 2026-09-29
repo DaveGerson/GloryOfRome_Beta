@@ -94,7 +94,9 @@
 .gor-mark-weight{font-style:italic;color:var(--text-muted)}
 .gor-mark-flag{display:inline-block;margin-left:8px;padding:0 5px;border:1px solid currentColor;border-radius:var(--radius-sm);font-family:var(--font-display);font-size:10.5px;font-weight:600;letter-spacing:.1em;line-height:1.5;text-transform:uppercase;color:var(--tyrian-500);vertical-align:1px}
 .gor-mark-desc{display:block;font-size:13.5px;font-style:italic;color:var(--text-muted)}
-.gor-marks-compact{gap:2px}
+.gor-marks-compact{flex-direction:row;flex-wrap:wrap;gap:2px 0}
+.gor-marks-compact .gor-mark:not(:last-child)::after{content:"·"/"";margin:0 8px;color:var(--text-muted)}
+.gor-marks-compact .gor-mark-flag{margin-left:6px}
 .gor-mark-name-gloss{cursor:help;border-bottom:1px dotted var(--border-strong)}
 .gor-mark-name-gloss:focus-visible{outline:none;box-shadow:var(--focus-ring);border-radius:2px}
 .gor-persona-marks{display:flex;flex-direction:column;gap:3px}
