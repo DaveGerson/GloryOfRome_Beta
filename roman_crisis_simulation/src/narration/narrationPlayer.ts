@@ -6,7 +6,9 @@
  * `useSyncExternalStore` without a single setState in an effect.
  *
  *  - One clip at a time. Starting another stops the current one - and
- *    cancels one still being prepared.
+ *    tells one still being prepared that nobody waits on it: its renderer's
+ *    `signal` reads aborted, so it takes no paid step it has not already
+ *    begun (the TTS call after the prep call).
  *  - Per message, idle -> preparing -> playing -> idle, or -> error. Only
  *    the message that last asked has a non-idle state; every other is idle.
  *  - An in-memory LRU of WAV object URLs, keyed by message index plus a
@@ -14,7 +16,11 @@
  *    answer for a real performance), capped at `maxCached`. A URL is
  *    revoked when it is evicted and when the player is disposed. Asking for
  *    a message already cached, or already being prepared, never renders it
- *    again - no second API call for the same narration.
+ *    again - no second API call for the same narration. A press after a
+ *    stop rejoins a preparation still out and wants it again, so its
+ *    renderer goes on; a clip that lands after a stop is still cached. (A
+ *    stalled request cannot hold a message for the session: every model
+ *    call has a deadline, ai/core/geminiService.ts.)
  *  - Nothing is persisted: no save field, no localStorage, no eval-corpus
  *    entry. Audio lives in this object and dies with it.
  *  - A rejected `play()` (the browser's autoplay policy) is not an error:
@@ -29,8 +35,35 @@ export interface NarrationPlayback {
   status: NarrationVoiceStatus;
 }
 
-/** Renders one narration (message `index`'s text) to playable audio. Throws on failure. */
-export type NarrationRenderer = (text: string, index: number) => Promise<Blob>;
+/**
+ * Whether a render is still wanted. `aborted` is true while no request waits
+ * on it (stopped, superseded, disposed). Unlike an AbortSignal it can turn
+ * back: a press that rejoins the render wants it again.
+ */
+export interface NarrationRenderSignal {
+  readonly aborted: boolean;
+}
+
+/**
+ * Renders one narration (message `index`'s text) to playable audio. Throws
+ * on failure. A renderer reads `signal.aborted` before each paid step it has
+ * not begun, and throws instead of taking it.
+ */
+export type NarrationRenderer = (text: string, index: number, signal: NarrationRenderSignal) => Promise<Blob>;
+
+/** A render's signal: a stop or a supersede clears `wanted`, a rejoining press sets it again. */
+class RenderInterest implements NarrationRenderSignal {
+  wanted = true;
+
+  get aborted(): boolean {
+    return !this.wanted;
+  }
+}
+
+interface Preparation {
+  promise: Promise<string>;
+  interest: RenderInterest;
+}
 
 export const DEFAULT_NARRATION_CACHE_SIZE = 20;
 
@@ -56,7 +89,9 @@ export class NarrationPlayer {
   private snapshot: NarrationPlayback = IDLE;
   private readonly listeners = new Set<() => void>();
   private readonly cache = new Map<string, string>();
-  private readonly inFlight = new Map<string, Promise<string>>();
+  private readonly inFlight = new Map<string, Preparation>();
+  /** The preparation the latest request waits on: the one a stop no longer wants. */
+  private waitedKey: string | null = null;
   private readonly maxCached: number;
   private readonly createAudio: () => HTMLAudioElement;
   private audio: HTMLAudioElement | null = null;
@@ -108,13 +143,16 @@ export class NarrationPlayer {
 
   async play(index: number, text: string, options: { auto?: boolean } = {}): Promise<void> {
     this.silenceAudio();
+    const key = this.cacheKey(index, text);
+    // Another clip still being prepared is no longer wanted.
+    if (this.waitedKey !== key) this.letGoOfPreparation();
     const request = ++this.requestId;
     this.currentText = text;
     this.setSnapshot({ index, status: 'preparing' });
 
     let url: string;
     try {
-      url = await this.urlFor(index, text);
+      url = await this.urlFor(key, index, text);
     } catch (error) {
       if (request !== this.requestId) return;
       console.warn('NarrationPlayer: the narration could not be prepared', error);
@@ -138,6 +176,7 @@ export class NarrationPlayer {
 
   stop(): void {
     this.requestId++;
+    this.letGoOfPreparation();
     this.silenceAudio();
     this.setSnapshot(IDLE);
   }
@@ -154,6 +193,7 @@ export class NarrationPlayer {
     }
     for (const url of this.cache.values()) URL.revokeObjectURL(url);
     this.cache.clear();
+    for (const preparation of this.inFlight.values()) preparation.interest.wanted = false;
     this.inFlight.clear();
   }
 
@@ -161,8 +201,19 @@ export class NarrationPlayer {
     return `${this.variant}:${index}:${hashText(text)}`;
   }
 
-  private urlFor(index: number, text: string): Promise<string> {
-    const key = this.cacheKey(index, text);
+  /**
+   * The preparation the latest request waited on is no longer wanted: its
+   * renderer takes no paid step it has not begun. It stays in flight, so a
+   * press before it settles rejoins it instead of paying for it again.
+   */
+  private letGoOfPreparation(): void {
+    const key = this.waitedKey;
+    this.waitedKey = null;
+    const preparation = key === null ? undefined : this.inFlight.get(key);
+    if (preparation) preparation.interest.wanted = false;
+  }
+
+  private urlFor(key: string, index: number, text: string): Promise<string> {
     const cached = this.cache.get(key);
     if (cached) {
       // LRU touch: re-insert as most recent.
@@ -171,12 +222,17 @@ export class NarrationPlayer {
       return Promise.resolve(cached);
     }
     const pending = this.inFlight.get(key);
-    if (pending) return pending;
+    if (pending) {
+      pending.interest.wanted = true;
+      this.waitedKey = key;
+      return pending.promise;
+    }
 
     const renderer = this.renderer;
     if (!renderer) return Promise.reject(new Error('NarrationPlayer: no renderer set'));
     const generation = this.generation;
-    const promise = renderer(text, index).then(blob => {
+    const interest = new RenderInterest();
+    const promise = renderer(text, index, interest).then(blob => {
       const url = URL.createObjectURL(blob);
       if (generation !== this.generation) {
         URL.revokeObjectURL(url);
@@ -186,9 +242,10 @@ export class NarrationPlayer {
       this.evict();
       return url;
     });
-    this.inFlight.set(key, promise);
+    this.inFlight.set(key, { promise, interest });
+    this.waitedKey = key;
     const clear = () => {
-      if (this.inFlight.get(key) === promise) this.inFlight.delete(key);
+      if (this.inFlight.get(key)?.promise === promise) this.inFlight.delete(key);
     };
     promise.then(clear, clear);
     return promise;

@@ -112,6 +112,12 @@ export interface CastVoicesInput {
   defaultNarrator: DefaultNarrator;
   /** The cast so far: its members are kept in 'newcomers' mode, its overrides in both. */
   existing: VoiceCast | null;
+  /**
+   * Everyone the player knows now, cast or not. At the cast's size cap a
+   * kept member missing from it (dead, or no longer known) gives way to a
+   * newcomer (`assembleCast`).
+   */
+  liveIds?: readonly string[];
 }
 
 export interface CastVoicesResult {
@@ -212,6 +218,6 @@ export async function castVoices(ai: GeminiClient, input: CastVoicesInput, isMoc
       .map(([id, m]) => ({ id, name: m.name, voiceName: m.voiceName, style: m.style, rationale: m.rationale, source: m.source }))
     : [];
   const overrides = Object.fromEntries(Object.entries(input.existing?.members ?? {}).map(([id, m]) => [id, m.override]));
-  const cast = assembleCast(narrator, keep, [...proposals, ...stale], revision, overrides);
+  const cast = assembleCast(narrator, keep, [...proposals, ...stale], revision, overrides, input.liveIds ? new Set(input.liveIds) : undefined);
   return { cast, usedFallback: isMockMode || !answer || fallbackIds.length > 0 };
 }

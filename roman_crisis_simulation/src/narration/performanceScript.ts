@@ -61,11 +61,16 @@
  *     (ai/core/playerBoundary.ts). Checked before 3, so a fidelity verdict
  *     means every other rule held.
  *
- * Known limit of 3: a new name that only ever opens a sentence reads like
- * any sentence-initial word and is not caught, and numbers spelled out in
- * words are not compared. The prompt's fidelity rule covers those; the
- * tuning harness (narration/tuning/) reports refusals verbatim so a
- * narrator can be tuned against them.
+ * Known limit of 3: a new name that only ever opens a sentence (at the
+ * start, after a line break or after a sentence end, quoted or not) reads
+ * like any sentence-initial word and is not caught, and numbers spelled out
+ * in words are not compared. Nothing else exempts a word: after a colon, a
+ * semicolon, a bracket, a single quote or a quote inside a sentence, a
+ * capitalized word is checked; speech quoted after a comma or a colon
+ * (`He roars, "Drink!"`) may open only with a common word - one the passage
+ * or the script uses in lower case (`opensSentence`). The prompt's fidelity
+ * rule covers those limits; the tuning harness (narration/tuning/) reports
+ * refusals verbatim so a narrator can be tuned against them.
  *
  * Patching (rule 3 only, deterministic, zero tokens): a retelling that
  * breaks the fidelity rule is not refused wholesale. It is split into
@@ -131,6 +136,39 @@ export type PerformanceRejection =
 
 export type PerformanceValidation = { ok: true } | { ok: false; reason: PerformanceRejection };
 
+/**
+ * Speaker labels a model may open a script or a line with ("Confidant:" is
+ * named in the prompt's own rule against them; "Transcript:" is the TTS
+ * heading written bare). Anything outside a cue is read aloud, so a label
+ * left in is spoken.
+ */
+const SPEAKER_LABEL = /^(?:Narrator|Storyteller|Bard|Speaker|Confidant|Transcript)[ \t]*:\s*/gim;
+
+/**
+ * A label of one to three capitalized words ("Maximinus:", "The Dramatic
+ * Reader:") at a line's start, straight before a cue: a speaker label,
+ * whoever it names. Only before a cue - "Rome: a city holding its breath"
+ * is prose, and stays.
+ */
+const NAMED_LABEL_BEFORE_CUE = /^\p{Lu}[\p{L}\p{M}'’-]*(?:[ \t]+\p{Lu}[\p{L}\p{M}'’-]*){0,2}[ \t]*:[ \t]*(?=[<[])/gmu;
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Every speaker label a narrator's script opens a line with: the fixed set,
+ * a capitalized label straight before a cue, and - whatever follows - any
+ * of `names` (the narrator in character, the listener) written as a label.
+ * Run on the narrator's raw answer, before the guard reads it, so the guard
+ * and the voice see the same words.
+ */
+function stripSpeakerLabels(text: string, names: readonly string[] = []): string {
+  const known = names.map(name => name.trim()).filter(Boolean).map(escapeRegExp);
+  const stripped = text.replace(SPEAKER_LABEL, '').replace(NAMED_LABEL_BEFORE_CUE, '');
+  return known.length > 0 ? stripped.replace(new RegExp(`^(?:${known.join('|')})[ \\t]*:\\s*`, 'gim'), '') : stripped;
+}
+
 /** The packaging a model may wrap a script in: code fences, markdown headings ("## Transcript:"), speaker labels, bold markers. */
 function stripPackaging(transcript: string): string {
   return transcript
@@ -138,7 +176,7 @@ function stripPackaging(transcript: string): string {
     .replace(/\n?```\s*$/gim, '')
     .replace(/^#+\s*(?:Transcript:?|[^\n]*)\n+/gim, '')
     .replace(/^#+\s*/gm, '')
-    .replace(/^(?:Narrator|Storyteller|Bard|Speaker)\s*:\s*/gim, '')
+    .replace(SPEAKER_LABEL, '')
     .replace(/\*\*/g, '');
 }
 
@@ -328,9 +366,7 @@ export type CueFault =
 function cueChecker(original: string, transcript: string): (direction: string) => CueFault | null {
   const originalWords = new Set(spokenTokens(speakableText(original)));
   // Words the script and the passage use in lower case: a cue may open with one capitalized.
-  const lowerCaseWords = new Set(
-    [speakableText(original), transcript].join(' ').match(/(?<![\p{L}\p{M}'])\p{Ll}[\p{Ll}\p{M}]*/gu) ?? [],
-  );
+  const lowerCaseWords = lowerCaseWordsOf(speakableText(original), transcript);
   return direction => {
     if (!direction.trim()) return 'empty_direction';
     if (direction.length > MAX_DIRECTION_CHARS) return 'direction_too_long';
@@ -387,6 +423,11 @@ export function dropBadCues(original: string, transcript: string): { kept: strin
   return { kept, droppedCues };
 }
 
+/** Every word the texts use in lower case (a word, not the tail of one: "don't" gives "don"). */
+function lowerCaseWordsOf(...texts: string[]): Set<string> {
+  return new Set(texts.join(' ').match(/(?<![\p{L}\p{M}'])\p{Ll}[\p{Ll}\p{M}]*/gu) ?? []);
+}
+
 /** Plenty for a performed reading (about one per sentence); a wall of them is not a performance. */
 function maxDirectionsFor(wordCount: number): number {
   return 2 + Math.floor(wordCount / 5);
@@ -419,26 +460,56 @@ function numberKey(figure: string): string {
 }
 
 /**
- * Whether the word at `index` opens a sentence (or a quotation): reading
- * backwards over spaces, opening quotes and brackets, the text starts, or a
- * line breaks, or sentence punctuation stands - or a quote or bracket was
- * crossed, since a word right after one opens quoted speech.
+ * What the word at `index` opens, reading backwards over spaces:
+ *
+ *  - 'sentence': the text starts, a line breaks, or a sentence ends (`.`,
+ *    `!`, `?`, `…`, with any closing quotes or brackets after it) - also
+ *    across an opening double quote (`The camp mutters. "Drink," …`).
+ *  - 'quote': an opening double quote after a comma or a colon (`He roars,
+ *    "Drink!"`). Quoted speech, but mid-sentence - the natural place for a
+ *    retelling to bring in a name (`roars, "Philip will fall!"`) - so the
+ *    caller exempts only a common word there.
+ *  - false: anything else. A colon or semicolon, a bracket, a single quote
+ *    or an apostrophe, or a quote inside a sentence (`waits for
+ *    "Philip…"`) sits mid-sentence, so the capitalized word after it is a
+ *    name candidate like any other.
+ *
+ * Curly quotes reach here straight (`normalizeQuotes`).
  */
-function opensSentence(text: string, index: number): boolean {
-  for (let i = index - 1; i >= 0; i--) {
-    const ch = text[i];
-    if (ch === '\n') return true;
-    if (ch === '"' || ch === "'" || ch === '(' || ch === '[' || ch === '‹') return true;
-    if (/\s/.test(ch)) continue;
-    return '.!?:;…'.includes(ch);
+function opensSentence(text: string, index: number): 'sentence' | 'quote' | false {
+  let i = index - 1;
+  while (i >= 0 && text[i] !== '\n' && /\s/.test(text[i])) i--;
+  if (i < 0 || text[i] === '\n') return 'sentence';
+  if (text[i] === '"' && opensQuotation(text, i)) {
+    let before = i - 1;
+    while (before >= 0 && text[before] !== '\n' && /\s/.test(text[before])) before--;
+    if (before < 0 || text[before] === '\n' || endsSentence(text, before)) return 'sentence';
+    return ',:'.includes(text[before]) ? 'quote' : false;
   }
-  return true;
+  return endsSentence(text, i) ? 'sentence' : false;
+}
+
+/** Whether `text[end]` closes a sentence: sentence punctuation, or closing quotes and brackets right after it. */
+function endsSentence(text: string, end: number): boolean {
+  let i = end;
+  while (i >= 0 && CLOSERS.includes(text[i]) && !(text[i] === '"' && opensQuotation(text, i))) i--;
+  return i >= 0 && SENTENCE_END.includes(text[i]);
+}
+
+/** A straight double quote at `index` opens a quotation when nothing but space, an opening bracket or the text's start stands before it. */
+function opensQuotation(text: string, index: number): boolean {
+  const before = index > 0 ? text[index - 1] : '';
+  return before === '' || /\s/.test(before) || before === '(';
 }
 
 /**
  * The fidelity check (rule 3 above): the first word or figure the retelling
  * introduces that the passage never mentioned, if any. Reads the spoken
- * words only: cues are ignored here (rule 2 checks them).
+ * words only: cues are ignored here (rule 2 checks them). A word opening
+ * speech quoted mid-sentence is exempt only when it is a common word - one
+ * the passage or the script uses in lower case, as for a cue's opener
+ * (`cueChecker`) - so `roars, "Drink!"` stands and `roars, "Philip will
+ * fall!"` does not.
  */
 export function findIntroducedContent(
   original: string,
@@ -451,10 +522,13 @@ export function findIntroducedContent(
   const knownNumbers = new Set((source.match(NUMBER_PATTERN) ?? []).map(numberKey));
 
   const text = normalizeQuotes(spokenPartOf(spoken));
+  const lowerCaseWords = lowerCaseWordsOf(source, text);
   for (const match of text.matchAll(WORD_PATTERN)) {
     const word = match[0];
     if (!/^\p{Lu}/u.test(word)) continue;
-    if (opensSentence(text, match.index ?? 0)) continue;
+    const opens = opensSentence(text, match.index ?? 0);
+    if (opens === 'sentence') continue;
+    if (opens === 'quote' && /^\p{Lu}\p{Ll}*$/u.test(word) && lowerCaseWords.has(word.toLowerCase())) continue;
     const key = nameKey(word);
     if (!known.has(key) && !ALWAYS_SPEAKABLE.has(key)) return { kind: 'name', value: word };
   }
@@ -684,17 +758,27 @@ export interface PerformedTranscript {
 
 /**
  * The narrator's raw output, lightly unwrapped (stripping code fences,
- * markdown headings, or speaker prefixes).
+ * markdown headings, or speaker labels - `stripSpeakerLabels`, with
+ * `labelNames` as further names a label may carry).
  */
-export function unwrapDirectorOutput(raw: string): string {
-  return raw
+export function unwrapDirectorOutput(raw: string, labelNames: readonly string[] = []): string {
+  return stripSpeakerLabels(raw
     .trim()
     .replace(/^```[a-z]*\s*\n?/i, '')
     .replace(/\n?```\s*$/, '')
     .replace(/^#+\s*(?:Transcript:?|[^\n]*)\n+/i, '')
-    .replace(/^#+\s*/gm, '')
-    .replace(/^(?:Narrator|Storyteller|Bard|Speaker)\s*:\s*/i, '')
+    .replace(/^#+\s*/gm, ''), labelNames)
     .trim();
+}
+
+/**
+ * Square brackets left over once every well-formed `[cue]` is a `<cue>`:
+ * stray, and never spoken (`cleanActedScript` drops them too). Dropped
+ * BEFORE the guard reads the script, so "hides in [Emesa" is judged as the
+ * voice would speak it - mid-sentence - not as a word after a bracket.
+ */
+function dropStraySquareBrackets(script: string): string {
+  return script.replace(/[[\]]/g, ' ');
 }
 
 /**
@@ -703,12 +787,16 @@ export function unwrapDirectorOutput(raw: string): string {
  * as the patch leaves most of it standing - otherwise the fallback. An accepted script keeps its `<cues>`: the
  * transcript is exactly what the voice performs (`cleanActedScript`). A
  * `[cue]` is turned into a `<cue>` before validation, so it is checked like
- * any other.
+ * any other, and a stray square bracket is dropped before it. A speaker
+ * label is stripped first - including one naming any of `allowedNames` (the
+ * listener, the narrator in character) or `labelNames` (the narrator's own
+ * name, which is a label here and never a word it may speak).
  */
 export function performedTranscriptFor(
   original: string,
   directorOutput: string | null,
   allowedNames: readonly string[] = [],
+  labelNames: readonly string[] = [],
 ): PerformedTranscript {
   const fallback = (rejection?: PerformanceRejection): PerformedTranscript => ({
     transcript: fallbackTranscript(original),
@@ -719,7 +807,8 @@ export function performedTranscriptFor(
   });
   if (directorOutput === null) return fallback();
   // Parse, then drop each bad cue, then judge what is left.
-  const { kept: candidate, droppedCues } = dropBadCues(original, squareCuesToAngle(unwrapDirectorOutput(directorOutput)));
+  const unwrapped = dropStraySquareBrackets(squareCuesToAngle(unwrapDirectorOutput(directorOutput, [...allowedNames, ...labelNames])));
+  const { kept: candidate, droppedCues } = dropBadCues(original, unwrapped);
   const verdict = validatePerformance(original, candidate, allowedNames);
   if (verdict.ok) return { transcript: cleanActedScript(candidate), usedFallback: false, patchedOut: [], droppedCues };
   if (verdict.reason !== 'introduces_new_name' && verdict.reason !== 'introduces_new_number') return fallback(verdict.reason);

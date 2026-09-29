@@ -22,15 +22,19 @@ export const VOICE_GROUP_COPY = {
     every: 'Every voice',
 } as const;
 
-/** Matches the voice select as it shipped (PR #9). */
+/**
+ * The narration selects' class: the design system's own select, so the
+ * colours follow the skin (LVX parchment, NOX's re-cut) and the focus ring
+ * comes with it. The selects used to paint themselves with tokens no skin
+ * defines - a near-black box with dark ink in LVX.
+ */
+export const NARRATION_SELECT_CLASS = 'gor-select';
+
+/** The narration selects' size: full width, compact, with room for the select's arrow. Colours come from `NARRATION_SELECT_CLASS`. */
 export const narrationSelectStyle: React.CSSProperties = {
     width: '100%',
-    padding: '6px 10px',
-    background: 'var(--surface-sunken, #111)',
-    color: 'var(--text-normal)',
-    border: '1px solid var(--border-subtle, rgba(201,162,39,.3))',
-    borderRadius: '4px',
-    fontFamily: 'inherit',
+    boxSizing: 'border-box',
+    padding: '6px 32px 6px 10px',
     fontSize: '13px',
 };
 
@@ -63,7 +67,7 @@ export const VoiceStylePicker: React.FC<{
     };
     return (
         <>
-            <select id={id} aria-label={ariaLabel} aria-describedby={describedBy} disabled={disabled} value={current} onChange={e => handleSelect(e.target.value)} style={narrationSelectStyle}>
+            <select id={id} aria-label={ariaLabel} aria-describedby={describedBy} disabled={disabled} value={current} onChange={e => handleSelect(e.target.value)} className={NARRATION_SELECT_CLASS} style={narrationSelectStyle}>
                 <option value="">{ownStyle ? VOICE_STYLE_PICKER_COPY.ownStyle(voiceStyleLabel(ownStyle)) : VOICE_STYLE_PRESETS[0].label}</option>
                 {VOICE_STYLE_PRESETS.filter(p => ownStyle !== null || p.id !== 'as-written').map(p => (
                     <option key={p.id} value={p.id}>{p.label}</option>

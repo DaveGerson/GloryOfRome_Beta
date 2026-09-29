@@ -13,7 +13,10 @@
  *    time the player turns it on - an old save with no cast included;
  *  - then, while the voice is on, whenever someone new has become known and
  *    is not yet cast: ONE small 'newcomers' call for everyone uncast at that
- *    moment (a turn that reveals three people is one call, not three);
+ *    moment (a turn that reveals three people is one call, not three). At
+ *    the cast's size cap the departed (dead, or no longer known) give way
+ *    to newcomers; a call that still seats none of them is not kept and not
+ *    repeated for the same newcomers;
  *  - on "Recast everyone" in Settings (explicit, paid; the player's overrides
  *    are kept).
  * Nothing runs while the voice is SILENT, without a key, or on the character
@@ -131,6 +134,10 @@ export function useVoiceCast({
   // so the automatic casting looks again for the campaign now in play.
   const [retryTick, setRetryTick] = useState(0);
 
+  // The newcomers a 'newcomers' call could not seat (the cast is full): not
+  // asked about again until someone else is uncast too.
+  const unseatedRef = useRef<string | null>(null);
+
   const runCasting = useCallback(async (mode: 'full' | 'newcomers'): Promise<boolean | null> => {
     if (inFlightRef.current) return null;
     inFlightRef.current = true;
@@ -139,17 +146,25 @@ export function useVoiceCast({
     try {
       const existing = castRef.current;
       const effectiveMode = existing ? mode : 'full';
+      const asked = effectiveMode === 'full' ? candidates : candidates.filter(c => !existing?.members[c.entityId]);
       const result = await castVoices(ai, {
         mode: effectiveMode,
         theme: metaNarrative,
         player,
-        candidates: effectiveMode === 'full' ? candidates : candidates.filter(c => !existing?.members[c.entityId]),
+        candidates: asked,
         defaultNarrator,
         existing,
+        liveIds: candidates.map(c => c.entityId),
       }, isMockMode);
       // Another campaign since the call began: its cast is not this one's.
       if (campaignGenerationRef.current !== generation) {
         dropped = true;
+        return null;
+      }
+      // Seated none of those it was asked about: nothing to keep - keeping
+      // it anyway (a new revision) set the casting off again, paid, forever.
+      if (effectiveMode === 'newcomers' && !asked.some(c => result.cast.members[c.entityId])) {
+        unseatedRef.current = asked.map(c => c.entityId).join(',');
         return null;
       }
       const latest = castRef.current;
@@ -185,6 +200,7 @@ export function useVoiceCast({
   const needsCasting = active && (!voiceCast || uncastKey !== '');
   useEffect(() => {
     if (!needsCasting) return;
+    if (voiceCast && uncastKey === unseatedRef.current) return;
     void runCasting(voiceCast ? 'newcomers' : 'full');
   }, [needsCasting, uncastKey, voiceCast, runCasting, retryTick]);
 

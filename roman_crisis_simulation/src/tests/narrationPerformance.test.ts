@@ -185,7 +185,9 @@ describe('validatePerformance: a retelling may reword, never invent (fidelity)',
   });
 
   it('reads sentence and quotation openings as ordinary capitals', () => {
-    expect(reject('Listen. Tonight the Praetorians mutter, and Maximinus cries, "Glory waits!" Nothing moves in the Senate.')).toBe('ok');
+    expect(reject('Listen. Tonight the Praetorians mutter for glory, and Maximinus cries, "Glory waits!" Nothing moves in the Senate.')).toBe('ok');
+    // Speech quoted mid-sentence opening with a word nobody uses in lower case: it may be a name.
+    expect(reject('Listen. Tonight the Praetorians mutter, and Maximinus cries, "Glory waits!" Nothing moves in the Senate.')).toBe('introduces_new_name');
   });
 
   it('an invented sentence never reaches the voice: it is cut, and the rest is performed', async () => {

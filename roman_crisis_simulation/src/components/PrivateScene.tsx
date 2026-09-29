@@ -4,6 +4,7 @@ import type { PrivateSceneTarget } from '../privateScene/model';
 import { PRIVATE_SCENE_MAX_UTTERANCE_CHARS } from '../privateScene/model';
 import { Button, DraftGauge } from './ui/Core';
 import { Alert } from './ui/Alert';
+import { PrivateSceneFailureNotice, type PrivateSceneFailure } from './ui/FailureNotices';
 import { WaxSeal, toRoman } from './ui/Brand';
 import { radioGroupKeyDown, radioTabIndex } from './ui/rovingRadio';
 import { createFocusTrap } from './ui/focusTrap';
@@ -28,7 +29,8 @@ export interface PrivateSceneProps {
   replyDraft: string;
   lastWordDraft: string;
   loading: boolean;
-  error: string | null;
+  /** What failed (hooks/usePrivateSceneController.ts); its words live in components/ui/FailureNotices.tsx. */
+  error: PrivateSceneFailure | null;
   onOpeningDraftChange(value: string): void;
   onReplyDraftChange(value: string): void;
   onLastWordDraftChange(value: string): void;
@@ -45,7 +47,12 @@ export interface PrivateSceneProps {
   npcVoice?: PrivateSceneNpcVoice;
 }
 
-/** The one over-limit notice. Four sites wrote this sentence; only one composer ever mounts. */
+/**
+ * The one over-limit notice. Four sites wrote this sentence; only one composer ever mounts.
+ * The fields carry no maxLength: a browser enforces one by cutting a long
+ * paste without a word, which would make "kept exactly as you wrote it" a
+ * lie. The gauge, this notice and the held send do the bounding instead.
+ */
 const OverLimitNotice: React.FC<{ length: number; onTrim: () => void; disabled: boolean }> = ({ length, onTrim, disabled }) => (
   <>
     <Alert title="More than a private word" style={{ margin: '6px 0 0' }}>
@@ -90,8 +97,8 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
   const reading = completed.find(scene => scene.sceneId === readingSceneId) ?? completed[completed.length - 1];
 
   /**
-   * The last week you were alone with this contact — "Never" reads as an
-   * invitation. A REFUSED scene is not one of those weeks: the invitation was
+   * The last turn you were alone with this contact — "Never" reads as an
+   * invitation. A REFUSED scene is not one of those turns: the invitation was
    * turned down, so the hour was spent but the room never held two people. It
    * used to count, which told the player "Last alone · Week N" about a door
    * that never opened — and, through `gor-contact-meta-met`, coloured the card
@@ -136,8 +143,15 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
     next?.focus();
   }, [open, loading, activeStatus]);
 
+  // The NPC's voice lives with the App, not this dialog: closing the room
+  // (or leaving the screen) silences a line still playing, as the narration
+  // log's close stops a replay - its only stop control goes with the room.
+  const stopVoice = npcVoice?.stop;
+  useEffect(() => () => stopVoice?.(), [stopVoice]);
+
   const closePresentation = () => {
     setOpen(false);
+    stopVoice?.();
     queueMicrotask(() => openerRef.current?.focus());
   };
   const handleDialogKeyDown = (event: React.KeyboardEvent<HTMLDialogElement>) => {
@@ -155,7 +169,8 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
   const heldThisWeek = scenes.find(scene => scene.macroTurn === currentMacroTurn);
 
   return <>
-    <button ref={openerRef} type="button" className="gor-pill" onClick={() => setOpen(true)} disabled={disabled} data-gor-command="private-scene">Private scene</button>
+    {/* The desk's tools share one look: the same button as the Narration log beside it. */}
+    <Button ref={openerRef} type="button" variant="secondary" onClick={() => setOpen(true)} disabled={disabled} data-gor-command="private-scene">Private scene</Button>
     {open && <dialog ref={dialogRef} className="gor-private-scene" aria-label="Private scene"
       onCancel={event => { event.preventDefault(); closePresentation(); }} onKeyDown={handleDialogKeyDown}>
       <header>
@@ -188,13 +203,15 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
           )}
         </div>
       )}
-      {/* A failed continuation: the hour is charged on invitation, not on failure. Say so, or nobody risks a retry. */}
-      {error && <Alert title="The door did not open" style={{ margin: '6px 0 0' }}>{error}</Alert>}
+      {/* A failed continuation: the hour is charged on invitation, not on failure. Say so, or nobody risks a retry.
+          The title names what failed - a reply that met no answer is not a door that did not open. */}
+      {error && <PrivateSceneFailureNotice failure={error} style={{ margin: '6px 0 0' }} />}
       {!active && <>
         {!canStartScene ? (
           <div className="gor-scene-guard">
             <span className="gor-scene-seal gor-scene-seal-broken" aria-hidden="true"><WaxSeal letter="I" size={40} tone="tyrian" /></span>
-            <p className="gor-scene-guard-line">The door opens again on Week {toRoman(currentMacroTurn + 1)}.</p>
+            {/* A turn count, not the calendar week the masthead shows (D44: one owner per fact). */}
+            <p className="gor-scene-guard-line">The door opens again on Turn {toRoman(currentMacroTurn + 1)}.</p>
             {heldThisWeek && (
               <Button type="button" variant="ghost" size="sm" onClick={() => setReadingSceneId(heldThisWeek.sceneId)}>
                 Read what was said
@@ -239,7 +256,7 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
                     {target.position && <span className="gor-contact-position">{target.position}</span>}
                     <span className={`gor-contact-meta${lastAlone !== null ? ' gor-contact-meta-met' : ''}`}>
                       {target.location ? `${target.location} · ` : ''}
-                      {lastAlone !== null ? `Last alone · Week ${toRoman(lastAlone)}` : 'Never'}
+                      {lastAlone !== null ? `Last alone · Turn ${toRoman(lastAlone)}` : 'Never'}
                     </span>
                   </span>
                 </button>
@@ -251,7 +268,7 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
             <h3 className="gor-label gor-register-title">What word you send</h3>
             <span className="gor-register-rule" aria-hidden="true" />
           </div>
-          <textarea className="gor-textarea" rows={3} aria-label="Private-scene opening" maxLength={PRIVATE_SCENE_MAX_UTTERANCE_CHARS} value={openingDraft} disabled={disabled}
+          <textarea className="gor-textarea" rows={3} aria-label="Private-scene opening" value={openingDraft} disabled={disabled}
             aria-invalid={openingOverLimit || undefined} onChange={event => onOpeningDraftChange(event.target.value)} />
           <DraftGauge length={openingDraft.length} limit={PRIVATE_SCENE_MAX_UTTERANCE_CHARS} />
           {openingOverLimit && <OverLimitNotice length={openingDraft.length} disabled={disabled} onTrim={() => onOpeningDraftChange(trimLastSentence(openingDraft))} />}
@@ -269,7 +286,7 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
           ))}
         </div>
         {active.status === 'active' && <>
-          <textarea className="gor-textarea" rows={3} aria-label="Private-scene reply" maxLength={PRIVATE_SCENE_MAX_UTTERANCE_CHARS} value={replyDraft} disabled={disabled}
+          <textarea className="gor-textarea" rows={3} aria-label="Private-scene reply" value={replyDraft} disabled={disabled}
             aria-invalid={replyOverLimit || undefined} onChange={event => onReplyDraftChange(event.target.value)} />
           <DraftGauge length={replyDraft.length} limit={PRIVATE_SCENE_MAX_UTTERANCE_CHARS} />
           {replyOverLimit && <OverLimitNotice length={replyDraft.length} disabled={disabled} onTrim={() => onReplyDraftChange(trimLastSentence(replyDraft))} />}
@@ -285,7 +302,7 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
                 : 'You may answer, or let it stand.'}
             </span>
           </div>
-          <textarea className="gor-textarea" rows={3} aria-label="Private-scene last word" maxLength={PRIVATE_SCENE_MAX_UTTERANCE_CHARS} value={lastWordDraft} disabled={disabled}
+          <textarea className="gor-textarea" rows={3} aria-label="Private-scene last word" value={lastWordDraft} disabled={disabled}
             aria-invalid={lastWordOverLimit || undefined} onChange={event => onLastWordDraftChange(event.target.value)} />
           <DraftGauge length={lastWordDraft.length} limit={PRIVATE_SCENE_MAX_UTTERANCE_CHARS} />
           {lastWordOverLimit && <OverLimitNotice length={lastWordDraft.length} disabled={disabled} onTrim={() => onLastWordDraftChange(trimLastSentence(lastWordDraft))} />}
