@@ -202,7 +202,9 @@ describe('ai/tools/intelligence.ts getInvestigationResult - resolution layer wir
     expect(result.resolutionTrace?.seed).toBe(mockIntelSeed('target_1', 'secrets'));
     expect(rollD20(createSeededRng(result.resolutionTrace!.seed!))).toBe(result.resolutionTrace!.roll);
     expect(result.truth).toMatchObject({ kind: 'secrets', targetId: 'target_1', rolls: { seed: mockIntelSeed('target_1', 'secrets') } });
-    expect(result.truth!.findings.map(finding => finding.text)).toEqual(result.reportData);
+    // One ledger finding per itemised text; with none (an honest or a false
+    // "nothing to find"), the report itself is the one finding.
+    expect(result.truth!.findings.map(finding => finding.text)).toEqual(result.reportData.length ? result.reportData : [result.report]);
     // Deterministic: the same question about the same figure lands the same way.
     expect(again).toEqual(result);
   });

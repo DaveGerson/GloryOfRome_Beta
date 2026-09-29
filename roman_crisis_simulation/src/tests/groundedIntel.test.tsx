@@ -34,6 +34,7 @@ import {
   FIDELITY_REACH,
   groundTruthPool,
   investigationLedgerEntries,
+  investigationTruth,
   NO_DESIGN_TRUTH,
   NOTHING_ON_RECORD,
   planInvestigation,
@@ -313,15 +314,51 @@ describe('planInvestigation - fidelity scopes, accuracy shapes', () => {
     expect(plan('scheme', 'false', 'fuller').findings).toHaveLength(1);
   });
 
-  it('an empty record: nothing found when read truly, a false account when garbled, "no design" for a scheme', () => {
+  it('an empty record is an honest nothing whatever the roll, and "no design" for a scheme', () => {
     const bare = makeEntity({ entity_id: 'bare' });
-    expect(plan('secrets', 'true', 'fuller', bare).findings).toEqual([]);
-    const garbled = plan('secrets', 'garbled', 'partial', bare);
-    expect(garbled.accuracy).toBe('false');
-    expect(garbled.findings.every(finding => finding.standing === 'false' && finding.truth === null)).toBe(true);
-    expect(plan('scheme', 'true', 'partial', bare).findings).toEqual([
-      { truth: NO_DESIGN_TRUTH, fragmentary: false, groundTruth: NO_DESIGN_TRUTH, standing: 'true' },
-    ]);
+    for (const accuracy of ['true', 'garbled', 'false'] as IntelAccuracy[]) {
+      const read = plan('secrets', accuracy, 'fuller', bare);
+      expect(read.findings).toEqual([]);
+      expect(read.accuracy).toBe('true');
+      expect(read.withheld).toBeUndefined();
+      expect(plan('scheme', accuracy, 'partial', bare).findings).toEqual([
+        { truth: NO_DESIGN_TRUTH, fragmentary: false, groundTruth: NO_DESIGN_TRUTH, standing: 'true' },
+      ]);
+    }
+  });
+
+  // The count of findings, and whether there are any, must never tell the
+  // player which accuracy they hold (D26): a false reading comes back as many
+  // and as whole as the truth would have.
+  it('the number and shape of findings never depend on the accuracy roll', () => {
+    const shape = (read: ReturnType<typeof plan>) => read.findings.map(finding => finding.fragmentary);
+    for (const kind of ['secrets', 'beliefs', 'scheme'] as GroundTruthKind[]) {
+      for (const fidelity of ['fragment', 'partial', 'fuller'] as IntelFidelity[]) {
+        for (let seed = 1; seed <= 12; seed++) {
+          const truthful = plan(kind, 'true', fidelity, makeTarget(), seed);
+          const garbled = plan(kind, 'garbled', fidelity, makeTarget(), seed);
+          const falseRead = plan(kind, 'false', fidelity, makeTarget(), seed);
+          expect(shape(garbled)).toEqual(shape(truthful));
+          // A false reading is either the same shape as the truth, or a false "nothing".
+          if (falseRead.accuracy === 'false') expect(shape(falseRead)).toEqual(shape(truthful));
+          else if (kind === 'scheme') expect(falseRead.findings).toEqual([{ truth: NO_DESIGN_TRUTH, fragmentary: false, groundTruth: expect.any(String), standing: 'false' }]);
+          else expect(falseRead.findings).toEqual([]);
+        }
+      }
+    }
+  });
+
+  it('a false "nothing to find" reads as the honest one, and is recorded as false against what it hid', () => {
+    let falseNothing: ReturnType<typeof plan> | undefined;
+    for (let seed = 1; seed <= 40 && !falseNothing; seed++) {
+      const read = plan('secrets', 'false', 'partial', makeTarget(), seed);
+      if (read.findings.length === 0) falseNothing = read;
+    }
+    expect(falseNothing).toBeDefined();
+    expect(falseNothing!.accuracy).toBe('true'); // shaped exactly as an honest nothing
+    expect(falseNothing!.withheld!.length).toBeGreaterThan(0);
+    const truth = investigationTruth(falseNothing!, 'target', { tier: 'success' } as never, [], 'Nothing of note.');
+    expect(truth.findings).toEqual([{ text: 'Nothing of note.', standing: 'false', groundTruth: falseNothing!.withheld!.join(' | ') }]);
   });
 
   it('is deterministic for a seed', () => {

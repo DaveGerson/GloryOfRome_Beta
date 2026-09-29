@@ -1,7 +1,7 @@
 
 // ai/mocks.ts
 
-import { Entity, NpcIntent, NpcMindDecision, Report, SimulationState, StoryRelevance, TruthLedgerEntry, TurnHistoryEntry, WorldState, EventDelta, EntityStub, TurnSubmission } from '../types';
+import { Entity, NpcIntent, NpcMindDecision, Report, SimulationState, StoryRelevance, TruthLedgerEntry, TurnHistoryEntry, WorldState, EventDelta, EntityStub, TurnSubmission, IntelDistortion } from '../types';
 import { applyAdjudication } from './core/engine';
 import { MAX_MINDS_PER_TURN } from './prompts/npcMind';
 import { normalizeTurnSubmissionInput, projectForNoAttemptResponse, projectForPlayerHistory, projectForPlayerReflection, projectForResolution, serializeTurnSubmission } from '../playerInput/turnSubmission';
@@ -690,41 +690,90 @@ export function mockIntelSeed(targetId: string, kind: string): number {
     return hash >>> 0;
 }
 
-/** Canned false findings - what a misled agent brings back offline. Chosen to be true of no one in the shipped cast. */
+/**
+ * Canned false findings - what a misled agent brings back offline. Chosen to
+ * be true of no one in the shipped cast, and drawn per target (see
+ * `mockPick`), so no one line recurs across figures and marks itself false.
+ */
 const MOCK_FALSE_FINDINGS: Record<GroundTruthKind, string[]> = {
     beliefs: [
         'Believes the gods have abandoned Rome.',
         'Holds that the grain dole ruins the plebs.',
         'Thinks the eastern frontier matters more than the Rhine.',
+        'Trusts no Greek physician with their health.',
+        'Holds that the old families should rule without the Senate.',
+        'Believes the army should choose the next emperor.',
+        'Thinks Carthage will rise again to trouble Rome.',
+        'Holds the games to be a waste of the treasury.',
     ],
     secrets: [
         'Keeps a second household at Ostia under a false name.',
         'Owes a fortune to a Syrian moneylender.',
         'Consults a Chaldean astrologer before every decision.',
+        'Once bribed a magistrate to bury a family scandal.',
+        'Has a son by a freedwoman, kept out of sight.',
+        'Forged a will to keep an inheritance.',
+        'Pays a Praetorian for news of the palace.',
+        'Fled a debt in Antioch under another name.',
     ],
-    scheme: ['Coin is quietly moving toward the eastern ports.'],
+    scheme: [
+        'Coin is quietly moving toward the eastern ports.',
+        'Letters go out by night to a legate on the Danube.',
+        'A household slave carries messages to the Aventine.',
+        'Grain contracts are being bought up through a freedman.',
+        'Old veterans are being paid to gather in the Subura.',
+        'A shipment of arms waits in a warehouse at Puteoli.',
+    ],
     deep_analysis: [
         'Has been seen dining with a Parthian envoy.',
         'Keeps a band of Illyrian bodyguards on retainer.',
         'Has lately sold a family estate for ready coin.',
+        'Has quarrelled with a brother over their father\'s lands.',
+        'Has begun courting the equestrian tax farmers.',
+        'Spends more on clients than their estates can bear.',
     ],
 };
+
+/**
+ * The canned turns a garbled finding takes offline, by distortion - a place
+ * or a party the truth never named. Mock play has no model to rework a
+ * truth, so a distortion is a clause; drawing it per target (`mockPick`)
+ * keeps any one clause from recurring as a tell.
+ */
+const MOCK_DISTORTIONS: Record<IntelDistortion, Array<(told: string) => string>> = {
+    element_changed: [
+        told => `${withoutFinalStop(told)}, at Ostia.`,
+        told => `${withoutFinalStop(told)}, since the Ides.`,
+        told => `${withoutFinalStop(told)}, through a Greek secretary.`,
+        told => `${withoutFinalStop(told)}, in the Subura.`,
+    ],
+    misattributed: [
+        told => `Said of a freedman of the household: ${told}`,
+        told => `Told of a kinsman, not the master: ${told}`,
+        told => `Laid at a client's door: ${told}`,
+    ],
+};
+
+/** A deterministic pick for one finding: seeded by the target, the kind and the finding's place, never Math.random. */
+function mockPick<T>(items: readonly T[], targetId: string, kind: string, index: number): T {
+    return items[mockIntelSeed(targetId, `${kind}:${index}`) % items.length];
+}
 
 function withoutFinalStop(text: string): string {
     return text.trim().replace(/[.!?]+$/, '');
 }
 
-/** The canned account of one planned finding: the truth as reached, the truth with its one distortion, or a canned falsehood. */
-function mockFindingText(finding: PlannedFinding, index: number, kind: GroundTruthKind): string {
-    if (finding.truth === null) {
-        const canned = MOCK_FALSE_FINDINGS[kind];
-        return canned[index % canned.length];
-    }
-    const told = finding.fragmentary ? `…${finding.truth}…` : finding.truth;
+/**
+ * The canned account of one planned finding: the truth as reached, the truth
+ * with its one distortion, or a canned falsehood. A fragment is framed the
+ * same way whatever its truth, so the framing never tells the player which.
+ */
+function mockFindingText(finding: PlannedFinding, index: number, kind: GroundTruthKind, targetId: string): string {
+    const frame = (text: string) => finding.fragmentary ? `…${withoutFinalStop(text)}…` : text;
+    if (finding.truth === null) return frame(mockPick(MOCK_FALSE_FINDINGS[kind], targetId, kind, index));
+    const told = frame(finding.truth);
     if (finding.standing === 'garbled') {
-        return finding.distortion === 'misattributed'
-            ? `Said of a freedman of the household: ${told}`
-            : `${withoutFinalStop(told)}, at Ostia.`;
+        return mockPick(MOCK_DISTORTIONS[finding.distortion ?? 'element_changed'], targetId, kind, index)(told);
     }
     return told;
 }
@@ -734,23 +783,36 @@ export const mockGetDeepAnalysis = async (target: Entity, plan: InvestigationPla
     if (plan.findings.length === 0) {
         return `(Mock Analysis) Our agents could establish nothing about ${target.name} beyond what is public. An unknown quantity, for now.`;
     }
-    const facts = plan.findings.map((finding, i) => `${withoutFinalStop(mockFindingText(finding, i, 'deep_analysis'))}.`);
+    const facts = plan.findings.map((finding, i) => `${withoutFinalStop(mockFindingText(finding, i, 'deep_analysis', target.entity_id))}.`);
     return `(Mock Analysis) Our agents report on ${target.name}: ${facts.join(' ')} They pose a threat worth watching.`;
 };
+
+/** Canned false designs a false clue trail adds up to offline, drawn per target. */
+const MOCK_FALSE_DESIGNS = [
+    'means to buy up the grain fleet and starve the Palatine into terms',
+    'means to win the Danube legions and march on Rome',
+    'means to ruin a rival in the courts and take his seat',
+    'means to marry into the imperial house',
+    'means to turn the Praetorians against their prefect',
+];
 
 /**
  * The canned nature reading (D28/D47): the true design when the clues earned
  * it, the design with one element misread when they earned half of it, and a
- * canned false design when they were a false trail.
+ * canned false design when they were a false trail. The false designs and
+ * the misreading are drawn per target, so no phrase recurs as a tell.
  */
+
 export const mockGetSchemeNatureReading = async (target: Entity, plan: SchemeNaturePlan): Promise<string> => {
     console.log("--- MOCK SCHEME NATURE ---");
     if (plan.noDesign) return `(Mock) Your agents read the threads as nothing at all: ${target.name} is plotting nothing of note.`;
-    if (!plan.design) return `(Mock) Your agents read the threads as one design: ${target.name} means to buy up the grain fleet and starve the Palatine into terms.`;
-    const goal = withoutFinalStop(plan.design.goal);
-    return plan.standing === 'garbled'
-        ? `(Mock) Your agents read the threads as one design: ${goal}, by way of the grain fleet.`
-        : `(Mock) Your agents read the threads as one design: ${goal}.`;
+    if (!plan.design) {
+        return `(Mock) Your agents read the threads as one design: ${target.name} ${mockPick(MOCK_FALSE_DESIGNS, target.entity_id, 'nature', 0)}.`;
+    }
+    const goal = plan.standing === 'garbled'
+        ? withoutFinalStop(mockPick(MOCK_DISTORTIONS.element_changed, target.entity_id, 'nature', 0)(plan.design.goal))
+        : withoutFinalStop(plan.design.goal);
+    return `(Mock) Your agents read the threads as one design: ${goal}.`;
 };
 
 export const mockGetInvestigationResult = async (target: Entity, isRisky: boolean, subject: 'secrets' | 'beliefs' | 'scheme', plan: InvestigationPlan): Promise<{ report: string, consequences: string | null, reportData: string[] }> => {
@@ -763,7 +825,7 @@ export const mockGetInvestigationResult = async (target: Entity, isRisky: boolea
     // consequence line stays canned: the tier's consequences contract is
     // enforced on a MODEL's output (ai/tools/intelligence.ts); offline, a
     // risky visit is always noticed.
-    const reportData = plan.findings.map((finding, i) => `(Mock) ${mockFindingText(finding, i, subject)}`);
+    const reportData = plan.findings.map((finding, i) => `(Mock) ${mockFindingText(finding, i, subject, target.entity_id)}`);
     let reportText: string;
 
     if (reportData.length === 0) {

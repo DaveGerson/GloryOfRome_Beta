@@ -129,6 +129,16 @@ export const FIDELITY_REACH: Record<IntelFidelity, number> = {
 };
 
 /**
+ * The share of false readings (on a figure who does have something of the
+ * kind on record) that come back as "nothing to find" rather than as
+ * invented findings. An honest nothing is always true; this keeps an empty
+ * report from being proof of a clean record, as matching counts keep a list
+ * from betraying its accuracy (D26: the window never tells the player which
+ * of their agents' words are false).
+ */
+export const FALSE_NOTHING_SHARE = 1 / 3;
+
+/**
  * The truth a scheme clue carries when the target pursues no design at all:
  * an honest "nothing afoot" is a finding too, and the nature the clues add up
  * to must be able to follow from it.
@@ -152,13 +162,20 @@ export interface PlannedFinding {
 export interface InvestigationPlan {
     kind: GroundTruthKind;
     /**
-     * The accuracy the prompt is shaped by: the rolled band, except that a
-     * garbled roll on a target with nothing to garble has no truth to distort
-     * and so is a false account.
+     * The accuracy the prompt is shaped by: the rolled band, except that an
+     * empty record is reported honestly whatever the roll, and a false
+     * "nothing to find" is shaped as the honest one it imitates.
      */
     accuracy: IntelAccuracy;
     fidelity: IntelFidelity;
     findings: PlannedFinding[];
+    /**
+     * GM-PRIVATE, set only on a false "nothing to find" (see
+     * `FALSE_NOTHING_SHARE`): the truths the account came back without. The
+     * prompt is shaped exactly as an honest nothing; the ledger records it as
+     * false against these.
+     */
+    withheld?: string[];
     /** Scheme only: the name of the design standing now (never in any prompt - recorded so a later nature can spot a former design). */
     schemeName?: string;
 }
@@ -215,9 +232,11 @@ function scopeScheme(pool: GroundTruthItem[], fidelity: IntelFidelity, rng: Rng)
  *  - true: the scoped truths, reported as reached;
  *  - garbled: the scoped truths, exactly one of them marked for one
  *    distortion (which one, and how, recorded here - the code knows);
- *  - false: NO truth at all - as many findings as the fidelity reach, each
- *    to be invented plausibly from what is publicly known.
- * An empty pool reached truthfully yields no findings (there was nothing to
+ *  - false: NO truth at all - as many findings as the truth would have
+ *    yielded (so the count never betrays the accuracy), each to be invented
+ *    plausibly from what is publicly known; or, for FALSE_NOTHING_SHARE of
+ *    false readings, a false "nothing to find".
+ * An empty pool yields no findings whatever the roll (there was nothing to
  * find) - except for a scheme, where "there is no design" is itself the
  * truth a clue reports. Every draw comes from `rng`, the investigation's own
  * seeded generator, after its three rolls.
@@ -243,25 +262,37 @@ export function planInvestigation(
         reached = shuffled(pool, rng).slice(0, reach).map(item => truthful(item.text, fidelity === 'fragment', rng));
     }
 
-    const accuracy: IntelAccuracy = rolled.accuracy === 'garbled' && reached.length === 0 ? 'false' : rolled.accuracy;
-
-    if (accuracy === 'false') {
-        const count = kind === 'scheme' ? 1 : FIDELITY_REACH[fidelity];
-        const findings = Array.from({ length: count }, (): PlannedFinding => ({
-            truth: null,
-            fragmentary: fidelity === 'fragment',
-            standing: 'false',
-        }));
-        return withSchemeName({ kind, accuracy, fidelity, findings });
-    }
-
     if (reached.length === 0) {
-        // Reached truthfully, and there was nothing of the kind to reach.
+        // Nothing of the kind is on record: reported honestly, whatever the
+        // roll. "Nothing to find" must never depend on the accuracy roll, or a
+        // list on a figure with nothing on record would mark itself false.
         const findings: PlannedFinding[] = kind === 'scheme'
             ? [{ truth: NO_DESIGN_TRUTH, fragmentary: false, groundTruth: NO_DESIGN_TRUTH, standing: 'true' }]
             : [];
-        return withSchemeName({ kind, accuracy, fidelity, findings });
+        return withSchemeName({ kind, accuracy: 'true', fidelity, findings });
     }
+
+    if (rolled.accuracy === 'false') {
+        const withheld = reached.map(finding => finding.groundTruth).filter((fact): fact is string => fact !== undefined);
+        // Now and then the misled agent comes back with nothing at all, so an
+        // empty report is not proof of a clean record either.
+        if (rng() < FALSE_NOTHING_SHARE) {
+            const findings: PlannedFinding[] = kind === 'scheme'
+                ? [{ truth: NO_DESIGN_TRUTH, fragmentary: false, groundTruth: withheld.join(' | '), standing: 'false' }]
+                : [];
+            return withSchemeName({ kind, accuracy: 'true', fidelity, findings, ...(kind === 'scheme' ? {} : { withheld }) });
+        }
+        // Otherwise the falsehoods come back looking exactly like the truth
+        // would have: as many findings as it would have yielded, as whole or
+        // as fragmentary - the count never tells the player which they hold.
+        const findings = reached.map((finding): PlannedFinding => ({
+            truth: null,
+            fragmentary: finding.fragmentary,
+            standing: 'false',
+        }));
+        return withSchemeName({ kind, accuracy: 'false', fidelity, findings });
+    }
+    const accuracy = rolled.accuracy;
 
     if (accuracy === 'garbled') {
         const index = Math.floor(rng() * reached.length);
@@ -300,10 +331,12 @@ export function investigationTruth(
     }));
     if (findings.length === 0) {
         const facts = plan.findings.map(finding => finding.groundTruth).filter((fact): fact is string => fact !== undefined);
-        const groundTruth = plan.findings.length === 0 ? NOTHING_ON_RECORD : facts.join(' | ');
+        const groundTruth = plan.findings.length === 0
+            ? (plan.withheld ? plan.withheld.join(' | ') : NOTHING_ON_RECORD)
+            : facts.join(' | ');
         findings.push({
             text: reportText,
-            standing: plan.findings.length === 0 ? 'true' : plan.accuracy,
+            standing: plan.findings.length === 0 ? (plan.withheld ? 'false' : 'true') : plan.accuracy,
             ...(groundTruth ? { groundTruth } : {}),
             ...(plan.schemeName ? { schemeName: plan.schemeName } : {}),
         });
