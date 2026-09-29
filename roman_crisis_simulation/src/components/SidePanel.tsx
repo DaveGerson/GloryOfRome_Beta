@@ -10,7 +10,7 @@ import PlayerStatus from './PlayerStatus';
 import ResourcesTab from './tabs/ResourcesTab';
 import ChronicleTab from './tabs/ChronicleTab';
 import { CoinPips } from './tabs/dramatisPersonaeUi';
-import WorldStateTab from './tabs/WorldStateTab';
+import WorldStateTab, { fellStandings } from './tabs/WorldStateTab';
 import { TabId } from '../perception/visibility';
 import { corroboration } from '../knowledge/credibilityFraming';
 import { isRegionKnownToPlayer } from '../perception/visibility';
@@ -318,6 +318,7 @@ const SidePanel: React.FC<{
                 {activeTab === 'world_state' && <WorldStateTab
                     simulationState={simulationState}
                     week={worldState.week}
+                    fellThisWeek={fellStandings(turnHistory[turnHistory.length - 1]?.preTurnSimulationState, simulationState)}
                     pointers={briefingPointers}
                     onNavigate={handleTabClick}
                 />}

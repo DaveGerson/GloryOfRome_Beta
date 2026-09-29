@@ -92,6 +92,8 @@ describe('pickSaveState (D17)', () => {
         const state = createInitialGameState();
         const picked = pickSaveState(state);
         for (const [key, value] of Object.entries(picked)) {
+            // The one derived field: the open fate's id (asserted below).
+            if (key === 'pendingEventId') continue;
             expect(value, key).toBe(state[key as keyof typeof state]);
         }
         // Transient reducer fields never reach the save bundle.
@@ -102,10 +104,17 @@ describe('pickSaveState (D17)', () => {
         expect(Object.keys(picked).sort()).toEqual([
             'currentEvents', 'entities', 'eventFirings', 'eventHistory', 'gmInterventionText',
             'inferredAmbition', 'knowledge', 'messages', 'metaNarrative', 'npcIntents',
-            'pendingIntelligenceFallout', 'playerCharacterId', 'privateScenes', 'reports',
+            'pendingEventId', 'pendingIntelligenceFallout', 'playerCharacterId', 'privateScenes', 'reports',
             'simulationState', 'suggestedActions', 'triggeredEventIds', 'truthLedger',
             'turnHistory', 'turnNumber', 'voiceCast', 'worldState',
         ]);
+    });
+
+    it('persists an open fate by its id alone, and nothing while none is open', () => {
+        const state = createInitialGameState();
+        expect(pickSaveState(state).pendingEventId).toBeUndefined();
+        const fate = { id: 'grain_shortage', title: 'Grain', description: 'd', trigger: () => true, options: [] };
+        expect(pickSaveState({ ...state, activeEvent: fate }).pendingEventId).toBe('grain_shortage');
     });
 });
 
@@ -116,9 +125,15 @@ describe('loadSavedGameSummary', () => {
         expect(loadSavedGameSummary()).toBeNull();
     });
 
+    // A readable reign's summary (the union's other member is a refusal).
+    const readableSummary = () => {
+        const summary = loadSavedGameSummary();
+        return summary && !('unreadable' in summary) ? summary : null;
+    };
+
     it('names the reigning character and the week from the save', () => {
         expect(saveGame(makeAppSave({ turnNumber: 7 })).ok).toBe(true);
-        const summary = loadSavedGameSummary();
+        const summary = readableSummary();
         expect(summary?.turnNumber).toBe(7);
         expect(summary?.characterName).toBe(
             makeAppSave().entities.find(entity => entity.entity_id === 'severus_alexander')?.name,
@@ -129,6 +144,15 @@ describe('loadSavedGameSummary', () => {
     it("says 'Unknown' rather than coercing a non-string name (B7a 1a)", () => {
         const player = makeEntity({ entity_id: 'severus_alexander', name: 5 as unknown as string });
         expect(saveGame(makeAppSave({ entities: [player] })).ok).toBe(true);
-        expect(loadSavedGameSummary()?.characterName).toBe('Unknown');
+        expect(readableSummary()?.characterName).toBe('Unknown');
+    });
+
+    it('reports why a stored reign cannot be read, rather than looking like an empty device', () => {
+        localStorage.setItem('gloryOfRome:autosave', JSON.stringify({ version: 2, savedAt: 'x', state: makeAppSave() }));
+        expect(loadSavedGameSummary()).toEqual({ unreadable: 'version_mismatch' });
+        localStorage.setItem('gloryOfRome:autosave', '{not json');
+        expect(loadSavedGameSummary()).toEqual({ unreadable: 'unreadable' });
+        localStorage.setItem('gloryOfRome:autosave', JSON.stringify({ hello: 'world' }));
+        expect(loadSavedGameSummary()).toEqual({ unreadable: 'not_a_reign' });
     });
 });

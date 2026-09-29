@@ -65,6 +65,51 @@ const PLEBEIAN_MOOD_SEVERITY: Record<SimulationState['plebeian_mood'], Severity>
     Rioting: 'bad',
 };
 
+/** The four macro standings the briefing draws, and the ▾ can mark. */
+export type MacroStanding = 'imperial_status' | 'senate_status' | 'military_status' | 'plebeian_mood';
+
+/**
+ * Each standing's values, best first - the ordinal a "fall" is read along.
+ * The severity maps above colour the same values in three bands; this is
+ * their finer order (it never contradicts them, and a test pins that): the
+ * Senate ascendant stands above the Senate merely functioning, though both
+ * are drawn in laurel.
+ */
+export const STANDING_ORDER: { [K in MacroStanding]: readonly SimulationState[K][] } = {
+    imperial_status: ['Stable', 'Contested', 'Vacant'],
+    senate_status: ['Ascendant', 'Functional', 'Irrelevant', 'Deposed'],
+    military_status: ['Loyal', 'Divided', 'Rebellious'],
+    plebeian_mood: ['Content', 'Uneasy', 'Rioting'],
+};
+
+/** Each standing's colour bands, keyed like STANDING_ORDER (the test pins the two together). */
+export const STANDING_SEVERITY: { [K in MacroStanding]: Record<SimulationState[K], Severity> } = {
+    imperial_status: IMPERIAL_STATUS_SEVERITY,
+    senate_status: SENATE_STATUS_SEVERITY,
+    military_status: MILITARY_STATUS_SEVERITY,
+    plebeian_mood: PLEBEIAN_MOOD_SEVERITY,
+};
+
+/**
+ * Which standings fell between the state a week began from (the newest
+ * history entry's `preTurnSimulationState`, persisted so the mark survives a
+ * reload) and the state it ended in. Absent `before` - the first week, or an
+ * entry saved before the field existed - marks nothing. A value outside a
+ * standing's vocabulary is never read as a fall. Public data only: the macro
+ * rows are public by D5's crude-v1 convention.
+ */
+export function fellStandings(before: SimulationState | undefined, after: SimulationState): ReadonlySet<MacroStanding> {
+    const fell = new Set<MacroStanding>();
+    if (!before) return fell;
+    for (const standing of Object.keys(STANDING_ORDER) as MacroStanding[]) {
+        const order: readonly string[] = STANDING_ORDER[standing];
+        const was = order.indexOf(before[standing]);
+        const is = order.indexOf(after[standing]);
+        if (was >= 0 && is > was) fell.add(standing);
+    }
+    return fell;
+}
+
 const quiet: React.CSSProperties = { fontSize: 14, fontStyle: 'italic', color: 'var(--text-muted)' };
 
 /** One cell of the 2×2 engraved grid. `fell` marks a standing that slipped this week. */
@@ -93,8 +138,9 @@ const WorldStateTab: React.FC<{
     /** The week this briefing covers. */
     week: number;
     /**
-     * Which macro standings fell this turn, derived from the deltas the turn
-     * pipeline ALREADY computes — never a new AI call.
+     * Which macro standings fell this week - `fellStandings` over the newest
+     * history entry's persisted pre-turn state and the current one. Never a
+     * new AI call.
      */
     fellThisWeek?: ReadonlySet<keyof SimulationState>;
     pointers: readonly BriefingPointer[];

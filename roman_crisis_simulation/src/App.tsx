@@ -12,7 +12,7 @@ import DispatchesDigest from './components/DispatchesDigest';
 import SidePanel from './components/SidePanel';
 import EventModal from './components/EventModal';
 import { useGame } from './state/GameContext';
-import { hasSave } from './persistence/saveGame';
+import { hasStoredReign } from './persistence/saveGame';
 import { knownRecipientOptionsForPlayer } from './knowledge/relationships';
 import { Button } from './components/ui/Core';
 import { OfflineStrip, TurnFailureNotice, useOnline } from './components/ui/FailureNotices';
@@ -256,7 +256,7 @@ const App: React.FC = () => {
         handleStartAnew,
         handleImportReign,
     } = useCampaignLifecycle({
-        ai, isMockMode, worldState, metaNarrative, messages,
+        ai, isMockMode, resolvedApiKey, worldState, metaNarrative, messages,
         dispatch, buildSaveState, commitDomainMutation, beginCampaignSession, campaignGenerationRef,
         setTransactionNote, offerOnboarding,
     });
@@ -362,6 +362,7 @@ const App: React.FC = () => {
                 worldState={worldState}
                 onOpenSettings={openSettings}
                 compact={inGame}
+                showWorldStats={gameState !== GameState.SETUP}
                 onOpenCommands={inGame ? openPalette : undefined}
                 worldShifts={inGame ? worldShifts : undefined}
             />
@@ -427,6 +428,10 @@ const App: React.FC = () => {
                                         void runDomainMutation(handleStartAnew);
                                     }}
                                     onImportReign={handleImportReign}
+                                    onTakeCopy={downloadTheReign}
+                                    canReachTheFates={isMockMode || Boolean(resolvedApiKey)}
+                                    onOpenSettings={openSettings}
+                                    onEnableMockMode={() => setIsMockMode(true)}
                                     interactionLocked={domainMutationInFlight}
                                 />
                             ) : (
@@ -715,7 +720,7 @@ const App: React.FC = () => {
                     onSetIsMockMode={setIsMockMode}
                     gmConsoleOpen={isGmConsoleEnabled}
                     onSetGmConsoleOpen={handleSetGmConsoleOpen}
-                    hasSavedReign={hasSave()}
+                    hasSavedReign={hasStoredReign()}
                     onExportReign={downloadTheReign}
                     onImportReign={handleImportReign}
                     interactionLocked={domainMutationInFlight || gameState === GameState.PROCESSING}

@@ -176,6 +176,18 @@ export interface SaveGameState {
    * with an exported reign like everything else here.
    */
   voiceCast?: VoiceCast | null;
+  /**
+   * The authored event (D12) whose choice the reign is waiting on, by id -
+   * a `GameEvent` carries its trigger function, so the event itself cannot
+   * be stored. Present only while a fate is open: the event check runs
+   * after a turn's autosave, so `updateSavedPendingEvent` patches it into
+   * that save, and the choice's own commit drops it. GAME_LOADED
+   * (state/gameReducer.ts) reopens the fate from it. An unresolved choice is
+   * game state, not a modal-open flag: without it a reload skipped the fate.
+   * Optional so `SAVE_VERSION` stays at 1: an older save has none, and an
+   * older build ignores it.
+   */
+  pendingEventId?: string;
 }
 
 /** The versioned envelope actually written to storage. */
@@ -658,24 +670,74 @@ export function updateSavedVoiceCast(voiceCast: VoiceCast, playerCharacterId: st
 }
 
 /**
+ * Patches ONLY the pending authored event into the stored autosave, the way
+ * `updateSavedAmbition` patches the ambition: the event check runs after
+ * the turn that fired it has already autosaved, so the fate is written into
+ * THAT save. Skipped (returning false) when no valid save exists, when it
+ * belongs to another campaign or another turn than the one that fired the
+ * fate, or when the write fails - the fate is then this session's only, and
+ * the unload guard (hooks/useShellEffects.ts) warns before it is lost.
+ */
+export function updateSavedPendingEvent(
+  eventId: string,
+  turnNumber: number,
+  playerCharacterId: string | null,
+): boolean {
+  const existing = loadGame();
+  if (!existing) return false;
+  if (existing.state.playerCharacterId !== playerCharacterId || existing.state.turnNumber !== turnNumber) return false;
+  try {
+    const patched: SaveGame = {
+      ...existing,
+      savedAt: new Date().toISOString(),
+      state: { ...existing.state, pendingEventId: eventId },
+    };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(patched));
+    return true;
+  } catch (e) {
+    console.warn('updateSavedPendingEvent: write failed; the fate is kept for this session only', e);
+    return false;
+  }
+}
+
+/**
  * Loads the autosave, or `null` if there is none, it's corrupted, it's an
  * unrecognized shape, or its version doesn't match `SAVE_VERSION`. Never
  * throws - every failure mode is a `console.warn` + `null`, so callers can
- * always treat `null` as "start fresh."
+ * always treat `null` as "start fresh." `readSaveSlot` below says which.
  */
 export function loadGame(): SaveGame | null {
+  const slot = readSaveSlot();
+  return slot.kind === 'reign' ? slot.save : null;
+}
+
+/** Why a stored reign could not be loaded - `validateSaveBlob`'s refusals. */
+export type SaveRefusalReason = 'unreadable' | 'not_a_reign' | 'version_mismatch';
+
+/**
+ * What the autosave slot holds: nothing, a reign this build can load, or a
+ * blob it refuses - a newer build's save seen by an older tab or deploy, or
+ * a corrupted one - with the reason. `loadGame` flattens the last to `null`;
+ * the destiny screen must not, or a reign it cannot read looks like a fresh
+ * device and the next destiny silently overwrites it. Never throws: storage
+ * that cannot be read at all reads as empty.
+ */
+export function readSaveSlot():
+  | { kind: 'empty' }
+  | { kind: 'reign'; save: SaveGame }
+  | { kind: 'refused'; reason: SaveRefusalReason } {
   let raw: string | null;
   try {
     raw = localStorage.getItem(SAVE_KEY);
   } catch (e) {
     console.warn('loadGame: localStorage.getItem failed', e);
-    return null;
+    return { kind: 'empty' };
   }
 
-  if (!raw) return null;
+  if (!raw) return { kind: 'empty' };
 
   const validated = validateSaveBlob(raw);
-  return validated.ok ? validated.save : null;
+  return validated.ok ? { kind: 'reign', save: validated.save } : { kind: 'refused', reason: validated.reason };
 }
 
 /**
@@ -696,6 +758,16 @@ export function clearSave(): SaveGameResult {
 /** True if a valid (parseable, version-matching) autosave exists. */
 export function hasSave(): boolean {
   return loadGame() !== null;
+}
+
+/**
+ * True if the slot holds a reign at all, readable by this build or not - the
+ * question an overwrite must ask (a refused reign is still somebody's
+ * campaign) and the one "Take a copy of the reign" answers, since the copy
+ * hands the bytes over verbatim.
+ */
+export function hasStoredReign(): boolean {
+  return readSaveSlot().kind !== 'empty';
 }
 
 /**

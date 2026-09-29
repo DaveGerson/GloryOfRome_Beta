@@ -598,6 +598,17 @@ export interface TurnHistoryEntry {
    * between turns. Trimmed with `postTurnEntities`; absent on older entries.
    */
   preTurnRoster?: Pick<Entity, 'entity_id' | 'location' | 'status'>[];
+  /**
+   * The macro SimulationState as it stood before this turn resolved - what
+   * the briefing's "fell this week" mark compares the committed state
+   * against (components/tabs/WorldStateTab.tsx's `fellStandings`). Persisted
+   * rather than held in session: a direction mark that vanished on reload
+   * would be worse than none. PUBLIC by D5's crude-v1 convention, like the
+   * macro rows themselves. Optional: entries persisted before the field
+   * existed lack it (and show no mark), and entries older than the snapshot
+   * window drop it alongside `postTurnEntities` (state/gameReducer.ts).
+   */
+  preTurnSimulationState?: SimulationState;
   rawCalls?: RawCallRecord[]; // Raw prompt/response capture for every AI call made this turn
   mortalityTrace?: MortalityEvent[]; // Every death claim this turn went through processMortality, see MortalityEvent
   /**

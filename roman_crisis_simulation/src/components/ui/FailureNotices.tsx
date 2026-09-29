@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Alert, RECORD_REFUSES } from './Alert';
 import { Button } from './Core';
 import { toRoman } from './Brand';
-import type { ImportResult } from '../../persistence/saveGame';
+import type { ImportResult, SaveRefusalReason } from '../../persistence/saveGame';
 
 /**
  * Every failure the player can meet (WP-21, audit items 46–49), in one
@@ -259,6 +259,36 @@ export const PRIVATE_SCENE_FAILURE_COPY: Record<PrivateSceneFailure, { title: st
 export const PrivateSceneFailureNotice: React.FC<{ failure: PrivateSceneFailure; style?: React.CSSProperties }> = ({ failure, style }) => (
   <Alert title={PRIVATE_SCENE_FAILURE_COPY[failure].title} style={style}>
     {PRIVATE_SCENE_FAILURE_COPY[failure].message}
+  </Alert>
+);
+
+/**
+ * The destiny screen's word on a reign this device holds but this copy of the
+ * game cannot read - saved by a newer version (a stale tab, a cached deploy)
+ * or damaged. It used to be hidden: the screen looked like a fresh device and
+ * the next destiny wrote over it without a word. The blob is left exactly as
+ * it is; "Take a copy of the reign" hands it over verbatim (`rawSaveBlob`
+ * never validates), and the destiny screen's Abandon confirm gates any
+ * overwrite. `unreadable` and `not_a_reign` share a sentence, as they do for
+ * an import.
+ */
+const UNREADABLE_REIGN_LEAD: Record<SaveRefusalReason, string> = {
+  unreadable: 'The reign saved on this device could not be read.',
+  not_a_reign: 'The reign saved on this device could not be read.',
+  version_mismatch: 'The reign saved on this device was written in another age of the Republic, and this copy of the game cannot read it.',
+};
+
+export const UnreadableReignNotice: React.FC<{
+  reason: SaveRefusalReason;
+  onTakeCopy?: () => void;
+}> = ({ reason, onTakeCopy }) => (
+  <Alert
+    tone="crimson"
+    title="The saved reign cannot be read"
+    actions={onTakeCopy && <Button size="sm" onClick={onTakeCopy}>Take a copy of the reign</Button>}
+  >
+    {UNREADABLE_REIGN_LEAD[reason]} It is still here, untouched, and nothing will replace it unless
+    you choose to.
   </Alert>
 );
 

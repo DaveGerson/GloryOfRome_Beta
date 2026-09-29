@@ -15,7 +15,9 @@ import type {
 } from '../types';
 import type { GameAction } from '../state/gameReducer';
 import type { SaveGameState } from '../persistence/saveGame';
+import { updateSavedPendingEvent } from '../persistence/saveGame';
 import { checkForTriggeredEvent, applyEventChoiceDeltas, recordEventFiring } from '../events/engine';
+import { eventLeafText } from '../components/textFormat';
 import type { DomainCommit, TransactionNote } from '../app/transactions';
 
 export interface EventFlowDeps {
@@ -68,6 +70,12 @@ export function useEventFlow(deps: EventFlowDeps) {
             // suppression gate is an owner-ruling candidate.
             const event = checkForTriggeredEvent(worldState, entities, eventFirings, playerEntity, simulationState, turnNumber);
             if (event) {
+                // The turn that fired this fate is already on disk; the fate
+                // is written into that same save before its modal opens, so
+                // a reload reopens it instead of skipping it. A write that
+                // does not land still opens the modal - the fate stands
+                // either way, and the unload guard warns before it is lost.
+                updateSavedPendingEvent(event.id, turnNumber, playerEntity?.entity_id ?? null);
                 dispatch({ type: 'EVENT_TRIGGERED', event });
             } else {
                 dispatch({ type: 'GAME_STATE_SET', gameState: GameState.AWAITING_PLAYER_INPUT });
@@ -87,7 +95,7 @@ export function useEventFlow(deps: EventFlowDeps) {
         };
 
         const { updatedEntities, updatedWorldState } = applyEventChoiceDeltas(choice, playerEntity, entities, worldState, turnNumber);
-        const eventMessage: Message = { sender: 'gm', text: `**Event: ${activeEvent.title}**\nYou chose to: *${choice.text}*`};
+        const eventMessage: Message = { sender: 'gm', text: eventLeafText(activeEvent.title, choice.text) };
         const newEventHistory = [...eventHistory, newEventHistoryEntry];
         // 4D.2 (D12): both bookkeeping shapes advance together - the legacy
         // deduped ever-fired set (a repeat firing never duplicates its id)
@@ -103,7 +111,8 @@ export function useEventFlow(deps: EventFlowDeps) {
         // the adjudicated turn pipeline - the reducer applies the exact same
         // GAME_OVER check as TURN_COMMITTED.
         if (!commitDomainMutation({
-            candidate: buildSaveState({ entities: updatedEntities, worldState: updatedWorldState, eventHistory: newEventHistory, triggeredEventIds: newTriggeredEventIds, eventFirings: newEventFirings, messages: [...messages, eventMessage] }),
+            // The choice answers the fate, so the save stops carrying it.
+            candidate: buildSaveState({ entities: updatedEntities, worldState: updatedWorldState, eventHistory: newEventHistory, triggeredEventIds: newTriggeredEventIds, eventFirings: newEventFirings, messages: [...messages, eventMessage], pendingEventId: undefined }),
             action: {
                 type: 'EVENT_CHOICE_APPLIED',
                 entities: updatedEntities,
