@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Entity } from '../../types';
 import { GoogleGenAI } from "@google/genai";
 import { getClarificationOnEvent } from '../../ai/tools/intelligence';
@@ -8,7 +8,7 @@ import { SubRail } from '../ui/SubRail';
 import {
     KnowledgeClaim, OCCURRENCE_QUESTIONS, OccurrenceQuestion, examinedOccurrences, occurrenceFindings,
 } from '../../knowledge/store';
-import { FocusKeepingButton } from './dramatisPersonaeUi';
+import { FocusKeepingButton, useFocusOnLanding } from './dramatisPersonaeUi';
 import { getTabRegister, setTabRegister } from '../../persistence/uiPrefs';
 import { EmptyRegister, QuietWeekSilhouette } from './EmptyRegister';
 import type { DomainMutationContext, RunDomainMutation } from '../../state/domainMutation';
@@ -50,13 +50,11 @@ const quiet: React.CSSProperties = { fontSize: 14, fontStyle: 'italic', color: '
  * kicker naming the question, and the body in italic behind a Tyrian rule.
  * `landedSeq` is set on the finding that just came back: the question button
  * the player pressed is gone once answered, so focus moves here rather than
- * falling to the page body (WCAG 2.4.3).
+ * falling to the page body (WCAG 2.4.3). `onLandingFocused` spends the
+ * landing, so reopening the slip later leaves focus on its toggle.
  */
-const Finding: React.FC<{ kicker: string; text: string; landedSeq?: number }> = ({ kicker, text, landedSeq }) => {
-    const ref = useRef<HTMLDivElement>(null);
-    useEffect(() => {
-        if (landedSeq !== undefined) ref.current?.focus();
-    }, [landedSeq]);
+const Finding: React.FC<{ kicker: string; text: string; landedSeq?: number; onLandingFocused?: () => void }> = ({ kicker, text, landedSeq, onLandingFocused }) => {
+    const ref = useFocusOnLanding<HTMLDivElement>(landedSeq, onLandingFocused);
     return (
         <div className="gor-finding" ref={ref} tabIndex={-1}>
             <WaxSeal letter="A" size={20} tone="tyrian" />
@@ -92,19 +90,26 @@ const CurrentEventsTab: React.FC<{
     // and, for the player, a "Seeking…" that simply vanished.
     const [failedOccurrence, setFailedOccurrence] = useState<string | null>(null);
     // The finding that last came back, so focus can follow it (see Finding).
+    // One-shot: cleared once focus has moved, and by any toggle or register
+    // switch, so a slip that remounts later never pulls focus to itself.
     const [landed, setLanded] = useState<{ occurrence: string; question: OccurrenceQuestion; seq: number } | null>(null);
+    const clearLanded = useCallback(() => setLanded(null), []);
 
     const selectRegister = (next: EventRegister) => {
+        clearLanded();
         setRegister(next);
         setTabRegister('events', next);
     };
 
-    const toggle = (occurrence: string) => setOpen(previous => {
-        const next = new Set(previous);
-        if (next.has(occurrence)) next.delete(occurrence);
-        else next.add(occurrence);
-        return next;
-    });
+    const toggle = (occurrence: string) => {
+        clearLanded();
+        setOpen(previous => {
+            const next = new Set(previous);
+            if (next.has(occurrence)) next.delete(occurrence);
+            else next.add(occurrence);
+            return next;
+        });
+    };
 
     const ask = async (occurrence: string, question: OccurrenceQuestion) => {
         if (interactionLocked || !playerEntity || seeking) return;
@@ -166,6 +171,7 @@ const CurrentEventsTab: React.FC<{
                                 kicker={QUESTIONS[finding.question].kicker}
                                 text={finding.text}
                                 landedSeq={landed && landed.occurrence === occurrence && landed.question === finding.question ? landed.seq : undefined}
+                                onLandingFocused={clearLanded}
                             />
                         ))}
                         {inFlight && <span role="status" style={quiet}>Seeking…</span>}

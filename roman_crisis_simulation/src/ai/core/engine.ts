@@ -1,6 +1,11 @@
 import { Entity, WorldState, Adjudication, Report, EventDelta, Relationship, TruthLedgerEntry } from '../../types';
 import { SYSTEMIC_RESOURCES, applySystemicResourceRule } from './resources';
 import { buildNpcPerceptions, selectMemoryChanges, selectPerceivingNpcs } from '../../perception/npcPerception';
+import { legacyReasonIndicatesDeath, legacyStatusFromReason } from './legacyStatus';
+
+// The legacy reason-parse lives in ./legacyStatus.ts, where the perception
+// layer can mirror it without importing this module.
+export { legacyReasonIndicatesDeath };
 
 // NOTE: The turn-adjudication prompt (formerly `compileContext` here) has
 // moved to `ai/prompts/adjudication.ts::buildAdjudicationPrompt`, and its
@@ -42,22 +47,6 @@ export const MAX_RECENT_INTERACTIONS = 20;
  * record, not disposable debug data.
  */
 export const MAX_TRUTH_LEDGER_ENTRIES = 200;
-
-/**
- * The free-text death-phrase heuristic, used only when a 'status' delta
- * omits the structured `new_status` field (a legacy/pre-MAINT-P0.2 delta,
- * or a turn where the model forgot to set it). Matches common death
- * phrasings while suppressing false positives from nearby
- * survival/negation wording (e.g. "nearly died but survived"). Extracted
- * from applyDeltas' inline 'status' case so it has exactly one
- * implementation.
- */
-export function legacyReasonIndicatesDeath(reason: string): boolean {
-    const text = reason.toLowerCase();
-    const indicatesDeath = /\b(dead|died|killed|slain|slaughtered|assassinated|perished|executed)\b/.test(text);
-    const indicatesSurvival = /\b(surviv\w*|recovers?|recovered|escape[sd]?|avoid(?:s|ed|ing)?|spared|rescued|saved|did ?n'?t die|no one (?:died|was killed))\b/.test(text);
-    return indicatesDeath && !indicatesSurvival;
-}
 
 /**
  * True if a 'status' EventDelta represents a claimed death - either via the
@@ -211,12 +200,12 @@ export function applyDeltas(
                             // killed", "slain", etc.), not just the literal substring "dead". To avoid
                             // false-positive kills on phrasing like "nearly died but survived", any
                             // survival/negation wording nearby suppresses the death match. See
-                            // `legacyReasonIndicatesDeath` above (also reused by
+                            // `legacyStatusFromReason` (./legacyStatus.ts - also mirrored by
+                            // perception/visibility.ts, and its death test reused by
                             // ai/core/mortality.ts's death-claim detection).
                             const newStatus = delta.reason.toLowerCase();
-                            if (legacyReasonIndicatesDeath(delta.reason)) entity.status = 'dead';
-                            else if (newStatus.includes('exiled')) entity.status = 'exiled';
-                            else if (newStatus.includes('missing')) entity.status = 'missing';
+                            const legacyStatus = legacyStatusFromReason(delta.reason);
+                            if (legacyStatus) entity.status = legacyStatus;
                             else if (newStatus.includes('moves to')) {
                                 const location = newStatus.replace('moves to ', '').trim();
                                 const validLocations = Object.keys(currentWorldState.regions);
@@ -285,14 +274,13 @@ export function applyDeltas(
                 }
                 case 'rumor': {
                     rumorSeq += 1;
-                    // TURN PROVENANCE CONSTRAINT: when this runs under
-                    // applyAdjudication, `turnNumber` is `adjudication.turn` -
-                    // a model-echoed field - so the Report's and ledger
-                    // entry's `turn` stamps record the turn the ADJUDICATION
-                    // claims, not the App's authoritative counter. The GM
-                    // console reads these stamps as-is; the player knowledge
-                    // store does NOT trust them - knowledge/commit.ts stamps
-                    // claim updates with the authoritative turn instead.
+                    // TURN PROVENANCE: under applyAdjudication, `turnNumber`
+                    // is the App's authoritative counter when the caller
+                    // supplies one (PerceptionStampContext.turnNumber), else
+                    // the model-echoed `adjudication.turn`. The GM console
+                    // and the Reports tab read these stamps as-is; the player
+                    // knowledge store stamps its claim updates with the
+                    // authoritative turn itself (knowledge/commit.ts).
                     const newReport: Report = {
                         id: `report_${turnNumber}_${Date.now()}_${rumorSeq}`,
                         turn: turnNumber,
@@ -439,13 +427,13 @@ export interface PerceptionStampContext {
     /**
      * The App's AUTHORITATIVE turn counter for the turn being applied
      * (threaded from runNewTurn, which receives it from App.tsx). Used for
-     * the memory stamp's `turn` field INSTEAD of the model-echoed
-     * `adjudication.turn`: a model that mislabels its turn must not skew
-     * memory provenance (the same rule knowledge/commit.ts states for the
-     * player-side knowledge stamps). Optional so legacy call sites keep
-     * working; absent, the stamp falls back to `adjudication.turn` - the
-     * pre-existing behavior. Report/truth-ledger `turn` stamps are a
-     * separate, documented case - see applyDeltas' 'rumor' branch.
+     * the memory stamps' and the new Reports' and truth-ledger entries'
+     * `turn` INSTEAD of the model-echoed `adjudication.turn`: a model that
+     * mislabels its turn must not skew provenance (the same rule
+     * knowledge/commit.ts states for the player-side knowledge stamps), and
+     * the Reports tab prints Report.turn beside those knowledge stamps.
+     * Optional so legacy call sites keep working; absent, the stamps fall
+     * back to `adjudication.turn` - the pre-existing behavior.
      */
     turnNumber?: number;
 }
@@ -461,7 +449,12 @@ export function applyAdjudication(
     perceptionContext: PerceptionStampContext = {}
 ): { updatedEntities: Entity[], updatedWorldState: WorldState, updatedReports: Report[], updatedTruthLedger: TruthLedgerEntry[], perceivingNpcIds: string[] } {
 
-    const { updatedEntities, updatedWorldState, newReports, newTruthLedgerEntries } = applyDeltas(adjudication.deltas, currentEntities, currentWorldState, adjudication.turn);
+    // Every stamp this turn writes - Report, truth-ledger entry, memory - uses
+    // the AUTHORITATIVE turn counter when the caller provides one (see
+    // PerceptionStampContext.turnNumber), never trusting the model-echoed
+    // `adjudication.turn` for provenance when the real counter is available.
+    const stampTurn = perceptionContext.turnNumber ?? adjudication.turn;
+    const { updatedEntities, updatedWorldState, newReports, newTruthLedgerEntries } = applyDeltas(adjudication.deltas, currentEntities, currentWorldState, stampTurn);
     let entitiesAfterDeltas = updatedEntities;
     const updatedReports = [...currentReports, ...newReports];
     const updatedTruthLedger = appendTruthLedgerEntries(currentTruthLedger, newTruthLedgerEntries);
@@ -483,11 +476,6 @@ export function applyAdjudication(
         adjudication.deltas
     );
     const npcPerceptions = buildNpcPerceptions(adjudication.deltas, perceivers, entitiesAfterDeltas, updatedWorldState, currentEntities);
-    // Memory stamps use the AUTHORITATIVE turn counter when the caller
-    // provides one (see PerceptionStampContext.turnNumber) - never trusting
-    // the model-echoed `adjudication.turn` for provenance when the real
-    // counter is available.
-    const stampTurn = perceptionContext.turnNumber ?? adjudication.turn;
     npcPerceptions.forEach(perception => {
         const entity = entitiesAfterDeltas.find(e => e.entity_id === perception.entityId);
         if (!entity) return;

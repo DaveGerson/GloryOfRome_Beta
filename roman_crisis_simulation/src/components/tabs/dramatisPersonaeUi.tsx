@@ -75,12 +75,20 @@ export const FocusKeepingButton: React.FC<{
  * each time a paid request for this aspect commits, and the returned ref
  * goes on the region that shows what was bought (tabIndex -1, so it is
  * focusable without joining the Tab order).
+ *
+ * A landing is spent once focus has moved: `onFocused` tells the owner to
+ * clear it, so a later remount (the disclosure closed and reopened) finds no
+ * landing and leaves focus where the player put it (WCAG 3.2.1). Pass a
+ * stable callback.
  */
-export function useFocusOnLanding<T extends HTMLElement>(landedSeq: number | undefined) {
+export function useFocusOnLanding<T extends HTMLElement>(landedSeq: number | undefined, onFocused?: () => void) {
     const ref = useRef<T>(null);
     useEffect(() => {
-        if (landedSeq !== undefined) ref.current?.focus();
-    }, [landedSeq]);
+        const node = ref.current;
+        if (landedSeq === undefined || !node) return;
+        node.focus();
+        onFocused?.();
+    }, [landedSeq, onFocused]);
     return ref;
 }
 
@@ -138,9 +146,11 @@ export const SchemeIntelSection: React.FC<{
     showGloss?: boolean;
     /** Changes each time a paid clue lands - focus then moves to the thread (useFocusOnLanding). */
     landedSeq?: number;
-}> = ({ discovery, threshold, cost, resourceCount, onInvestigate, isLoading, interactionLocked = false, tooltip, showGloss = false, landedSeq }) => {
+    /** Clears the landing once focus has moved, so it fires once (useFocusOnLanding). */
+    onLandingFocused?: () => void;
+}> = ({ discovery, threshold, cost, resourceCount, onInvestigate, isLoading, interactionLocked = false, tooltip, showGloss = false, landedSeq, onLandingFocused }) => {
     // Whichever state renders is where focus lands once a clue comes back.
-    const findingRef = useFocusOnLanding<HTMLDivElement>(landedSeq);
+    const findingRef = useFocusOnLanding<HTMLDivElement>(landedSeq, onLandingFocused);
     const renderState = () => {
         if (discovery?.revealed && discovery.nature) {
             return (
@@ -209,9 +219,11 @@ export const IntelSection: React.FC<{
     showGloss?: boolean;
     /** Changes each time a paid reading for this aspect lands - focus then moves to it (useFocusOnLanding). */
     landedSeq?: number;
-}> = ({ title, cost, resourceName, resourceCount, held, heldSinceTurn, heldReading, onUncover, isLoading, interactionLocked = false, tooltip, showGloss = false, landedSeq }) => {
+    /** Clears the landing once focus has moved, so it fires once (useFocusOnLanding). */
+    onLandingFocused?: () => void;
+}> = ({ title, cost, resourceName, resourceCount, held, heldSinceTurn, heldReading, onUncover, isLoading, interactionLocked = false, tooltip, showGloss = false, landedSeq, onLandingFocused }) => {
     // Whichever state renders is where focus lands once a reading comes back.
-    const findingRef = useFocusOnLanding<HTMLDivElement>(landedSeq);
+    const findingRef = useFocusOnLanding<HTMLDivElement>(landedSeq, onLandingFocused);
     const busy = isLoading || interactionLocked;
 
     const renderContent = () => {
@@ -309,9 +321,11 @@ export const DeepAnalysisSection: React.FC<{
     showGloss?: boolean;
     /** Changes each time a commissioned assessment lands - focus then moves to it (useFocusOnLanding). */
     landedSeq?: number;
-}> = ({ held, cost, resourceCount, onCommission, isLoading, interactionLocked = false, showGloss = false, landedSeq }) => {
+    /** Clears the landing once focus has moved, so it fires once (useFocusOnLanding). */
+    onLandingFocused?: () => void;
+}> = ({ held, cost, resourceCount, onCommission, isLoading, interactionLocked = false, showGloss = false, landedSeq, onLandingFocused }) => {
     const canAfford = resourceCount >= cost;
-    const findingRef = useFocusOnLanding<HTMLDivElement>(landedSeq);
+    const findingRef = useFocusOnLanding<HTMLDivElement>(landedSeq, onLandingFocused);
     const commission = (verb: string) => (
         <FocusKeepingButton
             variant={held ? 'secondary' : 'primary'}

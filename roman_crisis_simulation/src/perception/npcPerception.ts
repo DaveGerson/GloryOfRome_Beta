@@ -19,7 +19,7 @@
  */
 
 import { Entity, EventDelta, WorldState } from '../types';
-import { buildPerceivedDigest, PerceivedChange, PerceptionSource } from './visibility';
+import { buildPerceivedDigest, PerceivedChange, PerceptionSource, type PreTurnRoster } from './visibility';
 
 /**
  * Upper bound on how many NPCs run the perception pass in a single turn.
@@ -143,7 +143,7 @@ export function buildNpcPerceptions(
   viewers: Entity[],
   entities: Entity[],
   worldState: WorldState,
-  preTurnEntities?: Entity[]
+  preTurnEntities?: PreTurnRoster
 ): NpcPerception[] {
   return viewers.map(viewer => ({
     entityId: viewer.entity_id,

@@ -17,9 +17,10 @@
  *
  * TURN-STAMP PROVENANCE: every update committed through these helpers is
  * stamped with the App's AUTHORITATIVE turn counter (`turnNumber`), never a
- * model-authored turn field. A Report's own `turn` descends from the
- * model-echoed `adjudication.turn` (ai/core/engine.ts), so trusting it
- * would let a model that mislabels its turn skew claim timelines; the
+ * model-authored turn field. A Report's own `turn` falls back to the
+ * model-echoed `adjudication.turn` when applyAdjudication is given no
+ * authoritative counter (ai/core/engine.ts), so trusting it could let a
+ * model that mislabels its turn skew claim timelines; the
  * Report keeps its own `turn` field internally, only the knowledge stamp
  * uses the authoritative counter.
  */

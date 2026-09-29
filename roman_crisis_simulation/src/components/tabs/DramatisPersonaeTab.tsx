@@ -6,7 +6,7 @@ import { Card, Button } from '../ui/Core';
 import { Alert } from '../ui/Alert';
 import {
   InvestigationKind, KnowledgeClaim, SCHEME_CLUES_TO_REVEAL, deriveDossier,
-  hasUnstructuredStatusRecord, perceivedFactionOf, perceivedStatusOf,
+  perceivedFactionOf, perceivedStatusOf,
 } from '../../knowledge/store';
 import { DOSSIER_COLD_THRESHOLD } from '../../knowledge/dossierCost';
 import { knowledgeSourceLead } from '../../knowledge/credibilityFraming';
@@ -47,9 +47,12 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
   // One ❧ Glossary control per dossier instead of five † daggers (audit item
   // 25) - open it and every gloss in this card appears inline as marginalia.
   const [glossaryOpen, setGlossaryOpen] = useState(false);
-  const { loadingState, requestError, handleRequest, landed } = useIntelGathering({
+  const { loadingState, requestError, handleRequest, landed, clearLanded } = useIntelGathering({
     entity, playerEntity, knowledge, ai, isMockMode, interactionLocked, runDomainMutation, onSpendDeepAnalysis, onInvestigationOutcome,
   });
+  // A landing is one-shot: the section clears it once focus has moved, and
+  // the disclosure clears one that came back while the briefing was shut, so
+  // opening the briefing never pulls focus off the Intel toggle.
   const landedSeq = (type: NonNullable<typeof landed>['type']) => landed?.type === type ? landed.seq : undefined;
   const price = (kind: InvestigationKind) => priceInvestigation(knowledge, entity.entity_id, kind);
   const schemeDiscovery = schemeDiscoveryFor(knowledge, entity.entity_id);
@@ -90,7 +93,7 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
           aria-expanded={isExpanded}
           aria-controls={isExpanded ? briefingId : undefined}
           aria-label={`${isExpanded ? 'Collapse' : 'Intel'} (${entity.name})`}
-          onClick={() => setIsExpanded(value => !value)}
+          onClick={() => { clearLanded(); setIsExpanded(value => !value); }}
         >{isExpanded ? 'Collapse' : 'Intel'}</Button>
         {isExpanded && (
           <button
@@ -110,10 +113,10 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
         {requestError && <Alert title="Your agents return empty-handed">{requestError}</Alert>}
         {isExpanded && <div id={briefingId} style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 8, borderTop: '1px solid var(--border-faint)' }}>
           <span className="gor-label" style={{ color: 'var(--tyrian-500)' }}>Intelligence Briefing</span>
-          <IntelSection title="Beliefs" {...price('beliefs')} heldSinceTurn={heldSinceTurn(knowledge, entity.entity_id, 'beliefs')} heldReading={heldReadingFor('beliefs')} resourceName="Inv." resourceCount={investigations} onUncover={() => handleRequest('beliefs')} isLoading={loadingState === 'beliefs'} interactionLocked={interactionLocked} showGloss={glossaryOpen} landedSeq={landedSeq('beliefs')} tooltip="Uncover the core ideologies and principles that drive this character's decisions." />
-          <SchemeIntelSection discovery={schemeDiscovery} threshold={SCHEME_CLUES_TO_REVEAL} cost={price('scheme').cost} resourceCount={investigations} onInvestigate={() => handleRequest('scheme')} isLoading={loadingState === 'scheme'} interactionLocked={interactionLocked} showGloss={glossaryOpen} landedSeq={landedSeq('scheme')} tooltip="Piece together what this character is quietly plotting. Each investigation earns one clue toward its true nature." />
-          <IntelSection title="Secrets" {...price('secrets')} heldSinceTurn={heldSinceTurn(knowledge, entity.entity_id, 'secrets')} heldReading={heldReadingFor('secrets')} resourceName="Inv." resourceCount={investigations} onUncover={() => handleRequest('secrets')} isLoading={loadingState === 'secrets'} interactionLocked={interactionLocked} showGloss={glossaryOpen} landedSeq={landedSeq('secrets')} tooltip="Use high-risk, high-reward investigation to uncover hidden fears, blackmail material, or secret plots." />
-          <DeepAnalysisSection held={heldAssessment ? { analysis: heldAssessment.latestText, asOfTurn: heldAssessment.lastRefreshedTurn } : undefined} cost={DEEP_ANALYSIS_COST} resourceCount={deepAnalyses} onCommission={() => handleRequest('deep_analysis')} isLoading={loadingState === 'deep_analysis'} interactionLocked={interactionLocked} showGloss={glossaryOpen} landedSeq={landedSeq('deep_analysis')} />
+          <IntelSection title="Beliefs" {...price('beliefs')} heldSinceTurn={heldSinceTurn(knowledge, entity.entity_id, 'beliefs')} heldReading={heldReadingFor('beliefs')} resourceName="Inv." resourceCount={investigations} onUncover={() => handleRequest('beliefs')} isLoading={loadingState === 'beliefs'} interactionLocked={interactionLocked} showGloss={glossaryOpen} landedSeq={landedSeq('beliefs')} onLandingFocused={clearLanded} tooltip="Uncover the core ideologies and principles that drive this character's decisions." />
+          <SchemeIntelSection discovery={schemeDiscovery} threshold={SCHEME_CLUES_TO_REVEAL} cost={price('scheme').cost} resourceCount={investigations} onInvestigate={() => handleRequest('scheme')} isLoading={loadingState === 'scheme'} interactionLocked={interactionLocked} showGloss={glossaryOpen} landedSeq={landedSeq('scheme')} onLandingFocused={clearLanded} tooltip="Piece together what this character is quietly plotting. Each investigation earns one clue toward its true nature." />
+          <IntelSection title="Secrets" {...price('secrets')} heldSinceTurn={heldSinceTurn(knowledge, entity.entity_id, 'secrets')} heldReading={heldReadingFor('secrets')} resourceName="Inv." resourceCount={investigations} onUncover={() => handleRequest('secrets')} isLoading={loadingState === 'secrets'} interactionLocked={interactionLocked} showGloss={glossaryOpen} landedSeq={landedSeq('secrets')} onLandingFocused={clearLanded} tooltip="Use high-risk, high-reward investigation to uncover hidden fears, blackmail material, or secret plots." />
+          <DeepAnalysisSection held={heldAssessment ? { analysis: heldAssessment.latestText, asOfTurn: heldAssessment.lastRefreshedTurn } : undefined} cost={DEEP_ANALYSIS_COST} resourceCount={deepAnalyses} onCommission={() => handleRequest('deep_analysis')} isLoading={loadingState === 'deep_analysis'} interactionLocked={interactionLocked} showGloss={glossaryOpen} landedSeq={landedSeq('deep_analysis')} onLandingFocused={clearLanded} />
         </div>}
       </div>
     </Card>
@@ -156,12 +159,10 @@ const DramatisPersonaeTab: React.FC<{ playerEntity: Entity | null; entities: Ent
   // Nor may either be READ off the roster (D5): who is still about, and whom
   // they stand with, is what the player last SAW (the structured status /
   // allegiance on their perceived digest lines), never the live entity. A
-  // figure the player has seen no change in is believed alive; a perceived
-  // status line recorded before the structured field existed (a legacy
-  // save) falls back to the live status it was, in its day, reporting.
+  // figure the player has seen no change in is believed alive (a legacy
+  // save's status line is read by perceivedStatusOf, never the live status).
   const believedStatus = (entity: Entity): Entity['status'] =>
-    perceivedStatusOf(wiring.knowledge, entity.entity_id)
-      ?? (hasUnstructuredStatusRecord(wiring.knowledge, entity.entity_id) ? entity.status : 'alive');
+    perceivedStatusOf(wiring.knowledge, entity.entity_id) ?? 'alive';
   const believedFaction = (entity: Entity): string | null | undefined => {
     const perceived = perceivedFactionOf(wiring.knowledge, entity.entity_id);
     return perceived === undefined ? entity.faction_id : perceived;

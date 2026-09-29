@@ -34,6 +34,7 @@
 
 import { Entity, EventDelta, EventDeltaType, WorldState } from '../types';
 import type { PrivateSceneRecord, PrivateSceneStatus, PrivateSceneClosureReason, PrivateSceneSpeaker, PrivateSceneSpeechAct } from '../privateScene/model';
+import { legacyStatusFromReason } from '../ai/core/legacyStatus';
 
 export interface PrivateScenePlayerView {
   sceneId: string;
@@ -113,8 +114,9 @@ export interface PerceivedChange {
   deltaKey: string;
   /**
    * 'status' changes only: the life/freedom status the line shows the
-   * subject in - what the viewer now BELIEVES of them. Structured so the
-   * roster can read a believed status without parsing the line's prose.
+   * subject in - what the viewer now BELIEVES of them ('alive' for a seen
+   * move: they were seen about). Structured so the roster can read a
+   * believed status without parsing the line's prose.
    */
   perceivedStatus?: Entity['status'];
   /**
@@ -173,20 +175,28 @@ function displayName(id: string | undefined, entities: Entity[]): string {
   return id.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
-function entityLocation(id: string, entities: Entity[]): string | undefined {
+function entityLocation(id: string, entities: readonly Pick<Entity, 'entity_id' | 'location'>[]): string | undefined {
   return entities.find(e => e.entity_id === id)?.location;
 }
+
+/**
+ * The roster as a turn BEGAN, reduced to the only fields perception reads
+ * from it: who stood where, in what state. A full Entity[] satisfies it, and
+ * so does the slim copy a history entry keeps (TurnHistoryEntry.preTurnRoster).
+ */
+export type PreTurnRoster = readonly Pick<Entity, 'entity_id' | 'location' | 'status'>[];
 
 const ENTITY_STATUSES: readonly Entity['status'][] = ['alive', 'dead', 'exiled', 'missing'];
 
 /**
  * What a 'status' delta visibly DID, mirroring ai/core/engine.ts's 'status'
  * case: nothing unless the key is exactly an entity's id (the engine looks
- * it up whole), then the structured new_status when set (else whatever the
- * legacy reason-parse fallback left on the post-turn roster), and a move
- * only to a region that exists - the engine ignores any other
- * new_location. With the pre-turn roster a status the entity already had,
- * or a move to where it already stood, is no change at all. A dead entity
+ * it up whole), then the structured new_status when valid, else the status
+ * the engine's legacy reason-parse reads off THIS delta's reason - never the
+ * post-turn status, which another delta may have set - and a move only to
+ * a region that exists - the engine ignores any other new_location. With
+ * the pre-turn roster a status the entity already had, or a move to where
+ * it already stood, is no change at all. A dead entity
  * is never seen to move: a corpse does not walk, and a presumed-dead NPC's
  * movements are exactly the hint at survival D3 forbids. Returns null when
  * nothing perceptible happened, so the delta is never announced.
@@ -195,14 +205,14 @@ function statusDeltaEffect(
   delta: EventDelta,
   entities: Entity[],
   worldState: WorldState,
-  preTurnEntities?: Entity[]
-): { status?: Entity['status']; moveTo?: string; after: Entity } | null {
+  preTurnEntities?: PreTurnRoster
+): { status?: Entity['status']; moveTo?: string } | null {
   const after = entities.find(e => e.entity_id === delta.key);
   if (!after) return null;
   const before = preTurnEntities?.find(e => e.entity_id === delta.key);
   const claimed = delta.new_status && ENTITY_STATUSES.includes(delta.new_status)
     ? delta.new_status
-    : after.status !== 'alive' ? after.status : undefined;
+    : legacyStatusFromReason(delta.reason);
   const status = claimed && (!before || before.status !== claimed) ? claimed : undefined;
   const resulting = status ?? after.status;
   const moveTo = delta.new_location
@@ -211,7 +221,7 @@ function statusDeltaEffect(
     && (!before || before.location !== delta.new_location)
     ? delta.new_location
     : undefined;
-  return status || moveTo ? { status, moveTo, after } : null;
+  return status || moveTo ? { status, moveTo } : null;
 }
 
 /** The only region delta the engine applies: '<existing region>:stability'
@@ -335,7 +345,7 @@ export function classifyDelta(
   viewer: Entity,
   entities: Entity[],
   worldState: WorldState,
-  preTurnEntities?: Entity[]
+  preTurnEntities?: PreTurnRoster
 ): Visibility {
   // --- Nothing perceptible happened ---
   if (delta.type === 'status' && !statusDeltaEffect(delta, entities, worldState, preTurnEntities)) {
@@ -482,7 +492,7 @@ function subjectForDelta(delta: EventDelta): string {
 /** Renders a delta as a plain-language line from the viewer's vantage -
  * second-person phrasing ("you"/"your") always addresses the viewer, so the
  * same delta reads correctly whether the viewer is the player or an NPC. */
-function describeDelta(delta: EventDelta, viewer: Entity, entities: Entity[], worldState: WorldState, preTurnEntities?: Entity[]): string {
+function describeDelta(delta: EventDelta, viewer: Entity, entities: Entity[], worldState: WorldState, preTurnEntities?: PreTurnRoster): string {
   switch (delta.type) {
     case 'relation': {
       const [aId, bId, attr = 'trust_level'] = delta.key.split(':');
@@ -600,7 +610,7 @@ export function buildPerceivedDigest(
   viewer: Entity,
   entities: Entity[],
   worldState: WorldState,
-  preTurnEntities?: Entity[]
+  preTurnEntities?: PreTurnRoster
 ): PerceivedChange[] {
   const changes: PerceivedChange[] = [];
   for (const delta of deltas) {
@@ -616,11 +626,11 @@ export function buildPerceivedDigest(
     };
     // The believed state the line itself conveys, in structured form (the
     // knowledge store keeps it so the roster never parses prose). A seen
-    // move shows the subject about, in whatever state they already stood.
+    // move shows the subject about - never the live status, which may have
+    // changed out of sight and would leak through the roster (D5).
     if (delta.type === 'status') {
       const effect = statusDeltaEffect(delta, entities, worldState, preTurnEntities);
-      const perceivedStatus = effect?.status ?? effect?.after.status;
-      if (perceivedStatus) change.perceivedStatus = perceivedStatus;
+      if (effect) change.perceivedStatus = effect.status ?? 'alive';
     } else if (delta.type === 'faction') {
       change.perceivedFaction = !delta.reason || delta.reason === 'null' ? null : delta.reason;
     }
@@ -636,7 +646,7 @@ export function buildPlayerPerceivedDigest(
   player: Entity,
   entities: Entity[],
   world: WorldState,
-  preTurnEntities?: Entity[]
+  preTurnEntities?: PreTurnRoster
 ): PerceivedChange[] {
   return buildPerceivedDigest(deltas, player, entities, world, preTurnEntities)
     .filter(change => change.deltaType !== 'relation');

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Entity, InvestigationResult } from '../../types';
 import { GoogleGenAI } from '@google/genai';
 import { KnowledgeClaim } from '../../knowledge/store';
@@ -37,6 +37,11 @@ export type IntelGatheringResult = {
    * once per landing (WCAG 2.4.3). Null until something lands.
    */
   landed: { type: IntelRequestType; seq: number } | null;
+  /**
+   * Spends the landing once focus has moved to it (stable across renders), so
+   * reopening the briefing later does not pull focus off the Intel toggle.
+   */
+  clearLanded: () => void;
 };
 
 /**
@@ -66,6 +71,7 @@ export function useIntelGathering({
   const [loadingState, setLoadingState] = useState<IntelRequestType | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [landed, setLanded] = useState<IntelGatheringResult['landed']>(null);
+  const clearLanded = useCallback(() => setLanded(null), []);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -114,5 +120,5 @@ export function useIntelGathering({
     }
   };
 
-  return { loadingState, requestError, handleRequest, landed };
+  return { loadingState, requestError, handleRequest, landed, clearLanded };
 }

@@ -21,12 +21,14 @@ import { computeDeepAnalysisKnowledge, computeInvestigationKnowledge, computeTur
 import { corroboration } from '../knowledge/credibilityFraming';
 import { isEntityKnownToPlayer, validateRelationshipObservationDrafts } from '../knowledge/relationships';
 import { getRelationshipObservations } from '../ai/tools/relationshipObservations';
-import { tabChangeCountsFor } from '../hooks/usePlayerPerception';
+import { tabChangeCountsFor, usePlayerPerception } from '../hooks/usePlayerPerception';
+import { withOldSnapshotsDropped, KEEP_FULL_SNAPSHOTS } from '../state/gameReducer';
 import { useIntelCommits, type IntelCommitsDeps } from '../hooks/useIntelCommits';
 import { buildChronicleSpine } from '../components/tabs/chronicleSpine';
 import { SchemeIntelSection } from '../components/tabs/dramatisPersonaeUi';
 import DramatisPersonaeTab from '../components/tabs/DramatisPersonaeTab';
 import CurrentEventsTab from '../components/tabs/CurrentEventsTab';
+import ChronicleTab from '../components/tabs/ChronicleTab';
 import ReportsTab from '../components/tabs/ReportsTab';
 import EmpireTab from '../components/tabs/EmpireTab';
 import ResourcesTab from '../components/tabs/ResourcesTab';
@@ -34,7 +36,7 @@ import RelationshipsTab from '../components/tabs/RelationshipsTab';
 import { serializeTurnSubmission } from '../playerInput/turnSubmission';
 import { renderHook } from './renderHook';
 import { makeEntity, makeQueuedTextAi, makeReport, makeTurnHistoryEntry, makeWorldState } from './factories';
-import type { Adjudication, Entity, EventDelta, InvestigationResult, Report, WorldState } from '../types';
+import type { Adjudication, Entity, EventDelta, InvestigationResult, Report, TurnHistoryEntry, WorldState } from '../types';
 import type { DomainCommit } from '../app/transactions';
 import type { SaveGameState } from '../persistence/saveGame';
 import type { DomainMutationContext, RunDomainMutation } from '../state/domainMutation';
@@ -178,6 +180,75 @@ describe('status lines say what happened - never "is now changed", never a no-op
 
   it('ignores a key the engine would not look up whole', () => {
     expect(classifyDelta(status('marcus:status', { new_status: 'exiled' }), player, [player, marcus], world).visible).toBe(false);
+  });
+
+  it('never lets a relocation claim a death another delta dealt', () => {
+    const deltas = [status('marcus', { new_location: 'The Curia' }), status('marcus', { new_status: 'dead' })];
+    const { updatedEntities } = applyAdjudication(adjudication(deltas), [player, marcus], world, []);
+    expect(updatedEntities.find(e => e.entity_id === 'marcus')!.status).toBe('dead');
+    // Seen leaving (the pre-turn roster), or heard of through the network (none).
+    const networked = { ...player, visibility_network: ['marcus'] };
+    for (const [viewer, before] of [[player, [player, marcus]], [networked, undefined]] as const) {
+      expect(buildPlayerPerceivedDigest(deltas, viewer, updatedEntities, world, before).map(c => c.text))
+        .toEqual(['Marcus Aquila is now dead.']);
+    }
+    const own = [status('player', { new_location: 'The Curia' }), status('player', { new_status: 'dead' })];
+    const fallen = applyAdjudication(adjudication(own), [player, marcus], world, []).updatedEntities;
+    expect(buildPlayerPerceivedDigest(own, fallen[0], fallen, world, [player, marcus]).map(c => c.text))
+      .toEqual(['Your own fate turns: you are now dead.']);
+  });
+
+  it('reads a legacy delta\'s status off its own reason, as the engine does', () => {
+    const slain = status('marcus', { reason: 'Marcus Aquila was slain in the forum.' });
+    const spared = status('marcus', { reason: 'He nearly died but survived the ambush.', new_location: 'The Curia' });
+    const applied = applyAdjudication(adjudication([slain]), [player, marcus], world, []).updatedEntities;
+    expect(applied.find(e => e.entity_id === 'marcus')!.status).toBe('dead');
+    expect(buildPlayerPerceivedDigest([slain], player, applied, world, [player, marcus]).map(c => c.text))
+      .toEqual(['Marcus Aquila is now dead.']);
+    const walked = applyAdjudication(adjudication([spared]), [player, marcus], world, []).updatedEntities;
+    expect(walked.find(e => e.entity_id === 'marcus')!.status).toBe('alive');
+    expect(buildPlayerPerceivedDigest([spared], player, walked, world, [player, marcus]).map(c => c.text))
+      .toEqual(['Marcus Aquila leaves for The Curia.']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// knowledge-status-lines-misreport: the Dispatches re-derivation
+// ---------------------------------------------------------------------------
+describe('the Dispatches digest is re-derived with the roster the commit used', () => {
+  const deltas = [status('player', { new_status: 'alive' }), status('marcus', { new_location: 'The Curia' })];
+  const after = [player, moved(marcus, 'The Curia'), gaius];
+  const roster = [player, marcus, gaius].map(({ entity_id, location, status: life }) => ({ entity_id, location, status: life }));
+  const derive = (turnHistory: TurnHistoryEntry[]) => {
+    const hook = renderHook(
+      (history: TurnHistoryEntry[]) => usePlayerPerception([], history, 'player', world, []),
+      turnHistory,
+    );
+    const lines = hook.current.lastTurnPerceivedChanges.map(change => change.text);
+    hook.unmount();
+    return lines;
+  };
+
+  it('drops a survived death save and sees a departure on the very first turn', () => {
+    const first = makeTurnHistoryEntry({ turnNumber: 1, adjudication: { ...adjudication(deltas), turn: 1 }, postTurnEntities: after, preTurnRoster: roster });
+    expect(derive([first])).toEqual(['Marcus Aquila leaves for The Curia.']);
+  });
+
+  it('prefers the recorded roster, and falls back to the previous snapshot for an older entry', () => {
+    const previous = makeTurnHistoryEntry({ turnNumber: 1, postTurnEntities: [player, marcus, gaius] });
+    const legacy = makeTurnHistoryEntry({ turnNumber: 2, adjudication: adjudication(deltas), postTurnEntities: after });
+    expect(derive([previous, legacy])).toEqual(['Marcus Aquila leaves for The Curia.']);
+    // Between turns Marcus had already gone; the recorded roster says so.
+    const recorded = { ...legacy, preTurnRoster: roster.map(entry => entry.entity_id === 'marcus' ? { ...entry, location: 'The Curia' } : entry) };
+    expect(derive([previous, recorded])).toEqual([]);
+  });
+
+  it('trims the recorded roster with the snapshot', () => {
+    const history = Array.from({ length: KEEP_FULL_SNAPSHOTS + 1 }, (_, i) =>
+      makeTurnHistoryEntry({ turnNumber: i + 1, postTurnEntities: after, preTurnRoster: roster }));
+    const trimmed = withOldSnapshotsDropped(history);
+    expect('preTurnRoster' in trimmed[0]).toBe(false);
+    expect(trimmed[1].preTurnRoster).toEqual(roster);
   });
 });
 
@@ -458,6 +529,74 @@ describe('focus stays with the intel the player just bought', () => {
     await settle();
     expect(document.activeElement?.classList.contains('gor-finding')).toBe(true);
   });
+
+  it('spends a dossier landing once: collapsing and reopening the briefing leaves focus on the toggle', async () => {
+    await mount(<PersonaeHarness initial={[]} entities={[player, marcus]} />);
+    const intel = button(container, 'Intel');
+    await act(async () => intel.click());
+    await act(async () => button(sectionTitled('Beliefs'), 'Reveal').click());
+    await settle();
+    expect(document.activeElement?.textContent).toContain('Believes the army is the only true power in Rome.');
+
+    intel.focus();
+    await act(async () => intel.click());
+    expect(intel.textContent).toBe('Intel');
+    await act(async () => intel.click());
+    expect(container.textContent).toContain('Believes the army is the only true power in Rome.');
+    expect(document.activeElement).toBe(intel);
+
+    // The next purchase still moves focus to what it bought.
+    await act(async () => button(container, 'Commission').click());
+    await settle();
+    expect(document.activeElement?.textContent).toContain('(Mock Analysis)');
+  });
+
+  it('drops a landing that came back while the briefing was shut', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    await mount(<PersonaeHarness initial={[]} entities={[player, marcus]} gate={gate} />);
+    const intel = button(container, 'Intel');
+    await act(async () => intel.click());
+    await act(async () => button(sectionTitled('Beliefs'), 'Reveal').click());
+    await settle();
+    intel.focus();
+    await act(async () => intel.click());
+    await act(async () => { release(); });
+    await settle();
+    await act(async () => intel.click());
+    expect(container.textContent).toContain('Believes the army is the only true power in Rome.');
+    expect(document.activeElement).toBe(intel);
+  });
+
+  it('spends an occurrence landing once: closing and reopening the slip, or switching register, leaves focus put', async () => {
+    const occurrence = 'The Praetorians demand a donative.';
+    const Harness: React.FC = () => {
+      const [knowledge, setKnowledge] = useState<KnowledgeClaim[]>([]);
+      return (
+        <CurrentEventsTab events={[occurrence]} week={3} playerEntity={player} allEntities={[player]}
+          knowledge={knowledge} ai={{} as GoogleGenAI} isMockMode={true} runDomainMutation={noopMutation}
+          onFinding={(asked, question, text) => { setKnowledge(prev => ingestOccurrenceFinding(prev, { occurrence: asked, question, text, turn: 3 })); return true; }} />
+      );
+    };
+    await mount(<Harness />);
+    const toggle = button(container, '❧');
+    await act(async () => toggle.click());
+    await act(async () => button(container, 'Who gains?').click());
+    await settle();
+    expect(document.activeElement?.classList.contains('gor-finding')).toBe(true);
+
+    toggle.focus();
+    await act(async () => toggle.click());
+    await act(async () => toggle.click());
+    expect(container.querySelector('.gor-finding')).not.toBeNull();
+    expect(document.activeElement).toBe(toggle);
+
+    const examined = button(container, 'Examined');
+    examined.focus();
+    await act(async () => examined.click());
+    expect(container.querySelector('.gor-finding')).not.toBeNull();
+    expect(document.activeElement).toBe(examined);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -622,6 +761,32 @@ describe('the roster shows what the player believes, not live status or allegian
     expect(container.textContent).not.toContain('Senator Livia');
   });
 
+  it('keeps a figure the player just saw arrive, whatever befell them out of sight before', async () => {
+    const vanished = { ...livia, status: 'missing' as const };
+    const arrives = status('livia', { new_location: 'Palatine Hill' });
+    const [line] = buildPlayerPerceivedDigest([arrives], player, [player, moved(vanished, 'Palatine Hill')], world, [player, vanished]);
+    expect(line.text).toBe('Senator Livia arrives at Palatine Hill.');
+    expect(line.perceivedStatus).toBe('alive');
+    await render([player, moved(vanished, 'Palatine Hill')], ingestPerceivedChanges([heardOf], [line], 3));
+    expect(container.textContent).toContain('Senator Livia');
+  });
+
+  it('reads a legacy save\'s status line from its template, never from the live status', async () => {
+    const legacyLine = (text: string): KnowledgeClaim => ({
+      id: 'd', subject: 'livia', claim: text, claimKey: 'digest:status:livia', firstLearnedTurn: 2,
+      updates: [{ turn: 2, source: 'network', text }],
+    });
+    const dead = { ...livia, status: 'dead' as const };
+    await render([player, dead], [heardOf, legacyLine('Senator Livia is now changed.')]);
+    expect(container.textContent).toContain('Senator Livia');
+    await render([player, dead], [heardOf, legacyLine('Senator Livia is now alive.')]);
+    expect(container.textContent).toContain('Senator Livia');
+    await render([player, dead], [heardOf, legacyLine('Senator Livia is now dead.')]);
+    expect(container.textContent).not.toContain('Senator Livia');
+    await render([player, livia], [heardOf, legacyLine('Senator Livia is now exiled.')]);
+    expect(container.textContent).not.toContain('Senator Livia');
+  });
+
   it('groups a figure by the allegiance the player last saw, not the live one', async () => {
     const senate = makeEntity({ entity_id: 'senate', name: 'The Senate', entity_type: 'faction' });
     const knowsSenate: KnowledgeClaim = { ...heardOf, id: 's', subject: 'senate', claimKey: 'report:senate:general:rumor' };
@@ -708,6 +873,22 @@ describe('turn-counter stamps say Turn, not Week', () => {
     await mount(<ReportsTab reports={[makeReport({ turn: 2 })]} />);
     expect(container.textContent).toContain('By turn');
     expect(container.textContent).toContain('Turn II');
+  });
+
+  it('stamps a new Report and its ledger entry with the authoritative turn, not the model\'s echo', () => {
+    const rumor: EventDelta = { type: 'rumor', key: 'marcus', delta: 0.5, reason: 'Marcus owes the bankers.', is_true: true };
+    const misLabelled: Adjudication = { ...adjudication([rumor]), turn: 40 };
+    const stamped = applyAdjudication(misLabelled, [player, marcus], world, [], [], { playerEntityId: 'player', turnNumber: 7 });
+    expect(stamped.updatedReports.map(report => report.turn)).toEqual([7]);
+    expect(stamped.updatedTruthLedger.map(entry => entry.turn)).toEqual([7]);
+    // A caller with no counter keeps the old fallback.
+    expect(applyAdjudication(misLabelled, [player, marcus], world, []).updatedReports.map(report => report.turn)).toEqual([40]);
+  });
+
+  it('opens the empty Chronicle on the first turn, not a calendar week', async () => {
+    await mount(<ChronicleTab eventHistory={[]} turnHistory={[]} />);
+    expect(container.textContent).toContain('Turn I · The reign begins');
+    expect(container.textContent).not.toContain('Week I');
   });
 });
 

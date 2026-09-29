@@ -592,19 +592,28 @@ function latestStructured<T>(store: KnowledgeClaim[], claimKey: string, read: (u
 }
 
 /**
- * The life/freedom status the player last SAW `entityId` in (a perceived
- * status line), or undefined when no such line carried one. A read model
- * over the store - never live ground truth - so a death the perception
- * layer withheld cannot be read off the roster (D5).
+ * The fixed line the perception layer wrote for every status delta before
+ * updates carried a structured status ("{name} is now {status}." / "Your
+ * own fate turns: you are now {status}."). Its status word was the delta's
+ * raw new_status, or "changed" for a move.
+ */
+const LEGACY_STATUS_LINE = /(?:is|you are) now (alive|dead|exiled|missing)\.$/;
+
+/**
+ * The life/freedom status the player last SAW `entityId` in (their latest
+ * perceived status line), or undefined when they hold no such line. A read
+ * model over the store - never live ground truth - so a death the
+ * perception layer withheld cannot be read off the roster (D5). A line
+ * saved before the structured field existed is read from the fixed
+ * template that wrote it: its status word, or about ('alive') for a move
+ * ("is now changed.") or any word that was no status.
  */
 export function perceivedStatusOf(store: KnowledgeClaim[], entityId: string): Entity['status'] | undefined {
-  return latestStructured(store, `digest:status:${entityId}`, update => update.status);
-}
-
-/** True when the player holds a perceived status line on `entityId` that predates the structured field (a legacy save). */
-export function hasUnstructuredStatusRecord(store: KnowledgeClaim[], entityId: string): boolean {
   const claim = store.find(candidate => candidate.claimKey === `digest:status:${entityId}`);
-  return !!claim && claim.updates.every(update => update.status === undefined);
+  const latest = claim?.updates[claim.updates.length - 1];
+  if (!latest) return undefined;
+  if (latest.status !== undefined) return latest.status;
+  return (LEGACY_STATUS_LINE.exec(latest.text)?.[1] as Entity['status'] | undefined) ?? 'alive';
 }
 
 /** The faction the player last saw `entityId` join (null: seen breaking away), or undefined when they have seen no such change. */
@@ -619,10 +628,11 @@ export function perceivedFactionOf(store: KnowledgeClaim[], entityId: string): s
  *
  * `atTurn`, when provided, stamps the knowledge UPDATES with that turn
  * instead (the Report object itself keeps its own `turn` field). A Report's
- * `turn` descends from the model-echoed `adjudication.turn`
- * (ai/core/engine.ts's rumor case), so turn-commit callers pass the App's
- * authoritative turn counter here - a model that mislabels its turn must
- * not skew the claim timeline (see knowledge/commit.ts).
+ * `turn` falls back to the model-echoed `adjudication.turn` when a caller
+ * of ai/core/engine.ts's applyAdjudication gives no authoritative counter,
+ * so turn-commit callers pass the App's authoritative turn counter here - a
+ * model that mislabels its turn must not skew the claim timeline (see
+ * knowledge/commit.ts).
  *
  * Leak guard (D5/D11): only the whitelisted fields below are read off each
  * Report. A Report never legitimately carries truth-ledger data

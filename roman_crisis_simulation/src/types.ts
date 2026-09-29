@@ -590,6 +590,14 @@ export interface TurnHistoryEntry {
    * load; every consumer must tolerate its absence on older entries.
    */
   postTurnEntities?: Entity[];
+  /**
+   * Where each entity stood, and in what state, as this turn BEGAN - the
+   * pre-turn roster the commit gave the perception layer. The Dispatches
+   * digest is re-derived from it, so the re-derivation matches the commit
+   * even on the first turn (no earlier snapshot) or after anything moved
+   * between turns. Trimmed with `postTurnEntities`; absent on older entries.
+   */
+  preTurnRoster?: Pick<Entity, 'entity_id' | 'location' | 'status'>[];
   rawCalls?: RawCallRecord[]; // Raw prompt/response capture for every AI call made this turn
   mortalityTrace?: MortalityEvent[]; // Every death claim this turn went through processMortality, see MortalityEvent
   /**

@@ -355,7 +355,12 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
                 return { ...result.updatedWorldState, year: newYear, week: newWeek };
             })();
             // Add post-turn entity state to history for GM view
-            const baseHistoryEntryWithState = { ...result.newHistoryEntry, playerIntent: serialized, postTurnEntities: result.updatedEntities };
+            // The pre-turn roster rides along so the Dispatches digest can be
+            // re-derived with the same inputs as the commit below.
+            const baseHistoryEntryWithState = {
+                ...result.newHistoryEntry, playerIntent: serialized, postTurnEntities: result.updatedEntities,
+                preTurnRoster: entities.map(({ entity_id, location, status }) => ({ entity_id, location, status })),
+            };
             const newTurnNumber = turnNumber + 1;
 
             // D21 knowledge-store ingestion (knowledge/commit.ts): the next
@@ -370,7 +375,7 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
             // nothing.
             const playerAfterTurn = result.updatedEntities.find(e => e.entity_id === playerCharacterId) ?? null;
             const perceivedThisTurn = playerAfterTurn
-                ? buildPlayerPerceivedDigest(baseHistoryEntryWithState.adjudication.deltas, playerAfterTurn, result.updatedEntities, newWorldState, entities)
+                ? buildPlayerPerceivedDigest(baseHistoryEntryWithState.adjudication.deltas, playerAfterTurn, result.updatedEntities, newWorldState, baseHistoryEntryWithState.preTurnRoster)
                 : [];
             const priorReportIds = new Set(reports.map(report => report.id));
             const reportsThisTurn = result.updatedReports.filter(report => !priorReportIds.has(report.id));
