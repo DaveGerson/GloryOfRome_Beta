@@ -371,6 +371,8 @@ describe('App relationship-observation transaction', () => {
 
     await click(buttonNamed(container, 'Structured'));
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Action 1'), 'Warn the Senate');
+    // III is folded behind its heading until opened.
+    await click(buttonNamed(container, 'What you intend'));
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'What you intend'), 'poison Lucius');
     await click(buttonNamed(container, 'Seal & send'));
     await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));

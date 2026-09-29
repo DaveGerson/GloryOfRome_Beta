@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useState } from 'react';
 import type { KnownRecipientOption, StructuredTurnDraft } from '../types';
 import {
   addActionRow, addMessageOrOrderRow, customRecipientSelectValue, encodeKnownRecipientSelectValue,
@@ -7,11 +7,67 @@ import {
 } from '../playerInput/composerState';
 import { Button, RegisterHeading } from './ui/Core';
 import { WaxSeal } from './ui/Brand';
+import { useFocusRequest } from './ui/useFocusRequest';
 
 const CUSTOM_RECIPIENT_VALUE = customRecipientSelectValue();
 
 const fieldStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 8 };
 const addRowStyle: React.CSSProperties = { alignSelf: 'flex-start' };
+
+interface FoldedRegisterProps {
+  headingId: string;
+  numeral: string;
+  title: string;
+  hint: string;
+  className: string;
+  value: string;
+  disabled: boolean;
+  fieldProps: React.TextareaHTMLAttributes<HTMLTextAreaElement>;
+  onValueChange(value: string): void;
+}
+
+/**
+ * Registers III and IV are optional, so each folds behind its heading and is
+ * closed by default (progressive disclosure, B14): Seal & send then clears a
+ * short laptop's desk. The heading is the disclosure button. Opening a
+ * register moves focus into its field. A register that holds words is open,
+ * and stays open while it does - a restored draft is never folded out of
+ * sight - so pressing its heading then goes to the words instead.
+ */
+const FoldedRegister: React.FC<FoldedRegisterProps> = ({
+  headingId, numeral, title, hint, className, value, disabled, fieldProps, onValueChange,
+}) => {
+  const [unfolded, setUnfolded] = useState(false);
+  const fieldRef = useRef<HTMLTextAreaElement>(null);
+  const requestFocus = useFocusRequest();
+  const holdsWords = value !== '';
+  const open = unfolded || holdsWords;
+  const panelId = `${headingId}-panel`;
+  const toggle = () => {
+    if (holdsWords) {
+      fieldRef.current?.focus();
+      return;
+    }
+    if (!open) requestFocus(fieldRef);
+    setUnfolded(!open);
+  };
+  return (
+    <section aria-labelledby={headingId} className={className} style={fieldStyle}>
+      <RegisterHeading numeral={numeral} headingId={headingId} title={
+        // Locked with the rest of the tablet; a folded register is empty, so nothing is kept from sight.
+        <button type="button" className="gor-register-fold" aria-expanded={open} aria-controls={panelId} disabled={disabled} onClick={toggle}>
+          <span className="gor-register-fold-mark" aria-hidden="true" />{title}
+        </button>
+      } />
+      {/* An inline display would outrank `hidden`, so the column is laid out only while open. */}
+      <div id={panelId} hidden={!open} style={open ? fieldStyle : undefined}>
+        <p className="gor-hint" style={{ margin: 0 }}>{hint}</p>
+        <textarea ref={fieldRef} className="gor-textarea" rows={2} aria-label={title} value={value} disabled={disabled}
+          {...fieldProps} onChange={event => onValueChange(event.target.value)} />
+      </div>
+    </section>
+  );
+};
 
 /**
  * The wax on a letter: a Tyrian seal carrying the recipient's initial once one
@@ -47,6 +103,8 @@ interface StructuredTurnComposerProps {
   onLetterFocus?(index: number | null): void;
   /** ⌃⏎ on a draft that cannot be sent yet. */
   onSubmitBlocked?(): void;
+  /** Drawn over the registers (the seal pressed as the week is sent). */
+  overlay?: React.ReactNode;
   onChange(draft: StructuredTurnDraft): void;
   onSubmit(): void;
 }
@@ -71,7 +129,7 @@ export const STRUCTURED_ADD_ROW_LABELS = {
 
 export const StructuredTurnComposer: React.FC<StructuredTurnComposerProps> = ({
   draft, recipientOptions, disabled, online = true, submissionBlocked = false, aggregateIssue = false, validationIssues = [], statusId,
-  onLetterFocus, onSubmitBlocked, onChange, onSubmit,
+  onLetterFocus, onSubmitBlocked, overlay, onChange, onSubmit,
 }) => {
   const hasIssue = (field: string) => validationIssues.some(issue =>
     issue.field === 'submission' || issue.field === field);
@@ -98,8 +156,11 @@ export const StructuredTurnComposer: React.FC<StructuredTurnComposerProps> = ({
     return null;
   };
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+  return (<>
+    {/* The registers scroll within the desk when they outgrow it, so the
+        chronicle above keeps its reading height (design/shell.css); the
+        send sits below them, never scrolled out of sight, as Speak does. */}
+    <div className="gor-register-scroll" style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: 16 }}>
       <section aria-labelledby="structured-actions" style={fieldStyle}>
         <RegisterHeading numeral="I" headingId="structured-actions" title={STRUCTURED_REGISTER_TITLES.actions} />
         {draft.actions.map((action, index) => (
@@ -189,27 +250,28 @@ export const StructuredTurnComposer: React.FC<StructuredTurnComposerProps> = ({
       {/* Neither of these is an order, so they sit beside each other under
           their own left rules rather than continuing the stack of commands. */}
       <div className="gor-register-pair">
-        <section aria-labelledby="structured-intent" className="gor-register-aside gor-register-aside-intent" style={fieldStyle}>
-          <RegisterHeading numeral="III" headingId="structured-intent" title={STRUCTURED_REGISTER_TITLES.intent} />
-          <p className="gor-hint" style={{ margin: 0 }}>Private to your avatar; this expresses what you intend, not an action by itself.</p>
-          <textarea className="gor-textarea" rows={2} aria-label={STRUCTURED_REGISTER_TITLES.intent} value={draft.privateIntent} disabled={disabled} {...describeIssue('privateIntent')}
-            onChange={event => onChange(updatePrivateIntent(draft, event.target.value))} onKeyDown={submitOnShortcut} />
-        </section>
-        <section aria-labelledby="structured-context" className="gor-register-aside" style={fieldStyle}>
-          <RegisterHeading numeral="IV" headingId="structured-context" title={STRUCTURED_REGISTER_TITLES.context} />
-          <p className="gor-hint" style={{ margin: 0 }}>Your question or context does not cause autonomous action.</p>
-          <textarea className="gor-textarea" rows={2} aria-label={STRUCTURED_REGISTER_TITLES.context} value={draft.questionOrContext} disabled={disabled} {...describeIssue('questionOrContext')}
-            onChange={event => onChange(updateQuestionOrContext(draft, event.target.value))} onKeyDown={submitOnShortcut} />
-        </section>
+        <FoldedRegister headingId="structured-intent" numeral="III" title={STRUCTURED_REGISTER_TITLES.intent}
+          className="gor-register-aside gor-register-aside-intent"
+          hint="Private to your avatar; this expresses what you intend, not an action by itself."
+          value={draft.privateIntent} disabled={disabled}
+          fieldProps={{ ...describeIssue('privateIntent'), onKeyDown: submitOnShortcut }}
+          onValueChange={value => onChange(updatePrivateIntent(draft, value))} />
+        <FoldedRegister headingId="structured-context" numeral="IV" title={STRUCTURED_REGISTER_TITLES.context}
+          className="gor-register-aside"
+          hint="Your question or context does not cause autonomous action."
+          value={draft.questionOrContext} disabled={disabled}
+          fieldProps={{ ...describeIssue('questionOrContext'), onKeyDown: submitOnShortcut }}
+          onValueChange={value => onChange(updateQuestionOrContext(draft, value))} />
       </div>
-      <div className="gor-register-foot">
-        {/* Named by what it says - "Seal & send", or offline "Hold until the
-            roads reopen" - so a player who speaks the label reaches it. */}
-        <Button type="button" disabled={disabled || submissionBlocked} onClick={onSubmit}>
-          {online ? 'Seal & send' : 'Hold until the roads reopen'}
-        </Button>
-        <span className="gor-register-shortcut" aria-hidden="true">⌃⏎</span>
-      </div>
+      {overlay}
     </div>
-  );
+    <div className="gor-register-foot">
+      {/* Named by what it says - "Seal & send", or offline "Hold until the
+          roads reopen" - so a player who speaks the label reaches it. */}
+      <Button type="button" disabled={disabled || submissionBlocked} onClick={onSubmit}>
+        {online ? 'Seal & send' : 'Hold until the roads reopen'}
+      </Button>
+      <span className="gor-register-shortcut" aria-hidden="true">⌃⏎</span>
+    </div>
+  </>);
 };

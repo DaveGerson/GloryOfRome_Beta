@@ -28,6 +28,7 @@ import {
   appButton,
   appClick,
   appControl,
+  appOpenRegister,
   appSetValue,
   buildSaveStateFromThread,
   clearAppGeminiScript,
@@ -252,6 +253,7 @@ describe('journey: a save-reload-continue campaign (mid-journey persistence roun
     try {
       await appClick(appButton(app.container, 'Structured'));
       await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'Action 1'), excerpt);
+      await appOpenRegister(app.container, 'What you intend');
       await appSetValue(appControl<HTMLTextAreaElement>(app.container, 'What you intend'), privateIntent);
       await appClick(appButton(app.container, 'Seal & send'));
       await waitForApp(() => expect(loadThreadState().turnNumber).toBe(2));
