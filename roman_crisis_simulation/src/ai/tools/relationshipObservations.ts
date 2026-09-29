@@ -1,6 +1,7 @@
 import type { PlayerSafeEvidence, RelationshipObservationDraft } from '../../knowledge/store';
 import {
   evidenceContainsExactEntityName,
+  evidenceMayDiscover,
   hasDuplicateEvidenceIds,
   validateRelationshipObservationDrafts,
 } from '../../knowledge/relationships';
@@ -26,9 +27,12 @@ export async function getRelationshipObservations(
     throw new Error('duplicate evidence id at relationship observation boundary');
   }
   const knownIds = new Set(knownEntityIds);
+  // A figure the player does not know reaches the selector's directory only
+  // when world-authored evidence names them - never the player's own order,
+  // or the hidden id would still reach the model (D35/D36).
   const promptEntities = entities
     .filter(entity => knownIds.has(entity.entity_id)
-      || evidence.some(item => evidenceContainsExactEntityName(item.text, entity.name)))
+      || evidence.some(item => evidenceMayDiscover(item) && evidenceContainsExactEntityName(item.text, entity.name)))
     .map(entity => ({ entity_id: entity.entity_id, name: entity.name }));
   const drafts = isMockMode
     ? zRelationshipObservations.parse([])

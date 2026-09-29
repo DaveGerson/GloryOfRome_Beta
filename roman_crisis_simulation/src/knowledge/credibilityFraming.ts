@@ -190,42 +190,61 @@ export function reportSeal(report: { source: ReportSource; credibility: number }
  *
  * `credibility` is consumed inside this module and never re-emitted, so no
  * number can reach the player through this path (D25/D26).
+ *
+ * The verdict is read PER TOPIC, and agreement counts DISTINCT sources: D25's
+ * signal is corroborating SOURCES, and the store itself defines
+ * 'corroborates' as the same matter from different sources (store.ts). So
+ * one source heard again and again (the rumor mill repeating itself four
+ * weeks running) is never "sources agreeing", and accounts of different
+ * matters about one subject neither agree nor conflict - both read
+ * 'uncorroborated', a plain count of accounts.
  */
-export type CorroborationVerdict = 'agree' | 'conflict' | 'single';
+export type CorroborationVerdict = 'agree' | 'conflict' | 'single' | 'uncorroborated';
 
 export interface GroupCorroboration {
   verdict: CorroborationVerdict;
-  /** How many accounts the group holds — a count of sources, not a score. */
+  /** How many DISTINCT sources the group holds — a count of sources, not a score. */
   sources: number;
 }
 
-export function corroboration(
-  reports: readonly { source: ReportSource; credibility: number; topic?: string; stance?: 'corroborates' | 'contradicts' }[],
-): GroupCorroboration {
-  if (reports.length <= 1) return { verdict: 'single', sources: reports.length };
-  if (reports.some(report => report.stance === 'contradicts')) {
-    return { verdict: 'conflict', sources: reports.length };
-  }
-  // Absent an explicit stance, two accounts of the SAME topic that sit in
-  // opposite certainty bands are treated as an unresolved disagreement rather
-  // than as agreement — the player should see that the accounts do not sit
-  // easily together, without ever seeing why in figures.
-  const byTopic = new Map<string, Set<CertaintyBand>>();
+type CorroboratedReport = { source: ReportSource; credibility: number; topic?: string; stance?: 'corroborates' | 'contradicts' };
+
+/**
+ * Whether the accounts of ONE topic do not sit together: an explicit
+ * refutation among them, or - between accounts that carry no explicit
+ * stance - one firm and one doubtful account of the same matter, so the
+ * player sees the disagreement without ever seeing why in figures. An
+ * explicit stance is the source's own word on how it relates to the running
+ * claim, so the band test never overrides it.
+ */
+function topicConflicts(accounts: readonly CorroboratedReport[]): boolean {
+  if (accounts.length < 2) return false;
+  if (accounts.some(report => report.stance === 'contradicts')) return true;
+  const bands = new Set(accounts.filter(report => !report.stance).map(report => certaintyBand(report.credibility)));
+  return bands.has('firm') && bands.has('doubtful');
+}
+
+export function corroboration(reports: readonly CorroboratedReport[]): GroupCorroboration {
+  const sources = new Set(reports.map(report => report.source)).size;
+  if (reports.length <= 1) return { verdict: 'single', sources };
+  const byTopic = new Map<string, CorroboratedReport[]>();
   for (const report of reports) {
     const key = report.topic ?? '';
-    const bands = byTopic.get(key) ?? new Set<CertaintyBand>();
-    bands.add(certaintyBand(report.credibility));
-    byTopic.set(key, bands);
+    byTopic.set(key, [...(byTopic.get(key) ?? []), report]);
   }
-  for (const bands of byTopic.values()) {
-    if (bands.has('firm') && bands.has('doubtful')) return { verdict: 'conflict', sources: reports.length };
-  }
-  return { verdict: 'agree', sources: reports.length };
+  if ([...byTopic.values()].some(topicConflicts)) return { verdict: 'conflict', sources };
+  // Agreement is claimed only for one matter carried by more than one
+  // source; several matters, or one source repeating itself, is a count.
+  if (byTopic.size === 1 && sources > 1) return { verdict: 'agree', sources };
+  return { verdict: 'uncorroborated', sources };
 }
 
 /**
- * Whether one account in a group sits below a higher-certainty account of the
- * same topic — the "— and it contradicts the two above." note. Rank only.
+ * Whether one account in a group refutes a higher-certainty account of the
+ * same topic — the "— and it contradicts a firmer account." note. Rank only,
+ * and deliberately silent on WHERE that firmer account sits: the subject
+ * register runs newest first and the week register spans weeks, so a
+ * positional pointer would be false in one of them.
  */
 export function contradictsHigherCertainty(
   report: { credibility: number; topic?: string; stance?: 'corroborates' | 'contradicts' },

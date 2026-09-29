@@ -808,7 +808,10 @@ describe('App in-flight transaction barrier', () => {
     await waitFor(() => expect(mockGetDeepAnalysis).toHaveBeenCalledTimes(1));
 
     expect(container.textContent).toContain('The assessment is being drawn up');
-    expect(investigation.disabled).toBe(true);
+    // A busy intel button is aria-disabled, not disabled, so it keeps
+    // keyboard focus while the desk is locked (WCAG 2.4.3); presses are
+    // refused all the same.
+    expect(investigation.getAttribute('aria-disabled')).toBe('true');
     expect(directiveButton.disabled).toBe(true);
     expect(chatInput.disabled).toBe(true);
 
@@ -862,7 +865,8 @@ describe('App in-flight transaction barrier', () => {
 
     await click(firstCommission);
     await waitFor(() => expect(mockGetDeepAnalysis).toHaveBeenCalledTimes(1));
-    expect(secondCommission.disabled).toBe(true);
+    // Busy, not disabled: the button stays focusable and refuses the press.
+    expect(secondCommission.getAttribute('aria-disabled')).toBe('true');
     secondCommission.disabled = false;
     await click(secondCommission);
 
@@ -1474,8 +1478,10 @@ describe('App in-flight transaction barrier', () => {
       await waitFor(() => expect(mockRunNewTurn).toHaveBeenCalledTimes(2));
 
       expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').disabled).toBe(true);
-      expect(commission.disabled).toBe(true);
-      expect(investigation.disabled).toBe(true);
+      // The intel buttons are busy (aria-disabled) rather than disabled, so
+      // they keep keyboard focus; the presses below are refused regardless.
+      expect(commission.getAttribute('aria-disabled')).toBe('true');
+      expect(investigation.getAttribute('aria-disabled')).toBe('true');
       expect(directiveButton.disabled).toBe(true);
 
       // Force adversarial stale controls enabled. The handler barrier, not

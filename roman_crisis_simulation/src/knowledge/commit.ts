@@ -17,9 +17,10 @@
  *
  * TURN-STAMP PROVENANCE: every update committed through these helpers is
  * stamped with the App's AUTHORITATIVE turn counter (`turnNumber`), never a
- * model-authored turn field. A Report's own `turn` descends from the
- * model-echoed `adjudication.turn` (ai/core/engine.ts), so trusting it
- * would let a model that mislabels its turn skew claim timelines; the
+ * model-authored turn field. A Report's own `turn` falls back to the
+ * model-echoed `adjudication.turn` when applyAdjudication is given no
+ * authoritative counter (ai/core/engine.ts), so trusting it could let a
+ * model that mislabels its turn skew claim timelines; the
  * Report keeps its own `turn` field internally, only the knowledge stamp
  * uses the authoritative counter.
  */
@@ -27,6 +28,7 @@
 import type { PerceivedChange } from '../perception/visibility';
 import type { Report } from '../types';
 import {
+  ingestDeepAnalysis,
   ingestInvestigationReveal,
   ingestPerceivedChanges,
   ingestReports,
@@ -96,6 +98,8 @@ export interface InvestigationKnowledgeInput {
   kind: InvestigationKind;
   /** ONLY the player-facing report text - never the resolution trace or anything GM-private. */
   reportText: string;
+  /** The itemised findings the player was shown with the report (beliefs/secrets) - player-facing too. */
+  items?: readonly string[];
   /** The App's authoritative turn counter at the moment of the reveal. */
   turnNumber: number;
   relationshipObservations?: RelationshipObservationsInput;
@@ -103,14 +107,15 @@ export interface InvestigationKnowledgeInput {
 
 /**
  * Computes the next knowledge store for a committing investigation reveal
- * (D14/D21): the bought report text lands as a 'spy'-sourced update,
- * stamped with the authoritative `turnNumber`.
+ * (D14/D21): the bought report text (and its itemised findings) lands as a
+ * 'spy'-sourced update, stamped with the authoritative `turnNumber`.
  */
 export function computeInvestigationKnowledge({
   prev,
   targetId,
   kind,
   reportText,
+  items,
   turnNumber, relationshipObservations,
 }: InvestigationKnowledgeInput): KnowledgeClaim[] {
   const next = ingestInvestigationReveal(prev, {
@@ -118,10 +123,26 @@ export function computeInvestigationKnowledge({
     kind,
     text: reportText,
     turn: turnNumber,
+    items,
   });
   return relationshipObservations ? ingestRelationshipObservations(next, {
     ...relationshipObservations,
     turn: turnNumber,
     globalEvidenceIds: [],
   }) : next;
+}
+
+/**
+ * Computes the next knowledge store for a commissioned Spymaster's
+ * Assessment (D14): the analysis text lands as a paid dossier aspect,
+ * stamped with the authoritative `turnNumber`, committed in the same pass
+ * as its deep_analyses spend.
+ */
+export function computeDeepAnalysisKnowledge({ prev, targetId, analysis, turnNumber }: {
+  prev: KnowledgeClaim[];
+  targetId: string;
+  analysis: string;
+  turnNumber: number;
+}): KnowledgeClaim[] {
+  return ingestDeepAnalysis(prev, { targetId, text: analysis, turn: turnNumber });
 }

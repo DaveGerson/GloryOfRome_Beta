@@ -776,7 +776,7 @@ describe('ai/core/turn.ts runNewTurn - campaign truth-ledger threading (D11)', (
 // --- Mortality directives: no validator reasoning on the player surface (D4) ---
 
 describe('ai/core/turn.ts runNewTurn - mortality directives feed narration from VALID events only (D4)', () => {
-  it("an invalidated death claim: the validator's GM-only reasoning never reaches the narration prompt, only the diegetic delta rewrite does", async () => {
+  it("an invalidated death claim: the validator's GM-only reasoning never reaches the narration prompt, and the overruled claim is not announced as a change", async () => {
     const h = createHarness(false);
     const player = makeEntity();
     const npc = makeEntity({ entity_id: 'npc_1', name: 'Senator Rufus' });
@@ -820,10 +820,11 @@ describe('ai/core/turn.ts runNewTurn - mortality directives feed narration from 
     expect(narrationPrompt).not.toContain(VALIDATION_REASONING);
     expect(narrationPrompt).not.toContain('Death claim invalidated');
     expect(narrationPrompt).not.toContain('MORTALITY NARRATION DIRECTIVES');
-    // What the player SHOULD read crosses the existing visibility seam: the
-    // invalid claim's authoritative rewrite to alive remains visible without
-    // forwarding the raw delta reason.
-    expect(narrationPrompt).toContain('Senator Rufus is now alive.');
+    // The invalid claim's authoritative rewrite keeps the senator's status
+    // exactly as it was, so the visibility seam has no change to announce:
+    // an overruled death is not news, and "is now alive" would surface the
+    // internal claim as if something had happened (D4).
+    expect(narrationPrompt).not.toContain('Senator Rufus is now alive.');
 
     // The reasoning is still recorded GM-side for the console (D4): on the
     // mortalityTrace and in gm_private.
@@ -1548,7 +1549,9 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
       expect(narrationPrompt).not.toContain(RAW_OUTCOME_DIRECTIVE);
       expect(narrationPrompt).not.toContain('MORTALITY NARRATION DIRECTIVES');
       if (shouldBeVisible) {
-        expect(narrationPrompt).toContain('MORTALITY_NPC_NAME is now alive.');
+        // Publicly surviving leaves the status as it was (alive), so even a
+        // witness is told of no status change - never "is now alive".
+        expect(narrationPrompt).not.toContain('MORTALITY_NPC_NAME is now alive.');
       } else {
         expect(narrationPrompt).not.toContain('MORTALITY_NPC_NAME');
         expect(narrationPrompt).not.toContain('npc_mortality');

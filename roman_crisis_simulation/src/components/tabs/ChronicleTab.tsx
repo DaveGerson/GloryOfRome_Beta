@@ -81,7 +81,9 @@ const ChronicleTab: React.FC<{
                 spine.length === 0
                     ? <EmptyRegister
                         silhouette={<SpineSilhouette />}
-                        line="Week I · The reign begins"
+                        // The spine counts turns (its rows read "Turn N"), and a
+                        // generated world need not open on the calendar's week I.
+                        line="Turn I · The reign begins"
                         hint="Nothing yet. The week is still yours."
                     />
                     : <div className="gor-spine">{spine.map(row => <SpineRow key={row.key} row={row} />)}</div>

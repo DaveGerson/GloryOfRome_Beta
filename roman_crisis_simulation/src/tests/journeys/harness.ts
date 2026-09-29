@@ -832,7 +832,7 @@ export class JourneyRunner {
 
     // Player-only projection - the same buildPlayerPerceivedDigest inputs App.tsx
     // commits and its lastTurnPerceivedChanges memo re-derives (relation deltas withheld).
-    const digest = buildPlayerPerceivedDigest(entry.adjudication.deltas, playerAfter, result.updatedEntities, newWorldState);
+    const digest = buildPlayerPerceivedDigest(entry.adjudication.deltas, playerAfter, result.updatedEntities, newWorldState, this.thread.entities);
     const digestTexts = digest.map(d => d.text);
 
     // D21 knowledge ingestion (knowledge/commit.ts) - the SAME player-only

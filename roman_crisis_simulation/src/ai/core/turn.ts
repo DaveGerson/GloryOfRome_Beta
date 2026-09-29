@@ -1006,9 +1006,10 @@ function applyTurnState(ctx: TurnContext, storyRelevance: StoryRelevance, transf
         {
             playerEntityId: playerEntity.entity_id,
             spotlightIds: storyRelevance.spotlight_entities.map(s => s.entity_id),
-            // The App's authoritative counter - the memory stamp's `turn`
-            // provenance, never the model-echoed adjudication.turn (see
-            // PerceptionStampContext in ai/core/engine.ts).
+            // The App's authoritative counter - the memory, Report and
+            // truth-ledger `turn` provenance, never the model-echoed
+            // adjudication.turn (see PerceptionStampContext in
+            // ai/core/engine.ts).
             turnNumber: ctx.turnNumber,
         }
     );
@@ -1118,7 +1119,8 @@ async function runPlayerSurfacesStage(
         transformedAdjudication.deltas,
         updatedPlayerEntity,
         updatedEntities,
-        updatedWorldState
+        updatedWorldState,
+        ctx.currentEntities
     );
     const playerNarrationEvents = playerPerceivedDigest
         .map(({ text, source }) => ({ text, source }));

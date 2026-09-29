@@ -284,7 +284,7 @@ const App: React.FC = () => {
     });
 
     const {
-        handleSpendResource, handleOccurrenceFinding, handleInvestigationOutcome, handleSetIntervention,
+        handleDeepAnalysis, handleOccurrenceFinding, handleInvestigationOutcome, handleSetIntervention,
     } = useIntelCommits({
         ai, isMockMode, entities, playerCharacterId, knowledge, pendingIntelligenceFallout, messages, turnNumber,
         buildSaveState, commitDomainMutation, setTransactionNote,
@@ -559,7 +559,7 @@ const App: React.FC = () => {
                             reports={reports}
                             knowledge={knowledge}
                             turnNumber={turnNumber}
-                            onSpendDeepAnalysis={(cost, request) => handleSpendResource('deep_analyses', cost, request)}
+                            onSpendDeepAnalysis={handleDeepAnalysis}
                             onInvestigationOutcome={handleInvestigationOutcome}
                             runDomainMutation={runDomainMutation}
                             interactionLocked={domainMutationInFlight || privateSceneInteractionLocked || gameState === GameState.PROCESSING}

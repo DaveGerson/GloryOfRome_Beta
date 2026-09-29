@@ -411,6 +411,23 @@ describe('App relationship-observation transaction', () => {
     expect(personaeTab.classList.contains('gor-tab-pulse')).toBe(false);
   });
 
+  it('records the pre-turn roster, and gives the commit and the Dispatches re-derivation that same roster on the first turn', async () => {
+    const save = makeAppSave();
+    expect(save.turnHistory).toEqual([]);
+    const container = await mountApp(save);
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Hold court on the Palatine');
+    await click(buttonNamed(container, 'Send message'));
+    await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
+
+    const roster = save.entities.map(({ entity_id, location, status }) => ({ entity_id, location, status }));
+    expect(loadGame()!.state.turnHistory[0].preTurnRoster).toEqual(roster);
+    const playerCalls = mockBuildPlayerPerceivedDigest.mock.calls.filter(([, viewer]) => viewer.entity_id === 'severus_alexander');
+    expect(playerCalls.length).toBeGreaterThanOrEqual(2);
+    for (const call of playerCalls) {
+      expect(call[4]?.map(({ entity_id, location, status }) => ({ entity_id, location, status }))).toEqual(roster);
+    }
+  });
+
   it('pulses Personae from a relationship claim learned on the committed turn, not from relation deltas', async () => {
     mockRunNewTurn.mockImplementation(async (...args) => {
       const result = withPoisonedPlayerResult(await defaultTurnResult(...args));

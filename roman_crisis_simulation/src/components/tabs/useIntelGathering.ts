@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Entity, InvestigationResult } from '../../types';
 import { GoogleGenAI } from '@google/genai';
 import { KnowledgeClaim } from '../../knowledge/store';
 import { resolveIntelRequest } from './dramatisPersonaeIntel';
 import type { DomainMutationContext, RunDomainMutation } from '../../state/domainMutation';
 
-export type UncoveredIntel = { secrets?: string[]; beliefs?: string[]; deep_analysis?: string };
+export type IntelRequestType = 'secrets' | 'beliefs' | 'scheme' | 'deep_analysis';
 
 export type IntelGatheringInput = {
   entity: Entity;
@@ -15,7 +15,8 @@ export type IntelGatheringInput = {
   isMockMode: boolean;
   interactionLocked?: boolean;
   runDomainMutation: RunDomainMutation;
-  onSpendDeepAnalysis: (cost: number, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
+  /** Commits the deep_analyses spend AND the assessment in one pass (hooks/useIntelCommits.ts). */
+  onSpendDeepAnalysis: (targetId: string, cost: number, analysis: string, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
   onInvestigationOutcome: (
     kind: 'beliefs' | 'scheme' | 'secrets',
     targetId: string,
@@ -27,18 +28,34 @@ export type IntelGatheringInput = {
 };
 
 export type IntelGatheringResult = {
-  uncoveredIntel: UncoveredIntel;
-  loadingState: 'secrets' | 'beliefs' | 'scheme' | 'deep_analysis' | null;
+  loadingState: IntelRequestType | null;
   requestError: string | null;
-  handleRequest: (type: 'secrets' | 'beliefs' | 'scheme' | 'deep_analysis') => Promise<void>;
+  handleRequest: (type: IntelRequestType) => Promise<void>;
+  /**
+   * The aspect whose paid finding last landed, with a sequence number that
+   * changes on every landing - the card moves keyboard focus to that finding
+   * once per landing (WCAG 2.4.3). Null until something lands.
+   */
+  landed: { type: IntelRequestType; seq: number } | null;
+  /**
+   * Spends the landing once focus has moved to it (stable across renders), so
+   * reopening the briefing later does not pull focus off the Intel toggle.
+   */
+  clearLanded: () => void;
 };
 
 /**
  * Batch 3 (Q4) extraction: the async intel-request core lifted verbatim out
  * of `EntityDetails` in DramatisPersonaeTab.tsx. Pure derivations
  * (deriveDossier, heldReadingFor, pricing) stay in the component - this hook
- * owns only the request lifecycle: uncoveredIntel, loadingState,
- * requestError, the mountedRef liveness guard, and handleRequest.
+ * owns only the request lifecycle: loadingState, requestError, the
+ * mountedRef liveness guard, and handleRequest.
+ *
+ * It holds NO copy of what was bought. Every finding - the itemised
+ * beliefs/secrets and the Spymaster's Assessment included - is committed to
+ * the knowledge store and rendered from it (D14: the ephemeral
+ * component-local intel state is retired), so a tab switch that unmounts
+ * the card loses nothing that was paid for.
  */
 export function useIntelGathering({
   entity,
@@ -51,9 +68,10 @@ export function useIntelGathering({
   onSpendDeepAnalysis,
   onInvestigationOutcome,
 }: IntelGatheringInput): IntelGatheringResult {
-  const [uncoveredIntel, setUncoveredIntel] = useState<UncoveredIntel>({});
-  const [loadingState, setLoadingState] = useState<'secrets' | 'beliefs' | 'scheme' | 'deep_analysis' | null>(null);
+  const [loadingState, setLoadingState] = useState<IntelRequestType | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
+  const [landed, setLanded] = useState<IntelGatheringResult['landed']>(null);
+  const clearLanded = useCallback(() => setLanded(null), []);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -63,7 +81,7 @@ export function useIntelGathering({
     };
   }, []);
 
-  const handleRequest = async (type: 'secrets' | 'beliefs' | 'scheme' | 'deep_analysis') => {
+  const handleRequest = async (type: IntelRequestType) => {
     if (interactionLocked) return;
     try {
       await runDomainMutation(async transaction => {
@@ -76,26 +94,19 @@ export function useIntelGathering({
         if (!request.isCurrent()) return;
         setRequestError(null);
         setLoadingState(type);
+        const land = (kind: IntelRequestType) => setLanded(previous => ({ type: kind, seq: (previous?.seq ?? 0) + 1 }));
         try {
           const outcome = await resolveIntelRequest({ type, target: entity, playerEntity, knowledge, ai, isMockMode });
           if (outcome.kind === 'deep_analysis') {
             if (outcome.charged) {
-              const committed = await onSpendDeepAnalysis(outcome.cost, request);
-              if (request.isCurrent() && committed !== false) {
-                setUncoveredIntel(previous => ({ ...previous, deep_analysis: outcome.analysis }));
-              }
+              const committed = await onSpendDeepAnalysis(entity.entity_id, outcome.cost, outcome.analysis, request);
+              if (request.isCurrent() && committed !== false) land('deep_analysis');
             }
             return;
           }
           if (outcome.charged) {
-            if (outcome.investigationKind !== 'scheme') {
-              const committed = await onInvestigationOutcome(outcome.investigationKind, entity.entity_id, outcome.reportData, outcome.cost, outcome.outcome, request);
-              if (request.isCurrent() && committed !== false) {
-                setUncoveredIntel(previous => ({ ...previous, [outcome.investigationKind]: outcome.display }));
-              }
-            } else {
-              await onInvestigationOutcome(outcome.investigationKind, entity.entity_id, outcome.reportData, outcome.cost, outcome.outcome, request);
-            }
+            const committed = await onInvestigationOutcome(outcome.investigationKind, entity.entity_id, outcome.reportData, outcome.cost, outcome.outcome, request);
+            if (request.isCurrent() && committed !== false) land(outcome.investigationKind);
           }
         } finally {
           if (request.isCurrent()) setLoadingState(null);
@@ -109,5 +120,5 @@ export function useIntelGathering({
     }
   };
 
-  return { uncoveredIntel, loadingState, requestError, handleRequest };
+  return { loadingState, requestError, handleRequest, landed, clearLanded };
 }
