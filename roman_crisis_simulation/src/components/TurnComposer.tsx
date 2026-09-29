@@ -269,9 +269,12 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
     : null;
 
   return (
-    // A column that may shrink under the chronicle (App.tsx's desk): only
-    // the Structured registers give way, scrolling within themselves.
-    <div ref={composerRef} className="gor-composer" style={{ flex: '0 1 auto', minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
+    // A column that may shrink under the chronicle (App.tsx's desk): the
+    // Structured registers give way first, scrolling within themselves; past
+    // that (a short screen, the no-key notice) the desk itself scrolls - the
+    // page never does. The 4px of slack either side keeps the focus rings
+    // inside the scroller.
+    <div ref={composerRef} className="gor-composer" style={{ flex: '0 1 auto', minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto', margin: -4, padding: 4 }}>
       {/* Item 46: said before the week is written, not after it is lost. */}
       {!canReachTheFates && onOpenSettings && onEnableMockMode && (
         <TurnFailureNotice

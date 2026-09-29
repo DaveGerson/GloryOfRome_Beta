@@ -78,9 +78,9 @@
 .gor-dossier-head{flex:none;padding:15px 16px 13px;border-bottom:1px solid var(--border-subtle);background:var(--dentil) left bottom/100% 3px no-repeat,linear-gradient(180deg,rgba(201,162,39,.12),rgba(201,162,39,0))}
 .gor-dossier-head-row{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
 /* However many marks and ties a reign accrues (D48/D49), the dossier never
-   squeezes out the tabs below it: past a third of the screen it scrolls
-   within itself. The padding keeps the marks' focus rings inside the clip. */
-.gor-dossier-details{max-height:30vh;overflow-y:auto;overscroll-behavior:contain;padding:4px;margin:-4px}
+   squeezes out the tabs below it: past about a third of the screen (never
+   less than a reign's usual goal, state and ties) it scrolls within itself. The padding keeps the marks' focus rings inside the clip. */
+.gor-dossier-details{max-height:clamp(260px,38vh,440px);overflow-y:auto;overscroll-behavior:contain;padding:4px;margin:-4px}
 .gor-dossier-name{font-family:var(--font-epic);font-weight:700;font-size:20px;line-height:1.2;color:var(--tyrian-600)}
 .gor-dossier-post{margin-top:2px;font-size:14.5px;font-style:italic;color:var(--text-muted)}
 .gor-dossier-field{display:flex;flex-direction:column;gap:3px;margin-top:10px}
