@@ -317,7 +317,7 @@ const App: React.FC = () => {
     const {
         handleDeepAnalysis, handleOccurrenceFinding, handleInvestigationOutcome, handleSetIntervention,
     } = useIntelCommits({
-        ai, isMockMode, entities, playerCharacterId, knowledge, pendingIntelligenceFallout, messages, turnNumber,
+        ai, isMockMode, entities, playerCharacterId, knowledge, truthLedger, pendingIntelligenceFallout, messages, turnNumber,
         buildSaveState, commitDomainMutation, setTransactionNote,
     });
 

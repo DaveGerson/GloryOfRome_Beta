@@ -27,6 +27,7 @@
 import { describe, it, expect } from 'vitest';
 import { JourneyRunner, runScriptedInvestigation } from './harness';
 import { SCHEME_CLUES_TO_REVEAL } from '../../knowledge/store';
+import { resolveSchemeNatureStanding, schemeClueRecords } from '../../ai/core/groundTruth';
 import {
   scriptAdjudication,
   scriptStoryRelevance,
@@ -177,7 +178,12 @@ describe('journey: a war of schemes and rumors (minds + planting + the clue gate
     expect(JSON.stringify(inv2.knowledge)).not.toContain('take the purple by the sword');
 
     // Investigation #3: the threshold is reached - the nature is EARNED now.
+    // D47 (deliberate change): the nature is no longer this last buy's report
+    // text; it is read from EVERY clue on file (the `schemeNature` call), and
+    // whether it is the true design follows from the clues' standings on the
+    // GM-private ledger.
     expect(SCHEME_CLUES_TO_REVEAL).toBe(3);
+    const NATURE_SYNTHESIS = 'Your agents read the threads as one design: the general means to take the purple by the sword.';
     const inv3 = await runScriptedInvestigation(runner, {
       targetId: THRAX,
       subject: 'scheme',
@@ -188,10 +194,29 @@ describe('journey: a war of schemes and rumors (minds + planting + the clue gate
         report: NATURE_READING,
         consequences: null,
       }),
+      nature: NATURE_SYNTHESIS,
     });
     sd = inv3.knowledge.find(c => c.claimKey === `scheme:${THRAX}`)!.schemeDiscovery!;
     expect(sd.clues).toBe(3);
     expect(sd.revealed).toBe(true);
-    expect(sd.nature).toBe(NATURE_READING); // earned across three paid clues, not from any single one
+    expect(sd.nature).toBe(NATURE_SYNTHESIS); // earned across three paid clues, not from any single one
+
+    // Every clue, and the nature, is tracked GM-side: the reading was pieced
+    // together from all three clue accounts, and the ledger records whether
+    // the nature the player now holds is the truth - exactly the standing
+    // the three clues add up to.
+    const clueEntries = runner.thread.truthLedger.filter(e => e.aboutId === THRAX && e.investigation?.kind === 'scheme');
+    expect(clueEntries).toHaveLength(3);
+    const natureEntry = runner.thread.truthLedger.find(e => e.investigation?.kind === 'scheme_nature')!;
+    expect(natureEntry.claim).toBe(NATURE_SYNTHESIS);
+    expect(natureEntry.investigation!.standing).toBe(resolveSchemeNatureStanding(schemeClueRecords(clueEntries, THRAX), thraxSchemeName));
+    expect(natureEntry.isTrue).toBe(natureEntry.investigation!.standing === 'true');
+    const naturePrompt = inv3.client.promptsFor('schemeNature')[0];
+    for (const clue of clueEntries) expect(naturePrompt).toContain(JSON.stringify(clue.claim));
+    // The true design reaches the nature prompt only when the clues earned it.
+    expect(naturePrompt.includes(thraxSchemeName)).toBe(natureEntry.investigation!.standing !== 'false');
+    // None of it - no standing, no ground truth - reaches the player's store.
+    const store = JSON.stringify(inv3.knowledge);
+    for (const key of ['standing', 'groundTruth', 'isTrue', 'accuracy', 'fidelity']) expect(store).not.toContain(`"${key}":`);
   });
 });

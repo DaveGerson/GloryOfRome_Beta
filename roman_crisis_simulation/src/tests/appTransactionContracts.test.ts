@@ -90,6 +90,14 @@ const defaultRunNewTurnCore = mockRunNewTurnCore.getMockImplementation()!;
 const defaultGenerateStructured = mockGenerateStructured.getMockImplementation()!;
 const defaultEligibleTargets = mockEligibleTargets.getMockImplementation()!;
 const mounted: Array<{ root: Root; container: HTMLDivElement }> = [];
+/**
+ * What the offline mock's secrets reading on the fixture's Maximinus Thrax
+ * says. Since D47 the mock runs the grounded path from a seed fixed by the
+ * target and the aspect (ai/mocks.ts::mockIntelSeed); this Thrax holds no
+ * secrets of record, and the reading lands true - so it finds nothing, and
+ * says so.
+ */
+const MOCK_SECRETS_READING = "(Mock) Your agents looked into Maximinus Thrax's secrets and found nothing worth the name.";
 
 beforeEach(() => {
   localStorage.clear();
@@ -578,7 +586,7 @@ describe('App non-turn save atomicity', () => {
 
     expect(localStorage.getItem('gloryOfRome:autosave')).toBe(before);
     expect(loadGame()!.state).toEqual(beforeState);
-    expect(container.textContent).not.toContain('(Mock) Is secretly illiterate.');
+    expect(container.textContent).not.toContain(MOCK_SECRETS_READING);
     expect(container.textContent).not.toContain('visit did not go unnoticed');
     expectOneTransactionAlert(container);
     expect(container.contains(revealSecrets)).toBe(true);
@@ -1074,7 +1082,7 @@ describe('App in-flight transaction barrier', () => {
           await click(revealSecretsButton(container));
           await waitFor(() => expect(mockGetInvestigationResult).toHaveBeenCalledTimes(2));
           await waitFor(() => expect(loadGame()!.state.knowledge).toHaveLength(1));
-          expect(container.textContent).toContain('(Mock) Is secretly illiterate.');
+          expect(container.textContent).toContain(MOCK_SECRETS_READING);
         }
         errorSpy.mockRestore();
       });
@@ -1539,7 +1547,7 @@ describe('App in-flight transaction barrier', () => {
             .toBe(beforeState.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources.investigations);
           expect(JSON.stringify(persisted)).not.toContain(`Barrier ${outcome} directive`);
           expect(JSON.stringify(persisted)).not.toContain('(Mock Analysis)');
-          expect(JSON.stringify(persisted)).not.toContain('(Mock) Is secretly illiterate.');
+          expect(JSON.stringify(persisted)).not.toContain(MOCK_SECRETS_READING);
         }
         expect(loadGame()!.state.turnHistory).toHaveLength(beforeState.turnHistory.length + 1);
         expect(loadGame()!.state.messages.filter(message => message.sender === 'player')).toHaveLength(2);
@@ -1562,7 +1570,7 @@ describe('App in-flight transaction barrier', () => {
         .toBe(beforeState.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources.investigations);
       expect(JSON.stringify(loadGame()!.state)).not.toContain(`Barrier ${outcome} directive`);
       expect(container.textContent).not.toContain('(Mock Analysis)');
-      expect(container.textContent).not.toContain('(Mock) Is secretly illiterate.');
+      expect(container.textContent).not.toContain(MOCK_SECRETS_READING);
       storageSpy.mockRestore();
       errorSpy.mockRestore();
     });

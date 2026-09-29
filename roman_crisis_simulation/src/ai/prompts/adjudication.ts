@@ -44,7 +44,9 @@ import {
   buildMetaNarrativeBlock,
   buildMetaStateBlock,
   buildSecretSurvivorsBlock,
+  buildLeverageTruthBlock,
 } from './fragments';
+import type { LeverageTruth } from '../core/groundTruth';
 
 /**
  * The one posture line injected into the PACING JUDGMENT principle below
@@ -285,6 +287,13 @@ export interface AdjudicationPromptInput {
   historicalMaterial?: HistoricalMaterialEntry[];
   /** At most one closed pending audience, already projected without its raw transcript or record. */
   privateSceneAdjudicatorProjection?: PrivateSceneAdjudicatorProjection;
+  /**
+   * D47/D11 - the truth behind the player's filed blackmail
+   * (ai/core/groundTruth.ts::deriveLeverageTruth, from the GM-private truth
+   * ledger), rendered as the GM-secret leverage block. Optional: absent or
+   * empty means no block, and the prompt is byte-identical to before.
+   */
+  leverageTruth?: LeverageTruth[];
 }
 
 /** Builds the { systemInstruction, prompt } pair for the main turn adjudication call. */
@@ -293,7 +302,7 @@ export function buildAdjudicationPrompt(input: AdjudicationPromptInput): { syste
     worldState, simulationState, playerEntity, npcEntities, history,
     submission, gmInterventionText, storyRelevance, metaNarrative,
     playerActionOutcome, npcIntents, npcMindDecisions, pacingPosture,
-    historicalMaterial, privateSceneAdjudicatorProjection,
+    historicalMaterial, privateSceneAdjudicatorProjection, leverageTruth,
   } = input;
 
   if (!submission) {
@@ -323,7 +332,7 @@ ${buildDirectorIntentsBlock(npcIntents, playerEntity.entity_id)}
 ${buildNpcMindDecisionsBlock(npcMindDecisions)}
 ${buildOtherNpcsBlock(otherNpcs)}
 
-${buildSecretSurvivorsBlock(npcEntities)}
+${buildSecretSurvivorsBlock(npcEntities)}${buildLeverageTruthBlock(leverageTruth, npcEntities)}
 ${buildHistoricalMaterialBlock(historicalMaterial)}
 ${buildPrivateSceneOutcomeBlock(privateSceneAdjudicatorProjection)}
 PLAYER CHARACTER:

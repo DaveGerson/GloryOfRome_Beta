@@ -14,16 +14,19 @@
  */
 
 import type { GoogleGenAI } from '@google/genai';
-import type { Entity, InvestigationResult, Message } from '../types';
+import type { Entity, InvestigationResult, InvestigationTruth, Message, TruthLedgerEntry } from '../types';
 import type { DomainMutationContext } from '../state/domainMutation';
 import type { SaveGameState } from '../persistence/saveGame';
 import { computeDeepAnalysisKnowledge, computeInvestigationKnowledge } from '../knowledge/commit';
-import { ingestOccurrenceFinding, type KnowledgeClaim, type OccurrenceQuestion } from '../knowledge/store';
+import { deriveDossier, ingestOccurrenceFinding, SCHEME_CLUES_TO_REVEAL, type KnowledgeClaim, type OccurrenceQuestion } from '../knowledge/store';
 import {
     buildInvestigationRelationshipEvidence,
     knownRecipientOptionsForPlayer,
 } from '../knowledge/relationships';
 import { getRelationshipObservations } from '../ai/tools/relationshipObservations';
+import { settleInvestigationTruth, type SettledInvestigationTruth } from '../ai/tools/intelligence';
+import { investigationLedgerEntries } from '../ai/core/groundTruth';
+import { appendTruthLedgerEntries } from '../ai/core/engine';
 import { appendFallout, hasFallout } from '../components/investigationLoop';
 import type { DomainCommit, TransactionNote } from '../app/transactions';
 
@@ -33,6 +36,12 @@ export interface IntelCommitsDeps {
     entities: Entity[];
     playerCharacterId: string | null;
     knowledge: KnowledgeClaim[];
+    /**
+     * GM-PRIVATE (D11): the truth ledger, read here only to settle a bought
+     * finding's truth (D47) - the clue standings a scheme's nature follows
+     * from - and appended to in the same commit as the finding itself.
+     */
+    truthLedger: TruthLedgerEntry[];
     pendingIntelligenceFallout: string[];
     messages: Message[];
     turnNumber: number;
@@ -43,7 +52,7 @@ export interface IntelCommitsDeps {
 
 export function useIntelCommits(deps: IntelCommitsDeps) {
     const {
-        ai, isMockMode, entities, playerCharacterId, knowledge, pendingIntelligenceFallout, messages, turnNumber,
+        ai, isMockMode, entities, playerCharacterId, knowledge, truthLedger, pendingIntelligenceFallout, messages, turnNumber,
         buildSaveState, commitDomainMutation, setTransactionNote,
     } = deps;
 
@@ -52,13 +61,15 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
      * assessment itself, in one atomic commit (D14). The spend used to commit
      * alone, with the text kept only in the dossier card's component state -
      * so a tab switch (which unmounts the card) lost the reading the rare
-     * resource had already paid for, and offered to sell it again.
+     * resource had already paid for, and offered to sell it again. Its
+     * GM-private truth (D47) lands on the truth ledger in the same commit.
      */
     const handleDeepAnalysis = (
         targetId: string,
         cost: number,
         analysis: string,
         request: DomainMutationContext,
+        truth?: InvestigationTruth,
     ): boolean => {
         if (!request.isCurrent()) return false;
         const newEntities = entities.map(e => {
@@ -71,9 +82,12 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
             return e;
         });
         const nextKnowledge = computeDeepAnalysisKnowledge({ prev: knowledge, targetId, analysis, turnNumber });
+        const nextTruthLedger = truth
+            ? appendTruthLedgerEntries(truthLedger, investigationLedgerEntries(truth, turnNumber, Date.now()))
+            : truthLedger;
         if (!request.isCurrent()) return false;
         return commitDomainMutation({
-            candidate: buildSaveState({ entities: newEntities, knowledge: nextKnowledge }),
+            candidate: buildSaveState({ entities: newEntities, knowledge: nextKnowledge, truthLedger: nextTruthLedger }),
             // The same commit shape a bought reveal uses; an assessment
             // carries no consequences, so the fallout queue is handed back
             // unchanged.
@@ -82,6 +96,7 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
                 entities: newEntities,
                 pendingIntelligenceFallout,
                 knowledge: nextKnowledge,
+                truthLedger: nextTruthLedger,
             },
             onSaveFailure: () => setTransactionNote({ kind: 'save', lead: 'Your change could not be saved.' }),
             beforeDispatch: () => setTransactionNote(null),
@@ -137,6 +152,12 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
     // subtle in-fiction hint now - the raw text is GM-console-only
     // (GameMasterScreen's "Pending Intelligence Fallout" line) until next
     // turn's narration reinterprets it.
+    //
+    // D47/D11 rides in the same pass: every finding's GM-private truth lands
+    // on the truth ledger, and a scheme buy that reaches the D28 reveal has
+    // its nature read from EVERY clue on the ledger, not from this one buy's
+    // report (settleInvestigationTruth) - the ledger records whether that
+    // nature is the truth. Only the reading's text reaches the player store.
     const handleInvestigationOutcome = async (
         kind: 'beliefs' | 'scheme' | 'secrets',
         targetId: string,
@@ -144,12 +165,33 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
         cost: number,
         result: InvestigationResult,
         request: DomainMutationContext,
+        truth?: InvestigationTruth,
     ): Promise<boolean> => {
         if (!request.isCurrent()) return false;
         const entityDirectory = entities.map(entity => ({
             entity_id: entity.entity_id,
             name: entity.name,
         }));
+        const target = entities.find(entity => entity.entity_id === targetId);
+        const investigator = entities.find(entity => entity.entity_id === playerCharacterId);
+        // The reveal is due when this paid clue brings the count the player
+        // holds (a read of their own store) to the threshold, or past it.
+        const cluesHeld = deriveDossier(knowledge, targetId).entries.find(entry => entry.kind === 'scheme')?.schemeDiscovery?.clues ?? 0;
+        const settled: SettledInvestigationTruth = truth && target && investigator
+            ? await settleInvestigationTruth({
+                ai,
+                isMockMode,
+                target,
+                player: investigator,
+                truth,
+                ledger: truthLedger,
+                natureDue: kind === 'scheme' && cluesHeld + 1 >= SCHEME_CLUES_TO_REVEAL,
+                turn: turnNumber,
+                stamp: Date.now(),
+            })
+            : { ledgerEntries: truth ? investigationLedgerEntries(truth, turnNumber, Date.now()) : [] };
+        if (!request.isCurrent()) return false;
+        const nextTruthLedger = appendTruthLedgerEntries(truthLedger, settled.ledgerEntries);
         // D28: a 'scheme' buy is ONE clue - its report is held back as a
         // nature hint until enough clues cross the reveal (ingestSchemeClue).
         // Offering that same report to the relationship selector would let a
@@ -209,6 +251,7 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
             items: kind !== 'scheme' && Array.isArray(reportData)
                 ? reportData.filter((item): item is string => typeof item === 'string')
                 : undefined,
+            ...(settled.natureReading !== undefined ? { natureReading: settled.natureReading } : {}),
             turnNumber,
             relationshipObservations: {
                 evidence: relationshipEvidence,
@@ -226,8 +269,8 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
         // during that work must cancel before charging or committing any result.
         if (!request.isCurrent()) return false;
         if (!commitDomainMutation({
-            candidate: buildSaveState({ entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge, messages: falloutMessage ? [...messages, falloutMessage] : messages }),
-            action: { type: 'INVESTIGATION_COMMITTED', entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge, falloutMessage },
+            candidate: buildSaveState({ entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge, truthLedger: nextTruthLedger, messages: falloutMessage ? [...messages, falloutMessage] : messages }),
+            action: { type: 'INVESTIGATION_COMMITTED', entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge, truthLedger: nextTruthLedger, falloutMessage },
             onSaveFailure: () => setTransactionNote({ kind: 'save', lead: 'Your investigation could not be saved.' }),
             beforeDispatch: () => setTransactionNote(null),
         })) {

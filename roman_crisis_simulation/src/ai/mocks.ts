@@ -19,6 +19,7 @@ import {
 } from './core/playerBoundary';
 import { stripActorsFromAdjudication, type AdjudicationInterchange, type EventDeltaInterchange } from './core/actorsBoundary';
 import { selectDurableIntents } from './core/directorIntents';
+import type { GroundTruthKind, InvestigationPlan, PlannedFinding, SchemeNaturePlan } from './core/groundTruth';
 
 /** Deterministic, provider-free private-scene fixture for local play and tests. */
 export function mockContinuePrivateScene(input: PrivateScenePromptInput): PrivateSceneModelResponse {
@@ -660,38 +661,121 @@ export const mockGetClarificationOnEvent = async (event: string, question: strin
     return `(Mock) Regarding "${event}", the general consensus is that it was orchestrated by a rival faction to sow discord. The motives seem purely political.`;
 };
 
-export const mockGetDeepAnalysis = async (target: Entity): Promise<string> => {
-    console.log("--- MOCK DEEP ANALYSIS ---");
-    return `(Mock Analysis) Our agents report that ${target.name} has been meeting secretly with members of the military. Their stated goals likely hide a more sinister ambition. They pose a moderate threat, but have limited resources for now.`;
+// --- D47 grounded intelligence, provider-free -------------------------------
+//
+// The mock investigation family runs the SAME code-side path as the real one
+// (ai/tools/intelligence.ts): the same three rolls, the same ground-truth
+// plan (ai/core/groundTruth.ts), the same truth-ledger entries - only the
+// prose is canned instead of written by a model. Its generator is seeded
+// from the target and the aspect (mockIntelSeed), never Math.random, so an
+// offline run lands the same way every time.
+
+/**
+ * The deterministic seed a provider-free investigation rolls from: a 32-bit
+ * FNV-1a hash of the target and the aspect, so the same question about the
+ * same figure always lands the same way offline.
+ */
+export function mockIntelSeed(targetId: string, kind: string): number {
+    let hash = 0x811c9dc5;
+    for (const char of `${targetId}:${kind}`) {
+        hash ^= char.charCodeAt(0);
+        hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+    return hash >>> 0;
+}
+
+/** Canned false findings - what a misled agent brings back offline. Chosen to be true of no one in the shipped cast. */
+const MOCK_FALSE_FINDINGS: Record<GroundTruthKind, string[]> = {
+    beliefs: [
+        'Believes the gods have abandoned Rome.',
+        'Holds that the grain dole ruins the plebs.',
+        'Thinks the eastern frontier matters more than the Rhine.',
+    ],
+    secrets: [
+        'Keeps a second household at Ostia under a false name.',
+        'Owes a fortune to a Syrian moneylender.',
+        'Consults a Chaldean astrologer before every decision.',
+    ],
+    scheme: ['Coin is quietly moving toward the eastern ports.'],
+    deep_analysis: [
+        'Has been seen dining with a Parthian envoy.',
+        'Keeps a band of Illyrian bodyguards on retainer.',
+        'Has lately sold a family estate for ready coin.',
+    ],
 };
 
-export const mockGetInvestigationResult = async (target: Entity, isRisky: boolean, subject: 'secrets' | 'beliefs' | 'scheme' = 'secrets'): Promise<{ report: string, consequences: string | null, reportData: string[] }> => {
+function withoutFinalStop(text: string): string {
+    return text.trim().replace(/[.!?]+$/, '');
+}
+
+/** The canned account of one planned finding: the truth as reached, the truth with its one distortion, or a canned falsehood. */
+function mockFindingText(finding: PlannedFinding, index: number, kind: GroundTruthKind): string {
+    if (finding.truth === null) {
+        const canned = MOCK_FALSE_FINDINGS[kind];
+        return canned[index % canned.length];
+    }
+    const told = finding.fragmentary ? `…${finding.truth}…` : finding.truth;
+    if (finding.standing === 'garbled') {
+        return finding.distortion === 'misattributed'
+            ? `Said of a freedman of the household: ${told}`
+            : `${withoutFinalStop(told)}, at Ostia.`;
+    }
+    return told;
+}
+
+export const mockGetDeepAnalysis = async (target: Entity, plan: InvestigationPlan): Promise<string> => {
+    console.log("--- MOCK DEEP ANALYSIS ---");
+    if (plan.findings.length === 0) {
+        return `(Mock Analysis) Our agents could establish nothing about ${target.name} beyond what is public. An unknown quantity, for now.`;
+    }
+    const facts = plan.findings.map((finding, i) => `${withoutFinalStop(mockFindingText(finding, i, 'deep_analysis'))}.`);
+    return `(Mock Analysis) Our agents report on ${target.name}: ${facts.join(' ')} They pose a threat worth watching.`;
+};
+
+/**
+ * The canned nature reading (D28/D47): the true design when the clues earned
+ * it, the design with one element misread when they earned half of it, and a
+ * canned false design when they were a false trail.
+ */
+export const mockGetSchemeNatureReading = async (target: Entity, plan: SchemeNaturePlan): Promise<string> => {
+    console.log("--- MOCK SCHEME NATURE ---");
+    if (plan.noDesign) return `(Mock) Your agents read the threads as nothing at all: ${target.name} is plotting nothing of note.`;
+    if (!plan.design) return `(Mock) Your agents read the threads as one design: ${target.name} means to buy up the grain fleet and starve the Palatine into terms.`;
+    const goal = withoutFinalStop(plan.design.goal);
+    return plan.standing === 'garbled'
+        ? `(Mock) Your agents read the threads as one design: ${goal}, by way of the grain fleet.`
+        : `(Mock) Your agents read the threads as one design: ${goal}.`;
+};
+
+export const mockGetInvestigationResult = async (target: Entity, isRisky: boolean, subject: 'secrets' | 'beliefs' | 'scheme', plan: InvestigationPlan): Promise<{ report: string, consequences: string | null, reportData: string[] }> => {
     console.log("--- MOCK INVESTIGATION ---");
 
-    let reportData: string[];
+    // D47: the itemised findings follow the plan, one per planned finding -
+    // the truth as reached, the one recorded distortion, or a canned
+    // falsehood. The narrative report carries no claim of its own (every
+    // claim offline is an itemised finding the ledger can flag), and the
+    // consequence line stays canned: the tier's consequences contract is
+    // enforced on a MODEL's output (ai/tools/intelligence.ts); offline, a
+    // risky visit is always noticed.
+    const reportData = plan.findings.map((finding, i) => `(Mock) ${mockFindingText(finding, i, subject)}`);
     let reportText: string;
 
-    switch(subject) {
+    if (reportData.length === 0) {
+        // Reached truthfully, and there was nothing of the kind to find.
+        reportText = `(Mock) Your agents looked into ${target.name}'s ${subject} and found nothing worth the name.`;
+    } else switch(subject) {
         case 'beliefs':
-            reportData = [`(Mock) Believes the army is the only true power in Rome.`, `(Mock) Thinks honor is for fools.`];
-            reportText = `We've uncovered some of ${target.name}'s core beliefs. They seem to be a military pragmatist.`;
+            reportText = `(Mock) Your agents bring back word of what ${target.name} holds true.`;
             break;
         case 'scheme':
-            // D28: a scheme investigation returns partial CLUES, never the
-            // whole plot (no scheme title, no step list). The clues are
-            // fragments; the narrative report is the agent's read of where
-            // they point, surfaced as the earned nature only once enough PAID
-            // clues have accrued to cross the reveal threshold.
-            reportData = [
-                `(Mock) Coded letters keep passing to the frontier garrisons.`,
-                `(Mock) Coin is quietly moving toward the legions, not the treasury.`,
-            ];
-            reportText = `(Mock) Piece by piece it takes shape: ${target.name} is bending the frontier legions toward a reckoning with the throne.`;
+            // D28: a scheme investigation returns ONE clue, never the whole
+            // plot. The report is discarded below the reveal; the nature is
+            // read from the accumulated clues (mockGetSchemeNatureReading).
+            reportText = `(Mock) Your agents bring back another thread of ${target.name}'s design.`;
             break;
         case 'secrets':
         default:
-             reportData = [`(Mock) Is secretly illiterate.`, `(Mock) Fears assassination from his own men.`];
-             reportText = `Our spy discovered that ${target.name} harbors deep-seated fears and hides a surprising vulnerability.`;
+             reportText = `(Mock) Your agents bring back word of what ${target.name} would keep hidden.`;
              break;
     }
 

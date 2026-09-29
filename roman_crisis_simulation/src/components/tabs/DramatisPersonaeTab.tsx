@@ -1,5 +1,5 @@
 import React, { useId, useState } from 'react';
-import { Entity, InvestigationResult } from '../../types';
+import { Entity, InvestigationResult, InvestigationTruth } from '../../types';
 import { GoogleGenAI } from '@google/genai';
 import InfoTooltip from '../InfoTooltip';
 import { Card, Button } from '../ui/Core';
@@ -25,9 +25,9 @@ import { PersonaVoiceRow, PERSONA_VOICE_COPY } from './PersonaVoiceRow';
 type Wiring = {
   knowledge: KnowledgeClaim[];
   turnNumber: number;
-  /** Commits the deep_analyses spend and the assessment together (hooks/useIntelCommits.ts). */
-  onSpendDeepAnalysis: (targetId: string, cost: number, analysis: string, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
-  onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
+  /** Commits the deep_analyses spend and the assessment together (hooks/useIntelCommits.ts). `truth` is GM-private (D11/D47): forwarded, never rendered. */
+  onSpendDeepAnalysis: (targetId: string, cost: number, analysis: string, request: DomainMutationContext, truth?: InvestigationTruth) => boolean | void | Promise<boolean | void>;
+  onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult, request: DomainMutationContext, truth?: InvestigationTruth) => boolean | void | Promise<boolean | void>;
   runDomainMutation: RunDomainMutation;
   interactionLocked?: boolean;
   ai: GoogleGenAI;

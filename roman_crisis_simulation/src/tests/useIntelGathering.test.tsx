@@ -34,7 +34,7 @@ import type { GoogleGenAI } from '@google/genai';
 import { useIntelGathering } from '../components/tabs/useIntelGathering';
 import { makeEntity } from './factories';
 import type { KnowledgeClaim } from '../knowledge/store';
-import type { Entity, InvestigationResult } from '../types';
+import type { Entity, InvestigationResult, InvestigationTruth } from '../types';
 import type { DomainMutationContext, RunDomainMutation } from '../state/domainMutation';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -50,7 +50,7 @@ type HookInput = {
   isMockMode: boolean;
   interactionLocked?: boolean;
   runDomainMutation: RunDomainMutation;
-  onSpendDeepAnalysis: (targetId: string, cost: number, analysis: string, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
+  onSpendDeepAnalysis: (targetId: string, cost: number, analysis: string, request: DomainMutationContext, truth?: InvestigationTruth) => boolean | void | Promise<boolean | void>;
   onInvestigationOutcome: (
     kind: 'beliefs' | 'scheme' | 'secrets',
     targetId: string,
@@ -58,6 +58,7 @@ type HookInput = {
     cost: number,
     result: InvestigationResult,
     request: DomainMutationContext,
+    truth?: InvestigationTruth,
   ) => boolean | void | Promise<boolean | void>;
 };
 
@@ -71,7 +72,11 @@ type HookResult = {
 // ---------------------------------------------------------------------------
 // Fixtures — factories vocabulary plus the exact strings the mock AI layer
 // produces (ai/mocks.ts) when resolveIntelRequest runs with isMockMode: true
-// and its always-true isRisky flag.
+// and its always-true isRisky flag. Since D47 the mock runs the grounded
+// path from a seed fixed by the target and the aspect (mockIntelSeed): this
+// bare target holds no beliefs, secrets, scheme or situation of record, so
+// its beliefs and scheme readings land false (canned falsehoods), its
+// secrets truthfully find nothing, and its assessment reaches nothing true.
 // ---------------------------------------------------------------------------
 const target = makeEntity({ entity_id: 'maximinus_thrax', name: 'Maximinus Thrax' });
 
@@ -82,23 +87,20 @@ function makePlayer(resources: Record<string, number>): Entity {
 const RISKY_CONSEQUENCE =
   "One of your agents was seen near the target's villa and is now being watched, reducing their effectiveness.";
 const MOCK_BELIEFS_DISPLAY = [
-  '(Mock) Believes the army is the only true power in Rome.',
-  '(Mock) Thinks honor is for fools.',
+  '(Mock) Believes the gods have abandoned Rome.',
 ];
-const MOCK_SECRETS_DISPLAY = [
-  '(Mock) Is secretly illiterate.',
-  '(Mock) Fears assassination from his own men.',
-];
+const MOCK_SECRETS_DISPLAY: string[] = [];
 const MOCK_SCHEME_CLUES = [
-  '(Mock) Coded letters keep passing to the frontier garrisons.',
-  '(Mock) Coin is quietly moving toward the legions, not the treasury.',
+  '(Mock) Coin is quietly moving toward the eastern ports.',
 ];
 const MOCK_BELIEFS_REPORT =
-  "We've uncovered some of Maximinus Thrax's core beliefs. They seem to be a military pragmatist.";
+  '(Mock) Your agents bring back word of what Maximinus Thrax holds true.';
 const MOCK_SECRETS_REPORT =
-  'Our spy discovered that Maximinus Thrax harbors deep-seated fears and hides a surprising vulnerability.';
+  "(Mock) Your agents looked into Maximinus Thrax's secrets and found nothing worth the name.";
 const MOCK_DEEP_ANALYSIS =
-  '(Mock Analysis) Our agents report that Maximinus Thrax has been meeting secretly with members of the military. Their stated goals likely hide a more sinister ambition. They pose a moderate threat, but have limited resources for now.';
+  '(Mock Analysis) Our agents report on Maximinus Thrax: Has been seen dining with a Parthian envoy. They pose a threat worth watching.';
+/** The GM-private truth each commit callback is handed beside the account (D47) - forwarded, never read by the hook. */
+const truthOf = (kind: RequestType) => expect.objectContaining({ kind, targetId: 'maximinus_thrax' });
 const USER_FACING_ERROR = 'The intelligence request could not be completed. Please try again.';
 const CONSOLE_ERROR_PREFIX = 'Error resolving intelligence request:';
 
@@ -285,7 +287,7 @@ describe('components/tabs/useIntelGathering — extracted intel async core', () 
     expect(onSpendDeepAnalysis).toHaveBeenCalledTimes(1);
     // The spend and the assessment travel together, so the commit that
     // charges the rare resource is the commit that keeps what it bought.
-    expect(onSpendDeepAnalysis).toHaveBeenCalledWith('maximinus_thrax', 1, MOCK_DEEP_ANALYSIS, anyContext());
+    expect(onSpendDeepAnalysis).toHaveBeenCalledWith('maximinus_thrax', 1, MOCK_DEEP_ANALYSIS, anyContext(), truthOf('deep_analysis'));
     expect(JSON.parse(readout('landed'))).toEqual({ type: 'deep_analysis', seq: 1 });
     expect(readout('loading')).toBe('idle');
     expect(readout('error')).toBe('');
@@ -323,6 +325,7 @@ describe('components/tabs/useIntelGathering — extracted intel async core', () 
       1,
       { target_id: 'maximinus_thrax', report: MOCK_BELIEFS_REPORT, consequences: RISKY_CONSEQUENCE },
       anyContext(),
+      truthOf('beliefs'),
     );
     expect(onInvestigationOutcome).toHaveBeenNthCalledWith(
       2,
@@ -332,6 +335,7 @@ describe('components/tabs/useIntelGathering — extracted intel async core', () 
       1,
       { target_id: 'maximinus_thrax', report: MOCK_SECRETS_REPORT, consequences: RISKY_CONSEQUENCE },
       anyContext(),
+      truthOf('secrets'),
     );
   });
 
@@ -349,6 +353,7 @@ describe('components/tabs/useIntelGathering — extracted intel async core', () 
       1,
       expect.objectContaining({ target_id: 'maximinus_thrax', consequences: RISKY_CONSEQUENCE }),
       anyContext(),
+      truthOf('scheme'),
     );
     expect(JSON.parse(readout('landed'))).toEqual({ type: 'scheme', seq: 1 });
     expect(readout('loading')).toBe('idle');

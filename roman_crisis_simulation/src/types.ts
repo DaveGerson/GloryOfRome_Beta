@@ -387,11 +387,102 @@ export interface Report {
 }
 
 /**
+ * DESIGN_DECISIONS.md D47 - how right an agent's account is. 'true' is the
+ * truth as reached; 'garbled' is half-true (one element distorted or
+ * misattributed); 'false' is a mistaken or planted account that carries no
+ * truth at all. Rolled per investigation (ai/core/resolution.ts
+ * ::resolveInvestigationAccuracy) and recorded per finding. GM-PRIVATE.
+ */
+export type IntelAccuracy = 'true' | 'garbled' | 'false';
+
+/**
+ * DESIGN_DECISIONS.md D47 - how much of the truth an agent reached: a
+ * fragment, part of it, or a fuller picture (ai/core/resolution.ts
+ * ::resolveInvestigationFidelity). GM-PRIVATE.
+ */
+export type IntelFidelity = 'fragment' | 'partial' | 'fuller';
+
+/** The one distortion a garbled finding carries (D47): an element changed, or the finding pinned on the wrong party. GM-PRIVATE. */
+export type IntelDistortion = 'element_changed' | 'misattributed';
+
+/**
+ * What an investigation-family finding was about: a bought aspect of a
+ * dossier, the nature a scheme's accumulated clues add up to (D28), or a
+ * commissioned Spymaster's Assessment.
+ */
+export type IntelFindingKind = 'beliefs' | 'secrets' | 'scheme' | 'scheme_nature' | 'deep_analysis';
+
+/**
+ * The hidden rolls behind one investigation's findings (D4/D47), recorded for
+ * the GM console only. Every draw comes from the one seeded generator whose
+ * seed is recorded here, in order: the operational tier roll (when the
+ * action makes one), then accuracy, then fidelity, then the draws that pick
+ * which truths are reached.
+ */
+export interface InvestigationRolls {
+    seed: number;
+    /** The operational tier (ai/core/resolution.ts::resolveAction), or the fixed standing a commissioned assessment reads at (it makes no operational roll). */
+    tier: 'critical_failure' | 'failure' | 'partial_success' | 'success' | 'critical_success';
+    /** The d20 behind accuracy, and the band it landed in BEFORE any empty-pool adjustment (see IntelFindingTruth.standing). */
+    accuracyRoll: number;
+    accuracy: IntelAccuracy;
+    fidelityRoll: number;
+    fidelity: IntelFidelity;
+}
+
+/**
+ * GM-PRIVATE truth of one investigation-family finding (D11/D47), carried on
+ * its truth-ledger entry. `standing` is the finding's own: in a garbled
+ * account only the one distorted finding is 'garbled', the rest are 'true';
+ * an account that reached nothing true (a false roll, or a garbled roll on a
+ * target with nothing to garble) is 'false' throughout.
+ */
+export interface IntelFindingTruth {
+    kind: IntelFindingKind;
+    standing: IntelAccuracy;
+    /** The ground truth the finding was drawn from - absent on a 'false' finding, which no truth ever reached. */
+    groundTruth?: string;
+    /** Garbled findings only: which distortion the prompt asked for. */
+    distortion?: IntelDistortion;
+    /**
+     * Scheme clues and scheme natures only: the name of the design standing
+     * when the finding was made, so a later nature reading can tell a clue
+     * about a former design (D30: minds replace their schemes) from one
+     * about the design still standing. Absent when the target had none.
+     */
+    schemeName?: string;
+    /** The rolls behind the finding - absent on a scheme nature, which rolls nothing: it follows from the clues (D28). */
+    rolls?: InvestigationRolls;
+}
+
+/**
+ * GM-PRIVATE truth of one investigation, as its tool hands it back beside the
+ * player-facing account (ai/tools/intelligence.ts): one entry per finding the
+ * player received, aligned with the account's itemised findings. Forwarded,
+ * untouched and unrendered, to the commit that writes it to the truth ledger
+ * (hooks/useIntelCommits.ts) - the same handling class as TruthLedgerEntry.
+ */
+export interface InvestigationTruth {
+    kind: 'beliefs' | 'secrets' | 'scheme' | 'deep_analysis';
+    targetId: string;
+    rolls: InvestigationRolls;
+    findings: Array<{
+        /** The finding exactly as the player received it (an itemised finding, a scheme clue, or a whole assessment). */
+        text: string;
+        standing: IntelAccuracy;
+        groundTruth?: string;
+        distortion?: IntelDistortion;
+        schemeName?: string;
+    }>;
+}
+
+/**
  * GM-PRIVATE truth-ledger record (DESIGN_DECISIONS.md D11): the engine's
  * own bookkeeping of what every sourced claim's actual truth is, so a
  * falsehood is only ever presented knowingly and trackably. One entry is
  * written per rumor delta by ai/core/engine.ts, alongside the Report the
- * player sees (`reportId` links the two). This is the same handling class
+ * player sees (`reportId` links the two), and one per investigation
+ * finding (D47) by hooks/useIntelCommits.ts. This is the same handling class
  * as `Entity.secret_truth`: it may be read ONLY by GameMasterScreen (the
  * true-vs-believed view, D7) and code under ai/ - never by any
  * player-facing surface.
@@ -404,9 +495,14 @@ export interface TruthLedgerEntry {
     aboutId: string;
     /** Who originated/spreads the claim; absent when organic/unattributable. */
     originId?: string;
-    /** The claim's ACTUAL truth in the simulation's reality (D11: always ruled, never unknown). */
+    /** The claim's ACTUAL truth in the simulation's reality (D11: always ruled, never unknown). A garbled finding is not true. */
     isTrue: boolean;
-    /** The id of the Report the player saw for this claim. */
+    /**
+     * The id of the Report the player saw for this claim. An investigation
+     * finding never becomes a Report: it names the knowledge claim key of
+     * the dossier aspect the finding landed on instead
+     * (`investigation:{targetId}:{kind}`, or `scheme:{targetId}`).
+     */
     reportId: string;
     /**
      * Set when the adjudicator omitted the truth disposition despite the
@@ -415,6 +511,12 @@ export interface TruthLedgerEntry {
      * surface the failure for tuning.
      */
     assumed?: boolean;
+    /**
+     * D47: present only on an investigation finding's entry - its own
+     * standing, the ground truth behind it and the rolls that shaped it.
+     * Optional: rumor entries, and every entry saved before D47, omit it.
+     */
+    investigation?: IntelFindingTruth;
 }
 
 /**
@@ -544,10 +646,11 @@ export interface ActionResolutionEvent {
    * carry their own seed (player-triggered investigations,
    * `ai/tools/intelligence.ts::getInvestigationResult`). A turn's own
    * action roll instead draws from the per-turn generator whose seed is the
-   * history entry's `turnSeed`. An investigation's trace is returned to the
-   * caller but not yet persisted or surfaced anywhere - its intended home
-   * is the Phase 4B dossier store (roadmaps/ROADMAP_PHASE_4.md). Per D4 it
-   * must never reach a player-facing surface either way.
+   * history entry's `turnSeed`. An investigation's trace itself is returned
+   * to the caller and dropped there; its seed, tier and the D47 accuracy and
+   * fidelity rolls persist on each finding's truth-ledger entry
+   * (`InvestigationRolls`). Per D4 it must never reach a player-facing
+   * surface either way.
    */
   seed?: number;
 }

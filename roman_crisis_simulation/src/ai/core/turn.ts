@@ -26,6 +26,7 @@ import { buildNarrationPrompt, selectVoiceCast } from '../prompts/narration';
 import { processMortality, detectDeathClaims } from './mortality';
 import { createNarrationStreamGate, createPayloadTextExtractor, splitNarrationSuggestions } from './streamSplit';
 import { rollD20, resolveAction, clampDifficulty, derivePersonalityModifier, deriveOppositionModifier, createSeededRng, generateSeed, type Rng } from './resolution';
+import { deriveLeverageTruth } from './groundTruth';
 import { deserializeTurnSubmission, isReservedTurnSubmissionArtifact, normalizeTurnSubmissionInput, projectForAdjudication, projectForNarration, projectForNoAttemptResponse, projectForPlayerReflection, projectForResolution, serializeTurnSubmission } from '../../playerInput/turnSubmission';
 import {
     assertNoInventedPlayerAction,
@@ -808,6 +809,9 @@ async function runAdjudicationStage(
         pacingPosture: ctx.options?.pacingPosture,
         historicalMaterial,
         privateSceneAdjudicatorProjection: ctx.options?.privateSceneAdjudicatorProjection,
+        // D47/D11: the truth behind the player's filed blackmail, from the
+        // GM-private ledger - a lever resting on a false account can backfire.
+        leverageTruth: deriveLeverageTruth(playerEntity, ctx.currentTruthLedger),
     });
 
     // 2. Get adjudication from AI

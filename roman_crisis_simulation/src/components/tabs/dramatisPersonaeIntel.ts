@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { Entity, InvestigationResult } from '../../types';
+import { Entity, InvestigationResult, InvestigationTruth } from '../../types';
 import { getInvestigationResult, getDeepAnalysis } from '../../ai/tools/intelligence';
 import { deriveDossier, InvestigationKind, KnowledgeClaim, SchemeDiscovery } from '../../knowledge/store';
 
@@ -61,7 +61,14 @@ export const DEEP_ANALYSIS_COST = 1;
  */
 export type IntelRequestOutcome =
   | { kind: 'deep_analysis'; charged: false }
-  | { kind: 'deep_analysis'; charged: true; cost: number; analysis: string }
+  | {
+      kind: 'deep_analysis';
+      charged: true;
+      cost: number;
+      analysis: string;
+      /** GM-PRIVATE (D11/D47) - forwarded, untouched and unrendered, to the commit that writes the truth ledger. */
+      truth?: InvestigationTruth;
+    }
   | { kind: 'investigation'; investigationKind: InvestigationKind; charged: false }
   | {
       /** D28: a scheme buy never displays its raw reportData - only the Active Scheme discovery-state surface. This variant cannot carry `display`. */
@@ -71,6 +78,8 @@ export type IntelRequestOutcome =
       cost: number;
       reportData: unknown;
       outcome: InvestigationResult;
+      /** GM-PRIVATE (D11/D47) - forwarded, untouched and unrendered, to the commit that writes the truth ledger. */
+      truth?: InvestigationTruth;
     }
   | {
       /** beliefs/secrets show their findings inline - `display` is required, never optional. */
@@ -81,6 +90,8 @@ export type IntelRequestOutcome =
       display: string[];
       reportData: unknown;
       outcome: InvestigationResult;
+      /** GM-PRIVATE (D11/D47) - forwarded, untouched and unrendered, to the commit that writes the truth ledger. */
+      truth?: InvestigationTruth;
     };
 
 /**
@@ -108,8 +119,8 @@ export async function resolveIntelRequest(params: {
       // `consequences` string, so it never touches the investigation-fallout
       // queue (components/investigationLoop.ts).
       if ((playerEntity.resources.deep_analyses as number) >= DEEP_ANALYSIS_COST) {
-        const analysis = await getDeepAnalysis(ai, target, playerEntity, isMockMode);
-        return { kind: 'deep_analysis', charged: true, cost: DEEP_ANALYSIS_COST, analysis };
+        const { analysis, truth } = await getDeepAnalysis(ai, target, playerEntity, isMockMode);
+        return { kind: 'deep_analysis', charged: true, cost: DEEP_ANALYSIS_COST, analysis, truth };
       }
       return { kind: 'deep_analysis', charged: false };
     }
@@ -126,9 +137,10 @@ export async function resolveIntelRequest(params: {
         // A 'scheme' buy does NOT display its raw reportData (D28): the
         // store commits it as ONE nature clue and the Active Scheme surface
         // renders the earned discovery state. beliefs/secrets show their
-        // findings inline.
+        // findings inline. The GM-private `truth` rides beside the outcome,
+        // never inside it: the outcome is what the player's surfaces read.
         if (type === 'scheme') {
-          return { kind: 'investigation', investigationKind: type, charged: true, cost, reportData: result.reportData, outcome };
+          return { kind: 'investigation', investigationKind: type, charged: true, cost, reportData: result.reportData, outcome, truth: result.truth };
         }
         return {
           kind: 'investigation',
@@ -138,6 +150,7 @@ export async function resolveIntelRequest(params: {
           display: result.reportData as string[],
           reportData: result.reportData,
           outcome,
+          truth: result.truth,
         };
       }
       return { kind: 'investigation', investigationKind: type, charged: false };

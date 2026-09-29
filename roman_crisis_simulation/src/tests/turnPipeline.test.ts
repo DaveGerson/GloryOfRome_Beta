@@ -20,6 +20,7 @@ import type { GoogleGenAI } from '@google/genai';
 import { runNewTurn } from '../ai/core/turn';
 import { endTurnCapture } from '../ai/core/geminiService';
 import { rollD20, createSeededRng } from '../ai/core/resolution';
+import { investigationLedgerEntries } from '../ai/core/groundTruth';
 import type { PrivateSceneAdjudicatorProjection } from '../privateScene/model';
 import type { Entity, WorldState, SimulationState, Report, TruthLedgerEntry, TurnSubmission } from '../types';
 import { makeEntity as baseMakeEntity } from './factories';
@@ -364,6 +365,45 @@ describe('ai/core/turn.ts runNewTurn - Phase 3 item 3 pipeline parallelization',
     ]);
     expect(result.updatedEntities.find(entity => entity.entity_id === player.entity_id)?.resources.denarii).toBe(1050);
     expect(h.order).toEqual(['storyRelevance', 'assessment', 'adjudication', 'simulationState', 'monologue', 'narration']);
+  });
+
+  it('D47: gives the adjudicator the truth of the player\'s leverage, GM-secret, and no player-facing call ever sees it', async () => {
+    const h = createHarness(false);
+    const FALSE_LEVER = 'Keeps a second household at Ostia.';
+    const TRUE_SECRET = 'LEVERAGE_GROUND_TRUTH_SENTINEL owes the bankers';
+    const player = makeEntity({ resources: { denarii: 1000, blackmail_on_npc_varro: [FALSE_LEVER, 'Garbled lever.'] } });
+    const varro = makeEntity({ entity_id: 'npc_varro', name: 'Senator Varro' });
+    const truthLedger = investigationLedgerEntries({
+      kind: 'secrets',
+      targetId: 'npc_varro',
+      rolls: { seed: 1, tier: 'success', accuracyRoll: 2, accuracy: 'garbled', fidelityRoll: 9, fidelity: 'partial' },
+      findings: [
+        { text: FALSE_LEVER, standing: 'false' },
+        { text: 'Garbled lever.', standing: 'garbled', groundTruth: TRUE_SECRET, distortion: 'element_changed' },
+      ],
+    }, 1, 1);
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    h.response.adjudication.resolve(adjudicationJson);
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologuePayloadJson);
+    h.response.narration.resolve(narrationPayloadJson);
+
+    await runNewTurn(
+      h.ai, freeform('Press Varro with what my agents found'), player, 2, [player, varro], worldState, simulationState,
+      [], [], truthLedger, [], '', false, 'Grim political thriller',
+    );
+
+    const adjudication = h.promptsByKind.adjudication ?? '';
+    expect(adjudication).toContain("GM-SECRET: THE PLAYER'S LEVERAGE, AS IT TRULY STANDS");
+    expect(adjudication).toContain(`${JSON.stringify(FALSE_LEVER)} - FALSE`);
+    expect(adjudication).toContain(TRUE_SECRET);
+    for (const kind of ['narration', 'monologue', 'simulationState'] as const) {
+      const text = `${h.systemInstructionsByKind[kind] ?? ''}\n${h.promptsByKind[kind] ?? ''}`;
+      expect(text, kind).not.toContain('GM-SECRET');
+      expect(text, kind).not.toContain(TRUE_SECRET);
+    }
   });
 
   it('keeps mixed-submission Private Intent out of adjudication but in player-owned calls', async () => {

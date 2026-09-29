@@ -23,9 +23,10 @@ one of the builders below.
 | `privateScene` | `privateScene.ts::buildPrivateScenePrompt` | pro | `zPrivateSceneModelResponse` | `PrivateSceneModelResponseSchema` | Player-initiated one-NPC private-scene micro-loop; bounded self brief and transcript only |
 | `mortalityValidation` | `mortality.ts::buildMortalityValidationPrompt` | pro | `zMortalityValidation` | `MortalityValidationSchema` | `turn.ts` step 2.6 (`ai/core/mortality.ts::processMortality`, gate 1) |
 | `mortalityOutcome` | `mortality.ts::buildMortalityOutcomePrompt` | pro | `zMortalityOutcome` | `MortalityOutcomeSchema` | `turn.ts` step 2.6 (`ai/core/mortality.ts::processMortality`, gate 3) |
-| `investigation` | `intelligence.ts::buildInvestigationPrompt` | pro | `zInvestigationResult` | `buildInvestigationResultSchema(subject)` | Player-triggered intel action |
+| `investigation` | `intelligence.ts::buildInvestigationPrompt` | pro | `zInvestigationResult` | `buildInvestigationResultSchema(subject)` | Player-triggered intel action. D47: grounded in the target's real beliefs/secrets/scheme, scoped in code by the hidden fidelity roll and shaped by the hidden accuracy roll (`ai/core/groundTruth.ts`); `reportData` held to one entry per planned finding in code |
+| `schemeNature` | `intelligence.ts::buildSchemeNaturePrompt` | flash | - (prose) | - | `hooks/useIntelCommits.ts` (via `settleInvestigationTruth`), only when a paid scheme clue reaches the D28 reveal: the nature the accumulated clues add up to, true/garbled/false as decided in code from the clue standings on the truth ledger |
 | `clarification` | `intelligence.ts::buildClarificationPrompt` | flash | - (prose) | - | Player-triggered intel action |
-| `deepAnalysis` | `intelligence.ts::buildDeepAnalysisPrompt` | flash | - (prose) | - | Player-triggered intel action |
+| `deepAnalysis` | `intelligence.ts::buildDeepAnalysisPrompt` | flash | - (prose) | - | Player-triggered intel action. D47: grounded in the target's real situation and aims (never its scheme), at the rolled fidelity and accuracy |
 | `scenarioStructure` | `worldGen.ts::buildScenarioStructurePrompt` | pro | `zScenarioStructure` | `ScenarioStructureSchema` | `initiator.ts` Step 1 (world skeleton) |
 | `entityBatch` | `worldGen.ts::buildEntityBatchPrompt` | pro | `zEntityBatch` | `EntityListSchema` | `initiator.ts` Step 2 (fill in entities) |
 | `characterCreation` | `characterCreation.ts::buildCharacterCreationPrompt` | pro | `zEntity` | `CharacterCreationEntitySchema` | Player character creation |
