@@ -613,6 +613,20 @@ AI contract).
 *Refines:* D25/D26 (adds corroboration as a player-safe signal), D5 (the
 sight rule's home), D14 (dossier prices in coin, not numerals).
 
+*(Factual update, 2026-09-29, from the fan-out mechanics and GUI audit —
+ROADMAP_UPLEVEL_2026-09.md Part 5. The rules are unchanged.)* The turn
+count and the calendar week are now told apart wherever they are printed:
+every stamp that holds a turn counter (dossier "First learned", Reports "By
+turn", the Chronicle's reign rows, the private scene's doorway, the
+save-failure notice) reads "Turn", and only the calendar surfaces (masthead,
+briefing, week ribbons, Events slips) read "Week" — a generated world starts
+on its own week and a year wraps at 52, so the two diverge. Corroboration
+is judged per topic over DISTINCT sources: "N sources agree" now needs N
+different sources on one matter, and a subject heard several times (or
+about several matters) reads "N accounts". One owner per fact also reached
+the tab counts: a region change counts on Locations (Empire), never on
+World State.
+
 ---
 
 ## D45 — The failure pass and the five closed gaps (WP-16…WP-21)
@@ -698,6 +712,20 @@ screen ("Restore from a copy", rendered with or without an existing saved
 reign) and in Settings; where a reign is at stake, the Abandon-style confirm
 gates the overwrite before `importSaveBlob` ever runs. See
 `docs/superpowers/specs/2026-08-05-reign-export-import-design.md`.
+
+*(Factual update, 2026-09-29, from the fan-out audit — ROADMAP_UPLEVEL_2026-09.md
+Part 5.)* The same Abandon confirm now gates every other way a saved reign
+could be written over: a preset destiny, Create Your Own (asked on entry,
+before any paid call; the overwrite happens only when the new campaign
+commits), and a reign this build cannot read. The last was the worst of
+them: a save written by a newer build (or damaged) used to make the destiny
+screen look like a fresh device, and the next destiny wrote over it without
+a word. It now shows "The saved reign cannot be read" with "Take a copy of
+the reign", and nothing replaces it unless the player chooses to
+(`persistence` `readSaveSlot()` / `hasStoredReign()`; `loadGame` keeps its
+meaning). The private scene's failures also moved into
+`components/ui/FailureNotices.tsx` (`PRIVATE_SCENE_FAILURE_COPY`), each with a
+title that says what failed, per the first rule above.
 
 A turn restored from disk shows an empty boundary column, and the pane says
 so rather than implying nothing was cut.

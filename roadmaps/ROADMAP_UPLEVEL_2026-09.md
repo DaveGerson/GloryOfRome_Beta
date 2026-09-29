@@ -425,3 +425,94 @@ lint with zero warnings, the deterministic eval and the build all pass.
 Over Parts 3 and 4 together the main chunk grew by about 13 kB (4.5 kB
 gzipped); the palette is its own 4 kB chunk. Screenshots:
 `docs/ui-refresh/16-*.png` (refreshed) and `17-first-visit-light-system.png`.
+
+## Part 5 — The fan-out audit: every mechanic and the GUI, checked and fixed (2026-09-29)
+
+The owner asked for every mechanic to be checked, the GUI included, to be
+sure it works as intended. The check ran as a fan-out: twelve auditors, one
+per area, each with its own lens (game rules, knowledge and perception,
+state and persistence, the narration voice, and the GUI both live in a
+browser and in the code), and an independent skeptic behind each one that
+tried to refute every finding before it counted. **122 findings survived**
+(some found by more than one auditor). Two need an owner ruling and were
+left whole; everything else was fixed.
+
+**How it was fixed.** The fixes ran in six groups, each owning its own
+files and working in its own git worktree: rules, design system,
+perception and knowledge, voice and private scenes, the desk, and campaign
+state. Each group re-confirmed its findings against the code before
+changing anything, and added regression tests. A reviewer who had not
+written the code then re-traced every repro against each group's commit.
+The reviewers found 20 defects (6 of them serious). A follow-up pass fixed
+all of them except one, a docs edit, which is made in BACKLOG B7. The six
+branches were then merged, and the seams between them fixed and tested
+(`tests/auditIntegration.test.ts`).
+
+**What was wrong, in brief** (full records in the `audit-fix/*` commits):
+- *Rules.* A survived death save could still ship an "assassinated"
+  headline, and it restored an exiled player to "alive". The player's own
+  settled fate never reached the narrator. Authored events moved the
+  player's trust in a faction instead of the faction's trust in the player.
+  An NPC's overdraft was reported to the player as their own treasury.
+  Other defects: a malformed scheme could wedge every later turn; a
+  relocation whose reason mentioned a killing was read as a death; Rome's
+  events fired in generated worlds; the Rhine acclamation fired on an empty
+  crisis; off-scale model traits pre-decided rolls; and a suggestion could
+  stream into the narration.
+- *Perception and knowledge.* A witnessed move read "X is now changed." A
+  departure from the player's own room went unwitnessed. A dead NPC could
+  still be "sensed plotting". Paid deep analysis vanished on a tab switch.
+  One rumour repeated four times read as "4 sources agree". The player's own
+  order could reveal a hidden figure's existence. The cap evicted paid
+  dossiers first. The Chronicle printed raw submission JSON.
+- *Campaign state.* One click on a destiny overwrote a saved reign without
+  a word; a newer build's save was hidden and then overwritten. A fate
+  awaiting its choice was lost on reload. Retry clobbered an edited draft.
+  A keyless send offered a Retry that could not work, and a keyless custom
+  destiny fired three doomed requests.
+- *Voice and private scenes.* SILENT did not stop a TTS call already in
+  flight. A stalled request could wedge a clip for the session. The
+  fidelity guard let unmentioned names through mid-sentence. The sixth
+  exchange of a long scene always failed. A reply draft carried over to the
+  next NPC. Closing a scene left the NPC talking.
+- *The desk.* A counsel pill replaced a typed draft. A streaming chunk
+  yanked a reader back down. The log announced the player's words twice.
+  Tab counts stuck across weeks and disagreed with the palette. The
+  Structured tablet squeezed the chronicle to 56px at 1280x720.
+- *Design system.* Unstyled buttons had no focus ring, and focus vanished
+  in forced colours. Inline animations ignored the device's reduced-motion
+  setting. The Settings dialog was clipped on a phone, and the GM console
+  was taller than the window. There were contrast failures in both skins,
+  and the favicon was missing.
+
+**Calls made on best practice** (each reversible, none changes a ruling):
+- *Turn vs Week.* Every stamp that holds a turn counter now reads "Turn";
+  only calendar surfaces read "Week" (D44 note of the same date). The
+  alternative, a turn-to-week map, would need a new per-turn record that
+  old saves lack, so the labels would have been mixed.
+- *Death headlines are fixed in the prompt, not by redaction.* Rewriting
+  headlines after the roll would take another model call per death claim.
+  The adjudicator now phrases a death as the attempt; the residual risk is
+  in BACKLOG.
+- *Label in name (WCAG 2.5.3).* Controls are named by their visible words
+  ("Speak", "Seal & send", "Settings", "Commands"), so a speech-input user
+  can say what they see.
+- *A seen tab is keyed to the week.* The "N new" memory is held by App per
+  committed turn, shared by the tab rail and the palette, and kept on the
+  device so a reload does not re-announce it. On a phone the open tab
+  counts as seen only once the panel is actually in view.
+- *Failure copy lives in one place (D45).* The private scene's notices
+  moved into `components/ui/FailureNotices.tsx`, each titled by what failed.
+
+**Left for the owner** (BACKLOG B14): whether the world may act on an idle
+player on a no-attempt turn; whether investigations should draw on ground
+truth; what a loss band with no loss authored should do; whether a figure's
+faction is public; and four smaller design calls. New copy is in the veto
+queue ("The fan-out audit's fixes (2026-09-29)"); residuals are listed at
+the end of BACKLOG.
+
+Checks after Part 5: 2785 unit tests (from 2479), 10 journeys, typecheck,
+lint, the deterministic eval and the build all pass. A live tour on the
+merged build (1280x720 LVX, 375px NOX, forced colours) found no console
+errors and no 404s, no page scroll in either composer mode, and no raw JSON
+in the Chronicle. Screenshots: `docs/ui-refresh/18-*.png`.
