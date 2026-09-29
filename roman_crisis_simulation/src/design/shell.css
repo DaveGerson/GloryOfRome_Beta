@@ -166,6 +166,20 @@ button,input,select,textarea{font-family:inherit}
 .gor-switch input[role="switch"]:checked{background:Highlight}
 .gor-seg-btn[aria-checked="true"],.gor-seg-btn[aria-pressed="true"]{background:Highlight;color:HighlightText;forced-color-adjust:none}
 }
+/* Forced colours also drop every box-shadow, and nearly every focus ring in
+   the house is one: focus vanished from buttons, tabs, pills, pointers and
+   fields alike. One system-colour outline stands in for all of them
+   (important, so it also reaches a control styled inline); where the
+   control is cut to a chamfer or sits in a row that clips, it is drawn just
+   inside the edge. On a surface already painted Highlight it is drawn in
+   HighlightText. The selected side-panel tab loses its Tyrian pennant too,
+   so it is repainted in the selection colours, as the chosen segment is. */
+@media (forced-colors:active){
+:focus-visible{outline:2px solid Highlight!important}
+.gor-btn:focus-visible,.gor-pill:focus-visible,.gor-event-choice:focus-visible,.gor-tab:focus-visible,.gor-seg-btn:focus-visible,.gor-pointer:focus-visible,.gor-subrail-btn:focus-visible,.gor-gm-rail-btn:focus-visible,.gor-gm-gold-btn:focus-visible{outline-offset:-4px}
+.gor-tab[role="tab"][aria-selected="true"]{background:Highlight;color:HighlightText;forced-color-adjust:none;box-shadow:none;text-shadow:none}
+.gor-tab[role="tab"][aria-selected="true"]:focus-visible,.gor-seg-btn[aria-checked="true"]:focus-visible,.gor-seg-btn[aria-pressed="true"]:focus-visible{outline-color:HighlightText!important}
+}
 /* Dialogs arrive: the backdrop dims and softens the room, the tablet settles. */
 .gor-dialog-backdrop{-webkit-backdrop-filter:blur(3px) saturate(.85);backdrop-filter:blur(3px) saturate(.85);animation:gorFadeIn 220ms var(--ease-standard) both}
 .gor-dialog{animation:gorDialogIn 300ms var(--ease-out-soft) both}
@@ -239,7 +253,8 @@ section[data-screen-label="Chat"]>[role="log"]+div{padding:10px 10px 12px 12px!i
 /* The destinies: less air around the hero on a phone. */
 .gor-destinies{padding:22px 16px 40px!important}
 .gor-destinies-title{font-size:30px!important;line-height:1.15}
-.gor-destinies-forge{padding:22px 16px 120px!important}
+.gor-destinies-forge{padding:22px 16px 0!important}
+.gor-forge-runout{height:102px}
 
 /* The suggestion pills: one swipeable row instead of a stack of three
    wrapped slabs that pushes the tablet off the screen. */
@@ -275,6 +290,14 @@ html[data-gor-reading="larger"] .gor-textarea{font-size:20px}
    not say. Every animation ends on its final frame at once and nothing
    eases; loops (the smoulder, the nib) run a single imperceptible cycle. */
 html[data-gor-motion="reduced"] *,html[data-gor-motion="reduced"] *::before,html[data-gor-motion="reduced"] *::after{animation-duration:1ms!important;animation-delay:0s!important;animation-iteration-count:1!important;transition-duration:1ms!important;transition-delay:0s!important;scroll-behavior:auto!important}
+/* A device that asks for less motion is answered as firmly as the switch.
+   The class lists under each section only reach classes; an animation a
+   component sets inline (a fade on a wrapper, the epilogue's ember) slipped
+   past them all and kept playing. The lists still choose each flourish's
+   resting frame; this stops whatever they cannot name. */
+@media (prefers-reduced-motion:reduce){
+*,*::before,*::after{animation-duration:1ms!important;animation-delay:0s!important;animation-iteration-count:1!important;transition-duration:1ms!important;transition-delay:0s!important;scroll-behavior:auto!important}
+}
 
 /* ── X · The desk, the palette, and a masthead that makes room ─────────────
    (The command palette, the tab counts and the reading register.) Appended
@@ -394,6 +417,11 @@ html[data-gor-motion="reduced"] *,html[data-gor-motion="reduced"] *::before,html
 .gor-palette-foot>span{display:none}
 /* The 2x2 stat grid has no room for the pips; the grade word stays. */
 .gor-masthead-pips{display:none}
+}
+/* Narrower than a 375 phone, the 16.5px title (~250px) ran under both corner
+   buttons; it shrinks with the window instead of wrapping the crest. */
+@media (max-width:374px){
+.gor-masthead-title,.gor-masthead-compact .gor-masthead-title{font-size:clamp(13px,4.3vw,16.5px)}
 }
 /* A touch screen has no keys to press: the palette drops its key caps. */
 @media (hover:none) and (pointer:coarse){

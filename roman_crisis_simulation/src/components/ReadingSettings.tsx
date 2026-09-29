@@ -1,6 +1,6 @@
 import React from 'react';
 import { RegisterHeading } from './ui/Core';
-import { SegmentedControl, Switch } from './ui/Forms';
+import { NotedSwitch, SegmentedControl } from './ui/Forms';
 import { paletteChordProse } from '../app/commands';
 import type {
     MotionPreference, NarrationReveal, ReadingScale, ShortcutPreference,
@@ -51,26 +51,6 @@ export interface ReadingSettingsProps {
     shortcuts: ShortcutPreference;
     onSetShortcuts: (shortcuts: ShortcutPreference) => void;
 }
-
-/** A switch with its note under the label, the note tied to it as its description. */
-const NotedSwitch: React.FC<{
-    id: string;
-    label: string;
-    checked: boolean;
-    note: string;
-    onChange: (checked: boolean) => void;
-}> = ({ id, label, checked, note, onChange }) => (
-    <div className="gor-config-switch">
-        <Switch
-            id={id}
-            checked={checked}
-            aria-describedby={`${id}-note`}
-            onChange={(event: React.ChangeEvent<HTMLInputElement>) => onChange(event.target.checked)}
-            label={label}
-        />
-        <p id={`${id}-note`} className="gor-config-note">{note}</p>
-    </div>
-);
 
 /**
  * The configuration menu's Reading register (persistence/readingPrefs.ts).

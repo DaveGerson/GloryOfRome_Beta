@@ -31,7 +31,7 @@
 --banner-cornice:linear-gradient(180deg,#D4AF37,#8A6D1E);--banner-stat-bronze:#D28A3C;--banner-stat-crimson:#D9897E;
 --tablet-grad:linear-gradient(180deg,#F4EBD3,#E2D4B0);
 --tablet-edge:rgba(94,74,20,.55);--tablet-rule:rgba(94,74,20,.3);
---tablet-text:#2A231A;--tablet-head:#6E5710;--tablet-quiet:#7A6A48;
+--tablet-text:#2A231A;--tablet-head:#6E5710;--tablet-quiet:#665638;/* quiet ink holds >=4.5:1 down to the tablet's darker stop */
 --tablet-mark:#8A6D14;--tablet-dentil:repeating-linear-gradient(90deg,#8A6D14 0 3px,transparent 3px 9px);
 --stele-grad:radial-gradient(90% 60% at 50% 0%, #1B1409, #0B0805 70%);
 --stele-text:#E4D5AC;--stele-dim:#B09A6C;--stele-bright:#FBF0D2;
@@ -123,6 +123,8 @@ a:hover{color:#F2D98C}
 .gor-subrail-btn-on{color:#F2D98C;text-shadow:0 0 9px rgba(232,201,89,.45)}
 .gor-vellum{background:repeating-linear-gradient(102deg,rgba(227,199,102,.07) 0 1px,transparent 1px 6px),var(--surface-card)}
 .gor-report-group,.gor-macro-cell{background:var(--surface-card)}
+/* Conflicting accounts: the crimson badge's night values, one palette. */
+.gor-verdict-conflict{color:#E89A8C;background:rgba(140,28,19,.16)}
 .gor-mosaic{background:repeating-linear-gradient(90deg,var(--gold-500) 0 10px,transparent 10px 20px) top/20px 5px repeat-x,repeating-linear-gradient(90deg,transparent 0 10px,var(--tyrian-300) 10px 20px) bottom/20px 5px repeat-x}
 
 /* ── Layer 4 · Inline-wash surgery: the two light washes the JSX paints inline (values only — markup untouched) ── */

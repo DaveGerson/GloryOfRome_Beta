@@ -12,6 +12,12 @@ export const ActionPill: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> 
 
 const DEFAULT_LINES = ['Whispers cross the Senate floor…', 'Your rivals move in the dark…', 'Couriers ride from the frontier…', 'The chronicler sets down the day…'];
 
+/**
+ * The rotating lines are flavour, not news: read aloud they were a new
+ * sentence every second or so for as long as the wait lasted. So the whole
+ * indicator is hidden from assistive technology, and the screen that shows
+ * it says what is happening once (ForgingScreen focuses its heading).
+ */
 export const TypingIndicator: React.FC<{ lines?: string[]; intervalMs?: number }> =
     ({ lines = DEFAULT_LINES, intervalMs = 3200 }) => {
         const [i, setI] = React.useState(0);
@@ -20,7 +26,7 @@ export const TypingIndicator: React.FC<{ lines?: string[]; intervalMs?: number }
             return () => clearInterval(id);
         }, [lines, intervalMs]);
         return (
-            <div className="gor-typing" role="status" aria-live="polite">
+            <div className="gor-typing" aria-hidden="true">
                 <span className="gor-typing-dots" aria-hidden="true"><span></span><span></span><span></span></span>
                 <span className="gor-typing-text">{lines[i % lines.length]}</span>
             </div>

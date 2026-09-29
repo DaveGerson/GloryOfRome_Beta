@@ -157,15 +157,15 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
               <span style={{ color: 'var(--crimson-500)', fontStyle: 'italic', fontSize: 15 }}>
                 Abandon your saved reign? It cannot be undone.
               </span>
-              <button onClick={this.handleAbandonConfirm} className="gor-btn gor-btn-danger" disabled={!this.state.dangerArmed}>Abandon</button>
-              <button onClick={this.handleAbandonCancel} className="gor-btn gor-btn-ghost" autoFocus>Keep my reign</button>
+              <button onClick={this.handleAbandonConfirm} className="gor-btn gor-btn-md gor-btn-danger" disabled={!this.state.dangerArmed}>Abandon</button>
+              <button onClick={this.handleAbandonCancel} className="gor-btn gor-btn-md gor-btn-ghost" autoFocus>Keep my reign</button>
             </div>
           ) : (
             <div key="resting" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
               <button onClick={this.handleReload} className="gor-btn gor-btn-lg gor-btn-primary">
                 {canRestore ? 'Restore Last Save' : 'Reload'}
               </button>
-              <button ref={this.escapeRef} onClick={this.handleAbandonRequest} className="gor-btn gor-btn-ghost">
+              <button ref={this.escapeRef} onClick={this.handleAbandonRequest} className="gor-btn gor-btn-md gor-btn-ghost">
                 Abandon the reign and begin anew
               </button>
             </div>

@@ -14,7 +14,8 @@ const CopyButton: React.FC<{ text: string }> = ({ text }) => (
     <button
         type="button"
         onClick={() => { void navigator.clipboard?.writeText(text); }}
-        style={{ all: 'unset', cursor: 'pointer', fontFamily: 'var(--font-display)', fontSize: 8.5, letterSpacing: '.12em', textTransform: 'uppercase', color: DIM }}
+        className="gor-bare-btn"
+        style={{ fontFamily: 'var(--font-display)', fontSize: 8.5, letterSpacing: '.12em', textTransform: 'uppercase', color: DIM }}
     >
         Copy
     </button>
@@ -53,7 +54,8 @@ export const RawView: React.FC<{ adjudication: Adjudication; rawCalls?: RawCallR
                                 type="button"
                                 onClick={() => setSelected(index)}
                                 aria-current={active ? 'true' : undefined}
-                                style={{ all: 'unset', cursor: 'pointer', padding: '7px 9px', borderLeft: `3px solid ${flag.bad ? 'var(--metal-crimson)' : active ? 'var(--gold-500)' : 'transparent'}`, background: active ? 'rgba(201,162,39,.08)' : 'transparent' }}
+                                className="gor-bare-btn gor-gm-rail-btn"
+                                style={{ padding: '7px 9px', borderLeft: `3px solid ${flag.bad ? 'var(--metal-crimson)' : active ? 'var(--gold-500)' : 'transparent'}`, background: active ? 'rgba(201,162,39,.08)' : 'transparent' }}
                             >
                                 <span style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontFamily: MONO, fontSize: 11.5, color: PARCH }}>
                                     <span>{record.callName}</span>

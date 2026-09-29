@@ -29,11 +29,13 @@ export const InterventionDock: React.FC<{
         if (await onSetIntervention(interventionInput) !== false) setShowConfirmation(true);
     };
 
-    // Names the turn the directive lands in. Its button is GOLD, not crimson
-    // metal — crimson reads as delete, and this creates rather than destroys.
+    // Names the turn the directive lands in: `turnNumber` is already the turn
+    // about to be played - the one runNewTurn consumes the directive in and
+    // records it under. Its button is GOLD, not crimson metal — crimson reads
+    // as delete, and this creates rather than destroys.
     return (
         <div style={{ flex: 'none', ...well, border: '1px solid rgba(201,162,39,.35)' }}>
-            <span style={{ ...lbl, color: GOLD }}>GM Intervention — lands in turn {toRoman(turnNumber + 1)}</span>
+            <span style={{ ...lbl, color: GOLD }}>GM Intervention — lands in Turn {toRoman(turnNumber)}</span>
             {enabled ? (
                 <>
                     <p style={{ margin: '4px 0 8px', fontSize: 14, color: DIM }}>A directive the Fates will weave into the next turn's adjudication — an outside event, or a thumb on an entity's scale.</p>
@@ -50,6 +52,7 @@ export const InterventionDock: React.FC<{
                             type="button"
                             onClick={handleSetIntervention}
                             disabled={interactionLocked}
+                            className="gor-gm-gold-btn"
                             style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, letterSpacing: '.08em', textTransform: 'uppercase', color: '#241C11', background: 'var(--metal-gold)', border: '1px solid #8A6D14', clipPath: 'var(--chamfer-sm)', padding: '9px 16px', cursor: 'pointer', boxShadow: 'var(--bevel)' }}
                         >
                             Set Directive for Next Turn
