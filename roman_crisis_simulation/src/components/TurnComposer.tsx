@@ -185,18 +185,20 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
    * HERE rather than on the Speak button's `disabled` alone — Enter-to-send,
    * the form's own submit and the structured ⌃⏎ shortcut all arrive through
    * these two functions and each one used to walk straight past an offline
-   * gate that was only ever painted on one button.
+   * gate that was only ever painted on one button. With no key on the device
+   * (D34) the send is held the same way; the standing no-key notice above
+   * says why and names what works.
    */
   const composerHoldsFocus = () => Boolean(composerRef.current?.contains(document.activeElement));
   const submitChat = () => {
-    if (online && !locked && artifactStatus.ok && !overLimit && chatDraft.trim()) {
+    if (online && canReachTheFates && !locked && artifactStatus.ok && !overLimit && chatDraft.trim()) {
       restoreFocusOnUnlockRef.current = composerHoldsFocus();
       onSubmit(chatDraft);
       stampSeal();
     }
   };
   const submitStructured = () => {
-    if (online && !locked && artifactStatus.ok && !overLimit) {
+    if (online && canReachTheFates && !locked && artifactStatus.ok && !overLimit) {
       restoreFocusOnUnlockRef.current = composerHoldsFocus();
       onSubmit(structuredDraft);
       stampSeal();
@@ -308,7 +310,7 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
             <Button
               type="submit"
               aria-label="Send message"
-              disabled={!online || locked || overLimit || !artifactStatus.ok || !chatDraft.trim()}
+              disabled={!online || !canReachTheFates || locked || overLimit || !artifactStatus.ok || !chatDraft.trim()}
             >
               {online ? 'Speak' : 'Hold until the roads reopen'}
             </Button>
@@ -331,7 +333,7 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
             </div>
           )}
           <div style={{ position: 'relative' }}>
-            <StructuredTurnComposer draft={structuredDraft} recipientOptions={recipientOptions} disabled={locked} online={online} submissionBlocked={overLimit || !artifactStatus.ok || !online}
+            <StructuredTurnComposer draft={structuredDraft} recipientOptions={recipientOptions} disabled={locked} online={online} submissionBlocked={overLimit || !artifactStatus.ok || !online || !canReachTheFates}
               aggregateIssue={overLimit} validationIssues={artifactStatus.ok ? [] : artifactStatus.issues} statusId={statusId}
               onChange={onStructuredDraftChange} onSubmit={submitStructured} />
             {waxSeal}

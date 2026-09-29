@@ -93,7 +93,7 @@ async function mount(state = appSave(), openPrivateScene = true): Promise<HTMLDi
 // The dev-only Mock Mode / GM-console runtime switches live in the
 // configuration menu's Developer card since the options-consolidation pass.
 async function clickDevSwitch(container: HTMLElement, id: string): Promise<void> {
-  await click(container.querySelector<HTMLButtonElement>('[aria-label="Open configuration menu"]')!);
+  await click(container.querySelector<HTMLButtonElement>('[aria-label="Settings"]')!);
   await click(container.querySelector<HTMLInputElement>(id)!);
   await click(container.querySelector<HTMLButtonElement>('[aria-label="Close configuration menu"]')!);
 }

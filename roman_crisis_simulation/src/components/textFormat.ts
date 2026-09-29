@@ -9,12 +9,31 @@
  *
  * This helper only produces DATA: an ordered list of {bold, text} segments.
  * Chat.tsx renders each segment as a plain React text node (optionally
- * wrapped in <strong>), so React escapes the content by construction — no
- * HTML parsing ever happens on model output.
+ * wrapped in <strong> or <em>), so React escapes the content by
+ * construction — no HTML parsing ever happens on model output.
  */
 export interface TextSegment {
     bold: boolean;
+    /** A single-asterisk `*emphasis*` span; present only when true. */
+    italic?: true;
     text: string;
+}
+
+/**
+ * A fate's leaf in the chronicle (hooks/useEventFlow.ts) opens with this bold
+ * label. Chat.tsx reads it to keep the week's illuminated initial off the
+ * leaf: a drop cap belongs to the week's narration, and on a label it split
+ * the word ("E vent:"). Leaves in older saves carry the same label.
+ */
+export const EVENT_LEAF_PREFIX = '**Event: ';
+
+/** The chronicle line an authored event choice leaves behind. No markup around the choice. */
+export function eventLeafText(title: string, choiceText: string): string {
+    return `${EVENT_LEAF_PREFIX}${title}**\nYou chose to: “${choiceText}”`;
+}
+
+export function isEventLeaf(text: string): boolean {
+    return text.startsWith(EVENT_LEAF_PREFIX);
 }
 
 /**
@@ -55,22 +74,31 @@ function decodeEntities(text: string): string {
  * literal text in a non-bold segment, same as the old regex which simply
  * never matched it.
  *
+ * A single-asterisk `*span*` is emphasis, the way the model (and fate leaves
+ * written before 2026-09) mark it - it used to reach the chronicle with its
+ * asterisks showing. Only a tight pair counts: the opening `*` must not be
+ * followed by a space, the closing one not preceded by one, and the span
+ * stays on one line, so "5 * 3 * 2" and a `* item` list are left as they
+ * are. Bold wins where both could start.
+ *
  * Non-string input is coerced with `String(t)` first, matching the old
  * `md()` behavior (e.g. `toSegments(null)` sees `"null"`).
  */
 export function toSegments(input: unknown): TextSegment[] {
     const text = String(input);
     const segments: TextSegment[] = [];
-    const boldPattern = /\*\*(.*?)\*\*/g;
+    const markupPattern = /\*\*(.*?)\*\*|\*(?![\s*])([^*\n]*?[^\s*])\*/g;
 
     let lastIndex = 0;
     let match: RegExpExecArray | null;
 
-    while ((match = boldPattern.exec(text)) !== null) {
+    while ((match = markupPattern.exec(text)) !== null) {
         if (match.index > lastIndex) {
             segments.push({ bold: false, text: decodeEntities(text.slice(lastIndex, match.index)) });
         }
-        segments.push({ bold: true, text: decodeEntities(match[1]) });
+        segments.push(match[1] !== undefined
+            ? { bold: true, text: decodeEntities(match[1]) }
+            : { bold: false, italic: true, text: decodeEntities(match[2]) });
         lastIndex = match.index + match[0].length;
     }
 

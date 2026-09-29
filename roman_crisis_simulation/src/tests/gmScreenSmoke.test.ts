@@ -193,7 +193,7 @@ async function mountAppFromSave(state = makeAppSave()): Promise<HTMLDivElement> 
   await waitFor(() => expect(container.querySelector('[aria-label="Chat input"]')).not.toBeNull());
   // Mock Mode moved into the configuration menu's Developer card in the
   // options-consolidation pass - reach it through the menu.
-  await click(buttonNamed(container, 'Open configuration menu'));
+  await click(buttonNamed(container, 'Settings'));
   const mockToggle = container.querySelector<HTMLInputElement>('#mock-toggle');
   expect(mockToggle).not.toBeNull();
   await click(mockToggle!);
@@ -725,7 +725,7 @@ describe('App turn-submission orchestration', () => {
     delete process.env.GEMINI_API_KEY;
     try {
       const container = await mountAppFromSave();
-      await click(buttonNamed(container, 'Open configuration menu'));
+      await click(buttonNamed(container, 'Settings'));
       await click(container.querySelector<HTMLInputElement>('#mock-toggle')!);
       expect(container.querySelector<HTMLInputElement>('#mock-toggle')!.checked).toBe(false);
       await click(buttonNamed(container, 'Close configuration menu'));
@@ -814,14 +814,14 @@ describe('App turn-submission orchestration', () => {
     // and the switch node remounts with each menu open, so it is re-queried
     // rather than captured once.
     const toggle = () => container.querySelector<HTMLInputElement>('#gm-console-toggle')!;
-    await click(buttonNamed(container, 'Open configuration menu'));
+    await click(buttonNamed(container, 'Settings'));
     await click(toggle());
     await click(buttonNamed(container, 'GM Log'));
     await waitFor(() => expect(container.querySelector('[role="dialog"][aria-labelledby="gm-screen-title"]')).not.toBeNull());
     await click(container.querySelector<HTMLInputElement>('#settings-gm-console-enabled')!);
     expect(container.querySelector('[role="dialog"][aria-labelledby="gm-screen-title"]')).toBeNull();
     await click(byAriaLabel<HTMLButtonElement>(container, 'Close configuration menu'));
-    await click(buttonNamed(container, 'Open configuration menu'));
+    await click(buttonNamed(container, 'Settings'));
     await click(container.querySelector<HTMLInputElement>('#settings-gm-console-enabled')!);
     expect(container.querySelector('[role="dialog"][aria-labelledby="gm-screen-title"]')).toBeNull();
     expect(toggle().getAttribute('aria-checked')).not.toBe('true');

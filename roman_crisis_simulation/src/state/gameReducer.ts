@@ -38,6 +38,7 @@ import type { KnowledgeClaim } from '../knowledge/store';
 import type { PrivateSceneRecord } from '../privateScene/model';
 import { INITIAL_WORLD_STATE, INITIAL_SIMULATION_STATE } from '../constants/baseScenario';
 import { normalizeEventFirings } from '../events/engine';
+import { ALL_EVENTS } from '../constants/events';
 import { normalizeVoiceCast, type VoiceCast } from '../narration/voiceCast';
 import { clearFallout } from '../components/investigationLoop';
 
@@ -177,7 +178,9 @@ export const KEEP_FULL_SNAPSHOTS = 10;
  * the entry's own snapshot, so once the snapshot is trimmed the id list can
  * serve nothing, and the mind decisions (4C.4) share the same bounded
  * recent-window contract - GM-private per-turn tuning data must not keep
- * accreting in the save. Returns the input array unchanged (same
+ * accreting in the save. `preTurnSimulationState` goes with them too: only
+ * the newest entry's is ever read (the briefing's "fell this week" mark).
+ * Returns the input array unchanged (same
  * reference) when no entry needs trimming, matching the reducer's
  * convention that untouched slices keep their identity - which also makes
  * it idempotent and safe to apply more than once per commit. Exported
@@ -192,9 +195,9 @@ export function withOldSnapshotsDropped(turnHistory: TurnHistoryEntry[]): TurnHi
   if (cutoff <= 0) return turnHistory;
   let changed = false;
   const trimmed = turnHistory.map((entry, index) => {
-    if (index >= cutoff || (entry.postTurnEntities === undefined && entry.perceivingNpcIds === undefined && entry.npcMindResults === undefined)) return entry;
+    if (index >= cutoff || (entry.postTurnEntities === undefined && entry.perceivingNpcIds === undefined && entry.npcMindResults === undefined && entry.preTurnSimulationState === undefined)) return entry;
     changed = true;
-    const { postTurnEntities, perceivingNpcIds, npcMindResults, ...rest } = entry;
+    const { postTurnEntities, perceivingNpcIds, npcMindResults, preTurnSimulationState, ...rest } = entry;
     return rest;
   });
   return changed ? trimmed : turnHistory;
@@ -458,6 +461,15 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
 
     case 'GAME_LOADED': {
       const s = action.save;
+      const dead = isPlayerDead(s.entities, s.playerCharacterId);
+      // Optional field - a fate that was awaiting its choice when the reign
+      // was saved reopens exactly where it stood, so a reload is no way out
+      // of a dialog that has no close control. Saved by id (a GameEvent
+      // carries its trigger function), so an id this build no longer knows
+      // - or a malformed value - simply loads with no fate open.
+      const pendingEvent = !dead && typeof s.pendingEventId === 'string'
+        ? ALL_EVENTS.find(event => event.id === s.pendingEventId) ?? null
+        : null;
       return {
         ...state,
         entities: s.entities,
@@ -513,9 +525,12 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         // entities are). Re-derive the terminal state from the loaded player
         // entity's status rather than assuming a continued save always means
         // "still playable" (DESIGN_DECISIONS.md D1 - only death is terminal).
-        gameState: isPlayerDead(s.entities, s.playerCharacterId)
+        activeEvent: pendingEvent,
+        gameState: dead
           ? GameState.GAME_OVER
-          : GameState.AWAITING_PLAYER_INPUT,
+          : pendingEvent
+            ? GameState.AWAITING_EVENT_CHOICE
+            : GameState.AWAITING_PLAYER_INPUT,
       };
     }
 

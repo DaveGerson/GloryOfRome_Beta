@@ -164,7 +164,7 @@ function buttonContaining(container: HTMLElement, text: string): HTMLButtonEleme
 // (they were Header pills before) - reach them through the menu the way a
 // developer does.
 async function clickDevSwitch(container: HTMLElement, id: string): Promise<void> {
-  await click(buttonNamed(container, 'Open configuration menu'));
+  await click(buttonNamed(container, 'Settings'));
   const control = container.querySelector<HTMLInputElement>(id);
   expect(control, `dev switch "${id}"`).not.toBeNull();
   await click(control!);
@@ -254,7 +254,7 @@ async function renderApp(continueSave: boolean, mockMode = true): Promise<HTMLDi
   await click(buttonNamed(container, 'Continue Your Reign'));
   await waitFor(() => expect(container.querySelector('[aria-label="Chat input"]')).not.toBeNull());
   if (mockMode) {
-    await click(buttonNamed(container, 'Open configuration menu'));
+    await click(buttonNamed(container, 'Settings'));
     const mockToggle = container.querySelector<HTMLInputElement>('#mock-toggle');
     expect(mockToggle).not.toBeNull();
     await click(mockToggle!);
@@ -267,6 +267,14 @@ async function renderApp(continueSave: boolean, mockMode = true): Promise<HTMLDi
 async function mountApp(state = makeAppSave(), continueSave = true, mockMode = true): Promise<HTMLDivElement> {
   saveGame(state);
   return renderApp(continueSave, mockMode);
+}
+
+// A destiny chosen over a saved reign asks the same Abandon question as
+// Start anew (state-destiny-click-overwrites-saved-reign); answering it is
+// what begins the new campaign.
+async function chooseOverSavedReign(container: HTMLElement, destiny: HTMLElement): Promise<void> {
+  await click(destiny);
+  await click(buttonNamed(container, 'Abandon'));
 }
 
 function failBothSaveWrites(): ReturnType<typeof vi.spyOn> {
@@ -496,7 +504,7 @@ describe('App non-turn save atomicity', () => {
     const storageSpy = failBothSaveWrites();
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    await click(preset);
+    await chooseOverSavedReign(container, preset);
     await waitFor(() => expect(storageSpy).toHaveBeenCalledTimes(2));
 
     expect(container.textContent).toContain('Choose Your Destiny');
@@ -507,7 +515,7 @@ describe('App non-turn save atomicity', () => {
     expect(container.contains(preset)).toBe(true);
 
     storageSpy.mockRestore();
-    await click(preset);
+    await chooseOverSavedReign(container, preset);
     await waitFor(() => expect(container.querySelector('[aria-label="Chat input"]')).not.toBeNull());
     expect(loadGame()!.state.messages).toHaveLength(1);
     expectV1BuildSaveShape(localStorage.getItem('gloryOfRome:autosave'));
@@ -727,7 +735,7 @@ describe('App in-flight transaction barrier', () => {
     it(`cancels custom-character ${outcome} after App unmount without child state writes or save replacement`, async () => {
       const container = await mountApp(makeAppSave(), false);
       await clickDevSwitch(container, '#mock-toggle');
-      await click(buttonContaining(container, 'Create Your Own'));
+      await chooseOverSavedReign(container, buttonContaining(container, 'Create Your Own'));
       const description = `Custom lifecycle ${outcome}`;
       await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Custom character description'), description);
       let settle!: () => void;
@@ -1055,7 +1063,7 @@ describe('App in-flight transaction barrier', () => {
   it('keeps one custom creation lease across duplicate submits, then restores the exact live draft for retry', async () => {
     const container = await mountApp(makeAppSave(), false);
     await clickDevSwitch(container, '#mock-toggle');
-    await click(buttonContaining(container, 'Create Your Own'));
+    await chooseOverSavedReign(container, buttonContaining(container, 'Create Your Own'));
     const draft = 'A veteran jurist with an exact retryable history';
     const input = byAriaLabel<HTMLTextAreaElement>(container, 'Custom character description');
     await setValue(input, draft);
@@ -1093,6 +1101,10 @@ describe('App in-flight transaction barrier', () => {
     const container = await mountApp(makeAppSave(), false);
     const firstDestiny = buttonContaining(container, 'The Young Emperor');
     const staleSecondDestiny = buttonContaining(container, 'The Ambitious General');
+    // A destiny over a saved reign asks the Abandon question first; the
+    // campaign starts from its answer.
+    await click(firstDestiny);
+    const staleAbandon = buttonNamed(container, 'Abandon');
     const originalSetItem = Storage.prototype.setItem;
     let forcedReentry = false;
     const storageSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
@@ -1100,11 +1112,13 @@ describe('App in-flight transaction barrier', () => {
         forcedReentry = true;
         staleSecondDestiny.disabled = false;
         staleSecondDestiny.click();
+        staleAbandon.disabled = false;
+        staleAbandon.click();
       }
       return originalSetItem.call(this, key, value);
     });
 
-    await click(firstDestiny);
+    await click(staleAbandon);
     await waitFor(() => expect(container.querySelector('[aria-label="Chat input"]')).not.toBeNull());
 
     expect(storageSpy).toHaveBeenCalledTimes(1);
@@ -1246,6 +1260,8 @@ describe('App in-flight transaction barrier', () => {
     await click(buttonNamed(container, 'Start anew'));
     const preset = buttonContaining(container, 'The Young Emperor');
     const staleAbandon = buttonNamed(container, 'Abandon');
+    // A preset chosen while the confirm is open becomes what it abandons for.
+    await click(preset);
     const originalSetItem = Storage.prototype.setItem;
     const removeSpy = vi.spyOn(Storage.prototype, 'removeItem');
     let forcedReentry = false;
@@ -1258,7 +1274,7 @@ describe('App in-flight transaction barrier', () => {
       return originalSetItem.call(this, key, value);
     });
 
-    await click(preset);
+    await click(buttonNamed(container, 'Abandon'));
     await waitFor(() => expect(container.querySelector('[aria-label="Chat input"]')).not.toBeNull());
 
     expect(forcedReentry).toBe(true);
@@ -1982,11 +1998,11 @@ describe('App commit-site success paths clear the transaction alert (Task 7 pins
     const storageSpy = failBothSaveWrites();
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    await click(preset);
+    await chooseOverSavedReign(container, preset);
     await waitFor(() => expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1));
 
     storageSpy.mockRestore();
-    await click(preset);
+    await chooseOverSavedReign(container, preset);
     await waitFor(() => expect(container.querySelector('[aria-label="Chat input"]')).not.toBeNull());
     expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);
     warnSpy.mockRestore();
@@ -2123,7 +2139,7 @@ describe('App reign export/import wiring (VERIFY pins)', () => {
     const storageSpy = failBothSaveWrites();
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    await click(preset);
+    await chooseOverSavedReign(container, preset);
     await waitFor(() => expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1));
 
     // The notice ITSELF — not some other control on the screen — offers the
@@ -2250,7 +2266,7 @@ describe('B7a hardening — the import-review residuals (spec: 2026-08-05-b7a-ha
       state: makeAppSave({ turnNumber: 9 }),
     });
 
-    await click(buttonNamed(container, 'Open configuration menu'));
+    await click(buttonNamed(container, 'Settings'));
     await chooseImportFile(container, imported);
     // A reign is at stake, so the Abandon-grammar confirm gates the write.
     await waitFor(() => expect(container.textContent).toContain('Keep my reign'));

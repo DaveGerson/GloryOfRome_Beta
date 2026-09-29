@@ -171,6 +171,19 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
     } = deps;
 
     return useCallback(async (submission: TurnSubmission, draftToRestore: string | StructuredTurnDraft): Promise<boolean> => {
+        // DESIGN_DECISIONS.md D34 - Mock Mode keeps booting and playing
+        // keyless exactly as before (commit 894f469); a REAL turn with
+        // neither a player key nor a dev key resolved (see `ai` above)
+        // would otherwise hit the network with the 'NO_API_KEY_SET'
+        // sentinel and surface a raw provider auth error. The send is held
+        // here the way the shut roads hold it: nothing starts (no
+        // TURN_STARTED, no pending bubble), the draft is never touched, and
+        // no Retry is armed - one could not work until a key arrives. The
+        // composer already carries the standing "No token on this device"
+        // notice from first paint (item 46), which names the two things that
+        // do work. The composer holds its own send too; this is the backstop
+        // for every other way in (Retry, the keyboard shortcuts).
+        if (!isMockMode && !resolvedApiKey) return false;
         const mutation = await runDomainMutation(async transaction => {
         // Capture both campaign-session and whole-state generations before
         // any turn work begins. The context token advances synchronously
@@ -219,30 +232,6 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
             setRetrySubmission(submission);
             setRetryDraft(restoreDraft);
             setTurnFailure({ kind: 'fatal' });
-            dispatch({ type: 'TURN_ROLLED_BACK', snapshot: preTurnSnapshot });
-            dispatch({ type: 'GAME_STATE_SET', gameState: GameState.AWAITING_PLAYER_INPUT });
-            if (typeof restoreDraft === 'string') setChatDraft(restoreDraft);
-            else setStructuredDraft(restoreDraft);
-            return;
-        }
-
-        // DESIGN_DECISIONS.md D34 - Mock Mode keeps booting and playing
-        // keyless exactly as before (commit 894f469); a REAL turn with
-        // neither a player key nor a dev key resolved (see `ai` above)
-        // would otherwise hit the network with the 'NO_API_KEY_SET'
-        // sentinel and surface a raw provider auth error. Catching it here
-        // instead - before any AI call - keeps the message small,
-        // player-facing-safe, and pointed at the one thing that fixes it.
-        if (!isMockMode && !resolvedApiKey) {
-            setPendingPlayerMessage(null);
-            setRetrySubmission(submission);
-            setRetryDraft(restoreDraft);
-            // No notice here: the composer already carries the standing
-            // "No token on this device" notice from first paint (item 46),
-            // and rendering a second copy of it would be two alerts saying
-            // the same thing. This guard's job is to stop the call and keep
-            // the draft, which it does above.
-            setTurnFailure(null);
             dispatch({ type: 'TURN_ROLLED_BACK', snapshot: preTurnSnapshot });
             dispatch({ type: 'GAME_STATE_SET', gameState: GameState.AWAITING_PLAYER_INPUT });
             if (typeof restoreDraft === 'string') setChatDraft(restoreDraft);
@@ -354,8 +343,10 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
                 if (newWeek > 52) { newWeek = 1; newYear += 1; }
                 return { ...result.updatedWorldState, year: newYear, week: newWeek };
             })();
-            // Add post-turn entity state to history for GM view
-            const baseHistoryEntryWithState = { ...result.newHistoryEntry, playerIntent: serialized, postTurnEntities: result.updatedEntities };
+            // Add post-turn entity state to history for GM view, and the
+            // macro standings this turn started from (the briefing's "fell
+            // this week" mark compares against them).
+            const baseHistoryEntryWithState = { ...result.newHistoryEntry, playerIntent: serialized, postTurnEntities: result.updatedEntities, preTurnSimulationState: simulationState };
             const newTurnNumber = turnNumber + 1;
 
             // D21 knowledge-store ingestion (knowledge/commit.ts): the next

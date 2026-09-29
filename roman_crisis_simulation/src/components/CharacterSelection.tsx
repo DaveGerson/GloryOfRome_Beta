@@ -3,8 +3,8 @@ import { PlayerCharacterOption } from '../types';
 import { Card, Button } from './ui/Core';
 import { Medallion, WaxSeal, toRoman } from './ui/Brand';
 import { DestinyCard } from './ui/Game';
-import { ImportFailureNotice } from './ui/FailureNotices';
-import type { ImportResult } from '../persistence/saveGame';
+import { ImportFailureNotice, TurnFailureNotice, UnreadableReignNotice } from './ui/FailureNotices';
+import type { ImportResult, SaveRefusalReason } from '../persistence/saveGame';
 import { useReignImport } from './ui/useReignImport';
 import { useFocusRequest } from './ui/useFocusRequest';
 import { CustomDestinyForm, ForgingScreen, type FormRefusal } from './CustomDestinyForm';
@@ -18,10 +18,24 @@ export interface SavedGameSummary {
     savedAt: string; // ISO timestamp
 }
 
+/**
+ * The slot holds a reign this copy of the game refuses (app/transactions.ts's
+ * loadSavedGameSummary): newer than this build, or damaged. Still a reign at
+ * stake - it is shown, offered as a copy, and never silently overwritten.
+ */
+export interface UnreadableSavedGame {
+    unreadable: SaveRefusalReason;
+}
+
+export type SavedReign = SavedGameSummary | UnreadableSavedGame;
+
+/** A destiny chosen while a reign is at stake waits here on the Abandon confirm. */
+type PendingDestiny = PlayerCharacterOption | 'custom';
+
 const CharacterSelection: React.FC<{
     onSelectCharacter: (option: PlayerCharacterOption) => void;
     onCreateCharacter: (args: { description: string, metaNarrative?: string, useCustomGamestate: boolean }) => Promise<void>;
-    savedGame?: SavedGameSummary | null;
+    savedGame?: SavedReign | null;
     onContinue?: () => void;
     onStartAnew?: () => void;
     /**
@@ -32,8 +46,22 @@ const CharacterSelection: React.FC<{
      * slot and never asks — by the time it runs the player has consented.
      */
     onImportReign?: (fileText: string) => ImportResult;
+    /** "Take a copy of the reign" for a saved reign this build cannot read (App's downloadTheReign). */
+    onTakeCopy?: () => void;
+    /**
+     * D34 - false with no key resolved and Mock Mode off: the forge is held
+     * (a custom destiny is written by the Fates, and nothing can be sent
+     * them), and the composer's no-key notice stands over the form with the
+     * two things that do work.
+     */
+    canReachTheFates?: boolean;
+    onOpenSettings?: () => void;
+    onEnableMockMode?: () => void;
     interactionLocked?: boolean;
-}> = ({ onSelectCharacter, onCreateCharacter, savedGame, onContinue, onStartAnew, onImportReign, interactionLocked = false }) => {
+}> = ({
+    onSelectCharacter, onCreateCharacter, savedGame, onContinue, onStartAnew, onImportReign, onTakeCopy,
+    canReachTheFates = true, onOpenSettings, onEnableMockMode, interactionLocked = false,
+}) => {
     const [showCustomForm, setShowCustomForm] = useState(false);
     const [customDescription, setCustomDescription] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -41,6 +69,10 @@ const CharacterSelection: React.FC<{
     const [useCustomGamestate, setUseCustomGamestate] = useState(false);
     const [metaNarrative, setMetaNarrative] = useState('');
     const [confirmAnew, setConfirmAnew] = useState(false);
+    const [pendingDestiny, setPendingDestiny] = useState<PendingDestiny | null>(null);
+    // A reign is at stake whether or not this build can read it.
+    const readableReign = savedGame && !('unreadable' in savedGame) ? savedGame : null;
+    const unreadableReign = savedGame && 'unreadable' in savedGame ? savedGame.unreadable : null;
     // "Restore from a copy" - the same flow as SettingsMenu's (see
     // ui/useReignImport.ts); a reign is at stake only when a savedGame exists.
     const {
@@ -48,10 +80,12 @@ const CharacterSelection: React.FC<{
         handleImportFileChange, confirmImport, cancelImport, openFilePicker,
     } = useReignImport({ hasSavedReign: Boolean(savedGame), onImportReign });
     // "Start anew" swaps itself for the Abandon confirm and back; focus
-    // follows the swap onto the safe answer, then home again.
+    // follows the swap onto the safe answer, then home again - to the
+    // destiny that asked, when one did.
     const requestFocus = useFocusRequest();
     const startAnewRef = useRef<HTMLButtonElement>(null);
     const keepFromAnewRef = useRef<HTMLButtonElement>(null);
+    const destinyAskedRef = useRef<HTMLElement | null>(null);
     // "Back to the destinies" unmounts the form, and with it the Back button.
     const createOwnRef = useRef<HTMLButtonElement>(null);
     const isMountedRef = useRef(true);
@@ -66,16 +100,47 @@ const CharacterSelection: React.FC<{
 
     const openAnewConfirm = () => {
         requestFocus(keepFromAnewRef);
+        setPendingDestiny(null);
         setConfirmAnew(true);
     };
     const closeAnewConfirm = () => {
-        requestFocus(startAnewRef);
+        requestFocus(pendingDestiny && destinyAskedRef.current ? destinyAskedRef : startAnewRef);
+        setPendingDestiny(null);
         setConfirmAnew(false);
+    };
+
+    const beginDestiny = (destiny: PendingDestiny) => {
+        if (destiny === 'custom') setShowCustomForm(true);
+        else onSelectCharacter(destiny);
+    };
+    // A new destiny replaces the one saved reign as completely as Start anew
+    // does, so while a reign is at stake - readable or not - it asks the same
+    // question first. The overwrite itself happens only once the new
+    // campaign commits: a forged destiny abandoned at "Back to the
+    // destinies" leaves the reign where it was.
+    const chooseDestiny = (destiny: PendingDestiny) => {
+        if (!savedGame) {
+            beginDestiny(destiny);
+            return;
+        }
+        destinyAskedRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        requestFocus(keepFromAnewRef);
+        setPendingDestiny(destiny);
+        setConfirmAnew(true);
+    };
+    const confirmAbandon = () => {
+        const destiny = pendingDestiny;
+        setConfirmAnew(false);
+        setPendingDestiny(null);
+        if (destiny) beginDestiny(destiny);
+        else onStartAnew?.();
     };
 
     const handleCustomSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (creationInFlightRef.current) return;
+        // Held while keyless - the no-key notice above the form says why.
+        if (!canReachTheFates) return;
         if (!customDescription.trim()) {
             setError({
                 title: 'The Fates cannot work from silence',
@@ -116,20 +181,57 @@ const CharacterSelection: React.FC<{
         return <ForgingScreen useCustomGamestate={useCustomGamestate} />;
     }
 
+    // The saved reign's own row: the Abandon confirm (Start anew, or a
+    // destiny chosen over it), the Replace confirm, or its three presses.
+    const reignActions = confirmAnew ? (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ color: 'var(--crimson-500)', fontStyle: 'italic', fontSize: 15 }}>Abandon your saved reign? It cannot be undone.</span>
+            <Button variant="danger" disabled={interactionLocked} onClick={confirmAbandon}>Abandon</Button>
+            <Button ref={keepFromAnewRef} variant="ghost" onClick={closeAnewConfirm}>Keep my reign</Button>
+        </span>
+    ) : pendingImportText !== null ? (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ color: 'var(--crimson-500)', fontStyle: 'italic', fontSize: 15 }}>Replace your saved reign with this copy? It cannot be undone.</span>
+            <Button variant="danger" disabled={interactionLocked} onClick={confirmImport}>Replace</Button>
+            <Button ref={keepReignRef} variant="ghost" onClick={cancelImport}>Keep my reign</Button>
+        </span>
+    ) : (
+        <span style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            {readableReign && <Button size="lg" disabled={interactionLocked} onClick={onContinue}>Continue Your Reign</Button>}
+            <Button ref={startAnewRef} variant="ghost" onClick={openAnewConfirm}>Start anew</Button>
+            <Button ref={restoreButtonRef} variant="ghost" onClick={openFilePicker}>Restore from a copy</Button>
+        </span>
+    );
+
     if (showCustomForm) {
         return (
-            <CustomDestinyForm
-                description={customDescription}
-                onDescriptionChange={setCustomDescription}
-                metaNarrative={metaNarrative}
-                onMetaNarrativeChange={setMetaNarrative}
-                useCustomGamestate={useCustomGamestate}
-                onUseCustomGamestateChange={setUseCustomGamestate}
-                error={error}
-                interactionLocked={interactionLocked}
-                onSubmit={handleCustomSubmit}
-                onBack={() => { requestFocus(createOwnRef); setShowCustomForm(false); setError(null); }}
-            />
+            <>
+                {/* Item 46's standing notice, said before the destiny is
+                    written rather than after three keyless calls fail. The
+                    words stay editable; only the forge's submit is held. */}
+                {!canReachTheFates && onOpenSettings && onEnableMockMode && (
+                    <div style={{ flex: 'none', margin: '12px 24px 0' }}>
+                        <TurnFailureNotice
+                            failure={{ kind: 'no_key' }}
+                            onEditTheWeek={() => {}}
+                            onOpenSettings={onOpenSettings}
+                            onEnableMockMode={onEnableMockMode}
+                        />
+                    </div>
+                )}
+                <CustomDestinyForm
+                    description={customDescription}
+                    onDescriptionChange={setCustomDescription}
+                    metaNarrative={metaNarrative}
+                    onMetaNarrativeChange={setMetaNarrative}
+                    useCustomGamestate={useCustomGamestate}
+                    onUseCustomGamestateChange={setUseCustomGamestate}
+                    error={error}
+                    interactionLocked={interactionLocked || !canReachTheFates}
+                    onSubmit={handleCustomSubmit}
+                    onBack={() => { requestFocus(createOwnRef); setShowCustomForm(false); setError(null); }}
+                />
+            </>
         );
     }
 
@@ -156,35 +258,28 @@ const CharacterSelection: React.FC<{
                     tabIndex={-1}
                 />
 
-                {savedGame && (
-                    <Card gilt title="Continue Your Reign" action={<span className="gor-label" style={{ color: 'var(--gold-700)' }}>Turn {toRoman(savedGame.turnNumber)}</span>}>
+                {readableReign && (
+                    <Card gilt title="Continue Your Reign" action={<span className="gor-label" style={{ color: 'var(--gold-700)' }}>Turn {toRoman(readableReign.turnNumber)}</span>}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-                            <WaxSeal letter={(savedGame.characterName || 'R').charAt(0).toUpperCase()} size={44} />
+                            <WaxSeal letter={(readableReign.characterName || 'R').charAt(0).toUpperCase()} size={44} />
                             <span style={{ flex: '1 1 320px' }}>
-                                Playing as <strong>{savedGame.characterName}</strong> — Turn {savedGame.turnNumber}.<br />
+                                Playing as <strong>{readableReign.characterName}</strong> — Turn {readableReign.turnNumber}.<br />
                                 <span style={{ fontSize: 14, fontStyle: 'italic', color: 'var(--text-muted)' }}>
-                                    Saved {new Date(savedGame.savedAt).toLocaleString()}
+                                    Saved {new Date(readableReign.savedAt).toLocaleString()}
                                 </span>
                             </span>
-                            {confirmAnew ? (
-                                <span style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                                    <span style={{ color: 'var(--crimson-500)', fontStyle: 'italic', fontSize: 15 }}>Abandon your saved reign? It cannot be undone.</span>
-                                    <Button variant="danger" disabled={interactionLocked} onClick={() => { setConfirmAnew(false); onStartAnew?.(); }}>Abandon</Button>
-                                    <Button ref={keepFromAnewRef} variant="ghost" onClick={closeAnewConfirm}>Keep my reign</Button>
-                                </span>
-                            ) : pendingImportText !== null ? (
-                                <span style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                                    <span style={{ color: 'var(--crimson-500)', fontStyle: 'italic', fontSize: 15 }}>Replace your saved reign with this copy? It cannot be undone.</span>
-                                    <Button variant="danger" disabled={interactionLocked} onClick={confirmImport}>Replace</Button>
-                                    <Button ref={keepReignRef} variant="ghost" onClick={cancelImport}>Keep my reign</Button>
-                                </span>
-                            ) : (
-                                <span style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                                    <Button size="lg" disabled={interactionLocked} onClick={onContinue}>Continue Your Reign</Button>
-                                    <Button ref={startAnewRef} variant="ghost" onClick={openAnewConfirm}>Start anew</Button>
-                                    <Button ref={restoreButtonRef} variant="ghost" onClick={openFilePicker}>Restore from a copy</Button>
-                                </span>
-                            )}
+                            {reignActions}
+                        </div>
+                        {importFailure && <ImportFailureNotice reason={importFailure} />}
+                    </Card>
+                )}
+                {/* A reign this build cannot read is still a reign: said, kept,
+                    offered as a copy, and guarded by the same confirms. */}
+                {unreadableReign && (
+                    <Card>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                            <UnreadableReignNotice reason={unreadableReign} onTakeCopy={onTakeCopy} />
+                            {reignActions}
                         </div>
                         {importFailure && <ImportFailureNotice reason={importFailure} />}
                     </Card>
@@ -205,12 +300,12 @@ const CharacterSelection: React.FC<{
                                 numeral={heraldry.numeral}
                                 seal={heraldry.seal}
                                 motto={heraldry.motto}
-                                onSelect={() => onSelectCharacter(opt)}
+                                onSelect={() => chooseDestiny(opt)}
                                 disabled={interactionLocked}
                             />
                         );
                     })}
-                    <button ref={createOwnRef} type="button" className="gor-destiny" onClick={() => setShowCustomForm(true)} disabled={interactionLocked} style={{ borderStyle: 'dashed' }}>
+                    <button ref={createOwnRef} type="button" className="gor-destiny" onClick={() => chooseDestiny('custom')} disabled={interactionLocked} style={{ borderStyle: 'dashed' }}>
                         <span style={{ fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 600, letterSpacing: '.32em', textTransform: 'uppercase', color: 'var(--gold-700)' }}>Destiny V</span>
                         <span aria-hidden="true" style={{ width: 46, height: 46, margin: '2px auto 2px', display: 'grid', placeItems: 'center', borderRadius: '50%', border: '1px dashed var(--gold-600)', color: 'var(--gold-600)', fontSize: 20 }}>✦</span>
                         <span className="gor-destiny-name">Create Your Own</span>

@@ -613,7 +613,7 @@ describe('the game screen', () => {
 
   it('the masthead opens it too; a counsel drafts into the tablet; / and 1-7 work outside a field', async () => {
     const container = await mountGame();
-    await act(async () => buttonNamed(container, 'Open the command palette')!.click());
+    await act(async () => buttonNamed(container, 'Commands')!.click());
     const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')]
       .find(o => o.textContent?.includes(COMMAND_COPY.counsel('Bribe the Guard')))!;
     expect(option).toBeDefined();

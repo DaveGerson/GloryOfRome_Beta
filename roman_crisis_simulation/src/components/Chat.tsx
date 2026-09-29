@@ -5,7 +5,7 @@ import { structuredSubmissionForHistory, TurnSubmissionHistory } from './TurnSub
 import { deserializeTurnSubmission } from '../playerInput/turnSubmission';
 import { TurnRibbon } from './ui/Brand';
 import { romanDate } from './ui/romanDate';
-import { toSegments } from './textFormat';
+import { isEventLeaf, toSegments } from './textFormat';
 import type { NarrationVoiceControlState } from '../hooks/useNarrationVoice';
 
 // Themed status copy for the "thinking" theater (ROADMAP_0_MASTER_PLAN.md
@@ -133,14 +133,16 @@ export const StreamingNarrationBubble: React.FC<{ text: string }> = ({ text }) =
 };
 
 /**
- * Renders **bold** only; everything else is plain text rendered as React
+ * Renders **bold** and *emphasis* only; everything else is plain text rendered as React
  * text nodes, so it is escaped-by-construction - no HTML parsing ever runs
  * on model/narration output. See ./textFormat.ts.
  */
 const FormattedText: React.FC<{ text: string }> = ({ text }) => (
     <>
         {toSegments(text).map((segment, i) =>
-            segment.bold ? <strong key={i}>{segment.text}</strong> : <React.Fragment key={i}>{segment.text}</React.Fragment>
+            segment.bold ? <strong key={i}>{segment.text}</strong>
+                : segment.italic ? <em key={i}>{segment.text}</em>
+                : <React.Fragment key={i}>{segment.text}</React.Fragment>
         )}
     </>
 );
@@ -164,7 +166,8 @@ export function illuminatedNarrationIndices(messages: readonly Message[]): Reado
             weekOpen = true;
             return;
         }
-        if (message.sender !== 'gm') return;
+        // A fate's leaf is a record of a choice, not the week's narration.
+        if (message.sender !== 'gm' || isEventLeaf(message.text)) return;
         if (weekOpen) {
             illuminated.add(index);
             weekOpen = false;

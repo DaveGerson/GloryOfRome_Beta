@@ -44,10 +44,16 @@ export function useDevSmokeTest(): void {
  * (PROCESSING) - the pre-turn snapshot was already saved, but this turn's
  * outcome hasn't committed yet. A committed-and-saved state doesn't need
  * the scare dialog.
+ *
+ * A fate awaiting its choice (AWAITING_EVENT_CHOICE) is guarded too. It is
+ * written into the save when it fires, but that write is a best-effort
+ * patch (persistence/saveGame.ts's updateSavedPendingEvent), and the fate's
+ * dialog has no close control by design - leaving the page must not be a
+ * quiet way out of it.
  */
 export function useUnloadGuardWhileProcessing(gameState: GameState): void {
     useEffect(() => {
-        if (gameState !== GameState.PROCESSING) return;
+        if (gameState !== GameState.PROCESSING && gameState !== GameState.AWAITING_EVENT_CHOICE) return;
 
         const handleBeforeUnload = (event: BeforeUnloadEvent) => {
             event.preventDefault();

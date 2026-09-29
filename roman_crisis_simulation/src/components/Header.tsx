@@ -19,13 +19,21 @@ import { SearchGlyph } from './ui/Icons';
  * On the game screen the masthead is `compact`: the ceremony (kicker, AUC
  * line) steps aside and the medallions shrink, giving the chronicle back the
  * height, and the Commands affordance (the command palette) mirrors Settings
- * on the right. Choose Your Destiny keeps the full ceremony.
+ * on the right. Choose Your Destiny keeps the full ceremony - but not the
+ * world stats: until a reign is loaded they would describe the default
+ * scenario, not the reign the Continue card names (`showWorldStats`).
+ *
+ * Each button's accessible name is its visible word (WCAG 2.5.3, label in
+ * name), so "click Settings" works for a speech-input player; the longer
+ * description rides the tooltip.
  */
 
 /** Player-visible copy (veto queue: roadmaps/BACKLOG.md, "Reading, motion and the command palette"). */
 export const HEADER_COPY = {
     commands: 'Commands',
-    commandsLabel: 'Open the command palette',
+    /** The Commands button's accessible name - its visible word. */
+    commandsLabel: 'Commands',
+    settingsLabel: 'Settings',
     shifted: 'Changed this week',
 } as const;
 
@@ -81,13 +89,16 @@ const Header: React.FC<{
     onOpenCommands?: () => void,
     /** Which world stats a public 'world' delta changed in the last committed week. */
     worldShifts?: { economic_stability?: boolean; political_climate?: boolean },
-}> = ({ worldState, onOpenSettings, compact = false, onOpenCommands, worldShifts }) => (
-    <header className={`gor-masthead${compact ? ' gor-masthead-compact' : ''}`}>
+    /** False before a reign is loaded: the stats would be the default scenario's, not the reign's. */
+    showWorldStats?: boolean,
+}> = ({ worldState, onOpenSettings, compact = false, onOpenCommands, worldShifts, showWorldStats = true }) => (
+    // Without the stats band the crest would sit on the dentil edge.
+    <header className={`gor-masthead${compact ? ' gor-masthead-compact' : ''}`} style={showWorldStats ? undefined : { paddingBottom: 12 }}>
         <span aria-hidden="true" className="gor-masthead-cornice"></span>
         <button
             type="button"
             onClick={onOpenSettings}
-            aria-label="Open configuration menu"
+            aria-label={HEADER_COPY.settingsLabel}
             title="Configuration — API key, pacing, lighting, reading, GM console"
             className="gor-masthead-settings"
         ><span aria-hidden="true" className="gor-masthead-settings-glyph">⚙</span>{' '}<span className="gor-masthead-settings-word">Settings</span></button>
@@ -114,7 +125,7 @@ const Header: React.FC<{
             </div>
             <span className="gor-masthead-medallion"><Medallion size={compact ? 36 : 52} /></span>
         </div>
-        <div className="gor-masthead-stats">
+        {showWorldStats && <div className="gor-masthead-stats">
             <Stat k="Year" v={`${worldState.year} CE`} />
             <Gem />
             <Stat k="Week" v={toRoman(worldState.week)} />
@@ -135,7 +146,7 @@ const Header: React.FC<{
                 tone="var(--banner-stat-crimson)"
                 trailing={worldShifts?.political_climate ? <Shifted /> : undefined}
             />
-        </div>
+        </div>}
     </header>
 );
 
