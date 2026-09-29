@@ -44,10 +44,10 @@ const Leaves: React.FC<{ r: number; size: number; side: number }> = ({ r, size, 
 };
 
 /* The brand mark: a gilt clipeus medallion — gold ring, Tyrian field, laurel wreath, gilt Italia. */
-export const Medallion: React.FC<{ size?: number; style?: React.CSSProperties }> = ({ size = 96, style }) => {
+export const Medallion: React.FC<{ size?: number; className?: string; style?: React.CSSProperties }> = ({ size = 96, className, style }) => {
     const s = size;
     return (
-        <span aria-hidden="true" style={{ position: 'relative', width: s, height: s, display: 'inline-block', flex: 'none', ...style }}>
+        <span aria-hidden="true" className={className} style={{ position: 'relative', width: s, height: s, display: 'inline-block', flex: 'none', ...style }}>
             <span style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: 'var(--metal-gold)', boxShadow: '0 3px 8px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.5), inset 0 -2px 3px rgba(0,0,0,.3)' }}></span>
             <span style={{ position: 'absolute', inset: s * .055, borderRadius: '50%', background: 'radial-gradient(circle at 38% 30%, #8E4368, #5E2246 55%, #38122A)', boxShadow: 'inset 0 2px 6px rgba(0,0,0,.55), inset 0 -1px 0 rgba(255,255,255,.12)' }}></span>
             <Leaves r={s * .37} size={s} side={-1} />

@@ -113,6 +113,20 @@ section[data-screen-label="Chat"]>[role="log"]+div::before{content:"";position:a
 
 /* ── V · Choose Your Destiny (components/CharacterSelection.tsx) ───────── */
 .gor-destinies-title{letter-spacing:.02em}
+/* A saved reign on a short screen (a 720px laptop): the hero compacts - a
+   smaller medallion beside a smaller title, the decorative mosaic dropped -
+   so the Continue card and the first row of destinies clear the fold (B14).
+   Tall screens, and a device with no reign, keep the full ceremony. The
+   !important outranks the hero's inline styles, as the phone rules do. */
+@media (max-height:820px){
+.gor-destinies.gor-destinies-reign{padding-top:18px!important}
+.gor-destinies-reign .gor-destinies-column{gap:14px!important}
+.gor-destinies-reign .gor-destinies-hero{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:4px 14px}
+.gor-destinies-reign .gor-destinies-medallion{zoom:.54}
+.gor-destinies-reign .gor-destinies-title{font-size:30px!important;line-height:1.15;margin:0!important}
+.gor-destinies-reign .gor-destinies-lede{flex-basis:100%;max-width:none!important;margin-top:2px!important}
+.gor-destinies-reign .gor-mosaic{display:none}
+}
 .gor-destiny{overflow:hidden;background:radial-gradient(120% 55% at 50% 0%,rgba(201,162,39,.10),rgba(201,162,39,0) 62%),var(--surface-card);box-shadow:var(--elev-1);transition:transform 260ms var(--ease-out-soft),box-shadow 260ms var(--ease-out-soft),border-color 200ms var(--ease-standard)}
 /* An inner gilt frame, set 5px in — the card as a mounted plaque. */
 .gor-destiny::after{content:"";position:absolute;inset:5px;border:1px solid var(--border-faint);pointer-events:none;transition:border-color 200ms var(--ease-standard)}
