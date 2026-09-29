@@ -12,8 +12,10 @@
  * (function signatures, JSDoc) is new.
  */
 
-import { Entity, WorldState, SimulationState, StoryRelevance, NpcIntent, NpcMindDecision } from '../../types';
+import { Entity, EventDelta, WorldState, SimulationState, StoryRelevance, NpcIntent, NpcMindDecision } from '../../types';
 import type { LeverageTruth } from '../core/groundTruth';
+import { conditionsLine, conditionsOf } from '../core/conditions';
+import { affiliationsLine, affiliationsOf } from '../core/affiliations';
 
 /**
  * The opaque stand-in that REPLACES a 'scheme' delta's `reason` before that
@@ -29,6 +31,61 @@ import type { LeverageTruth } from '../core/groundTruth';
  * reason, and the delta object itself is never mutated.
  */
 export const REDACTED_SCHEME_REASON = 'A character quietly advanced a private design this turn; its nature is not observable.';
+
+/**
+ * The same stand-in for a 'condition' delta that is not plainly OUTWARD
+ * (D48): an inward mark - nightmares, a private grief - is known to its
+ * bearer alone, so its narrative must not reach a prompt whose output the
+ * player reads. Only a delta whose own payload says the mark shows keeps its
+ * reason; one that does not say (a deepen or heal restating nothing) is
+ * treated as private, never guessed public.
+ */
+export const REDACTED_PRIVATE_MARK_REASON = 'A character bore a private change within themselves this turn; it is not observable.';
+
+/**
+ * The same stand-in for an 'affiliation' delta made in secret (D49): a tie
+ * taken up or given up in secret is known to its holder (and any witness)
+ * alone. Only a delta whose own payload says the change was made in the
+ * open - joined openly, avowed, exposed - keeps its reason; one that does not
+ * say (a leave restating nothing) is treated as secret, never guessed public.
+ */
+export const REDACTED_PRIVATE_TIE_REASON = "A character's private ties shifted this turn; their nature is not observable.";
+
+/**
+ * A delta's `reason` as it may enter a prompt whose OUTPUT the player reads:
+ * the private designs (D28), private marks (D48) and secret ties (D49)
+ * swapped for their opaque stand-ins, every other reason untouched. Only the
+ * string handed to such a prompt changes; the committed delta the engine
+ * parses never does.
+ */
+export function playerOutputDeltaReason(delta: EventDelta): string {
+  if (delta.type === 'scheme') return REDACTED_SCHEME_REASON;
+  if (isPrivateMarkOrTieDelta(delta)) return delta.type === 'condition' ? REDACTED_PRIVATE_MARK_REASON : REDACTED_PRIVATE_TIE_REASON;
+  return delta.reason;
+}
+
+/**
+ * A delta's `key` as it may enter such a prompt: a private mark's or secret
+ * tie's key carries its handle ('julia_mamaea:circle_of_origen'), which
+ * names it as surely as its reason would, so only the holder's id remains.
+ */
+export function playerOutputDeltaKey(delta: EventDelta): string {
+  return isPrivateMarkOrTieDelta(delta) ? delta.key.split(':')[0] : delta.key;
+}
+
+/**
+ * True for a 'condition' delta not plainly outward (D48) and an
+ * 'affiliation' delta not plainly made in the open (D49) - judged from the
+ * delta's own payload, failing closed when it does not say.
+ */
+export function isPrivateMarkOrTieDelta(delta: EventDelta): boolean {
+  if (delta.type === 'condition') return delta.condition?.outward !== true;
+  if (delta.type === 'affiliation') {
+    const change = delta.affiliation?.change;
+    return !(change === 'go_public' || change === 'expose' || (change === 'join' && delta.affiliation?.public === true));
+  }
+  return false;
+}
 
 // U+2028 LINE SEPARATOR, U+2029 PARAGRAPH SEPARATOR, and U+0085 NEXT LINE
 // (NEL), built from their code points so the invisible characters never sit
@@ -81,6 +138,16 @@ export function asPromptData(value: unknown, space?: number): string {
  * mind prompt (ai/prompts/npcMind.ts) and the narration prompt's bounded
  * voice-cast block (ai/prompts/narration.ts). Both fields are OPTIONAL: a
  * legacy entity without them renders exactly as before (never "undefined").
+ *
+ * `conditions` (D48): every lasting mark, inward ones included - this brief
+ * feeds only the omniscient adjudicator, the mortality calls and the
+ * GM-only action assessment, which weigh an actor's marks when resolving
+ * what they attempt. Each carries its handle so a later 'condition' delta
+ * can deepen, ease or heal it. An entity without any renders as before.
+ *
+ * `affiliations` (D49): every tie, the SECRET ones marked as such - the
+ * omniscient GM may know them, and the marker tells it who else does not.
+ * With handles, for a later 'affiliation' delta.
  */
 export function getEntityBrief(entity: Entity): string {
   const relationships = Object.values(entity.relationships)
@@ -93,7 +160,11 @@ export function getEntityBrief(entity: Entity): string {
   const resources = entity.resources && Object.keys(entity.resources).length > 0
     ? `Resources: ${Object.entries(entity.resources).map(([name, value]) => `${name}:${value}`).join(', ')}`
     : '';
-  const middle = [scheme, personality, skills, beliefs, resources].filter(Boolean).join('. ');
+  const marks = conditionsOf(entity);
+  const conditions = marks.length > 0 ? `Conditions: ${conditionsLine(marks, { handle: true })}` : '';
+  const ties = affiliationsOf(entity);
+  const affiliations = ties.length > 0 ? `Affiliations: ${affiliationsLine(ties, { handle: true })}` : '';
+  const middle = [scheme, personality, skills, beliefs, resources, conditions, affiliations].filter(Boolean).join('. ');
   return `${entity.name}${entity.epithet ? ` "${entity.epithet}"` : ''} (${entity.position || entity.entity_type}) [Status: ${entity.status}, Location: ${entity.location}] Goals: ${entity.short_term_goals.join(', ')}.${middle ? ` ${middle}.` : ''} Relationships: ${relationships}`;
 }
 

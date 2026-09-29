@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { Entity } from '../types';
 import InfoTooltip from './InfoTooltip';
 import { getDossierFolded, setDossierFolded } from '../persistence/readingPrefs';
+import { conditionsOf } from '../ai/core/conditions';
+import { affiliationsOf } from '../ai/core/affiliations';
+import { MARKS_COPY, MarkList, TieList } from './ui/Marks';
 
 /** Player-visible copy (veto queue: roadmaps/BACKLOG.md, "Reading, motion and the command palette"). */
 export const PLAYER_STATUS_COPY = {
@@ -12,7 +15,9 @@ const DETAILS_ID = 'gor-dossier-details';
 
 /**
  * The player's own dossier header atop the side panel — name in epic type,
- * position and location, current goal and state, under a gold dentil rule.
+ * position and location, current goal and state, the lasting marks they
+ * bear (D48) and the ties they hold (D49) - their own, so this panel is
+ * their home, never a tab - under a gold dentil rule.
  *
  * It folds to its name line (the chevron, `aria-expanded`), handing the
  * height to the registers below; the fold is a device preference
@@ -23,6 +28,8 @@ const PlayerStatus: React.FC<{ playerEntity: Entity | null }> = ({ playerEntity 
     if (!playerEntity) return null;
 
     const narrativeSnippet = playerEntity.current_state_narrative.split('.').slice(0, 2).join('.') + '.';
+    const marks = conditionsOf(playerEntity);
+    const ties = affiliationsOf(playerEntity);
     const toggle = () => {
         setFolded(!folded);
         setDossierFolded(!folded);
@@ -55,6 +62,23 @@ const PlayerStatus: React.FC<{ playerEntity: Entity | null }> = ({ playerEntity 
                     <span className="gor-label">Current State<InfoTooltip text="Your character's current emotional and physical state, which influences their thoughts." /></span>
                     <span className="gor-dossier-state">{narrativeSnippet}</span>
                 </div>
+                {/* D48: the player always knows their own marks - inward ones
+                    too, flagged as such. No register at all until the story
+                    leaves one. */}
+                {marks.length > 0 && (
+                    <div className="gor-dossier-field">
+                        <span className="gor-label">{MARKS_COPY.ownLabel}<InfoTooltip text={MARKS_COPY.ownGloss} /></span>
+                        <MarkList marks={marks} flagInward compact />
+                    </div>
+                )}
+                {/* D49: the player's own ties - the secret ones shown to them
+                    too, marked as kept secret. No register without any. */}
+                {ties.length > 0 && (
+                    <div className="gor-dossier-field">
+                        <span className="gor-label">{MARKS_COPY.ownTiesLabel}<InfoTooltip text={MARKS_COPY.ownTiesGloss} /></span>
+                        <TieList compact ties={ties.map(tie => ({ ...tie, flag: tie.public ? undefined : MARKS_COPY.keptSecret }))} />
+                    </div>
+                )}
             </div>
         </div>
     );

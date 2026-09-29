@@ -274,6 +274,77 @@ texture. Production and consumption:
   existed, and the literal string "undefined" must never appear
   (pinned by tests/voice.test.ts).
 
+## Lasting marks: conditions, and hard assets removed (D48)
+
+"The narration is the game's state." `Entity.conditions` holds the lasting
+marks a character bears (a nasty scar, nightmares, a broken oath); the rules
+live in `ai/core/conditions.ts`, shared by the engine, perception and every
+builder below. Each mark is OUTWARD (others can see it) or INWARD (its
+bearer alone knows it); an NPC's inward mark is GM-private.
+
+- **Authored** by the adjudicator (the CONDITIONS rule: a 'condition' delta
+  keyed `entity_id:condition_id` - add / deepen / ease / heal - from what
+  happened, never flavour) and by the mortality outcome call (a loss band's
+  loss IS a removed hard asset and/or a condition; a boon may ease one; the
+  band itself is never a state). Model-authored entities may carry marks
+  they already bear (`EntitySchema.conditions`, optional).
+- **Weighed** where intended actions are decided: `getEntityBrief` (every
+  mark, inward included, with its handle - adjudicator, mortality, the
+  GM-only assessment), `adjudication.ts::buildPlayerMarksLine` (the
+  player's marks in the PLAYER CHARACTER block), and a mind's own self
+  brief. A mind sees the OUTWARD marks of the figures it can see only
+  through the typed projection `perception/npcPerception.ts::
+  figuresInViewOf` (the FIGURES YOU CAN SEE block) - never a record.
+- **Kept consistent** in the player's own prose: `narration.ts::
+  buildPlayerMarksBlock` and the monologue carry the player's own marks.
+- **Never leaked:** `fragments.ts::playerOutputDeltaReason` swaps a
+  condition delta's reason for `REDACTED_PRIVATE_MARK_REASON` unless its
+  payload says the mark is outward, in every prompt whose output the player
+  reads (the sim-state prompt; the narration sanitizer).
+- **Hard assets:** the HARD ASSETS rule (adjudication), the band guidance
+  (mortality) and narration rule g say the same thing three ways - a hard
+  asset lost is REMOVED by a 'resource' delta (`lost_item` names a text or
+  list holding), and the narrator never narrates a loss the perceived
+  events do not show.
+
+## Ties: affiliations openly professed or kept secret (D49)
+
+`Entity.affiliations` holds the factions, causes, cults and faiths a
+character holds to; the rules live in `ai/core/affiliations.ts`. Each tie
+is OPENLY PROFESSED (public knowledge - anyone who knows the figure knows
+it) or KEPT SECRET (its holder and the GM, and whoever learned it).
+`Entity.faction_id` stays the openly professed political faction, moved by
+'faction' deltas.
+
+- **Authored** by the adjudicator (the AFFILIATIONS rule: an 'affiliation'
+  delta keyed `entity_id:affiliation_id` - join / leave / go_public /
+  expose; an exposure names its exposer in `origin_id` and is the world
+  acting on the holder, so it is legal on a player's no-attempt turn), by
+  world generation and character creation (optional `affiliations`, an
+  occasional one secret), and by hand for the base cast.
+- **Each prompt's slice:**
+  - `getEntityBrief` and `adjudication.ts::buildPlayerMarksLine` - every
+    tie, a SECRET one marked as such (the omniscient GM may know it, and
+    the marker tells it who does not).
+  - a mind - all of its OWN ties (secret ones marked as its to keep) and
+    only the OPEN ties of the figures it knows, through
+    `perception/npcPerception.ts::figuresInViewOf`. The player's secret
+    ties never reach a mind or a private scene (whose player input is the
+    player's public face alone); an NPC learns one only by witnessing it,
+    in its own memories.
+  - narration and monologue - the player's own ties (secret ones marked)
+    and the OPEN ties of the figures at hand (`narration.ts::
+    buildPublicTiesBlock`, which reads nothing but `publicAffiliationsOf`).
+- **Never leaked:** `fragments.ts::isPrivateMarkOrTieDelta` treats a tie
+  change not plainly made in the open as secret; `playerOutputDeltaReason`
+  and `playerOutputDeltaKey` swap its reason for
+  `REDACTED_PRIVATE_TIE_REASON` and cut its key to the holder's id in every
+  prompt whose output the player reads.
+- **Investigations** (D47, wired separately): `secretAffiliationsOf` is the
+  ground-truth seam an agent reaches for, and
+  `knowledge/store.ts::ingestLearnedAffiliation` records what the player
+  learns.
+
 ## System vs. user split
 
 Every builder returns `{ systemInstruction, prompt }`:

@@ -3,6 +3,8 @@ import { SYSTEMIC_RESOURCES, applySystemicResourceRule } from './resources';
 import { zScheme } from './zodSchemas';
 import { buildNpcPerceptions, selectMemoryChanges, selectPerceivingNpcs } from '../../perception/npcPerception';
 import { legacyReasonIndicatesDeath, legacyStatusFromReason } from './legacyStatus';
+import { applyConditionDelta } from './conditions';
+import { applyAffiliationDelta } from './affiliations';
 
 // The legacy reason-parse lives in ./legacyStatus.ts, where the perception
 // layer can mirror it without importing this module.
@@ -122,6 +124,18 @@ export function applyDeltas(
                     // the same malformed-key guard).
                     if (entity && resourceName) {
                         const current = entity.resources[resourceName];
+                        // D48: a hard asset lost is REMOVED, never left
+                        // standing while the story says it is gone. A text
+                        // or list holding cannot take a number, so the delta
+                        // names what was lost: one item off a list, or the
+                        // whole text holding. A numeric resource ignores
+                        // `lost_item` and takes its delta below.
+                        const lostItem = typeof delta.lost_item === 'string' ? delta.lost_item.trim() : '';
+                        if (lostItem && typeof current !== 'number') {
+                            const refusal = removeLostHolding(entity, resourceName, lostItem);
+                            if (refusal) gmNotes.push(`[Engine] Refused a 'resource' delta on '${delta.key}' - ${refusal}`);
+                            break;
+                        }
                         // Resources may hold text or lists (world gen's
                         // thematic resources). A numeric delta on one would
                         // concatenate into a corrupted string, so it is
@@ -446,6 +460,34 @@ export function applyDeltas(
                     }
                     break;
                 }
+                case 'condition': {
+                    // D48: a lasting mark added, deepened, eased or healed -
+                    // the rules live in ./conditions.ts, shared with the
+                    // perception layer that says what the delta visibly did.
+                    const [entityId] = delta.key.split(':');
+                    const entity = updatedEntities.find(e => e.entity_id === entityId);
+                    if (!entity) {
+                        gmNotes.push(`[Engine] Refused a 'condition' delta on '${delta.key}' - no entity '${entityId}' is on the roster.`);
+                        break;
+                    }
+                    const refusal = applyConditionDelta(entity, delta, turnNumber);
+                    if (refusal) gmNotes.push(refusal);
+                    break;
+                }
+                case 'affiliation': {
+                    // D49: a tie taken up, given up, avowed or exposed - the
+                    // rules live in ./affiliations.ts. The openly professed
+                    // political faction stays the 'faction' case's.
+                    const [entityId] = delta.key.split(':');
+                    const entity = updatedEntities.find(e => e.entity_id === entityId);
+                    if (!entity) {
+                        gmNotes.push(`[Engine] Refused an 'affiliation' delta on '${delta.key}' - no entity '${entityId}' is on the roster.`);
+                        break;
+                    }
+                    const refusal = applyAffiliationDelta(entity, delta);
+                    if (refusal) gmNotes.push(refusal);
+                    break;
+                }
             }
         } catch (e) {
             console.error("Error applying delta:", delta, e);
@@ -453,6 +495,32 @@ export function applyDeltas(
     });
 
     return { updatedEntities, updatedWorldState, newReports, newTruthLedgerEntries, gmNotes };
+}
+
+/**
+ * Removes a lost text or list holding (D48) from `entity` in place: one
+ * matching item off a list (compared trimmed and case-blind; the list is
+ * dropped once empty), or a whole text holding. Returns why nothing was
+ * removed, or null when the loss applied.
+ */
+function removeLostHolding(entity: Entity, resourceName: string, lostItem: string): string | null {
+    const current = entity.resources[resourceName];
+    if (current === undefined || current === null) {
+        return `${entity.name} holds no '${resourceName}' to lose; nothing was removed.`;
+    }
+    if (Array.isArray(current)) {
+        const wanted = lostItem.toLowerCase();
+        const index = current.findIndex(item => typeof item === 'string' && item.trim().toLowerCase() === wanted);
+        if (index < 0) {
+            return `'${resourceName}' holds no item "${lostItem}" (it holds: ${current.join('; ') || 'nothing'}); nothing was removed.`;
+        }
+        const rest = current.filter((_, i) => i !== index);
+        if (rest.length > 0) entity.resources[resourceName] = rest;
+        else delete entity.resources[resourceName];
+        return null;
+    }
+    delete entity.resources[resourceName];
+    return null;
 }
 
 /**

@@ -15,7 +15,7 @@
 import { Adjudication, Entity, WorldState, SimulationState, NpcIntent, IntelDistortion } from '../../types';
 import type { ActionResolutionTier } from '../core/resolution';
 import type { InvestigationPlan, PlannedFinding, SchemeNaturePlan } from '../core/groundTruth';
-import { REDACTED_SCHEME_REASON, asPromptData } from './fragments';
+import { REDACTED_SCHEME_REASON, asPromptData, playerOutputDeltaKey, playerOutputDeltaReason } from './fragments';
 import { ACTORS_DESCRIPTION } from '../core/schemas';
 
 // --- D47 grounding: what the agents actually reached -----------------------
@@ -458,15 +458,17 @@ Return only the valid JSON object.
   // This call's OUTPUT renders in WorldStateTab, so its input is a
   // player-output-bound prompt (D5/D28): a 'scheme' delta's `reason` is the
   // full active_scheme JSON (name/goal/steps), GM-private under D28, and is
-  // swapped for the opaque REDACTED_SCHEME_REASON marker here. Every other
-  // delta type keeps its prose reason - only the private design is withheld.
+  // swapped for the opaque REDACTED_SCHEME_REASON marker here; a private
+  // mark (D48) or a secret tie (D49) likewise gives way to its stand-in, its
+  // key cut to the holder's id. Every other delta keeps its key and prose
+  // reason (fragments.ts::playerOutputDeltaReason / playerOutputDeltaKey).
   const prompt = `
 **Previous State:**
 ${JSON.stringify(oldState, null, 2)}
 
 **Events of This Week (Adjudication):**
 - Headlines: ${adjudication.headlines.join('. ')}
-- Key Deltas: ${adjudication.deltas.slice(0, 5).map(d => `${d.type} on ${d.key} because ${d.type === 'scheme' ? REDACTED_SCHEME_REASON : d.reason}`).join('; ')}
+- Key Deltas: ${adjudication.deltas.slice(0, 5).map(d => `${d.type} on ${playerOutputDeltaKey(d)} because ${playerOutputDeltaReason(d)}`).join('; ')}
 `;
 
   return { systemInstruction, prompt };

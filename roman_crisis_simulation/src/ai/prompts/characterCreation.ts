@@ -29,6 +29,7 @@ const CHARACTER_CREATION_SYSTEM_INSTRUCTION = `You are a game master for a polit
 11. Create plausible 'beliefs', 'secrets', and 'skills' that match their description.
 12. The 'memories' array must be present and empty.
 13. Give the character a 'voice' - a COMPACT speech-style directive for how they talk and think (e.g. "clipped soldier's Latin, contempt for senatorial flourish") - and an 'epithet', a SHORT public byname (e.g. "the Thracian"). Keep both short, fitting the player's description.
+14. Give the character 0-2 'affiliations' their description suggests beyond their faction_id - a cause, a cult, a faith - each openly professed (public: true, e.g. "the boosters of the triumph") or kept secret (public: false, e.g. "the cult of Bacchus", "the Christians"). A secret one should be a secret worth keeping, and only when the description invites it.
 
 **CRITICAL JSON FORMATTING RULES:**
 Your response MUST be a perfectly valid JSON object that adheres to the schema. Ensure all quotes inside strings are escaped (e.g., \\"). Do not use trailing commas.`;

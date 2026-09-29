@@ -765,7 +765,7 @@ describe('the claim cap evicts word received before what was paid for', () => {
 // ---------------------------------------------------------------------------
 // knowledge-personae-hides-unseen-death
 // ---------------------------------------------------------------------------
-describe('the roster shows what the player believes, not live status or allegiance', () => {
+describe('the roster shows what the player believes, not live status; allegiance is public (D49)', () => {
   const livia = makeEntity({ entity_id: 'livia', name: 'Senator Livia', location: 'Antioch' });
   const heardOf: KnowledgeClaim = { id: 'r', subject: 'livia', claim: 'Livia hosts a dinner.', claimKey: 'report:livia:general:rumor', firstLearnedTurn: 1, updates: [{ turn: 1, source: 'rumor', text: 'Livia hosts a dinner.' }] };
   const render = (entities: Entity[], knowledge: KnowledgeClaim[]) => mount(
@@ -812,13 +812,23 @@ describe('the roster shows what the player believes, not live status or allegian
     expect(container.textContent).not.toContain('Senator Livia');
   });
 
-  it('groups a figure by the allegiance the player last saw, not the live one', async () => {
+  // D49 (owner ruling, 2026-09-29) reversed the earlier pin here: a figure's
+  // openly professed faction is PUBLIC knowledge, so the roster groups by the
+  // live faction_id rather than by the last line the player happened to see.
+  // Status stays a belief (the cases above); allegiance does not.
+  it('groups a figure by the faction they openly profess - public knowledge (D49), whatever was last seen', async () => {
     const senate = makeEntity({ entity_id: 'senate', name: 'The Senate', entity_type: 'faction' });
     const knowsSenate: KnowledgeClaim = { ...heardOf, id: 's', subject: 'senate', claimKey: 'report:senate:general:rumor' };
     const seenJoining = buildPlayerPerceivedDigest([{ type: 'faction', key: 'livia', delta: 0, reason: 'senate' }], { ...player, visibility_network: ['livia'] }, [player, livia, senate], world);
-    // Live allegiance has since moved on unseen; the roster keeps what was seen.
+    // She has since openly moved to a faction the player does not know: the
+    // roster follows her open allegiance, and names no unknown faction.
     await render([player, { ...livia, faction_id: 'hidden_cabal' }, senate], ingestPerceivedChanges([heardOf, knowsSenate], seenJoining, 3));
-    const text = container.textContent ?? '';
+    let text = container.textContent ?? '';
+    expect(text.indexOf('Senator Livia')).toBeGreaterThan(text.indexOf('Other known figures'));
+    expect(text).not.toContain('hidden_cabal');
+    // Never seen joining, her open allegiance still groups her.
+    await render([player, { ...livia, faction_id: 'senate' }, senate], [heardOf, knowsSenate]);
+    text = container.textContent ?? '';
     expect(text.indexOf('Senator Livia')).toBeGreaterThan(text.indexOf('The Senate'));
     expect(text).not.toContain('Other known figures');
   });

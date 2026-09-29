@@ -18,8 +18,10 @@
  * Same discipline as visibility.ts: pure - no React, no AI imports.
  */
 
-import { Entity, EventDelta, WorldState } from '../types';
+import { Affiliation, Condition, Entity, EventDelta, WorldState } from '../types';
 import { buildPerceivedDigest, PerceivedChange, PerceptionSource, type PreTurnRoster } from './visibility';
+import { outwardConditionsOf } from '../ai/core/conditions';
+import { publicAffiliationsOf } from '../ai/core/affiliations';
 
 /**
  * Upper bound on how many NPCs run the perception pass in a single turn.
@@ -66,9 +68,9 @@ export interface NpcPerception {
  * Entity ids a turn's deltas involve, in delta order (duplicates included -
  * callers dedupe). Mirrors the key conventions classifyDelta relies on:
  * 'relation' keys are 'A:B:attr' (both involved); 'resource'/'status'/
- * 'scheme'/'faction' keys lead with the owning entity id; 'rumor' keys are
- * the entity (or region) the rumor is about. 'region'/'add_region'/
- * 'remove_region'/'world' keys carry no entity ids.
+ * 'scheme'/'faction'/'condition'/'affiliation' keys lead with the owning
+ * entity id; 'rumor' keys are the entity (or region) the rumor is about.
+ * 'region'/'add_region'/'remove_region'/'world' keys carry no entity ids.
  */
 function entityIdsInDeltas(deltas: EventDelta[]): string[] {
   const ids: string[] = [];
@@ -83,7 +85,9 @@ function entityIdsInDeltas(deltas: EventDelta[]): string[] {
       case 'resource':
       case 'status':
       case 'scheme':
-      case 'faction': {
+      case 'faction':
+      case 'condition':
+      case 'affiliation': {
         const [entityId] = delta.key.split(':');
         if (entityId) ids.push(entityId);
         break;
@@ -150,6 +154,63 @@ export function buildNpcPerceptions(
     name: viewer.name,
     changes: buildPerceivedDigest(deltas, viewer, entities, worldState, preTurnEntities),
   }));
+}
+
+/**
+ * Upper bound on the other figures one mind prompt describes (D48/D49): a
+ * mind needs the people around it, not the whole roster, and every mind
+ * input is bounded.
+ */
+export const MAX_FIGURES_IN_VIEW = 8;
+
+/**
+ * One other figure as an NPC knows them - a typed projection, rebuilt field
+ * by field, so no other entity's record ever crosses into a mind prompt
+ * (ai/prompts/npcMind.ts's asymmetry contract). Carries only what anyone
+ * could know of them: the OUTWARD marks of someone standing in the room
+ * (D48) and the ties they openly profess (D49 - public knowledge). Never an
+ * inward mark, a secret tie, a secret, a scheme.
+ */
+export interface FigureInView {
+  entity_id: string;
+  name: string;
+  /** True when they stand where the viewer stands - the only way their marks can be seen. */
+  present: boolean;
+  outwardConditions: Array<Pick<Condition, 'name' | 'description' | 'severity'>>;
+  publicAffiliations: Array<Pick<Affiliation, 'name' | 'kind'>>;
+}
+
+/**
+ * The figures `viewer` knows of this turn and what anyone could know of
+ * them: every living other the viewer knows (its own relationships and
+ * visibility_network) or stands beside, with the outward marks of those in
+ * the room (the witness rule classifyDelta applies to a status change) and
+ * the ties each openly professes. A figure with nothing to show is left out;
+ * those in the room come first, then roster order, capped at
+ * MAX_FIGURES_IN_VIEW. The player is a figure like any other here - their
+ * outward marks and open ties show, their inward marks and secret ties never
+ * do (the player's secret ties reach an NPC only through what it witnessed,
+ * in its own memories).
+ */
+export function figuresInViewOf(viewer: Entity, entities: readonly Entity[]): FigureInView[] {
+  const known = new Set([...Object.keys(viewer.relationships ?? {}), ...(viewer.visibility_network ?? [])]);
+  const figures: FigureInView[] = [];
+  for (const other of entities) {
+    if (other.entity_id === viewer.entity_id || other.status !== 'alive') continue;
+    const present = other.location === viewer.location;
+    if (!present && !known.has(other.entity_id)) continue;
+    const outwardConditions = present
+      ? outwardConditionsOf(other).map(({ name, description, severity }) => ({ name, description, severity }))
+      : [];
+    const publicAffiliations = publicAffiliationsOf(other).map(({ name, kind }) => ({ name, kind }));
+    if (outwardConditions.length === 0 && publicAffiliations.length === 0) continue;
+    figures.push({ entity_id: other.entity_id, name: other.name, present, outwardConditions, publicAffiliations });
+  }
+  return figures
+    .map((figure, index) => ({ figure, index }))
+    .sort((a, b) => Number(b.figure.present) - Number(a.figure.present) || a.index - b.index)
+    .slice(0, MAX_FIGURES_IN_VIEW)
+    .map(({ figure }) => figure);
 }
 
 /**

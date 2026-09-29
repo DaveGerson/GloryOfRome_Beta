@@ -1,6 +1,6 @@
 
 import { Type } from "@google/genai";
-import { EntityActionIntentEnum, EventDeltaTypeEnum, NpcIntentContinuityEnum } from '../../types';
+import { AffiliationChangeEnum, AffiliationKindEnum, ConditionChangeEnum, ConditionSeverityEnum, EntityActionIntentEnum, EventDeltaTypeEnum, NpcIntentContinuityEnum } from '../../types';
 import {
     PRIVATE_SCENE_MAX_NPC_RESPONSES,
     PRIVATE_SCENE_MAX_UTTERANCE_CHARS,
@@ -95,19 +95,58 @@ const EntityActionSchema = {
     required: ['id', 'intent', 'notes', 'actors'],
 };
 
+/**
+ * A 'condition' delta's payload (D48) - mirrors zConditionDeltaChange in
+ * ai/core/zodSchemas.ts and ConditionDeltaChange in types.ts.
+ */
+const ConditionDeltaChangeSchema = {
+    type: Type.OBJECT,
+    nullable: true,
+    description: "'condition' type deltas only (a lasting mark: a wound, a scar, nightmares, grief, a broken oath). Omit/null for every other delta type.",
+    properties: {
+        change: { type: Type.STRING, enum: ConditionChangeEnum, description: "'add' a new mark, 'deepen' or 'ease' one they bear, or 'heal' it (the mark is gone)." },
+        name: { type: Type.STRING, nullable: true, description: "REQUIRED to add: a few lowercase words naming the mark as the fiction would, e.g. 'a nasty scar', 'a limp', 'nightmares', 'grief for a son', 'a broken oath'. Name the mark itself, never the outcome that caused it." },
+        description: { type: Type.STRING, nullable: true, description: "REQUIRED to add (optional otherwise): one short sentence - what the mark is and how it shows or weighs on its bearer." },
+        outward: { type: Type.BOOLEAN, nullable: true, description: "REQUIRED to add: true if others can see it (a scar, a limp, a lost hand); false if only its bearer knows (nightmares, a private grief, an unwitnessed broken oath)." },
+        severity: { type: Type.STRING, enum: ConditionSeverityEnum, nullable: true, description: "How heavily it weighs: 'light', 'serious' or 'grave'. Set it to add; a deepen or ease moves it one step unless you state the new weight." },
+    },
+    required: ['change'],
+};
+
+/**
+ * An 'affiliation' delta's payload (D49) - mirrors zAffiliationDeltaChange
+ * in ai/core/zodSchemas.ts and AffiliationDeltaChange in types.ts.
+ */
+const AffiliationDeltaChangeSchema = {
+    type: Type.OBJECT,
+    nullable: true,
+    description: "'affiliation' type deltas only (a tie to a faction, cause, cult or faith, openly professed or kept secret). Omit/null for every other delta type.",
+    properties: {
+        change: { type: Type.STRING, enum: AffiliationChangeEnum, description: "'join' takes up a tie; 'leave' gives it up; 'go_public' is its holder openly professing a secret tie; 'expose' is someone else laying a secret tie bare." },
+        name: { type: Type.STRING, nullable: true, description: "REQUIRED to join: the tie as the fiction names it, as a group, cause or faith - e.g. 'the cult of Bacchus', 'the boosters of the triumph', 'the Christians'." },
+        kind: { type: Type.STRING, enum: AffiliationKindEnum, nullable: true, description: "REQUIRED to join: 'faction', 'cause', 'cult', 'religion' or 'other'." },
+        public: { type: Type.BOOLEAN, nullable: true, description: "To join: true if taken up openly, false (the default) if kept secret. A tie once public can never be made secret again." },
+        faction_id: { type: Type.STRING, nullable: true, description: "Optional: the entity_id of a faction entity this tie is to." },
+    },
+    required: ['change'],
+};
+
 const EventDeltaSchema = {
     type: Type.OBJECT,
     properties: {
         type: { type: Type.STRING, enum: EventDeltaTypeEnum, description: "The type of state change." },
-        key: { type: Type.STRING, description: "Identifier for what is changing. For 'relation', use 'entity_a_id:entity_b_id:attribute' (e.g., trust_level, perceived_threat) — the delta changes entity_a's perception of entity_b ONLY; if a change is mutual, emit a second delta with the ids reversed. For 'resource', use 'entity_id:resource_name'. For 'scheme' or 'faction', this is the entity_id. For 'region', use '<region name>:stability' (e.g. 'The Suburra:stability') - stability is the only region property a delta can change. For 'world', use 'economic_stability' or 'political_climate' — no other keys are recognized." },
-        delta: { type: Type.NUMBER, description: "The numerical change to apply. For status, scheme, region, add_region, remove_region, and faction this is ignored. For rumors, this should be a float from 0.0 to 1.0 representing credibility." },
-        reason: { type: Type.STRING, description: "A short NARRATIVE description of why the change occurred, for display only - it is never parsed to decide game state. For 'rumor' types, this contains the rumor text. For 'scheme', this is a JSON string of the complete, updated scheme object. For 'add_region', this is a JSON string of the new RegionState object. For 'faction', this is the entity_id of the new faction, or 'null' if they become unaligned. For 'region' types, this IS the region's new stability (e.g. 'Riots', 'Stable'). For 'status' types, this is still the narrative explanation (e.g. 'Banished from the city by imperial decree'; a declared death is phrased as the attempt on that life, since a hidden roll settles it afterwards) - the actual status/location change for 'status' deltas MUST be set via new_status/new_location below, not inferred from this text. For 'world' types, this IS the new value itself — the short string to assign to the WorldState field named in 'key' (e.g. 'Failing', 'Openly Hostile')." },
+        key: { type: Type.STRING, description: "Identifier for what is changing. For 'relation', use 'entity_a_id:entity_b_id:attribute' (e.g., trust_level, perceived_threat) — the delta changes entity_a's perception of entity_b ONLY; if a change is mutual, emit a second delta with the ids reversed. For 'resource', use 'entity_id:resource_name'. For 'scheme' or 'faction', this is the entity_id. For 'region', use '<region name>:stability' (e.g. 'The Suburra:stability') - stability is the only region property a delta can change. For 'world', use 'economic_stability' or 'political_climate' — no other keys are recognized. For 'condition', use 'entity_id:condition_id' (condition_id a short snake_case handle for the mark, e.g. 'scarred_cheek'; reuse the handle listed in the entity's brief to change a mark they already bear). For 'affiliation', use 'entity_id:affiliation_id' (a short snake_case handle for the tie, e.g. 'cult_of_bacchus'; reuse the listed handle for a tie they already hold)." },
+        delta: { type: Type.NUMBER, description: "The numerical change to apply. For status, scheme, region, add_region, remove_region, faction, condition, and affiliation this is ignored. For rumors, this should be a float from 0.0 to 1.0 representing credibility." },
+        reason: { type: Type.STRING, description: "A short NARRATIVE description of why the change occurred, for display only - it is never parsed to decide game state. For 'rumor' types, this contains the rumor text. For 'scheme', this is a JSON string of the complete, updated scheme object. For 'add_region', this is a JSON string of the new RegionState object. For 'faction', this is the entity_id of the new faction, or 'null' if they become unaligned. For 'region' types, this IS the region's new stability (e.g. 'Riots', 'Stable'). For 'status' types, this is still the narrative explanation (e.g. 'Banished from the city by imperial decree'; a declared death is phrased as the attempt on that life, since a hidden roll settles it afterwards) - the actual status/location change for 'status' deltas MUST be set via new_status/new_location below, not inferred from this text. For 'world' types, this IS the new value itself — the short string to assign to the WorldState field named in 'key' (e.g. 'Failing', 'Openly Hostile'). For 'condition' types, this is the narrative of what left, worsened, eased or healed the mark - the change itself goes in 'condition' below. For 'affiliation' types, this is the narrative of the tie taken up, given up, avowed or exposed - the change itself goes in 'affiliation' below." },
         new_status: { type: Type.STRING, enum: ['alive', 'dead', 'exiled', 'missing'], nullable: true, description: "REQUIRED for 'status' type deltas whenever an entity's life or freedom status changes (dies, is exiled, goes missing, or is restored to alive) - set this to the entity's new status. Omit/null for all other delta types." },
         new_location: { type: Type.STRING, nullable: true, description: "Optional, 'status' type deltas only: set this to the (existing) region name the entity has moved to, when the status change involves relocation (e.g. fleeing into exile, going missing in a specific region). Omit/null if the entity's location does not change." },
         is_true: { type: Type.BOOLEAN, nullable: true, description: "REQUIRED for 'rumor' type deltas, GM-PRIVATE: whether the rumor's claim is ACTUALLY TRUE in the simulation's reality. You define reality - rule true or false on EVERY rumor, never leave it unset. Independent of 'delta' (credibility): a false rumor can sound highly credible, a true one implausible. Ruled STRICTLY by world-truth: a fabrication that happens to be true is still true, a deliberately spread truth is still true - authorship never changes the ruling (a planted lie is false because its claim is false, not because it was planted). Omit/null for all other delta types. This never reaches the player." },
-        origin_id: { type: Type.STRING, nullable: true, description: "GM-PRIVATE. On 'rumor' type deltas: the entity_id of whoever started or spreads the rumor - the PLAYER's entity_id when their action planted or spread it, the planting NPC's when a scheme did. Omit/null ONLY when the rumor is organic with no single attributable source. On a 'status' or 'resource' delta keyed under the PLAYER that the world inflicts on them (an exile, arrest, seizure or fine), and on a creditor raising the player's 'dependency_level': the entity_id of the world entity doing it, never the player's. Omit/null for all other delta types. This never reaches the player." },
+        origin_id: { type: Type.STRING, nullable: true, description: "GM-PRIVATE. On 'rumor' type deltas: the entity_id of whoever started or spreads the rumor - the PLAYER's entity_id when their action planted or spread it, the planting NPC's when a scheme did. Omit/null ONLY when the rumor is organic with no single attributable source. On a 'status' or 'resource' delta keyed under the PLAYER that the world inflicts on them (an exile, arrest, seizure or fine), and on a creditor raising the player's 'dependency_level': the entity_id of the world entity doing it, never the player's. On an 'affiliation' delta with change 'expose', the entity_id of whoever laid the tie bare. Omit/null for all other delta types. This never reaches the player." },
         topic: { type: Type.STRING, nullable: true, description: "REQUIRED for 'rumor' type deltas, NOT private: a short lowercase hyphenated slug naming WHAT about the subject the rumor concerns (e.g. 'health', 'tribute', 'succession-plot', 'legion-loyalty'). Distinct matters about the same subject MUST get DISTINCT topics so they stay separate claims; a follow-up about the SAME matter reuses the SAME topic (and key). This is a neutral category label, never a statement of the rumor's truth. Omit/null for all other delta types." },
         stance: { type: Type.STRING, enum: ['corroborates', 'contradicts'], nullable: true, description: "'rumor' type deltas only, NOT private: only on a COUNTERPLAY follow-up that reuses an existing rumor's key AND topic - set 'corroborates' if the follow-up backs the running claim, 'contradicts' if it refutes it. Omit/null on a first emission or an ordinary restatement. Independent of truth: refuting a true rumor or backing a false one are both allowed." },
+        condition: ConditionDeltaChangeSchema,
+        affiliation: AffiliationDeltaChangeSchema,
+        lost_item: { type: Type.STRING, nullable: true, description: "'resource' type deltas only: when a hard asset held as TEXT or a LIST is lost (one estate in an 'estates' list, a townhouse described in words), the exact item lost - it is removed from the list, or the whole text holding is removed. Set 'delta' to -1. A numeric resource ignores this and takes 'delta'. Omit/null otherwise." },
         actors: { type: Type.ARRAY, items: { type: Type.STRING }, description: ACTORS_DESCRIPTION },
     },
     required: ['type', 'key', 'delta', 'reason', 'actors'],
@@ -172,6 +211,33 @@ const SchemeSchema = {
     required: ['name', 'overall_goal', 'steps']
 };
 
+/** One tie (D49) on a model-authored entity. Its handle is the engine's to set. */
+const AffiliationSchema = {
+    type: Type.OBJECT,
+    properties: {
+        name: { type: Type.STRING, description: "The tie as a group, cause or faith, e.g. 'the boosters of the triumph', 'the cult of Bacchus', 'the Christians'." },
+        kind: { type: Type.STRING, enum: AffiliationKindEnum, description: "'faction', 'cause', 'cult', 'religion' or 'other'." },
+        public: { type: Type.BOOLEAN, description: "True if openly professed; false if kept secret." },
+        faction_id: { type: Type.STRING, nullable: true, description: "Optional: the entity_id of a faction entity this tie is to." },
+    },
+    required: ['name', 'kind', 'public'],
+};
+
+/** The shared description of an entity's `affiliations` for both entity schemas. */
+const AFFILIATIONS_DESCRIPTION = "OPTIONAL: the ties this character holds beyond their openly professed political faction (faction_id) - a cause, a cult, a faith, or a tie to a faction they do not openly profess. Zero to two is usual. Each is openly professed (public: true) or kept secret (public: false); a secret one is known only to its holder, so make it a secret worth keeping, and only occasionally.";
+
+/** One lasting mark (D48) on a model-authored entity. Its handle and turn are the engine's to set. */
+const ConditionSchema = {
+    type: Type.OBJECT,
+    properties: {
+        name: { type: Type.STRING, description: "A few lowercase words naming the mark, e.g. 'a limp', 'an old spear wound', 'grief for a lost son'." },
+        description: { type: Type.STRING, description: "One short sentence: what it is and how it shows or weighs on its bearer." },
+        outward: { type: Type.BOOLEAN, description: "True if others can see it; false if only its bearer knows." },
+        severity: { type: Type.STRING, enum: ConditionSeverityEnum, description: "'light', 'serious' or 'grave'." },
+    },
+    required: ['name', 'description', 'outward', 'severity'],
+};
+
 export const EntitySchema = {
     type: Type.OBJECT,
     properties: {
@@ -228,6 +294,22 @@ export const EntitySchema = {
             description: "A record of skills (e.g. 'oratory', 'strategy'), each rated 1-10 - never a percentage or 0-100 score."
         },
         active_scheme: { ...SchemeSchema, nullable: true },
+        // D48 lasting marks - OPTIONAL (never in `required`); mirrors
+        // types.ts's Entity.conditions and zEntity in ai/core/zodSchemas.ts.
+        conditions: {
+            type: Type.ARRAY,
+            nullable: true,
+            items: ConditionSchema,
+            description: "OPTIONAL and usually empty: lasting marks this character ALREADY bears from their past (an old wound, a limp, a grief they carry). Only what their history truly left - never flavour for its own sake.",
+        },
+        // D49 ties - OPTIONAL (never in `required`); mirrors types.ts's
+        // Entity.affiliations and zEntity in ai/core/zodSchemas.ts.
+        affiliations: {
+            type: Type.ARRAY,
+            nullable: true,
+            items: AffiliationSchema,
+            description: AFFILIATIONS_DESCRIPTION,
+        },
     },
     required: ['entity_id', 'name', 'entity_type', 'status', 'location', 'relationships', 'memories', 'resources', 'visibility_network', 'current_state_narrative', 'short_term_goals', 'long_term_ambitions']
 };
@@ -573,6 +655,8 @@ export const CharacterCreationEntitySchema = {
         epithet: { type: Type.STRING, nullable: true, description: "A SHORT public byname the street knows this character by (e.g. \"the Thracian\"). A few words, without the character's name itself." },
         location: { type: Type.STRING, description: "The character's starting location from this list: Palatine Hill, The Curia, Praetorian Camp, The Suburra." },
         faction_id: { type: Type.STRING, description: "Optional. Assign to 'senatorial_party' or 'military_cabal' if appropriate, otherwise omit." },
+        // D49 - optional here as in EntitySchema (never in `required`).
+        affiliations: { type: Type.ARRAY, nullable: true, items: AffiliationSchema, description: AFFILIATIONS_DESCRIPTION },
         personality: PersonalityTraitsSchema,
         beliefs: { type: Type.ARRAY, items: { type: Type.STRING }, description: "A list of 2-3 core beliefs or ideologies." },
         secrets: { type: Type.ARRAY, items: { type: Type.STRING }, description: "A list of 1-2 hidden secrets or fears." },

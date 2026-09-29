@@ -32,9 +32,11 @@
  * task brief for why.
  */
 
-import { Entity, EventDelta, EventDeltaType, WorldState } from '../types';
+import { AffiliationKind, ConditionSeverity, Entity, EventDelta, EventDeltaType, WorldState } from '../types';
 import type { PrivateSceneRecord, PrivateSceneStatus, PrivateSceneClosureReason, PrivateSceneSpeaker, PrivateSceneSpeechAct } from '../privateScene/model';
 import { legacyStatusFromReason } from '../ai/core/legacyStatus';
+import { conditionDeltaEffect, conditionsOf, type ConditionEffect } from '../ai/core/conditions';
+import { affiliationDeltaEffect, affiliationsOf, type AffiliationEffect } from '../ai/core/affiliations';
 
 export interface PrivateScenePlayerView {
   sceneId: string;
@@ -124,6 +126,42 @@ export interface PerceivedChange {
    * joining, or null when it shows them breaking away.
    */
   perceivedFaction?: string | null;
+  /**
+   * 'condition' changes only (D48): the mark as the line shows it - what the
+   * viewer now believes the subject bears (`gone` once seen healed or no
+   * longer showing). Structured so a roster reads perceived marks without
+   * parsing prose, and never from live state.
+   */
+  perceivedCondition?: PerceivedCondition;
+  /**
+   * 'affiliation' changes only (D49): the tie as the line shows it - whether
+   * the subject is now of it (`member`) and whether it was openly professed
+   * or seen in secret (`public`). A secret tie the viewer witnessed becomes
+   * knowledge they hold; never read from live state.
+   */
+  perceivedAffiliation?: PerceivedAffiliation;
+}
+
+/** One tie as a viewer perceived it - see PerceivedChange.perceivedAffiliation. */
+export interface PerceivedAffiliation {
+  id: string;
+  name: string;
+  kind: AffiliationKind;
+  /** True when the tie was openly professed (or went public) as seen; false when seen kept in secret. */
+  public: boolean;
+  /** True while the subject holds the tie as seen; false once seen to give it up. */
+  member: boolean;
+}
+
+/** One mark as a viewer perceived it - see PerceivedChange.perceivedCondition. */
+export interface PerceivedCondition {
+  id: string;
+  name: string;
+  description: string;
+  severity: ConditionSeverity;
+  outward: boolean;
+  /** True once the viewer saw the mark heal or leave their sight. */
+  gone: boolean;
 }
 
 /** Shown in place of the digest when nothing beyond the player's own
@@ -180,11 +218,38 @@ function entityLocation(id: string, entities: readonly Pick<Entity, 'entity_id' 
 }
 
 /**
- * The roster as a turn BEGAN, reduced to the only fields perception reads
- * from it: who stood where, in what state. A full Entity[] satisfies it, and
- * so does the slim copy a history entry keeps (TurnHistoryEntry.preTurnRoster).
+ * One entity as a turn BEGAN, reduced to the only fields perception reads
+ * from it: who stood where, in what state - and, when it had any, the marks
+ * it bore, the ties it held and the text or list holdings it held (D48/D49 -
+ * so a mark healed, a tie given up or a holding lost this turn can be told
+ * from one never there). A full Entity satisfies it, and so does the slim
+ * copy a history entry keeps (TurnHistoryEntry.preTurnRoster, built by
+ * toPreTurnRoster), whose `resources` carries ONLY those text and list
+ * holdings - never a number.
  */
-export type PreTurnRoster = readonly Pick<Entity, 'entity_id' | 'location' | 'status'>[];
+export type PreTurnRosterEntry = Pick<Entity, 'entity_id' | 'location' | 'status'> & Partial<Pick<Entity, 'conditions' | 'affiliations' | 'resources'>>;
+export type PreTurnRoster = readonly PreTurnRosterEntry[];
+
+/**
+ * The slim pre-turn roster a history entry keeps: every entity's id,
+ * location and status; its conditions and affiliations only when it holds
+ * any; and its text and list holdings only when it holds any (numeric
+ * resources never - a loss can name only a holding) - the save stays lean
+ * for the majority.
+ */
+export function toPreTurnRoster(entities: readonly Entity[]): PreTurnRosterEntry[] {
+  return entities.map(({ entity_id, location, status, conditions, affiliations, resources }) => {
+    const holdings = Object.entries(resources ?? {}).filter(([, value]) => typeof value === 'string' || Array.isArray(value));
+    return {
+      entity_id,
+      location,
+      status,
+      ...(Array.isArray(conditions) && conditions.length > 0 ? { conditions: structuredClone(conditions) } : {}),
+      ...(Array.isArray(affiliations) && affiliations.length > 0 ? { affiliations: structuredClone(affiliations) } : {}),
+      ...(holdings.length > 0 ? { resources: structuredClone(Object.fromEntries(holdings)) } : {}),
+    };
+  });
+}
 
 const ENTITY_STATUSES: readonly Entity['status'][] = ['alive', 'dead', 'exiled', 'missing'];
 
@@ -234,6 +299,58 @@ function isAppliedRegionDelta(delta: EventDelta, worldState: WorldState): boolea
 }
 
 /**
+ * What a 'condition' delta visibly did from THIS viewer's vantage (D48),
+ * read off the marks it left (ai/core/conditions.ts::conditionDeltaEffect):
+ * the bearer sees every mark of their own, everyone else only the outward
+ * ones - so an inward mark is no effect at all to another viewer, and never
+ * announced. Null when nothing perceptible changed.
+ */
+function conditionEffectFor(delta: EventDelta, viewer: Entity, entities: Entity[], preTurnEntities?: PreTurnRoster): ConditionEffect | null {
+  const [bearerId] = delta.key.split(':');
+  const bearer = entities.find(e => e.entity_id === bearerId);
+  if (!bearer) return null;
+  const before = preTurnEntities ? conditionsOf(preTurnEntities.find(e => e.entity_id === bearerId)) : undefined;
+  return conditionDeltaEffect(delta, conditionsOf(bearer), before, bearerId === viewer.entity_id);
+}
+
+/**
+ * What an 'affiliation' delta did to its holder's ties (D49), read off the
+ * ties it left (ai/core/affiliations.ts::affiliationDeltaEffect) - whether
+ * it happened in the open or in secret is part of the effect, and decides
+ * who could have seen it (see classifyDelta). Null when nothing changed.
+ */
+function affiliationEffectFor(delta: EventDelta, entities: Entity[], preTurnEntities?: PreTurnRoster): AffiliationEffect | null {
+  const [holderId] = delta.key.split(':');
+  const holder = entities.find(e => e.entity_id === holderId);
+  if (!holder) return null;
+  const before = preTurnEntities ? affiliationsOf(preTurnEntities.find(e => e.entity_id === holderId)) : undefined;
+  return affiliationDeltaEffect(delta, affiliationsOf(holder), before);
+}
+
+/**
+ * The item a 'resource' delta says was lost from a text or list holding
+ * (D48), when the engine removed it - mirroring ai/core/engine.ts's
+ * removeLostHolding against the holding as the turn began (the pre-turn
+ * roster) and as it now stands: a text holding that was there and is gone,
+ * or a list item that was held and is no longer. A numeric resource ignores
+ * `lost_item`, and a loss the engine refused (an item never held) is no
+ * loss, so neither is announced as one. Without a pre-turn record, only the
+ * after-state can be checked.
+ */
+function lostHoldingOf(delta: EventDelta, entities: Entity[], preTurnEntities?: PreTurnRoster): string | undefined {
+  const lostItem = typeof delta.lost_item === 'string' ? delta.lost_item.trim() : '';
+  if (!lostItem) return undefined;
+  const [entityId, resourceName = ''] = delta.key.split(':');
+  const holds = (holding: unknown) => Array.isArray(holding)
+    && holding.some(item => typeof item === 'string' && item.trim().toLowerCase() === lostItem.toLowerCase());
+  const after = entities.find(e => e.entity_id === entityId)?.resources[resourceName];
+  if (typeof after === 'number' || typeof after === 'string' || holds(after)) return undefined;
+  if (!preTurnEntities) return lostItem;
+  const before = preTurnEntities.find(e => e.entity_id === entityId)?.resources?.[resourceName];
+  return typeof before === 'string' || holds(before) ? lostItem : undefined;
+}
+
+/**
  * Entity ids "involved" in a delta, OTHER than the viewer. Used only for the
  * witnessed/network checks below. The viewer's own id is always excluded
  * here deliberately: checking whether the viewer is standing in their own
@@ -255,9 +372,12 @@ function involvedOtherEntityIds(delta: EventDelta, viewer: Entity): string[] {
     case 'resource':
     case 'status':
     case 'scheme':
-    case 'faction': {
+    case 'faction':
+    case 'condition':
+    case 'affiliation': {
       // key = 'entityId' (status/scheme/faction) or 'entityId:resourceName'
-      // (resource) - only the first segment is an entity id.
+      // (resource) or 'entityId:conditionId' / 'entityId:affiliationId' -
+      // only the first segment is an entity id.
       const [entityId] = delta.key.split(':');
       ids = [entityId];
       break;
@@ -288,7 +408,18 @@ function involvedOtherEntityIds(delta: EventDelta, viewer: Entity): string[] {
  * '<existing region>:stability' is), and a 'scheme' delta about an entity
  * the world now holds dead - its mind may still plot as GM-side truth
  * (a presumed-dead NPC keeps its scheme), but nobody can see a dead man
- * plotting, and saying so would hint at his survival (D3).
+ * plotting, and saying so would hint at his survival (D3). The same holds
+ * for a 'condition' delta (D48) about the dead, for one that left no mark
+ * THIS viewer can see - an inward mark is known to its bearer alone, so to
+ * every other viewer it is no change at all - and for a lost holding the
+ * engine did not remove.
+ *
+ * An 'affiliation' delta (D49) takes its own path before the rules below:
+ * its holder always knows it ('self'); a change made in the open is public
+ * knowledge ('public' - anyone who knows the figure knows it); a change made
+ * in secret is seen only by a witness standing where the holder stands
+ * ('witnessed' - present at the rite), never through a contact. A tie of the
+ * dead is never seen, as with a scheme.
  *
  * Rules (checked in this order - the first that matches wins):
  *
@@ -356,9 +487,31 @@ export function classifyDelta(
   if (delta.type === 'region' && !isAppliedRegionDelta(delta, worldState)) {
     return { visible: false, source: null };
   }
-  if (delta.type === 'scheme') {
-    const [schemerId] = delta.key.split(':');
-    if (entities.find(e => e.entity_id === schemerId)?.status === 'dead') return { visible: false, source: null };
+  if (delta.type === 'scheme' || delta.type === 'condition' || delta.type === 'affiliation') {
+    const [subjectId] = delta.key.split(':');
+    if (entities.find(e => e.entity_id === subjectId)?.status === 'dead') return { visible: false, source: null };
+  }
+  if (delta.type === 'condition' && !conditionEffectFor(delta, viewer, entities, preTurnEntities)) {
+    return { visible: false, source: null };
+  }
+  if (delta.type === 'affiliation') {
+    // D49 has its own rules, ahead of the generic ones: its holder always
+    // knows; a change made in the open (a tie openly professed, or one going
+    // public or exposed) is public knowledge; a change made in secret is
+    // seen only by a witness in the room - never through a contact.
+    const effect = affiliationEffectFor(delta, entities, preTurnEntities);
+    if (!effect) return { visible: false, source: null };
+    const [holderId] = delta.key.split(':');
+    if (holderId === viewer.entity_id) return { visible: true, source: 'self' };
+    if (effect.public) return { visible: true, source: 'public' };
+    return entityLocation(holderId, entities) === viewer.location
+      ? { visible: true, source: 'witnessed' }
+      : { visible: false, source: null };
+  }
+  if (delta.type === 'resource' && typeof delta.lost_item === 'string' && delta.lost_item.trim()) {
+    const [entityId, resourceName] = delta.key.split(':');
+    const holding = entities.find(e => e.entity_id === entityId)?.resources[resourceName ?? ''];
+    if (typeof holding !== 'number' && !lostHoldingOf(delta, entities, preTurnEntities)) return { visible: false, source: null };
   }
 
   // --- Rule 1: public ---
@@ -379,7 +532,8 @@ export function classifyDelta(
     delta.type === 'resource' ||
     delta.type === 'status' ||
     delta.type === 'scheme' ||
-    delta.type === 'faction'
+    delta.type === 'faction' ||
+    delta.type === 'condition'
   ) {
     const [entityId] = delta.key.split(':');
     if (entityId === viewer.entity_id) return { visible: true, source: 'self' };
@@ -430,8 +584,11 @@ export function classifyDelta(
  * points at a tab showing nothing new misdirects the player): Assets shows
  * only the viewer's OWN holdings, so another's resources pulse nothing;
  * Personae renders the other figures - who is about (status), who is
- * plotting (scheme), whom they stand with (faction) - never the viewer;
- * regions render only on Empire (D44: World no longer owns them). */
+ * plotting (scheme), whom they stand with (faction), the marks seen on them
+ * (condition), the ties they hold (affiliation) - never the viewer, whose
+ * own marks and ties live on their status panel above the tabs (D44: one
+ * owner per fact); regions render only on
+ * Empire (D44: World no longer owns them). */
 export function tabsForDelta(delta: EventDelta, viewerId?: string): TabId[] {
   const [subjectId] = delta.key.split(':');
   switch (delta.type) {
@@ -442,6 +599,8 @@ export function tabsForDelta(delta: EventDelta, viewerId?: string): TabId[] {
     case 'status':
     case 'scheme':
     case 'faction':
+    case 'condition':
+    case 'affiliation':
       return subjectId === viewerId ? [] : ['dramatis_personae'];
     case 'region':
     case 'add_region':
@@ -465,10 +624,11 @@ export function tabsForDelta(delta: EventDelta, viewerId?: string): TabId[] {
  * The entity id, region id, or 'world' a delta is ABOUT, for the knowledge
  * store's claim subjects. Mirrors the key conventions classifyDelta/
  * describeDelta already rely on: 'relation' keys are 'A:B:attr' (the claim
- * is about A, whose stance shifted); 'resource'/'status'/'scheme'/'faction'
- * keys lead with the owning entity id; 'region'/'add_region'/'remove_region'
- * keys are region names; 'rumor' keys are the entity/region the rumor is
- * about; 'world' deltas are empire-macro and have no narrower subject.
+ * is about A, whose stance shifted); 'resource'/'status'/'scheme'/'faction'/
+ * 'condition' keys lead with the owning entity id; 'region'/'add_region'/
+ * 'remove_region' keys are region names; 'rumor' keys are the entity/region
+ * the rumor is about; 'world' deltas are empire-macro and have no narrower
+ * subject.
  */
 function subjectForDelta(delta: EventDelta): string {
   switch (delta.type) {
@@ -477,6 +637,8 @@ function subjectForDelta(delta: EventDelta): string {
     case 'status':
     case 'scheme':
     case 'faction':
+    case 'condition':
+    case 'affiliation':
     case 'region': {
       const [first] = delta.key.split(':');
       return first || 'world';
@@ -533,6 +695,14 @@ function describeDelta(delta: EventDelta, viewer: Entity, entities: Entity[], wo
     }
     case 'resource': {
       const [entityId, resourceName] = delta.key.split(':');
+      // D48: a text or list holding the engine removed is named, not
+      // counted - "You have lost the villa at Baiae."
+      const lost = lostHoldingOf(delta, entities, preTurnEntities);
+      if (lost) {
+        return entityId === viewer.entity_id
+          ? `You have lost ${lost}.`
+          : `${displayName(entityId, entities)} has lost ${lost}.`;
+      }
       const direction = delta.delta > 0 ? 'grows' : delta.delta < 0 ? 'dwindles' : 'shifts';
       const resourceLabel = (resourceName ?? 'holdings').replace(/_/g, ' ');
       if (entityId === viewer.entity_id) {
@@ -594,6 +764,54 @@ function describeDelta(delta: EventDelta, viewer: Entity, entities: Entity[], wo
       }
       return `${name} aligns with ${displayName(delta.reason, entities)}.`;
     }
+    case 'condition': {
+      // D48: only what this viewer could see of the mark (conditionEffectFor
+      // - classifyDelta has already dropped one they could not). Written to
+      // read with a name that carries its own article ("a nasty scar").
+      const [entityId] = delta.key.split(':');
+      const effect = conditionEffectFor(delta, viewer, entities, preTurnEntities);
+      if (!effect) return 'Something shifts, unremarked.';
+      const mark = effect.condition.name;
+      const name = displayName(entityId, entities);
+      const lines: Record<ConditionEffect['kind'], string> = entityId === viewer.entity_id
+        ? {
+          gained: `You bear a new mark: ${mark}.`,
+          deepened: `A mark you bear grows worse: ${mark}.`,
+          eased: `A mark you bear eases: ${mark}.`,
+          healed: `A mark you bore has left you: ${mark}.`,
+        }
+        : {
+          gained: `${name} now bears a mark: ${mark}.`,
+          deepened: `A mark on ${name} grows worse: ${mark}.`,
+          eased: `A mark on ${name} eases: ${mark}.`,
+          healed: `${name} no longer bears ${mark}.`,
+        };
+      return lines[effect.kind];
+    }
+    case 'affiliation': {
+      // D49: what the viewer could know of the tie (classifyDelta has
+      // already dropped a secret change they did not witness). A name reads
+      // as a group, cause or faith ("the cult of Bacchus").
+      const [entityId] = delta.key.split(':');
+      const effect = affiliationEffectFor(delta, entities, preTurnEntities);
+      if (!effect) return 'Something shifts, unremarked.';
+      const tie = effect.affiliation.name;
+      const name = displayName(entityId, entities);
+      const lines: Record<AffiliationEffect['kind'], string> = entityId === viewer.entity_id
+        ? {
+          joined: effect.public ? `You are now openly of ${tie}.` : `You are now of ${tie}, in secret.`,
+          left: effect.public ? `You break openly with ${tie}.` : `You quietly break with ${tie}.`,
+          avowed: `You openly avow your tie to ${tie}.`,
+          exposed: `Your hidden tie to ${tie} stands exposed.`,
+        }
+        : {
+          joined: effect.public ? `${name} is now openly of ${tie}.` : `You glimpse ${name} among ${tie}, in secret.`,
+          left: effect.public ? `${name} breaks openly with ${tie}.` : `You glimpse ${name} quietly break with ${tie}.`,
+          avowed: `${name} openly avows a tie to ${tie}, long kept hidden.`,
+          exposed: `${name} stands exposed: a hidden tie to ${tie}.`,
+        };
+      return lines[effect.kind];
+    }
     default:
       return delta.reason || 'Something shifts, unremarked.';
   }
@@ -635,6 +853,18 @@ export function buildPerceivedDigest(
       if (effect) change.perceivedStatus = effect.status ?? 'alive';
     } else if (delta.type === 'faction') {
       change.perceivedFaction = !delta.reason || delta.reason === 'null' ? null : delta.reason;
+    } else if (delta.type === 'condition') {
+      const effect = conditionEffectFor(delta, viewer, entities, preTurnEntities);
+      if (effect) {
+        const { id, name, description, severity, outward } = effect.condition;
+        change.perceivedCondition = { id, name, description, severity, outward, gone: effect.kind === 'healed' };
+      }
+    } else if (delta.type === 'affiliation') {
+      const effect = affiliationEffectFor(delta, entities, preTurnEntities);
+      if (effect) {
+        const { id, name, kind } = effect.affiliation;
+        change.perceivedAffiliation = { id, name, kind, public: effect.public, member: effect.kind !== 'left' };
+      }
     }
     changes.push(change);
   }

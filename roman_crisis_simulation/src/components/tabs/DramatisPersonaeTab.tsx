@@ -6,8 +6,10 @@ import { Card, Button } from '../ui/Core';
 import { Alert } from '../ui/Alert';
 import {
   InvestigationKind, KnowledgeClaim, SCHEME_CLUES_TO_REVEAL, deriveDossier,
-  perceivedFactionOf, perceivedStatusOf,
+  knownAffiliationsOf, perceivedConditionsOf, perceivedStatusOf,
 } from '../../knowledge/store';
+import { publicAffiliationsOf } from '../../ai/core/affiliations';
+import { MARKS_COPY, MarkList, TieList, type TieView } from '../ui/Marks';
 import { DOSSIER_COLD_THRESHOLD } from '../../knowledge/dossierCost';
 import { knowledgeSourceLead } from '../../knowledge/credibilityFraming';
 import { isEntityKnownToPlayer, relationshipTimelineFor } from '../../knowledge/relationships';
@@ -76,6 +78,18 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
     };
   };
   const heldAssessment = dossier.entries.find(candidate => candidate.kind === 'deep_analysis');
+  // D48: the marks the player has SEEN on this figure (outward ones, from
+  // their perceived dispatches) - never read off the live entity, so a wound
+  // taken out of sight is not here and one healed unseen still is.
+  const seenMarks = perceivedConditionsOf(knowledge, entity.entity_id);
+  // D49: the ties this figure openly professes are public knowledge, read
+  // off the figure itself; a SECRET tie shows only once the player has
+  // learned it (their knowledge store - witnessed, or found out), marked as
+  // known to them. Never the live secret state.
+  const openTies = publicAffiliationsOf(entity);
+  const openTieIds = new Set(openTies.map(tie => tie.id));
+  const learnedTies = knownAffiliationsOf(knowledge, entity.entity_id).filter(tie => !tie.public && !openTieIds.has(tie.id));
+  const ties: TieView[] = [...openTies, ...learnedTies.map(tie => ({ ...tie, flag: MARKS_COPY.knownToYou }))];
 
   const investigations = (playerEntity.resources.investigations as number) || 0;
   const deepAnalyses = (playerEntity.resources.deep_analyses as number) || 0;
@@ -108,7 +122,19 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <span style={quiet}>{entity.position || entity.entity_type}</span>
-        {personaeVoice && <PersonaVoiceRow entityId={entity.entity_id} name={entity.name} voice={personaeVoice} paidNoteId={paidNoteId} />}
+        {seenMarks.length > 0 && (
+          <div className="gor-persona-marks">
+            <span className="gor-label">{MARKS_COPY.seenLabel}</span>
+            <MarkList marks={seenMarks} />
+          </div>
+        )}
+        {ties.length > 0 && (
+          <div className="gor-persona-marks">
+            <span className="gor-label">{MARKS_COPY.tiesLabel}</span>
+            <TieList ties={ties} />
+          </div>
+        )}
+        {personaeVoice &&<PersonaVoiceRow entityId={entity.entity_id} name={entity.name} voice={personaeVoice} paidNoteId={paidNoteId} />}
         <RelationshipObservations observations={observations} currentTurn={turnNumber} subjectName={entity.name} />
         {requestError && <Alert title="Your agents return empty-handed">{requestError}</Alert>}
         {isExpanded && <div id={briefingId} style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 8, borderTop: '1px solid var(--border-faint)' }}>
@@ -156,24 +182,20 @@ const DramatisPersonaeTab: React.FC<{ playerEntity: Entity | null; entities: Ent
   const known = entities.filter(entity => isEntityKnownToPlayer(playerEntity, entity, wiring.knowledge));
   // Knownness is deliberately evaluated before status and faction grouping:
   // an unseen death or affiliation must not establish a hidden identity.
-  // Nor may either be READ off the roster (D5): who is still about, and whom
-  // they stand with, is what the player last SAW (the structured status /
-  // allegiance on their perceived digest lines), never the live entity. A
-  // figure the player has seen no change in is believed alive (a legacy
-  // save's status line is read by perceivedStatusOf, never the live status).
+  // Who is still about may not be READ off the roster (D5): it is what the
+  // player last SAW (the structured status on their perceived digest lines),
+  // never the live entity - a figure the player has seen no change in is
+  // believed alive (a legacy save's status line is read by
+  // perceivedStatusOf, never the live status). Whom a figure stands with IS
+  // read off the roster: D49 rules a figure's openly professed faction
+  // public knowledge, so grouping follows the live faction_id - a secret tie
+  // never groups anyone (it lives in affiliations, shown only once learned).
   const believedStatus = (entity: Entity): Entity['status'] =>
     perceivedStatusOf(wiring.knowledge, entity.entity_id) ?? 'alive';
-  const believedFaction = (entity: Entity): string | null | undefined => {
-    const perceived = perceivedFactionOf(wiring.knowledge, entity.entity_id);
-    return perceived === undefined ? entity.faction_id : perceived;
-  };
   const knownLiving = known.filter(entity => entity.entity_id !== playerEntity.entity_id && entity.entity_type !== 'faction' && believedStatus(entity) === 'alive');
   const knownFactions = known.filter(entity => entity.entity_type === 'faction' && believedStatus(entity) === 'alive');
   const factionIds = new Set(knownFactions.map(faction => faction.entity_id));
-  const neutral = knownLiving.filter(entity => {
-    const faction = believedFaction(entity);
-    return !faction || !factionIds.has(faction);
-  });
+  const neutral = knownLiving.filter(entity => !entity.faction_id || !factionIds.has(entity.faction_id));
   const investigations = (playerEntity.resources.investigations as number) || 0;
   const observationCount = wiring.knowledge.filter(claim => claim.relationshipObservation).length;
 
@@ -203,7 +225,7 @@ const DramatisPersonaeTab: React.FC<{ playerEntity: Entity | null; entities: Ent
           <span className="gor-label" style={{ color: investigations > 0 ? 'var(--gold-700)' : 'var(--crimson-500)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>Investigations: {investigations}<InfoTooltip text="Your capacity for espionage. Spend to reveal beliefs, schemes, or secrets." /></span>
         </span>
         {wiring.personaeVoice && <p className="gor-config-note" id={paidNoteId} style={{ margin: 0 }}>{PERSONA_VOICE_COPY.paidNote}</p>}
-        {knownFactions.map(faction => <FactionSection key={faction.entity_id} faction={faction} members={knownLiving.filter(member => believedFaction(member) === faction.entity_id)} playerEntity={playerEntity} {...wiring} />)}
+        {knownFactions.map(faction => <FactionSection key={faction.entity_id} faction={faction} members={knownLiving.filter(member => member.faction_id === faction.entity_id)} playerEntity={playerEntity} {...wiring} />)}
         {neutral.length > 0 && <><span className="gor-label">Other known figures</span>{neutral.map(entity => <EntityDetails key={entity.entity_id} entity={entity} playerEntity={playerEntity} {...wiring} />)}</>}
       </>
     )}

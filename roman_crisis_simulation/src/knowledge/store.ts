@@ -47,7 +47,9 @@
  *     mill re-reporting; a rumor about a DIFFERENT topic of the same subject
  *     opens its own claim - the over-merge fix)
  *   - investigation: `investigation:{targetId}:{kind}` (the kind is the
- *     topic; re-buying the same aspect refreshes the same dossier claim, D14)
+ *     topic; re-buying the same aspect refreshes the same dossier claim, D14);
+ *     a secret tie learned (D49) is `investigation:{targetId}:affiliation:
+ *     {affiliationId}` - one claim per tie (ingestLearnedAffiliation)
  *   - scheme: `scheme:{schemerId}` (D28 - ONE discovery claim per schemer; a
  *     witnessed sighting records AWARENESS on it, a paid 'scheme'
  *     investigation accretes a NATURE clue - only the paid clue advances the
@@ -76,7 +78,7 @@
  * evicted are pruned so the graph never dangles.
  */
 
-import type { PerceivedChange, PerceptionSource } from '../perception/visibility';
+import type { PerceivedAffiliation, PerceivedChange, PerceivedCondition, PerceptionSource } from '../perception/visibility';
 import type { Entity, Report, ReportSource, RumorStance } from '../types';
 
 /**
@@ -142,6 +144,20 @@ export interface KnowledgeUpdate {
   status?: Entity['status'];
   /** Digest 'faction' updates only: the faction id the subject was seen to join, or null when seen to break away. */
   faction?: string | null;
+  /**
+   * Digest 'condition' updates only (D48): the mark as the perceived line
+   * showed it (PerceivedChange.perceivedCondition) - what the player believes
+   * the subject bears as of this stamp, `gone` once seen healed. Optional:
+   * legacy saves and every other channel omit it.
+   */
+  condition?: PerceivedCondition;
+  /**
+   * 'affiliation' updates only (D49): the tie as the player came to know it -
+   * seen taken up or given up (digest), or learned by other means
+   * (ingestLearnedAffiliation). Optional: legacy saves and every other
+   * channel omit it.
+   */
+  affiliation?: PerceivedAffiliation;
   /**
    * Bought beliefs/secrets readings only: the itemised findings the agent
    * brought back with this reading, frozen at its stamp (D14) so the held
@@ -324,7 +340,7 @@ function evictionTier(claim: KnowledgeClaim): number {
   const channel = channelOf(claim);
   if (channel === 'investigation' || channel === 'scheme') return 2;
   if (claim.relationshipObservation) return 1;
-  if (claim.updates.some(update => update.status !== undefined || update.faction !== undefined)) return 1;
+  if (claim.updates.some(update => update.status !== undefined || update.faction !== undefined || update.condition !== undefined || update.affiliation !== undefined)) return 1;
   return 0;
 }
 
@@ -391,9 +407,11 @@ interface IngestArtifact {
   credibility?: number;
   /** 'contradicts' forces a distinct claim node and a 'contradicts' edge (D29). */
   stance?: RumorStance;
-  /** See KnowledgeUpdate.status / .faction / .items. */
+  /** See KnowledgeUpdate.status / .faction / .condition / .affiliation / .items. */
   status?: Entity['status'];
   faction?: string | null;
+  condition?: PerceivedCondition;
+  affiliation?: PerceivedAffiliation;
   items?: string[];
   /** See KnowledgeClaim.occurrence - frozen when the claim opens. */
   occurrence?: string;
@@ -475,6 +493,15 @@ function upsertClaim(store: KnowledgeClaim[], artifact: IngestArtifact): Knowled
   }
   if (artifact.status !== undefined) update.status = artifact.status;
   if (artifact.faction !== undefined) update.faction = artifact.faction;
+  if (artifact.condition !== undefined) {
+    // Field by field, like every artifact copy here: the perceived mark only.
+    const { id, name, description, severity, outward, gone } = artifact.condition;
+    update.condition = { id, name, description, severity, outward, gone };
+  }
+  if (artifact.affiliation !== undefined) {
+    const { id, name, kind, public: isPublic, member } = artifact.affiliation;
+    update.affiliation = { id, name, kind, public: isPublic, member };
+  }
   if (artifact.items && artifact.items.length > 0) update.items = [...artifact.items];
 
   // A counterplay contradiction is a distinct node, never a continuation of
@@ -572,9 +599,14 @@ export function ingestPerceivedChanges(
       turn,
       source: change.source,
       // The believed state the line conveyed, structured (never re-parsed
-      // from the prose) - see perceivedStatusOf / perceivedFactionOf.
+      // from the prose) - see perceivedStatusOf / perceivedConditionsOf /
+      // knownAffiliationsOf. The faction a figure was seen to join is kept
+      // as belief too, though the roster now groups by the openly professed
+      // faction itself (D49 - public knowledge).
       status: change.perceivedStatus,
       faction: change.perceivedFaction,
+      condition: change.perceivedCondition,
+      affiliation: change.perceivedAffiliation,
     });
   }
   return next;
@@ -616,9 +648,73 @@ export function perceivedStatusOf(store: KnowledgeClaim[], entityId: string): En
   return (LEGACY_STATUS_LINE.exec(latest.text)?.[1] as Entity['status'] | undefined) ?? 'alive';
 }
 
-/** The faction the player last saw `entityId` join (null: seen breaking away), or undefined when they have seen no such change. */
-export function perceivedFactionOf(store: KnowledgeClaim[], entityId: string): string | null | undefined {
-  return latestStructured(store, `digest:faction:${entityId}`, update => update.faction);
+/**
+ * The marks the player has SEEN on `entityId` and not since seen gone (D48)
+ * - each mark's latest perceived state, oldest first seen first. A read
+ * model over the digest claims, never live ground truth: a mark gained out
+ * of the player's sight is not here, and one that healed unseen still is.
+ * Only outward marks can ever be perceived on another figure, so no inward
+ * mark reaches this list.
+ */
+export function perceivedConditionsOf(store: KnowledgeClaim[], entityId: string): PerceivedCondition[] {
+  const prefix = `digest:condition:${entityId}:`;
+  const marks: PerceivedCondition[] = [];
+  for (const claim of store) {
+    if (!claim.claimKey.startsWith(prefix)) continue;
+    const latest = latestStructured([claim], claim.claimKey, update => update.condition);
+    if (latest && !latest.gone && typeof latest.name === 'string') marks.push(latest);
+  }
+  return marks;
+}
+
+/**
+ * The ties the player KNOWS `entityId` holds (D49), as they came to know
+ * them - seen taken up (the digest: openly professed, or a secret rite they
+ * witnessed) or learned by other means (ingestLearnedAffiliation) - and not
+ * since seen given up. Each tie's latest known state across every channel,
+ * oldest-learned first. A read model over the store, never live ground
+ * truth: a secret tie taken up out of the player's sight is not here.
+ * Personae shows the SECRET ones among these, marked as known to the player;
+ * openly professed ties are public knowledge and read off the figure itself.
+ */
+export function knownAffiliationsOf(store: KnowledgeClaim[], entityId: string): PerceivedAffiliation[] {
+  const latest = new Map<string, { tie: PerceivedAffiliation; turn: number }>();
+  for (const claim of store) {
+    if (claim.subject !== entityId) continue;
+    for (const update of claim.updates) {
+      const tie = update.affiliation;
+      if (!tie || typeof tie.id !== 'string' || typeof tie.name !== 'string') continue;
+      const held = latest.get(tie.id);
+      if (!held || update.turn >= held.turn) latest.set(tie.id, { tie, turn: update.turn });
+    }
+  }
+  return [...latest.values()].filter(({ tie }) => tie.member).map(({ tie }) => tie);
+}
+
+/**
+ * Records a SECRET tie the player has learned by means other than seeing it
+ * (D49) - the seam the investigation wiring (D47) writes through once an
+ * agent reaches ai/core/affiliations.ts::secretAffiliationsOf. One claim per
+ * tie, keyed `investigation:{entityId}:affiliation:{id}` (a paid finding,
+ * evicted last); re-learning it appends a freshly stamped update. `text` is
+ * the player-facing account of how it was learned. Only the whitelisted
+ * fields are copied, like every ingestion here.
+ */
+export function ingestLearnedAffiliation(
+  store: KnowledgeClaim[],
+  learned: { entityId: string; affiliation: { id: string; name: string; kind: PerceivedAffiliation['kind'] }; text: string; turn: number; source?: KnowledgeSource }
+): KnowledgeClaim[] {
+  const { id, name, kind } = learned.affiliation;
+  return upsertClaim(store, {
+    claimKey: `investigation:${learned.entityId}:affiliation:${id}`,
+    subject: learned.entityId,
+    topic: normalizeTopic('affiliation'),
+    channel: 'investigation',
+    text: learned.text,
+    turn: learned.turn,
+    source: learned.source ?? 'spy',
+    affiliation: { id, name, kind, public: false, member: true },
+  });
 }
 
 /**
