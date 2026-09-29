@@ -448,7 +448,8 @@ all of them except one, a docs edit, which is made in BACKLOG B7. The six
 branches were then merged, and the seams between them fixed and tested
 (`tests/auditIntegration.test.ts`).
 
-**What was wrong, in brief** (full records in the `audit-fix/*` commits):
+**What was wrong, in brief** (the full record is in the fix commits each
+"Merge the … audit fixes" commit brings in):
 - *Rules.* A survived death save could still ship an "assassinated"
   headline, and it restored an exiled player to "alive". The player's own
   settled fate never reached the narrator. Authored events moved the
