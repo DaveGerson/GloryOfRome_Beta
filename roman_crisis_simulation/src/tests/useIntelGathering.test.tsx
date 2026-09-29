@@ -78,7 +78,15 @@ type HookResult = {
 // its beliefs and scheme readings land false (canned falsehoods), its
 // secrets truthfully find nothing, and its assessment reaches nothing true.
 // ---------------------------------------------------------------------------
-const target = makeEntity({ entity_id: 'maximinus_thrax', name: 'Maximinus Thrax' });
+// A record to investigate: an honest reading of an empty one finds nothing
+// whatever the roll (D47), so each aspect needs something on file.
+const target = makeEntity({
+  entity_id: 'maximinus_thrax', name: 'Maximinus Thrax',
+  beliefs: ['Only the legions can save Rome'],
+  secrets: ['Is illiterate and ashamed of it'],
+  active_scheme: { name: 'The Rhine Oath', overall_goal: 'Win the Rhine legions to his name', steps: [{ objective: 'Pay the centurions from his own purse', status: 'in_progress' }] },
+  current_state_narrative: 'Restless in the camps',
+});
 
 function makePlayer(resources: Record<string, number>): Entity {
   return makeEntity({ entity_id: 'severus_alexander', name: 'Severus Alexander', resources });
@@ -86,19 +94,22 @@ function makePlayer(resources: Record<string, number>): Entity {
 
 const RISKY_CONSEQUENCE =
   "One of your agents was seen near the target's villa and is now being watched, reducing their effectiveness.";
-const MOCK_BELIEFS_DISPLAY = [
-  '(Mock) Believes the gods have abandoned Rome.',
+// The canned accounts Mock Mode gives for `target`'s record, from its
+// deterministic seeds: a false "nothing" for beliefs, the true secret, a
+// misattributed step of the scheme and a garbled fragment of the situation.
+const MOCK_BELIEFS_DISPLAY: string[] = [];
+const MOCK_SECRETS_DISPLAY = [
+  '(Mock) Is illiterate and ashamed of it',
 ];
-const MOCK_SECRETS_DISPLAY: string[] = [];
 const MOCK_SCHEME_CLUES = [
-  '(Mock) Coin is quietly moving toward the eastern ports.',
+  '(Mock) Told of a kinsman, not the master: Pay the centurions from his own purse',
 ];
 const MOCK_BELIEFS_REPORT =
-  '(Mock) Your agents bring back word of what Maximinus Thrax holds true.';
+  "(Mock) Your agents looked into Maximinus Thrax's beliefs and found nothing worth the name.";
 const MOCK_SECRETS_REPORT =
-  "(Mock) Your agents looked into Maximinus Thrax's secrets and found nothing worth the name.";
+  '(Mock) Your agents bring back word of what Maximinus Thrax would keep hidden.';
 const MOCK_DEEP_ANALYSIS =
-  '(Mock Analysis) Our agents report on Maximinus Thrax: Has been seen dining with a Parthian envoy. They pose a threat worth watching.';
+  '(Mock Analysis) Our agents report on Maximinus Thrax: …Restless in…, since the Ides. They pose a threat worth watching.';
 /** The GM-private truth each commit callback is handed beside the account (D47) - forwarded, never read by the hook. */
 const truthOf = (kind: RequestType) => expect.objectContaining({ kind, targetId: 'maximinus_thrax' });
 const USER_FACING_ERROR = 'The intelligence request could not be completed. Please try again.';

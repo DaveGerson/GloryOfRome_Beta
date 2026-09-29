@@ -53,7 +53,7 @@ const PlayerStatus: React.FC<{ playerEntity: Entity | null }> = ({ playerEntity 
             <div className="gor-dossier-post">
                 {playerEntity.position || playerEntity.entity_type} · {playerEntity.location}
             </div>
-            <div id={DETAILS_ID} hidden={folded}>
+            <div id={DETAILS_ID} className="gor-dossier-details" hidden={folded}>
                 <div className="gor-dossier-field">
                     <span className="gor-label">Current Goal<InfoTooltip text="Your character's most immediate objective. Pursue this or forge your own path." /></span>
                     <span className="gor-dossier-goal">{playerEntity.short_term_goals[0] || 'Survive the week.'}</span>

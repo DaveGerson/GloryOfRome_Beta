@@ -111,7 +111,7 @@ describe('journey: lasting marks (D48)', () => {
       },
     });
 
-    expect(t3.digestTexts).toContain('Julia Mamaea no longer bears a burned hand.');
+    expect(t3.digestTexts).toContain('Julia Mamaea no longer shows a burned hand.');
     expect(perceivedConditionsOf(t3.knowledge, JULIA)).toEqual([]);
     expect(runner.entity(JULIA).conditions?.map(mark => mark.id)).toEqual(['nightmares']);
   });

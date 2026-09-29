@@ -52,7 +52,13 @@ const world: WorldState = makeWorldState({
   regions: { 'Palatine Hill': region(), 'The Curia': region(), 'The Suburra': region() },
 });
 const player = makeEntity({ entity_id: 'player', name: 'Severus Alexander', location: 'Palatine Hill', resources: { denarii: 100, investigations: 3, deep_analyses: 2 } });
-const marcus = makeEntity({ entity_id: 'marcus', name: 'Marcus Aquila', location: 'Palatine Hill', position: 'Tribune' });
+// A record to investigate: an honest reading of an empty one finds nothing
+// whatever the roll (D47), so the bought-intel cases need something on file.
+const marcus = makeEntity({
+  entity_id: 'marcus', name: 'Marcus Aquila', location: 'Palatine Hill', position: 'Tribune',
+  beliefs: ['The legions are owed their pay', 'Rome needs a soldier on the throne'],
+  secrets: ['Took a bribe from a grain factor'],
+});
 const gaius = makeEntity({ entity_id: 'gaius', name: 'Gaius Pontius', location: 'The Suburra' });
 /**
  * The first itemised belief the offline mock brings back on Marcus. Since

@@ -84,7 +84,7 @@ async function click(element: HTMLElement): Promise<void> {
 
 /** The disclosure heading of an optional register (III, IV). */
 function foldNamed(container: HTMLElement, title: string): HTMLButtonElement {
-  const fold = Array.from(container.querySelectorAll<HTMLButtonElement>('button[aria-controls]'))
+  const fold = Array.from(container.querySelectorAll<HTMLButtonElement>('button.gor-register-fold'))
     .find(candidate => candidate.textContent?.trim() === title);
   expect(fold, `fold named "${title}"`).toBeDefined();
   return fold!;
@@ -207,14 +207,25 @@ describe('components/TurnComposer', () => {
       expect(fold.getAttribute('aria-expanded')).toBe('false');
       expect(isVisible(field)).toBe(false);
 
-      // Holding words, it stays open: pressing the heading goes to the words.
+      // Its hint is the field's description, so a reader who opens it hears it.
       await click(fold);
+      const hintId = field.getAttribute('aria-describedby')?.split(' ')[0];
+      expect(container.querySelector(`#${hintId}`)?.classList.contains('gor-hint')).toBe(true);
+
+      // Holding words, it stays open, and its heading is then a plain way to
+      // the words - no longer a disclosure that claims it could close.
       await setValue(field, 'Keep the Senate close.');
       (document.activeElement as HTMLElement).blur();
       await click(fold);
-      expect(fold.getAttribute('aria-expanded')).toBe('true');
+      expect(fold.hasAttribute('aria-expanded')).toBe(false);
       expect(isVisible(field)).toBe(true);
       expect(document.activeElement).toBe(field);
+
+      // Emptied under the cursor, it never folds shut and drops the focus.
+      await setValue(field, '');
+      expect(isVisible(field)).toBe(true);
+      expect(document.activeElement).toBe(field);
+      expect(fold.getAttribute('aria-expanded')).toBe('true');
     }
 
     // The send is never inside the registers' scroll: it stays on the desk.
@@ -727,7 +738,7 @@ describe('components/TurnComposer', () => {
       .toBe('The guard rotation changed yesterday.');
     // A restored draft's words are never folded out of sight.
     for (const title of ['What you intend', 'What you ask']) {
-      expect(foldNamed(container, title).getAttribute('aria-expanded')).toBe('true');
+      expect(foldNamed(container, title).hasAttribute('aria-expanded')).toBe(false);
       expect(isVisible(byAriaLabel<HTMLTextAreaElement>(container, title))).toBe(true);
     }
   });

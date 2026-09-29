@@ -792,7 +792,10 @@ function describeDelta(delta: EventDelta, viewer: Entity, entities: Entity[], wo
           gained: `${name} now bears a mark: ${mark}.`,
           deepened: `A mark on ${name} grows worse: ${mark}.`,
           eased: `A mark on ${name} eases: ${mark}.`,
-          healed: `${name} no longer bears ${mark}.`,
+          // Worded from the viewer's side: a mark that healed and one that
+          // only went inward look the same from outside, and the line must
+          // be true of both.
+          healed: `${name} no longer shows ${mark}.`,
         };
       return lines[effect.kind];
     }
@@ -865,7 +868,10 @@ export function buildPerceivedDigest(
       const effect = conditionEffectFor(delta, viewer, entities, preTurnEntities);
       if (effect) {
         const { id, name, description, severity, outward } = effect.condition;
-        change.perceivedCondition = { id, name, description, severity, outward, gone: effect.kind === 'healed' };
+        // Another's mark is known by how it shows, never by its account -
+        // how it weighs on its bearer is theirs alone (D48, D5).
+        const ownMark = delta.key.split(':')[0] === viewer.entity_id;
+        change.perceivedCondition = { id, name, description: ownMark ? description : '', severity, outward, gone: effect.kind === 'healed' };
       }
     } else if (delta.type === 'affiliation') {
       const effect = affiliationEffectFor(delta, entities, preTurnEntities);

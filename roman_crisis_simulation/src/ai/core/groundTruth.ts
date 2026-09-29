@@ -411,9 +411,15 @@ export interface SchemeClueRecord {
 }
 
 /** Every paid scheme clue on `targetId` the ledger still holds, oldest first (D28). */
+/** A ledger entry's investigation record with a standing this module can read - a hand-edited or damaged save may hold one without. */
+function hasKnownStanding(entry: TruthLedgerEntry): boolean {
+    const standing = entry.investigation?.standing;
+    return standing === 'true' || standing === 'garbled' || standing === 'false';
+}
+
 export function schemeClueRecords(ledger: readonly TruthLedgerEntry[], targetId: string): SchemeClueRecord[] {
     return ledger
-        .filter(entry => entry.aboutId === targetId && entry.investigation?.kind === 'scheme')
+        .filter(entry => entry.aboutId === targetId && entry.investigation?.kind === 'scheme' && hasKnownStanding(entry))
         .map(entry => ({
             text: entry.claim,
             standing: entry.investigation!.standing,
@@ -557,6 +563,7 @@ export function deriveLeverageTruth(player: Entity, ledger: readonly TruthLedger
             const entry = [...ledger].reverse().find(candidate =>
                 candidate.aboutId === targetId
                 && candidate.investigation?.kind === 'secrets'
+                && hasKnownStanding(candidate)
                 && candidate.claim === item);
             if (!entry?.investigation) continue;
             out.push({

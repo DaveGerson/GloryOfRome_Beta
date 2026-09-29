@@ -449,6 +449,12 @@ export function applyDeltas(
 
                         // Add to new faction's member list and update entity's faction_id
                         entityToMove.faction_id = newFactionId;
+                        // The openly professed faction is public (D49): a tie to
+                        // it kept secret until now is secret no longer.
+                        if (newFactionId && entityToMove.affiliations?.some(tie => tie.faction_id === newFactionId && !tie.public)) {
+                            entityToMove.affiliations = entityToMove.affiliations.map(tie =>
+                                tie.faction_id === newFactionId ? { ...tie, public: true } : tie);
+                        }
                         if (newFactionId) {
                             const newFaction = updatedEntities.find(e => e.entity_id === newFactionId);
                             if (newFaction && newFaction.faction_members) {
@@ -484,7 +490,7 @@ export function applyDeltas(
                         gmNotes.push(`[Engine] Refused an 'affiliation' delta on '${delta.key}' - no entity '${entityId}' is on the roster.`);
                         break;
                     }
-                    const refusal = applyAffiliationDelta(entity, delta);
+                    const refusal = applyAffiliationDelta(entity, delta, currentEntities.find(e => e.entity_id === entityId));
                     if (refusal) gmNotes.push(refusal);
                     break;
                 }

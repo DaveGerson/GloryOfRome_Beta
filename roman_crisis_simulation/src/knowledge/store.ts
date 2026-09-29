@@ -612,17 +612,6 @@ export function ingestPerceivedChanges(
   return next;
 }
 
-/** The newest structured value `read` finds on the claim keyed `claimKey` (ingestPerceivedChanges's `digest:{deltaType}:{deltaKey}`), walking its timeline back from the latest update. */
-function latestStructured<T>(store: KnowledgeClaim[], claimKey: string, read: (update: KnowledgeUpdate) => T | undefined): T | undefined {
-  const claim = store.find(candidate => candidate.claimKey === claimKey);
-  if (!claim) return undefined;
-  for (let i = claim.updates.length - 1; i >= 0; i--) {
-    const value = read(claim.updates[i]);
-    if (value !== undefined) return value;
-  }
-  return undefined;
-}
-
 /**
  * The fixed line the perception layer wrote for every status delta before
  * updates carried a structured status ("{name} is now {status}." / "Your
@@ -657,14 +646,21 @@ export function perceivedStatusOf(store: KnowledgeClaim[], entityId: string): En
  * mark reaches this list.
  */
 export function perceivedConditionsOf(store: KnowledgeClaim[], entityId: string): PerceivedCondition[] {
-  const prefix = `digest:condition:${entityId}:`;
-  const marks: PerceivedCondition[] = [];
+  // Aggregated per MARK (its engine id), not per claim: a delta may key the
+  // same mark by its name one turn and its id the next, or by the bearer
+  // alone, and a heal seen under one key must still clear a mark first seen
+  // under another. Newest update wins, as knownAffiliationsOf does for ties.
+  const latest = new Map<string, { mark: PerceivedCondition; turn: number }>();
   for (const claim of store) {
-    if (!claim.claimKey.startsWith(prefix)) continue;
-    const latest = latestStructured([claim], claim.claimKey, update => update.condition);
-    if (latest && !latest.gone && typeof latest.name === 'string') marks.push(latest);
+    if (claim.subject !== entityId || !claim.claimKey.startsWith('digest:condition:')) continue;
+    for (const update of claim.updates) {
+      const mark = update.condition;
+      if (!mark || typeof mark.id !== 'string' || typeof mark.name !== 'string') continue;
+      const held = latest.get(mark.id);
+      if (!held || update.turn >= held.turn) latest.set(mark.id, { mark, turn: update.turn });
+    }
   }
-  return marks;
+  return [...latest.values()].filter(({ mark }) => !mark.gone).map(({ mark }) => mark);
 }
 
 /**

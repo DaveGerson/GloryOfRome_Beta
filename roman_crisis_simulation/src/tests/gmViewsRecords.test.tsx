@@ -448,7 +448,7 @@ describe('gm/PrivateSceneGmView — the private scene ledger', () => {
 describe('gm/TruthLedgerView — true vs. believed', () => {
   it('renders the empty-ledger note', async () => {
     const { container } = await mount(<TruthLedgerView ledger={[]} reports={[]} />);
-    expect(container.textContent).toContain('No rumors have been recorded in the truth ledger yet.');
+    expect(container.textContent).toContain('No rumors or investigation findings have been recorded in the truth ledger yet.');
   });
 
   it('renders newest first with roman turn, disposition, ASSUMED flag, and matching-report credibility', async () => {

@@ -15,6 +15,7 @@
 import { Adjudication, Entity, WorldState, SimulationState, NpcIntent, IntelDistortion } from '../../types';
 import type { ActionResolutionTier } from '../core/resolution';
 import type { InvestigationPlan, PlannedFinding, SchemeNaturePlan } from '../core/groundTruth';
+import { publicAffiliationsOf } from '../core/affiliations';
 import { asPromptData, playerOutputDeltaKey, playerOutputDeltaReason } from './fragments';
 import { ACTORS_DESCRIPTION } from '../core/schemas';
 
@@ -244,11 +245,17 @@ export function buildInvestigationPrompt(
     - **Escape All Quotes:** Inside any string value, every double quote (") MUST be escaped (\\").
     - **No Trailing Commas.**`;
 
+  // Only what IS public (D47): a false account is invented from this, so
+  // nothing here may be ground truth - not the target's goals (a deep
+  // analysis's truths) nor their inner temperament - or an invention
+  // "consistent with the profile" could be true while the ledger calls it
+  // false.
+  const openTies = publicAffiliationsOf(target).map(tie => tie.name);
   const prompt = `**Target Profile (what is publicly known):**
     - Name: ${target.name}
-    - Position: ${target.position}
-    - Personality: Ambition(${target.personality?.ambition}), Paranoia(${target.personality?.paranoia}), Loyalty(${target.personality?.loyalty}), Cunning(${target.personality?.cunning}), Honor(${target.personality?.honor})
-    - Known Goals: ${target.short_term_goals.join(', ')}
+    - Position: ${target.position}${target.epithet ? `
+    - Known as: ${target.epithet}` : ''}${openTies.length > 0 ? `
+    - Openly professes: ${openTies.join('; ')}` : ''}
 
 ${findingsBlock(plan, 'FINDINGS')}`;
 

@@ -30,6 +30,7 @@ const PLAYER = 'severus_alexander';
 const JULIA = 'julia_mamaea';
 const THRAX = 'maximinus_thrax';
 const MAGNUS = 'gaius_pontius_magnus';
+const SENATE = 'roman_senate';
 
 function affiliationDelta(key: string, affiliation: EventDelta['affiliation'], reason: string, extra: Partial<EventDelta> = {}): EventDelta {
   return { type: 'affiliation', key, delta: 0, reason, affiliation, ...extra };
@@ -57,6 +58,7 @@ describe('journey: ties openly professed and kept secret (D49)', () => {
           deltas: [
             affiliationDelta(`${THRAX}:guard_conspirators`, { change: 'join', name: 'the Guard\'s conspirators', kind: 'faction', public: false }, 'Thrax swears himself to the plotters in the camp.'),
             affiliationDelta(`${MAGNUS}:boosters_of_the_triumph`, { change: 'join', name: 'the boosters of the triumph', kind: 'cause', public: true }, 'Magnus declares for a triumph on the Rhine.'),
+            affiliationDelta(`${SENATE}:boosters_of_the_triumph`, { change: 'join', name: 'the boosters of the triumph', kind: 'cause', public: true }, 'The Senate votes to back the triumph.'),
           ],
         }),
       },
@@ -72,8 +74,12 @@ describe('journey: ties openly professed and kept secret (D49)', () => {
       ['cause_of_the_frontier_legions', true],
       ['guard_conspirators', false],
     ]);
-    expect(t1.digestTexts).toContain('Gaius Pontius Magnus is now openly of the boosters of the triumph.');
+    // Open news is public knowledge to whoever knows the figure (the Senate
+    // is in the Emperor's network); it is no introduction to a stranger -
+    // the Emperor has not yet heard of Magnus (D49).
+    expect(t1.digestTexts).toContain('Roman Senate is now openly of the boosters of the triumph.');
     expect(t1.digest.find(change => change.deltaType === 'affiliation')?.source).toBe('public');
+    expect(t1.digestTexts.join('\n')).not.toContain('Gaius Pontius Magnus');
     expect(t1.digestTexts.join('\n')).not.toContain('conspirators');
 
     // --- Turn 2: a secret rite in the Emperor's own hall -------------------

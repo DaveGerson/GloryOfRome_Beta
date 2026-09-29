@@ -39,8 +39,8 @@ import type { KnowledgeClaim } from '../knowledge/store';
 import type { PrivateSceneRecord } from '../privateScene/model';
 import type { VoiceCast } from '../narration/voiceCast';
 import { migrateSaveEnvelope } from './saveMigrations';
-import { conditionsOf, normalizeConditions } from '../ai/core/conditions';
-import { affiliationsOf, normalizeAffiliations } from '../ai/core/affiliations';
+import { conditionsOf, MAX_ENTITY_CONDITIONS, normalizeConditions } from '../ai/core/conditions';
+import { affiliationsOf, MAX_ENTITY_AFFILIATIONS, normalizeAffiliations } from '../ai/core/affiliations';
 
 /**
  * Bump this whenever `SaveGameState`'s shape changes in a backwards-
@@ -516,9 +516,16 @@ export function normalizeLoadedPrivateScenes(value: unknown): PrivateSceneRecord
  * sound new one - loads unchanged.
  */
 export function normalizeLoadedEntities(entities: Entity[]): Entity[] {
+  // Sound = every record well formed, within the cap, and no id twice (a
+  // duplicate would let a later heal or leave clear one copy and keep the
+  // other while the digest reported it gone).
+  const boundedAndDistinct = (records: readonly { id: string }[], max: number) =>
+    records.length <= max && new Set(records.map(record => record.id)).size === records.length;
   const sound = (entity: Entity) => !isRecord(entity) || (
-    (entity.conditions === undefined || (Array.isArray(entity.conditions) && conditionsOf(entity).length === entity.conditions.length))
-    && (entity.affiliations === undefined || (Array.isArray(entity.affiliations) && affiliationsOf(entity).length === entity.affiliations.length))
+    (entity.conditions === undefined || (Array.isArray(entity.conditions)
+      && conditionsOf(entity).length === entity.conditions.length && boundedAndDistinct(entity.conditions, MAX_ENTITY_CONDITIONS)))
+    && (entity.affiliations === undefined || (Array.isArray(entity.affiliations)
+      && affiliationsOf(entity).length === entity.affiliations.length && boundedAndDistinct(entity.affiliations, MAX_ENTITY_AFFILIATIONS)))
   );
   if (entities.every(sound)) return entities;
   return entities.map(entity => {

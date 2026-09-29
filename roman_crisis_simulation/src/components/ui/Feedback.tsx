@@ -75,7 +75,10 @@ export const Tooltip: React.FC<{ label: React.ReactNode; wide?: boolean; childre
                 ref={wrapRef}
                 className="gor-tooltip-wrap"
                 onMouseEnter={() => setShow(true)}
-                onMouseLeave={() => setShow(false)}
+                // A tap focuses the trigger and then fires mouseleave straight
+                // after the click: while focus is still within, the bubble
+                // stays (blur and Escape close it), or a phone never reads it.
+                onMouseLeave={() => { if (!wrapRef.current?.contains(document.activeElement)) setShow(false); }}
                 onFocus={() => setShow(true)}
                 onBlur={() => setShow(false)}
                 onKeyDown={event => { if (event.key === 'Escape' && show) setShow(false); }}

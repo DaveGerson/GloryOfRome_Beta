@@ -61,7 +61,7 @@ const FindingDetail: React.FC<{ finding: IntelFindingTruth; aboutId: string }> =
 export const TruthLedgerView: React.FC<{ ledger: TruthLedgerEntry[]; reports: Report[] }> = ({ ledger, reports }) => (
     <>
         {ledger.length === 0 ? (
-            <GmNote>No rumors have been recorded in the truth ledger yet.</GmNote>
+            <GmNote>No rumors or investigation findings have been recorded in the truth ledger yet.</GmNote>
         ) : (
             ledger.slice().reverse().map(entry => {
                 const finding = entry.investigation;

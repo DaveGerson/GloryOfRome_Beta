@@ -139,7 +139,12 @@ export function affiliationIdOfDelta(delta: EventDelta): string {
  * Going public or being exposed may also name a tie never recorded (the
  * story found one out); it is then added as openly known.
  */
-export function applyAffiliationDelta(entity: Entity, delta: EventDelta): string | null {
+export function applyAffiliationDelta(
+    entity: Entity,
+    delta: EventDelta,
+    /** The entity as the turn began: a tie public then stays public, even left and taken up again in one turn. */
+    startOfTurn?: Pick<Entity, 'affiliations'>,
+): string | null {
     const payload = delta.affiliation;
     const refuse = (why: string) => `[Engine] Refused an 'affiliation' delta on '${delta.key}' - ${why}; ${entity.name}'s affiliations were left unchanged.`;
     if (!payload || !(AffiliationChangeEnum as readonly string[]).includes(payload.change)) {
@@ -170,7 +175,10 @@ export function applyAffiliationDelta(entity: Entity, delta: EventDelta): string
                 list[index] = { ...list[index], ...restated, public: list[index].public || payload.public === true };
                 break;
             }
-            const refusal = add(payload.public === true);
+            // A tie once openly professed is never secret again (D49): one
+            // left and taken up again within a turn comes back public.
+            const wasPublic = affiliationsOf(startOfTurn).some(affiliation => affiliation.id === id && affiliation.public);
+            const refusal = add(payload.public === true || wasPublic);
             if (refusal) return refusal;
             break;
         }

@@ -248,7 +248,7 @@ describe('D48 perception: outward marks are seen like a status change, inward on
     expect(slim[1].conditions).toEqual([scar]);
     expect('conditions' in slim[0]).toBe(false);
     const [change] = buildPlayerPerceivedDigest(heal, healed.after[0], healed.after, world, slim);
-    expect(change.text).toBe('Local Courtier no longer bears a nasty scar.');
+    expect(change.text).toBe('Local Courtier no longer shows a nasty scar.');
     expect(change.perceivedCondition?.gone).toBe(true);
     // Without a record of the turn's start a heal cannot be seen.
     expect(buildPlayerPerceivedDigest(heal, healed.after[0], healed.after, world)).toEqual([]);

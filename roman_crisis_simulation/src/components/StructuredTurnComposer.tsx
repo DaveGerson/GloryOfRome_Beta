@@ -31,8 +31,11 @@ interface FoldedRegisterProps {
  * closed by default (progressive disclosure, B14): Seal & send then clears a
  * short laptop's desk. The heading is the disclosure button. Opening a
  * register moves focus into its field. A register that holds words is open,
- * and stays open while it does - a restored draft is never folded out of
- * sight - so pressing its heading then goes to the words instead.
+ * and stays open from then on - a restored draft is never folded out of
+ * sight, and clearing the field never folds it shut under the cursor - so
+ * while it holds words its heading is a plain way to the field, no longer
+ * a disclosure. The field is described by its hint, so a reader who opens
+ * the register hears it.
  */
 const FoldedRegister: React.FC<FoldedRegisterProps> = ({
   headingId, numeral, title, hint, className, value, disabled, fieldProps, onValueChange,
@@ -41,8 +44,13 @@ const FoldedRegister: React.FC<FoldedRegisterProps> = ({
   const fieldRef = useRef<HTMLTextAreaElement>(null);
   const requestFocus = useFocusRequest();
   const holdsWords = value !== '';
+  // Words arriving (typed, or restored) unfold it for good: adjusted during
+  // render, React's pattern for state that follows a prop.
+  if (holdsWords && !unfolded) setUnfolded(true);
   const open = unfolded || holdsWords;
   const panelId = `${headingId}-panel`;
+  const hintId = `${headingId}-hint`;
+  const describedBy = [hintId, fieldProps['aria-describedby']].filter(Boolean).join(' ');
   const toggle = () => {
     if (holdsWords) {
       fieldRef.current?.focus();
@@ -55,15 +63,15 @@ const FoldedRegister: React.FC<FoldedRegisterProps> = ({
     <section aria-labelledby={headingId} className={className} style={fieldStyle}>
       <RegisterHeading numeral={numeral} headingId={headingId} title={
         // Locked with the rest of the tablet; a folded register is empty, so nothing is kept from sight.
-        <button type="button" className="gor-register-fold" aria-expanded={open} aria-controls={panelId} disabled={disabled} onClick={toggle}>
+        <button type="button" className="gor-register-fold" aria-expanded={holdsWords ? undefined : open} aria-controls={holdsWords ? undefined : panelId} disabled={disabled} onClick={toggle}>
           <span className="gor-register-fold-mark" aria-hidden="true" />{title}
         </button>
       } />
       {/* An inline display would outrank `hidden`, so the column is laid out only while open. */}
       <div id={panelId} hidden={!open} style={open ? fieldStyle : undefined}>
-        <p className="gor-hint" style={{ margin: 0 }}>{hint}</p>
+        <p id={hintId} className="gor-hint" style={{ margin: 0 }}>{hint}</p>
         <textarea ref={fieldRef} className="gor-textarea" rows={2} aria-label={title} value={value} disabled={disabled}
-          {...fieldProps} onChange={event => onValueChange(event.target.value)} />
+          {...fieldProps} aria-describedby={describedBy} onChange={event => onValueChange(event.target.value)} />
       </div>
     </section>
   );
