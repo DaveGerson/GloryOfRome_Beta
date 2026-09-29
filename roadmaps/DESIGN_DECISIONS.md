@@ -783,3 +783,99 @@ those stops; desktop is byte-identical.
 ledger deep-link only where the console is already enabled), D34 (the
 keyless notice is device-side and names no key), D44 (ceremony Roman —
 "safe up to Week XI" — while the attempt pips stay Arabic).
+
+---
+
+Rulings D46–D49 answer the questions the 2026-09-29 mechanics and GUI audit
+raised (`BACKLOG.md` B14, `ROADMAP_UPLEVEL_2026-09.md` Part 5). The owner's
+words are quoted; what follows each quote is how it is built.
+
+## D46 — The world moves whether or not the player acts; the player's turn is what advances it
+*Owner ruling (2026-09-29):* "the world is independent of the player, it
+happens no matter what. But they have to initiate a turn."
+
+The world's own movers — rivals, factions, creditors, the Senate, the mob —
+may change the player's circumstances on ANY turn: exile or arrest them,
+seize what they hold, turn a patron against them. That includes a turn on
+which the player attempted nothing (a question-only or private-intent turn):
+their inaction is not a shield. But nothing happens between turns. The world
+advances only when the player submits a turn, and time does not pass while
+they deliberate.
+
+What does not change: the player's own actions stay the player's (D37, D42).
+A no-attempt turn still may not invent an action BY the player, and the world
+acting ON the player must come from someone in the world (a non-player
+origin). A death on the player still goes through the mortality pipeline
+(D2).
+*Changes:* the no-attempt boundary's world carve-out (until now rumors and a
+creditor's dependency) extends to world-authored status and resource changes
+on the player; the NO-ATTEMPT prompt rule and the GM Intervention block say
+so.
+
+## D47 — Investigations reach for the truth; two hidden rolls decide how right and how much
+*Owner ruling (2026-09-29):* investigations should draw on the target's real
+beliefs, secrets and schemes, "but the fidelity of the result returned should
+depend on a roll for both accuracy, and fidelity."
+
+- **Accuracy** — is what the agent brings back true? A good roll returns the
+  truth; a middling one a garbled or half-true account; a bad one a falsehood
+  (a mistake, or a story the target planted).
+- **Fidelity** — how much of the truth did they reach? A bad roll yields a
+  fragment; a good one a fuller picture. A single scheme purchase never
+  carries the whole plan (D28): its nature is still earned across clues.
+
+Both rolls are hidden (D4). Every finding records a GM-private truth flag in
+the truth ledger (D11), so the system always knows which of its agents' words
+are false. The player receives the agent's sourced account, never a
+system-authoritative fact (D26); the source may be wrong, the window may not.
+`secret_truth` is never an input.
+*Changes:* the investigation prompt is grounded in tier-scoped ground truth
+instead of generating plausible secrets from a name and a personality.
+
+## D48 — The narration is the game's state; hard assets lost are removed; lasting marks are tracked
+*Owner ruling (2026-09-29):* "The narration is effectively the 'state of the
+game' — the narration is real. However, if hard assets are lost those should
+be removed. Not sure if we have a status tracker, but if not we should have
+that (e.g. a nasty scar, PTSD, etc.). These affect a character's intended
+actions."
+
+- What the narration says happened, happened. It is not decoration over the
+  "real" state.
+- A hard asset lost — denarii, holdings, legions, a house — is removed as a
+  change to that character's resources, never left standing in the ledger
+  while the story says it is gone.
+- Every character (the player included) carries **conditions**: lasting marks
+  such as a nasty scar, a limp, nightmares, grief or a broken oath. Each says
+  whether it shows outwardly (a scar the room can see) or is borne inwardly
+  (nightmares only the bearer knows). Later events can deepen, fade or heal
+  a condition.
+- Conditions affect what a character sets out to do. A mind weighs its own
+  when choosing its intent, and the adjudicator weighs the actor's when
+  resolving what they attempt.
+
+*Refines D2:* "survives, but suffers a real loss (applied as validated
+deltas)" is met by a removed hard asset and/or a new condition, and the
+narration conveys it. The band itself ("survived with a loss") is not
+tracked as a state; only its consequences are.
+
+## D49 — Affiliations are openly professed or kept secret
+*Owner ruling (2026-09-29):* what is known of an affiliation depends on
+whether "they [are] public about their affiliation (e.g. they might publicly
+be a booster of a triumph, but might keep their affiliation to a cult of
+Bacchus a secret, or even their religion if they convert to Christianity)."
+
+Every character — the player included — may hold several affiliations: a
+political faction, a cause, a cult, a religion. Each is either **openly
+professed** or **kept secret**.
+- An openly professed affiliation is public knowledge (D5's crude-v1
+  convention): anyone who knows the figure knows it.
+- A secret one is ground truth known to its holder and the GM. Others learn
+  it only as secrets are learned: by witnessing it (present at the rite), by
+  investigation (D47), from a confidant, or when its holder goes public or is
+  exposed. Exposure is something the world can react to.
+- The player's own secret affiliations are shown to the player, marked as
+  secret, and are never known to NPCs who have not learned them.
+
+*Resolves:* the Personae roster's allegiance question (B14): a figure's
+openly professed faction is public, so the roster may read it; a secret one
+shows only once the player has learned it.

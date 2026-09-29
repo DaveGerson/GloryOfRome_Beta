@@ -804,6 +804,8 @@ names what already landed, so the question is only the part left.
   still be rolled by `processMortality`, which runs after this gate), or
   have the NO-ATTEMPT prompt and the intervention block say these effects
   wait for the next observable turn?
+  **RULED 2026-09-29 — D46:** the world acts on the player whether or not
+  they act, but only when they take a turn.
 - **Investigations are not grounded in the truth** (`knowledge-investigations-ungrounded`).
   `buildInvestigationPrompt` sees only name, position, personality and
   goals, never the target's real `beliefs`, `secrets` or `active_scheme`,
@@ -815,6 +817,8 @@ names what already landed, so the question is only the part left.
   `secret_truth`), have failure tiers fabricate knowingly, and record a
   GM-private truth flag per finding as rumors do? This touches the prompts'
   player-visible output and the D26 framing, so it wants a ruling first.
+  **RULED 2026-09-29 — D47:** ground them, with two hidden rolls, one for
+  accuracy and one for fidelity.
 - **A loss band with no loss authored** (`rules-loss-band-without-loss`).
   Landed: outcomes are matched by candidate id, and a GM-private
   "[Mortality] … band required a loss but none was authored" note records
@@ -823,6 +827,10 @@ names what already landed, so the question is only the part left.
   should the engine (a) apply a deterministic fallback (a fraction of
   denarii, a relation hit toward the attacker), (b) fail closed so the
   turn's retry asks again, or (c) keep committing with only the note?
+  **RULED 2026-09-29 — D48:** the narration is the state; a hard asset lost
+  is removed; lasting marks (a scar, nightmares) go on a new condition
+  tracker and shape what a character sets out to do. The band itself is
+  not tracked.
 - **Is a figure's faction public?** (`knowledge-personae-hides-unseen-death`).
   Landed: the Personae roster reads each figure's *believed* status from
   structured digest claims, so an unseen death no longer quietly removes a
@@ -831,6 +839,8 @@ names what already landed, so the question is only the part left.
   affiliation when a figure first becomes known. *Question:* is affiliation
   public knowledge (D5 crude-v1 style), or should the roster snapshot it at
   first learning (a new optional save field)?
+  **RULED 2026-09-29 — D49:** affiliations are openly professed (public
+  knowledge) or kept secret (learned only as secrets are).
 - **The unload guard on an open fate.** The browser's leave-page prompt now
   also covers AWAITING_EVENT_CHOICE. The fate is normally on disk
   (`pendingEventId`), so the prompt is belt-and-braces. *Question:* keep it
@@ -854,6 +864,24 @@ names what already landed, so the question is only the part left.
 - **Should the Reports coin count the player's own treasury notices?**
   Rumors count on Reports through the digest; the merchant debt and
   low-treasury Reports (now minted only for the player) arrive with no coin.
+
+*The smaller calls above were settled on design best practice
+(2026-09-29), as the owner asked for Part 4:*
+- *Unload guard:* ask before leaving only when the open fate failed to
+  save. It is normally on disk, and a prompt with nothing at risk teaches
+  players to dismiss it.
+- *Recast while casting:* the press waits for the casting already out, then
+  recasts. It is never silently dropped.
+- *Private scene opener:* while a scene is open or awaits the last word, the
+  opener carries a lit seal and says so to screen readers (visibility of
+  system status).
+- *Structured tablet:* "What you intend" and "What you ask" are optional, so
+  they fold behind their headings (progressive disclosure). A fold opens by
+  itself when it holds words.
+- *Destiny hero:* on a short screen with a saved reign, the hero compacts so
+  the Continue card and the destinies clear the fold.
+- *Reports coin:* a new treasury notice counts on Reports like any other new
+  card (consistency).
 
 ---
 
