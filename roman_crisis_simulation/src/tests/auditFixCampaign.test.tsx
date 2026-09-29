@@ -240,7 +240,7 @@ async function mountFromSave(state: SaveGameState = makeAppSave(), mockMode = tr
 
 async function speak(container: HTMLElement, text: string): Promise<void> {
   await setValue(chatInput(container), text);
-  await click(buttonNamed(container, 'Send message'));
+  await click(buttonNamed(container, 'Speak'));
 }
 
 const transientFailure = () => new AiServiceError('transient', 'mockRunNewTurn', 'provider failed', new Error('offline'));
@@ -286,7 +286,7 @@ describe('state-retry-clobbers-edited-draft: Retry never writes over newer words
 
     mockRunNewTurn.mockRejectedValueOnce(transientFailure());
     await setValue(chatInput(container), 'Order A, and also seize the granary');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(mockRunNewTurn).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(chatInput(container).value).toBe('Order A, and also seize the granary'));
     expect(retryButton(container)).not.toBeNull();
@@ -303,7 +303,7 @@ describe('state-retry-clobbers-edited-draft: Retry never writes over newer words
 
     await setValue(chatInput(container), 'A fresh thought I have not sent');
     expect(retryButton(container)).toBeNull();
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
     expect(loadGame()!.state.turnHistory[0].playerIntent).toContain('A fresh thought I have not sent');
     expect(loadGame()!.state.turnHistory[0].playerIntent).not.toContain('Order A');
@@ -331,7 +331,7 @@ describe('state-retry-clobbers-edited-draft: Retry never writes over newer words
     mockRunNewTurn.mockRejectedValueOnce(transientFailure());
     await click(buttonNamed(container, 'Structured'));
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Action 1'), 'Hold the forum');
-    await click(buttonNamed(container, 'Submit turn'));
+    await click(buttonNamed(container, 'Seal & send'));
     await waitFor(() => expect(retryButton(container)).not.toBeNull());
     expect(byAriaLabel<HTMLTextAreaElement>(container, 'Action 1').value).toBe('Hold the forum');
 
@@ -347,7 +347,7 @@ describe('state-keyless-send-offers-retry: with no key the send is held, and not
       const container = await mountFromSave(makeAppSave(), false);
       const before = localStorage.getItem(SAVE_KEY);
       await setValue(chatInput(container), 'Order A');
-      expect(buttonNamed(container, 'Send message').disabled).toBe(true);
+      expect(buttonNamed(container, 'Speak').disabled).toBe(true);
       expect(container.textContent).toContain('No token on this device');
 
       // Enter-to-send reaches the same hold.
@@ -497,7 +497,7 @@ describe('state-newer-save-hidden-then-overwritten: a reign this build cannot re
     expect(container.textContent).toContain('another age of the Republic');
 
     await click(buttonNamed(container, 'Take a copy of the reign'));
-    expect(anchorDownloads).toEqual(['gor-reign-week30.json']);
+    expect(anchorDownloads).toEqual(['gor-reign-turn30.json']);
     expect(await readBlobText(createdObjectUrlBlobs[0])).toBe(newer);
 
     await click(buttonContaining(container, 'The Young Emperor'));
@@ -534,7 +534,7 @@ describe('state-newer-save-hidden-then-overwritten: a reign this build cannot re
     const container = await mountApp();
     expect(container.textContent).toContain('The reign saved on this device could not be read.');
     await click(buttonNamed(container, 'Take a copy of the reign'));
-    expect(anchorDownloads).toEqual(['gor-reign-week0.json']);
+    expect(anchorDownloads).toEqual(['gor-reign-turn0.json']);
     expect(await readBlobText(createdObjectUrlBlobs[0])).toBe('{not a reign');
   });
 

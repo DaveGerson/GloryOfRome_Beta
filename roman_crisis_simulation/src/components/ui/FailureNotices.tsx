@@ -162,9 +162,9 @@ export const SaveFailureNotice: React.FC<{
   /** The site's own sentence: "Your investigation could not be saved." */
   lead: string;
   /**
-   * The last week that is safely on disk, or `null` when NOTHING is: storage
+   * The last turn that is safely on disk, or `null` when NOTHING is: storage
    * dead since boot, a corrupted blob, a version the loader rejects. Naming a
-   * week in that case would be the one lie this notice must not tell — there
+   * turn in that case would be the one lie this notice must not tell — there
    * is no reign on disk to be safe up to.
    */
   lastSafeTurn: number | null;
@@ -187,7 +187,7 @@ export const SaveFailureNotice: React.FC<{
     {lead} This device would not take the writing down.{' '}
     {lastSafeTurn === null
       ? 'Nothing of this reign has been written down yet — all of it is only on this screen.'
-      : `Your reign is safe up to Week ${toRoman(lastSafeTurn)} — everything since is only on this screen.`}
+      : `Your reign is safe up to Turn ${toRoman(lastSafeTurn)} — everything since is only on this screen.`}
   </Alert>
 );
 

@@ -461,14 +461,17 @@ describe('"N new" belongs to the committed week and to what was looked at', () =
     const aside = container.querySelector('[data-screen-label="Side Panel"]')!;
     expect(observed).toContain(aside);
     await act(async () => buttonNamed(container, 'Play against canned responses')!.click());
+    // Reports is open (a canned week always brings word there; World State
+    // takes no count - its standings are the masthead's to mark).
+    await act(async () => (container.querySelector('#sidepanel-tab-reports') as HTMLElement).click());
     await playCannedWeek(container, 'I hold court at dawn.');
     const counted = [...container.querySelectorAll('[role="tab"] .gor-tab-count')]
       .map(coin => coin.closest('[role="tab"]')!.id);
-    expect(counted).toContain('sidepanel-tab-world_state');
+    expect(counted).toContain('sidepanel-tab-reports');
 
     // Swiped into view: the open tab is looked at.
     await act(async () => reports.forEach(report => report([{ intersectionRatio: 1 }])));
-    expect(container.querySelector('#sidepanel-tab-world_state .gor-tab-count')).toBeNull();
+    expect(container.querySelector('#sidepanel-tab-reports .gor-tab-count')).toBeNull();
   });
 
   it('a device that keeps nothing still counts, and loses only the memory', () => {

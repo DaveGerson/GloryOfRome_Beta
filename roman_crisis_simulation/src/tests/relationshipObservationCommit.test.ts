@@ -416,7 +416,7 @@ describe('App relationship-observation transaction', () => {
     expect(save.turnHistory).toEqual([]);
     const container = await mountApp(save);
     await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Hold court on the Palatine');
-    await click(buttonNamed(container, 'Send message'));
+    await click(buttonNamed(container, 'Speak'));
     await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
 
     const roster = save.entities.map(({ entity_id, location, status }) => ({ entity_id, location, status }));

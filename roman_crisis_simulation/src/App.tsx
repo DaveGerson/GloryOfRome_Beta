@@ -366,7 +366,9 @@ const App: React.FC = () => {
                 onOpenCommands={inGame ? openPalette : undefined}
                 worldShifts={inGame ? worldShifts : undefined}
             />
-            {gameState !== GameState.GAME_OVER && (
+            {/* Not on the destiny screen: until a reign is chosen or continued
+                there is no crisis to report (the masthead's stats wait too). */}
+            {gameState !== GameState.GAME_OVER && gameState !== GameState.SETUP && (
                 <CrisisBanner
                     crisis={simulationState.major_ongoing_crisis}
                     grade={crisisGrade(simulationState) ?? 'crisis'}

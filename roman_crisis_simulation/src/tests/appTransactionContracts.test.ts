@@ -2176,7 +2176,7 @@ describe('App reign export/import wiring (VERIFY pins)', () => {
     // exists for. The filename carries the SLOT's week (the failed campaign
     // never landed), and the blob handed over is the slot byte-for-byte.
     await click(buttonNamed(alert, 'Take a copy of the reign'));
-    expect(anchorDownloads).toEqual(['gor-reign-week2.json']);
+    expect(anchorDownloads).toEqual(['gor-reign-turn2.json']);
     expect(createdObjectUrlBlobs).toHaveLength(1);
     expect(await readBlobText(createdObjectUrlBlobs[0])).toBe(slotBefore);
 

@@ -7,6 +7,7 @@ import { ImportFailureNotice } from './ui/FailureNotices';
 import type { ImportResult } from '../persistence/saveGame';
 import { useReignImport } from './ui/useReignImport';
 import { ApiKeyCard } from './ApiKeyCard';
+import { LightingGlyph } from './ui/Icons';
 import { NarrationSettings, type NarrationSettingsProps } from './NarrationSettings';
 import { ReadingSettings, type ReadingSettingsProps } from './ReadingSettings';
 
@@ -26,13 +27,13 @@ const FATES_OPTIONS: { posture: PacingPosture; label: string; title: string; des
     { posture: 'dramatic', label: 'EAGER', title: 'Eager Fates — the threads pull taut sooner', description: 'the threads pull taut sooner.' },
 ];
 
-const LIGHTING_OPTIONS = [
-    { value: 'lux', label: '☼ LVX', title: 'Marble — day' },
-    { value: 'nox', label: '☾ NOX', title: 'Nox Romae — torchlit' },
-] as const;
+/** A mark drawn beside a word, but never read as part of the option's name. */
+const glyphed = (kind: 'device' | 'lux' | 'nox', word: string) => <><LightingGlyph kind={kind} /> {word}</>;
 
-/** A glyph drawn beside a word, but never read as part of the option's name. */
-const glyphed = (glyph: string, word: string) => <><span aria-hidden="true">{glyph}</span> {word}</>;
+const LIGHTING_OPTIONS = [
+    { value: 'lux', label: glyphed('lux', 'LVX'), title: 'Marble — day' },
+    { value: 'nox', label: glyphed('nox', 'NOX'), title: 'Nox Romae — torchlit' },
+] as const;
 
 /**
  * Lighting as the platforms offer appearance: follow the device, or always
@@ -43,9 +44,9 @@ const glyphed = (glyph: string, word: string) => <><span aria-hidden="true">{gly
  * read "Device", "LVX", "NOX".
  */
 const LIGHTING_CHOICES = [
-    { value: 'device', label: glyphed('◐', 'Device'), title: 'Follow this device — light or dark' },
-    { value: 'lux', label: glyphed('☼', 'LVX'), title: 'Marble — day' },
-    { value: 'nox', label: glyphed('☾', 'NOX'), title: 'Nox Romae — torchlit' },
+    { value: 'device', label: glyphed('device', 'Device'), title: 'Follow this device — light or dark' },
+    { value: 'lux', label: glyphed('lux', 'LVX'), title: 'Marble — day' },
+    { value: 'nox', label: glyphed('nox', 'NOX'), title: 'Nox Romae — torchlit' },
 ] as const;
 
 /** Player-visible copy (veto queue: roadmaps/BACKLOG.md, "Reading, motion and the command palette"). */

@@ -308,10 +308,12 @@ describe('the four turn failures (WP-21)', () => {
 });
 
 describe('the save notice and the half-commit (WP-21)', () => {
-  it('names the last safe week in ceremonial numerals and keeps the site’s own sentence', async () => {
+  it('names the last safe turn in ceremonial numerals and keeps the site’s own sentence', async () => {
     const container = await mount(<SaveFailureNotice lead="Your investigation could not be saved." lastSafeTurn={11} />);
     expect(container.textContent).toContain('Your investigation could not be saved.');
-    expect(container.textContent).toContain('Week XI');
+    // A turn counter, so it reads 'Turn' (2026-09-29 audit: only the calendar
+    // surfaces say 'Week').
+    expect(container.textContent).toContain('Turn XI');
     expect(container.querySelector('.gor-alert-title')?.textContent).toBe('The record refuses');
   });
 

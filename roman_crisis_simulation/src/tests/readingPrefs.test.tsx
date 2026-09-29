@@ -350,7 +350,9 @@ describe('Settings → Lighting: follow the device, or always one skin', () => {
     document.body.appendChild(host);
     const root = createRoot(host);
     act(() => root.render(<SettingsMenu {...base} lightingChoice={null} onSetLightingChoice={onSetLightingChoice} />));
-    expect(lightingButtons(host).map(b => b.textContent)).toEqual(['◐ Device', '☼ LVX', '☾ NOX']);
+    expect(lightingButtons(host).map(b => b.textContent?.trim())).toEqual(['Device', 'LVX', 'NOX']);
+    // Each carries its mark as a decorative icon, never a font-fallback glyph.
+    expect(lightingButtons(host).every(b => b.querySelector('svg[aria-hidden="true"]'))).toBe(true);
     // One exclusive choice of three: a radio group, named without its glyphs,
     // and described by its note.
     const group = host.querySelector('[aria-label^="Lighting"]')!;
@@ -376,7 +378,7 @@ describe('Settings → Lighting: follow the device, or always one skin', () => {
     document.body.appendChild(host);
     const root = createRoot(host);
     act(() => root.render(<SettingsMenu {...base} />));
-    expect(lightingButtons(host).map(b => b.textContent)).toEqual(['☼ LVX', '☾ NOX']);
+    expect(lightingButtons(host).map(b => b.textContent?.trim())).toEqual(['LVX', 'NOX']);
     act(() => root.unmount());
     host.remove();
   });
