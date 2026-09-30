@@ -1454,7 +1454,10 @@ Part 6) and deliberately left, with the reason.
   commit (D42), so there is no record of who gains from one occurrence, and
   a guess from the whole turn would be a truth flag the engine cannot stand
   behind (D11). Grounding it needs per-occurrence attribution kept
-  GM-side.
+  GM-side. **CLOSED 2026-09-30** - each turn now keeps a GM-private
+  `TurnHistoryEntry.headlineActors` (see the D42 note). "Who is behind it?"
+  and "Who gains?" are grounded in it with D47's two rolls and a ledger
+  entry (ROADMAP_UPLEVEL Part 7).
 - **A secret tie found by investigation stays in the dossier.** It is the
   agent's sourced account; it is not listed under Ties as "Known to you",
   which would put the system's voice behind a finding that may be false
@@ -1479,6 +1482,11 @@ Part 6) and deliberately left, with the reason.
 - **Private scenes do not yet carry marks and ties.** An NPC's mind weighs
   its own marks and ties, but a private scene's prompt does not yet give
   the NPC its own, or show it the player's outward marks and open ties.
+  **CLOSED 2026-09-30** - the scene now carries the NPC's own marks (inward
+  ones as its private burden) and ties (a secret one as private as its
+  secrets). It also carries the player's outward marks, without their
+  account, and the player's openly professed ties, and nothing else of the
+  player's.
 - **An open tie's news is judged by relationships and contacts.** "Knows
   the figure" (D49) reads the viewer's relationships and
   `visibility_network` - the same test the minds use - not the player's
