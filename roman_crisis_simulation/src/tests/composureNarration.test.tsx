@@ -251,6 +251,31 @@ describe('D50: who is present to be read (M1)', () => {
     expect(ids({ roster: [severus, at('julia', 'The Curia')], rosterBefore: [julia], addressedIds: ['julia'] })).toEqual(['julia']);
   });
 
+  it('reads the attempt as a player writes it: a word of the name or epithet, kin through the player\'s relationships, a position no one else there holds', () => {
+    const mother = at('julia_mamaea', 'Palatine Hill', { name: 'Julia Mamaea', position: 'Regent' });
+    const thrax = at('maximinus_thrax', 'Palatine Hill', { name: 'Maximinus Thrax', epithet: 'the Thracian', position: 'Senator' });
+    const son = at('player', 'Palatine Hill', { relationships: {
+      julia_mamaea: { entity_id: 'julia_mamaea', relationship_type: 'family (mother)', trust_level: 9, recent_interactions: [] },
+    } });
+    const roster = [son, mother, thrax];
+    const ids = (attemptText: string, extra: Partial<typeof base> & { roster?: ReturnType<typeof at>[] } = {}) =>
+      figuresPresentWith({ ...base, playerBefore: son, playerAfter: son, roster, ...extra, attemptText }).map(e => e.entity_id);
+    expect(ids('I summon Julia Mamaea')).toEqual(['julia_mamaea']);
+    expect(ids('I summon Mamaea')).toEqual(['julia_mamaea']);
+    expect(ids('I summon my mother')).toEqual(['julia_mamaea']);
+    expect(ids('I ask the Regent to dine')).toEqual(['julia_mamaea']);
+    expect(ids('I send for the Thracian')).toEqual(['maximinus_thrax']);
+    // A kin word the player has no such relationship for names no one.
+    expect(ids('I summon my wife')).toEqual([]);
+    expect(ids('I summon my mother', { playerBefore: severus, playerAfter: severus })).toEqual([]);
+    // A position two figures standing there share names neither.
+    const senator = at('gaius', 'Palatine Hill', { name: 'Gaius Pontius', position: 'Senator' });
+    expect(ids('I ask the Senator to dine', { roster: [son, mother, thrax, senator] })).toEqual([]);
+    expect(ids('I ask the Senator to dine')).toEqual(['maximinus_thrax']);
+    // Still only where the player stands.
+    expect(ids('I summon my mother', { roster: [son, at('julia_mamaea', 'The Curia', { name: 'Julia Mamaea' })] })).toEqual([]);
+  });
+
   it('never counts the dead, a group or the player, and caps AFTER the presence filter', () => {
     const dead = at('dead', 'Palatine Hill', { status: 'dead' });
     const guard = at('guard', 'Palatine Hill', { entity_type: 'group' });

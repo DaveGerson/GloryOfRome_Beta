@@ -219,7 +219,7 @@ describe('D50: the scene record', () => {
     const next = appendPrivateSceneExchange({
       scene, expectedNpcResponseCount: 1, playerUtterance: 'You seem troubled.',
       response: response({ speechActs: [{ speaker: 'npc', kind: 'claim', text: 'Speak, my son.', exchange: 2 }] }),
-      tells: { delivery: 'Philip whispers', signs: [{ subject: 'mark:grief', sign: 'She looks away.' }] },
+      tells: { delivery: 'with a glance at Philip', signs: [{ subject: 'mark:grief', sign: 'She looks away.' }] },
     });
     if (!next.ok) throw new Error(next.error);
     expect(next.scene.npcComposure).toEqual(scene.npcComposure);
@@ -323,7 +323,7 @@ describe('D50: the voice performs only what the text shows', () => {
   it('opens the line with its validated delivery as one cue - and never a cue from an invalid delivery', () => {
     expect(sceneLineForSpeech({ text: '*She sets down her cup.* Speak, my son.', delivery: 'voice catching' })).toBe('<voice catching> Speak, my son.');
     expect(sceneLineForSpeech({ text: 'Speak, my son.' })).toBe('Speak, my son.');
-    for (const delivery of ['Philip whispers', 'sighing 3 times', 'with "irony"', 'x'.repeat(80)]) {
+    for (const delivery of ['with a glance at Philip', 'sighing 3 times', 'with "irony"', 'x'.repeat(80)]) {
       expect(sceneLineForSpeech({ text: 'Speak, my son.', delivery })).toBe('Speak, my son.');
     }
     expect(sceneLineForSpeech({ text: '*silence*', delivery: 'voice catching' })).toBe('');
@@ -490,7 +490,7 @@ describe('D50: the save boundary', () => {
     expect(normalizeLoadedPrivateScenes([legacy])).toEqual([legacy]);
     const damaged = {
       ...legacy,
-      transcript: [legacy.transcript[0], { ...legacy.transcript[1], delivery: 'Philip whispers' }],
+      transcript: [legacy.transcript[0], { ...legacy.transcript[1], delivery: 'with a glance at Philip' }],
       composureSeed: 'soon',
       npcComposure: [npcRoll('grief', 'frays'), { subjectKind: 'mark', roll: 99 }],
       playerComposure: 'nope',
