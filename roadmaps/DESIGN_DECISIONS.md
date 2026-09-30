@@ -957,3 +957,17 @@ sign and stage direction:
 - nothing of a held subject passes, nor the cause of a fraying mark.
 Code writes the lines an NPC is told about the player. The model's free
 prose is held to these rules by the prompt only.
+
+## D51 — A retried turn keeps its dice
+*Owner ruling (2026-09-30):* when a turn fails partway and the player
+presses Retry, "Keep the same dice": "A retry replays the same luck, so a
+connection error can never be used to reroll a bad outcome."
+
+The narration streams as it is written, so a player may glimpse a bad
+outcome before a turn fails. A fresh roll on Retry would make a technical
+failure a second chance at luck. So a turn's dice are fixed once per turn
+of the reign. They are drawn from a reign seed, set when the reign begins
+and saved with it, combined with the turn's number. They stay the same
+whether the player retries, changes the action before retrying, reloads
+the page, or restores an earlier copy of the reign. "Strike the mould
+again" still replays a committed turn's recorded dice for the GM.

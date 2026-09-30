@@ -888,6 +888,9 @@ names what already landed, so the question is only the part left.
 
 ## Veto queue (authored content awaiting owner review)
 Nothing here blocks; all are one edit from rewording.
+*Owner (2026-09-30), on the new words from grounding the Events questions
+and from composure (D50):* "Trust your wording". Those two entries stand
+as written; any line can still be reworded if it reads wrong in play.
 - **Voice/epithet lines** for the 9 base-cast entities.
 - **Event text** — 3 new (Acclamation on the Rhine, Stirrings in Africa, The
   Donative Comes Due) + 2 reworked (grain shortage, whispers of mutiny).
