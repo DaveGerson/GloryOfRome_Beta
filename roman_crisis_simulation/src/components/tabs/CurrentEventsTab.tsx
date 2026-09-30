@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import type { Entity, OccurrenceTruth, TurnHistoryEntry } from '../../types';
+import type { Entity, OccurrenceSiblingOutcome, OccurrenceTruth, TurnHistoryEntry } from '../../types';
 import { GoogleGenAI } from "@google/genai";
 import { getClarificationOnEvent } from '../../ai/tools/intelligence';
 import { WaxSeal, toRoman } from '../ui/Brand';
@@ -93,9 +93,16 @@ const CurrentEventsTab: React.FC<{
      * commit writes to the truth ledger and nothing here renders.
      */
     onFinding: (occurrence: string, question: OccurrenceQuestion, text: string, request: DomainMutationContext, truth?: OccurrenceTruth) => boolean | void | Promise<boolean | void>;
+    /**
+     * What the other grounded question on an occurrence already came back
+     * with (hooks/useIntelCommits.ts, off the truth ledger), handed through to
+     * the question's tool so the two answers agree on whether anyone acted
+     * (D47). Absent, each question rolls on its own.
+     */
+    occurrenceSibling?: (occurrence: string, question: OccurrenceQuestion) => OccurrenceSiblingOutcome | null;
     runDomainMutation: RunDomainMutation;
     interactionLocked?: boolean;
-}> = ({ events, week, playerEntity, allEntities, turnHistory, knowledge, ai, isMockMode, onFinding, runDomainMutation, interactionLocked = false }) => {
+}> = ({ events, week, playerEntity, allEntities, turnHistory, knowledge, ai, isMockMode, onFinding, occurrenceSibling, runDomainMutation, interactionLocked = false }) => {
     const [register, setRegister] = useState<EventRegister>(() => getTabRegister('events', REGISTERS, 'week'));
     // Several occurrences may be open at once now.
     const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
@@ -136,6 +143,7 @@ const CurrentEventsTab: React.FC<{
                 const request: DomainMutationContext = { isCurrent: () => transaction.isCurrent() };
                 const { text, truth } = await getClarificationOnEvent(
                     ai, occurrence, question, playerEntity, allEntities, turnHistory, isMockMode,
+                    occurrenceSibling?.(occurrence, question) ?? null,
                 );
                 if (!request.isCurrent()) return;
                 const committed = await onFinding(occurrence, question, text, request, truth);

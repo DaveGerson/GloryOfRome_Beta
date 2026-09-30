@@ -2513,9 +2513,10 @@ describe('ai/core/turn.ts runNewTurn - no-attempt prose redaction vs. structural
     );
 
     expect(result.headlines).toEqual(['Creditors circle the Palatine.', 'The Senate debates the grain dole.']);
+    // Each hand's name is frozen at commit, from the post-turn roster.
     expect(result.newHistoryEntry.headlineActors).toEqual([
-      { text: 'Creditors circle the Palatine.', actorIds: ['npc_crassus'] },
-      { text: 'The Senate debates the grain dole.', actorIds: [] },
+      { text: 'Creditors circle the Palatine.', actorIds: ['npc_crassus'], actorNames: ['Crassus'] },
+      { text: 'The Senate debates the grain dole.', actorIds: [], actorNames: [] },
     ]);
     // A separate record: the committed headlines themselves stay bare text (D42).
     expect(result.newHistoryEntry.adjudication.headlines).toEqual(result.headlines);
@@ -2529,7 +2530,7 @@ describe('ai/core/turn.ts runNewTurn - no-attempt prose redaction vs. structural
       playerIntent: 'Wait.',
       adjudication: { turn: 1, entityActions: [], deltas: [], headlines: ['A fire in the Subura.'], gm_private: [] },
       narration: 'Smoke over the Subura.',
-      headlineActors: [{ text: 'A fire in the Subura.', actorIds: ['npc_sentinel_hand'] }],
+      headlineActors: [{ text: 'A fire in the Subura.', actorIds: ['npc_sentinel_hand'], actorNames: ['SENTINEL_HAND Aurelius'] }],
     };
 
     h.response.storyRelevance.resolve(storyRelevanceJson);
@@ -2546,7 +2547,7 @@ describe('ai/core/turn.ts runNewTurn - no-attempt prose redaction vs. structural
 
     for (const kind of ['simulationState', 'monologue', 'narration'] as const) {
       const sent = `${h.systemInstructionsByKind[kind]}\n${h.promptsByKind[kind]}`;
-      for (const token of ['headlineActors', 'actorIds', 'npc_sentinel_hand']) expect(sent, `${kind} carries ${token}`).not.toContain(token);
+      for (const token of ['headlineActors', 'actorIds', 'actorNames', 'npc_sentinel_hand', 'SENTINEL_HAND']) expect(sent, `${kind} carries ${token}`).not.toContain(token);
     }
   });
 

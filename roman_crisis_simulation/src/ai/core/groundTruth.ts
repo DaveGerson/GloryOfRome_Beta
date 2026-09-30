@@ -10,9 +10,9 @@
  *
  *  1. `groundTruthPool` - the candidate truths per kind, read off the
  *     target's real record (beliefs, secrets, active scheme, situation).
- *  2. `planInvestigation` (and `planFromPool`, its entry point for a pool
- *     with no target Entity) - fidelity picks how many of them, or how much of
- *     one, reaches the prompt; accuracy decides whether they are reported
+ *  2. `planInvestigation` (and `planOccurrence`, over an occurrence's hands)
+ *     - fidelity picks how many of them, or how much of one, reaches the
+ *     prompt; accuracy decides whether they are reported
  *     faithfully, with exactly one distortion, or not at all (a false
  *     account carries NO truth into the prompt). The plan records, per
  *     finding, whether it is true - the code knows, not the model.
@@ -26,8 +26,8 @@
  *     context.
  *  6. Occurrences - the Events tab's "Who is behind it?" and "Who gains?":
  *     `occurrenceGrounding` reads the truth off the turn's GM-private
- *     attribution record, and `planFromPool` (the same scoping and shaping,
- *     over a pool with no target Entity) plans what reaches the prompt.
+ *     attribution record, and `planOccurrence` (the same shaping, with code
+ *     picking every decoy) plans what reaches the prompt.
  *
  * HARD INVARIANT: `secret_truth` is never an input - nothing here reads it
  * (tests/groundedIntel.test.tsx proves it cannot reach an intelligence prompt).
@@ -38,6 +38,7 @@
 
 import type {
     Entity,
+    EntityActionIntent,
     GroundedOccurrenceQuestion,
     HeadlineAttribution,
     IntelAccuracy,
@@ -45,13 +46,14 @@ import type {
     IntelFidelity,
     InvestigationRolls,
     InvestigationTruth,
+    OccurrenceSiblingOutcome,
     OccurrenceTruth,
     TruthLedgerEntry,
     TurnHistoryEntry,
 } from '../../types';
+import { EntityActionIntentEnum } from '../../types';
 import type { Rng } from './resolution';
 import { secretAffiliationsOf } from './affiliations';
-import { REDACTED_PLAYER_PROSE_PLACEHOLDER } from './playerBoundary';
 
 /** The investigation-family aspects that reach for ground truth (D47). */
 export type GroundTruthKind = 'beliefs' | 'secrets' | 'scheme' | 'deep_analysis';
@@ -155,24 +157,44 @@ export const FALSE_NOTHING_SHARE = 1 / 3;
  */
 export const NO_DESIGN_TRUTH = 'There is no design: they are plotting nothing of note.';
 
+/**
+ * One entry of an occurrence account as code planned it (D47): whose name it
+ * carries and, for "Who gains?", what they were after. Code - never the model
+ * - picks it on every reading: the truth reached, the one distortion of a
+ * garbled reading, the decoys of a false one.
+ */
+export interface PlannedHand {
+    /** The name to report - or null: a stranger of the city's life the model is to invent (a decoy only, never a figure on the roster). */
+    name: string | null;
+    /** "Who gains?" only: the aims to report, as entityAction intents; [] for a hand whose aim was never learned. */
+    aims: EntityActionIntent[];
+}
+
 /** One finding the prompt will ask for, with the truth the code knows about it. */
 export interface PlannedFinding {
-    /** The truth handed to the model for this finding - null on a false finding: no truth ever reaches the prompt of a false account. */
+    /**
+     * What the prompt carries for this finding: the truth as reached; on a
+     * garbled one, the truth with its one distortion when code applied it; on
+     * a false one, null - the model invents it, and no truth ever reaches the
+     * prompt - or, where code picks the decoy (an occurrence entry), the decoy.
+     */
     truth: string | null;
     /** True when only part of the finding was reached (a word fragment of a truth, or a sketchy false one). */
     fragmentary: boolean;
     /** GM-PRIVATE: the whole ground-truth item behind the finding - absent on a false one. */
     groundTruth?: string;
     standing: IntelAccuracy;
-    /** Garbled findings only: the one distortion the prompt asks for. */
+    /** Garbled findings only: the one distortion the prompt asks for (or code applied). */
     distortion?: IntelDistortion;
+    /** Occurrence entries only: the planned content `truth` renders (see PlannedHand). */
+    hand?: PlannedHand;
 }
 
 /**
- * The code-side plan a grounded prompt is built from, over any pool of truths
+ * The code-side plan a grounded prompt is built from, over a pool of truths
  * (GM-PRIVATE until the model's account comes back): what an investigation
  * plans for its target (`InvestigationPlan`), and what an occurrence question
- * plans from the turn's attribution record (`planFromPool`).
+ * plans from the turn's attribution record (`OccurrencePlan`).
  */
 export interface PoolPlan {
     /**
@@ -184,10 +206,10 @@ export interface PoolPlan {
     fidelity: IntelFidelity;
     findings: PlannedFinding[];
     /**
-     * GM-PRIVATE, set only on a false "nothing to find" (see
-     * `FALSE_NOTHING_SHARE`): the truths the account came back without. The
-     * prompt is shaped exactly as an honest nothing; the ledger records it as
-     * false against these.
+     * GM-PRIVATE, set on every false reading: the truths the account came back
+     * without, which the ledger records it as false against. On a false
+     * "nothing to find" (see `FALSE_NOTHING_SHARE`) it is the only mark of the
+     * lie: the prompt is shaped exactly as an honest nothing.
      */
     withheld?: string[];
 }
@@ -252,17 +274,36 @@ function scopeItems(pool: readonly string[], fidelity: IntelFidelity, rng: Rng):
 /** Both distortions a garbled finding may carry, in draw order (see `shapeByAccuracy`). */
 const EVERY_DISTORTION: readonly IntelDistortion[] = ['element_changed', 'misattributed'];
 
+/** How `shapeByAccuracy` shapes one kind of plan beyond its defaults. */
+interface AccuracyShaping {
+    /** What "nothing" is itself the truth of (a scheme's "there is no design"), carried as a finding when nothing was reached. */
+    nothingTruth?: string;
+    /** The distortions the chosen garbled finding may carry (default: both). */
+    distortionsFor?: (finding: PlannedFinding) => readonly IntelDistortion[];
+    /** Whether a false reading may come back as a false nothing (default: yes). */
+    falseNothing?: boolean;
+    /**
+     * Where CODE picks false and distorted content instead of the model: a
+     * false finding of the exact shape of the true one it replaces, and the
+     * garbled finding with its one distortion applied. Absent, a false finding
+     * carries nothing (the model invents it) and a garbled one is only marked.
+     */
+    decoys?: {
+        falsify: (finding: PlannedFinding, index: number, rng: Rng) => PlannedFinding;
+        garble: (finding: PlannedFinding, index: number, distortion: IntelDistortion, rng: Rng) => PlannedFinding;
+    };
+}
+
 /**
  * Accuracy's half of every plan (D47), over the truths fidelity reached:
  *  - true: the reached truths, reported as reached;
  *  - garbled: the reached truths, exactly one of them marked for one
- *    distortion drawn from `distortions` (which one, and how, recorded here -
- *    the code knows);
+ *    distortion (which one, and how, recorded here - the code knows);
  *  - false: NO truth at all - as many findings as the truth would have
- *    yielded, as whole or as fragmentary (so the count never betrays the
- *    accuracy), each to be invented plausibly from what is publicly known;
- *    or, for FALSE_NOTHING_SHARE of false readings, a false "nothing to
- *    find", shaped exactly as the honest one.
+ *    yielded, of the same shape (so neither count nor shape betrays the
+ *    accuracy), each invented plausibly from what is publicly known; or, for
+ *    FALSE_NOTHING_SHARE of false readings, a false "nothing to find", shaped
+ *    exactly as the honest one. Every false reading records what it hid.
  * Nothing reached yields the honest nothing whatever the roll: no findings,
  * or - when `nothingTruth` names what "nothing" is itself the truth of (a
  * scheme's "there is no design") - one finding carrying it.
@@ -271,10 +312,10 @@ function shapeByAccuracy(
     reached: PlannedFinding[],
     rolled: { accuracy: IntelAccuracy; fidelity: IntelFidelity },
     rng: Rng,
-    options: { nothingTruth?: string; distortions?: readonly IntelDistortion[] } = {},
+    shaping: AccuracyShaping = {},
 ): PoolPlan {
     const { fidelity } = rolled;
-    const { nothingTruth, distortions = EVERY_DISTORTION } = options;
+    const { nothingTruth, distortionsFor = () => EVERY_DISTORTION, falseNothing = true, decoys } = shaping;
 
     if (reached.length === 0) {
         // Nothing of the kind is on record: reported honestly, whatever the
@@ -290,7 +331,7 @@ function shapeByAccuracy(
         const withheld = reached.map(finding => finding.groundTruth).filter((fact): fact is string => fact !== undefined);
         // Now and then the misled agent comes back with nothing at all, so an
         // empty report is not proof of a clean record either.
-        if (rng() < FALSE_NOTHING_SHARE) {
+        if (falseNothing && rng() < FALSE_NOTHING_SHARE) {
             return nothingTruth
                 ? { accuracy: 'true', fidelity, findings: [{ truth: nothingTruth, fragmentary: false, groundTruth: withheld.join(' | '), standing: 'false' }] }
                 : { accuracy: 'true', fidelity, findings: [], withheld };
@@ -298,19 +339,20 @@ function shapeByAccuracy(
         // Otherwise the falsehoods come back looking exactly like the truth
         // would have: as many findings as it would have yielded, as whole or
         // as fragmentary - the count never tells the player which they hold.
-        const findings = reached.map((finding): PlannedFinding => ({
-            truth: null,
-            fragmentary: finding.fragmentary,
-            standing: 'false',
-        }));
-        return { accuracy: 'false', fidelity, findings };
+        const findings = reached.map((finding, i): PlannedFinding => decoys
+            ? decoys.falsify(finding, i, rng)
+            : { truth: null, fragmentary: finding.fragmentary, standing: 'false' });
+        return { accuracy: 'false', fidelity, findings, withheld };
     }
     const accuracy = rolled.accuracy;
 
     if (accuracy === 'garbled') {
         const index = Math.floor(rng() * reached.length);
+        const distortions = distortionsFor(reached[index]);
         const distortion = distortions[Math.floor(rng() * distortions.length)];
-        reached = reached.map((finding, i) => i === index ? { ...finding, standing: 'garbled', distortion } : finding);
+        reached = reached.map((finding, i) => i !== index
+            ? finding
+            : decoys ? decoys.garble(finding, i, distortion, rng) : { ...finding, standing: 'garbled', distortion });
     }
     return { accuracy, fidelity, findings: reached };
 }
@@ -341,26 +383,6 @@ export function planInvestigation(
     return schemeName ? { ...plan, schemeName } : plan;
 }
 
-/**
- * The same plan over any pool of truths - the entry point for a question with
- * no single target Entity (an occurrence's hands and aims, read off the turn's
- * attribution record). Fidelity decides how many items reach the prompt, and
- * how much of one; accuracy whether they come back true, garbled or false -
- * with the same parity: an empty pool is an honest nothing whatever the roll,
- * and a false reading comes back as many and as whole as the truth would have,
- * or (FALSE_NOTHING_SHARE of them) as a false nothing. `distortions` narrows
- * what a garbled item may suffer (a bare name can only be pinned on someone
- * else, never have "one element" changed).
- */
-export function planFromPool(
-    pool: readonly string[],
-    rolled: { accuracy: IntelAccuracy; fidelity: IntelFidelity },
-    rng: Rng,
-    distortions: readonly IntelDistortion[] = EVERY_DISTORTION,
-): PoolPlan {
-    return shapeByAccuracy(scopeItems(pool, rolled.fidelity, rng), rolled, rng, { distortions });
-}
-
 /** The ground truth an honest "nothing to find" is measured against. */
 export const NOTHING_ON_RECORD = 'Nothing of the kind is on record.';
 
@@ -389,7 +411,7 @@ export function investigationTruth(
         ...(plan.schemeName ? { schemeName: plan.schemeName } : {}),
     }));
     if (findings.length === 0) {
-        const facts = plan.findings.map(finding => finding.groundTruth).filter((fact): fact is string => fact !== undefined);
+        const facts = plan.withheld ?? plan.findings.map(finding => finding.groundTruth).filter((fact): fact is string => fact !== undefined);
         const groundTruth = plan.findings.length === 0
             ? (plan.withheld ? plan.withheld.join(' | ') : NOTHING_ON_RECORD)
             : facts.join(' | ');
@@ -478,13 +500,16 @@ export function investigationLedgerEntries(truth: InvestigationTruth, turn: numb
 // --- Occurrences: "Who is behind it?" and "Who gains?" ----------------------
 //
 // A public occurrence is a committed headline. Who acted in it is the
-// adjudicator's own declaration, kept GM-side on the turn's attribution record
-// (TurnHistoryEntry.headlineActors) after D42 strips it from the headline, and
-// what each of them was after that turn is the same entry's entityActions. The
-// Events tab's two grounded questions reach for that truth at the rolled
-// fidelity and accuracy, through `planFromPool`, exactly as an investigation
-// reaches for a target's record. "What follows?" is a forecast of the future,
-// not a claim of fact: it has no truth to reach for and none is planned.
+// adjudicator's own declaration, frozen with each hand's name on the turn's
+// attribution record (TurnHistoryEntry.headlineActors) after D42 strips it
+// from the headline, and what each hand was after that turn is the intents of
+// its entityActions on the same entry. The Events tab's two grounded
+// questions reach for that truth at the rolled fidelity and accuracy through
+// the same shaping every investigation uses (`shapeByAccuracy`), with one
+// difference: CODE picks every entry the account carries - a false or garbled
+// reading's decoys included - so the model only ever phrases a plan whose
+// count and shape never depend on the roll. "What follows?" is a forecast of
+// the future, not a claim of fact: it has no truth to reach for.
 
 /**
  * What an occurrence with no single hand behind it is the truth of, per
@@ -498,57 +523,112 @@ export const NO_HAND_TRUTH: Record<GroundedOccurrenceQuestion, string> = {
 };
 
 /**
- * The attribution record of `occurrence`, searched newest turn first, by the
- * headline's exact text (the one the Events tab cries and the knowledge store
- * froze when first asked). Null when no entry holds one - a save from before
- * the record existed, or a headline a later gate pass changed - which the
- * caller answers with the honest "no thread to follow". Reads defensively: a
- * hand-edited or damaged save may hold anything here.
+ * Each entityAction intent as an aim ("who sought to ..."). An aim is only
+ * ever one of these phrases - never an action's notes or its target, which
+ * may carry a secret move or a scheme's goal (D28).
  */
-export function findHeadlineAttribution(
+export const AIM_PHRASE: Record<EntityActionIntent, string> = {
+    appease_troops: 'to appease the troops',
+    suppress_revolt: 'to put down a revolt',
+    negotiate: 'to strike a bargain',
+    fortify: 'to fortify a stronghold',
+    raid: 'to raid',
+    assassinate: 'to have someone killed',
+    tax_raise: 'to raise taxes',
+    pay_arrears: 'to pay arrears owed',
+    propaganda: 'to spread propaganda',
+    march: 'to march an army',
+    siege: 'to lay siege',
+    recruit: 'to recruit men',
+    intrigue: 'to intrigue',
+};
+
+/** One hand behind an occurrence, as the record holds it. GM-PRIVATE. */
+export interface OccurrenceHand {
+    id: string;
+    name: string;
+    /** "Who gains?" only: the intents of its entityActions that turn, deduplicated, in order ([] for "Who is behind it?", or a hand with no action). */
+    aims: EntityActionIntent[];
+}
+
+/** One entry as the ledger reads it (GM-only wording). */
+export function describeHand(hand: PlannedHand, question: GroundedOccurrenceQuestion): string {
+    const name = hand.name ?? '(a stranger the agents invented)';
+    if (question === 'who_is_behind_it') return name;
+    return `${name}: ${hand.aims.length > 0 ? hand.aims.map(aim => AIM_PHRASE[aim]).join('; ') : 'no aim learned'}`;
+}
+
+function isRecordOf(candidate: unknown, occurrence: string): candidate is HeadlineAttribution {
+    return typeof candidate === 'object' && candidate !== null
+        && (candidate as HeadlineAttribution).text === occurrence
+        && Array.isArray((candidate as HeadlineAttribution).actorIds);
+}
+
+/**
+ * The hands behind `occurrence`, off the newest turn whose attribution record
+ * holds its exact text (the one the Events tab cries and the knowledge store
+ * froze when first asked). Every record of that text on that turn counts: a
+ * headline cried twice pools its hands, in declared order, once each (an
+ * older turn's record of the same text gives way to the newest). Names are
+ * the ones frozen at commit; only a record written before names were frozen
+ * is named from the roster, else the newest snapshot, dropping a hand named
+ * nowhere. Null only when no turn holds a record of the text - a save from
+ * before the record existed, or a headline a later gate pass changed - which
+ * the caller answers with the honest "no thread to follow". Reads
+ * defensively: a hand-edited or damaged save may hold anything here.
+ */
+export function findHeadlineHands(
     turnHistory: readonly TurnHistoryEntry[],
     occurrence: string,
-): { entry: TurnHistoryEntry; record: HeadlineAttribution } | null {
+    roster: readonly Entity[],
+): { entry: TurnHistoryEntry; hands: Array<{ id: string; name: string }> } | null {
+    const nameFromRoster = (id: string): string | undefined => {
+        const live = roster.find(entity => entity.entity_id === id)?.name?.trim();
+        if (live) return live;
+        for (let i = turnHistory.length - 1; i >= 0; i--) {
+            const past = turnHistory[i]?.postTurnEntities?.find(entity => entity.entity_id === id)?.name?.trim();
+            if (past) return past;
+        }
+        return undefined;
+    };
     for (let i = turnHistory.length - 1; i >= 0; i--) {
         const entry = turnHistory[i];
-        const records: unknown[] = Array.isArray(entry?.headlineActors) ? entry.headlineActors : [];
-        const record = records.find((candidate): candidate is HeadlineAttribution =>
-            typeof candidate === 'object' && candidate !== null
-            && (candidate as HeadlineAttribution).text === occurrence
-            && Array.isArray((candidate as HeadlineAttribution).actorIds));
-        if (record) return { entry, record };
+        const held: unknown[] = Array.isArray(entry?.headlineActors) ? entry.headlineActors : [];
+        const records = held.filter((candidate): candidate is HeadlineAttribution => isRecordOf(candidate, occurrence));
+        if (records.length === 0) continue;
+        const hands = new Map<string, string>();
+        for (const record of records) {
+            record.actorIds.forEach((id, index) => {
+                if (typeof id !== 'string' || id.length === 0 || hands.has(id)) return;
+                const frozen = Array.isArray(record.actorNames) ? record.actorNames[index] : undefined;
+                const name = typeof frozen === 'string' && frozen.trim() ? frozen.trim() : nameFromRoster(id);
+                if (name) hands.set(id, name);
+            });
+        }
+        return { entry, hands: [...hands].map(([id, name]) => ({ id, name })) };
     }
     return null;
 }
 
 /** The truth an occurrence question reaches for, read off its attribution record. GM-PRIVATE. */
 export interface OccurrenceGrounding {
-    /** The candidate truths `planFromPool` scopes: one per named hand - its name, or for "Who gains?" its name and its recorded aims that turn. Empty when no single hand was behind it. */
-    pool: string[];
-    /** The ids of the hands behind it that could be named, in declared order. */
-    actorIds: string[];
+    /** The hands behind it, in declared order - empty when no single hand was. */
+    hands: OccurrenceHand[];
     /** The whole truth the account is measured against, for the ledger. */
     groundTruth: string;
 }
 
-/** "appease_troops" -> "appease troops": an entityAction intent as a phrase. */
-function intentPhrase(intent: string): string {
-    return intent.replace(/_/g, ' ');
-}
+const INTENTS: readonly EntityActionIntent[] = EntityActionIntentEnum;
 
 /**
  * The ground truth of one occurrence question (D47), in code:
- *  - who_is_behind_it: the display names of the headline's declared actors;
- *  - who_gains: the same actors, each with its recorded aims that turn - the
- *    intent and notes of each of its entityActions on the same history entry
- *    (the intent alone where the notes were redacted, or name its scheme).
- * An empty actor list is itself the truth (NO_HAND_TRUTH). An actor is named
- * from the live roster, else the newest snapshot that still holds it (a
- * figure since removed); one that can be named nowhere is left out, and when
- * none of the declared hands can be named there is nothing the engine could
- * stand behind: null, as when there is no record at all. The player's own id
- * is named like any other - an aide may have to tell their master that the
- * hand was their own.
+ *  - who_is_behind_it: the headline's hands, by the names frozen at commit;
+ *  - who_gains: the same hands, each with its aims that turn - the intents of
+ *    its entityActions on the same history entry, deduplicated. Never an
+ *    action's notes or target (D28); a hand with no action is a bare name.
+ * An empty record is itself the truth (NO_HAND_TRUTH). Null only when there
+ * is no record at all. The player's own id is a hand like any other - an
+ * aide may have to tell their master that the hand was their own.
  */
 export function occurrenceGrounding(params: {
     turnHistory: readonly TurnHistoryEntry[];
@@ -557,65 +637,141 @@ export function occurrenceGrounding(params: {
     roster: readonly Entity[];
 }): OccurrenceGrounding | null {
     const { turnHistory, occurrence, question, roster } = params;
-    const found = findHeadlineAttribution(turnHistory, occurrence);
+    const found = findHeadlineHands(turnHistory, occurrence, roster);
     if (!found) return null;
-    const declared = [...new Set(found.record.actorIds.filter((id): id is string => typeof id === 'string' && id.length > 0))];
-    if (declared.length === 0) return { pool: [], actorIds: [], groundTruth: NO_HAND_TRUTH[question] };
-
-    const nameOf = (id: string): string | null => {
-        const live = roster.find(entity => entity.entity_id === id)?.name;
-        if (live?.trim()) return live;
-        for (let i = turnHistory.length - 1; i >= 0; i--) {
-            const past = turnHistory[i]?.postTurnEntities?.find(entity => entity.entity_id === id)?.name;
-            if (past?.trim()) return past;
-        }
-        return null;
-    };
-    const named = declared
-        .map(id => ({ id, name: nameOf(id) }))
-        .filter((actor): actor is { id: string; name: string } => actor.name !== null);
-    if (named.length === 0) return null;
-
-    // A scheme's title is never an aim a free question may carry: its nature
-    // is earned across paid clues (D28), and no investigation pool offers it
-    // either. Notes that name the hand's design - as it stands now, or in the
-    // entry's own snapshot - fall back to the bare intent.
-    const schemeNamesOf = (id: string): string[] => [
-        roster.find(entity => entity.entity_id === id)?.active_scheme?.name,
-        found.entry.postTurnEntities?.find(entity => entity.entity_id === id)?.active_scheme?.name,
-    ].filter((name): name is string => typeof name === 'string' && name.trim().length > 0);
     const actions = Array.isArray(found.entry.adjudication?.entityActions) ? found.entry.adjudication.entityActions : [];
-    const aimsOf = (id: string): string[] => actions
-        .filter(action => action?.id === id && typeof action.intent === 'string')
-        .map(action => {
-            const notes = typeof action.notes === 'string' ? action.notes.trim() : '';
-            const namesDesign = schemeNamesOf(id).some(name => notes.toLowerCase().includes(name.toLowerCase()));
-            const recorded = notes && notes !== REDACTED_PLAYER_PROSE_PLACEHOLDER && !namesDesign;
-            return recorded ? `${intentPhrase(action.intent)}: ${notes}` : intentPhrase(action.intent);
-        });
-    const pool = named.map(({ id, name }) => {
-        if (question === 'who_is_behind_it') return name;
-        const aims = aimsOf(id);
-        return aims.length > 0 ? `${name} - ${aims.join('; ')}` : name;
+    const aimsOf = (id: string): EntityActionIntent[] => [...new Set(actions
+        .filter(action => action?.id === id && INTENTS.includes(action.intent))
+        .map(action => action.intent))];
+    const hands = found.hands.map(({ id, name }): OccurrenceHand => ({ id, name, aims: question === 'who_gains' ? aimsOf(id) : [] }));
+    return {
+        hands,
+        groundTruth: hands.length > 0 ? hands.map(hand => describeHand(hand, question)).join(' | ') : NO_HAND_TRUTH[question],
+    };
+}
+
+/** What code needs to pick an occurrence account's decoys, and to keep it consistent with its sibling question. */
+export interface OccurrencePlanContext {
+    /** The player's own id: a hand like any other, never a decoy. */
+    playerId: string;
+    /** The figures the player knows by name (their network): the only roster figures a decoy may ever be. */
+    knownFigures: readonly { id: string; name: string }[];
+    /** What the other grounded question on the occurrence came back with, when it was asked and its ledger entry still stands. */
+    sibling: OccurrenceSiblingOutcome | null;
+}
+
+/** The code-side plan an occurrence prompt is built from (GM-PRIVATE until the model's account comes back). */
+export interface OccurrencePlan extends PoolPlan {
+    question: GroundedOccurrenceQuestion;
+    /** Set when the account came back with nothing because its sibling question did, whatever its own roll. */
+    heldToSibling?: boolean;
+}
+
+/**
+ * Plans an occurrence account (D47). Fidelity reaches FIDELITY_REACH hands (a
+ * fragment only part of one hand's name); accuracy then shapes them through
+ * `shapeByAccuracy`, with CODE picking all false content, so that:
+ *  - every entry keeps its SHAPE on every reading - a name alone, or a name
+ *    and k aims; a false reading's decoy has exactly the shape of the true
+ *    entry it replaces, and a garbled reading changes one thing in one entry;
+ *  - a decoy name keeps the true hand's familiarity: for a hand that is the
+ *    player or in their network, another figure they know (never a true hand,
+ *    never the player); for a hand outside it - or when no known figure is
+ *    left - a stranger of the city's life the model invents, never another
+ *    roster figure, whose very existence the player has not learned;
+ *  - a false aim is an intent the true entry never had; a garbled entry has
+ *    its name pinned on a decoy or - only if it has aims - one aim changed.
+ * "Came back empty" is decided once per occurrence, by `context.sibling`: when
+ * the other question came back with nothing, so does this one (recorded false
+ * when hands were behind it, whatever the roll); when it named hands, a false
+ * reading here invents rather than coming back empty. An empty truth is an
+ * honest nothing either way. Every draw comes from `rng`, after the rolls.
+ */
+export function planOccurrence(
+    grounding: OccurrenceGrounding,
+    question: GroundedOccurrenceQuestion,
+    rolled: { accuracy: IntelAccuracy; fidelity: IntelFidelity },
+    rng: Rng,
+    context: OccurrencePlanContext,
+): OccurrencePlan {
+    const { hands } = grounding;
+    const { fidelity } = rolled;
+    if (context.sibling === 'empty' && hands.length > 0) {
+        return { question, accuracy: 'true', fidelity, findings: [], withheld: hands.map(hand => describeHand(hand, question)), heldToSibling: true };
+    }
+
+    const entry = (content: PlannedHand, fragmentary: boolean, standing: IntelAccuracy, groundTruth?: string): PlannedFinding => ({
+        truth: describeHand(content, question),
+        fragmentary,
+        standing,
+        hand: content,
+        ...(groundTruth !== undefined ? { groundTruth } : {}),
     });
-    return { pool, actorIds: named.map(actor => actor.id), groundTruth: pool.join(' | ') };
+    const fragmentary = fidelity === 'fragment';
+    const reached = shuffled(hands, rng).slice(0, FIDELITY_REACH[fidelity]);
+    const findings = reached.map(hand => entry(
+        { name: fragmentary ? fragmentOf(hand.name, rng) : hand.name, aims: hand.aims },
+        fragmentary,
+        'true',
+        describeHand(hand, question),
+    ));
+
+    const trueIds = new Set(hands.map(hand => hand.id));
+    const isKnown = (id: string) => id === context.playerId || context.knownFigures.some(figure => figure.id === id);
+    const unusedFigures = context.knownFigures.filter(figure => figure.id !== context.playerId && !trueIds.has(figure.id));
+    const decoyName = (hand: OccurrenceHand, asFragment: boolean, draw: Rng): string | null => {
+        if (!isKnown(hand.id) || unusedFigures.length === 0) return null;
+        const [figure] = unusedFigures.splice(Math.floor(draw() * unusedFigures.length), 1);
+        return asFragment ? fragmentOf(figure.name, draw) : figure.name;
+    };
+    const otherIntent = (excluded: readonly EntityActionIntent[], draw: Rng): EntityActionIntent => {
+        const open = INTENTS.filter(intent => !excluded.includes(intent));
+        return open[Math.floor(draw() * open.length)];
+    };
+
+    const plan = shapeByAccuracy(findings, rolled, rng, {
+        falseNothing: context.sibling !== 'named',
+        // A bare name can only be pinned on the wrong party; an entry with an aim may instead have one aim changed.
+        distortionsFor: finding => (finding.hand?.aims.length ?? 0) > 0 ? EVERY_DISTORTION : ['misattributed'],
+        decoys: {
+            falsify: (finding, i, draw) => {
+                const hand = reached[i];
+                const aims: EntityActionIntent[] = [];
+                while (aims.length < hand.aims.length) aims.push(otherIntent([...hand.aims, ...aims], draw));
+                return entry({ name: decoyName(hand, finding.fragmentary, draw), aims }, finding.fragmentary, 'false');
+            },
+            garble: (finding, i, distortion, draw) => {
+                const hand = reached[i];
+                const told = finding.hand!;
+                let content: PlannedHand;
+                if (distortion === 'misattributed') {
+                    content = { name: decoyName(hand, finding.fragmentary, draw), aims: told.aims };
+                } else {
+                    const changed = Math.floor(draw() * told.aims.length);
+                    content = { name: told.name, aims: told.aims.map((aim, a) => a === changed ? otherIntent(hand.aims, draw) : aim) };
+                }
+                return { ...entry(content, finding.fragmentary, 'garbled', finding.groundTruth), distortion };
+            },
+        },
+    });
+    return { question, ...plan };
 }
 
 /**
  * The truth of one grounded occurrence answer: ONE finding - the account as
  * delivered - standing as a prose account does (`accountStanding`), measured
- * against the whole truth on record, whatever part of it the agents reached.
+ * against the whole truth on record, whatever part of it the agents reached,
+ * with exactly what code planned it to carry.
  */
 export function occurrenceTruth(
-    plan: PoolPlan,
+    plan: OccurrencePlan,
     grounding: OccurrenceGrounding,
-    question: GroundedOccurrenceQuestion,
     occurrence: string,
     rolls: InvestigationRolls,
     text: string,
 ): OccurrenceTruth {
     return {
-        question,
+        question: plan.question,
         occurrence,
         rolls,
         finding: {
@@ -623,8 +779,33 @@ export function occurrenceTruth(
             standing: accountStanding(plan),
             groundTruth: grounding.groundTruth,
             ...accountDistortion(plan),
+            planned: plan.findings.map(finding => finding.truth ?? '').join(' | '),
+            cameBackEmpty: plan.findings.length === 0,
+            ...(plan.heldToSibling ? { heldToSibling: true } : {}),
         },
     };
+}
+
+/**
+ * What the OTHER grounded question on `occurrence` came back with, off the
+ * newest ledger entry recording it: no hand at all, or hands named. Null when
+ * it was never asked, its entry has left the bounded ledger, or it was
+ * recorded before the ledger said - the answer then rolls on its own.
+ */
+export function siblingOccurrenceOutcome(
+    ledger: readonly TruthLedgerEntry[],
+    occurrence: string,
+    question: GroundedOccurrenceQuestion,
+): OccurrenceSiblingOutcome | null {
+    const sibling: GroundedOccurrenceQuestion = question === 'who_gains' ? 'who_is_behind_it' : 'who_gains';
+    for (let i = ledger.length - 1; i >= 0; i--) {
+        const finding = ledger[i]?.investigation;
+        if (finding?.kind === 'occurrence' && finding.occurrence === occurrence && finding.question === sibling
+            && typeof finding.cameBackEmpty === 'boolean') {
+            return finding.cameBackEmpty ? 'empty' : 'named';
+        }
+    }
+    return null;
 }
 
 /**
@@ -650,6 +831,9 @@ export function occurrenceLedgerEntry(truth: OccurrenceTruth, reportId: string, 
             rolls: truth.rolls,
             question: truth.question,
             occurrence: truth.occurrence,
+            planned: finding.planned,
+            cameBackEmpty: finding.cameBackEmpty,
+            ...(finding.heldToSibling ? { heldToSibling: true } : {}),
         },
     };
 }

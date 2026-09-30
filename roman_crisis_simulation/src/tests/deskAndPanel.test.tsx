@@ -102,7 +102,7 @@ describe('SidePanel: what changed since you last looked', () => {
         gameState={GameState.AWAITING_PLAYER_INPUT} playerEntity={player} entities={[player]} currentEvents={[]}
         worldState={worldState} simulationState={simulationState} reports={[]} knowledge={[]} turnNumber={3}
         onSpendDeepAnalysis={vi.fn()} onInvestigationOutcome={vi.fn(async () => {})} runDomainMutation={runDomainMutation}
-        ai={{} as GoogleGenAI} isMockMode eventHistory={[]} turnHistory={[]} onOccurrenceFinding={vi.fn()}
+        ai={{} as GoogleGenAI} isMockMode eventHistory={[]} turnHistory={[]} onOccurrenceFinding={vi.fn()} occurrenceSibling={() => null}
         pulsingTabs={pulsingTabs} tabChangeCounts={tabChangeCounts}
       />
     );

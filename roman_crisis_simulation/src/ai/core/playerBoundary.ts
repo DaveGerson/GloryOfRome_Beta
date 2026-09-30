@@ -833,10 +833,9 @@ export interface PlayerProseRedactionResult<T> {
  * Replaces a prose slot that redacts to nothing. Matches the hedged register
  * perception/visibility.ts::describeDelta already falls back to, so a
  * redacted `reason` reads as ordinary quiet-week prose rather than as an
- * error marker. Exported so ai/core/groundTruth.ts can tell a redacted
- * entityAction's notes from a recorded aim.
+ * error marker.
  */
-export const REDACTED_PLAYER_PROSE_PLACEHOLDER = 'Something shifts, unremarked.';
+const REDACTED_PLAYER_PROSE_PLACEHOLDER = 'Something shifts, unremarked.';
 
 /** The GM-console tag. Matches the '[Engine]'/'[Mind]'/'[Pacing]' convention. */
 const PLAYER_PROSE_REDACTION_TAG = '[Boundary]';

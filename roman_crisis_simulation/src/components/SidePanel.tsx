@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { GameState, Entity, InvestigationResult, InvestigationTruth, OccurrenceTruth, WorldState, Report, EventHistoryEntry, SimulationState, TurnHistoryEntry } from '../types';
+import { GameState, Entity, InvestigationResult, InvestigationTruth, OccurrenceSiblingOutcome, OccurrenceTruth, WorldState, Report, EventHistoryEntry, SimulationState, TurnHistoryEntry } from '../types';
 import { GoogleGenAI } from "@google/genai";
 import CurrentEventsTab from './tabs/CurrentEventsTab';
 import DramatisPersonaeTab from './tabs/DramatisPersonaeTab';
@@ -138,12 +138,14 @@ const SidePanel: React.FC<{
     panelRef?: React.Ref<HTMLElement>;
     /** Commits one occurrence finding to the knowledge store (audit item 40). `truth` is GM-private (D11/D47): forwarded for the truth ledger, never rendered. */
     onOccurrenceFinding: (occurrence: string, question: OccurrenceQuestion, text: string, request: DomainMutationContext, truth?: OccurrenceTruth) => boolean | void | Promise<boolean | void>;
+    /** What the other grounded question on an occurrence came back with, off the truth ledger (hooks/useIntelCommits.ts) - handed to the Events tab's questions so the two agree on whether anyone acted (D47). */
+    occurrenceSibling: (occurrence: string, question: OccurrenceQuestion) => OccurrenceSiblingOutcome | null;
     resolvedApiKey?: string | null;
     /** The narration voice's mode: SILENT disables the Imperial Dispatch control, with a pointer. */
     narrationVoiceMode?: NarrationVoiceMode;
     /** The voice row on each Personae card (hooks/usePersonaeVoice.ts). */
     personaeVoice?: PersonaeVoice;
-}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, turnHistory, pulsingTabs, tabChangeCounts, activeTab: heldTab, onSelectTab, panelRef, onOccurrenceFinding, resolvedApiKey, narrationVoiceMode, personaeVoice }) => {
+}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, turnHistory, pulsingTabs, tabChangeCounts, activeTab: heldTab, onSelectTab, panelRef, onOccurrenceFinding, occurrenceSibling, resolvedApiKey, narrationVoiceMode, personaeVoice }) => {
     const [ownTab, setOwnTab] = useState<TabId>('world_state');
     const activeTab = heldTab ?? ownTab;
     const { dispatchStatus, toggleDispatch } = useImperialDispatch({
@@ -332,6 +334,7 @@ const SidePanel: React.FC<{
                     ai={ai}
                     isMockMode={isMockMode}
                     onFinding={onOccurrenceFinding}
+                    occurrenceSibling={occurrenceSibling}
                     runDomainMutation={runDomainMutation}
                     interactionLocked={interactionLocked}
                 />}

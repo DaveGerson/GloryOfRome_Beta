@@ -21,7 +21,7 @@
  */
 
 import type { z } from 'zod';
-import type { Adjudication, EntityAction, EventDelta, HeadlineAttribution, SimulationState } from '../../types';
+import type { Adjudication, Entity, EntityAction, EventDelta, HeadlineAttribution, SimulationState } from '../../types';
 import type {
   zAdjudication,
   zEntityAction,
@@ -112,17 +112,34 @@ export function stripActorsFromAdjudication(adjudication: AdjudicationInterchang
  * one of exactly its text. One a later tripwire-only gate pass changed after
  * the capture pairs with none and gets no record - the occurrence question
  * then takes its honest "no record" path - never a guessed one.
+ *
+ * Each hand's display name is frozen here, from `rosters` in order (the
+ * post-turn roster, then the pre-turn one), so the truth never depends on who
+ * is still on the roster, or in a snapshot, when the question is asked. A
+ * declared id that names no one on either is dropped: a hand that is no one
+ * is no hand, and a headline left with none arose from circumstance.
  */
 export function attributeHeadlines(
   declared: readonly { text: string; actors: readonly string[] }[],
   committed: readonly string[],
+  rosters: readonly (readonly Entity[])[],
 ): HeadlineAttribution[] {
+  const nameOf = (id: string): string | undefined => {
+    for (const roster of rosters) {
+      const name = roster.find(entity => entity.entity_id === id)?.name?.trim();
+      if (name) return name;
+    }
+    return undefined;
+  };
   const unpaired = [...declared];
   const records: HeadlineAttribution[] = [];
   for (const text of committed) {
     const index = unpaired.findIndex(headline => headline.text === text);
     if (index < 0) continue;
-    records.push({ text, actorIds: [...new Set(unpaired[index].actors)] });
+    const hands = [...new Set(unpaired[index].actors)]
+      .map(id => ({ id, name: nameOf(id) }))
+      .filter((hand): hand is { id: string; name: string } => hand.name !== undefined);
+    records.push({ text, actorIds: hands.map(hand => hand.id), actorNames: hands.map(hand => hand.name) });
     unpaired.splice(index, 1);
   }
   return records;

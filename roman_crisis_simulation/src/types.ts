@@ -609,7 +609,29 @@ export interface IntelFindingTruth {
     question?: GroundedOccurrenceQuestion;
     /** Occurrence findings only: the public headline the question was put to. */
     occurrence?: string;
+    /**
+     * Occurrence findings only: exactly what code planned the account to carry
+     * - the hands (and aims) reached, a decoy in place of a distorted one, or
+     * the decoys of a false reading; empty when it came back with nothing.
+     */
+    planned?: string;
+    /**
+     * Occurrence findings only: whether the account came back with no hand at
+     * all (an honest nothing, a false one, or one held to its sibling). The
+     * other question on the same occurrence reads it, so the two answers never
+     * contradict each other on whether anyone acted (D47).
+     */
+    cameBackEmpty?: boolean;
+    /** Occurrence findings only: set when a nothing was held to its sibling question's nothing, whatever its own roll. */
+    heldToSibling?: boolean;
 }
+
+/**
+ * What the other grounded question on an occurrence already came back with,
+ * read off the truth ledger: no hand at all, or hands named. The two answers
+ * decide "came back empty" once between them (D47).
+ */
+export type OccurrenceSiblingOutcome = 'empty' | 'named';
 
 /**
  * GM-PRIVATE truth of one investigation, as its tool hands it back beside the
@@ -655,6 +677,10 @@ export interface OccurrenceTruth {
         /** The whole truth on record the account is measured against - every hand (and, for "Who gains?", every aim) behind it, or that none was - whatever part of it reached the agents. */
         groundTruth: string;
         distortion?: IntelDistortion;
+        /** Exactly what code planned the account to carry (see IntelFindingTruth.planned). */
+        planned: string;
+        cameBackEmpty: boolean;
+        heldToSibling?: boolean;
     };
 }
 
@@ -849,8 +875,20 @@ export interface ActionResolutionEvent {
 export interface HeadlineAttribution {
     /** The headline exactly as committed - after the no-attempt redaction gate - and as the Events tab cries it. */
     text: string;
-    /** The entity ids whose actions the headline narrates, as declared; [] when it arose from circumstance, with no single hand behind it. */
+    /**
+     * The entity ids whose actions the headline narrates, as declared and
+     * resolved at commit; [] when it arose from circumstance, with no single
+     * hand behind it. An id that named no figure on the roster at commit is
+     * dropped, so a declaration of hands that are no one reads as circumstance.
+     */
     actorIds: string[];
+    /**
+     * Each hand's display name, aligned with `actorIds` and frozen at commit
+     * (the post-turn roster, then the pre-turn one), so the truth reads the
+     * same a reign later, whoever has left the roster since. Optional only for
+     * records written before names were frozen.
+     */
+    actorNames?: string[];
 }
 
 /**

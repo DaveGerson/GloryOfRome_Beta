@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { Entity, WorldState, StoryRelevance, Adjudication, SimulationState, ActionResolutionEvent, NpcIntent, InvestigationRolls, InvestigationTruth, TruthLedgerEntry, GroundedOccurrenceQuestion, OccurrenceTruth, TurnHistoryEntry } from '../../types';
+import { Entity, WorldState, StoryRelevance, Adjudication, SimulationState, ActionResolutionEvent, NpcIntent, InvestigationRolls, InvestigationTruth, TruthLedgerEntry, GroundedOccurrenceQuestion, OccurrenceSiblingOutcome, OccurrenceTruth, TurnHistoryEntry } from '../../types';
 import type { OccurrenceQuestion } from '../../knowledge/store';
 import { mockGetClarificationOnEvent, mockGetDeepAnalysis, mockGetInvestigationResult, mockGetPlayerMonologue, mockGetSchemeNatureReading, mockGetStoryRelevance, mockIntelSeed } from '../mocks';
 import { StoryRelevanceSchema, SimulationStateSchema, PlayerMonologuePayloadSchema, buildInvestigationResultSchema } from '../core/schemas';
@@ -26,8 +26,8 @@ import {
     investigationTruth,
     occurrenceGrounding,
     occurrenceTruth,
-    planFromPool,
     planInvestigation,
+    planOccurrence,
     planSchemeNature,
     schemeClueRecords,
     schemeNatureLedgerEntry,
@@ -72,26 +72,41 @@ export const NO_THREAD_TO_FOLLOW: Record<GroundedOccurrenceQuestion, string> = {
 };
 
 /**
- * The figures the player knows by name - their visibility network - as the
- * public knowledge an occurrence prompt may draw on (a false account invents
- * from it; a forecast reasons from it). Names only: an id never reaches the
- * prompt.
+ * The figures the player knows by name - their visibility network. A
+ * forecast reasons from them; a grounded answer's decoys are drawn from them
+ * (and only them, of all the roster), and an invented stranger is told to be
+ * none of them. Names only reach a prompt: an id never does.
  */
-function figuresKnownTo(player: Entity, allEntities: readonly Entity[]): string[] {
+function figuresKnownTo(player: Entity, allEntities: readonly Entity[]): Array<{ id: string; name: string }> {
     return player.visibility_network
-        .map(id => allEntities.find(entity => entity.entity_id === id)?.name ?? '')
-        .filter(name => name.trim().length > 0);
+        .map(id => ({ id, name: allEntities.find(entity => entity.entity_id === id)?.name?.trim() ?? '' }))
+        .filter(figure => figure.name.length > 0 && figure.id !== player.entity_id);
+}
+
+/**
+ * Whether the figures the HEADLINE names are all the player's own or inside
+ * their network - the old clarification's isVisible, read off public text
+ * only, so the rolls never tell anything of who the hidden hands are. A
+ * headline that names no one reads as inside.
+ */
+function headlineStanding(occurrence: string, player: Entity, allEntities: readonly Entity[]): 'inNetwork' | 'outsideNetwork' {
+    const text = occurrence.toLowerCase();
+    const named = allEntities.filter(entity => entity.name.trim().length > 0 && text.includes(entity.name.toLowerCase()));
+    return named.every(entity => entity.entity_id === player.entity_id || player.visibility_network.includes(entity.entity_id))
+        ? 'inNetwork'
+        : 'outsideNetwork';
 }
 
 /**
  * A question put to a public occurrence (the Events tab). "Who is behind
  * it?" and "Who gains?" are GROUNDED (D47) in the turn's GM-private
  * attribution record (TurnHistoryEntry.headlineActors): the hands the
- * adjudicator declared - and, for "Who gains?", their aims that turn - reach
- * the prompt at the rolled fidelity and accuracy, and the truth of the
- * account comes back beside it. "What follows?" is a forecast: ungrounded,
- * unrolled, with no truth. An occurrence with no record takes the honest
- * NO_THREAD_TO_FOLLOW, unrolled and with no truth either.
+ * adjudicator declared - and, for "Who gains?", what each was after that turn
+ * - reach the prompt at the rolled fidelity and accuracy, code picking every
+ * entry the account carries, decoys included (groundTruth.ts::planOccurrence),
+ * and the truth of the account comes back beside it. "What follows?" is a
+ * forecast: ungrounded, unrolled, with no truth. An occurrence with no record
+ * takes the honest NO_THREAD_TO_FOLLOW, unrolled and with no truth either.
  *
  * WHAT THE ROLLS READ. An investigation rolls against its target's paranoia
  * and the player's intrigue; an occurrence has no single target, and asking
@@ -100,20 +115,24 @@ function figuresKnownTo(player: Entity, allEntities: readonly Entity[]): string[
  * consequence, and only the D47 accuracy and fidelity rolls are made:
  *  - the investigator term (both rolls) is the player's intrigue, as for
  *    every investigation;
- *  - the old clarification's isVisible flag, now read off the record: every
- *    hand behind it is the player's own or inside their network (an
- *    occurrence with no single hand counts as inside) or not. It sets the
- *    standing the rolls read at (DEEP_ANALYSIS_STANDING - the agents ask
- *    their own contacts, or strangers) and the fidelity roll's difficulty
- *    (resolution.ts::OCCURRENCE_DIFFICULTY - strangers guard their part);
+ *  - the old clarification's isVisible flag, read off the PUBLIC headline
+ *    (`headlineStanding`): are the figures it names the player's own, or
+ *    inside their network? It sets the standing the rolls read at
+ *    (DEEP_ANALYSIS_STANDING - the agents ask their own contacts, or
+ *    strangers) and the fidelity roll's difficulty
+ *    (resolution.ts::OCCURRENCE_DIFFICULTY). Never the hidden hands: how
+ *    much comes back is visible, and must not tell who they are;
  *  - accuracy's target term reads as average: no one figure lays the false
  *    trail about a public event.
  * For an average investigator (the band tables in resolution.ts):
  *                      false / garbled / true    fragment / partial / fuller
  *   inside the network  15%     30%      55%       25%        30%      45%
  *   outside it          30%     30%      40%       50%        30%      20%
- * In Mock Mode the generator is seeded from the occurrence and the question
- * (ai/mocks.ts::mockIntelSeed), so the same question lands the same way.
+ * `sibling` is what the other grounded question on this occurrence already
+ * came back with (off the truth ledger, via hooks/useIntelCommits.ts), so the
+ * two decide "came back empty" once between them. In Mock Mode the generator
+ * is seeded from the occurrence and the question (ai/mocks.ts::mockIntelSeed),
+ * so the same question lands the same way.
  */
 export const getClarificationOnEvent = async (
     ai: GoogleGenAI,
@@ -123,15 +142,17 @@ export const getClarificationOnEvent = async (
     allEntities: Entity[],
     turnHistory: readonly TurnHistoryEntry[],
     isMockMode: boolean,
+    sibling: OccurrenceSiblingOutcome | null = null,
 ): Promise<OccurrenceAnswer> => {
     const knownFigures = figuresKnownTo(player, allEntities);
+    const knownNames = knownFigures.map(figure => figure.name);
     if (question === 'what_follows') {
         let forecast: string;
         if (isMockMode) {
             if(!mockGetClarificationOnEvent) throw new Error("Mock function 'mockGetClarificationOnEvent' is not implemented.");
             forecast = await mockGetClarificationOnEvent(occurrence, question, null);
         } else {
-            const { systemInstruction, prompt } = buildOccurrenceForecastPrompt(occurrence, player, knownFigures);
+            const { systemInstruction, prompt } = buildOccurrenceForecastPrompt(occurrence, player, knownNames);
             forecast = (await generateText(ai, { callName: 'clarification', model: GEMINI_FLASH, systemInstruction, prompt })) || "No response generated.";
         }
         assertPlayerVisibleTextSafe(forecast);
@@ -141,28 +162,25 @@ export const getClarificationOnEvent = async (
     const grounding = occurrenceGrounding({ turnHistory, occurrence, question, roster: allEntities });
     if (!grounding) return { text: NO_THREAD_TO_FOLLOW[question] };
 
-    const inNetwork = grounding.actorIds.every(id => id === player.entity_id || player.visibility_network.includes(id));
-    const standing = inNetwork ? 'inNetwork' : 'outsideNetwork';
+    const standing = headlineStanding(occurrence, player, allEntities);
     const { seed, rng } = intelGenerator(isMockMode, occurrence, question);
     const rolls = rollAccuracyAndFidelity(seed, rng, DEEP_ANALYSIS_STANDING[standing], {
         investigatorIntrigue: player.skills?.intrigue ?? null,
         targetParanoia: undefined,
         difficulty: OCCURRENCE_DIFFICULTY[standing],
     });
-    // A bare name can only be pinned on the wrong party; a hand and its aim
-    // may have either the one or the other distorted.
-    const plan = planFromPool(grounding.pool, rolls, rng, question === 'who_is_behind_it' ? ['misattributed'] : undefined);
+    const plan = planOccurrence(grounding, question, rolls, rng, { playerId: player.entity_id, knownFigures, sibling });
 
     let text: string;
     if (isMockMode) {
         if(!mockGetClarificationOnEvent) throw new Error("Mock function 'mockGetClarificationOnEvent' is not implemented.");
         text = await mockGetClarificationOnEvent(occurrence, question, plan);
     } else {
-        const { systemInstruction, prompt } = buildClarificationPrompt(occurrence, question, player, knownFigures, plan);
+        const { systemInstruction, prompt } = buildClarificationPrompt(occurrence, question, player, knownNames, plan);
         text = (await generateText(ai, { callName: 'clarification', model: GEMINI_FLASH, systemInstruction, prompt })) || "No response generated.";
     }
     assertPlayerVisibleTextSafe(text);
-    return { text, truth: occurrenceTruth(plan, grounding, question, occurrence, rolls, text) };
+    return { text, truth: occurrenceTruth(plan, grounding, occurrence, rolls, text) };
 };
 /**
  * The generator every D47 draw of one investigation-family call comes from:

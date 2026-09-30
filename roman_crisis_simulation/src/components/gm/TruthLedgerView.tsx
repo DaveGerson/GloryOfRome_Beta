@@ -47,6 +47,12 @@ const FindingDetail: React.FC<{ finding: IntelFindingTruth; aboutId: string }> =
                 asked of: <span style={{ fontStyle: 'italic', color: PARCH }}>“{finding.occurrence}”</span>
             </div>
         )}
+        {finding.planned !== undefined && (
+            <div style={{ fontSize: 13, color: DIM, marginTop: 2 }}>
+                planned: {finding.planned ? <span style={{ fontStyle: 'italic', color: PARCH }}>“{finding.planned}”</span> : 'nothing - no hand named'}
+                {finding.heldToSibling && ' · held to the other question\'s nothing, whatever its own roll'}
+            </div>
+        )}
         {finding.rolls && (
             <div style={{ fontFamily: MONO, fontSize: 12, color: DIM, marginTop: 2 }}>
                 tier {finding.rolls.tier} · accuracy d20 {finding.rolls.accuracyRoll} → {finding.rolls.accuracy} · fidelity d20 {finding.rolls.fidelityRoll} → {finding.rolls.fidelity} · seed {finding.rolls.seed}

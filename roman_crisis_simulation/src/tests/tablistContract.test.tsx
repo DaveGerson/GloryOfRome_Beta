@@ -136,6 +136,7 @@ async function mountSidePanel(): Promise<HTMLElement> {
       turnHistory={[]}
       pulsingTabs={new Set<TabId>()}
       onOccurrenceFinding={vi.fn()}
+      occurrenceSibling={() => null}
     />,
   );
 }

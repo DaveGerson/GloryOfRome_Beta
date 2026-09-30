@@ -315,7 +315,7 @@ const App: React.FC = () => {
     });
 
     const {
-        handleDeepAnalysis, handleOccurrenceFinding, handleInvestigationOutcome, handleSetIntervention,
+        handleDeepAnalysis, handleOccurrenceFinding, handleInvestigationOutcome, handleSetIntervention, occurrenceSibling,
     } = useIntelCommits({
         ai, isMockMode, entities, playerCharacterId, knowledge, truthLedger, pendingIntelligenceFallout, messages, turnNumber,
         buildSaveState, commitDomainMutation, setTransactionNote,
@@ -637,6 +637,7 @@ const App: React.FC = () => {
                             onSelectTab={handleSelectRegister}
                             panelRef={setSidePanelElement}
                             onOccurrenceFinding={handleOccurrenceFinding}
+                            occurrenceSibling={occurrenceSibling}
                             resolvedApiKey={resolvedApiKey}
                             narrationVoiceMode={narrationVoiceMode}
                             personaeVoice={personaeVoice}

@@ -1351,7 +1351,8 @@ function assembleTurnResult(ctx: TurnContext, turn: {
         playerMonologue,
         // GM-private (D42/D47): who acted in each headline the turn commits -
         // the same `headlines` the Events tab cries - paired by exact text.
-        headlineActors: attributeHeadlines(declaredHeadlines, transformedAdjudication.headlines),
+        // Names frozen from the post-turn roster, then the pre-turn one.
+        headlineActors: attributeHeadlines(declaredHeadlines, transformedAdjudication.headlines, [applied.updatedEntities, ctx.currentEntities]),
         postTurnEntities: applied.updatedEntities, // Store final state
         rawCalls: endTurnCapture(),
         mortalityTrace: mortalityEvents.length > 0 ? mortalityEvents : undefined,

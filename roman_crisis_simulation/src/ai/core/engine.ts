@@ -43,7 +43,8 @@ export const MAX_RECENT_INTERACTIONS = 20;
 
 /**
  * Upper bound on the GM-private truth ledger (DESIGN_DECISIONS.md D11) -
- * the oldest entries are dropped once an append would exceed it. One entry
+ * the oldest entries are dropped once an append would exceed it, answers to
+ * the free occurrence questions first (appendTruthLedgerEntries). One entry
  * is written per rumor delta and persisted in the save, so the ledger must
  * be bounded like every other accreting slice; the bound is deliberately
  * generous because the ledger is the GM console's true-vs-believed tuning
@@ -530,20 +531,29 @@ function removeLostHolding(entity: Entity, resourceName: string, lostItem: strin
 }
 
 /**
- * Appends fresh truth-ledger entries onto the existing ledger, dropping the
- * oldest entries past MAX_TRUTH_LEDGER_ENTRIES. Pure - returns a new array
- * (or the input reference when there is nothing to append).
+ * Appends fresh truth-ledger entries onto the existing ledger, dropping
+ * entries already held once it would pass MAX_TRUTH_LEDGER_ENTRIES: the
+ * oldest answers to occurrence questions first, then the oldest of the rest.
+ * Those questions are free and may be asked of every headline, so letting
+ * them push out oldest-first would evict the truth behind paid findings -
+ * leverage, scheme clues - to make room for them. The entries being appended
+ * are never the ones dropped. Pure - returns a new array (or the input
+ * reference when there is nothing to append).
  */
 export function appendTruthLedgerEntries(
     currentTruthLedger: TruthLedgerEntry[],
     newEntries: TruthLedgerEntry[]
 ): TruthLedgerEntry[] {
     if (newEntries.length === 0) return currentTruthLedger;
-    const combined = [...currentTruthLedger, ...newEntries];
-    if (combined.length > MAX_TRUTH_LEDGER_ENTRIES) {
-        return combined.slice(combined.length - MAX_TRUTH_LEDGER_ENTRIES);
-    }
-    return combined;
+    const overflow = currentTruthLedger.length + newEntries.length - MAX_TRUTH_LEDGER_ENTRIES;
+    if (overflow <= 0) return [...currentTruthLedger, ...newEntries];
+    const dropped = new Set<number>();
+    currentTruthLedger.forEach((entry, i) => {
+        if (dropped.size < overflow && entry.investigation?.kind === 'occurrence') dropped.add(i);
+    });
+    for (let i = 0; i < currentTruthLedger.length && dropped.size < overflow; i++) dropped.add(i);
+    const combined = [...currentTruthLedger.filter((_, i) => !dropped.has(i)), ...newEntries];
+    return combined.length > MAX_TRUTH_LEDGER_ENTRIES ? combined.slice(combined.length - MAX_TRUTH_LEDGER_ENTRIES) : combined;
 }
 
 

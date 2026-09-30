@@ -14,7 +14,7 @@
  */
 
 import type { GoogleGenAI } from '@google/genai';
-import type { Entity, InvestigationResult, InvestigationTruth, Message, OccurrenceTruth, TruthLedgerEntry } from '../types';
+import type { Entity, InvestigationResult, InvestigationTruth, Message, OccurrenceSiblingOutcome, OccurrenceTruth, TruthLedgerEntry } from '../types';
 import type { DomainMutationContext } from '../state/domainMutation';
 import type { SaveGameState } from '../persistence/saveGame';
 import { computeDeepAnalysisKnowledge, computeInvestigationKnowledge } from '../knowledge/commit';
@@ -25,7 +25,7 @@ import {
 } from '../knowledge/relationships';
 import { getRelationshipObservations } from '../ai/tools/relationshipObservations';
 import { settleInvestigationTruth, type SettledInvestigationTruth } from '../ai/tools/intelligence';
-import { investigationLedgerEntries, occurrenceLedgerEntry } from '../ai/core/groundTruth';
+import { investigationLedgerEntries, occurrenceLedgerEntry, siblingOccurrenceOutcome } from '../ai/core/groundTruth';
 import { appendTruthLedgerEntries } from '../ai/core/engine';
 import { appendFallout, hasFallout } from '../components/investigationLoop';
 import type { DomainCommit, TransactionNote } from '../app/transactions';
@@ -292,6 +292,16 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
         return true;
     };
 
+    /**
+     * D47: what the OTHER grounded question on an occurrence already came
+     * back with - no hand at all, or hands named - read off the GM-private
+     * ledger for the Events tab's next question, so the two answers decide
+     * "came back empty" once between them. It says no more than the player
+     * already read in that other answer.
+     */
+    const occurrenceSibling = (occurrence: string, question: OccurrenceQuestion): OccurrenceSiblingOutcome | null =>
+        question === 'what_follows' ? null : siblingOccurrenceOutcome(truthLedger, occurrence, question);
+
     // D32 - the GM console's free-text directive, persisted so it survives
     // a reload and is read by the next turn's adjudication.
     const handleSetIntervention = (text: string): boolean => {
@@ -303,5 +313,5 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
         });
     };
 
-    return { handleDeepAnalysis, handleOccurrenceFinding, handleInvestigationOutcome, handleSetIntervention };
+    return { handleDeepAnalysis, handleOccurrenceFinding, handleInvestigationOutcome, handleSetIntervention, occurrenceSibling };
 }
