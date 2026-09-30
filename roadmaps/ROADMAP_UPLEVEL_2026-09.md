@@ -625,3 +625,71 @@ folded, your ties show whole on the status panel, no unlearned secret tie
 shows on Personae, and the first destiny row clears the fold. Screenshots:
 `docs/ui-refresh/19-*.png`. Residuals are listed at the end of
 `BACKLOG.md`.
+
+---
+
+## Part 7 — The last two residuals of Part 6, closed (2026-09-30)
+
+Part 6 left two things open because the game had no truth to draw on. Both
+are now built.
+
+**Private scenes speak from marks and ties.** When a private scene opens,
+the NPC is given:
+- its own marks, with an inward one as a private burden it shows only by
+  choice;
+- its own ties, with a secret one kept as private as its other secrets.
+
+It is shown only what it could see of the player: outward marks, by how
+they show and never by their account, and openly professed ties. The
+player's inward marks and secret ties never reach the scene. Tests plant
+sentinels for each of these and check that none reaches the prompt, and
+that the scene still fits its budget with heavy marks and ties.
+
+**The Events tab's "Who is behind it?" and "Who gains?" are grounded
+(D47).** Each turn now keeps a GM-private record of who acted, next to
+each headline: the entities the adjudication declared behind it, with
+their names frozen at that point (the D42 note). The record never reaches a
+player surface or any player-facing or NPC-facing prompt.
+- *Who is behind it?* The truth is those figures. If no one is on the
+  record, the truth is that it arose from circumstance.
+- *Who gains?* The same figures, each with only the open kinds of move it
+  made that turn ("to raise taxes"). A covert move, a move's notes or
+  target, and anything of a scheme are never included (D28).
+- *What follows?* This stays a forecast that states no hidden fact.
+- A headline with no record, such as one from an older save, gets an
+  honest "no one they asked could say".
+
+Each grounded answer rolls accuracy and fidelity like an investigation and
+writes a truth-ledger entry in the same commit as the finding. The GM
+console shows the question, the headline, what was planned and what was
+true.
+
+**Making a lie look like the truth.** Two adversarial reviews found 18
+defects. Most were ways to tell a false reading from a true one. All are
+fixed:
+- *Code writes the lie, the model only phrases it.*
+  - A known hand is replaced by another known figure.
+  - An unknown hand is replaced by a real figure the player does not know.
+  - A false aim is one another figure really pursued that turn.
+  - No decoy is a true hand, the player, or anyone not alive at the time.
+  - Every reading gets the same instruction, true or false.
+- *The same shape.* A false reading has as many names as the truth, each
+  with as many aims, and fragments in the same places.
+- *The two questions agree.* If one comes back with nothing, so does the
+  other. The outcome is kept on the player's own finding, so the capped
+  ledger rolling over cannot break it.
+- *No tell in the odds.* How good a reading is depends on the figures the
+  public headline names, not on the hidden hands.
+- *No tell in "no record".* That answer now means only that no record
+  exists.
+
+**Found and fixed along the way:**
+- A Spymaster's assessment that came back as a false "nothing" was recorded
+  as true.
+- A false assessment recorded nothing of what it hid.
+- Free questions could push the truth behind paid findings out of the
+  capped ledger; occurrence entries now go first.
+
+Checks after Part 7: 2987 unit tests (from 2928), 12 journeys, typecheck,
+lint, the deterministic eval and the build all pass. Residuals are listed
+at the end of `BACKLOG.md`.

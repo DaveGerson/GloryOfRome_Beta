@@ -1309,11 +1309,19 @@ Nothing here blocks; all are one edit from rewording.
       arose from circumstance - the drift of events, not anyone's design."
       / "Your agents found no one's scheme behind it: it arose from
       circumstance, and whoever profits by it does so by chance."
-    - The aim phrases, one per kind of move: "to appease the troops", "to
-      put down a revolt", "to strike a bargain", "to fortify a
-      stronghold", "to raid", "to have someone killed", "to raise taxes",
-      "to pay arrears owed", "to spread propaganda", "to march an army",
-      "to lay siege", "to recruit men", "to intrigue".
+    - The aim phrases, one per open kind of move: "to appease the troops",
+      "to put down a revolt", "to strike a bargain", "to fortify a
+      stronghold", "to raid", "to raise taxes", "to pay arrears owed", "to
+      spread propaganda", "to march an army", "to lay siege", "to recruit
+      men". The covert moves (a killing, an intrigue) have no phrase and
+      are never an aim.
+    - The fragment rule: "An entry marked (a fragment) is all that was
+      reached of that name: report only that much of it, and never
+      complete it."
+    - Stranger names, used only when no real figure can stand in for a
+      false or garbled reading (`STRANGER_NAMES`): Gnaeus Calpurnius,
+      Decimus Lollius, Sextus Rutilius, Aulus Vettius, Titus Annius,
+      Publius Nonius, Servius Arrius, Lucius Cominius.
     - A private scene's new lines on the NPC's marks and ties and the
       player's outward marks and open ties (`ai/prompts/privateScene.ts`).
   - *Mock Mode only* (`ai/mocks.ts`):
@@ -1327,13 +1335,14 @@ Nothing here blocks; all are one edit from rewording.
       before the month is out, if the city runs to form. A guess, not a
       certainty." It replaces "orchestrated by a rival faction", which
       stated a fact.
-    - Six canned strangers for false readings: Gnaeus Calpurnius,
-      Barsemias the Syrian, Hermeros the freedman, Decimus Lollius, Sextus
-      Rutilius, Aulus Vettius.
+    - Mock Mode renders the planned names as real mode would, so it has no
+      stranger list of its own.
   - *GM console only*: "occurrence question", "who is behind it?", "who
     gains?", "asked of: “…”", "planned: “…”", "planned: nothing - no hand
     named", " · held to the other question's nothing, whatever its own
-    roll", "(a stranger the agents invented)", "no aim learned".
+    roll", "<name> (a stranger, no roster figure)", "no aim learned", "No
+    roster figure; declared: <labels>" and "… | declared, but no roster
+    figure: <labels>".
 ---
 
 ## Residuals from the visual-enhancement pass (WP-1…WP-21 + adversarial review)
@@ -1542,3 +1551,48 @@ Part 6) and deliberately left, with the reason.
     of scroll height inside the panel.
   - The GM console's "What changed" pane overflows sideways by 10px at
     375px.
+
+---
+
+## Residuals from grounding the Events tab's questions (2026-09-30)
+
+Found or left while grounding "Who is behind it?" and "Who gains?" and
+through two adversarial reviews (ROADMAP_UPLEVEL Part 7). Each was left on
+purpose, and the reason is given.
+
+- **The prose cannot be held to the plan in code.** Code chooses what a
+  reading may say, and the model is told to say only that. A model that
+  adds a name anyway is not caught, as with the Spymaster's assessment.
+  Only structured output would close this.
+- **Across turns, the newest record wins.** A headline cried again word
+  for word on a later turn is answered from the later turn's hands.
+  Within one turn, identical headlines pool their hands.
+- **The consistency between the two questions can lapse in an extreme
+  case.** It lives on the player's own finding, with the ledger as a
+  fallback. If both roll off (more than 300 top-tier findings, and a full
+  ledger), the second question rolls on its own again.
+- **A decoy names a real figure.**
+  - An unknown hand's decoy is a real figure the player does not know, as
+    a true reading would be. The player learns that name, attached to a
+    false account.
+  - A decoy must be alive at the occurrence's turn. "Known" is judged by
+    what the player knows when they ask.
+- **Stranger names are a fixed list of eight**, used only when no real
+  figure can stand in. A figure created later could share one, and a long
+  reign may learn them.
+- **Decoy aims follow what others really did that turn**, so they are
+  plausible. With no other figure's open move to borrow, they fall back to
+  any open move.
+- **The truth is only as good as the declaration** (D42's accepted
+  residual). A lying `actors` list makes the recorded truth wrong. A
+  label naming no roster figure reads as circumstance to the player; the
+  ledger names it for the GM.
+- **Headline naming uses a substring match**, as it did before, so a short
+  name can match inside another word when the standing is read.
+- **When two figures share a name or epithet**, the first in roster order
+  is taken.
+- **Not built:**
+  - a journey that asks an occurrence question (unit tests cover the whole
+    flow through the tab);
+  - a GM view of the per-turn attribution record itself (only its ledger
+    entries show).

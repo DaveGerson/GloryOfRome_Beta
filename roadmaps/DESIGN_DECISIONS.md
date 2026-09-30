@@ -525,8 +525,11 @@ engine/mortality/history/saves. Persisted shapes (`Adjudication`,
 unchanged; no save migration is needed.
 *Note (2026-09-30):* one additive, GM-private record now persists beside
 those shapes. `TurnHistoryEntry.headlineActors`
-(`{ text, actorIds, actorNames }[]`) keeps which entities the adjudication
-declared behind each committed headline, with their names frozen at commit.
+(`{ text, actorIds, actorNames, unresolvedActors? }[]`) keeps which
+entities the adjudication declared behind each committed headline. A
+declared actor is resolved by id, then name, then epithet, and its name is
+frozen at commit. A label that names no roster figure is kept aside for
+the GM.
 It is read after the gate has run, so the text is post-redaction, and
 before the strip, and it is paired to the final headline by exact text.
 It exists so the Events tab's "Who is behind it?" and "Who gains?" can be
@@ -844,12 +847,17 @@ instead of generating plausible secrets from a name and a personality.
 *Note (2026-09-30):* the Events tab's questions about an occurrence now
 follow this ruling too. "Who is behind it?" is grounded in the figures the
 adjudication declared behind that headline (D42's note). "Who gains?" is
-grounded in those figures, each with only the kinds of move it made that
-turn ("to raise taxes"). It never carries the notes of a move, its target,
-or anything of a scheme (D28). An occurrence with no one behind it truly
-"arose from circumstance". Both questions roll accuracy and fidelity like
-an investigation and write a truth-ledger entry. Code, not the model,
-chooses a false or garbled reading's content, in the truth's own shape.
+grounded in those figures, each with only the open kinds of move it made
+that turn ("to raise taxes"). It never carries a covert move (a killing,
+an intrigue), a move's notes or target, or anything of a scheme (D28). An
+occurrence with no one behind it truly "arose from circumstance". Both
+questions roll accuracy and fidelity like an investigation and write a
+truth-ledger entry. Code, not the model, chooses a false or garbled
+reading's content, in the truth's own shape:
+- A known hand is replaced by another figure the player knows.
+- An unknown hand is replaced by a real figure the player does not know.
+- A false aim is one that others really pursued that turn.
+- No decoy is a true hand, the player, or anyone not alive at the time.
 The two questions on one occurrence agree on whether anything was found. "What follows?" stays a
 forecast, which states no hidden fact and makes no truth claim. A headline
 with no record at all, such as one from a save made before the record
