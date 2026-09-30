@@ -913,3 +913,32 @@ professed** or **kept secret**.
 *Resolves:* the Personae roster's allegiance question (B14): a figure's
 openly professed faction is public, so the roster may read it; a secret one
 shows only once the player has learned it.
+
+## D50 — Composure: whether a character can hide an inward mark or a secret tie
+*Owner ruling (2026-09-30):* marks can shape how a scene is told and
+performed: "it can be reflected in the way the tone of the narrator works
+(e.g. if somebody is sad <as if trying to stiffle a sob> could make the
+narration more lifelike. However, there needs to be a determination by the
+agent (either via the LLM natively or with a roll) describing whether or
+not the NPC can hide" it. On the options put to the owner the same day:
+- *Who decides:* "Roll, then model". A hidden composure roll decides whether
+  the mark can show at all in a scene. The model decides how and when the
+  tell appears within that.
+- *Secret ties too:* "Yes, ties too". A secret tie can slip as a hint (a
+  flinch, a muttered prayer). A hint is not the tie itself; the tie is
+  still learned only by witness, investigation or exposure (D49).
+- *The player's own marks:* "Yes but the player should know the roll made
+  and what it means when the GM communicates to an NPC". The player's own
+  inward marks and secret ties can show to an NPC under the same kind of
+  roll. The player is told the outcome and exactly what the NPC was told.
+- *What the player keeps:* "Note it on Personae". A tell the player catches
+  is recorded as a sign they saw, never as the mark or tie itself.
+
+This carves one exception out of D4 for the player's own composure. The
+player sees its outcome in words (held, frayed, broke) and its effect.
+Following D4 and D25, the die itself is not shown. An NPC's composure rolls
+stay hidden, as all rolls do, and are recorded in the GM console.
+
+What a voice performs is only what the text shows: a performance never
+carries a mark or tie that the roll kept hidden (D4/D5). Outward marks,
+which anyone can see, may colour a scene and a voice freely (D48).
