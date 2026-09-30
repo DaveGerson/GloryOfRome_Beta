@@ -1348,6 +1348,61 @@ Nothing here blocks; all are one edit from rewording.
     roll", "<name> (a stranger, no roster figure)", "no aim learned", "No
     roster figure; declared: <labels>" and "… | declared, but no roster
     figure: <labels>".
+- **Composure (D50, 2026-09-30)**: whether a character can hide an inward
+  mark or a secret tie.
+  - *The player's composure note, in a private scene and on the closed
+    scene's shelf* (`components/ComposureNotes.tsx`):
+    - Title and gloss: "Your composure" / "What you could keep from
+      showing, settled as the door closed behind you."
+    - Outcomes: "Held" / "Frayed" / "Broke".
+    - A mark:
+      - held: "You kept it behind your face. It shows only if you choose
+        to speak of it."
+      - frayed: "It slipped at moments — in the voice, in the eyes —
+        though never its cause."
+      - broke: "It showed through plainly, whatever you said — though
+        never its whole account."
+    - A tie:
+      - held: "You kept it close. It shows only if you choose to confide
+        it."
+      - frayed: "A gesture, a word caught back: a hint of some devotion
+        slipped, never its name."
+      - broke: "It showed plainly that you keep some secret
+        {faith|cult|faction|cause|allegiance}, though not which."
+    - "What <NPC> was told:" and the line, or "<NPC> was told nothing of
+      it."
+  - *The lines an NPC is told about the player*, written by code and shown
+    to the player word for word:
+    - "Something weighs on <player>: at moments it shows in the voice or
+      the eyes, its cause unspoken."
+    - "It shows plainly on <player>: <mark name>."
+    - "Something weighs plainly on <player>, though it goes unnamed."
+      This is used when the mark's name would hint at another hidden
+      subject.
+    - "<player> lets slip a hint of some private devotion or allegiance —
+      a gesture, a word caught back."
+    - "<player> shows plain signs of some secret <kind>, though it goes
+      unnamed."
+  - *A private scene's lines*: the stage direction as "<NPC> (<delivery>):
+    …", which "Hear them speak" performs as a cue.
+  - *Personae*: "Signs seen", "Tells you caught in their face or voice.
+    What lies behind them is not yours to know yet.", and "<sign> · Turn
+    <N>".
+  - *Model-facing*: the tier rules; the delivery and signs rules; the
+    narrator's "MARKS THAT SHOW ON THE FIGURES AT HAND" and "COMPOSURE OF
+    THE FIGURES AT HAND" blocks; the player-marks header now letting the
+    player's own inward marks colour "you"; and the NPC mind's "What you
+    noticed of them (it showed; nothing more is known of its cause)". The
+    wording is in `ai/prompts/privateScene.ts`, `ai/prompts/narration.ts`
+    and `ai/prompts/npcMind.ts`.
+  - *GM console only*:
+    - "Composure — GM only", "Seed <n> · the NPC's rolls, then the
+      player's", and each roll's line.
+    - "Told: …" / "Told nothing.", "Signs let stand", and "Signs the
+      narration showed".
+    - "[Composure] The narration was changed after it was written - a gate
+      redacted part of it - so its <n> sign(s) were dropped: a tell stands
+      only on the prose that shows it."
 ---
 
 ## Residuals from the visual-enhancement pass (WP-1…WP-21 + adversarial review)
@@ -1620,3 +1675,35 @@ purpose, and the reason is given.
     flow through the tab);
   - a GM view of the per-turn attribution record itself (only its ledger
     entries show).
+
+---
+
+## Residuals from building composure (D50, 2026-09-30)
+
+Found or left while building D50 and through its adversarial reviews
+(ROADMAP_UPLEVEL Part 8). Each was left on purpose, and the reason is
+given.
+
+- **Free prose is held by the prompt only.** Code screens every sign and
+  stage direction, and writes every line an NPC is told about the player.
+  An NPC's spoken words and the narration's prose are still the model's,
+  so a model that ignores the rules could name a cause the roll kept
+  hidden. Only structured output would close this.
+- **A hint by meaning, not by name, cannot be screened.** "The sign of
+  the cross" names no one, but it may say as much as "Christian". Word
+  screens catch names and their forms, not what they mean.
+- **The screen is conservative.** A held or fraying mark's own words
+  (e.g. "river", "lost") and a tie's words (e.g. "faith", "circle") are
+  also kept out of signs, so some harmless tells are dropped.
+- **Stage directions are checked against the roster's names only where
+  the roster is to hand**, when the scene commits. Checks on load and at
+  speech time enforce every other rule.
+- **A retried turn rolls composure again**, as it rolls the action again.
+  The structured-input retry journey fixes the random source across the
+  retry, so that it tests the frozen submission rather than the dice.
+- **Mock Mode turns roll no composure**, because a mock turn has no turn
+  seed. The mock private scene does roll.
+- **A sign caught in a private scene does not count on the Personae coin
+  again** when the week lands, since the player read it in the scene.
+- **Fractional trait modifiers round down**, the convention the other
+  hidden rolls use.

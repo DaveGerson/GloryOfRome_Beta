@@ -702,3 +702,56 @@ hand's aims are capped at three.
 Checks after Part 7: 2995 unit tests (from 2928), 12 journeys, typecheck,
 lint, the deterministic eval and the build all pass. Residuals are listed
 at the end of `BACKLOG.md`.
+
+---
+
+## Part 8 — Composure: whether a mark or a secret tie can be hidden (D50, 2026-09-30)
+
+The owner liked that marks and ties are explicit, because they can shape
+how a scene is told and performed: "if somebody is sad <as if trying to
+stiffle a sob>". They asked that something decide whether a character can
+hide one. The ruling is D50, in the owner's words.
+
+**How it works.** When a character with an inward mark or a secret tie is
+in a scene, a hidden roll decides whether it holds, frays or breaks:
+- **Holds:** nothing shows unless they choose to confide it.
+- **Frays:** a small tell escapes when the talk touches it, such as a
+  voice that catches or a glance away, with its cause never named.
+- **Breaks:** it shows plainly, but never its whole account.
+
+A graver mark is harder to hide, a cunning character hides better, and a
+faith or cult slips more easily than a faction. A secret tie only ever
+slips as a hint, never its name.
+
+**In a private scene.**
+- The NPC's line can carry a stage direction ("voice catching"). It
+  shows in italics, and "Hear them speak" performs it as a cue.
+- A tell you catch is noted on the NPC's Personae card under "Signs seen",
+  as what you saw, never the mark itself.
+- Your own inward marks and secret ties are rolled too. You are told the
+  outcome in words and exactly what the NPC was told about you. The dice
+  stay hidden (D4). An NPC learns nothing of you beyond that line.
+
+**In the turn's narration.**
+- NPCs truly present with you (in the same place, and part of what you
+  saw) are rolled each turn. A fraying grief can surface in the prose, and
+  the narration voice performs it.
+- The narrator gets only the weight of a fraying mark, never its name.
+- Your own marks may colour how "you" are told.
+- The voice performs only what the text shows, so nothing the roll kept
+  hidden can leak through it.
+
+**Review.** Two adversarial reviews found 13 defects: leaks through the
+narrator, the player's own mark naming a secret tie, a word screen that
+missed word forms, and absent figures counted as present. All are fixed.
+Code now screens every sign and stage direction:
+- a tie's name never passes, in any form ("Christ", "Bacchic",
+  "Origenist");
+- nothing of a held subject passes, nor the cause of a fraying mark.
+
+Checks after Part 8: 3055 unit tests (from 2995), 13 journeys (1 new:
+composure), typecheck, lint, the deterministic eval and the build all
+pass. A live check in Mock Mode covered light and dark themes, 1280px and
+375px: the composure note, stage directions and "Signs seen" render, with
+no errors and no sideways scroll. Residuals are at the end of
+`BACKLOG.md`.

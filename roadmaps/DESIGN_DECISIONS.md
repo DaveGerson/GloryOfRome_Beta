@@ -942,3 +942,17 @@ stay hidden, as all rolls do, and are recorded in the GM console.
 What a voice performs is only what the text shows: a performance never
 carries a mark or tie that the roll kept hidden (D4/D5). Outward marks,
 which anyone can see, may colour a scene and a voice freely (D48).
+*As built (2026-09-30):* the roll is a d20 plus the bearer's cunning, and,
+for a secret tie only, their paranoia. It is set against a difficulty
+that rises with a mark's weight (light 7, serious 10, grave 13). A tie's
+difficulty depends on its kind: a faction or cause 6, "other" 7, a cult or
+faith 9, which live in habits and rites and slip more easily. It holds on
+meeting the difficulty, frays within five below it, and breaks beneath
+that. It is rolled once per private scene per subject, for the NPC and the
+player, and once per turn for NPCs truly present with the player, meaning
+in the same place and part of what the player saw. Code screens every
+sign and stage direction:
+- a tie's name never passes, in any form;
+- nothing of a held subject passes, nor the cause of a fraying mark.
+Code writes the lines an NPC is told about the player. The model's free
+prose is held to these rules by the prompt only.
