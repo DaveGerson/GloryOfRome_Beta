@@ -34,7 +34,7 @@ import {
 import { continuePrivateScene } from '../ai/tools/privateScene';
 import { conditionClause, conditionsOf, outwardConditionsOf } from '../ai/core/conditions';
 import { affiliationClause, affiliationsOf, publicAffiliationsOf } from '../ai/core/affiliations';
-import { playerComposureTell, rollComposure, screenNpcTells } from '../ai/core/composure';
+import { playerComposureTell, rollComposure, screenNpcTells, tellWorldOf } from '../ai/core/composure';
 import { createSeededRng, generateSeed } from '../ai/core/resolution';
 import { ingestSignsSeen, type KnowledgeClaim } from '../knowledge/store';
 import { PRIVATE_SCENE_MAX_COMPOSURE_ITEMS, PRIVATE_SCENE_MAX_PROMPT_INPUT_CHARS, PrivateSceneInputError } from '../ai/prompts/privateScene';
@@ -322,7 +322,7 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
             try {
                 const response = await continuePrivateScene(ai, privateScenePromptFor(npc, [{ sequence: 1, speaker: 'player', text: privateSceneOpeningDraft.trim() }], 1, composure), isMockMode);
                 if (!transaction.isCurrent() || privateScenesFingerprint(privateScenesRef.current) !== expectedScenes) return false;
-                const tells = screenNpcTells(response, npc, composure?.npc ?? [], entities.map(entity => entity.name));
+                const tells = screenNpcTells(response, npc, composure?.npc ?? [], tellWorldOf(entities));
                 const transition = beginPrivateScene({ sceneId: `private-scene-${turnNumber}-${npc.entity_id}`, macroTurn: turnNumber, player: playerEntity, npc, knownEntityIds: privateSceneKnownIds, opening, response, existing: privateScenesRef.current, composure, tells });
                 if (!transition.ok) return false;
                 const signs = newSignsSeen(transition.scene, 1);
@@ -362,7 +362,7 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
                 const current = privateScenesRef.current.find(candidate => candidate.sceneId === sceneId);
                 if (!current || current.status !== 'active' || current.macroTurn !== scene.macroTurn || current.npcResponseCount !== scene.npcResponseCount) return false;
                 if (privateScenesFingerprint(privateScenesRef.current) !== expectedScenes) return false;
-                const tells = screenNpcTells(response, npc, current.npcComposure ?? [], entities.map(entity => entity.name));
+                const tells = screenNpcTells(response, npc, current.npcComposure ?? [], tellWorldOf(entities));
                 const transition = appendPrivateSceneExchange({ scene: current, expectedNpcResponseCount: scene.npcResponseCount, playerUtterance: reply, response, tells });
                 if (!transition.ok) return false;
                 const signs = newSignsSeen(transition.scene, transition.scene.npcResponseCount);

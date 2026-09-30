@@ -73,11 +73,13 @@
  */
 
 import type {
+  Affiliation,
   AffiliationKind,
   ComposureBearerRolls,
   ComposureRoll,
   ComposureSign,
   ComposureTier,
+  Condition,
   ConditionSeverity,
   Entity,
   PersonalityTraits,
@@ -226,18 +228,38 @@ export const COMPOSURE_TIER_INSTRUCTIONS: Readonly<Record<ComposureTier, string>
 //
 // One vocabulary for every check that asks "does this text carry something
 // of a hidden subject?" - the screen a model-authored tell passes, and the
-// overlap test that decides whether a breaking mark's NAME may be told. A
-// subject's name (and, for a mark, its account) is cut into words; each
-// content word is reduced to a stem by stripping common endings while at
-// least MIN_STEM letters remain ("Christians" -> "christ", "Bacchus" ->
-// "bacch", "Mithras" -> "mithra"), and matched case-insensitively at the
-// START of a word, so "Christ", "Bacchic", "Bacchant", "Mithraic" and
-// "Origenist" are all caught. A word too short to stem (under MIN_STEM
-// letters) matches only as a whole word, so "War" never drops "toward" and
-// "Ill" never drops "will". Matching at a word's start never looks inside a
-// word; "Fear" dropping "fearful" is the accepted cost.
+// overlap test that decides whether a breaking mark's NAME may be told.
+//
+//  - WORDS AND STEMS. A subject's words are reduced to a stem by stripping
+//    common endings while at least MIN_STEM letters remain ("Christians" ->
+//    "christ", "Bacchus" -> "bacch", "Mithras" -> "mithra"), and matched
+//    case-insensitively at the START of a word, so "Christ", "Bacchic",
+//    "Bacchant", "Mithraic" and "Origenist" are all caught. A word too short
+//    to stem (under MIN_STEM letters) matches only as a whole word, so "War"
+//    never drops "toward" and "Ill" never drops "will". Matching at a word's
+//    start never looks inside a word; "Fear" dropping "fearful" is the
+//    accepted cost.
+//  - SHORT NAMES. A capitalized word of exactly four letters - a god's or a
+//    place's name, "Isis", "Mars" - is matched by its first three letters at
+//    a word's start too, so "Isiac" and "Martial" are caught; "market"
+//    dropping under "Mars" is the accepted cost.
+//  - FOLDING. Pattern and text are both folded first (`foldLetters`), so the
+//    spellings a Latin or Greek name wanders between are one: "Iesus" meets
+//    "Jesus", "Khristos" "Christ", "Bakchos" "Bacchus". A text that gives a
+//    subject by another word altogether ("Chrestus", "the Nazarene",
+//    "Dionysus", "Liber") is not caught: the accepted residual.
+//  - A SECRET TIE is caught by every word of its name and id but articles
+//    and "of" (`TIE_STOPWORDS`), so "the One" is caught by "One"; a tie whose
+//    name leaves no such word is caught by its whole name, less a leading
+//    article.
+//  - An INWARD MARK is caught by every content word of its name and id, by
+//    its account's proper nouns (`accountProperNounsOf`) and - unless it
+//    broke - by the account's other words of MIN_ACCOUNT_WORD letters or
+//    more; an account's word that is a word a tell is made of
+//    (`TELL_VOCABULARY`) is never counted, so "Her voice catches" survives an
+//    account that speaks of her voice.
 
-/** Common words a subject's name or account carries that never point at it. */
+/** Common words a mark's name or account carries that never point at it. */
 const STOPWORDS = new Set([
   'a', 'an', 'the', 'of', 'and', 'or', 'nor', 'but', 'yet', 'so', 'as', 'than', 'then', 'in', 'on', 'at', 'to',
   'for', 'from', 'by', 'with', 'into', 'onto', 'over', 'under', 'upon', 'about', 'after', 'before', 'again',
@@ -250,12 +272,30 @@ const STOPWORDS = new Set([
   'still', 'more', 'most', 'less', 'much', 'many', 'other', 'others', 'there', 'here', 'how', 'why', 'if', 'else',
 ]);
 
+/** The only words a secret tie's name drops: a tie's name is all name ("the One", "the Other Shore"). */
+const TIE_STOPWORDS = new Set(['a', 'an', 'the', 'of']);
+
+/**
+ * The words a tell is made of - the body and the moment it shows in. A
+ * mark's ACCOUNT that uses one ("her voice still breaks") never bars it from
+ * a tell; a mark's NAME that carries one still does.
+ */
+const TELL_VOCABULARY = new Set([
+  'voice', 'eyes', 'hands', 'face', 'breath', 'look', 'looks', 'glance', 'glances', 'before', 'after', 'words',
+  'silence', 'gaze', 'lips', 'throat', 'tears', 'pause', 'moment', 'answer', 'answers', 'door', 'away',
+]);
+
 /** Endings stripped to reach a word's stem, longest first. */
 const STEM_ENDINGS = ['ians', 'ity', 'ism', 'ian', 'ist', 'ic', 'us', 'ae', 'es', 's'] as const;
 /** The shortest stem an ending may be stripped down to - and the shortest word matched at a word's start rather than whole. */
 const MIN_STEM = 4;
 /** The shortest word counted at all. */
 const MIN_TERM = 3;
+/** A capitalized word of exactly this many letters is a short name, matched by its first SHORT_NAME_PREFIX letters too. */
+const SHORT_NAME_LETTERS = 4;
+const SHORT_NAME_PREFIX = 3;
+/** The shortest of a held or fraying mark's account words counted beyond its proper nouns. */
+const MIN_ACCOUNT_WORD = 5;
 
 /** A word's stem: common endings stripped while at least MIN_STEM letters remain. */
 export function stemOf(word: string): string {
@@ -273,53 +313,128 @@ export function stemOf(word: string): string {
   return stem;
 }
 
+/**
+ * A text as every match reads it: lower case, with the letters a Latin or
+ * Greek name is spelled either way with folded to one - k to c, then ch to
+ * c, ph to f, j to i, v to u, y to i. Folded the same on pattern and text.
+ */
+function foldLetters(text: string): string {
+  return text.normalize('NFKC').toLowerCase()
+    .replace(/k/g, 'c').replace(/ch/g, 'c').replace(/ph/g, 'f')
+    .replace(/j/g, 'i').replace(/v/g, 'u').replace(/y/g, 'i');
+}
+
+/** A word's stem as it is matched: stemmed, then folded. */
+function foldedStemOf(word: string): string {
+  return foldLetters(stemOf(word));
+}
+
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** The pattern one word is recognised by: its stem at a word's start, or - too short to stem - the whole word. */
-function termPattern(word: string): RegExp {
+const NO_LETTER_BEFORE = '(?<![\\p{L}\\p{M}])';
+const NO_LETTER_AFTER = '(?![\\p{L}\\p{M}])';
+
+/** The patterns one word is recognised by (see above): its stem at a word's start - or, too short to stem, the whole word - and a short name's first letters. */
+function termPatterns(word: string): RegExp[] {
   const lower = word.normalize('NFKC').toLowerCase();
-  return lower.length >= MIN_STEM
-    ? new RegExp(`(?<![\\p{L}\\p{M}])${escapeRegExp(stemOf(lower))}`, 'u')
-    : new RegExp(`(?<![\\p{L}\\p{M}])${escapeRegExp(lower)}(?![\\p{L}\\p{M}])`, 'u');
+  if (lower.length < MIN_STEM) return [new RegExp(`${NO_LETTER_BEFORE}${escapeRegExp(foldLetters(lower))}${NO_LETTER_AFTER}`, 'u')];
+  const patterns = [new RegExp(`${NO_LETTER_BEFORE}${escapeRegExp(foldedStemOf(lower))}`, 'u')];
+  if (lower.length === SHORT_NAME_LETTERS && /^\p{Lu}/u.test(word.normalize('NFKC'))) {
+    patterns.push(new RegExp(`${NO_LETTER_BEFORE}${escapeRegExp(foldLetters(lower).slice(0, SHORT_NAME_PREFIX))}`, 'u'));
+  }
+  return patterns;
 }
 
 function wordsOf(text: string): string[] {
   return text.normalize('NFKC').replace(/_/g, ' ').match(/[\p{L}\p{M}]+/gu) ?? [];
 }
 
-/** Every content word of these texts - a subject's name, id and account. */
+/** Every content word of these texts - a mark's name and id. */
 function contentWordsOf(...texts: string[]): string[] {
   return texts.flatMap(wordsOf).filter(word => word.length >= MIN_TERM && !STOPWORDS.has(word.toLowerCase()));
 }
 
-/** The capitalized words of a text that are not common words - its proper nouns ("Varius", "Guard"). */
-function properNounsOf(text: string): string[] {
-  return wordsOf(text).filter(word => /^\p{Lu}/u.test(word) && word.length >= MIN_TERM && !STOPWORDS.has(word.toLowerCase()));
+/**
+ * The distinctive words of a name - four letters or more, never a common
+ * word ("Julia Mamaea" -> Julia, Mamaea; "the Thracian" -> Thracian). What
+ * a player's attempt may name a figure by (./turn.ts::figuresPresentWith),
+ * and what an account's words are known as names by (`TellWorld`).
+ */
+export function distinctiveWordsOf(...texts: string[]): string[] {
+  return texts.flatMap(wordsOf).filter(word => word.length >= MIN_STEM && !STOPWORDS.has(word.toLowerCase()));
 }
 
 function patternsFor(words: readonly string[]): RegExp[] {
-  return [...new Set(words.map(word => word.toLowerCase()))].map(termPattern);
+  const bySource = new Map<string, RegExp>();
+  for (const word of new Set(words)) for (const pattern of termPatterns(word)) bySource.set(pattern.source, pattern);
+  return [...bySource.values()];
 }
 
 function carriesAny(text: string, patterns: readonly RegExp[]): boolean {
-  const normalized = text.normalize('NFKC').toLowerCase();
-  return patterns.some(pattern => pattern.test(normalized));
+  const folded = foldLetters(text);
+  return patterns.some(pattern => pattern.test(folded));
 }
 
-/** What of one bearer's hidden subjects gives each away, as words: every secret tie's name, every inward mark's name and account. */
-function hiddenWordsOf(bearer: Pick<Entity, 'conditions' | 'affiliations'>, except?: { kind: ComposureSubject['kind']; id: string }): string[] {
-  const words: string[] = [];
-  for (const tie of secretAffiliationsOf(bearer)) {
-    if (except?.kind === 'tie' && except.id === tie.id) continue;
-    words.push(...contentWordsOf(tie.name, tie.id));
+/** A secret tie's patterns: every word of its name and id but articles and "of" - and, when its name leaves none, the whole name less a leading article. */
+function tiePatternsOf(tie: Pick<Affiliation, 'id' | 'name'>): RegExp[] {
+  const termsOf = (text: string) => wordsOf(text).filter(word => word.length >= MIN_TERM && !TIE_STOPWORDS.has(word.toLowerCase()));
+  const nameTerms = termsOf(tie.name);
+  const patterns = patternsFor([...nameTerms, ...termsOf(tie.id)]);
+  if (nameTerms.length === 0) {
+    const name = tie.name.normalize('NFKC').trim();
+    const words = wordsOf(name.replace(/^(?:the|an|a)\s+/i, '')).map(word => escapeRegExp(foldLetters(word)));
+    if (words.length > 0) patterns.push(new RegExp(`${NO_LETTER_BEFORE}${words.join('[^\\p{L}\\p{M}]+')}${NO_LETTER_AFTER}`, 'u'));
   }
-  for (const mark of conditionsOf(bearer).filter(mark => !mark.outward)) {
-    if (except?.kind === 'mark' && except.id === mark.id) continue;
-    words.push(...contentWordsOf(mark.name, mark.description, mark.id));
+  return patterns;
+}
+
+/** The known names' distinctive words, lower case to their own spelling (`TellWorld.knownNames`). */
+function knownWordsOf(names: readonly string[]): Map<string, string> {
+  const known = new Map<string, string>();
+  for (const word of distinctiveWordsOf(...names)) known.set(word.toLowerCase(), word);
+  return known;
+}
+
+/**
+ * An account's proper nouns: its capitalized words, and any word that is -
+ * in any case - a distinctive word of a known figure's or place's name
+ * ("her son marcus drowned off ostia" -> Marcus, Ostia); never a common
+ * word nor a word a tell is made of.
+ */
+function accountProperNounsOf(account: string, known: ReadonlyMap<string, string>): string[] {
+  return wordsOf(account).flatMap(word => {
+    const lower = word.toLowerCase();
+    if (word.length < MIN_TERM || STOPWORDS.has(lower) || TELL_VOCABULARY.has(lower)) return [];
+    if (/^\p{Lu}/u.test(word)) return [word];
+    const spelling = known.get(lower);
+    return spelling ? [spelling] : [];
+  });
+}
+
+/**
+ * The words that give an inward mark away (see above): a mark that BROKE
+ * only by its account's proper nouns its name does not carry; any other by
+ * its name and id, its account's proper nouns, and its account's other
+ * words of MIN_ACCOUNT_WORD letters or more but the tell vocabulary.
+ */
+function markWordsOf(mark: Condition, broke: boolean, known: ReadonlyMap<string, string>): string[] {
+  const properNouns = accountProperNounsOf(mark.description, known);
+  if (broke) {
+    const named = new Set(contentWordsOf(mark.name).map(foldedStemOf));
+    return properNouns.filter(word => !named.has(foldedStemOf(word)));
   }
-  return words;
+  const longWords = wordsOf(mark.description).filter(word => word.length >= MIN_ACCOUNT_WORD
+    && !STOPWORDS.has(word.toLowerCase()) && !TELL_VOCABULARY.has(word.toLowerCase()));
+  return [...contentWordsOf(mark.name, mark.id), ...properNouns, ...longWords];
+}
+
+/** What of one bearer's hidden subjects gives each away, but the one `except` names: every secret tie, every inward mark as if it held. */
+function hiddenPatternsOf(bearer: Pick<Entity, 'conditions' | 'affiliations'>, except?: { kind: ComposureSubject['kind']; id: string }): RegExp[] {
+  const ties = secretAffiliationsOf(bearer).filter(tie => !(except?.kind === 'tie' && except.id === tie.id));
+  const marks = conditionsOf(bearer).filter(mark => !mark.outward && !(except?.kind === 'mark' && except.id === mark.id));
+  return [...ties.flatMap(tiePatternsOf), ...patternsFor(marks.flatMap(mark => markWordsOf(mark, false, new Map())))];
 }
 
 /**
@@ -328,15 +443,15 @@ function hiddenWordsOf(bearer: Pick<Entity, 'conditions' | 'affiliations'>, exce
  * carries nothing of the bearer's OTHER hidden subjects, by the stems above:
  * a mark named "Terror that her rites to Bacchus will be found out" is never
  * named while "the cult of Bacchus" is kept, nor "Dread of being found out
- * as a Christian" while "the Christian faith" is. A mark that frayed or held
- * is never named.
+ * as a Christian" while "the Christian faith" is, nor "Awe of the One" while
+ * "the One" is. A mark that frayed or held is never named.
  */
 export function breakingMarkNameMayShow(
   bearer: Pick<Entity, 'conditions' | 'affiliations'>,
   roll: Pick<ComposureRoll, 'subjectKind' | 'subjectId' | 'subjectName' | 'tier'>,
 ): boolean {
   if (roll.subjectKind !== 'mark' || roll.tier !== 'breaks') return false;
-  return !carriesAny(roll.subjectName, patternsFor(hiddenWordsOf(bearer, { kind: 'mark', id: roll.subjectId })));
+  return !carriesAny(roll.subjectName, hiddenPatternsOf(bearer, { kind: 'mark', id: roll.subjectId }));
 }
 
 // --- What an NPC is told of the player (CODE-authored, never the model) -----
@@ -396,14 +511,16 @@ export const MAX_NARRATION_SIGNS = 4;
  * The screen one bearer's model-authored tells pass in one scene or turn
  * (D50), built from their hidden subjects and this scene's or turn's tiers:
  *  - a SECRET TIE's name: never, whatever its tier;
- *  - a subject that HELD, mark or tie: nothing of its name or account;
- *  - a mark that FRAYED: nothing of its name or account - its cause;
+ *  - a subject that HELD, mark or tie: nothing of its name, nor of its
+ *    account's proper nouns and longer words;
+ *  - a mark that FRAYED: the same - its name and account are its cause;
  *  - a mark that BROKE: its name may show, never its account's proper nouns;
  * every one by the stems above. Both a sign and a delivery must also hold at
  * least one word, carry no figure in digits, no game-mechanics word
  * (narration/performanceScript.ts::carriesTellMechanicsWord) and no hidden
- * mechanics; a delivery must pass the cue rules too, and name no one on the
- * roster (`validateDelivery`). What fails is dropped whole, never repaired.
+ * mechanics; a delivery must pass the cue rules too, and name no individual
+ * on the roster (`validateDelivery`). What fails is dropped whole, never
+ * repaired.
  */
 export interface TellScreen {
   /** A sign's sentence as a player surface may take it, or null. */
@@ -412,27 +529,41 @@ export interface TellScreen {
   delivery(raw: unknown): string | null;
 }
 
+/** What a tell screen knows of the world beyond its bearer (`tellWorldOf`). */
+export interface TellWorld {
+  /** The display names of the roster's INDIVIDUALS: no delivery may carry a word of one (`validateDelivery`). */
+  individualNames?: readonly string[];
+  /** Every figure's display name and every known place: an account's word that is, in any case, a distinctive word of one is a proper noun. */
+  knownNames?: readonly string[];
+}
+
+/** The `TellWorld` a roster gives - its individuals' names; every figure's name and place - with any other known places (the world's regions). */
+export function tellWorldOf(
+  roster: readonly Partial<Pick<Entity, 'name' | 'entity_type' | 'location'>>[],
+  places: readonly string[] = [],
+): TellWorld {
+  const text = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
+  return {
+    individualNames: roster.filter(entity => entity.entity_type === 'individual').map(entity => entity.name).filter(text),
+    knownNames: [...roster.flatMap(entity => [entity.name, entity.location]), ...places].filter(text),
+  };
+}
+
 /** Builds one bearer's `TellScreen` for one scene or turn, from their hidden subjects and these rolls' tiers (see above). */
 export function buildTellScreen(
   bearer: Pick<Entity, 'conditions' | 'affiliations'>,
   rolls: readonly ComposureRoll[],
-  /** Every figure's display name on the roster: no delivery may name one (validateDelivery). */
-  rosterNames: readonly string[] = [],
+  world: TellWorld = {},
 ): TellScreen {
   // A subject without a roll here is read as held - the strictest.
   const tierOf = (kind: ComposureSubject['kind'], id: string): ComposureTier =>
     rolls.find(roll => roll.subjectKind === kind && roll.subjectId === id)?.tier ?? 'holds';
-  const words: string[] = [];
-  for (const tie of secretAffiliationsOf(bearer)) words.push(...contentWordsOf(tie.name, tie.id));
-  for (const mark of conditionsOf(bearer).filter(mark => !mark.outward)) {
-    if (tierOf('mark', mark.id) === 'breaks') {
-      const named = new Set(contentWordsOf(mark.name).map(stemOf));
-      words.push(...properNounsOf(mark.description).filter(word => !named.has(stemOf(word))));
-    } else {
-      words.push(...contentWordsOf(mark.name, mark.description, mark.id));
-    }
-  }
-  const hidden = patternsFor(words);
+  const known = knownWordsOf(world.knownNames ?? []);
+  const hidden = [
+    ...secretAffiliationsOf(bearer).flatMap(tiePatternsOf),
+    ...patternsFor(conditionsOf(bearer).filter(mark => !mark.outward)
+      .flatMap(mark => markWordsOf(mark, tierOf('mark', mark.id) === 'breaks', known))),
+  ];
   const passes = (text: string) => {
     if (!/\p{L}{2,}/u.test(text) || carriesTellMechanicsWord(text) || carriesAny(text, hidden)) return false;
     try {
@@ -450,7 +581,7 @@ export function buildTellScreen(
       return passes(text) ? text : null;
     },
     delivery(raw) {
-      const text = validateDelivery(raw, rosterNames);
+      const text = validateDelivery(raw, world.individualNames ?? []);
       return text && passes(text) ? text : null;
     },
   };
@@ -480,9 +611,9 @@ export function screenNpcTells(
   raw: { delivery?: unknown; signs?: unknown },
   bearer: Pick<Entity, 'conditions' | 'affiliations'>,
   rolls: readonly ComposureRoll[],
-  rosterNames: readonly string[] = [],
+  world: TellWorld = {},
 ): ScreenedNpcTells {
-  const screen = buildTellScreen(bearer, rolls, rosterNames);
+  const screen = buildTellScreen(bearer, rolls, world);
   const delivery = screen.delivery(raw.delivery) ?? undefined;
   const open = new Set(rolls.filter(roll => roll.tier !== 'holds').map(roll => roll.handle));
   const signs: ScreenedNpcTells['signs'] = [];
@@ -542,23 +673,26 @@ export function composureCuesFrom(
  * Screens the narration payload's optional `signs` (D50) against the turn's
  * cues: a sign must name a cue's handle (and, when it names a figure, that
  * cue's figure), once, and its sentence must pass its bearer's `TellScreen`
- * for this turn. At most `MAX_NARRATION_SIGNS` survive, each with its
+ * for this turn - one that knows the roster's names and places, and any
+ * other known `places`. At most `MAX_NARRATION_SIGNS` survive, each with its
  * GM-side subject handle.
  */
 export function screenNarrationSigns(
   raw: unknown,
   cues: readonly ComposureCue[],
-  roster: readonly Pick<Entity, 'entity_id' | 'conditions' | 'affiliations'>[],
+  roster: readonly (Pick<Entity, 'entity_id' | 'conditions' | 'affiliations'> & Partial<Pick<Entity, 'name' | 'entity_type' | 'location'>>)[],
   bearers: readonly ComposureBearerRolls[],
+  places: readonly string[] = [],
 ): ComposureSign[] {
   if (!Array.isArray(raw) || cues.length === 0) return [];
   const byHandle = new Map(cues.map(cue => [cue.handle, cue]));
+  const world = tellWorldOf(roster, places);
   const screens = new Map<string, TellScreen>();
   const screenFor = (entityId: string): TellScreen | undefined => {
     if (!screens.has(entityId)) {
       const bearer = roster.find(candidate => candidate.entity_id === entityId);
       if (!bearer) return undefined;
-      screens.set(entityId, buildTellScreen(bearer, bearers.find(b => b.entityId === entityId)?.rolls ?? []));
+      screens.set(entityId, buildTellScreen(bearer, bearers.find(b => b.entityId === entityId)?.rolls ?? [], world));
     }
     return screens.get(entityId);
   };

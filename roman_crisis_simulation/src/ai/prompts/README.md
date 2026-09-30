@@ -370,16 +370,22 @@ scene or voice.
   What the NPC was told rides its audience memory into its mind
   (`npcMind.ts`).
 - **The screen** (`composure.ts::buildTellScreen`), one per bearer and scene
-  or turn, by word stems matched at a word's start: a secret tie's name
-  never; a subject that held, nothing of its name or account; a mark that
-  frayed, nothing of its name or account (its cause); a mark that broke, its
-  name but never its account's proper nouns. A tell must hold a word, carry
-  no figure in digits and no game-mechanics word, and a delivery must pass
-  the cue rules and name no one on the roster (`validateDelivery`).
+  or turn, by word stems matched at a word's start on folded spellings
+  (j/i, v/u, k/c, ch/c, ph/f, y/i), a capitalized four-letter name by its
+  first three letters too: a secret tie's name never (every word but
+  articles and "of"); a subject that held or a mark that frayed, nothing of
+  its name, its account's proper nouns (known figures' and places' names in
+  any case) or its account's longer words, the words a tell is made of
+  ("voice", "eyes" ...) excepted; a mark that broke, its name but never its
+  account's proper nouns. A tell must hold a word, carry no figure in digits
+  and no game-mechanics word, and a delivery must pass the cue rules and
+  name no individual on the roster (`validateDelivery`).
 - **Turn narration** (`narration.ts::buildComposureBlock`): the figures
   PRESENT with the player - standing where the player stands AND the subject
   of a change the player saw, an actor or target of an entity action, or
-  addressed by the player (`turn.ts::figuresPresentWith`) - roll once a
+  addressed by the player: a recipient, or named in the attempt by a word of
+  the name or epithet, as kin, or by a position no one else there holds
+  (`turn.ts::figuresPresentWith`) - roll once a
   turn, after the mortality rolls, from the turn's seed. The narrator is
   told only what frayed or broke, under opaque handles: a fraying mark by
   weight alone, a breaking one by name and weight unless its name carries

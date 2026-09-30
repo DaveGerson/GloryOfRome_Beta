@@ -30,6 +30,7 @@ import {
   screenNarrationSigns,
   screenNpcTells,
   stemOf,
+  tellWorldOf,
 } from '../ai/core/composure';
 import { validateDelivery } from '../narration/performanceScript';
 import { createSeededRng } from '../ai/core/resolution';
@@ -275,7 +276,7 @@ describe('D50 composure: the screen a model-authored tell passes', () => {
   });
 
   it('drops an invalid delivery - a name, a figure, a runaway, quotation - and bounds the signs', () => {
-    for (const delivery of ['Philip whispers', 'sighing 3 times', 'x'.repeat(61), 'with "irony"', 'rolled a natural 20', 42]) {
+    for (const delivery of ['with a glance at Philip', 'sighing 3 times', 'x'.repeat(61), 'with "irony"', 'rolled a natural 20', 42]) {
       expect(screenNpcTells({ delivery }, npc, rolls).delivery, String(delivery)).toBeUndefined();
     }
     expect(screenNpcTells({ delivery: '(Voice catching.)' }, npc, rolls).delivery).toBe('voice catching');
@@ -390,11 +391,11 @@ describe('D50 composure: the screen\'s stems (S3)', () => {
   });
 
   it('names no one on the roster in a delivery, in any case (M4), and no -ed name passes as a word of manner', () => {
-    const screen = buildTellScreen(makeEntity({ entity_id: 'x', name: 'X' }), [], ['Julia Mamaea', 'Maximinus Thrax']);
+    const screen = buildTellScreen(makeEntity({ entity_id: 'x', name: 'X' }), [], { individualNames: ['Julia Mamaea', 'Maximinus Thrax'] });
     expect(screen.delivery('with a glance at mamaea')).toBeNull();
     expect(screen.delivery('thrax-like, curt')).toBeNull();
     expect(screen.delivery('with a glance at the door')).toBe('with a glance at the door');
-    expect(validateDelivery('Manfred whispers')).toBeNull();
+    expect(validateDelivery('Manfred whispers', ['Manfred of Gaul'])).toBeNull();
     expect(validateDelivery('Choked, barely audible')).toBe('choked, barely audible');
     expect(validateDelivery('Trembling')).toBe('trembling');
   });
@@ -440,5 +441,96 @@ describe('D50 composure: reading the persisted records', () => {
       { entityId: 'j', subject: 'mark:a', sign: 'A tell.' },
       { entityId: 'j', subject: 'mark:a', sign: 'Another.' },
     ]);
+  });
+});
+
+describe('D50 composure: the names a tell may give a hidden subject by', () => {
+  const tieScreen = (name: string) => buildTellScreen(makeEntity({ entity_id: 'x', name: 'X', affiliations: [tie({ id: 't', name })] }), []);
+
+  it('reads a secret tie\'s name but its articles and "of": "the One" is caught by "One", and a mark that names it goes unnamed', () => {
+    expect(tieScreen('The One').sign('He murmurs of the One.')).toBeNull();
+    expect(tieScreen('The One').sign('He murmurs a prayer.')).toBe('He murmurs a prayer.');
+    // A tie whose name leaves no such word is caught by its whole name, less its article.
+    expect(tieScreen('The Ox').sign('He swears by the Ox.')).toBeNull();
+    expect(tieScreen('The Ox').sign('He swears under his breath.')).toBe('He swears under his breath.');
+    const bearer = makeEntity({
+      entity_id: 'player', name: 'Severus',
+      conditions: [mark({ id: 'awe', name: 'Awe of the One' })],
+      affiliations: [tie({ id: 'the_one', name: 'The One', kind: 'religion' })],
+    });
+    const breaking = rolled('mark', 'awe', 'Awe of the One', 'breaks');
+    expect(breakingMarkNameMayShow(bearer, breaking)).toBe(false);
+    // Told unnamed to the NPC, and to the narrator.
+    expect(playerComposureTell(breaking, bearer)).toBe('Something weighs plainly on Severus, though it goes unnamed.');
+    expect(composureCuesFrom([{ entityId: 'player', entityName: 'Severus', rolls: [breaking] }], [bearer]).map(cue => cue.named)).toEqual([false]);
+  });
+
+  it('matches a capitalized four-letter name by its first three letters too: Isis in "Isiac", Mars in "Martial"', () => {
+    expect(tieScreen('the cult of Isis').sign('An Isiac rattle hangs at her belt.')).toBeNull();
+    expect(tieScreen('the soldiers of Mars').sign('He stands with a Martial stiffness.')).toBeNull();
+    expect(tieScreen('the cult of Isis').sign('Her hand goes still.')).toBe('Her hand goes still.');
+    // An account's proper noun too, though the mark broke.
+    const bearer = makeEntity({ entity_id: 'x', name: 'X', conditions: [mark({ id: 'vow', name: 'a broken vow', description: 'She swore it before Mars.' })] });
+    const screen = buildTellScreen(bearer, [rolled('mark', 'vow', 'a broken vow', 'breaks')]);
+    expect(screen.sign('She keeps a martial bearing.')).toBeNull();
+    expect(screen.sign('Her broken vow shows plainly.')).toBe('Her broken vow shows plainly.');
+  });
+
+  it('folds the spellings a name wanders between: Iesus and Jesus, Khristos and Christ, Bakchos and Bacchus', () => {
+    expect(tieScreen('the followers of Jesus').sign('He whispers the name of Iesus.')).toBeNull();
+    expect(tieScreen('the followers of Iesus').sign('He whispers the name of Jesus.')).toBeNull();
+    expect(tieScreen('the Christian faith').sign('A prayer to Khristos escapes her.')).toBeNull();
+    expect(tieScreen('the cult of Bacchus').sign('She hums a hymn to Bakchos.')).toBeNull();
+    expect(tieScreen('the cult of Bacchus').sign('She hums under her breath.')).toBe('She hums under her breath.');
+  });
+
+  it('counts an account\'s word as a proper noun when it is a word of a known figure\'s or place\'s name, in any case', () => {
+    const bearer = makeEntity({ entity_id: 'x', name: 'X', conditions: [mark({ id: 'grief', name: 'grief', description: 'her son marcus drowned off ostia' })] });
+    const rolls = [rolled('mark', 'grief', 'grief', 'breaks')];
+    const world = tellWorldOf([makeEntity({ entity_id: 'marcus', name: 'Marcus Varius', location: 'Palatine Hill' })], ['Ostia']);
+    const screen = buildTellScreen(bearer, rolls, world);
+    expect(screen.sign('She will not speak of Marcus.')).toBeNull();
+    expect(screen.sign('Talk of ostia silences her.')).toBeNull();
+    expect(screen.sign('Her grief is plain to see.')).toBe('Her grief is plain to see.');
+    // Unknown to the world, a lower-case word of a broken mark's account is no proper noun.
+    expect(buildTellScreen(bearer, rolls).sign('Talk of ostia silences her.')).toBe('Talk of ostia silences her.');
+    // The narrator's signs are screened knowing the roster and the world's places.
+    const bearers = [{ entityId: 'x', entityName: 'X', rolls }];
+    const cues = composureCuesFrom(bearers, [bearer]);
+    expect(screenNarrationSigns([{ handle: 'c1', sign: 'Talk of ostia silences her.' }], cues, [bearer], bearers, ['Ostia'])).toEqual([]);
+    expect(screenNarrationSigns([{ handle: 'c1', sign: 'Her grief is plain to see.' }], cues, [bearer], bearers, ['Ostia']).map(sign => sign.sign)).toEqual(['Her grief is plain to see.']);
+  });
+
+  it('screens a held or fraying mark by its name, its account\'s proper nouns and longer words - never the words a tell is made of', () => {
+    const bearer = makeEntity({ entity_id: 'x', name: 'X', conditions: [mark({
+      id: 'loss', name: 'a loss at sea', description: 'Her son Marcus drowned off Ostia; her voice still breaks at the harbour.',
+    })] });
+    for (const tier of ['holds', 'frays'] as const) {
+      const screen = buildTellScreen(bearer, [rolled('mark', 'loss', 'a loss at sea', tier)]);
+      expect(screen.sign('Her voice catches, and she looks away.'), tier).toBe('Her voice catches, and she looks away.');
+      expect(screen.sign('She thinks of the drowned.'), tier).toBeNull();
+      expect(screen.sign('She flinches at the name Marcus.'), tier).toBeNull();
+      expect(screen.sign('She will not look toward Ostia.'), tier).toBeNull();
+      expect(screen.sign('A harbour bell makes her flinch.'), tier).toBeNull();
+      expect(screen.sign('Talk of the sea silences her.'), tier).toBeNull();
+    }
+  });
+
+  it('reads a delivery\'s opening word in lower case unless it names an individual, and weighs only individuals\' names', () => {
+    const roster = [
+      makeEntity({ entity_id: 'manfred', name: 'Manfred of Gaul' }),
+      makeEntity({ entity_id: 'julia', name: 'Julia Mamaea' }),
+      makeEntity({ entity_id: 'guard', name: 'Praetorian Guard', entity_type: 'faction' }),
+      makeEntity({ entity_id: 'cabal', name: 'Roman Military Cabal', entity_type: 'faction' }),
+    ];
+    const screen = buildTellScreen(makeEntity({ entity_id: 'x', name: 'X' }), [], tellWorldOf(roster));
+    const kept: Array<[string, string]> = [
+      ['Startled', 'startled'], ['Frightened', 'frightened'], ['Resigned', 'resigned'], ['Exasperated', 'exasperated'],
+      ['with Roman pride', 'with Roman pride'], ['on guard', 'on guard'], ['with military bluntness', 'with military bluntness'],
+    ];
+    for (const [raw, delivery] of kept) expect(screen.delivery(raw), raw).toBe(delivery);
+    for (const raw of ['manfred whispers', 'Manfred whispers', 'with a glance at mamaea']) expect(screen.delivery(raw), raw).toBeNull();
+    // A cue adjective in an individual's name still says how, not who.
+    expect(validateDelivery('with Roman pride', ['Titus the Roman'])).toBe('with Roman pride');
   });
 });

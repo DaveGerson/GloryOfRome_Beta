@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent, TruthLedgerEntry, NpcIntent, NpcMindDecision, StoryRelevance, EntityAction, Memory, PacingPosture, EventFiringRecord, EventDelta, Scheme, SchemeStep, TurnSubmission, MortalityEvent, ComposureBearerRolls, ComposureSign } from '../../types';
+import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent, TruthLedgerEntry, NpcIntent, NpcMindDecision, StoryRelevance, EntityAction, Memory, PacingPosture, EventFiringRecord, EventDelta, Scheme, SchemeStep, TurnSubmission, MortalityEvent, ComposureBearerRolls, ComposureSign, Relationship } from '../../types';
 import { AdjudicationSchema, NarrationPayloadSchema } from './schemas';
 import { applyAdjudication } from './engine';
 import { mockRunNewTurn } from "../mocks";
@@ -30,7 +30,7 @@ import { processMortality, detectDeathClaims } from './mortality';
 import { createNarrationStreamGate, createPayloadTextExtractor, splitNarrationSuggestions } from './streamSplit';
 import { rollD20, resolveAction, clampDifficulty, derivePersonalityModifier, deriveOppositionModifier, createSeededRng, generateSeed, type Rng } from './resolution';
 import { deriveLeverageTruth } from './groundTruth';
-import { composureCuesFrom, rollComposure, screenNarrationSigns } from './composure';
+import { composureCuesFrom, distinctiveWordsOf, rollComposure, screenNarrationSigns } from './composure';
 import { deserializeTurnSubmission, isReservedTurnSubmissionArtifact, normalizeTurnSubmissionInput, projectForAdjudication, projectForNarration, projectForNoAttemptResponse, projectForPlayerReflection, projectForResolution, serializeTurnSubmission } from '../../playerInput/turnSubmission';
 import {
     assertNoInventedPlayerAction,
@@ -152,9 +152,9 @@ function figuresNamedIn(texts: readonly string[], entities: Entity[], playerId: 
 
 /** What decides who stands with the player this turn (`figuresPresentWith`). */
 export interface PresenceInput {
-    /** The player as the turn began, and as it ends. */
-    playerBefore: Pick<Entity, 'entity_id' | 'location'>;
-    playerAfter: Pick<Entity, 'entity_id' | 'location'>;
+    /** The player as the turn began, and as it ends - where they stood, and whom they call kin (`relationships`). */
+    playerBefore: Pick<Entity, 'entity_id' | 'location'> & Partial<Pick<Entity, 'relationships'>>;
+    playerAfter: Pick<Entity, 'entity_id' | 'location'> & Partial<Pick<Entity, 'relationships'>>;
     /** The roster as the turn ends (the candidates, in order), and as it began (where each stood then). */
     roster: readonly Entity[];
     rosterBefore: readonly Pick<Entity, 'entity_id' | 'location'>[];
@@ -166,6 +166,30 @@ export interface PresenceInput {
     addressedIds: readonly string[];
     /** The player's observable attempt this turn, or null - a figure it names was summoned or addressed. */
     attemptText: string | null;
+}
+
+/** Kin a player's attempt may name a figure by ("my mother", "my son"), each read through the player's own relationships. */
+const KIN_WORDS = [
+    'mother', 'father', 'son', 'daughter', 'wife', 'husband', 'brother', 'sister', 'uncle', 'aunt', 'nephew', 'niece',
+    'cousin', 'grandmother', 'grandfather', 'grandson', 'granddaughter', 'stepmother', 'stepfather', 'stepson',
+    'stepdaughter',
+] as const;
+
+/**
+ * The ids of the kin the attempt names as "my <kin>", by the player's
+ * relationships whose type carries that kin word ("family (mother)"). A kin
+ * word the player has no such relationship for names no one: it is skipped,
+ * never guessed.
+ */
+function kinNamedIn(text: string, relationships: readonly Relationship[]): Set<string> {
+    const ids = new Set<string>();
+    for (const kin of KIN_WORDS) {
+        if (!textContainsWholeDisplayName(text, `my ${kin}`) && !textContainsWholeDisplayName(text, `my ${kin}s`)) continue;
+        for (const relationship of relationships) {
+            if (typeof relationship.relationship_type === 'string' && textContainsWholeDisplayName(relationship.relationship_type, kin)) ids.add(relationship.entity_id);
+        }
+    }
+    return ids;
 }
 
 /**
@@ -180,7 +204,12 @@ export interface PresenceInput {
  *    witnessed or their own perceived change);
  *  - an actor in, or the target of, one of the turn's entity actions;
  *  - addressed by the player - a known recipient of their message or order,
- *    or named in their observable attempt.
+ *    or named in their observable attempt: by display name, by any
+ *    distinctive word of the name or the epithet ("I summon Mamaea"), as kin
+ *    through the player's relationships ("I summon my mother"; a kin word
+ *    the player has no such relationship for names no one), or by position
+ *    ("I ask the Regent to dine") when no other figure standing there holds
+ *    the same one. Every match is by whole words, in any case.
  * Living individuals only, never the player; roster order, so the rolls
  * replay onto the same figures; capped at MAX_VOICE_CAST AFTER the presence
  * filter, so an absent figure never takes a present one's place. Pure;
@@ -192,14 +221,27 @@ export function figuresPresentWith(input: PresenceInput): Entity[] {
     const seen = new Set(input.perceived.filter(change => change.source === 'witnessed' || change.source === 'self').map(change => change.subject));
     const acting = new Set(input.entityActions.flatMap(action => [action.id, action.target ?? '']).filter(id => id.length > 0));
     const addressed = new Set(input.addressedIds);
-    return input.roster
-        .filter(figure => {
-            if (figure.entity_id === input.playerAfter.entity_id || figure.entity_type !== 'individual' || figure.status !== 'alive') return false;
-            const colocated = [figure.location, wasAt.get(figure.entity_id)].some(place => place !== undefined && places.has(place));
-            if (!colocated) return false;
-            return seen.has(figure.entity_id) || acting.has(figure.entity_id) || addressed.has(figure.entity_id)
-                || (input.attemptText !== null && figure.name.trim().length > 0 && textContainsWholeDisplayName(input.attemptText, figure.name));
-        })
+    const standing = input.roster.filter(figure =>
+        figure.entity_id !== input.playerAfter.entity_id && figure.entity_type === 'individual' && figure.status === 'alive'
+        && [figure.location, wasAt.get(figure.entity_id)].some(place => place !== undefined && places.has(place)));
+    const attempt = input.attemptText;
+    const relationships = [input.playerBefore.relationships, input.playerAfter.relationships]
+        .flatMap(record => record && typeof record === 'object' ? Object.values(record) : [])
+        .filter((relationship): relationship is Relationship => Boolean(relationship) && typeof relationship.entity_id === 'string');
+    const kin = attempt === null ? new Set<string>() : kinNamedIn(attempt, relationships);
+    const positionKey = (figure: Entity) => (figure.position ?? '').normalize('NFKC').trim().toLowerCase();
+    const holders = new Map<string, number>();
+    for (const figure of standing) if (positionKey(figure)) holders.set(positionKey(figure), (holders.get(positionKey(figure)) ?? 0) + 1);
+    const namedInAttempt = (figure: Entity): boolean => {
+        if (attempt === null) return false;
+        if (kin.has(figure.entity_id)) return true;
+        if (figure.name.trim().length > 0 && textContainsWholeDisplayName(attempt, figure.name)) return true;
+        if (distinctiveWordsOf(figure.name, figure.epithet ?? '').some(word => textContainsWholeDisplayName(attempt, word))) return true;
+        const position = figure.position?.trim() ?? '';
+        return position.length > 0 && holders.get(positionKey(figure)) === 1 && textContainsWholeDisplayName(attempt, position);
+    };
+    return standing
+        .filter(figure => seen.has(figure.entity_id) || acting.has(figure.entity_id) || addressed.has(figure.entity_id) || namedInAttempt(figure))
         .slice(0, MAX_VOICE_CAST);
 }
 
@@ -1434,7 +1476,9 @@ async function runPlayerSurfacesStage(
     // only on the prose that shows it: when a gate changed the narration
     // after it was written, every sign of the turn is dropped, and the GM
     // is told why.
-    const screenedSigns = narration.trim() ? screenNarrationSigns(rawNarrationPayload.signs, composureCues, updatedEntities, composureRolls) : [];
+    const screenedSigns = narration.trim()
+        ? screenNarrationSigns(rawNarrationPayload.signs, composureCues, updatedEntities, composureRolls, Object.keys(ctx.currentWorldState.regions ?? {}))
+        : [];
     const kept = narrationSignsToKeep(rawNarrationPayload.text, narrationRedaction, screenedSigns);
     if (kept.note) transformedAdjudication.gm_private.push(kept.note);
     const composureSigns = kept.signs;
