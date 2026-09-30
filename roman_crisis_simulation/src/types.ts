@@ -550,10 +550,19 @@ export type IntelDistortion = 'element_changed' | 'misattributed';
 
 /**
  * What an investigation-family finding was about: a bought aspect of a
- * dossier, the nature a scheme's accumulated clues add up to (D28), or a
- * commissioned Spymaster's Assessment.
+ * dossier, the nature a scheme's accumulated clues add up to (D28), a
+ * commissioned Spymaster's Assessment, or a question put to a public
+ * occurrence (the Events tab's "Who is behind it?" and "Who gains?").
  */
-export type IntelFindingKind = 'beliefs' | 'secrets' | 'scheme' | 'scheme_nature' | 'deep_analysis';
+export type IntelFindingKind = 'beliefs' | 'secrets' | 'scheme' | 'scheme_nature' | 'deep_analysis' | 'occurrence';
+
+/**
+ * The occurrence questions grounded in the attribution record (D47) - the
+ * Events tab's other question, "What follows?", is a forecast and carries no
+ * truth. Mirrors knowledge/store.ts's OccurrenceQuestion (types.ts stays
+ * import-free); keep the two in step.
+ */
+export type GroundedOccurrenceQuestion = 'who_gains' | 'who_is_behind_it';
 
 /**
  * The hidden rolls behind one investigation's findings (D4/D47), recorded for
@@ -564,7 +573,7 @@ export type IntelFindingKind = 'beliefs' | 'secrets' | 'scheme' | 'scheme_nature
  */
 export interface InvestigationRolls {
     seed: number;
-    /** The operational tier (ai/core/resolution.ts::resolveAction), or the fixed standing a commissioned assessment reads at (it makes no operational roll). */
+    /** The operational tier (ai/core/resolution.ts::resolveAction), or the fixed standing a commissioned assessment or an occurrence question reads at (neither makes an operational roll). */
     tier: 'critical_failure' | 'failure' | 'partial_success' | 'success' | 'critical_success';
     /** The d20 behind accuracy, and the band it landed in BEFORE any empty-pool adjustment (see IntelFindingTruth.standing). */
     accuracyRoll: number;
@@ -596,6 +605,10 @@ export interface IntelFindingTruth {
     schemeName?: string;
     /** The rolls behind the finding - absent on a scheme nature, which rolls nothing: it follows from the clues (D28). */
     rolls?: InvestigationRolls;
+    /** Occurrence findings only: the question the agents answered. */
+    question?: GroundedOccurrenceQuestion;
+    /** Occurrence findings only: the public headline the question was put to. */
+    occurrence?: string;
 }
 
 /**
@@ -620,12 +633,39 @@ export interface InvestigationTruth {
 }
 
 /**
+ * GM-PRIVATE truth of one grounded answer about a public occurrence (D11/D47):
+ * the agents' account as delivered (one prose finding, as an assessment is),
+ * its standing against the turn's attribution record (TurnHistoryEntry.
+ * headlineActors), and the rolls that shaped it. Handed back by
+ * ai/tools/intelligence.ts::getClarificationOnEvent beside the account and
+ * forwarded, untouched and unrendered, to the commit that writes it to the
+ * truth ledger (hooks/useIntelCommits.ts) - the same handling class as
+ * TruthLedgerEntry. Absent for "What follows?" (a forecast) and for an
+ * occurrence with no attribution on record (an honest "no thread to follow").
+ */
+export interface OccurrenceTruth {
+    question: GroundedOccurrenceQuestion;
+    /** The headline exactly as asked about. */
+    occurrence: string;
+    rolls: InvestigationRolls;
+    finding: {
+        /** The account exactly as the player received it. */
+        text: string;
+        standing: IntelAccuracy;
+        /** The whole truth on record the account is measured against - every hand (and, for "Who gains?", every aim) behind it, or that none was - whatever part of it reached the agents. */
+        groundTruth: string;
+        distortion?: IntelDistortion;
+    };
+}
+
+/**
  * GM-PRIVATE truth-ledger record (DESIGN_DECISIONS.md D11): the engine's
  * own bookkeeping of what every sourced claim's actual truth is, so a
  * falsehood is only ever presented knowingly and trackably. One entry is
  * written per rumor delta by ai/core/engine.ts, alongside the Report the
  * player sees (`reportId` links the two), and one per investigation
- * finding (D47) by hooks/useIntelCommits.ts. This is the same handling class
+ * finding (D47) - an occurrence question's grounded answer included - by
+ * hooks/useIntelCommits.ts. This is the same handling class
  * as `Entity.secret_truth`: it may be read ONLY by GameMasterScreen (the
  * true-vs-believed view, D7) and code under ai/ - never by any
  * player-facing surface.
@@ -634,7 +674,7 @@ export interface TruthLedgerEntry {
     id: string;
     turn: number;
     claim: string;
-    /** The entity or region id the claim is about (the rumor delta's key). */
+    /** The entity or region id the claim is about (the rumor delta's key) - 'world' for an occurrence, a public event (as its knowledge claim's subject is). */
     aboutId: string;
     /** Who originated/spreads the claim; absent when organic/unattributable. */
     originId?: string;
@@ -644,7 +684,8 @@ export interface TruthLedgerEntry {
      * The id of the Report the player saw for this claim. An investigation
      * finding never becomes a Report: it names the knowledge claim key of
      * the dossier aspect the finding landed on instead
-     * (`investigation:{targetId}:{kind}`, or `scheme:{targetId}`).
+     * (`investigation:{targetId}:{kind}`, or `scheme:{targetId}`), or of the
+     * occurrence finding (`investigation:occurrence:{slug}:{question}`).
      */
     reportId: string;
     /**
@@ -799,6 +840,20 @@ export interface ActionResolutionEvent {
 }
 
 /**
+ * GM-PRIVATE: who acted in one committed headline (D42/D47). The adjudicator
+ * declares each headline's `actors` on the interchange; that declaration is
+ * stripped from the committed Adjudication at the commit boundary (D42), and
+ * this separate record keeps it, paired with the headline's final text, so an
+ * occurrence question can be grounded in who really acted.
+ */
+export interface HeadlineAttribution {
+    /** The headline exactly as committed - after the no-attempt redaction gate - and as the Events tab cries it. */
+    text: string;
+    /** The entity ids whose actions the headline narrates, as declared; [] when it arose from circumstance, with no single hand behind it. */
+    actorIds: string[];
+}
+
+/**
  * An entry for the Game Master's turn history log.
  */
 export interface TurnHistoryEntry {
@@ -827,6 +882,24 @@ export interface TurnHistoryEntry {
    * `''` included.
    */
   playerMonologue?: string;
+  /**
+   * GM-PRIVATE (D42/D47): one attribution record per committed headline -
+   * written at the commit boundary (ai/core/turn.ts, ai/mocks.ts) from each
+   * headline's declared `actors` just before they are stripped. Read only by
+   * code under ai/ (ai/core/groundTruth.ts grounds the Events tab's "Who is
+   * behind it?" and "Who gains?" in it, at the rolled fidelity and accuracy);
+   * never rendered on, nor fed whole into, any player-facing surface or
+   * prompt.
+   *
+   * Kept on EVERY entry, not trimmed with the snapshot window
+   * (state/gameReducer.ts): a few short lines a turn, the same order of size
+   * as `adjudication.headlines` itself, and the Events tab's Examined register
+   * reaches occurrences far older than that window. Optional: entries saved
+   * before the record existed lack it, and an occurrence found in no record
+   * takes the honest "no thread to follow" path. A headline a later gate
+   * pass changed after the capture has no record either.
+   */
+  headlineActors?: HeadlineAttribution[];
   /**
    * Deep copy of the full entity roster as of this turn's commit - the
    * dominant per-turn share of the save blob. Present only on the most

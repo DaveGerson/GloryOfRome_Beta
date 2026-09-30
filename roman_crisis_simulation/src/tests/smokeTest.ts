@@ -55,7 +55,7 @@ export const runSmokeTest = async () => {
         },
         {
             name: 'mockGetClarificationOnEvent',
-            fn: () => mockGetClarificationOnEvent('A riot in the Suburra', 'Who was responsible?')
+            fn: () => mockGetClarificationOnEvent('A riot in the Suburra', 'what_follows', null)
         },
         {
             name: 'mockGetDeepAnalysis',

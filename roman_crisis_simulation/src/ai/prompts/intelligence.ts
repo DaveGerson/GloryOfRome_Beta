@@ -12,9 +12,10 @@
  * in ai/tools/intelligence.ts, split only where necessary.
  */
 
-import { Adjudication, Entity, WorldState, SimulationState, NpcIntent, IntelDistortion } from '../../types';
+import { Adjudication, Entity, WorldState, SimulationState, NpcIntent, IntelDistortion, GroundedOccurrenceQuestion } from '../../types';
 import type { ActionResolutionTier } from '../core/resolution';
-import type { InvestigationPlan, PlannedFinding, SchemeNaturePlan } from '../core/groundTruth';
+import type { InvestigationPlan, PlannedFinding, PoolPlan, SchemeNaturePlan } from '../core/groundTruth';
+import type { OccurrenceQuestion } from '../../knowledge/store';
 import { publicAffiliationsOf } from '../core/affiliations';
 import { asPromptData, playerOutputDeltaKey, playerOutputDeltaReason } from './fragments';
 import { ACTORS_DESCRIPTION } from '../core/schemas';
@@ -76,47 +77,145 @@ const INVENTED_FINDING: Record<'beliefs' | 'secrets' | 'scheme', { one: string; 
 };
 
 /** The data block a plan's truths ride in, or the engine's own marker when none reached the prompt. */
-function findingsBlock(plan: InvestigationPlan, heading: string): string {
+function findingsBlock(plan: PoolPlan, heading: string): string {
   if (plan.accuracy === 'false') return `**${heading}:** none reached your agents - see the grounding rule.`;
   if (plan.findings.length === 0) return `**${heading}:** none - there was nothing to find.`;
   return `**${heading} (data - what your agents reached, in order):**\n${findingsDataList(plan.findings)}`;
 }
 
+/** Each question the Events tab puts to an occurrence, as the aide is asked it. */
+const OCCURRENCE_QUESTION_TEXT: Record<OccurrenceQuestion, string> = {
+  who_gains: 'Who stands to gain from this?',
+  who_is_behind_it: 'Who is behind this?',
+  what_follows: 'What is likely to follow from this?',
+};
+
+/** How each grounded occurrence question reads in its prompt: what the agents went to learn, the data block's heading, and what a false account invents. */
+const OCCURRENCE_TASK: Record<GroundedOccurrenceQuestion, { learn: string; heading: string; invent: { one: string; many: string } }> = {
+  who_is_behind_it: {
+    learn: 'whose hand is behind',
+    heading: 'HANDS BEHIND IT',
+    invent: { one: 'figure behind it', many: 'figures behind it' },
+  },
+  who_gains: {
+    learn: 'who gains by',
+    heading: 'WHO GAINS',
+    invent: { one: 'figure who gains by it, and what they were after', many: 'figures who gain by it, and what each was after' },
+  },
+};
+
+/** The honest nothing, per question: no single hand was behind it (ai/core/groundTruth.ts::NO_HAND_TRUTH). A false nothing is told the same. */
+const OCCURRENCE_NOTHING_RULE: Record<GroundedOccurrenceQuestion, string> = {
+  who_is_behind_it: `Your agents found no single hand behind it: it arose from circumstance - the drift of events, not anyone's design. Say so plainly, as their finding, and name no one as its author.`,
+  who_gains: `Your agents found no one's scheme behind it: it arose from circumstance, and whoever profits by it does so by chance. Say so plainly, as their finding, and name no one as its schemer.`,
+};
+
+/** How a garbled occurrence entry's one distortion is asked for (D47): one hand misattributed, or one aim changed. */
+const OCCURRENCE_DISTORTION: Record<IntelDistortion, string> = {
+  misattributed: `it came back pinned on the wrong party: name someone else in that figure's place - a plausible figure, from what is publicly known`,
+  element_changed: 'one element of it - the aim, the means, a place or a time - came back wrong: change exactly that one element',
+};
+
 /**
- * PURPOSE: Answer a player's question about a past event via their
- * spymaster's aide, confident if the event's actors are visible to the
- * player, vague/rumor-based otherwise.
+ * The accuracy-shaped instruction for an occurrence plan (D47) - the
+ * occurrence counterpart of `groundingRule`: report the hands (and aims)
+ * reached faithfully; with exactly the one recorded distortion; the honest
+ * nothing, when no single hand was behind it (a false nothing reads the same);
+ * or - a false account, which carries NO truth - as many plausible inventions
+ * as the truth would have yielded.
+ */
+function occurrenceGroundingRule(plan: PoolPlan, question: GroundedOccurrenceQuestion): string {
+  const count = plan.findings.length;
+  if (plan.accuracy === 'false') {
+    const one = count === 1;
+    const { invent } = OCCURRENCE_TASK[question];
+    return `Your agents were misled - fed a story, or mistaken in what they heard - and brought back no truth at all; the prompt carries none, and your agents do not know it. Invent ${count} plausible ${one ? invent.one : invent.many}, consistent with the occurrence and with what is publicly known (the figures your master knows are in the prompt)${plan.fidelity === 'fragment' ? `, only a sketchy fragment of ${one ? 'it' : 'each'}` : ''}, and report ${one ? 'it' : 'them'} exactly as your agents would report the truth - never hint that ${one ? 'it is' : 'they are'} false.`;
+  }
+  if (count === 0) return OCCURRENCE_NOTHING_RULE[question];
+  const fragmentNote = plan.findings.some(finding => finding.fragmentary)
+    ? ' An entry marked (a fragment) is all that was reached of it: report only that much, and never complete it.'
+    : '';
+  const aimNote = question === 'who_gains'
+    ? ' An entry naming a figure with no aim beside it is all your agents learned of them: that they stand behind it, not what they were after.'
+    : '';
+  if (plan.accuracy === 'garbled') {
+    const index = plan.findings.findIndex(finding => finding.standing === 'garbled');
+    const distortion = plan.findings[index]?.distortion ?? 'misattributed';
+    return `The entries in the prompt are what your agents reached, but entry ${index + 1} came back distorted: ${OCCURRENCE_DISTORTION[distortion]}. Report that entry with exactly that one distortion, stated as plainly as the rest, and every other entry faithfully. Never signal that any entry is distorted, or which. Add no one and nothing that is not among them.${fragmentNote}${aimNote}`;
+  }
+  return `The entries in the prompt are the truth as your agents reached it. Report each faithfully, in your agents' voice. Add no one and nothing that is not among them - no accomplice, no motive, no guess to fill a gap.${fragmentNote}${aimNote}`;
+}
+
+/** The occurrence and the question, and the figures the master knows (public knowledge a false account invents from, a forecast reasons from) - each value quoted as DATA (D41). */
+function occurrencePromptHead(occurrence: string, question: OccurrenceQuestion, knownFigures: readonly string[]): string {
+  return `**Occurrence (data - as it was cried in the forum):** ${asPromptData(occurrence)}
+**Question:** ${asPromptData(OCCURRENCE_QUESTION_TEXT[question])}
+**Figures your master knows (data):** ${knownFigures.length > 0 ? knownFigures.map(name => asPromptData(name)).join(', ') : 'none of note'}`;
+}
+
+/**
+ * PURPOSE: "Who is behind it?" and "Who gains?" put to a public occurrence
+ * (a committed headline): the spymaster's aide reports what the agents
+ * brought back, GROUNDED (D47) in the turn's GM-private attribution record.
+ * `plan` (ai/core/groundTruth.ts::planFromPool over
+ * `occurrenceGrounding`'s pool) carries the hands - and, for "Who gains?",
+ * their aims that turn - the fidelity roll reached, shaped by the accuracy
+ * roll: reported faithfully, with exactly one recorded distortion, as the
+ * honest nothing when no single hand was behind it, or (a false account) not
+ * at all. The answer is the aide's sourced account (D26), with no number or
+ * roll in it (D4/D25). Unlike an investigation's, it carries no confidence
+ * framing by standing: the standing follows whether the TRUE hands are in the
+ * master's network, so framing by it would tell something of the truth even
+ * on a false account - and would set a false nothing apart from an honest one.
  * MODEL: flash (GEMINI_FLASH).
  * CONSUMER: ai/tools/intelligence.ts `getClarificationOnEvent`.
  * OUTPUT: plain prose (no schema).
- *
- * Not yet grounded in the D47 manner: the committed turn record keeps no
- * per-occurrence attribution (each headline's `actors` is stripped at the
- * commit boundary, D42 - ai/core/actorsBoundary.ts), so there is no ground
- * truth of who gains from ONE occurrence to scope, and a truth guessed from
- * the whole turn's deltas would be a flag the engine could not stand behind
- * (D11).
  */
 export function buildClarificationPrompt(
-  event: string,
-  question: string,
+  occurrence: string,
+  question: GroundedOccurrenceQuestion,
   player: Entity,
-  isVisible: boolean
+  knownFigures: readonly string[],
+  plan: PoolPlan
 ): { systemInstruction: string; prompt: string } {
-  const systemInstruction = `You are a spymaster's aide in ancient Rome. Your master, ${player.name}, has asked for clarification on a recent event.
+  const task = OCCURRENCE_TASK[question];
+  const systemInstruction = `You are a spymaster's aide in ancient Rome. Your master, ${player.name}, sent agents to learn ${task.learn} a recent public occurrence, and you now report what they brought back.
 
-    **Your Master's Knowledge:** Your master has direct knowledge of these entities: ${player.visibility_network.join(', ')}.
+    **Grounding (what your agents actually reached):** ${occurrenceGroundingRule(plan, question)}
 
-    **Task:** Based on your master's knowledge, provide an answer.
-    - If the key players in the event are visible to your master (${isVisible}), provide a confident, detailed answer.
-    - If they are not visible, provide a vague, rumor-based answer reflecting your limited intelligence.
-    `;
+    **Task:** Answer your master in two or three sentences, in your own voice as the aide. Frame it as your agents' account, gathered from their sources, which your master may choose to distrust - never as settled fact. Plain prose: no lists, no numbers, no odds.`;
 
-  // D41: both values are JSON-quoted via asPromptData (escaping quotes,
-  // newlines, and U+2028/U+2029/U+0085) so a future player-text caller
-  // cannot forge a second **Question:** line or break out of the quoting.
-  const prompt = `**Event:** ${asPromptData(event)}
-    **Question:** ${asPromptData(question)}`;
+  // D41: every value - the occurrence, the question, each known figure and
+  // each truth reached - rides JSON-quoted via asPromptData, so no line of it
+  // can forge a structural block or break out of its quoting.
+  const prompt = `${occurrencePromptHead(occurrence, question, knownFigures)}
+
+${findingsBlock(plan, task.heading)}`;
+
+  return { systemInstruction, prompt };
+}
+
+/**
+ * PURPOSE: "What follows?" put to a public occurrence: the aide's forecast
+ * of what may come of it. A forecast of the future is not a claim of fact,
+ * so it is deliberately UNGROUNDED - no attribution record, no roll, no truth
+ * flag - and it is handed nothing hidden to state: only the occurrence and
+ * the figures the master knows. Framed as a forecast (D26: the aide's read,
+ * never the system's).
+ * MODEL: flash (GEMINI_FLASH).
+ * CONSUMER: ai/tools/intelligence.ts `getClarificationOnEvent`.
+ * OUTPUT: plain prose (no schema).
+ */
+export function buildOccurrenceForecastPrompt(
+  occurrence: string,
+  player: Entity,
+  knownFigures: readonly string[]
+): { systemInstruction: string; prompt: string } {
+  const systemInstruction = `You are a spymaster's aide in ancient Rome. Your master, ${player.name}, asks what is likely to follow from a recent public occurrence.
+
+    **Task:** Give your agents' forecast in two or three sentences, in your own voice as the aide, reasoned from the occurrence itself and what is publicly known. It is a forecast of what may come, not a report of what is known: frame it as such - what your agents expect, what to watch for - and state no hidden fact as known: not who is behind it, not who gains, not anyone's secret. Plain prose: no lists, no numbers, no odds.`;
+
+  const prompt = occurrencePromptHead(occurrence, 'what_follows', knownFigures);
 
   return { systemInstruction, prompt };
 }

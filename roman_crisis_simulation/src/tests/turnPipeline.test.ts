@@ -2484,6 +2484,72 @@ describe('ai/core/turn.ts runNewTurn - no-attempt prose redaction vs. structural
     expect(notes.every(note => note.includes(invented))).toBe(true);
   });
 
+  // D42/D47: who acted in each headline is kept GM-side, paired with the text
+  // the turn actually commits - AFTER the redaction gate dropped or trimmed it.
+  it('writes the GM-private attribution record from the post-redaction headlines, one per cried headline', async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+    const crassus = makeEntity({ entity_id: 'npc_crassus', name: 'Crassus' });
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.adjudication.resolve(JSON.stringify({
+      turn: 2,
+      entityActions: [{ id: 'npc_crassus', intent: 'intrigue', target: null, notes: 'Crassus calls in his loans.', actors: ['npc_crassus'] }],
+      deltas: [],
+      headlines: [
+        // Trimmed: the tripwire cuts the invented player sentence, the rest stands.
+        { text: 'Creditors circle the Palatine. You seize the treasury.', actors: ['npc_crassus', 'npc_crassus'] },
+        // Dropped outright: it declares the player.
+        { text: 'You execute the tribune.', actors: ['player_1'] },
+        { text: 'The Senate debates the grain dole.', actors: [] },
+      ],
+      gm_private: [],
+    }));
+    h.response.simulationState.resolve(simStateJson);
+
+    const result = await runNewTurn(
+      h.ai, questionOnly, player, 2, [player, crassus], worldState, simulationState,
+      [], [], [], [], '', false, 'Grim political thriller',
+    );
+
+    expect(result.headlines).toEqual(['Creditors circle the Palatine.', 'The Senate debates the grain dole.']);
+    expect(result.newHistoryEntry.headlineActors).toEqual([
+      { text: 'Creditors circle the Palatine.', actorIds: ['npc_crassus'] },
+      { text: 'The Senate debates the grain dole.', actorIds: [] },
+    ]);
+    // A separate record: the committed headlines themselves stay bare text (D42).
+    expect(result.newHistoryEntry.adjudication.headlines).toEqual(result.headlines);
+  });
+
+  it('never hands the attribution record to a later turn\'s player-facing call', async () => {
+    const h = createHarness(false);
+    const player = makeEntity();
+    const priorEntry = {
+      turnNumber: 1,
+      playerIntent: 'Wait.',
+      adjudication: { turn: 1, entityActions: [], deltas: [], headlines: ['A fire in the Subura.'], gm_private: [] },
+      narration: 'Smoke over the Subura.',
+      headlineActors: [{ text: 'A fire in the Subura.', actorIds: ['npc_sentinel_hand'] }],
+    };
+
+    h.response.storyRelevance.resolve(storyRelevanceJson);
+    h.response.assessment.resolve(nonConsequentialAssessmentJson);
+    h.response.adjudication.resolve(adjudicationJson);
+    h.response.simulationState.resolve(simStateJson);
+    h.response.monologue.resolve(monologuePayloadJson);
+    h.response.narration.resolve(narrationPayloadJson);
+
+    await runNewTurn(
+      h.ai, freeform('Hold court'), player, 2, [player], worldState, simulationState,
+      [priorEntry], [], [], [], '', false, 'Grim political thriller',
+    );
+
+    for (const kind of ['simulationState', 'monologue', 'narration'] as const) {
+      const sent = `${h.systemInstructionsByKind[kind]}\n${h.promptsByKind[kind]}`;
+      for (const token of ['headlineActors', 'actorIds', 'npc_sentinel_hand']) expect(sent, `${kind} carries ${token}`).not.toContain(token);
+    }
+  });
+
   it.each([
     ['a player-owned delta', {
       entityActions: [],

@@ -37,6 +37,7 @@ async function mount(runDomainMutation: RunDomainMutation, onFinding = vi.fn()):
       week={3}
       playerEntity={makeEntity()}
       allEntities={[]}
+      turnHistory={[]}
       knowledge={[]}
       ai={{} as GoogleGenAI}
       isMockMode

@@ -557,6 +557,22 @@ export function deriveInvestigationDifficulty(target: Entity): number {
     return clampDifficulty(raw);
 }
 
+/**
+ * How closely the hands behind a public occurrence guard their part in it:
+ * the difficulty an occurrence question's D47 fidelity roll reads
+ * (ai/tools/intelligence.ts::getClarificationOnEvent). An occurrence has no
+ * single target whose paranoia and intrigue could set it
+ * (`deriveInvestigationDifficulty`), so it follows the old clarification's
+ * isVisible flag instead: the baseline when every hand on record is the
+ * player's own or inside their network (the agents ask their own contacts),
+ * and a guarded target's - one at 7/10 paranoia and 7/10 intrigue - when any
+ * hand is a stranger to it.
+ */
+export const OCCURRENCE_DIFFICULTY = {
+    inNetwork: INVESTIGATION_BASE_DIFFICULTY,
+    outsideNetwork: INVESTIGATION_BASE_DIFFICULTY + 4,
+} as const;
+
 // --- Investigation accuracy and fidelity (DESIGN_DECISIONS.md D47) -------
 //
 // D47: an investigation reaches for the target's real beliefs, secrets and

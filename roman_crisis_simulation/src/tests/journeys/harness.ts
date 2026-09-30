@@ -25,7 +25,9 @@
  *                  an investigation finding's standing/ground truth (D47),
  *                  mind private_reasoning, a NON-player scheme's name/steps,
  *                  a NON-player's inward mark (D48) or unlearned secret tie
- *                  (D49), the mortality validator's reasoning) reaches ANY
+ *                  (D49), the mortality validator's reasoning, a headline's
+ *                  attribution record (D42/D47) - which must itself be
+ *                  written, one per cried headline) reaches ANY
  *                  player-facing surface: the narration/monologue PROMPTS and
  *                  system instructions (the true enforcement seam), the
  *                  narration/monologue/suggestions text, headlines, the
@@ -593,6 +595,12 @@ function assertNoLeaks(outcome: {
     // carries it to the adjudicator is caught by the GM-SECRET marker above.
     { label: 'finding standing field', value: '"standing"' },
     { label: 'finding ground-truth field', value: '"groundTruth"' },
+    // D42/D47: who acted in each headline is kept GM-side on the history
+    // entry's attribution record. Its bare ids and headline texts appear
+    // legitimately everywhere; the GM-private fact is the PAIRING, carried
+    // only by these fields.
+    { label: 'headline attribution field', value: 'headlineActors' },
+    { label: 'headline attribution ids field', value: 'actorIds' },
     // Roll mechanics as prose ("roll 13", "rolled 4").
     { label: 'roll mechanics', pattern: /\broll(?:ed)?\s+\d+\b/i },
   ];
@@ -971,6 +979,11 @@ export class JourneyRunner {
     }
     // INV-LEAK
     assertNoLeaks({ entry, result, digestTexts, knowledge: newKnowledge, client, newReports, playerId: this.thread.playerId, label });
+    // ...and its other half: the GM-private attribution record is WRITTEN -
+    // one per headline the turn cries, by its committed (post-redaction)
+    // text, so every occurrence of the week can be grounded (D47).
+    expect(entry.headlineActors?.map(record => record.text), `[${label}] every cried headline carries its GM-private attribution record`)
+      .toEqual(result.headlines);
     // INV-NO-SILENT
     if (!def.allowConsoleErrors) {
       expect(consoleErrors, `[${label}] INV-NO-SILENT: console.error fired during the turn`).toEqual([]);

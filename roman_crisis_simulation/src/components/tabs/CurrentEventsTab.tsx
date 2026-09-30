@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { Entity } from '../../types';
+import type { Entity, OccurrenceTruth, TurnHistoryEntry } from '../../types';
 import { GoogleGenAI } from "@google/genai";
 import { getClarificationOnEvent } from '../../ai/tools/intelligence';
 import { WaxSeal, toRoman } from '../ui/Brand';
@@ -31,16 +31,22 @@ import type { DomainMutationContext, RunDomainMutation } from '../../state/domai
  *  - the finding was typographically identical to the public headline above
  *    it. **What you paid to learn must never look like what the criers
  *    shouted**, so it now sits in its own register behind a dentil rule.
+ *
+ * D47: "Who is behind it?" and "Who gains?" reach for who really acted - the
+ * turn's GM-private attribution record - at two hidden rolls, and may come
+ * back wrong; "What follows?" stays your agents' forecast. The finding is
+ * always their sourced account (D26); its truth rides past this tab to the
+ * truth ledger, unread.
  */
 
 const REGISTERS = ['week', 'examined'] as const;
 type EventRegister = typeof REGISTERS[number];
 
-/** Each question, as the player asks it and as the finding is kickered. */
-const QUESTIONS: Record<OccurrenceQuestion, { ask: string; kicker: string; prompt: string }> = {
-    who_gains: { ask: 'Who gains?', kicker: 'who gains', prompt: 'Who stands to gain from this?' },
-    who_is_behind_it: { ask: 'Who is behind it?', kicker: 'who is behind it', prompt: 'Who is behind this?' },
-    what_follows: { ask: 'What follows?', kicker: 'what follows', prompt: 'What is likely to follow from this?' },
+/** Each question, as the player asks it and as the finding is kickered. (How the aide is asked it lives with its prompt, ai/prompts/intelligence.ts.) */
+const QUESTIONS: Record<OccurrenceQuestion, { ask: string; kicker: string }> = {
+    who_gains: { ask: 'Who gains?', kicker: 'who gains' },
+    who_is_behind_it: { ask: 'Who is behind it?', kicker: 'who is behind it' },
+    what_follows: { ask: 'What follows?', kicker: 'what follows' },
 };
 
 const quiet: React.CSSProperties = { fontSize: 14, fontStyle: 'italic', color: 'var(--text-muted)' };
@@ -72,14 +78,24 @@ const CurrentEventsTab: React.FC<{
     week: number;
     playerEntity: Entity | null;
     allEntities: Entity[];
+    /**
+     * The reign's history, handed through to the question's tool only: "Who
+     * is behind it?" and "Who gains?" are grounded in its GM-private
+     * attribution record (D47). Nothing here reads or renders it.
+     */
+    turnHistory: readonly TurnHistoryEntry[];
     knowledge: KnowledgeClaim[];
     ai: GoogleGenAI;
     isMockMode: boolean;
-    /** Commits one finding to the knowledge store, durably, before it is shown. */
-    onFinding: (occurrence: string, question: OccurrenceQuestion, text: string, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
+    /**
+     * Commits one finding to the knowledge store, durably, before it is shown
+     * - with, for a grounded answer, its GM-private truth (D11/D47), which the
+     * commit writes to the truth ledger and nothing here renders.
+     */
+    onFinding: (occurrence: string, question: OccurrenceQuestion, text: string, request: DomainMutationContext, truth?: OccurrenceTruth) => boolean | void | Promise<boolean | void>;
     runDomainMutation: RunDomainMutation;
     interactionLocked?: boolean;
-}> = ({ events, week, playerEntity, allEntities, knowledge, ai, isMockMode, onFinding, runDomainMutation, interactionLocked = false }) => {
+}> = ({ events, week, playerEntity, allEntities, turnHistory, knowledge, ai, isMockMode, onFinding, runDomainMutation, interactionLocked = false }) => {
     const [register, setRegister] = useState<EventRegister>(() => getTabRegister('events', REGISTERS, 'week'));
     // Several occurrences may be open at once now.
     const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
@@ -118,11 +134,11 @@ const CurrentEventsTab: React.FC<{
         try {
             await runDomainMutation(async transaction => {
                 const request: DomainMutationContext = { isCurrent: () => transaction.isCurrent() };
-                const text = await getClarificationOnEvent(
-                    ai, occurrence, QUESTIONS[question].prompt, playerEntity, allEntities, isMockMode,
+                const { text, truth } = await getClarificationOnEvent(
+                    ai, occurrence, question, playerEntity, allEntities, turnHistory, isMockMode,
                 );
                 if (!request.isCurrent()) return;
-                const committed = await onFinding(occurrence, question, text, request);
+                const committed = await onFinding(occurrence, question, text, request, truth);
                 if (committed !== false) setLanded(previous => ({ occurrence, question, seq: (previous?.seq ?? 0) + 1 }));
             });
         } catch (error) {

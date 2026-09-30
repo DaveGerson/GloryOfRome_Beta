@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
-import { Entity, WorldState, StoryRelevance, Adjudication, SimulationState, ActionResolutionEvent, NpcIntent, InvestigationRolls, InvestigationTruth, TruthLedgerEntry } from '../../types';
+import { Entity, WorldState, StoryRelevance, Adjudication, SimulationState, ActionResolutionEvent, NpcIntent, InvestigationRolls, InvestigationTruth, TruthLedgerEntry, GroundedOccurrenceQuestion, OccurrenceTruth, TurnHistoryEntry } from '../../types';
+import type { OccurrenceQuestion } from '../../knowledge/store';
 import { mockGetClarificationOnEvent, mockGetDeepAnalysis, mockGetInvestigationResult, mockGetPlayerMonologue, mockGetSchemeNatureReading, mockGetStoryRelevance, mockIntelSeed } from '../mocks';
 import { StoryRelevanceSchema, SimulationStateSchema, PlayerMonologuePayloadSchema, buildInvestigationResultSchema } from '../core/schemas';
 import { generateStructured, generateText, GEMINI_PRO, GEMINI_FLASH } from '../core/geminiService';
@@ -13,6 +14,7 @@ import {
     deriveInvestigationDifficulty,
     resolveInvestigationAccuracy,
     resolveInvestigationFidelity,
+    OCCURRENCE_DIFFICULTY,
     ActionResolutionTier,
     createSeededRng,
     generateSeed,
@@ -22,6 +24,9 @@ import {
     assessmentTruth,
     investigationLedgerEntries,
     investigationTruth,
+    occurrenceGrounding,
+    occurrenceTruth,
+    planFromPool,
     planInvestigation,
     planSchemeNature,
     schemeClueRecords,
@@ -34,6 +39,7 @@ import {
     buildClarificationPrompt,
     buildDeepAnalysisPrompt,
     buildInvestigationPrompt,
+    buildOccurrenceForecastPrompt,
     buildSchemeNaturePrompt,
     buildStoryRelevancePrompt,
     buildSimulationStateUpdatePrompt,
@@ -41,36 +47,170 @@ import {
 import { buildPlayerMonologuePrompt } from '../prompts/narration';
 import { assertPlayerVisibleTextSafe, assertPlayerVisibleValueSafe } from '../core/playerBoundary';
 
-export const getClarificationOnEvent = async (ai: GoogleGenAI, event: string, question: string, player: Entity, allEntities: Entity[], isMockMode: boolean): Promise<string> => {
+/**
+ * What your agents bring back about a public occurrence: the account the
+ * player receives, and - for a grounded question with a record to ground it
+ * in - its GM-PRIVATE truth (D11/D47), forwarded untouched and unrendered to
+ * the commit that writes it to the truth ledger (hooks/useIntelCommits.ts).
+ */
+export interface OccurrenceAnswer {
+    text: string;
+    truth?: OccurrenceTruth;
+}
+
+/**
+ * The honest answer to a grounded question about an occurrence with no
+ * attribution on record - a save from before the record existed, or a
+ * headline it could not be paired with (ai/core/groundTruth.ts::
+ * occurrenceGrounding). Not rolled and not recorded as a falsehood: it claims
+ * nothing about the occurrence, only that the agents found nothing to follow.
+ * Player-visible, in the agents' voice.
+ */
+export const NO_THREAD_TO_FOLLOW: Record<GroundedOccurrenceQuestion, string> = {
+    who_is_behind_it: 'Your agents found no thread to follow. Whose hand was in this, no one they asked could say.',
+    who_gains: 'Your agents found no thread to follow. Who profits by this, no one they asked could say.',
+};
+
+/**
+ * The figures the player knows by name - their visibility network - as the
+ * public knowledge an occurrence prompt may draw on (a false account invents
+ * from it; a forecast reasons from it). Names only: an id never reaches the
+ * prompt.
+ */
+function figuresKnownTo(player: Entity, allEntities: readonly Entity[]): string[] {
+    return player.visibility_network
+        .map(id => allEntities.find(entity => entity.entity_id === id)?.name ?? '')
+        .filter(name => name.trim().length > 0);
+}
+
+/**
+ * A question put to a public occurrence (the Events tab). "Who is behind
+ * it?" and "Who gains?" are GROUNDED (D47) in the turn's GM-private
+ * attribution record (TurnHistoryEntry.headlineActors): the hands the
+ * adjudicator declared - and, for "Who gains?", their aims that turn - reach
+ * the prompt at the rolled fidelity and accuracy, and the truth of the
+ * account comes back beside it. "What follows?" is a forecast: ungrounded,
+ * unrolled, with no truth. An occurrence with no record takes the honest
+ * NO_THREAD_TO_FOLLOW, unrolled and with no truth either.
+ *
+ * WHAT THE ROLLS READ. An investigation rolls against its target's paranoia
+ * and the player's intrigue; an occurrence has no single target, and asking
+ * after a public event sends no agent into anyone's house - so, like a
+ * commissioned assessment, it makes no operational roll and carries no
+ * consequence, and only the D47 accuracy and fidelity rolls are made:
+ *  - the investigator term (both rolls) is the player's intrigue, as for
+ *    every investigation;
+ *  - the old clarification's isVisible flag, now read off the record: every
+ *    hand behind it is the player's own or inside their network (an
+ *    occurrence with no single hand counts as inside) or not. It sets the
+ *    standing the rolls read at (DEEP_ANALYSIS_STANDING - the agents ask
+ *    their own contacts, or strangers) and the fidelity roll's difficulty
+ *    (resolution.ts::OCCURRENCE_DIFFICULTY - strangers guard their part);
+ *  - accuracy's target term reads as average: no one figure lays the false
+ *    trail about a public event.
+ * For an average investigator (the band tables in resolution.ts):
+ *                      false / garbled / true    fragment / partial / fuller
+ *   inside the network  15%     30%      55%       25%        30%      45%
+ *   outside it          30%     30%      40%       50%        30%      20%
+ * In Mock Mode the generator is seeded from the occurrence and the question
+ * (ai/mocks.ts::mockIntelSeed), so the same question lands the same way.
+ */
+export const getClarificationOnEvent = async (
+    ai: GoogleGenAI,
+    occurrence: string,
+    question: OccurrenceQuestion,
+    player: Entity,
+    allEntities: Entity[],
+    turnHistory: readonly TurnHistoryEntry[],
+    isMockMode: boolean,
+): Promise<OccurrenceAnswer> => {
+    const knownFigures = figuresKnownTo(player, allEntities);
+    if (question === 'what_follows') {
+        let forecast: string;
+        if (isMockMode) {
+            if(!mockGetClarificationOnEvent) throw new Error("Mock function 'mockGetClarificationOnEvent' is not implemented.");
+            forecast = await mockGetClarificationOnEvent(occurrence, question, null);
+        } else {
+            const { systemInstruction, prompt } = buildOccurrenceForecastPrompt(occurrence, player, knownFigures);
+            forecast = (await generateText(ai, { callName: 'clarification', model: GEMINI_FLASH, systemInstruction, prompt })) || "No response generated.";
+        }
+        assertPlayerVisibleTextSafe(forecast);
+        return { text: forecast };
+    }
+
+    const grounding = occurrenceGrounding({ turnHistory, occurrence, question, roster: allEntities });
+    if (!grounding) return { text: NO_THREAD_TO_FOLLOW[question] };
+
+    const inNetwork = grounding.actorIds.every(id => id === player.entity_id || player.visibility_network.includes(id));
+    const standing = inNetwork ? 'inNetwork' : 'outsideNetwork';
+    const { seed, rng } = intelGenerator(isMockMode, occurrence, question);
+    const rolls = rollAccuracyAndFidelity(seed, rng, DEEP_ANALYSIS_STANDING[standing], {
+        investigatorIntrigue: player.skills?.intrigue ?? null,
+        targetParanoia: undefined,
+        difficulty: OCCURRENCE_DIFFICULTY[standing],
+    });
+    // A bare name can only be pinned on the wrong party; a hand and its aim
+    // may have either the one or the other distorted.
+    const plan = planFromPool(grounding.pool, rolls, rng, question === 'who_is_behind_it' ? ['misattributed'] : undefined);
+
+    let text: string;
     if (isMockMode) {
         if(!mockGetClarificationOnEvent) throw new Error("Mock function 'mockGetClarificationOnEvent' is not implemented.");
-        const text = await mockGetClarificationOnEvent(event, question);
-        assertPlayerVisibleTextSafe(text);
-        return text;
+        text = await mockGetClarificationOnEvent(occurrence, question, plan);
+    } else {
+        const { systemInstruction, prompt } = buildClarificationPrompt(occurrence, question, player, knownFigures, plan);
+        text = (await generateText(ai, { callName: 'clarification', model: GEMINI_FLASH, systemInstruction, prompt })) || "No response generated.";
     }
-    const entitiesInEvent = allEntities.filter(e => event.toLowerCase().includes(e.name.toLowerCase()));
-    const isVisible = entitiesInEvent.every(e => player.visibility_network.includes(e.entity_id) || e.entity_id === player.entity_id);
-
-    const { systemInstruction, prompt } = buildClarificationPrompt(event, question, player, isVisible);
-    const text = await generateText(ai, { callName: 'clarification', model: GEMINI_FLASH, systemInstruction, prompt });
-    const playerVisibleText = text || "No response generated.";
-    assertPlayerVisibleTextSafe(playerVisibleText);
-    return playerVisibleText;
+    assertPlayerVisibleTextSafe(text);
+    return { text, truth: occurrenceTruth(plan, grounding, question, occurrence, rolls, text) };
 };
 /**
  * The generator every D47 draw of one investigation-family call comes from:
- * a fresh recorded seed, or - offline - the target's and aspect's fixed
- * mock seed (ai/mocks.ts::mockIntelSeed), so a provider-free run exercises
- * the same grounded path deterministically and never touches Math.random.
+ * a fresh recorded seed, or - offline - the target's (or occurrence's) and
+ * aspect's fixed mock seed (ai/mocks.ts::mockIntelSeed), so a provider-free
+ * run exercises the same grounded path deterministically and never touches
+ * Math.random.
  */
-function intelGenerator(isMockMode: boolean, targetId: string, kind: GroundTruthKind): { seed: number; rng: Rng } {
+function intelGenerator(isMockMode: boolean, targetId: string, kind: GroundTruthKind | GroundedOccurrenceQuestion): { seed: number; rng: Rng } {
     const seed = isMockMode ? mockIntelSeed(targetId, kind) : generateSeed();
     return { seed, rng: createSeededRng(seed) };
 }
 
 /**
  * The D47 accuracy and fidelity rolls (ai/core/resolution.ts) for one
- * investigation-family call, drawn in that order from `rng`, and the plan
+ * investigation-family call, drawn in that order from `rng` at the given
+ * tier (or fixed standing), and recorded with the seed behind them.
+ */
+function rollAccuracyAndFidelity(
+    seed: number,
+    rng: Rng,
+    tier: ActionResolutionTier,
+    inputs: { investigatorIntrigue: number | null; targetParanoia: number | undefined; difficulty: number },
+): InvestigationRolls {
+    const accuracy = resolveInvestigationAccuracy({
+        roll: rollD20(rng),
+        tier,
+        investigatorIntrigue: inputs.investigatorIntrigue,
+        targetParanoia: inputs.targetParanoia,
+    });
+    const fidelity = resolveInvestigationFidelity({
+        roll: rollD20(rng),
+        tier,
+        investigatorIntrigue: inputs.investigatorIntrigue,
+        difficulty: inputs.difficulty,
+    });
+    return {
+        seed,
+        tier,
+        accuracyRoll: accuracy.roll,
+        accuracy: accuracy.accuracy,
+        fidelityRoll: fidelity.roll,
+        fidelity: fidelity.fidelity,
+    };
+}
+
+/**
+ * The D47 rolls for one investigation-family call on a target, and the plan
  * (ai/core/groundTruth.ts) they shape: which of the target's real truths
  * reach the prompt, and whether they come back true, garbled or false.
  */
@@ -82,28 +222,12 @@ function rollAndPlan(
     seed: number,
     rng: Rng,
 ): { rolls: InvestigationRolls; plan: InvestigationPlan } {
-    const investigatorIntrigue = player.skills?.intrigue ?? null;
-    const accuracy = resolveInvestigationAccuracy({
-        roll: rollD20(rng),
-        tier,
-        investigatorIntrigue,
+    const rolls = rollAccuracyAndFidelity(seed, rng, tier, {
+        investigatorIntrigue: player.skills?.intrigue ?? null,
         targetParanoia: target.personality?.paranoia,
-    });
-    const fidelity = resolveInvestigationFidelity({
-        roll: rollD20(rng),
-        tier,
-        investigatorIntrigue,
         difficulty: deriveInvestigationDifficulty(target),
     });
-    const rolls: InvestigationRolls = {
-        seed,
-        tier,
-        accuracyRoll: accuracy.roll,
-        accuracy: accuracy.accuracy,
-        fidelityRoll: fidelity.roll,
-        fidelity: fidelity.fidelity,
-    };
-    return { rolls, plan: planInvestigation(target, kind, { accuracy: accuracy.accuracy, fidelity: fidelity.fidelity }, rng) };
+    return { rolls, plan: planInvestigation(target, kind, { accuracy: rolls.accuracy, fidelity: rolls.fidelity }, rng) };
 }
 
 /**
@@ -111,7 +235,9 @@ function rollAndPlan(
  * operational tier roll (it makes none - no agent risks being seen, so it
  * carries no consequences): a figure inside the player's network is read as a
  * clean operation would be; one outside it as a middling one - less reached,
- * more easily misled. Only the D47 accuracy and fidelity rolls are made.
+ * more easily misled. Only the D47 accuracy and fidelity rolls are made. A
+ * question put to an occurrence reads at the same standing, by whether the
+ * hands behind it are inside the network (getClarificationOnEvent).
  */
 const DEEP_ANALYSIS_STANDING: Record<'inNetwork' | 'outsideNetwork', ActionResolutionTier> = {
     inNetwork: 'success',
