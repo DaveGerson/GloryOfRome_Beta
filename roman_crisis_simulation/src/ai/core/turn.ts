@@ -541,6 +541,15 @@ export interface RunNewTurnOptions {
     privateSceneAdjudicatorProjection?: PrivateSceneAdjudicatorProjection;
     /** Completed audience memories keyed by their participating NPC; each prompt is capped again at three. */
     privateSceneNpcMemoriesByNpcId?: Readonly<Record<string, readonly PrivateSceneNpcMemoryProjection[]>>;
+    /**
+     * The seed this turn's dice are drawn from (see TurnContext.turnSeed).
+     * D51: the app passes `deriveTurnSeed(reignSeed, turnNumber)`
+     * (ai/core/resolution.ts, hooks/useExecuteTurn.ts), so a retried turn -
+     * after a failure, an edit, a reload, or a restored copy - keeps its
+     * dice. Absent, a fresh seed is drawn (`generateSeed`), as every turn did
+     * before D51. Ignored in Mock Mode, whose turns roll no dice.
+     */
+    turnSeed?: number;
 }
 
 /** What `runNewTurn` commits: the post-turn state slices plus the turn's player-facing output and history entry. */
@@ -620,8 +629,10 @@ interface TurnContext extends SubmissionProjections {
      * resolution roll first (when consequential), then each mortality roll
      * in claim order - so recording `turnSeed` on the history entry replays
      * the turn's dice exactly (see createSeededRng in
-     * ai/core/resolution.ts). Per DESIGN_DECISIONS.md D4 the seed is
-     * GM-console data, never player-facing.
+     * ai/core/resolution.ts). The seed is the caller's
+     * `options.turnSeed` when given - since D51, one fixed per turn of the
+     * reign - and a fresh one otherwise. Per DESIGN_DECISIONS.md D4 the
+     * seed is GM-console data, never player-facing.
      */
     turnSeed: number;
     turnRng: Rng;
@@ -677,7 +688,7 @@ export async function runNewTurn(
     // raw-call log. See ai/core/geminiService.ts.
     beginTurnCapture();
 
-    const turnSeed = generateSeed();
+    const turnSeed = options?.turnSeed ?? generateSeed();
     const ctx: TurnContext = {
         ...projections,
         ai, playerEntity, turnNumber, currentEntities, currentWorldState, currentSimulationState,

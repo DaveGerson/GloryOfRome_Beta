@@ -60,6 +60,7 @@ import {
   makePrivateScene,
   makeLegacySaveState,
   makeAppSave,
+  APP_SAVE_REIGN_SEED,
   buildAdjudicationPromptInput,
   makeQueuedTextAi,
   getMockInitialState,
@@ -656,6 +657,7 @@ describe('makeAppSave', () => {
       gmInterventionText: '',
       inferredAmbition: null,
       pendingIntelligenceFallout: [],
+      reignSeed: APP_SAVE_REIGN_SEED,
     });
     expect(save.inferredAmbition).toBeNull();
   });

@@ -7,8 +7,12 @@
  * invariant every recorded turnSeed / investigation seed relies on), and
  * without one it draws from `Math.random` exactly as it always has.
  */
-import { describe, it, expect } from 'vitest';
-import { createSeededRng, generateSeed, rollD20 } from '../ai/core/resolution';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { createSeededRng, deriveTurnSeed, generateSeed, rollD20 } from '../ai/core/resolution';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('ai/core/resolution.ts createSeededRng', () => {
   it('the same seed produces an identical sequence', () => {
@@ -55,6 +59,82 @@ describe('ai/core/resolution.ts generateSeed', () => {
       expect(Number.isInteger(seed)).toBe(true);
       expect(seed).toBeGreaterThanOrEqual(0);
       expect(seed).toBeLessThan(2 ** 32);
+    }
+  });
+});
+
+describe('ai/core/resolution.ts deriveTurnSeed (D51)', () => {
+  const bitsSet = (value: number) => {
+    let count = 0;
+    for (let v = value >>> 0; v !== 0; v >>>= 1) count += v & 1;
+    return count;
+  };
+
+  it('is a pure function of the reign seed and the turn number - same inputs, same seed, no Math.random', () => {
+    vi.spyOn(Math, 'random').mockImplementation(() => { throw new Error('Math.random touched'); });
+    for (const reign of [0, 1, 0x5eed5eed, 0x7fffffff, 0xffffffff]) {
+      for (const turn of [0, 1, 2, 3, 52, 1000]) {
+        expect(deriveTurnSeed(reign, turn)).toBe(deriveTurnSeed(reign, turn));
+      }
+    }
+    // Pinned, so the mix can never drift under a refactor: a changed value
+    // would give every saved reign different dice for its next turn.
+    expect([deriveTurnSeed(0, 0), deriveTurnSeed(0, 1), deriveTurnSeed(123456789, 7)])
+      .toEqual([2462723854, 1020716019, 1749491315]);
+  });
+
+  it('returns a 32-bit unsigned integer across the full reign range', () => {
+    for (const reign of [0, 1, 0x7fffffff, 0x80000000, 0xffffffff]) {
+      for (let turn = 0; turn < 50; turn++) {
+        const seed = deriveTurnSeed(reign, turn);
+        expect(Number.isInteger(seed)).toBe(true);
+        expect(seed).toBeGreaterThanOrEqual(0);
+        expect(seed).toBeLessThan(2 ** 32);
+      }
+    }
+  });
+
+  it('gives turn n and turn n+1 different seeds, and no two turns of a reign the same one', () => {
+    for (const reign of [0, 42, 0x5eed5eed, 0xffffffff]) {
+      const seeds = Array.from({ length: 5000 }, (_, turn) => deriveTurnSeed(reign, turn));
+      for (let turn = 0; turn + 1 < seeds.length; turn++) expect(seeds[turn + 1]).not.toBe(seeds[turn]);
+      expect(new Set(seeds).size).toBe(seeds.length);
+    }
+  });
+
+  it('spreads neighbouring turns and neighbouring reigns into unrelated seeds', () => {
+    // Avalanche: a step of one turn (or one reign) flips about half of the
+    // 32 output bits, on average - never a near-copy of its neighbour.
+    let turnFlips = 0;
+    let reignFlips = 0;
+    const samples = 2000;
+    for (let i = 0; i < samples; i++) {
+      const reign = Math.imul(i, 0x9e3779b1) >>> 0;
+      const turn = i % 200;
+      turnFlips += bitsSet(deriveTurnSeed(reign, turn) ^ deriveTurnSeed(reign, turn + 1));
+      reignFlips += bitsSet(deriveTurnSeed(reign, turn) ^ deriveTurnSeed(reign + 1, turn));
+    }
+    expect(turnFlips / samples).toBeGreaterThan(15);
+    expect(turnFlips / samples).toBeLessThan(17);
+    expect(reignFlips / samples).toBeGreaterThan(15);
+    expect(reignFlips / samples).toBeLessThan(17);
+
+    // ...and the dice a reign's turns open with land evenly on every face.
+    const faces = new Array(21).fill(0);
+    for (let turn = 1; turn <= 4000; turn++) faces[rollD20(createSeededRng(deriveTurnSeed(0x5eed5eed, turn)))]++;
+    for (let face = 1; face <= 20; face++) {
+      expect(faces[face], `face ${face}`).toBeGreaterThan(140);
+      expect(faces[face], `face ${face}`).toBeLessThan(260);
+    }
+  });
+
+  it('is not a trivial combination the two inputs could collide under', () => {
+    for (let turn = 1; turn < 20; turn++) {
+      const reign = 1000;
+      expect(deriveTurnSeed(reign, turn)).not.toBe((reign + turn) >>> 0);
+      expect(deriveTurnSeed(reign, turn)).not.toBe((reign ^ turn) >>> 0);
+      // Swapping which number is the reign and which the turn is a different turn.
+      expect(deriveTurnSeed(reign, turn)).not.toBe(deriveTurnSeed(turn, reign));
     }
   });
 });

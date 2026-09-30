@@ -22,7 +22,7 @@
  * Every `resolve*` function below is a PURE function over an
  * already-rolled value, so every band is exhaustively unit-testable
  * without touching randomness. Only `rollD20` (via its default source) and
- * `generateSeed` touch `Math.random`. The
+ * `generateSeed` touch `Math.random`; `deriveTurnSeed` is a pure mix. The
  * modifier helpers (`derivePersonalityModifier`, `deriveOppositionModifier`,
  * `deriveInvestigationDifficulty`) are ALSO pure - they turn game state
  * (personality traits, a directional relationship, a target's profile)
@@ -75,6 +75,36 @@ export function createSeededRng(seed: number): Rng {
  */
 export function generateSeed(): number {
     return Math.floor(Math.random() * 0x100000000) >>> 0;
+}
+
+/** murmur3's 32-bit finalizer: a bijection on uint32 in which every input bit reaches every output bit. */
+function fmix32(value: number): number {
+    let h = value >>> 0;
+    h ^= h >>> 16;
+    h = Math.imul(h, 0x85ebca6b);
+    h ^= h >>> 13;
+    h = Math.imul(h, 0xc2b2ae35);
+    h ^= h >>> 16;
+    return h >>> 0;
+}
+
+/**
+ * The seed of one turn's dice (DESIGN_DECISIONS.md D51): a pure 32-bit mix
+ * of the reign's seed and the number of the turn being played. A retried
+ * turn - retried as it was, rewritten before it was sent again, sent again
+ * after a reload, or played again from a restored copy of the reign - is
+ * the same turn of the same reign, so it draws the same dice, and a
+ * connection error can never be used to reroll a bad outcome.
+ *
+ * splitmix32's shape: the turn number steps a per-reign state by the
+ * golden-ratio gamma, and murmur3's finalizer scrambles the sum. For one
+ * reign, turn -> seed is a bijection (an odd gamma and the finalizer both
+ * are), so no two turns of a reign share a seed, and neighbouring turns get
+ * unrelated ones. Per D4 the result is GM-console data, never player-facing.
+ */
+export function deriveTurnSeed(reignSeed: number, turnNumber: number): number {
+    const reignState = fmix32(reignSeed);
+    return fmix32(reignState + Math.imul((turnNumber >>> 0) + 1, 0x9e3779b9));
 }
 
 /**

@@ -334,6 +334,13 @@ export function makeLegacySaveState(overrides: Partial<SaveGameState> = {}): Sav
 // ---------------------------------------------------------------------------
 // 19. makeAppSave
 // ---------------------------------------------------------------------------
+/**
+ * The reign seed (D51) every modern app save carries. A save without one is
+ * a pre-D51 save: loadGame gives it a seed and writes it back to the slot, so
+ * a fixture that mirrors what the app writes today must carry one.
+ */
+export const APP_SAVE_REIGN_SEED = 0x5eed5eed;
+
 export function makeAppSave(overrides: Partial<SaveGameState> = {}): SaveGameState {
   const initial = getMockInitialState();
   return {
@@ -357,6 +364,7 @@ export function makeAppSave(overrides: Partial<SaveGameState> = {}): SaveGameSta
     gmInterventionText: '',
     inferredAmbition: null,
     pendingIntelligenceFallout: [],
+    reignSeed: APP_SAVE_REIGN_SEED,
     ...overrides,
   };
 }

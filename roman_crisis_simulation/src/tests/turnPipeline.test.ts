@@ -19,7 +19,8 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { GoogleGenAI } from '@google/genai';
 import { runNewTurn } from '../ai/core/turn';
 import { endTurnCapture } from '../ai/core/geminiService';
-import { rollD20, createSeededRng } from '../ai/core/resolution';
+import { rollD20, createSeededRng, deriveTurnSeed } from '../ai/core/resolution';
+import { replayTurnDraws } from '../ai/core/turnReplay';
 import { investigationLedgerEntries } from '../ai/core/groundTruth';
 import type { PrivateSceneAdjudicatorProjection } from '../privateScene/model';
 import type { Entity, WorldState, SimulationState, Report, TruthLedgerEntry, TurnSubmission } from '../types';
@@ -1269,6 +1270,64 @@ describe('ai/core/turn.ts runNewTurn - resolution layer (assessment + resolveAct
     const replayRng = createSeededRng(entry.turnSeed!);
     expect(rollD20(replayRng)).toBe(entry.resolutionTrace!.roll);
     expect(rollD20(replayRng)).toBe(entry.mortalityTrace![0].roll);
+  });
+
+  it('draws from the caller\'s options.turnSeed when one is given (D51): recorded as given, no entropy drawn, and the same seed draws the same dice every attempt', async () => {
+    // The App fixes a turn's seed from the reign and the turn's number, so a
+    // retried turn keeps its dice. A fixed seed must replace the entropy
+    // draw entirely - Math.random is never consulted - and be the seed the
+    // entry records, so "Strike the mould again" replays it.
+    const randomSpy = vi.spyOn(Math, 'random').mockImplementation(() => {
+      throw new Error('a turn with a fixed seed must draw no entropy');
+    });
+    const turnSeed = deriveTurnSeed(0x5eed5eed, 2);
+    const expectedRng = createSeededRng(turnSeed);
+    const expectedDraws = [rollD20(expectedRng), rollD20(expectedRng)];
+
+    const playTurn = async () => {
+      const h = createHarness(false);
+      const player = makeEntity();
+      const npc = makeEntity({ entity_id: 'npc_1', name: 'Senator Rufus' });
+      h.response.storyRelevance.resolve(storyRelevanceJson);
+      h.response.assessment.resolve(JSON.stringify({
+        is_consequential: true,
+        action_category: 'intrigue: assassination plot',
+        relevant_skill: 'intrigue',
+        difficulty: 15,
+        opposing_entity_id: null,
+        rationale: 'A dagger in the dark.',
+      }));
+      h.response.adjudication.resolve(JSON.stringify({
+        turn: 2,
+        entityActions: [],
+        deltas: [{ type: 'status', key: 'npc_1', delta: 0, reason: 'Cut down in the Curia.', new_status: 'dead', actors: [] }],
+        headlines: [{ text: 'Blood in the Curia.', actors: [] }],
+        gm_private: [],
+      }));
+      h.response.mortalityValidation.resolve(JSON.stringify({
+        dispositions: [{ entity_id: 'npc_1', valid: true, reasoning: 'A real assassination attempt occurred this turn.' }],
+      }));
+      h.response.mortalityOutcome.resolve(JSON.stringify({
+        outcomes: [{ entity_id: 'npc_1', deltas: [], narrative_directive: 'Narrate the aftermath.', secret_motive: null }],
+      }));
+      h.response.simulationState.resolve(simStateJson);
+      h.response.monologue.resolve(monologuePayloadJson);
+      h.response.narration.resolve(narrationPayloadJson);
+      const result = await runNewTurn(
+        h.ai, 'Strike at the senator in the Curia.', player, 2, [player, npc], worldState, simulationState, [], [], [], [], '', false, 'Grim political thriller',
+        { turnSeed },
+      );
+      return result.newHistoryEntry;
+    };
+
+    const first = await playTurn();
+    const second = await playTurn();
+    for (const entry of [first, second]) {
+      expect(entry.turnSeed).toBe(turnSeed);
+      expect([entry.resolutionTrace!.roll, entry.mortalityTrace![0].roll]).toEqual(expectedDraws);
+      expect(replayTurnDraws(entry)).toMatchObject({ verifiable: true, allMatch: true });
+    }
+    expect(randomSpy).not.toHaveBeenCalled();
   });
 
   it.each([

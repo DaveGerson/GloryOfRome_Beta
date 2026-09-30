@@ -174,5 +174,7 @@ export function pickSaveState(state: GameDomainState): SaveGameState {
         // A fate awaiting its choice is part of the reign (see the field's
         // doc in persistence/saveGame.ts); absent whenever none is open.
         pendingEventId: state.activeEvent?.id,
+        // D51 - the seed every turn's dice are derived from.
+        reignSeed: state.reignSeed,
     };
 }

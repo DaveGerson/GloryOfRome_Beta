@@ -1,6 +1,7 @@
 import React from 'react';
 import { TurnHistoryEntry, WorldState } from '../../types';
 import { classifyDelta } from '../../perception/visibility';
+import { deriveTurnSeed } from '../../ai/core/resolution';
 import { well, lbl, GmNote, DIM, PARCH, RED, GREEN, MONO } from './shared';
 
 /**
@@ -10,13 +11,16 @@ import { well, lbl, GmNote, DIM, PARCH, RED, GREEN, MONO } from './shared';
  * let through for the current player character - so filter rules can be
  * tuned by eyeballing the diff.
  *
- * Also surfaces `mortalityTrace` off the turn history entry, if present.
+ * Also surfaces `mortalityTrace` off the turn history entry, if present,
+ * and the turn's seed beside the reign seed it derives from (D51).
  */
 export const GroundTruthView: React.FC<{
     entry: TurnHistoryEntry;
     playerCharacterId: string | null;
     worldState: WorldState;
-}> = ({ entry, playerCharacterId, worldState }) => {
+    /** D51 - the reign's seed. GM-only (D4). */
+    reignSeed?: number;
+}> = ({ entry, playerCharacterId, worldState, reignSeed }) => {
     // Older entries may lack their entity snapshot (only the most recent
     // KEEP_FULL_SNAPSHOTS entries retain one - state/gameReducer.ts); the
     // per-delta classification needs the turn's own roster, so without it
@@ -65,6 +69,14 @@ export const GroundTruthView: React.FC<{
                         ? `${entry.turnSeed} — replays this turn's hidden rolls in draw order (action roll, then mortality rolls).`
                         : 'None recorded for this turn.'}
                 </p>
+                {typeof reignSeed === 'number' && (
+                    <p style={{ fontSize: 12, margin: '4px 0 0', fontFamily: MONO, color: DIM }}>
+                        {`Reign seed ${reignSeed}`}
+                        {typeof entry.turnSeed === 'number' && entry.turnSeed === deriveTurnSeed(reignSeed, entry.turnNumber)
+                            ? ` — with turn ${entry.turnNumber}, derives this turn's seed: a retried turn keeps its dice (D51).`
+                            : " — this turn's seed was not derived from it (a turn played before D51, or one that drew no seed)."}
+                    </p>
+                )}
             </div>
             <div>
                 <span style={lbl}>Mortality Trace</span>

@@ -411,7 +411,13 @@ export function threadFromSave(state: SaveGameState): GameThread {
   };
 }
 
-/** Builds the full persistable bundle from a thread - mirrors App.tsx's buildSaveState field-for-field. */
+/**
+ * Builds the full persistable bundle from a thread - mirrors App.tsx's
+ * buildSaveState field-for-field, but for the optional `reignSeed` (D51): a
+ * thread's save is a save from before the reign seed, which loadGame gives a
+ * fresh one as the App loads it. A journey that needs known dice through the
+ * App passes its own (tests/journeys/retryDice.journey.ts).
+ */
 export function buildSaveStateFromThread(thread: GameThread): SaveGameState {
   return {
     entities: thread.entities,
@@ -623,6 +629,9 @@ function assertNoLeaks(outcome: {
     { label: 'scene composure seed field', value: 'composureSeed' },
     { label: 'scene NPC composure field', value: 'npcComposure' },
     { label: 'scene player composure field', value: 'playerComposure' },
+    // D51: the reign's seed fixes every turn's dice - GM-console data (D4),
+    // carried by this field only; no player surface ever names it.
+    { label: 'reign seed field', value: 'reignSeed' },
     // Roll mechanics as prose ("roll 13", "rolled 4").
     { label: 'roll mechanics', pattern: /\broll(?:ed)?\s+\d+\b/i },
   ];

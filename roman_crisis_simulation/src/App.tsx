@@ -85,6 +85,7 @@ const App: React.FC = () => {
         eventHistory,
         metaNarrative,
         inferredAmbition,
+        reignSeed,
     } = state;
 
     // --- Shell: device preferences, the GM console, window-level effects.
@@ -221,7 +222,7 @@ const App: React.FC = () => {
         ai, isMockMode, resolvedApiKey, online,
         entities, worldState, simulationState, reports, truthLedger, knowledge, npcIntents,
         turnNumber, playerCharacterId, turnHistory, pendingIntelligenceFallout, gmInterventionText,
-        eventFirings, metaNarrative, messages,
+        eventFirings, metaNarrative, messages, reignSeed,
         dispatch, getStateGeneration, runDomainMutation, commitDomainMutation, buildSaveState, strikeWeekBeat,
         preTurnSnapshotRef, campaignGenerationRef, privateScenesRef, appMountedRef, latestInferredAmbitionRef,
         setIsCheckingEvents, setTransactionNote,
@@ -664,6 +665,7 @@ const App: React.FC = () => {
                 knowledge={knowledge}
                 npcIntents={npcIntents}
                 privateScenes={state.privateScenes}
+                reignSeed={reignSeed}
                 gmInterventionEnabled={gmInterventionAvailable}
             />}
             {activeEvent && <EventModal

@@ -760,6 +760,36 @@ describe('state/gameReducer', () => {
     });
   });
 
+  describe('reignSeed (D51)', () => {
+    it('GAME_LOADED keeps a valid seed and drops anything that is not a 32-bit unsigned integer', () => {
+      const load = (reignSeed: unknown) => gameReducer(createInitialGameState(), {
+        type: 'GAME_LOADED',
+        save: { ...makeSaveState(), reignSeed } as SaveGameState,
+      }).reignSeed;
+      expect(load(0)).toBe(0);
+      expect(load(4_000_000_000)).toBe(4_000_000_000);
+      expect(load(0xffffffff)).toBe(0xffffffff);
+      for (const invalid of [undefined, null, -1, 1.5, '42', 2 ** 32, Number.NaN, Number.POSITIVE_INFINITY]) {
+        expect(load(invalid), String(invalid)).toBeUndefined();
+      }
+    });
+
+    it('a new reign replaces the loaded seed, and a rolled-back turn leaves it as it is', () => {
+      const loaded = gameReducer(createInitialGameState(), { type: 'GAME_LOADED', save: { ...makeSaveState(), reignSeed: 11 } });
+      const rolledBack = gameReducer(loaded, { type: 'TURN_ROLLED_BACK', snapshot: { ...makeSaveState(), reignSeed: 99 } });
+      expect(rolledBack.reignSeed).toBe(11);
+      const fresh = gameReducer(loaded, {
+        type: 'GAME_STARTED',
+        entities: loaded.entities,
+        playerCharacterId: PLAYER_ID,
+        introMessage: { sender: 'gm', text: 'Anew.' },
+        suggestedActions: [],
+        reignSeed: 12,
+      });
+      expect(fresh.reignSeed).toBe(12);
+    });
+  });
+
   describe('GAME_STARTED', () => {
     it('starts a campaign in the default world when no custom world is provided', () => {
       const state = { ...createInitialGameState(), privateScenes: [makePrivateScene()] };
@@ -771,9 +801,12 @@ describe('state/gameReducer', () => {
         playerCharacterId: PLAYER_ID,
         introMessage,
         suggestedActions: ['First move'],
+        reignSeed: 0xC0FFEE,
       });
 
       expect(result.entities).toBe(entities);
+      // D51: the new reign carries the seed its caller drew.
+      expect(result.reignSeed).toBe(0xC0FFEE);
       expect(result.playerCharacterId).toBe(PLAYER_ID);
       expect(result.gameState).toBe(GameState.AWAITING_PLAYER_INPUT);
       expect(result.messages).toEqual([introMessage]);
@@ -793,6 +826,7 @@ describe('state/gameReducer', () => {
         playerCharacterId: PLAYER_ID,
         introMessage: { sender: 'gm', text: 'A new world.' },
         suggestedActions: [],
+        reignSeed: 1,
         worldState,
         metaNarrative: 'A custom crisis.',
       });

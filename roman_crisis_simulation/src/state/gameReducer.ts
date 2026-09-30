@@ -33,7 +33,7 @@ import {
   TruthLedgerEntry,
   NpcIntent,
 } from '../types';
-import { normalizeLoadedEntities, normalizeLoadedPrivateScenes, type SaveGameState, type InferredAmbitionState } from '../persistence/saveGame';
+import { isValidReignSeed, normalizeLoadedEntities, normalizeLoadedPrivateScenes, type SaveGameState, type InferredAmbitionState } from '../persistence/saveGame';
 import type { KnowledgeClaim } from '../knowledge/store';
 import type { PrivateSceneRecord } from '../privateScene/model';
 import { INITIAL_WORLD_STATE, INITIAL_SIMULATION_STATE } from '../constants/baseScenario';
@@ -130,6 +130,16 @@ export interface GameDomainState {
    * turn leaves it as it is.
    */
   voiceCast: VoiceCast | null;
+  /**
+   * DESIGN_DECISIONS.md D51 - the reign's seed, from which each turn's dice
+   * are derived (ai/core/resolution.ts::deriveTurnSeed with the turn's
+   * number), so a retried turn keeps its luck. Drawn once by GAME_STARTED's
+   * caller (the reducer stays pure); GAME_LOADED takes the save's, which
+   * persistence/saveGame.ts::loadGame guarantees. Not turn-bound: a
+   * rolled-back turn leaves it as it is. GM-side (D4): no player surface
+   * renders it. Absent only before any reign has begun.
+   */
+  reignSeed?: number;
 }
 
 export function createInitialGameState(): GameDomainState {
@@ -245,9 +255,10 @@ export type GameAction =
     }
   /**
    * Restore the pre-turn snapshot after a mid-turn failure, including its
-   * exact committed chat log. `playerCharacterId`, `metaNarrative` and
-   * `inferredAmbition` are never touched mid-turn, so they are not part of
-   * the rollback either. The phase transition back to
+   * exact committed chat log. `playerCharacterId`, `metaNarrative`,
+   * `inferredAmbition` and `reignSeed` are never touched mid-turn, so they
+   * are not part of the rollback either - the retry that follows draws the
+   * same dice from the same reign seed (D51). The phase transition back to
    * AWAITING_PLAYER_INPUT is a separate GAME_STATE_SET, because it must
    * happen even when no snapshot exists to restore.
    */
@@ -276,7 +287,9 @@ export type GameAction =
   /**
    * A brand-new campaign begins with the chosen/created character.
    * `worldState`/`metaNarrative` are only set when a custom world provides
-   * them - otherwise the defaults stand.
+   * them - otherwise the defaults stand. `reignSeed` is the new reign's
+   * seed (D51), drawn by the caller with `generateSeed` - the reducer stays
+   * pure.
    */
   | {
       type: 'GAME_STARTED';
@@ -284,6 +297,7 @@ export type GameAction =
       playerCharacterId: string;
       introMessage: Message;
       suggestedActions: string[];
+      reignSeed: number;
       worldState?: WorldState;
       metaNarrative?: string;
     }
@@ -463,6 +477,8 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         privateScenes: [],
         // A new campaign is cast afresh.
         voiceCast: null,
+        // ...and rolls its own dice (D51).
+        reignSeed: action.reignSeed,
       };
 
     case 'GAME_LOADED': {
@@ -528,6 +544,11 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         // existed, or malformed: normalized to `null`, and the cast is made
         // again when the voice is next needed.
         voiceCast: normalizeVoiceCast(s.voiceCast),
+        // Optional field (D51) - loadGame gives a save without a valid seed
+        // one before it gets here; a value that is still not one (a save
+        // handed over by some other path) is dropped rather than mixed into
+        // the dice, and the turn then draws a fresh seed as before D51.
+        reignSeed: isValidReignSeed(s.reignSeed) ? s.reignSeed : undefined,
         // A save can legitimately be reloaded while the last-loaded run had
         // already ended (the player closed/refreshed the tab on the epilogue
         // screen - GAME_OVER itself is never persisted, only the underlying

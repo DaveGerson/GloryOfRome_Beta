@@ -23,6 +23,7 @@ import { deriveStarterActions } from '../components/starterActions';
 import { ALL_INITIAL_ENTITIES } from '../constants/baseScenario';
 import { createCharacter } from '../ai/tools/characterCreator';
 import { initiateWorld } from '../ai/core/initiator';
+import { generateSeed } from '../ai/core/resolution';
 import { loadGame, clearSave, importSaveBlob } from '../persistence/saveGame';
 import type { SaveGameState } from '../persistence/saveGame';
 import { loadSavedGameSummary, type DomainCommit, type TransactionNote } from '../app/transactions';
@@ -90,7 +91,12 @@ export function useCampaignLifecycle(deps: CampaignLifecycleDeps) {
         // components/starterActions.ts) so turn 1 isn't a blank page.
         const starterActions = deriveStarterActions(characterEntity);
 
-        const candidate = buildSaveState({ entities: allInitialEntities, worldState: resolvedWorldState, metaNarrative: resolvedMetaNarrative, playerCharacterId: characterEntity.entity_id, messages: [...messages, introMessage], suggestedActions: starterActions, voiceCast: null });
+        // DESIGN_DECISIONS.md D51 - the reign's seed, drawn once as it begins
+        // and saved with it: every turn's dice derive from it and the turn's
+        // number, so no retry, reload or restored copy rerolls a turn.
+        const reignSeed = generateSeed();
+
+        const candidate = buildSaveState({ entities: allInitialEntities, worldState: resolvedWorldState, metaNarrative: resolvedMetaNarrative, playerCharacterId: characterEntity.entity_id, messages: [...messages, introMessage], suggestedActions: starterActions, voiceCast: null, reignSeed });
         if (!commitDomainMutation({
             candidate,
             action: {
@@ -99,6 +105,7 @@ export function useCampaignLifecycle(deps: CampaignLifecycleDeps) {
                 playerCharacterId: characterEntity.entity_id,
                 introMessage,
                 suggestedActions: starterActions,
+                reignSeed,
                 worldState: initialWorldState,
                 metaNarrative: initialMetaNarrative,
             },
@@ -185,7 +192,8 @@ export function useCampaignLifecycle(deps: CampaignLifecycleDeps) {
         // GAME_LOADED (state/gameReducer.ts) restores the whole campaign in
         // one state transition: it normalizes the optional save fields
         // (inferredAmbition, pendingIntelligenceFallout - absent on older
-        // saves) and re-derives the terminal state from the loaded player
+        // saves; the reign seed, D51, which loadGame has already given a
+        // save that lacked one and stored) and re-derives the terminal state from the loaded player
         // entity's status (DESIGN_DECISIONS.md D1 - only death is terminal;
         // GAME_OVER itself is never persisted, only the underlying entities
         // are, and a save CAN legitimately be reloaded on an already-ended

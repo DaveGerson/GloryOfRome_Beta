@@ -65,7 +65,7 @@ describe('persistence/saveGame — rawSaveBlob and importSaveBlob', () => {
   });
 
   it('round-trips a reign: saveGame → rawSaveBlob → clearSave → importSaveBlob → loadGame', () => {
-    const state = makeState({ turnNumber: 7 });
+    const state = makeState({ turnNumber: 7, reignSeed: 0xfeedbeef });
     expect(saveGame(state)).toEqual({ ok: true });
 
     const blob = rawSaveBlob();

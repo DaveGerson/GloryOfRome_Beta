@@ -107,6 +107,13 @@ const GameMasterScreen: React.FC<{
     /** Raw private-scene records. This prop is GM-only and must never be forwarded to player components. */
     privateScenes?: readonly PrivateSceneRecord[];
     /**
+     * DESIGN_DECISIONS.md D51 - the reign's seed, from which each turn's
+     * seed is derived with the turn's number. GM-only (D4), shown beside
+     * the turn seed in the Ground Truth view; never forwarded to a player
+     * component.
+     */
+    reignSeed?: number;
+    /**
      * DESIGN_DECISIONS.md D32 - the configuration menu's GM-Intervention-
      * availability toggle (persistence/uiPrefs.ts). Defaults to `true`
      * when absent so every legacy call site (including this screen's own
@@ -116,7 +123,7 @@ const GameMasterScreen: React.FC<{
      * `interventionText`.
      */
     gmInterventionEnabled?: boolean;
-}> = ({ history, onClose, interventionText, onSetIntervention, interactionLocked = false, playerCharacterId, worldState, turnNumber, inferredAmbition, pendingIntelligenceFallout, truthLedger, reports, knowledge, npcIntents, privateScenes, gmInterventionEnabled = true }) => {
+}> = ({ history, onClose, interventionText, onSetIntervention, interactionLocked = false, playerCharacterId, worldState, turnNumber, inferredAmbition, pendingIntelligenceFallout, truthLedger, reports, knowledge, npcIntents, privateScenes, reignSeed, gmInterventionEnabled = true }) => {
     const [activeTab, setActiveTab] = useState('summary');
     // The rail's selection. `null` means "the newest turn", so a console
     // opened mid-campaign lands on the turn the GM just watched happen, and a
@@ -307,7 +314,7 @@ const GameMasterScreen: React.FC<{
                                     {activeTab === 'what changed' && <WhatChangedView entry={selectedEntry} />}
                                     {activeTab === 'actions' && <ActionsView entry={selectedEntry} />}
                                     {activeTab === 'private' && <PrivateView adjudication={selectedEntry.adjudication} />}
-                                    {activeTab === 'ground truth' && <GroundTruthView entry={selectedEntry} playerCharacterId={playerCharacterId} worldState={worldState} />}
+                                    {activeTab === 'ground truth' && <GroundTruthView entry={selectedEntry} playerCharacterId={playerCharacterId} worldState={worldState} reignSeed={reignSeed} />}
                                     {activeTab === 'npc perception' && <NpcPerceptionView entry={selectedEntry} worldState={worldState} />}
                                     {activeTab === 'narration' && <NarrationView entry={selectedEntry} />}
                                     {activeTab === 'raw json' && <RawView adjudication={selectedEntry.adjudication} rawCalls={selectedEntry.rawCalls} />}

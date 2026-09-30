@@ -67,7 +67,7 @@ function appSave(overrides: Partial<SaveGameState> = {}): SaveGameState {
     reports: [], truthLedger: [], knowledge: [], npcIntents: [], privateScenes: [], turnNumber: 3,
     playerCharacterId: 'severus_alexander', turnHistory: [], eventHistory: [], metaNarrative: 'Private scene transaction test.',
     messages: [], triggeredEventIds: [], eventFirings: [], suggestedActions: [], currentEvents: [], gmInterventionText: '',
-    inferredAmbition: null, pendingIntelligenceFallout: [], ...overrides };
+    inferredAmbition: null, pendingIntelligenceFallout: [], reignSeed: 0x5eed, ...overrides };
 }
 
 async function flush(): Promise<void> { await act(async () => { await Promise.resolve(); await new Promise(resolve => setTimeout(resolve, 0)); }); }

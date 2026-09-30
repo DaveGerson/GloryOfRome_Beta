@@ -137,7 +137,7 @@ describe('persistence/saveGame', () => {
   });
 
   it('round-trips a save through save/load', () => {
-    const state = makeState({ turnNumber: 7 });
+    const state = makeState({ turnNumber: 7, reignSeed: 0x1234abcd });
     saveGame(state);
 
     expect(hasSave()).toBe(true);
@@ -660,8 +660,8 @@ describe('persistence/saveGame', () => {
     it('patches ONLY the ambition field into the newest stored save', () => {
       // Simulate the race: turn 3 autosaves, then turn 4 autosaves a NEWER
       // state, and only THEN does the (stale) ambition callback resolve.
-      saveGame(makeState({ turnNumber: 3 }));
-      const newerState = makeState({ turnNumber: 4 });
+      saveGame(makeState({ turnNumber: 3, reignSeed: 5 }));
+      const newerState = makeState({ turnNumber: 4, reignSeed: 5 });
       saveGame(newerState);
 
       updateSavedAmbition(ambition);
@@ -681,7 +681,7 @@ describe('persistence/saveGame', () => {
         confidence: 'high',
         asOfTurn: 6,
       };
-      saveGame(makeState({ turnNumber: 7, inferredAmbition: newer }));
+      saveGame(makeState({ turnNumber: 7, inferredAmbition: newer, reignSeed: 5 }));
       const before = localStorage.getItem('gloryOfRome:autosave');
 
       updateSavedAmbition(ambition);

@@ -38,7 +38,8 @@ beforeEach(() => {
 
 describe('the optional voiceCast save field', () => {
   it('an old save without it loads unchanged, byte for byte, and GAME_LOADED makes the cast null', () => {
-    const old = { version: 1, savedAt: '2026-01-01T00:00:00.000Z', state: makeLegacySaveState() };
+    // Carries its D51 reign seed, so the one field absent is the cast.
+    const old = { version: 1, savedAt: '2026-01-01T00:00:00.000Z', state: { ...makeLegacySaveState(), reignSeed: 3 } };
     const text = JSON.stringify(old);
     localStorage.setItem(SAVE_KEY, text);
     const loaded = loadGame();
@@ -128,7 +129,7 @@ describe('the cast in the game state', () => {
     const rolledBack = gameReducer(state, { type: 'TURN_ROLLED_BACK', snapshot: makeAppSave() } as GameAction);
     expect(rolledBack.voiceCast?.revision).toBe(5);
     const fresh = gameReducer(state, {
-      type: 'GAME_STARTED', entities: [], playerCharacterId: 'x', introMessage: { sender: 'gm', text: 'Hi' }, suggestedActions: [],
+      type: 'GAME_STARTED', entities: [], playerCharacterId: 'x', introMessage: { sender: 'gm', text: 'Hi' }, suggestedActions: [], reignSeed: 1,
     } as GameAction);
     expect(fresh.voiceCast).toBeNull();
   });

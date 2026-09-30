@@ -45,6 +45,7 @@ import { withOldSnapshotsDropped } from '../state/gameReducer';
 import type { RunDomainMutation } from '../state/domainMutation';
 import { runNewTurn } from '../ai/core/turn';
 import type { TurnStage } from '../ai/core/turn';
+import { deriveTurnSeed } from '../ai/core/resolution';
 import { AiServiceError } from '../ai/core/geminiService';
 import { logDevError } from '../diagnostics/logger';
 import { inferAmbition } from '../ai/tools/ambition';
@@ -122,6 +123,8 @@ export interface ExecuteTurnDeps {
     eventFirings: EventFiringRecord[];
     metaNarrative: string;
     messages: Message[];
+    /** D51 - the reign's seed (the reducer's `reignSeed`); each turn's dice derive from it. */
+    reignSeed: number | undefined;
 
     // --- Dispatch and transaction helpers (the composition root's wiring
     // over GameContext; see hooks/useCampaignTransactions.ts for
@@ -162,7 +165,7 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
         ai, isMockMode, resolvedApiKey, online,
         entities, worldState, simulationState, reports, truthLedger, knowledge, npcIntents,
         turnNumber, playerCharacterId, turnHistory, pendingIntelligenceFallout, gmInterventionText,
-        eventFirings, metaNarrative, messages,
+        eventFirings, metaNarrative, messages, reignSeed,
         dispatch, getStateGeneration, runDomainMutation, commitDomainMutation, buildSaveState, strikeWeekBeat,
         preTurnSnapshotRef, campaignGenerationRef, privateScenesRef, appMountedRef, latestInferredAmbitionRef,
         setPendingPlayerMessage, setTurnFailure, setRetrySubmission, setRetryDraft,
@@ -332,6 +335,17 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
                     eventFirings,
                     privateSceneAdjudicatorProjection,
                     privateSceneNpcMemoriesByNpcId,
+                    // DESIGN_DECISIONS.md D51 - this turn's dice are fixed by
+                    // the reign and the number of the turn being played (the
+                    // very `turnNumber` handed to runNewTurn above), never
+                    // drawn afresh per attempt: the narration streams as it
+                    // is written, so a player who glimpsed a bad outcome and
+                    // then hit a failure must not reroll it by retrying -
+                    // as it was, with the action rewritten, after a reload,
+                    // or from a restored copy. `reignSeed` is absent only if
+                    // no reign ever began; runNewTurn then draws a fresh
+                    // seed. Mock Mode rolls no dice and ignores it.
+                    turnSeed: reignSeed === undefined ? undefined : deriveTurnSeed(reignSeed, turnNumber),
                 }
             );
             if (!transaction.isCurrent() || !turnSnapshotIsCurrent()) return;
@@ -701,5 +715,5 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
         }
         });
         return mutation.acquired;
-    }, [ai, buildSaveState, commitDomainMutation, dispatch, entities, eventFirings, getStateGeneration, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, online, pendingIntelligenceFallout, playerCharacterId, reports, resolvedApiKey, runDomainMutation, simulationState, strikeWeekBeat, truthLedger, turnHistory, turnNumber, worldState, preTurnSnapshotRef, campaignGenerationRef, privateScenesRef, appMountedRef, latestInferredAmbitionRef, setPendingPlayerMessage, setTurnFailure, setRetrySubmission, setRetryDraft, setChatDraft, setStructuredDraft, setTurnStage, setStreamingNarration, setIsCheckingEvents, setTransactionNote]);
+    }, [ai, buildSaveState, commitDomainMutation, dispatch, entities, eventFirings, getStateGeneration, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, online, pendingIntelligenceFallout, playerCharacterId, reignSeed, reports, resolvedApiKey, runDomainMutation, simulationState, strikeWeekBeat, truthLedger, turnHistory, turnNumber, worldState, preTurnSnapshotRef, campaignGenerationRef, privateScenesRef, appMountedRef, latestInferredAmbitionRef, setPendingPlayerMessage, setTurnFailure, setRetrySubmission, setRetryDraft, setChatDraft, setStructuredDraft, setTurnStage, setStreamingNarration, setIsCheckingEvents, setTransactionNote]);
 }

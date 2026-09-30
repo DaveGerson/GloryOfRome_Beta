@@ -44,6 +44,7 @@ import type { VoiceCast } from '../narration/voiceCast';
 import { migrateSaveEnvelope } from './saveMigrations';
 import { conditionsOf, MAX_ENTITY_CONDITIONS, normalizeConditions } from '../ai/core/conditions';
 import { affiliationsOf, MAX_ENTITY_AFFILIATIONS, normalizeAffiliations } from '../ai/core/affiliations';
+import { generateSeed } from '../ai/core/resolution';
 
 /**
  * Bump this whenever `SaveGameState`'s shape changes in a backwards-
@@ -193,6 +194,19 @@ export interface SaveGameState {
    * older build ignores it.
    */
   pendingEventId?: string;
+  /**
+   * DESIGN_DECISIONS.md D51 - the reign's seed: drawn once when the reign
+   * begins (GAME_STARTED), and combined with a turn's number
+   * (ai/core/resolution.ts::deriveTurnSeed) into that turn's dice, so a
+   * retried turn - after a failure, an edit, a reload or a restored copy -
+   * keeps its luck. A 32-bit unsigned integer. Optional so `SAVE_VERSION`
+   * stays at 1: a save written before D51 has none, and `validateSaveBlob`
+   * gives it one as it is read - `loadGame` writes that back to the slot at
+   * once, `importSaveBlob` stores it with the imported reign - so every
+   * later read of the reign draws the same dice. GM-side data (D4): no
+   * player surface renders it; the blob's GM content may be shared (D45).
+   */
+  reignSeed?: number;
 }
 
 /** The versioned envelope actually written to storage. */
@@ -396,16 +410,37 @@ function looksLikeSaveGame(value: unknown): value is SaveGame {
 }
 
 /**
+ * D51: a reign seed is a 32-bit unsigned integer - what `generateSeed`
+ * draws, and what `deriveTurnSeed` mixes. Anything else a save carries in
+ * its place (nothing, on a save from before D51; a hand-edited value) is not
+ * one.
+ */
+export function isValidReignSeed(value: unknown): value is number {
+  return isNonNegativeInteger(value) && value <= 0xffffffff;
+}
+
+/**
+ * Gives a reign read without a valid seed a fresh one (D51) and says so, so
+ * the door the reign came through can store it: from then on the reign
+ * draws the same dice for a turn however often it is read.
+ */
+function withReignSeed(save: SaveGame): { save: SaveGame; reseeded: boolean } {
+  if (isValidReignSeed(save.state.reignSeed)) return { save, reseeded: false };
+  return { save: { ...save, state: { ...save.state, reignSeed: generateSeed() } }, reseeded: true };
+}
+
+/**
  * The one parse-then-shape-then-version gate a save envelope must clear,
  * whichever door it came through - `loadGame` reading the autosave slot or
  * `importSaveBlob` reading a player-chosen file. Both delegate here so
  * import acceptance and load acceptance are the SAME code path and can never
  * quietly drift apart (docs/superpowers/specs/2026-08-05-reign-export-import
- * -design.md). Never throws.
+ * -design.md). An accepted reign always leaves with a valid `reignSeed`
+ * (D51); `reseeded` says one was assigned here. Never throws.
  */
 function validateSaveBlob(
   raw: string,
-): { ok: true; save: SaveGame; migratedFrom: number | null } | { ok: false; reason: 'unreadable' | 'not_a_reign' | 'version_mismatch' } {
+): { ok: true; save: SaveGame; migratedFrom: number | null; reseeded: boolean } | { ok: false; reason: 'unreadable' | 'not_a_reign' | 'version_mismatch' } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -440,7 +475,7 @@ function validateSaveBlob(
     return { ok: false, reason: 'not_a_reign' };
   }
 
-  return { ok: true, save: migrated.envelope, migratedFrom: migrated.migratedFrom };
+  return { ok: true, ...withReignSeed(migrated.envelope), migratedFrom: migrated.migratedFrom };
 }
 
 function isNonNegativeInteger(value: unknown): value is number {
@@ -795,10 +830,32 @@ export function updateSavedPendingEvent(
  * unrecognized shape, or its version doesn't match `SAVE_VERSION`. Never
  * throws - every failure mode is a `console.warn` + `null`, so callers can
  * always treat `null` as "start fresh." `readSaveSlot` below says which.
+ *
+ * A reign saved before D51 carries no seed; `validateSaveBlob` gives it one,
+ * and it is written back to the slot here at once, so every later read -
+ * Continue, the ambition/voice-cast/fate patches, a reload - finds the same
+ * seed and the same dice for each turn.
  */
 export function loadGame(): SaveGame | null {
-  const slot = readSaveSlot();
-  return slot.kind === 'reign' ? slot.save : null;
+  const slot = readSlot();
+  if (slot.kind !== 'reign') return null;
+  if (slot.reseeded) storeAssignedReignSeed(slot.save);
+  return slot.save;
+}
+
+/**
+ * Writes a seed `validateSaveBlob` has just assigned (D51) back into the
+ * slot, with the rest of the save exactly as read - `savedAt` included, since
+ * nothing was played. Best effort, like the ambition and voice-cast patches:
+ * if the write fails, the seed lives in this session's state and reaches the
+ * slot with the next save, and until then each read assigns another.
+ */
+function storeAssignedReignSeed(save: SaveGame): void {
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify(save));
+  } catch (e) {
+    console.warn('loadGame: could not store the reign seed just assigned; the next save will carry it', e);
+  }
 }
 
 /** Why a stored reign could not be loaded - `validateSaveBlob`'s refusals. */
@@ -810,11 +867,21 @@ export type SaveRefusalReason = 'unreadable' | 'not_a_reign' | 'version_mismatch
  * a corrupted one - with the reason. `loadGame` flattens the last to `null`;
  * the destiny screen must not, or a reign it cannot read looks like a fresh
  * device and the next destiny silently overwrites it. Never throws: storage
- * that cannot be read at all reads as empty.
+ * that cannot be read at all reads as empty. Never writes: a seed assigned
+ * to a pre-D51 reign here is stored by `loadGame`, not by this read.
  */
 export function readSaveSlot():
   | { kind: 'empty' }
   | { kind: 'reign'; save: SaveGame }
+  | { kind: 'refused'; reason: SaveRefusalReason } {
+  const slot = readSlot();
+  return slot.kind === 'reign' ? { kind: 'reign', save: slot.save } : slot;
+}
+
+/** `readSaveSlot`, plus whether the reign was just given its seed (D51). */
+function readSlot():
+  | { kind: 'empty' }
+  | { kind: 'reign'; save: SaveGame; reseeded: boolean }
   | { kind: 'refused'; reason: SaveRefusalReason } {
   let raw: string | null;
   try {
@@ -827,7 +894,9 @@ export function readSaveSlot():
   if (!raw) return { kind: 'empty' };
 
   const validated = validateSaveBlob(raw);
-  return validated.ok ? { kind: 'reign', save: validated.save } : { kind: 'refused', reason: validated.reason };
+  return validated.ok
+    ? { kind: 'reign', save: validated.save, reseeded: validated.reseeded }
+    : { kind: 'refused', reason: validated.reason };
 }
 
 /**
@@ -845,9 +914,14 @@ export function clearSave(): SaveGameResult {
   }
 }
 
-/** True if a valid (parseable, version-matching) autosave exists. */
+/**
+ * True if a valid (parseable, version-matching) autosave exists. Only asks:
+ * unlike `loadGame` it never writes a reign seed back (D51) - ErrorBoundary
+ * asks this of a slot whose reign may be the very thing that crashed, and
+ * must leave it byte for byte as it found it.
+ */
 export function hasSave(): boolean {
-  return loadGame() !== null;
+  return readSaveSlot().kind === 'reign';
 }
 
 /**
@@ -916,9 +990,13 @@ export function importSaveBlob(text: string): ImportResult {
   }
 
   try {
-    // A current-version file is stored verbatim; an older one is stored in
-    // its migrated form, so the slot always holds a current envelope.
-    localStorage.setItem(SAVE_KEY, validated.migratedFrom === null ? text : JSON.stringify(validated.save));
+    // A current-version file carrying its reign seed is stored verbatim; an
+    // older one is stored in its migrated form, so the slot always holds a
+    // current envelope, and one without a valid seed (a copy taken before
+    // D51, or a hand-edited one) with the seed it was just given, so the
+    // imported reign keeps one set of dice from its first read.
+    const verbatim = validated.migratedFrom === null && !validated.reseeded;
+    localStorage.setItem(SAVE_KEY, verbatim ? text : JSON.stringify(validated.save));
   } catch (e) {
     console.warn('importSaveBlob: write failed, the existing reign is untouched', e);
     return { ok: false, reason: 'storage_failed' };

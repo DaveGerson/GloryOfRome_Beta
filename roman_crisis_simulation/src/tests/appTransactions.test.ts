@@ -104,7 +104,7 @@ describe('pickSaveState (D17)', () => {
         expect(Object.keys(picked).sort()).toEqual([
             'currentEvents', 'entities', 'eventFirings', 'eventHistory', 'gmInterventionText',
             'inferredAmbition', 'knowledge', 'messages', 'metaNarrative', 'npcIntents',
-            'pendingEventId', 'pendingIntelligenceFallout', 'playerCharacterId', 'privateScenes', 'reports',
+            'pendingEventId', 'pendingIntelligenceFallout', 'playerCharacterId', 'privateScenes', 'reignSeed', 'reports',
             'simulationState', 'suggestedActions', 'triggeredEventIds', 'truthLedger',
             'turnHistory', 'turnNumber', 'voiceCast', 'worldState',
         ]);

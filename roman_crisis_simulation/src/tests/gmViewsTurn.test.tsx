@@ -33,6 +33,7 @@ import { GroundTruthView } from '../components/gm/GroundTruthView';
 import { NpcPerceptionView } from '../components/gm/NpcPerceptionView';
 
 import { serializeTurnSubmission } from '../playerInput/turnSubmission';
+import { deriveTurnSeed } from '../ai/core/resolution';
 import type { Entity, Relationship, Scheme, TurnSubmission } from '../types';
 import {
   makeAdjudication,
@@ -558,6 +559,35 @@ describe('GroundTruthView', () => {
         worldState={worldState}
       />);
     expect(unseeded.textContent).toContain('None recorded for this turn.');
+  });
+
+  it('shows the reign seed beside the turn seed, and says whether it derives this turn\'s seed (D51)', async () => {
+    const reignSeed = 2_718_281_828;
+    const derived = await mount(
+      <GroundTruthView
+        entry={makeTurnHistoryEntry({ turnNumber: 4, postTurnEntities: [makeEntity()], turnSeed: deriveTurnSeed(reignSeed, 4) })}
+        playerCharacterId="player_1"
+        worldState={worldState}
+        reignSeed={reignSeed}
+      />);
+    expect(derived.textContent).toContain(`Reign seed ${reignSeed} — with turn 4, derives this turn's seed: a retried turn keeps its dice (D51).`);
+
+    const drawnBefore = await mount(
+      <GroundTruthView
+        entry={makeTurnHistoryEntry({ turnNumber: 4, postTurnEntities: [makeEntity()], turnSeed: 123 })}
+        playerCharacterId="player_1"
+        worldState={worldState}
+        reignSeed={reignSeed}
+      />);
+    expect(drawnBefore.textContent).toContain(`Reign seed ${reignSeed} — this turn's seed was not derived from it`);
+
+    const noReign = await mount(
+      <GroundTruthView
+        entry={makeTurnHistoryEntry({ postTurnEntities: [makeEntity()], turnSeed: 123 })}
+        playerCharacterId="player_1"
+        worldState={worldState}
+      />);
+    expect(noReign.textContent).not.toContain('Reign seed');
   });
 
   it('renders the mortality trace as pretty JSON in a pre, or the Fates-scales absence line', async () => {

@@ -17,11 +17,12 @@ import * as ambitionTool from '../ai/tools/ambition';
 import * as turnCore from '../ai/core/turn';
 import * as geminiService from '../ai/core/geminiService';
 import * as privateSceneModel from '../privateScene/model';
-import { loadGame, saveGame, type SaveGameState } from '../persistence/saveGame';
+import { isValidReignSeed, loadGame, saveGame, type SaveGameState } from '../persistence/saveGame';
 import { AiServiceError } from '../ai/core/geminiService';
+import { deriveTurnSeed } from '../ai/core/resolution';
 import type { Entity, TurnSubmission } from '../types';
 import { getMockInitialState } from './mockData';
-import { makeAppSave as baseMakeAppSave } from './factories';
+import { APP_SAVE_REIGN_SEED, makeAppSave as baseMakeAppSave } from './factories';
 import {
   NO_ATTEMPT_NO_ANSWER,
   PRIVATE_INTENT_ACKNOWLEDGEMENT,
@@ -342,6 +343,7 @@ function expectV1BuildSaveShape(raw: string | null): void {
     'pendingIntelligenceFallout',
     'playerCharacterId',
     'privateScenes',
+    'reignSeed',
     'reports',
     'simulationState',
     'suggestedActions',
@@ -2327,5 +2329,53 @@ describe('B7a hardening — the import-review residuals (spec: 2026-08-05-b7a-ha
     expect(loadGame()!.state.turnNumber).toBe(9);
     expect(loadGame()!.state.inferredAmbition).toBeNull();
     expect(JSON.stringify(loadGame()!.state)).not.toContain('STALE_PRE_IMPORT_AMBITION');
+  });
+});
+
+describe('D51 — the reign seed', () => {
+  it('draws a fresh, valid seed as each new reign begins, saves it with the reign, and never shows it to the player', async () => {
+    const container = await mountApp(makeAppSave(), false);
+    await chooseOverSavedReign(container, buttonContaining(container, 'The Young Emperor'));
+    await waitFor(() => expect(container.querySelector('[aria-label="Chat input"]')).not.toBeNull());
+    const first = loadGame()!.state.reignSeed;
+    expect(isValidReignSeed(first)).toBe(true);
+    // Not the abandoned reign's: a new reign rolls its own dice.
+    expect(first).not.toBe(APP_SAVE_REIGN_SEED);
+    expect(container.textContent).not.toContain(String(first));
+
+    const oldInstance = mounted.pop()!;
+    await act(async () => oldInstance.root.unmount());
+    oldInstance.container.remove();
+    const reloaded = await renderApp(false);
+    await chooseOverSavedReign(reloaded, buttonContaining(reloaded, 'The Young Emperor'));
+    await waitFor(() => expect(reloaded.querySelector('[aria-label="Chat input"]')).not.toBeNull());
+    const second = loadGame()!.state.reignSeed;
+    expect(isValidReignSeed(second)).toBe(true);
+    expect(second).not.toBe(first);
+    expect(reloaded.textContent).not.toContain(String(second));
+  });
+
+  it('hands each turn the seed its reign and number fix, the same one to a failed turn\'s Retry, and leaves Mock Mode\'s dice alone', async () => {
+    const container = await mountApp(makeAppSave({ turnNumber: 4 }));
+    mockRunNewTurnCore.mockRejectedValueOnce(new Error('turn provider offline'));
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Hold the line.');
+    await click(buttonNamed(container, 'Speak'));
+    await waitFor(() => expect(container.textContent).toMatch(/your draft is kept/i));
+    await click(buttonNamed(container, 'Retry the last action'));
+    await waitFor(() => expect(loadGame()!.state.turnNumber).toBe(5));
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Hold it again.');
+    await click(buttonNamed(container, 'Speak'));
+    await waitFor(() => expect(loadGame()!.state.turnNumber).toBe(6));
+    errorSpy.mockRestore();
+
+    expect(mockRunNewTurnCore.mock.calls.map(call => [call[3], call[14]?.turnSeed])).toEqual([
+      [4, deriveTurnSeed(APP_SAVE_REIGN_SEED, 4)],
+      [4, deriveTurnSeed(APP_SAVE_REIGN_SEED, 4)],
+      [5, deriveTurnSeed(APP_SAVE_REIGN_SEED, 5)],
+    ]);
+    // Mock Mode is left alone: its turns roll no dice and record no seed.
+    expect(loadGame()!.state.turnHistory.map(entry => entry.turnSeed)).toEqual([undefined, undefined]);
+    expect(loadGame()!.state.reignSeed).toBe(APP_SAVE_REIGN_SEED);
   });
 });
