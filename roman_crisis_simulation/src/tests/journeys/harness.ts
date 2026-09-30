@@ -989,8 +989,8 @@ export class JourneyRunner {
       .toEqual(result.headlines);
     // ...with who was alive at commit beside it, whenever it holds a record.
     if ((entry.headlineActors?.length ?? 0) > 0) {
-      expect(entry.livingAtCommit, `[${label}] a non-empty attribution record carries the ids alive at commit`)
-        .toEqual((entry.postTurnEntities ?? []).filter(entity => entity.status === 'alive').map(entity => entity.entity_id));
+      expect(entry.livingAtCommit, `[${label}] a non-empty attribution record carries who was alive at commit, by the names they wore then`)
+        .toEqual((entry.postTurnEntities ?? []).filter(entity => entity.status === 'alive').map(entity => ({ id: entity.entity_id, name: entity.name })));
     }
     // INV-NO-SILENT
     if (!def.allowConsoleErrors) {

@@ -726,28 +726,43 @@ function namer(turnHistory: readonly TurnHistoryEntry[], roster: readonly Entity
 
 /**
  * The figures alive and on the roster at an occurrence's OWN turn - the only
- * real figures a decoy may be. Read off the ids frozen at commit
- * (TurnHistoryEntry.livingAtCommit, kept past the snapshot trim), else the
- * entry's post-turn snapshot, else its pre-turn roster; only an entry with
- * none of these - a save from before the freeze - falls back to the live
- * roster. Never "alive now" where the entry says otherwise, which would tell
- * an old occurrence's decoy by who has arrived or died since. Each is named
- * off the live roster, else any snapshot; one named nowhere is left out.
+ * real figures a decoy may be. Read off the figures frozen at commit
+ * (TurnHistoryEntry.livingAtCommit, kept past the snapshot trim, each with
+ * the name it wore then), else the entry's post-turn snapshot, else its
+ * pre-turn roster; only an entry with none of these - a save from before the
+ * freeze - falls back to the live roster. Never "alive now" where the entry
+ * says otherwise, which would tell an old occurrence's decoy by who has
+ * arrived or died since - nor "on the roster now", since a true hand's name
+ * was frozen and outlives its figure. A figure frozen without a name (the
+ * field's first, id-only form) or read off a roster is named as it was
+ * there, else off the live roster, else any snapshot; one named nowhere is
+ * left out.
  */
 function figuresAliveAt(entry: TurnHistoryEntry, turnHistory: readonly TurnHistoryEntry[], roster: readonly Entity[]): Array<{ id: string; name: string }> {
-    const ids: unknown[] = Array.isArray(entry.livingAtCommit)
+    // The pre-turn roster keeps no names; its figures are named below.
+    const fromRoster = (entities: ReadonlyArray<Pick<Entity, 'entity_id' | 'status'> & { name?: string }>): unknown[] => entities
+        .filter(entity => entity?.status === 'alive')
+        .map(entity => ({ id: entity.entity_id, name: entity.name }));
+    const living: unknown[] = Array.isArray(entry.livingAtCommit)
         ? entry.livingAtCommit
         : Array.isArray(entry.postTurnEntities)
-            ? entry.postTurnEntities.filter(entity => entity?.status === 'alive').map(entity => entity.entity_id)
+            ? fromRoster(entry.postTurnEntities)
             : Array.isArray(entry.preTurnRoster)
-                ? entry.preTurnRoster.filter(entity => entity?.status === 'alive').map(entity => entity.entity_id)
-                : roster.filter(entity => entity.status === 'alive').map(entity => entity.entity_id);
+                ? fromRoster(entry.preTurnRoster)
+                : fromRoster(roster);
     const nameOf = namer(turnHistory, roster);
     const figures: Array<{ id: string; name: string }> = [];
-    for (const id of new Set(ids)) {
-        if (typeof id !== 'string' || id.length === 0) continue;
-        const name = nameOf(id);
-        if (name) figures.push({ id, name });
+    const seen = new Set<string>();
+    for (const figure of living) {
+        const id = typeof figure === 'string'
+            ? figure
+            : typeof figure === 'object' && figure !== null && typeof (figure as { id?: unknown }).id === 'string' ? (figure as { id: string }).id : '';
+        if (id.length === 0 || seen.has(id)) continue;
+        const frozen = typeof figure === 'object' && figure !== null ? (figure as { name?: unknown }).name : undefined;
+        const name = (typeof frozen === 'string' ? frozen.trim() : '') || nameOf(id);
+        if (!name) continue;
+        seen.add(id);
+        figures.push({ id, name });
     }
     return figures;
 }

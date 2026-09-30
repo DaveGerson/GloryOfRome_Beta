@@ -21,7 +21,7 @@
  */
 
 import type { z } from 'zod';
-import type { Adjudication, Entity, EntityAction, EventDelta, HeadlineAttribution, SimulationState } from '../../types';
+import type { Adjudication, Entity, EntityAction, EventDelta, HeadlineAttribution, LivingFigure, SimulationState } from '../../types';
 import type {
   zAdjudication,
   zEntityAction,
@@ -126,8 +126,10 @@ const MIN_LOOSE_LABEL = 4;
  *     `crassus` still names him;
  *  2. the same, with a leading article ("the", "a", "an") stripped from both
  *     sides - "the Praetorian Guard";
- *  3. a whole-word match inside a name or an epithet - "the Senate" for the
- *     Roman Senate - accepted ONLY when exactly one figure matches, the
+ *  3. a whole-word match inside a display NAME - "the Senate" for the
+ *     Roman Senate. Never inside an epithet, whose "of the Curia" or "of
+ *     the Suburra" names a place, not its bearer, and whose "the Boy
+ *     Emperor" outlives the throne. Accepted ONLY when exactly one figure matches, the
  *     stripped label runs to MIN_LOOSE_LABEL characters ("the mob" names no
  *     one), and that figure is not the player (`playerId`): a loose label is
  *     never read as the player's own act.
@@ -164,7 +166,7 @@ export function attributeHeadlines(
     if (stripped.length < MIN_LOOSE_LABEL) return undefined;
     const needle = words(label);
     const loose = new Map(everyone
-      .filter(entity => holds(words(entity.name), needle) || holds(words(entity.epithet), needle))
+      .filter(entity => holds(words(entity.name), needle))
       .map(entity => [entity.entity_id, entity] as const));
     const [only] = loose.values();
     return loose.size === 1 && only.entity_id !== playerId ? only : undefined;
@@ -196,14 +198,24 @@ export function attributeHeadlines(
 }
 
 /**
- * The ids alive and on the roster at commit - written beside a non-empty
- * attribution record (TurnHistoryEntry.livingAtCommit), so an occurrence
- * answer's decoys are drawn from who was alive THEN, past the snapshot trim.
+ * The figures alive and on the roster at commit, each with the name it wore
+ * then - written beside a non-empty attribution record
+ * (TurnHistoryEntry.livingAtCommit), so an occurrence answer's decoys are
+ * drawn from who was alive THEN, past the snapshot trim, and named as they
+ * were: a figure since removed from the roster can still be a decoy, as it
+ * can still be a true hand (whose name the record froze too).
  */
-export function livingAtCommit(roster: readonly Entity[]): string[] {
-  return [...new Set(roster
-    .filter(entity => entity?.status === 'alive' && typeof entity.entity_id === 'string' && entity.entity_id.length > 0)
-    .map(entity => entity.entity_id))];
+export function livingAtCommit(roster: readonly Entity[]): LivingFigure[] {
+  const seen = new Set<string>();
+  const living: LivingFigure[] = [];
+  for (const entity of roster) {
+    const id = entity?.entity_id;
+    const name = entity?.name?.trim();
+    if (entity?.status !== 'alive' || typeof id !== 'string' || id.length === 0 || !name || seen.has(id)) continue;
+    seen.add(id);
+    living.push({ id, name });
+  }
+  return living;
 }
 
 /** Drops the interchange-only top-level `actors` off a parsed SimulationState. */

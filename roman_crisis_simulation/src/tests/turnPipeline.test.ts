@@ -2521,10 +2521,14 @@ describe('ai/core/turn.ts runNewTurn - no-attempt prose redaction vs. structural
       { text: 'The Senate debates the grain dole.', actorIds: [], actorNames: [], unresolvedActors: ['the grain factors'] },
     ]);
     // Beside it, who was alive at commit: the only real figures an old occurrence's decoy may be.
+    // Each with the name it wore then, so a figure since removed can still be a decoy.
     expect(result.newHistoryEntry.livingAtCommit).toEqual(
-      result.newHistoryEntry.postTurnEntities!.filter(entity => entity.status === 'alive').map(entity => entity.entity_id),
+      result.newHistoryEntry.postTurnEntities!.filter(entity => entity.status === 'alive').map(entity => ({ id: entity.entity_id, name: entity.name })),
     );
-    expect(result.newHistoryEntry.livingAtCommit).toEqual(expect.arrayContaining(['player_1', 'npc_crassus']));
+    expect(result.newHistoryEntry.livingAtCommit).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'player_1' }),
+      { id: 'npc_crassus', name: 'Crassus' },
+    ]));
     // A separate record: the committed headlines themselves stay bare text (D42).
     expect(result.newHistoryEntry.adjudication.headlines).toEqual(result.headlines);
   });

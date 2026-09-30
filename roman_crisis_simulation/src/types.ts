@@ -896,6 +896,12 @@ export interface HeadlineAttribution {
     unresolvedActors?: string[];
 }
 
+/** One figure alive and on the roster when a turn committed, with the name it wore then (TurnHistoryEntry.livingAtCommit). GM-PRIVATE. */
+export interface LivingFigure {
+    id: string;
+    name: string;
+}
+
 /**
  * An entry for the Game Master's turn history log.
  */
@@ -944,16 +950,18 @@ export interface TurnHistoryEntry {
    */
   headlineActors?: HeadlineAttribution[];
   /**
-   * GM-PRIVATE (D47): the ids alive and on the roster when this turn
-   * committed - written beside a non-empty `headlineActors`, and read only to
-   * pick the real figures an occurrence answer's decoy may be
-   * (ai/core/groundTruth.ts), so an old occurrence's decoy is never someone
-   * who arrived, or who was already dead, after it. Kept on every entry, not
-   * trimmed with the snapshot window, for the same reason as the record: ids
-   * only, one short string per living figure. Optional: entries written
-   * before it existed fall back to their snapshots, else the live roster.
+   * GM-PRIVATE (D47): the figures alive and on the roster when this turn
+   * committed, each with the name it wore then - written beside a non-empty
+   * `headlineActors`, and read only to pick the real figures an occurrence
+   * answer's decoy may be (ai/core/groundTruth.ts), so an old occurrence's
+   * decoy is never someone who arrived, or who was already dead, after it,
+   * and a figure since removed from the roster can still be one. Kept on
+   * every entry, not trimmed with the snapshot window, for the same reason as
+   * the record: an id and a name per living figure. Optional: entries written
+   * before it existed fall back to their snapshots, else the live roster; a
+   * bare id (the field's first, id-only form) is named off the roster.
    */
-  livingAtCommit?: string[];
+  livingAtCommit?: Array<LivingFigure | string>;
   /**
    * Deep copy of the full entity roster as of this turn's commit - the
    * dominant per-turn share of the save blob. Present only on the most

@@ -334,6 +334,15 @@ describe('the attribution record (ai/core/actorsBoundary.ts::attributeHeadlines)
     // The shipped cast: "the Senate" is the Roman Senate, never the Senatorial Party.
     expect(attributeHeadlines([{ text: 'x', actors: ['the Senate', 'the mob'] }], ['x'], [ALL_INITIAL_ENTITIES])[0])
       .toEqual({ text: 'x', actorIds: ['roman_senate'], actorNames: ['Roman Senate'], unresolvedActors: ['the mob'] });
+    // The loose pass reads names only: an epithet's "of the Suburra" or "of the
+    // Curia" names a place, not its bearer, and "the Boy Emperor" outlives the
+    // throne - so a crowd written as "the Suburra" is no one, never Lycinia.
+    const places = ['the Suburra', 'the Curia', 'the Camp', 'the Emperor'];
+    expect(attributeHeadlines([{ text: 'x', actors: places }], ['x'], [ALL_INITIAL_ENTITIES], 'maximinus_thrax')[0])
+      .toEqual({ text: 'x', actorIds: [], actorNames: [], unresolvedActors: places });
+    // A whole epithet still names its bearer, articled or bare.
+    expect(attributeHeadlines([{ text: 'x', actors: ['Voice of the Curia'] }], ['x'], [ALL_INITIAL_ENTITIES])[0].actorNames)
+      .toEqual([ALL_INITIAL_ENTITIES.find(entity => entity.epithet === 'the Voice of the Curia')!.name]);
   });
 
   it('a declaration whose every label names no one is circumstance - its labels kept only for the GM', () => {
@@ -355,9 +364,9 @@ describe('the attribution record (ai/core/actorsBoundary.ts::attributeHeadlines)
       { text: 'Discontent grows in the Praetorian Camp as rumors of imperial weakness spread.', actorIds: [], actorNames: [] },
       { text: 'Emperor promises bonus to Praetorian Guard.', actorIds: ['severus_alexander'], actorNames: ['Severus Alexander'] },
     ]);
-    // ...and beside it, the ids alive at commit.
+    // ...and beside it, who was alive at commit, by the names they wore then.
     expect(attempt.newHistoryEntry.livingAtCommit).toEqual(
-      attempt.newHistoryEntry.postTurnEntities!.filter(entity => entity.status === 'alive').map(entity => entity.entity_id),
+      attempt.newHistoryEntry.postTurnEntities!.filter(entity => entity.status === 'alive').map(entity => ({ id: entity.entity_id, name: entity.name })),
     );
     const idle = await runMock(questionOnly('What is whispered in the Curia?'));
     expect(idle.headlines).not.toContain('Emperor promises bonus to Praetorian Guard.');
@@ -621,6 +630,23 @@ describe('planOccurrence - count and shape never betray the accuracy; code picks
     const unfrozen = decoys([unfrozenEntry, ...history.slice(1)]);
     expect(unfrozen).toContain('Flavius Novus');
     expect(unfrozen).not.toContain('Livia Drusilla');
+  });
+
+  it('a figure frozen at commit by name stays a fair decoy after it has left every roster - as a true hand does', () => {
+    // Removed from the live roster and from every snapshot since: only the name frozen at commit names it.
+    const gone = entryFor(['varro'], OCCURRENCE, { livingAtCommit: [{ id: 'player', name: NAMES.player }, { id: 'varro', name: NAMES.varro }, { id: 'departed', name: 'Lucius Departed' }] });
+    const ground = occurrenceGrounding({ turnHistory: [gone], occurrence: OCCURRENCE, question: 'who_is_behind_it', roster: roster.filter(entity => entity.entity_id !== 'departed') })!;
+    expect(ground.aliveThen).toContainEqual({ id: 'departed', name: 'Lucius Departed' });
+    // Named as it was then, not as the roster names it now.
+    const renamed = roster.map(entity => entity.entity_id === 'varro' ? { ...entity, name: 'Varro the Elder' } : entity);
+    const then = occurrenceGrounding({ turnHistory: [gone], occurrence: OCCURRENCE, question: 'who_is_behind_it', roster: renamed })!;
+    expect(then.aliveThen).toContainEqual({ id: 'varro', name: NAMES.varro });
+    const knowsDeparted = context({ sibling: 'named', isKnown: id => id === 'player' || id === 'departed' || KNOWN_IDS.includes(id) });
+    const drawn = new Set<string>();
+    for (let seed = 0; seed < 60; seed++) {
+      drawn.add(planOccurrence(ground, 'who_is_behind_it', { accuracy: 'false', fidelity: 'fuller' }, createSeededRng(seed), knowsDeparted).findings[0].hand!.name);
+    }
+    expect(drawn).toContain('Lucius Departed');
   });
 
   it('each figure frozen at commit is named off the live roster, else any snapshot - and one named nowhere is left out', () => {

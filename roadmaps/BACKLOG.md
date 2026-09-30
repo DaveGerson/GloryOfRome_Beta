@@ -1585,11 +1585,15 @@ purpose, and the reason is given.
 - **Stranger names are generated**, used only when no real figure of the
   same familiarity can stand in. A figure created later could wear a name
   once given to a stranger.
-- **`livingAtCommit` is never trimmed.** It costs about 180 bytes a turn
-  with the shipped cast, and roughly 72 KiB per 100 turns at 40 figures.
-  Storing only the changes between turns would shrink it if saves grow.
-  An entry written before the field existed and past the trim window
-  still picks decoys from the living roster.
+- **`livingAtCommit` is never trimmed.** It keeps an id and a name per
+  living figure: about 400 bytes a turn with the shipped cast, and roughly
+  180 KiB per 100 turns at 40 figures. Storing only the changes between
+  turns would shrink it if saves grow. An entry written before the field
+  existed and past the trim window still picks decoys from the living
+  roster.
+- **The loose label match reads display names only.** An epithet's "of the
+  Curia" names a place, not its bearer, so "the Curia" names no one. A
+  whole epithet still names its bearer.
 - **A headline that names its own actor gives something away.** A false
   reading never names a true hand, so an answer naming the actor the
   headline already named is certainly not false. This is inherent to

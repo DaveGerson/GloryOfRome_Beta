@@ -664,8 +664,8 @@ writes a truth-ledger entry in the same commit as the finding. The GM
 console shows the question, the headline, what was planned and what was
 true.
 
-**Making a lie look like the truth.** Three rounds of adversarial review
-found 22 defects. Most were ways to tell a false reading from a true one.
+**Making a lie look like the truth.** Four rounds of adversarial review
+found 24 defects. Most were ways to tell a false reading from a true one.
 All are fixed:
 - *Code writes the lie, the model only phrases it.*
   - A known hand is replaced by another known figure.
@@ -674,7 +674,8 @@ All are fixed:
     tens of thousands, so no list can be learned.
   - A false aim is one another figure really pursued that turn.
   - No decoy is a true hand, the player, or anyone not alive at the time,
-    even for an occurrence long past (`livingAtCommit`).
+    even for an occurrence long past (`livingAtCommit`, which freezes who
+    was alive and their names).
   - Every reading gets the same instruction, true or false.
 - *The same shape.* A false reading has as many names as the truth, each
   with as many aims, and fragments in the same places.
@@ -687,7 +688,8 @@ All are fixed:
   exists.
 
 A declared hand is found by id, name or epithet. A collective label such
-as "the Senate" is found only when exactly one figure matches it. A
+as "the Senate" is found only when exactly one figure's name holds it,
+never through an epithet's place ("the Curia" is no one). A
 hand's aims are capped at three.
 
 **Found and fixed along the way:**
@@ -697,6 +699,6 @@ hand's aims are capped at three.
 - Free questions could push the truth behind paid findings out of the
   capped ledger; occurrence entries now go first.
 
-Checks after Part 7: 2994 unit tests (from 2928), 12 journeys, typecheck,
+Checks after Part 7: 2995 unit tests (from 2928), 12 journeys, typecheck,
 lint, the deterministic eval and the build all pass. Residuals are listed
 at the end of `BACKLOG.md`.
