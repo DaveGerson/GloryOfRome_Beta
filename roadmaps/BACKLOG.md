@@ -1296,6 +1296,44 @@ Nothing here blocks; all are one edit from rewording.
     holds: your agents' account", the rolls line, "one element changed" /
     "misattributed", and the empty state "No rumors or investigation
     findings have been recorded in the truth ledger yet."
+- **Grounded occurrences and private scenes (2026-09-30)**: the words from
+  grounding the Events tab's questions (D47) and giving private scenes
+  their marks and ties.
+  - *Events, when a headline has no record of who acted* (an older save,
+    `ai/tools/intelligence.ts`): "Your agents found no thread to follow.
+    Whose hand was in this, no one they asked could say." / "Your agents
+    found no thread to follow. Who profits by this, no one they asked
+    could say."
+  - *Model-facing, which may surface in the aide's prose*:
+    - The honest nothing: "Your agents found no single hand behind it: it
+      arose from circumstance - the drift of events, not anyone's design."
+      / "Your agents found no one's scheme behind it: it arose from
+      circumstance, and whoever profits by it does so by chance."
+    - The aim phrases, one per kind of move: "to appease the troops", "to
+      put down a revolt", "to strike a bargain", "to fortify a
+      stronghold", "to raid", "to have someone killed", "to raise taxes",
+      "to pay arrears owed", "to spread propaganda", "to march an army",
+      "to lay siege", "to recruit men", "to intrigue".
+    - A private scene's new lines on the NPC's marks and ties and the
+      player's outward marks and open ties (`ai/prompts/privateScene.ts`).
+  - *Mock Mode only* (`ai/mocks.ts`):
+    - "(Mock) Your agents find no single hand behind it: it arose from
+      circumstance." / "(Mock) Your agents name the hand(s) behind it: A;
+      B."
+    - "(Mock) Your agents find no one's scheme behind it: whoever profits,
+      profits by chance." / "(Mock) Your agents say it serves X, who
+      sought A and B; Y, to what end none could say."
+    - The forecast "(Mock) Your agents' forecast for "…": more of the same
+      before the month is out, if the city runs to form. A guess, not a
+      certainty." It replaces "orchestrated by a rival faction", which
+      stated a fact.
+    - Six canned strangers for false readings: Gnaeus Calpurnius,
+      Barsemias the Syrian, Hermeros the freedman, Decimus Lollius, Sextus
+      Rutilius, Aulus Vettius.
+  - *GM console only*: "occurrence question", "who is behind it?", "who
+    gains?", "asked of: “…”", "planned: “…”", "planned: nothing - no hand
+    named", " · held to the other question's nothing, whatever its own
+    roll", "(a stranger the agents invented)", "no aim learned".
 ---
 
 ## Residuals from the visual-enhancement pass (WP-1…WP-21 + adversarial review)

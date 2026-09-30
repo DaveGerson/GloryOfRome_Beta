@@ -524,10 +524,11 @@ engine/mortality/history/saves. Persisted shapes (`Adjudication`,
 `EventDelta`, `EntityAction`, `SimulationState`, turnHistory, saves) are
 unchanged; no save migration is needed.
 *Note (2026-09-30):* one additive, GM-private record now persists beside
-those shapes. `TurnHistoryEntry.headlineActors` (`{ text, actorIds }[]`)
-keeps which entities the adjudication declared behind each committed
-headline. It is read after the gate has run, so the text is post-redaction,
-and before the strip, and it is paired to the final headline by exact text.
+those shapes. `TurnHistoryEntry.headlineActors`
+(`{ text, actorIds, actorNames }[]`) keeps which entities the adjudication
+declared behind each committed headline, with their names frozen at commit.
+It is read after the gate has run, so the text is post-redaction, and
+before the strip, and it is paired to the final headline by exact text.
 It exists so the Events tab's "Who is behind it?" and "Who gains?" can be
 grounded (D47). The shapes named above are otherwise unchanged. The field
 is optional, so older saves load without it, and it never reaches a player
@@ -843,10 +844,13 @@ instead of generating plausible secrets from a name and a personality.
 *Note (2026-09-30):* the Events tab's questions about an occurrence now
 follow this ruling too. "Who is behind it?" is grounded in the figures the
 adjudication declared behind that headline (D42's note). "Who gains?" is
-grounded in those figures and their aims that turn, never a scheme's title
-(D28). An occurrence with no one behind it truly "arose from
-circumstance". Both questions roll accuracy and fidelity like an
-investigation and write a truth-ledger entry. "What follows?" stays a
+grounded in those figures, each with only the kinds of move it made that
+turn ("to raise taxes"). It never carries the notes of a move, its target,
+or anything of a scheme (D28). An occurrence with no one behind it truly
+"arose from circumstance". Both questions roll accuracy and fidelity like
+an investigation and write a truth-ledger entry. Code, not the model,
+chooses a false or garbled reading's content, in the truth's own shape.
+The two questions on one occurrence agree on whether anything was found. "What follows?" stays a
 forecast, which states no hidden fact and makes no truth claim. A headline
 with no record at all, such as one from a save made before the record
 existed, gets an honest "no one they asked could say".
