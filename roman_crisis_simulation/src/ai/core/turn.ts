@@ -15,6 +15,7 @@ import { generateStructured, generateStructuredStream, GEMINI_PRO, beginTurnCapt
 import { zAdjudication, zNarrationPayload } from './zodSchemas';
 import {
     attributeHeadlines,
+    livingAtCommit,
     stripActorsFromAdjudication,
     stripActorsFromSimulationState,
     type AdjudicationInterchange,
@@ -1340,6 +1341,10 @@ function assembleTurnResult(ctx: TurnContext, turn: {
 }): RunNewTurnResult {
     const { npcIntents, npcMindResults, declaredHeadlines, transformedAdjudication, mortalityEvents, applied, surfaces, proseRedactions } = turn;
     const { narration, playerMonologue, suggestedActions } = surfaces;
+    // GM-private (D42/D47): who acted in each headline the turn commits -
+    // the same `headlines` the Events tab cries - paired by exact text.
+    // Names frozen from the post-turn roster, then the pre-turn one.
+    const headlineActors = attributeHeadlines(declaredHeadlines, transformedAdjudication.headlines, [applied.updatedEntities, ctx.currentEntities], ctx.playerEntity.entity_id);
     const newHistoryEntry: TurnHistoryEntry = {
         turnNumber: ctx.turnNumber,
         playerIntent: ctx.playerIntent,
@@ -1349,10 +1354,10 @@ function assembleTurnResult(ctx: TurnContext, turn: {
         // monologue so the GM console never has to infer a chat message's
         // turn from array position (D44).
         playerMonologue,
-        // GM-private (D42/D47): who acted in each headline the turn commits -
-        // the same `headlines` the Events tab cries - paired by exact text.
-        // Names frozen from the post-turn roster, then the pre-turn one.
-        headlineActors: attributeHeadlines(declaredHeadlines, transformedAdjudication.headlines, [applied.updatedEntities, ctx.currentEntities]),
+        headlineActors,
+        // ...and who was alive to stand in as an occurrence answer's decoy,
+        // kept past the snapshot trim (ai/core/groundTruth.ts).
+        ...(headlineActors.length > 0 ? { livingAtCommit: livingAtCommit(applied.updatedEntities) } : {}),
         postTurnEntities: applied.updatedEntities, // Store final state
         rawCalls: endTurnCapture(),
         mortalityTrace: mortalityEvents.length > 0 ? mortalityEvents : undefined,

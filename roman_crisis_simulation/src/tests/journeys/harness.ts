@@ -603,6 +603,7 @@ function assertNoLeaks(outcome: {
     { label: 'headline attribution ids field', value: 'actorIds' },
     { label: 'headline attribution names field', value: 'actorNames' },
     { label: 'headline attribution unresolved field', value: 'unresolvedActors' },
+    { label: 'living-at-commit field', value: 'livingAtCommit' },
     // Roll mechanics as prose ("roll 13", "rolled 4").
     { label: 'roll mechanics', pattern: /\broll(?:ed)?\s+\d+\b/i },
   ];
@@ -986,6 +987,11 @@ export class JourneyRunner {
     // text, so every occurrence of the week can be grounded (D47).
     expect(entry.headlineActors?.map(record => record.text), `[${label}] every cried headline carries its GM-private attribution record`)
       .toEqual(result.headlines);
+    // ...with who was alive at commit beside it, whenever it holds a record.
+    if ((entry.headlineActors?.length ?? 0) > 0) {
+      expect(entry.livingAtCommit, `[${label}] a non-empty attribution record carries the ids alive at commit`)
+        .toEqual((entry.postTurnEntities ?? []).filter(entity => entity.status === 'alive').map(entity => entity.entity_id));
+    }
     // INV-NO-SILENT
     if (!def.allowConsoleErrors) {
       expect(consoleErrors, `[${label}] INV-NO-SILENT: console.error fired during the turn`).toEqual([]);

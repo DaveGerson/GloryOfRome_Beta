@@ -944,6 +944,17 @@ export interface TurnHistoryEntry {
    */
   headlineActors?: HeadlineAttribution[];
   /**
+   * GM-PRIVATE (D47): the ids alive and on the roster when this turn
+   * committed - written beside a non-empty `headlineActors`, and read only to
+   * pick the real figures an occurrence answer's decoy may be
+   * (ai/core/groundTruth.ts), so an old occurrence's decoy is never someone
+   * who arrived, or who was already dead, after it. Kept on every entry, not
+   * trimmed with the snapshot window, for the same reason as the record: ids
+   * only, one short string per living figure. Optional: entries written
+   * before it existed fall back to their snapshots, else the live roster.
+   */
+  livingAtCommit?: string[];
+  /**
    * Deep copy of the full entity roster as of this turn's commit - the
    * dominant per-turn share of the save blob. Present only on the most
    * recent KEEP_FULL_SNAPSHOTS entries (state/gameReducer.ts): each turn

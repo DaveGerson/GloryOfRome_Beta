@@ -7,17 +7,19 @@
  *
  * Pins, in order:
  *  - the record: paired with each committed headline by its final text, each
- *    declared label resolved by id, then name, then epithet, its names frozen
- *    at commit and its unresolved labels kept for the GM; written by the mock
- *    pipeline too (the real one: tests/turnPipeline.test.ts); the lookup pools
- *    a headline cried twice;
+ *    declared label resolved by id, then name, then epithet, then bare or by
+ *    a unique whole word, its names frozen at commit and its unresolved
+ *    labels kept for the GM, the ids alive at commit beside it; written by
+ *    the mock pipeline too (the real one: tests/turnPipeline.test.ts); the
+ *    lookup pools a headline cried twice;
  *  - the truth per question - hands, and for "Who gains?" their OPEN intents
  *    only: never a covert intent, never an action's notes (D28);
  *  - the plan (planOccurrence): count and shape never betray the accuracy;
  *    code picks every decoy - a real figure alive at the occurrence's own
- *    turn, of the true hand's familiarity, a stranger from the code list only
- *    when none is left - and every false aim from what other figures pursued
- *    that turn; "came back empty" is decided once per occurrence;
+ *    turn (past the snapshot trim too), of the true hand's familiarity, a
+ *    generated stranger only when none is left - and every false aim from
+ *    what other figures pursued that turn, at most three to a hand; "came
+ *    back empty" is decided once per occurrence;
  *  - the prompts, through the real tool path: one instruction whatever the
  *    reading or the decoy's kind, no list of figures, the rolls read off the
  *    public headline only; "What follows?" untouched; no record is an honest
@@ -43,8 +45,10 @@ import {
   occurrenceLedgerEntry,
   planInvestigation,
   planOccurrence,
+  MAX_AIMS_PER_HAND,
   siblingOccurrenceOutcome,
-  STRANGER_NAMES,
+  STRANGER_NAME_PARTS,
+  strangerName,
   type OccurrenceGrounding,
   type OccurrencePlan,
   type OccurrencePlanContext,
@@ -77,6 +81,7 @@ import type { DomainMutationContext, RunDomainMutation } from '../state/domainMu
 import {
   EntityActionIntentEnum,
   type Entity,
+  type EntityActionIntent,
   type GroundedOccurrenceQuestion,
   type HeadlineAttribution,
   type IntelAccuracy,
@@ -193,10 +198,25 @@ const namesIn = (calls: Array<{ prompt: string }>): string[] =>
     .map(token => JSON.parse(token) as string);
 
 /** The GM-private vocabulary: none of it may appear in a prompt whose output the player reads, nor on a player surface. */
-const TRUTH_FLAG_TOKENS = ['isTrue', 'standing', 'groundTruth', 'accuracy', 'fidelity', 'garbled', 'GARBLED', 'headlineActors', 'actorIds', 'actorNames', 'unresolvedActors', 'heldToSibling', 'cameBackEmpty'];
+const TRUTH_FLAG_TOKENS = ['isTrue', 'standing', 'groundTruth', 'accuracy', 'fidelity', 'garbled', 'GARBLED', 'headlineActors', 'actorIds', 'actorNames', 'unresolvedActors', 'livingAtCommit', 'heldToSibling', 'cameBackEmpty'];
 const SENTINELS = ['NOTE_SENTINEL', 'GOAL_SENTINEL', 'COVERT_SENTINEL', 'Sicarius', 'treasury', 'poisons'];
 /** The GM console's own wording for a stranger: never in a prompt. */
 const STRANGER_MARK = ' (a stranger, no roster figure)';
+
+const feminine = (nomen: string) => nomen.replace(/ius$/, 'ia');
+/** Whether `name` is one the stranger generator builds, in one of its three forms. */
+function isGeneratedStranger(name: string): boolean {
+  const { praenomina, nomina, cognomina } = STRANGER_NAME_PARTS;
+  const [first, second, third, ...rest] = name.split(' ');
+  if (rest.length > 0 || second === undefined) return false;
+  if (third !== undefined) return praenomina.includes(first) && nomina.includes(second) && cognomina.some(([masculine]) => masculine === third);
+  return (praenomina.includes(first) && nomina.includes(second))
+    || (nomina.map(feminine).includes(first) && cognomina.some(([, feminineForm]) => feminineForm === second));
+}
+/** Every word a generated stranger's name may hold - what a fragment of one is made of. */
+const STRANGER_WORDS = new Set([
+  ...STRANGER_NAME_PARTS.praenomina, ...STRANGER_NAME_PARTS.nomina, ...STRANGER_NAME_PARTS.nomina.map(feminine), ...STRANGER_NAME_PARTS.cognomina.flat(),
+]);
 
 /** Rumors that make figures known to the player through their knowledge store alone - the Dramatis Personae's own test. */
 const heardOf = (ids: string[]): KnowledgeClaim[] =>
@@ -292,6 +312,30 @@ describe('the attribution record (ai/core/actorsBoundary.ts::attributeHeadlines)
     expect(attributeHeadlines([{ text: 'x', actors: ['QUINTUS'] }], ['x'], [post])[0].actorIds).toEqual(['q_imitator']);
   });
 
+  it('a collective label resolves bare, or by a unique whole word - "the Senate" - never on a short or ambiguous one, nor loosely to the player', () => {
+    const bodies = [
+      makeEntity({ entity_id: 'roman_senate', name: 'Roman Senate', epithet: 'the Conscript Fathers' }),
+      makeEntity({ entity_id: 'praetorians', name: 'Praetorian Guard' }),
+      makeEntity({ entity_id: 'couriers', name: 'Imperial Guard of Couriers' }),
+      makeEntity({ entity_id: 'subura_mob', name: 'The Mob of the Subura' }),
+      makeEntity({ entity_id: 'player', name: 'Gaius Investigator' }),
+    ];
+    const [record] = attributeHeadlines([{
+      text: 'x',
+      actors: ['the Senate', 'Conscript Fathers', 'the Praetorian Guard', 'a mob of the Subura', 'the Guard', 'the mob', 'Investigator'],
+    }], ['x'], [bodies], 'player');
+    expect(record).toEqual({
+      text: 'x',
+      actorIds: ['roman_senate', 'praetorians', 'subura_mob'],
+      actorNames: ['Roman Senate', 'Praetorian Guard', 'The Mob of the Subura'],
+      // Two guards match "the Guard"; "mob" is too short to rest on; a loose label never names the player.
+      unresolvedActors: ['the Guard', 'the mob', 'Investigator'],
+    });
+    // The shipped cast: "the Senate" is the Roman Senate, never the Senatorial Party.
+    expect(attributeHeadlines([{ text: 'x', actors: ['the Senate', 'the mob'] }], ['x'], [ALL_INITIAL_ENTITIES])[0])
+      .toEqual({ text: 'x', actorIds: ['roman_senate'], actorNames: ['Roman Senate'], unresolvedActors: ['the mob'] });
+  });
+
   it('a declaration whose every label names no one is circumstance - its labels kept only for the GM', () => {
     expect(attributeHeadlines([{ text: 'A fire.', actors: ['ghost', 'phantom'] }], ['A fire.'], [post, pre]))
       .toEqual([{ text: 'A fire.', actorIds: [], actorNames: [], unresolvedActors: ['ghost', 'phantom'] }]);
@@ -311,6 +355,10 @@ describe('the attribution record (ai/core/actorsBoundary.ts::attributeHeadlines)
       { text: 'Discontent grows in the Praetorian Camp as rumors of imperial weakness spread.', actorIds: [], actorNames: [] },
       { text: 'Emperor promises bonus to Praetorian Guard.', actorIds: ['severus_alexander'], actorNames: ['Severus Alexander'] },
     ]);
+    // ...and beside it, the ids alive at commit.
+    expect(attempt.newHistoryEntry.livingAtCommit).toEqual(
+      attempt.newHistoryEntry.postTurnEntities!.filter(entity => entity.status === 'alive').map(entity => entity.entity_id),
+    );
     const idle = await runMock(questionOnly('What is whispered in the Curia?'));
     expect(idle.headlines).not.toContain('Emperor promises bonus to Praetorian Guard.');
     expect(idle.newHistoryEntry.headlineActors!.map(record => record.text)).toEqual(idle.headlines);
@@ -461,7 +509,7 @@ describe('planOccurrence - count and shape never betray the accuracy; code picks
     expect(seen).toEqual(new Set(['known', 'unknown']));
   });
 
-  it('an unknown hand\'s decoy is a real unknown roster figure; a stranger from the code list stands in only when none is left', () => {
+  it('an unknown hand\'s decoy is a real unknown roster figure; a generated stranger stands in only when none is left - never a figure of the other familiarity', () => {
     const unknownDecoys = new Set<string>();
     for (let seed = 0; seed < 30; seed++) {
       unknownDecoys.add(plan(['obscurus'], 'who_is_behind_it', 'false', 'fuller', seed, { sibling: 'named' }).findings[0].hand!.name);
@@ -473,17 +521,25 @@ describe('planOccurrence - count and shape never betray the accuracy; code picks
       const read = plan(['obscurus', 'hidden', 'remote'], 'who_is_behind_it', 'false', 'fuller', seed, { sibling: 'named' });
       const names = read.findings.map(finding => finding.hand!.name);
       expect(names).toHaveLength(3);
-      for (const name of names) expect(STRANGER_NAMES).toContain(name);
+      for (const name of names) {
+        expect(isGeneratedStranger(name), name).toBe(true);
+        expect(TAKEN.has(name.toLocaleLowerCase())).toBe(false);
+      }
       expect(new Set(names).size).toBe(3);
       // The ledger marks each as a stranger; the name itself is plain.
       for (const finding of read.findings) expect(finding.truth).toBe(`${finding.hand!.name}${STRANGER_MARK}`);
     }
-    // A known hand with no known figure left to stand in gets a stranger too - and a stranger never borrows a name some figure wears.
-    const lastFree = STRANGER_NAMES[STRANGER_NAMES.length - 1];
-    const taken = new Set([...TAKEN, ...STRANGER_NAMES.filter(name => name !== lastFree).map(name => name.toLocaleLowerCase())]);
-    for (let seed = 0; seed < 10; seed++) {
-      const alone = plan(['varro'], 'who_is_behind_it', 'false', 'fuller', seed, { sibling: 'named', isKnown: id => id === 'player' || id === 'varro', takenNames: taken });
-      expect(alone.findings[0].hand!.name).toBe(lastFree);
+    // A known hand with no known figure left gets a stranger too - never an unknown real figure, which would be a tell.
+    for (let seed = 0; seed < 20; seed++) {
+      const onlyVarroKnown = { sibling: 'named' as const, isKnown: (id: string) => id === 'player' || id === 'varro' };
+      const alone = plan(['varro'], 'who_is_behind_it', 'false', 'fuller', seed, onlyVarroKnown);
+      const name = alone.findings[0].hand!.name;
+      expect(isGeneratedStranger(name), name).toBe(true);
+      expect(UNKNOWN_NAMES).not.toContain(name);
+      // A stranger never borrows a name some figure wears: take the one it chose, and it chooses another.
+      const retaken = plan(['varro'], 'who_is_behind_it', 'false', 'fuller', seed, { ...onlyVarroKnown, takenNames: new Set([...TAKEN, name.toLocaleLowerCase()]) });
+      expect(retaken.findings[0].hand!.name).not.toBe(name);
+      expect(isGeneratedStranger(retaken.findings[0].hand!.name)).toBe(true);
     }
     // The player's own hand is a known one: its decoy is someone else they know.
     expect(KNOWN_NAMES).toContain(plan(['player'], 'who_is_behind_it', 'false', 'fuller', 3, { sibling: 'named' }).findings[0].hand!.name);
@@ -497,7 +553,7 @@ describe('planOccurrence - count and shape never betray the accuracy; code picks
       // Every unknown figure a true hand: the one reached gets a stranger's name, cut the same way.
       const stranger = plan(['obscurus', 'hidden', 'remote'], 'who_is_behind_it', 'false', 'fragment', seed, { sibling: 'named' }).findings[0];
       expect(stranger.fragmentary).toBe(true);
-      expect(STRANGER_NAMES.some(name => name.split(' ').includes(stranger.hand!.name))).toBe(true);
+      for (const word of stranger.hand!.name.split(' ')) expect(STRANGER_WORDS.has(word), stranger.hand!.name).toBe(true);
     }
   });
 
@@ -520,7 +576,7 @@ describe('planOccurrence - count and shape never betray the accuracy; code picks
     expect(decoysFor(entryFor(['varro'], OCCURRENCE, { postTurnEntities: [player, alive('varro'), alive('livia')] }), liviaDeadNow)).toEqual(new Set(['Livia Drusilla']));
     // Alive now, but dead then - or not yet on the roster (Quintus): never.
     expect(decoysFor(entryFor(['varro'], OCCURRENCE, { postTurnEntities: [player, alive('varro'), alive('crassus'), dead('livia')] }), roster)).toEqual(new Set(['Marcus Crassus']));
-    // The snapshot trimmed, the pre-turn roster kept: who was alive then, named from the roster.
+    // An entry with only its pre-turn roster: who was alive then, named from the roster.
     const preTurnRoster = [
       { entity_id: 'player', location: 'Rome', status: 'alive' as const },
       { entity_id: 'varro', location: 'Rome', status: 'alive' as const },
@@ -528,12 +584,93 @@ describe('planOccurrence - count and shape never betray the accuracy; code picks
       { entity_id: 'crassus', location: 'Rome', status: 'dead' as const },
     ];
     expect(decoysFor(entryFor(['varro'], OCCURRENCE, { preTurnRoster }), roster)).toEqual(new Set(['Quintus Sertorius']));
-    // No figure the player knows was alive then: a stranger.
+    // No figure the player knows was alive then: a stranger - never the unknown figure who was.
     for (const name of decoysFor(entryFor(['varro'], OCCURRENCE, { postTurnEntities: [player, alive('varro'), alive('hidden')] }), roster)) {
-      expect(STRANGER_NAMES).toContain(name);
+      expect(isGeneratedStranger(name), name).toBe(true);
     }
-    // Only an entry with neither falls back to the live roster.
+    // The ids frozen at commit come first, whatever the snapshot says.
+    expect(decoysFor(entryFor(['varro'], OCCURRENCE, { livingAtCommit: ['player', 'varro', 'quintus'], postTurnEntities: roster }), liviaDeadNow)).toEqual(new Set(['Quintus Sertorius']));
+    // Only an entry with none of these - a save from before the freeze - falls back to the live roster.
     expect(decoysFor(entryFor(['varro']), liviaDeadNow)).toEqual(new Set(['Marcus Crassus', 'Quintus Sertorius']));
+  });
+
+  it('past the snapshot trim, the ids frozen at commit still decide: a figure dead since may stand in, one who arrived after never', () => {
+    const novus = makeEntity({ entity_id: 'novus', name: 'Flavius Novus' });
+    const liveNow = [...roster.map(entity => entity.entity_id === 'livia' ? { ...entity, status: 'dead' as const } : entity), novus];
+    const occurrenceTurn = entryFor(['varro'], OCCURRENCE, { turnNumber: 3, postTurnEntities: roster, livingAtCommit: roster.map(entity => entity.entity_id) });
+    const later = Array.from({ length: KEEP_FULL_SNAPSHOTS + 2 }, (_, i) => entryFor([], `Later ${i}.`, { turnNumber: 4 + i, postTurnEntities: liveNow }));
+    const history = withOldSnapshotsDropped([occurrenceTurn, ...later]);
+    expect(history[0].postTurnEntities).toBeUndefined();
+    expect(history[0].livingAtCommit).toEqual(roster.map(entity => entity.entity_id));
+
+    // Novus is someone the player knows - he would be a fair decoy, had he been alive then.
+    const knowsNovus = context({ sibling: 'named', isKnown: id => id === 'player' || id === 'novus' || KNOWN_IDS.includes(id) });
+    const decoys = (turnHistory: TurnHistoryEntry[]) => {
+      const found = new Set<string>();
+      const ground = occurrenceGrounding({ turnHistory, occurrence: OCCURRENCE, question: 'who_is_behind_it', roster: liveNow })!;
+      for (let seed = 0; seed < 60; seed++) {
+        found.add(planOccurrence(ground, 'who_is_behind_it', { accuracy: 'false', fidelity: 'fuller' }, createSeededRng(seed), knowsNovus).findings[0].hand!.name);
+      }
+      return found;
+    };
+    const frozen = decoys(history);
+    expect(frozen).toContain('Livia Drusilla');
+    expect(frozen).not.toContain('Flavius Novus');
+    // A save from before the freeze can only fall back to who is alive now: the very tell the freeze closes.
+    const { livingAtCommit: _dropped, ...unfrozenEntry } = history[0];
+    const unfrozen = decoys([unfrozenEntry, ...history.slice(1)]);
+    expect(unfrozen).toContain('Flavius Novus');
+    expect(unfrozen).not.toContain('Livia Drusilla');
+  });
+
+  it('each figure frozen at commit is named off the live roster, else any snapshot - and one named nowhere is left out', () => {
+    const frozen = entryFor(['varro'], OCCURRENCE, { livingAtCommit: ['player', 'varro', 'departed', 'nobody', 'varro'] });
+    const since = makeTurnHistoryEntry({ turnNumber: 5, postTurnEntities: [makeEntity({ entity_id: 'departed', name: 'Lucius Departed' })] });
+    const ground = occurrenceGrounding({ turnHistory: [frozen, since], occurrence: OCCURRENCE, question: 'who_is_behind_it', roster })!;
+    expect(ground.aliveThen).toEqual([
+      { id: 'player', name: NAMES.player },
+      { id: 'varro', name: NAMES.varro },
+      { id: 'departed', name: 'Lucius Departed' },
+    ]);
+  });
+
+  it('a hand is reported with at most three aims - its first three open intents - and a false reading keeps that shape without running dry', async () => {
+    const SEVEN: EntityActionIntent[] = ['tax_raise', 'recruit', 'march', 'raid', 'siege', 'fortify', 'propaganda'];
+    const busy = entryFor(['crassus'], OCCURRENCE, {
+      adjudication: makeAdjudication({
+        turn: 3,
+        headlines: [OCCURRENCE],
+        entityActions: [
+          ...SEVEN.map(intent => ({ id: 'crassus', intent, target: null, notes: '' })),
+          { id: 'varro', intent: 'negotiate' as const, target: null, notes: '' },
+        ],
+      }),
+    });
+    const ground = grounding(['crassus'], 'who_gains', busy);
+    expect(MAX_AIMS_PER_HAND).toBe(3);
+    expect(ground.hands[0].aims).toEqual(['tax_raise', 'recruit', 'march']);
+    expect(ground.groundTruth).toBe(`Marcus Crassus: ${AIM_PHRASE.tax_raise}; ${AIM_PHRASE.recruit}; ${AIM_PHRASE.march}`);
+    for (const accuracy of ['true', 'garbled', 'false'] as IntelAccuracy[]) {
+      for (const fidelity of ['fragment', 'partial', 'fuller'] as IntelFidelity[]) {
+        for (let seed = 0; seed < 40; seed++) {
+          const read = planOccurrence(ground, 'who_gains', { accuracy, fidelity }, createSeededRng(seed), context({ sibling: 'named' }));
+          for (const finding of read.findings) {
+            expect(finding.hand!.aims).toHaveLength(3);
+            for (const aim of finding.hand!.aims) expect(Object.keys(AIM_PHRASE)).toContain(aim);
+            expect(new Set(finding.hand!.aims).size).toBe(3);
+          }
+          expect(() => buildClarificationPrompt(OCCURRENCE, 'who_gains', player, read)).not.toThrow();
+        }
+      }
+    }
+    // Through the tool, on a false roll: three aims, none undefined, no throw.
+    pinRolls([1, 15, 20]);
+    const { ai, calls } = recordingAi('Crassus, they say.');
+    const { truth } = await ask('who_gains', [busy], ai, { sibling: 'named' });
+    expect(truth!.finding.standing).toBe('false');
+    const line = calls[0].prompt.split('\n').find(candidate => /^1\. /.test(candidate))!;
+    expect(line.split(' - sought: ')[1].split(', ')).toHaveLength(3);
+    expect(line).not.toContain('undefined');
   });
 
   it('covert intents are never an aim - not a true one, not a decoy\'s: a covert-only hand is a bare name on every reading', () => {
@@ -708,7 +845,7 @@ describe('getClarificationOnEvent - grounded prompts (D47)', () => {
     expect(JSON.stringify(truth)).not.toMatch(/SENTINEL|Sicarius|intrigue|assassinat/);
   });
 
-  it('a decoy of any kind - a known figure, an unknown one, a stranger from the code list - rides as a plain name under ONE instruction, with no list of figures', async () => {
+  it('a decoy of any kind - a known figure, an unknown one, a generated stranger - rides as a plain name under ONE instruction, with no list of figures', async () => {
     pinRolls([15, 15]);
     const truthful = recordingAi('Varro, they say.');
     await ask('who_is_behind_it', [entryFor(['varro'])], truthful.ai);
@@ -728,7 +865,8 @@ describe('getClarificationOnEvent - grounded prompts (D47)', () => {
 
     expect(KNOWN_NAMES.filter(name => name !== NAMES.varro)).toContain(known.decoy);
     expect(['Aulus Hidden', 'Numerius Remotus']).toContain(unknown.decoy);
-    expect(STRANGER_NAMES).toContain(stranger.decoy);
+    expect(isGeneratedStranger(stranger.decoy), stranger.decoy).toBe(true);
+    expect(Object.values(NAMES)).not.toContain(stranger.decoy);
     for (const reading of [known, unknown, stranger]) {
       // The model is never told which reading, nor which kind of decoy, it holds: the instruction is the truth's, byte for byte...
       expect(reading.calls[0].systemInstruction).toBe(truthful.calls[0].systemInstruction);
@@ -745,6 +883,25 @@ describe('getClarificationOnEvent - grounded prompts (D47)', () => {
     expect(unknown.finding).toMatchObject({ groundTruth: 'Tiberius Obscurus', planned: unknown.decoy });
     // Only the GM's ledger says a stranger is one.
     expect(stranger.finding.planned).toBe(`${stranger.decoy}${STRANGER_MARK}`);
+  });
+
+  it('a generated stranger never borrows a name the roster, any snapshot or any hand\'s frozen record wears', async () => {
+    const strangerFor = async (history: TurnHistoryEntry[]) => {
+      pinRolls([1, 15, 20]);
+      const { truth } = await ask('who_is_behind_it', history, recordingAi('A stranger, they say.').ai, { knowledge: heardOf(['hidden', 'remote']) });
+      vi.restoreAllMocks();
+      return truth!.finding.planned.replace(STRANGER_MARK, '');
+    };
+    const first = await strangerFor([entryFor(['obscurus'])]);
+    expect(isGeneratedStranger(first)).toBe(true);
+    // The same draw, once a long-gone hand frozen in an older record wore that name: another is drawn.
+    const older = entryFor(['ghost'], 'An older fire.', { turnNumber: 1, headlineActors: [{ text: 'An older fire.', actorIds: ['ghost'], actorNames: [first] }] });
+    const second = await strangerFor([older, entryFor(['obscurus'])]);
+    expect(second).not.toBe(first);
+    expect(isGeneratedStranger(second)).toBe(true);
+    // ...and likewise once a snapshot figure wore it.
+    const snapshot = entryFor([], 'Another.', { turnNumber: 2, postTurnEntities: [makeEntity({ entity_id: 'someone', name: first })] });
+    expect(await strangerFor([snapshot, entryFor(['obscurus'])])).not.toBe(first);
   });
 
   it('the honest nothing, the false nothing and a nothing held to its sibling are asked for in byte-identical prompts', async () => {
@@ -912,8 +1069,9 @@ describe('Mock Mode - deterministic, following the same plan', () => {
     expect(rendered).toBe(true);
   });
 
-  it('a false or garbled reading names exactly the code-picked decoy - a known figure, an unknown one, or a stranger from the code list', async () => {
+  it('a false or garbled reading names exactly the code-picked decoy - a known figure, an unknown one, or a generated stranger', async () => {
     const seen = new Set<string>();
+    const strangers: string[] = [];
     const run = async (knowledge: KnowledgeClaim[]) => {
       for (let i = 0; i < 120; i++) {
         const occurrence = `Occurrence number ${i} is cried.`;
@@ -927,7 +1085,8 @@ describe('Mock Mode - deterministic, following the same plan', () => {
           expect(text).toContain(fragment ? `…${name}…` : name);
           if (fragment) continue;
           if (isStranger) {
-            expect(STRANGER_NAMES).toContain(name);
+            expect(isGeneratedStranger(name), name).toBe(true);
+            strangers.push(name);
             seen.add('stranger');
           } else if (name !== NAMES.varro && name !== NAMES.obscurus) {
             expect([...KNOWN_NAMES, ...UNKNOWN_NAMES]).toContain(name);
@@ -940,6 +1099,9 @@ describe('Mock Mode - deterministic, following the same plan', () => {
     await run([]);
     await run(heardOf(['hidden', 'remote']));
     expect(seen).toEqual(new Set(['known decoy', 'unknown decoy', 'stranger']));
+    // The same generator offline: no stranger recurs as a learnable mark.
+    expect(strangers.length).toBeGreaterThan(20);
+    expect(new Set(strangers).size).toBeGreaterThanOrEqual(strangers.length * 0.8);
   });
 
   it('parity offline: an account names as many hands as the truth would have, or none at all', async () => {
@@ -1310,11 +1472,13 @@ describe('the record in state and saves (compatibility)', () => {
     const history = Array.from({ length: KEEP_FULL_SNAPSHOTS + 3 }, (_, i) => entryFor(['varro'], `Occurrence ${i}.`, {
       turnNumber: i + 1,
       postTurnEntities: roster,
+      livingAtCommit: roster.map(entity => entity.entity_id),
       npcMindResults: [],
     }));
     const trimmed = withOldSnapshotsDropped(history);
     expect(trimmed[0].postTurnEntities).toBeUndefined();
     expect(trimmed.map(entry => entry.headlineActors)).toEqual(history.map(entry => entry.headlineActors));
+    expect(trimmed.map(entry => entry.livingAtCommit)).toEqual(history.map(entry => entry.livingAtCommit));
   });
 
   it('round-trips through the save with the occurrence\'s ledger entry and the player\'s finding, and loads into the reducer', () => {
@@ -1322,13 +1486,14 @@ describe('the record in state and saves (compatibility)', () => {
     const ledger = [occurrenceLedgerEntry(truthOf('true'), occurrenceClaimKey(OCCURRENCE, 'who_is_behind_it'), 4, 1)];
     const knowledge = ingestOccurrenceFinding([], { occurrence: OCCURRENCE, question: 'who_is_behind_it', text: 'Circumstance.', turn: 4, cameBackEmpty: true });
     const withUnresolved: HeadlineAttribution[] = [...records, { text: 'A riot.', actorIds: [], actorNames: [], unresolvedActors: ['a mob'] }];
-    const save = makeLegacySaveState({ turnHistory: [entryFor(['varro'], OCCURRENCE, { headlineActors: withUnresolved })], truthLedger: ledger, knowledge });
+    const save = makeLegacySaveState({ turnHistory: [entryFor(['varro'], OCCURRENCE, { headlineActors: withUnresolved, livingAtCommit: ['player', 'varro'] })], truthLedger: ledger, knowledge });
     expect(saveGame(save)).toEqual({ ok: true });
     const loaded = loadGame()!.state;
     expect(loaded.turnHistory[0].headlineActors).toEqual(withUnresolved);
     expect(loaded.truthLedger).toEqual(ledger);
     const state = gameReducer(createInitialGameState(), { type: 'GAME_LOADED', save: loaded });
     expect(state.turnHistory[0].headlineActors).toEqual(withUnresolved);
+    expect(state.turnHistory[0].livingAtCommit).toEqual(['player', 'varro']);
     // The sibling's durable home survives a reload.
     expect(occurrenceSiblingInStore(state.knowledge, OCCURRENCE, 'who_gains')).toBe('empty');
     localStorage.clear();
@@ -1361,9 +1526,54 @@ describe('the code lists', () => {
     }
   });
 
-  it('STRANGER_NAMES are distinct, and none is a figure of the shipped cast', () => {
-    expect(new Set(STRANGER_NAMES.map(name => name.toLocaleLowerCase())).size).toBe(STRANGER_NAMES.length);
-    const cast = new Set(ALL_INITIAL_ENTITIES.map(entity => entity.name.toLocaleLowerCase()));
-    for (const name of STRANGER_NAMES) expect(cast.has(name.toLocaleLowerCase()), name).toBe(false);
+  it('the stranger generator\'s pools run to tens of thousands of names, in third-century forms', () => {
+    const { praenomina, nomina, cognomina } = STRANGER_NAME_PARTS;
+    expect(praenomina.length).toBeGreaterThanOrEqual(15);
+    expect(nomina.length).toBeGreaterThanOrEqual(50);
+    expect(cognomina.length).toBeGreaterThanOrEqual(50);
+    for (const pool of [praenomina, nomina, cognomina.map(([masculine]) => masculine), cognomina.map(([, feminineForm]) => feminineForm)]) {
+      expect(new Set(pool).size).toBe(pool.length);
+    }
+    for (const nomen of nomina) expect(nomen).toMatch(/ius$/);
+    const combinations = praenomina.length * nomina.length * (1 + cognomina.length) + nomina.length * cognomina.length;
+    expect(combinations).toBeGreaterThan(20_000);
+  });
+
+  it('strangerName: diverse, varying with the seed, in all three forms - and never a name a figure wears', () => {
+    const cast = new Set([...ALL_INITIAL_ENTITIES, ...roster].map(entity => entity.name.toLocaleLowerCase()));
+    const isTaken = (name: string) => cast.has(name.toLocaleLowerCase());
+    const rng = createSeededRng(1);
+    const drawn = Array.from({ length: 2000 }, () => strangerName(rng, isTaken));
+    const counts = new Map<string, number>();
+    for (const name of drawn) {
+      expect(isGeneratedStranger(name), name).toBe(true);
+      expect(isTaken(name)).toBe(false);
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    // No name more than a quarter of a percent of the draws; nearly every draw a new one.
+    expect(Math.max(...counts.values())).toBeLessThanOrEqual(5);
+    expect(counts.size).toBeGreaterThan(1800);
+    const forms = new Set(drawn.map(name => name.split(' ').length === 3 ? 'three' : STRANGER_NAME_PARTS.praenomina.includes(name.split(' ')[0]) ? 'man' : 'woman'));
+    expect(forms).toEqual(new Set(['three', 'man', 'woman']));
+    // Different seeds, different strangers.
+    const firsts = new Set(Array.from({ length: 30 }, (_, seed) => strangerName(createSeededRng(seed), isTaken)));
+    expect(firsts.size).toBeGreaterThanOrEqual(27);
+    // A refused name is never returned: the next is drawn instead.
+    const first = strangerName(createSeededRng(5), () => false);
+    const second = strangerName(createSeededRng(5), name => name === first);
+    expect(second).not.toBe(first);
+    expect(isGeneratedStranger(second)).toBe(true);
+  });
+
+  it('across four hundred false readings of an unknown hand with no unknown figure left, no stranger recurs often enough to learn', () => {
+    const counts = new Map<string, number>();
+    for (let seed = 0; seed < 400; seed++) {
+      const read = plan(['obscurus'], 'who_is_behind_it', 'false', 'fuller', seed, { sibling: 'named', isKnown: id => id !== 'obscurus' });
+      const name = read.findings[0].hand!.name;
+      expect(Object.values(NAMES)).not.toContain(name);
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    expect(Math.max(...counts.values())).toBeLessThanOrEqual(4);
+    expect(counts.size).toBeGreaterThan(350);
   });
 });

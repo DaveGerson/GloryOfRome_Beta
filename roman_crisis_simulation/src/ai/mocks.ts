@@ -18,7 +18,7 @@ import {
   redactInventedPlayerProseFromValue,
   samePlayerIdentity,
 } from './core/playerBoundary';
-import { attributeHeadlines, stripActorsFromAdjudication, type AdjudicationInterchange, type EventDeltaInterchange } from './core/actorsBoundary';
+import { attributeHeadlines, livingAtCommit, stripActorsFromAdjudication, type AdjudicationInterchange, type EventDeltaInterchange } from './core/actorsBoundary';
 import { selectDurableIntents } from './core/directorIntents';
 import { AIM_PHRASE, type GroundTruthKind, type InvestigationPlan, type OccurrencePlan, type PlannedFinding, type SchemeNaturePlan } from './core/groundTruth';
 
@@ -632,6 +632,7 @@ export const mockRunNewTurn = async (
         ...monologueRedaction.redactions,
     ]));
 
+    const headlineActors = attributeHeadlines(declaredHeadlines, strippedAdjudication.headlines, [updatedEntities, currentEntities], playerEntity.entity_id);
     const newHistoryEntry: TurnHistoryEntry = {
         turnNumber,
         playerIntent,
@@ -639,7 +640,8 @@ export const mockRunNewTurn = async (
         narration: narrationRedaction.value,
         // Parity with ai/core/turn.ts: always set, `''` included (D44).
         playerMonologue: monologueRedaction.value,
-        headlineActors: attributeHeadlines(declaredHeadlines, strippedAdjudication.headlines, [updatedEntities, currentEntities]),
+        headlineActors,
+        ...(headlineActors.length > 0 ? { livingAtCommit: livingAtCommit(updatedEntities) } : {}),
         postTurnEntities: updatedEntities,
         perceivingNpcIds,
         npcIntents: durableIntents.length > 0 ? durableIntents : undefined,

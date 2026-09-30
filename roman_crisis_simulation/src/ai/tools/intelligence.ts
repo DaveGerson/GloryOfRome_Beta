@@ -180,10 +180,13 @@ export const getClarificationOnEvent = async (
         targetParanoia: undefined,
         difficulty: OCCURRENCE_DIFFICULTY[standing],
     });
-    // Every name a figure wears, now or in any snapshot: a stranger never borrows one.
-    const takenNames = new Set([
-        ...allEntities.map(entity => entity.name),
-        ...turnHistory.flatMap(entry => entry.postTurnEntities ?? []).map(entity => entity.name),
+    // Every name a figure wears, now or in any snapshot, and every hand's
+    // frozen name: a stranger never borrows one.
+    const takenNames = new Set<string>([
+        ...allEntities.map(entity => entity?.name),
+        ...turnHistory.flatMap(entry => Array.isArray(entry?.postTurnEntities) ? entry.postTurnEntities : []).map(entity => entity?.name),
+        ...turnHistory.flatMap(entry => Array.isArray(entry?.headlineActors) ? entry.headlineActors : [])
+            .flatMap(record => Array.isArray(record?.actorNames) ? record.actorNames : []),
         ...grounding.aliveThen.map(figure => figure.name),
     ].filter((name): name is string => typeof name === 'string').map(name => name.trim().toLocaleLowerCase()));
     const plan = planOccurrence(grounding, question, rolls, rng, {

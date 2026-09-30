@@ -2520,6 +2520,11 @@ describe('ai/core/turn.ts runNewTurn - no-attempt prose redaction vs. structural
       { text: 'Creditors circle the Palatine.', actorIds: ['npc_crassus'], actorNames: ['Crassus'] },
       { text: 'The Senate debates the grain dole.', actorIds: [], actorNames: [], unresolvedActors: ['the grain factors'] },
     ]);
+    // Beside it, who was alive at commit: the only real figures an old occurrence's decoy may be.
+    expect(result.newHistoryEntry.livingAtCommit).toEqual(
+      result.newHistoryEntry.postTurnEntities!.filter(entity => entity.status === 'alive').map(entity => entity.entity_id),
+    );
+    expect(result.newHistoryEntry.livingAtCommit).toEqual(expect.arrayContaining(['player_1', 'npc_crassus']));
     // A separate record: the committed headlines themselves stay bare text (D42).
     expect(result.newHistoryEntry.adjudication.headlines).toEqual(result.headlines);
   });
@@ -2533,6 +2538,7 @@ describe('ai/core/turn.ts runNewTurn - no-attempt prose redaction vs. structural
       adjudication: { turn: 1, entityActions: [], deltas: [], headlines: ['A fire in the Subura.'], gm_private: [] },
       narration: 'Smoke over the Subura.',
       headlineActors: [{ text: 'A fire in the Subura.', actorIds: ['npc_sentinel_hand'], actorNames: ['SENTINEL_HAND Aurelius'], unresolvedActors: ['SENTINEL_LABEL'] }],
+      livingAtCommit: ['npc_sentinel_living'],
     };
 
     h.response.storyRelevance.resolve(storyRelevanceJson);
@@ -2549,7 +2555,7 @@ describe('ai/core/turn.ts runNewTurn - no-attempt prose redaction vs. structural
 
     for (const kind of ['simulationState', 'monologue', 'narration'] as const) {
       const sent = `${h.systemInstructionsByKind[kind]}\n${h.promptsByKind[kind]}`;
-      for (const token of ['headlineActors', 'actorIds', 'actorNames', 'unresolvedActors', 'npc_sentinel_hand', 'SENTINEL_HAND', 'SENTINEL_LABEL']) expect(sent, `${kind} carries ${token}`).not.toContain(token);
+      for (const token of ['headlineActors', 'actorIds', 'actorNames', 'unresolvedActors', 'livingAtCommit', 'npc_sentinel_hand', 'npc_sentinel_living', 'SENTINEL_HAND', 'SENTINEL_LABEL']) expect(sent, `${kind} carries ${token}`).not.toContain(token);
     }
   });
 
