@@ -529,7 +529,9 @@ those shapes. `TurnHistoryEntry.headlineActors`
 entities the adjudication declared behind each committed headline. A
 declared actor is resolved by id, then name, then epithet, and its name is
 frozen at commit. A label that names no roster figure is kept aside for
-the GM.
+the GM. Beside it, `TurnHistoryEntry.livingAtCommit` keeps the ids alive
+at commit, outside the snapshot trim, so a false reading about an old
+occurrence names only someone alive at the time.
 It is read after the gate has run, so the text is post-redaction, and
 before the strip, and it is paired to the final headline by exact text.
 It exists so the Events tab's "Who is behind it?" and "Who gains?" can be

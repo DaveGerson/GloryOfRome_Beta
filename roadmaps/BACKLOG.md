@@ -1319,9 +1319,14 @@ Nothing here blocks; all are one edit from rewording.
       reached of that name: report only that much of it, and never
       complete it."
     - Stranger names, used only when no real figure can stand in for a
-      false or garbled reading (`STRANGER_NAMES`): Gnaeus Calpurnius,
-      Decimus Lollius, Sextus Rutilius, Aulus Vettius, Titus Annius,
-      Publius Nonius, Servius Arrius, Lucius Cominius.
+      false or garbled reading. They are generated in code
+      (`STRANGER_NAME_PARTS`), about 59,000 names from:
+      - 16 praenomina;
+      - 60 nomina in -ius (feminine -ia);
+      - 57 cognomen pairs, 45 Latin (Rufus/Rufa, Severus/Severa,
+        Felix/Felicitas …) and 12 Greek or provincial (Hermogenes/Hermione,
+        Zosimus/Zosime, Syrus/Syra, Afer/Afra …).
+      They reach the prompt only as quoted names.
     - A private scene's new lines on the NPC's marks and ties and the
       player's outward marks and open ties (`ai/prompts/privateScene.ts`).
   - *Mock Mode only* (`ai/mocks.ts`):
@@ -1577,9 +1582,22 @@ purpose, and the reason is given.
     false account.
   - A decoy must be alive at the occurrence's turn. "Known" is judged by
     what the player knows when they ask.
-- **Stranger names are a fixed list of eight**, used only when no real
-  figure can stand in. A figure created later could share one, and a long
-  reign may learn them.
+- **Stranger names are generated**, used only when no real figure of the
+  same familiarity can stand in. A figure created later could wear a name
+  once given to a stranger.
+- **`livingAtCommit` is never trimmed.** It costs about 180 bytes a turn
+  with the shipped cast, and roughly 72 KiB per 100 turns at 40 figures.
+  Storing only the changes between turns would shrink it if saves grow.
+  An entry written before the field existed and past the trim window
+  still picks decoys from the living roster.
+- **A headline that names its own actor gives something away.** A false
+  reading never names a true hand, so an answer naming the actor the
+  headline already named is certainly not false. This is inherent to
+  never letting a lie be true by chance (D11).
+- **Known decoys are not matched by place.** A decoy the player knows may
+  be somewhere far from the event, as the Empire tab could show.
+- **A hand's aims are capped at three**, its first three open moves that
+  turn.
 - **Decoy aims follow what others really did that turn**, so they are
   plausible. With no other figure's open move to borrow, they fall back to
   any open move.
@@ -1590,7 +1608,9 @@ purpose, and the reason is given.
 - **Headline naming uses a substring match**, as it did before, so a short
   name can match inside another word when the standing is read.
 - **When two figures share a name or epithet**, the first in roster order
-  is taken.
+  is taken. A looser label ("the Senate") resolves only when exactly one
+  figure's name or epithet holds it as a whole word, and never to the
+  player.
 - **Not built:**
   - a journey that asks an occurrence question (unit tests cover the whole
     flow through the tab);
