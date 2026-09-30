@@ -235,9 +235,13 @@ describe('D49 prompts: the GM knows every tie; a mind and a scene never the play
     expect(JSON.stringify(figures)).not.toContain(PLAYER_SECRET);
   });
 
-  it('SENTINEL: a private scene\'s prompt carries the player\'s public face only - never a secret tie', () => {
+  it('SENTINEL: a private scene\'s prompt carries the NPC\'s own ties and the player\'s public face only - never the player\'s secret tie', () => {
     const input = buildScenePromptInput(player, julia, [{ sequence: 1, speaker: 'player', text: 'Mother, a word.' }], 1);
     const { systemInstruction, prompt } = buildPrivateScenePrompt(input);
+    // She speaks from her own ties, her secret one marked as hers alone.
+    expect(prompt).toContain('the circle of Origen (religion; KEPT SECRET - known only to you');
+    // Of the player she knows only what they openly profess.
+    expect(prompt).toContain('the gods of the Roman state (religion; openly professed)');
     expect(`${systemInstruction}\n${prompt}`).not.toContain(PLAYER_SECRET);
   });
 

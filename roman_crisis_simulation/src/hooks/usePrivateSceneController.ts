@@ -30,6 +30,8 @@ import {
     type PrivateSceneRecord,
 } from '../privateScene/model';
 import { continuePrivateScene } from '../ai/tools/privateScene';
+import { conditionClause, conditionsOf, outwardConditionsOf } from '../ai/core/conditions';
+import { affiliationClause, affiliationsOf, publicAffiliationsOf } from '../ai/core/affiliations';
 import { PRIVATE_SCENE_MAX_PROMPT_INPUT_CHARS, PrivateSceneInputError } from '../ai/prompts/privateScene';
 import { replacePrivateSceneForCommit } from '../components/PrivateScene';
 import type { PrivateSceneFailure } from '../components/ui/FailureNotices';
@@ -86,14 +88,15 @@ function clipSceneText(text: string): string {
  * limit outgrows it by the sixth exchange; left alone it failed there, on
  * every retry. So, only as far as needed: the older lines keep their opening
  * words (the newest line - the one being answered - stays whole), then the
- * NPC's context items do, then context items go, oldest memories first, and
- * last the NPC's own description keeps its opening words.
+ * context items do (the NPC's, then what it sees of the player), then
+ * context items go, oldest memories first, and last the NPC's own
+ * description keeps its opening words.
  */
 function fitSceneBudget<T extends ReturnType<typeof unfittedScenePrompt>>(input: T): T {
     const fits = () => JSON.stringify(input).length <= PRIVATE_SCENE_MAX_PROMPT_INPUT_CHARS;
     const { transcript, npc } = input;
     for (let i = 0; i < transcript.length - 1 && !fits(); i++) transcript[i] = { ...transcript[i], text: clipSceneText(transcript[i].text) };
-    const lists = [npc.memories, npc.beliefs, npc.goals, npc.ownSecrets];
+    const lists = [npc.memories, npc.beliefs, npc.goals, npc.ownSecrets, npc.marks, npc.ties, input.player.outwardMarks, input.player.openTies];
     for (const list of lists) {
         for (let i = 0; i < list.length && !fits(); i++) list[i] = clipSceneText(list[i]);
     }
@@ -123,17 +126,31 @@ function unfittedScenePrompt(
             goals: sceneContextList(npc.short_term_goals, 8), beliefs: sceneContextList(npc.beliefs ?? [], 8),
             ownSecrets: sceneContextList(npc.secrets ?? [], 8),
             memories: sceneContextList(npc.memories.map(memory => memory.event_description), 8, true),
+            // D48/D49: the NPC speaks from its own marks and ties - an
+            // inward mark or a secret tie is its own private burden, as
+            // ownSecrets is (the scene's rules say so).
+            marks: sceneContextList(conditionsOf(npc).map(mark => conditionClause(mark)), 8),
+            ties: sceneContextList(affiliationsOf(npc).map(tie => affiliationClause(tie, { voice: 'own' })), 8),
             relationshipToPlayer: undefined,
         },
-        player: { entityId: player.entity_id, displayName: player.name, position: optionalSceneText(player.position) },
+        player: {
+            entityId: player.entity_id, displayName: player.name, position: optionalSceneText(player.position),
+            // Only what the NPC can see or knows publicly of the player: a
+            // mark that shows, by name and weight - never its account, which
+            // is how it weighs on the player - and the ties they openly
+            // profess. A secret tie the NPC witnessed is in its own memories.
+            outwardMarks: sceneContextList(outwardConditionsOf(player).map(mark => conditionClause({ ...mark, description: '' }, { visibility: false })), 8),
+            openTies: sceneContextList(publicAffiliationsOf(player).map(tie => affiliationClause(tie)), 8),
+        },
         transcript: transcript.map(line => ({ speaker: line.speaker, text: line.text })),
     };
 }
 
 /**
  * The per-NPC prompt payload for one private-scene call. Pure: the NPC's
- * own mind (bounded to its first eight goals/beliefs/secrets and last eight
- * memories), the player's public face, and the transcript so far - every
+ * own mind (bounded to its first eight goals/beliefs/secrets/marks/ties and
+ * last eight memories), the player's public face (their outward marks and
+ * openly professed ties among it), and the transcript so far - every
  * optional field that is null or blank left out, and the whole fitted to
  * the prompt's budget (`fitSceneBudget`), so a known, reachable individual
  * is never refused by the input bound itself.

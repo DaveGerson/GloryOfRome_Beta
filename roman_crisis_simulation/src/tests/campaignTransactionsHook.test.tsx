@@ -13,6 +13,8 @@ import { act } from 'react';
 import { renderHook } from './renderHook';
 import { useCampaignTransactions } from '../hooks/useCampaignTransactions';
 import { buildPrivateScenePrompt } from '../hooks/usePrivateSceneController';
+import { conditionClause, outwardConditionsOf } from '../ai/core/conditions';
+import { affiliationClause, publicAffiliationsOf, secretAffiliationsOf } from '../ai/core/affiliations';
 import { isPrivateSceneInteractionLocked } from '../app/transactions';
 import { createInitialGameState, type GameAction, type GameDomainState } from '../state/gameReducer';
 import { loadGame, saveGame } from '../persistence/saveGame';
@@ -214,7 +216,13 @@ describe('buildPrivateScenePrompt', () => {
         const prompt = buildPrivateScenePrompt(player, npc, [
             { sequence: 1, speaker: 'player', text: 'Speak plainly.' },
         ], 1);
-        expect(prompt.player).toEqual({ entityId: 'severus_alexander', displayName: 'Severus Alexander', position: 'Emperor' });
+        // The public face: who they are, the marks that show, the ties they
+        // openly profess (D48/D49) - never a secret tie or an inward mark.
+        const { outwardMarks, openTies, ...face } = prompt.player;
+        expect(face).toEqual({ entityId: 'severus_alexander', displayName: 'Severus Alexander', position: 'Emperor' });
+        expect(outwardMarks).toEqual(outwardConditionsOf(player).map(mark => conditionClause({ ...mark, description: '' }, { visibility: false })));
+        expect(openTies).toEqual(publicAffiliationsOf(player).map(tie => affiliationClause(tie)));
+        for (const secret of secretAffiliationsOf(player)) expect(JSON.stringify(prompt)).not.toContain(secret.name);
         expect(prompt.transcript).toEqual([{ speaker: 'player', text: 'Speak plainly.' }]);
     });
 });
