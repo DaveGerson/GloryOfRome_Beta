@@ -15,11 +15,13 @@
  * downstream of the parse boundary (engine.ts, playerBoundary.ts, saves,
  * turnHistory) ever sees the field. Centralized here rather than copy-pasted
  * per call site (ai/core/turn.ts, ai/tools/intelligence.ts,
- * ai/core/mortality.ts).
+ * ai/core/mortality.ts). The headlines' declarations alone are also kept
+ * apart, as a separate GM-private record beside the history entry
+ * (`attributeHeadlines` below) - never on the committed shapes themselves.
  */
 
 import type { z } from 'zod';
-import type { Adjudication, EntityAction, EventDelta, SimulationState } from '../../types';
+import type { Adjudication, EntityAction, EventDelta, HeadlineAttribution, SimulationState } from '../../types';
 import type {
   zAdjudication,
   zEntityAction,
@@ -94,6 +96,36 @@ export function stripActorsFromAdjudication(adjudication: AdjudicationInterchang
     deltas: adjudication.deltas.map(stripActorsFromEventDelta),
     headlines: adjudication.headlines.map(headline => headline.text),
   } as Adjudication;
+}
+
+/**
+ * The one place a declaration outlives the commit boundary, and only as a
+ * SEPARATE, additive GM-private record (D42 leaves every persisted shape as it
+ * was; TurnHistoryEntry.headlineActors): each committed headline paired with
+ * the `actors` its interchange item declared, so an occurrence question can be
+ * grounded in who really acted (D47).
+ *
+ * `declared` is the interchange's headline list as the declaration-aware
+ * no-attempt gate left it (the gate drops or trims headlines in place, so the
+ * texts are already post-redaction); `committed` is the headline list the turn
+ * finally commits. A committed headline pairs with the first unpaired declared
+ * one of exactly its text. One a later tripwire-only gate pass changed after
+ * the capture pairs with none and gets no record - the occurrence question
+ * then takes its honest "no record" path - never a guessed one.
+ */
+export function attributeHeadlines(
+  declared: readonly { text: string; actors: readonly string[] }[],
+  committed: readonly string[],
+): HeadlineAttribution[] {
+  const unpaired = [...declared];
+  const records: HeadlineAttribution[] = [];
+  for (const text of committed) {
+    const index = unpaired.findIndex(headline => headline.text === text);
+    if (index < 0) continue;
+    records.push({ text, actorIds: [...new Set(unpaired[index].actors)] });
+    unpaired.splice(index, 1);
+  }
+  return records;
 }
 
 /** Drops the interchange-only top-level `actors` off a parsed SimulationState. */

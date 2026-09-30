@@ -1,7 +1,8 @@
 
 // ai/mocks.ts
 
-import { Entity, NpcIntent, NpcMindDecision, Report, SimulationState, StoryRelevance, TruthLedgerEntry, TurnHistoryEntry, WorldState, EventDelta, EntityStub, TurnSubmission, IntelDistortion } from '../types';
+import { Entity, NpcIntent, NpcMindDecision, Report, SimulationState, StoryRelevance, TruthLedgerEntry, TurnHistoryEntry, WorldState, EventDelta, EntityStub, TurnSubmission, IntelDistortion, GroundedOccurrenceQuestion } from '../types';
+import type { OccurrenceQuestion } from '../knowledge/store';
 import { applyAdjudication } from './core/engine';
 import { MAX_MINDS_PER_TURN } from './prompts/npcMind';
 import { normalizeTurnSubmissionInput, projectForNoAttemptResponse, projectForPlayerHistory, projectForPlayerReflection, projectForResolution, serializeTurnSubmission } from '../playerInput/turnSubmission';
@@ -17,9 +18,9 @@ import {
   redactInventedPlayerProseFromValue,
   samePlayerIdentity,
 } from './core/playerBoundary';
-import { stripActorsFromAdjudication, type AdjudicationInterchange, type EventDeltaInterchange } from './core/actorsBoundary';
+import { attributeHeadlines, stripActorsFromAdjudication, type AdjudicationInterchange, type EventDeltaInterchange } from './core/actorsBoundary';
 import { selectDurableIntents } from './core/directorIntents';
-import type { GroundTruthKind, InvestigationPlan, PlannedFinding, SchemeNaturePlan } from './core/groundTruth';
+import type { GroundTruthKind, InvestigationPlan, PlannedFinding, PoolPlan, SchemeNaturePlan } from './core/groundTruth';
 
 /** Deterministic, provider-free private-scene fixture for local play and tests. */
 export function mockContinuePrivateScene(input: PrivateScenePromptInput): PrivateSceneModelResponse {
@@ -519,6 +520,10 @@ export const mockRunNewTurn = async (
         redactInventedPlayerProse(gatedAdjudication, playerEntity, hasObservableAttempt),
     ));
     assertPlayerVisibleAdjudicationSafe(gatedAdjudication);
+    // The headlines' declarations, kept apart before the strip for the
+    // history entry's GM-private attribution record - the real pipeline's
+    // `declaredHeadlines` (ai/core/turn.ts), post-redaction likewise.
+    const declaredHeadlines = gatedAdjudication.headlines.map(({ text, actors }) => ({ text, actors: [...actors] }));
     // Commit boundary for this surface (D42): strip the interchange-only
     // `actors` now that the declaration-aware gate has seen it. `gm_private`
     // is the SAME array reference before and after (a shallow spread), so
@@ -634,6 +639,7 @@ export const mockRunNewTurn = async (
         narration: narrationRedaction.value,
         // Parity with ai/core/turn.ts: always set, `''` included (D44).
         playerMonologue: monologueRedaction.value,
+        headlineActors: attributeHeadlines(declaredHeadlines, strippedAdjudication.headlines),
         postTurnEntities: updatedEntities,
         perceivingNpcIds,
         npcIntents: durableIntents.length > 0 ? durableIntents : undefined,
@@ -661,10 +667,29 @@ export const mockCreateCharacter = async (description: string): Promise<Entity> 
     return { ...MOCK_NEW_CHARACTER, current_state_narrative: `(Mock Character) Based on your description: "${description}", this character was generated.` };
 };
 
-export const mockGetClarificationOnEvent = async (event: string, question: string): Promise<string> => {
-    void question;
+/**
+ * The canned answer to a question put to an occurrence (the Events tab). A
+ * grounded question follows its plan (ai/core/groundTruth.ts::planFromPool)
+ * exactly as the mock investigations do - the hands (and aims) reached, the
+ * one distortion, canned falsehoods as many as the truth would have yielded,
+ * or the honest nothing - so the account's count and shape never betray its
+ * accuracy offline either. "What follows?" has no plan: a canned forecast,
+ * framed as one, that states no hidden fact.
+ */
+export const mockGetClarificationOnEvent = async (event: string, question: OccurrenceQuestion, plan: PoolPlan | null): Promise<string> => {
     console.log("--- MOCK CLARIFICATION ---");
-    return `(Mock) Regarding "${event}", the general consensus is that it was orchestrated by a rival faction to sow discord. The motives seem purely political.`;
+    if (question === 'what_follows' || plan === null) {
+        return `(Mock) Your agents' forecast for "${event}": more of the same before the month is out, if the city runs to form. A guess, not a certainty.`;
+    }
+    const told = plan.findings.map((finding, i) => withoutFinalStop(mockFindingText(finding, i, question, event)));
+    if (question === 'who_is_behind_it') {
+        return told.length === 0
+            ? '(Mock) Your agents find no single hand behind it: it arose from circumstance.'
+            : `(Mock) Your agents name the hand${told.length === 1 ? '' : 's'} behind it: ${told.join('; ')}.`;
+    }
+    return told.length === 0
+        ? "(Mock) Your agents find no one's scheme behind it: whoever profits, profits by chance."
+        : `(Mock) Your agents say it serves ${told.join('; ')}.`;
 };
 
 // --- D47 grounded intelligence, provider-free -------------------------------
@@ -694,8 +719,25 @@ export function mockIntelSeed(targetId: string, kind: string): number {
  * Canned false findings - what a misled agent brings back offline. Chosen to
  * be true of no one in the shipped cast, and drawn per target (see
  * `mockPick`), so no one line recurs across figures and marks itself false.
+ * An occurrence question's are drawn per occurrence the same way: invented
+ * hands no shipped figure is, and what they were said to be after.
  */
-const MOCK_FALSE_FINDINGS: Record<GroundTruthKind, string[]> = {
+const MOCK_FALSE_FINDINGS: Record<GroundTruthKind | GroundedOccurrenceQuestion, string[]> = {
+    who_is_behind_it: [
+        'Gnaeus Calpurnius, a tax farmer of the Aventine',
+        'the prefect of the grain supply',
+        'Barsemias, a Syrian moneylender',
+        'the freedman Hermeros',
+        'a ring of equestrian contractors',
+        'Decimus Lollius, an aedile',
+    ],
+    who_gains: [
+        'Gnaeus Calpurnius, a tax farmer - to buy the next levy cheap',
+        'the grain factors at Ostia - to sell dear while bread is short',
+        'Barsemias, a Syrian moneylender - to call in the debts it leaves',
+        'the contractors of the public works - to win the rebuilding',
+        'Decimus Lollius, an aedile - to be seen to set it right',
+    ],
     beliefs: [
         'Believes the gods have abandoned Rome.',
         'Holds that the grain dole ruins the plebs.',
@@ -754,6 +796,16 @@ const MOCK_DISTORTIONS: Record<IntelDistortion, Array<(told: string) => string>>
     ],
 };
 
+/**
+ * The canned turns a misattributed NAME takes offline ("Who is behind it?"):
+ * pinned on someone at the named figure's elbow, never the figure itself.
+ */
+const MOCK_MISNAMED: Array<(told: string) => string> = [
+    told => `a client of ${told}`,
+    told => `a freedman in ${told}'s household`,
+    told => `a kinsman of ${told}`,
+];
+
 /** A deterministic pick for one finding: seeded by the target, the kind and the finding's place, never Math.random. */
 function mockPick<T>(items: readonly T[], targetId: string, kind: string, index: number): T {
     return items[mockIntelSeed(targetId, `${kind}:${index}`) % items.length];
@@ -768,12 +820,13 @@ function withoutFinalStop(text: string): string {
  * with its one distortion, or a canned falsehood. A fragment is framed the
  * same way whatever its truth, so the framing never tells the player which.
  */
-function mockFindingText(finding: PlannedFinding, index: number, kind: GroundTruthKind, targetId: string): string {
+function mockFindingText(finding: PlannedFinding, index: number, kind: GroundTruthKind | GroundedOccurrenceQuestion, targetId: string): string {
     const frame = (text: string) => finding.fragmentary ? `…${withoutFinalStop(text)}…` : text;
     if (finding.truth === null) return frame(mockPick(MOCK_FALSE_FINDINGS[kind], targetId, kind, index));
     const told = frame(finding.truth);
     if (finding.standing === 'garbled') {
-        return mockPick(MOCK_DISTORTIONS[finding.distortion ?? 'element_changed'], targetId, kind, index)(told);
+        const turns = kind === 'who_is_behind_it' ? MOCK_MISNAMED : MOCK_DISTORTIONS[finding.distortion ?? 'element_changed'];
+        return mockPick(turns, targetId, kind, index)(told);
     }
     return told;
 }

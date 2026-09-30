@@ -14,18 +14,18 @@
  */
 
 import type { GoogleGenAI } from '@google/genai';
-import type { Entity, InvestigationResult, InvestigationTruth, Message, TruthLedgerEntry } from '../types';
+import type { Entity, InvestigationResult, InvestigationTruth, Message, OccurrenceTruth, TruthLedgerEntry } from '../types';
 import type { DomainMutationContext } from '../state/domainMutation';
 import type { SaveGameState } from '../persistence/saveGame';
 import { computeDeepAnalysisKnowledge, computeInvestigationKnowledge } from '../knowledge/commit';
-import { deriveDossier, ingestOccurrenceFinding, SCHEME_CLUES_TO_REVEAL, type KnowledgeClaim, type OccurrenceQuestion } from '../knowledge/store';
+import { deriveDossier, ingestOccurrenceFinding, occurrenceClaimKey, SCHEME_CLUES_TO_REVEAL, type KnowledgeClaim, type OccurrenceQuestion } from '../knowledge/store';
 import {
     buildInvestigationRelationshipEvidence,
     knownRecipientOptionsForPlayer,
 } from '../knowledge/relationships';
 import { getRelationshipObservations } from '../ai/tools/relationshipObservations';
 import { settleInvestigationTruth, type SettledInvestigationTruth } from '../ai/tools/intelligence';
-import { investigationLedgerEntries } from '../ai/core/groundTruth';
+import { investigationLedgerEntries, occurrenceLedgerEntry } from '../ai/core/groundTruth';
 import { appendTruthLedgerEntries } from '../ai/core/engine';
 import { appendFallout, hasFallout } from '../components/investigationLoop';
 import type { DomainCommit, TransactionNote } from '../app/transactions';
@@ -112,26 +112,38 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
      * reveal, so it survives a tab switch and a reload.
      *
      * Free: asking costs no investigation. What it costs is the wait.
+     *
+     * D47/D11: a grounded answer ("Who is behind it?", "Who gains?") carries
+     * its GM-private truth, which lands on the truth ledger in the SAME commit
+     * as the finding, linked to it by the finding's claim key. A forecast
+     * ("What follows?") and the honest "no thread to follow" carry none, and
+     * leave the ledger as it stands.
      */
     const handleOccurrenceFinding = (
         occurrence: string,
         question: OccurrenceQuestion,
         text: string,
         request: DomainMutationContext,
+        truth?: OccurrenceTruth,
     ): boolean => {
         if (!request.isCurrent()) return false;
         const newKnowledge = ingestOccurrenceFinding(knowledge, { occurrence, question, text, turn: turnNumber });
+        const ledgerMove = truth
+            ? { truthLedger: appendTruthLedgerEntries(truthLedger, [occurrenceLedgerEntry(truth, occurrenceClaimKey(occurrence, question), turnNumber, Date.now())]) }
+            : {};
         return commitDomainMutation({
-            candidate: buildSaveState({ knowledge: newKnowledge }),
+            candidate: buildSaveState({ knowledge: newKnowledge, ...ledgerMove }),
             // The same commit shape a bought reveal uses — entities and the
             // fallout queue are handed back unchanged, because asking a
             // question about a public occurrence spends nothing and queues
-            // nothing. Only the knowledge slice moves.
+            // nothing. Only the knowledge slice, and the truth behind it,
+            // move.
             action: {
                 type: 'INVESTIGATION_COMMITTED',
                 entities,
                 pendingIntelligenceFallout,
                 knowledge: newKnowledge,
+                ...ledgerMove,
             },
             onSaveFailure: () => setTransactionNote({ kind: 'save', lead: 'What your agents found could not be recorded.' }),
             beforeDispatch: () => setTransactionNote(null),

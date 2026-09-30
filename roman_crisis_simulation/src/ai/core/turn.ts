@@ -14,6 +14,7 @@ import { figuresInViewOf } from '../../perception/npcPerception';
 import { generateStructured, generateStructuredStream, GEMINI_PRO, beginTurnCapture, endTurnCapture } from './geminiService';
 import { zAdjudication, zNarrationPayload } from './zodSchemas';
 import {
+    attributeHeadlines,
     stripActorsFromAdjudication,
     stripActorsFromSimulationState,
     type AdjudicationInterchange,
@@ -577,6 +578,7 @@ export async function runNewTurn(
             npcIntents: director.npcIntents,
             resolutionTrace: playerAction.resolutionTrace,
             npcMindResults: minds.npcMindResults,
+            declaredHeadlines: adjudicated.declaredHeadlines,
             transformedAdjudication: mortality.transformedAdjudication,
             mortalityEvents: mortality.mortalityEvents,
             applied,
@@ -785,6 +787,13 @@ interface AdjudicationStageResult {
     /** The resolution note, handed to the mortality validator as its only trusted non-adjudication context. */
     trustedResolutionContext: string | undefined;
     proseRedactions: PlayerProseRedaction[];
+    /**
+     * GM-PRIVATE: every headline's declared `actors`, captured off the
+     * interchange after the declaration-aware gate and before the strip -
+     * paired with the committed headlines into the history entry's
+     * attribution record (actorsBoundary.ts::attributeHeadlines).
+     */
+    declaredHeadlines: { text: string; actors: string[] }[];
 }
 
 /**
@@ -856,13 +865,20 @@ async function runAdjudicationStage(
     // and close the B7 registers the flat tripwire alone cannot reach.
     // `stripActorsFromAdjudication` below is now the commit boundary for
     // this surface: nothing downstream (mind-scheme folding, mortality,
-    // engine application, the history entry) ever sees `actors` again.
+    // engine application, the history entry) ever sees `actors` again -
+    // save the headlines' declarations, kept apart as a separate GM-private
+    // record (`declaredHeadlines` below).
     // Every redaction this turn makes, kept structured for the GM console's
     // Narration pane. GM-private (it carries the removed text verbatim), so
     // persistence/saveGame.ts strips it on serialize exactly as it strips
     // captured prompt text.
     const proseRedactions: PlayerProseRedaction[] = [];
     proseRedactions.push(...enforceNoAttemptBoundary(rawAdjudication, playerEntity, narrationSubmission.hasObservableAttempt, ctx.currentEntities));
+    // The headlines' declarations, kept apart before the strip below discards
+    // them: the history entry's GM-private attribution record (D42/D47). The
+    // gate has already dropped or trimmed the headlines in place, so these
+    // texts are the post-redaction ones.
+    const declaredHeadlines = rawAdjudication.headlines.map(({ text, actors }) => ({ text, actors: [...actors] }));
     const adjudication = stripActorsFromAdjudication(rawAdjudication);
 
     const trustedResolutionContext = recordResolutionNote(adjudication, playerAction.resolutionTrace, ctx.resolutionAttempt);
@@ -888,7 +904,7 @@ async function runAdjudicationStage(
     foldMindSchemeDeltas(adjudication, minds.npcMindResults, ctx.currentEntities);
     proseRedactions.push(...enforceNoAttemptBoundary(adjudication, playerEntity, narrationSubmission.hasObservableAttempt, ctx.currentEntities));
 
-    return { adjudication, trustedResolutionContext, proseRedactions };
+    return { adjudication, trustedResolutionContext, proseRedactions, declaredHeadlines };
 }
 
 /**
@@ -1315,13 +1331,14 @@ function assembleTurnResult(ctx: TurnContext, turn: {
     npcIntents: NpcIntent[];
     resolutionTrace: ActionResolutionEvent | undefined;
     npcMindResults: NpcMindDecision[];
+    declaredHeadlines: { text: string; actors: string[] }[];
     transformedAdjudication: Adjudication;
     mortalityEvents: MortalityEvent[];
     applied: AppliedTurnState;
     surfaces: PlayerSurfacesStageResult;
     proseRedactions: PlayerProseRedaction[];
 }): RunNewTurnResult {
-    const { npcIntents, npcMindResults, transformedAdjudication, mortalityEvents, applied, surfaces, proseRedactions } = turn;
+    const { npcIntents, npcMindResults, declaredHeadlines, transformedAdjudication, mortalityEvents, applied, surfaces, proseRedactions } = turn;
     const { narration, playerMonologue, suggestedActions } = surfaces;
     const newHistoryEntry: TurnHistoryEntry = {
         turnNumber: ctx.turnNumber,
@@ -1332,6 +1349,9 @@ function assembleTurnResult(ctx: TurnContext, turn: {
         // monologue so the GM console never has to infer a chat message's
         // turn from array position (D44).
         playerMonologue,
+        // GM-private (D42/D47): who acted in each headline the turn commits -
+        // the same `headlines` the Events tab cries - paired by exact text.
+        headlineActors: attributeHeadlines(declaredHeadlines, transformedAdjudication.headlines),
         postTurnEntities: applied.updatedEntities, // Store final state
         rawCalls: endTurnCapture(),
         mortalityTrace: mortalityEvents.length > 0 ? mortalityEvents : undefined,

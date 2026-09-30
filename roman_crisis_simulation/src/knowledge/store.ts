@@ -850,6 +850,15 @@ function occurrenceSlug(occurrence: string): string {
 }
 
 /**
+ * The claim key one answered question about one occurrence lands on - also
+ * the `reportId` of that answer's GM-private truth-ledger entry
+ * (hooks/useIntelCommits.ts), which links the two.
+ */
+export function occurrenceClaimKey(occurrence: string, question: OccurrenceQuestion): string {
+  return `investigation:occurrence:${occurrenceSlug(occurrence)}:${question}`;
+}
+
+/**
  * Ingests what your agents came back with about a public occurrence (audit
  * item 40).
  *
@@ -867,7 +876,7 @@ export function ingestOccurrenceFinding(
   finding: { occurrence: string; question: OccurrenceQuestion; text: string; turn: number }
 ): KnowledgeClaim[] {
   return upsertClaim(store, {
-    claimKey: `investigation:occurrence:${occurrenceSlug(finding.occurrence)}:${finding.question}`,
+    claimKey: occurrenceClaimKey(finding.occurrence, finding.question),
     subject: 'world',
     topic: normalizeTopic('occurrence'),
     channel: 'investigation',

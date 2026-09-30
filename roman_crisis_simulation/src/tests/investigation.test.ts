@@ -249,12 +249,15 @@ describe('ai/tools/intelligence.ts direct player-output mechanics boundaries', (
   it('validates clarification text before returning it to the player', async () => {
     const player = makePlayer({ visibility_network: ['target_1'] });
     const target = makeBaselineTarget();
+    // "What follows?" always asks the model; the grounded questions' own
+    // boundary is pinned in tests/groundedOccurrences.test.tsx.
     await expect(getClarificationOnEvent(
       makeMockTextAi('The roll total was 7.'),
       'Senator Rufus left the Curia.',
-      'Why?',
+      'what_follows',
       player,
       [player, target],
+      [],
       false,
     )).rejects.toThrow('player-visible mechanics boundary');
   });

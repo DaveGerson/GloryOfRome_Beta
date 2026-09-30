@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { GameState, Entity, InvestigationResult, InvestigationTruth, WorldState, Report, EventHistoryEntry, SimulationState, TurnHistoryEntry } from '../types';
+import { GameState, Entity, InvestigationResult, InvestigationTruth, OccurrenceTruth, WorldState, Report, EventHistoryEntry, SimulationState, TurnHistoryEntry } from '../types';
 import { GoogleGenAI } from "@google/genai";
 import CurrentEventsTab from './tabs/CurrentEventsTab';
 import DramatisPersonaeTab from './tabs/DramatisPersonaeTab';
@@ -136,8 +136,8 @@ const SidePanel: React.FC<{
     onSelectTab?: (id: TabId) => void;
     /** The panel's own element, so App can tell whether it is on the screen (hooks/useSeenRegisters.ts). */
     panelRef?: React.Ref<HTMLElement>;
-    /** Commits one occurrence finding to the knowledge store (audit item 40). */
-    onOccurrenceFinding: (occurrence: string, question: OccurrenceQuestion, text: string, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
+    /** Commits one occurrence finding to the knowledge store (audit item 40). `truth` is GM-private (D11/D47): forwarded for the truth ledger, never rendered. */
+    onOccurrenceFinding: (occurrence: string, question: OccurrenceQuestion, text: string, request: DomainMutationContext, truth?: OccurrenceTruth) => boolean | void | Promise<boolean | void>;
     resolvedApiKey?: string | null;
     /** The narration voice's mode: SILENT disables the Imperial Dispatch control, with a pointer. */
     narrationVoiceMode?: NarrationVoiceMode;
@@ -327,6 +327,7 @@ const SidePanel: React.FC<{
                     week={worldState.week}
                     playerEntity={playerEntity}
                     allEntities={entities}
+                    turnHistory={turnHistory}
                     knowledge={knowledge}
                     ai={ai}
                     isMockMode={isMockMode}

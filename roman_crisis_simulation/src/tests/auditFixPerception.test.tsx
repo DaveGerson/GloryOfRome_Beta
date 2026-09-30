@@ -547,7 +547,7 @@ describe('focus stays with the intel the player just bought', () => {
     const Harness: React.FC = () => {
       const [knowledge, setKnowledge] = useState<KnowledgeClaim[]>([]);
       return (
-        <CurrentEventsTab events={['The Praetorians demand a donative.']} week={3} playerEntity={player} allEntities={[player]}
+        <CurrentEventsTab events={['The Praetorians demand a donative.']} week={3} playerEntity={player} allEntities={[player]} turnHistory={[]}
           knowledge={knowledge} ai={{} as GoogleGenAI} isMockMode={true} runDomainMutation={noopMutation}
           onFinding={(occurrence, question, text) => { setKnowledge(prev => ingestOccurrenceFinding(prev, { occurrence, question, text, turn: 3 })); return true; }} />
       );
@@ -604,7 +604,7 @@ describe('focus stays with the intel the player just bought', () => {
     const Harness: React.FC = () => {
       const [knowledge, setKnowledge] = useState<KnowledgeClaim[]>([]);
       return (
-        <CurrentEventsTab events={[occurrence]} week={3} playerEntity={player} allEntities={[player]}
+        <CurrentEventsTab events={[occurrence]} week={3} playerEntity={player} allEntities={[player]} turnHistory={[]}
           knowledge={knowledge} ai={{} as GoogleGenAI} isMockMode={true} runDomainMutation={noopMutation}
           onFinding={(asked, question, text) => { setKnowledge(prev => ingestOccurrenceFinding(prev, { occurrence: asked, question, text, turn: 3 })); return true; }} />
       );
@@ -635,7 +635,7 @@ describe('focus stays with the intel the player just bought', () => {
 // ---------------------------------------------------------------------------
 describe('the occurrence toggle carries the shared bare-button class', () => {
   it('drops the inline all:unset for gor-bare-btn, keeping its layout', async () => {
-    await mount(<CurrentEventsTab events={['Grain ships arrive late.']} week={3} playerEntity={player} allEntities={[player]}
+    await mount(<CurrentEventsTab events={['Grain ships arrive late.']} week={3} playerEntity={player} allEntities={[player]} turnHistory={[]}
       knowledge={[]} ai={{} as GoogleGenAI} isMockMode={true} runDomainMutation={noopMutation} onFinding={() => true} />);
     const toggle = button(container, '❧');
     expect(toggle.classList.contains('gor-bare-btn')).toBe(true);
@@ -658,7 +658,7 @@ describe('Examined holds every occurrence asked about this reign', () => {
 
   it('renders the finding after its occurrence has left the week\'s cry, dated by the turn it was asked', async () => {
     localStorage.setItem('gloryOfRome:tabRegister:events', 'examined');
-    await mount(<CurrentEventsTab events={['Grain ships arrive late.']} week={9} playerEntity={player} allEntities={[player]}
+    await mount(<CurrentEventsTab events={['Grain ships arrive late.']} week={9} playerEntity={player} allEntities={[player]} turnHistory={[]}
       knowledge={store} ai={{} as GoogleGenAI} isMockMode={true} runDomainMutation={noopMutation} onFinding={() => true} />);
     expect(container.textContent).toContain(old);
     expect(container.textContent).toContain('Asked of your agents · Turn I');

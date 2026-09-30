@@ -19,6 +19,13 @@ const FINDING_KIND_LABEL: Record<IntelFindingTruth['kind'], string> = {
     scheme: 'scheme clue',
     scheme_nature: 'scheme nature (the reveal)',
     deep_analysis: "spymaster's assessment",
+    occurrence: 'occurrence question',
+};
+
+/** The Events tab's grounded questions, as the player asked them. */
+const QUESTION_LABEL: Record<NonNullable<IntelFindingTruth['question']>, string> = {
+    who_is_behind_it: 'who is behind it?',
+    who_gains: 'who gains?',
 };
 
 const DISTORTION_LABEL: Record<NonNullable<IntelFindingTruth['distortion']>, string> = {
@@ -31,9 +38,15 @@ const FindingDetail: React.FC<{ finding: IntelFindingTruth; aboutId: string }> =
     <>
         <div style={{ fontFamily: MONO, fontSize: 12, color: DIM, marginTop: 4 }}>
             about: {aboutId} · {FINDING_KIND_LABEL[finding.kind]}
+            {finding.question && ` · ${QUESTION_LABEL[finding.question]}`}
             {finding.distortion && ` · ${DISTORTION_LABEL[finding.distortion]}`}
             {finding.schemeName && ` · design: ${finding.schemeName}`}
         </div>
+        {finding.occurrence && (
+            <div style={{ fontSize: 13, color: DIM, marginTop: 2 }}>
+                asked of: <span style={{ fontStyle: 'italic', color: PARCH }}>“{finding.occurrence}”</span>
+            </div>
+        )}
         {finding.rolls && (
             <div style={{ fontFamily: MONO, fontSize: 12, color: DIM, marginTop: 2 }}>
                 tier {finding.rolls.tier} · accuracy d20 {finding.rolls.accuracyRoll} → {finding.rolls.accuracy} · fidelity d20 {finding.rolls.fidelityRoll} → {finding.rolls.fidelity} · seed {finding.rolls.seed}
@@ -53,10 +66,11 @@ const FindingDetail: React.FC<{ finding: IntelFindingTruth; aboutId: string }> =
  * investigation finding: the agent's account as the player holds it, its
  * standing (true, garbled or false), the ground truth behind it, and the
  * hidden rolls that shaped it (D4: recorded here, never shown to the
- * player). Campaign-wide (the ledger is a single bounded collection, not
- * per-turn data), newest first. Entries flagged `assumed` mark rumors the
- * adjudicator failed to disposition despite the prompt - defaulted to TRUE,
- * never silently invented as lies.
+ * player) - for a grounded answer about an occurrence, also the question and
+ * the headline it was asked of. Campaign-wide (the ledger is a single bounded
+ * collection, not per-turn data), newest first. Entries flagged `assumed`
+ * mark rumors the adjudicator failed to disposition despite the prompt -
+ * defaulted to TRUE, never silently invented as lies.
  */
 export const TruthLedgerView: React.FC<{ ledger: TruthLedgerEntry[]; reports: Report[] }> = ({ ledger, reports }) => (
     <>
