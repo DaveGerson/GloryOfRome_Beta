@@ -12,9 +12,12 @@
  *
  * No prep call: the words are already the NPC's. The TTS call runs unless
  * the in-memory audio cache holds the clip, and its input is the cleaned
- * line alone. The NPC's character comes entirely from their own cast VOICE
- * (narration/sceneVoice.ts `npcCastVoice`); their cast delivery note is
- * shown (in Settings → The cast, and on the log entry) and sent nowhere.
+ * line, opened by the line's own validated delivery as one cue when it has
+ * one (D50, narration/sceneVoice.ts `sceneLineForSpeech`) - the stage
+ * direction the transcript shows beside it, and nothing else. Beyond that
+ * the NPC's character comes from their own cast VOICE (`npcCastVoice`);
+ * their cast delivery note is shown (in Settings → The cast, and on the log
+ * entry) and sent nowhere.
  * Each performance is written to the narration log as "Private scene with
  * <name>". Mock Mode: the synthesized tone.
  */
@@ -24,7 +27,7 @@ import type { GeminiClient } from '../ai/core/geminiService';
 import { speakTranscript } from '../ai/tools/narrationVoice';
 import { NarrationPlayer } from '../narration/narrationPlayer';
 import { narrationLog as sharedNarrationLog, type NarrationLogStore } from '../narration/narrationLog';
-import { cleanSceneLineForSpeech, npcCastVoice } from '../narration/sceneVoice';
+import { npcCastVoice, sceneLineForSpeech } from '../narration/sceneVoice';
 import type { VoiceCast } from '../narration/voiceCast';
 import { getSceneVoicesEnabled, setSceneVoicesEnabled, type NarrationVoiceMode } from '../persistence/uiPrefs';
 import type { NarrationVoiceControlState } from './useNarrationVoice';
@@ -41,6 +44,8 @@ export interface SceneVoiceLine {
     sequence: number;
     speaker: 'player' | 'npc';
     text: string;
+    /** The line's delivery as the transcript shows it (D50) - performed as its leading cue. */
+    delivery?: string;
 }
 
 /** The private-scene surface's voice seam (components/PrivateScene.tsx). */
@@ -146,7 +151,7 @@ export function usePrivateSceneVoice({
     }, []);
 
     const stateFor = useCallback((scene: SceneVoiceContext, line: SceneVoiceLine): NarrationVoiceControlState | undefined => {
-        if (!enabled || line.speaker !== 'npc' || !cleanSceneLineForSpeech(line.text)) return undefined;
+        if (!enabled || line.speaker !== 'npc' || !sceneLineForSpeech(line)) return undefined;
         if (!offered) return 'silent';
         if (!canReachVoice) return 'unavailable';
         const index = indexOf.current.get(`${scene.sceneId}#${line.sequence}`);
@@ -155,7 +160,7 @@ export function usePrivateSceneVoice({
 
     const onToggle = useCallback((scene: SceneVoiceContext, line: SceneVoiceLine) => {
         if (!offered || !canReachVoice || line.speaker !== 'npc') return;
-        const spoken = cleanSceneLineForSpeech(line.text);
+        const spoken = sceneLineForSpeech(line);
         if (!spoken) return;
         player.toggle(slot(scene, line), spoken);
     }, [player, offered, canReachVoice, slot]);

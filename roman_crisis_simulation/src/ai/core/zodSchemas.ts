@@ -87,16 +87,22 @@ export const zPrivateSceneModelResponse = z.object({
     hiddenIntent: zPrivateSceneText,
     plannedFollowThrough: z.array(zPrivateSceneText).max(8),
   }).strict(),
+  // D50: accepted loosely and screened by CODE (ai/core/composure.ts::
+  // screenNpcTells) - an invalid delivery or sign is dropped there, never a
+  // reason to refuse the whole reply, so neither is read by the checks below.
+  delivery: z.unknown().optional(),
+  signs: z.unknown().optional(),
 }).strict().superRefine((response, context) => {
+  const { delivery: _delivery, signs: _signs, ...checked } = response;
   try {
-    assertPlayerVisibleValueSafe(response);
+    assertPlayerVisibleValueSafe(checked);
   } catch {
     context.addIssue({
       code: 'custom',
       message: 'private-scene response contains hidden mechanics',
     });
   }
-  if (privateSceneResponseStrings(response).some(containsPrivateSceneNumericRelationshipMechanics)) {
+  if (privateSceneResponseStrings(checked).some(containsPrivateSceneNumericRelationshipMechanics)) {
     context.addIssue({
       code: 'custom',
       message: 'private-scene response contains numeric relationship mechanics',

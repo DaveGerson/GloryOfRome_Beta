@@ -1,6 +1,7 @@
 import React from 'react';
 import type { AffiliationKind, ConditionSeverity } from '../../types';
 import { Tooltip } from './Feedback';
+import { toRoman } from './Brand';
 
 /**
  * Player-visible copy for the marks registers (D48) and the ties registers
@@ -17,6 +18,8 @@ export const MARKS_COPY = {
     keptSecret: 'Kept secret',
     tiesLabel: 'Ties',
     knownToYou: 'Known to you',
+    signsLabel: 'Signs seen',
+    signsGloss: 'Tells you caught in their face or voice. What lies behind them is not yours to know yet.',
 } as const;
 
 /** One mark as a register draws it: a Condition, or a mark as the player perceived it. */
@@ -55,6 +58,22 @@ export const MarkList: React.FC<{ marks: readonly MarkView[]; flagInward?: boole
                     </>}
                 {flagInward && !mark.outward && <span className="gor-mark-flag">{MARKS_COPY.inward}</span>}
                 {!compact && mark.description && <span className="gor-mark-desc">{mark.description}</span>}
+            </li>
+        ))}
+    </ul>
+);
+
+/**
+ * The signs the player caught on a figure (D50): each tell as they saw or
+ * heard it, and the turn they caught it. Only ever the sentence - never the
+ * mark or tie behind it, which the player's knowledge store does not hold.
+ */
+export const SignList: React.FC<{ signs: readonly { text: string; turn: number }[] }> = ({ signs }) => (
+    <ul className="gor-marks">
+        {signs.map((sign, index) => (
+            <li key={index} className="gor-mark">
+                <span className="gor-sign-text">{sign.text}</span>
+                <span className="gor-mark-weight"> · Turn {toRoman(sign.turn)}</span>
             </li>
         ))}
     </ul>

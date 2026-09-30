@@ -27,7 +27,9 @@
  *                  a NON-player's inward mark (D48) or unlearned secret tie
  *                  (D49), the mortality validator's reasoning, a headline's
  *                  attribution record (D42/D47) - which must itself be
- *                  written, one per cried headline) reaches ANY
+ *                  written, one per cried headline - or a composure record
+ *                  (D50: the rolls, a held subject, the subject a sign
+ *                  betrayed)) reaches ANY
  *                  player-facing surface: the narration/monologue PROMPTS and
  *                  system instructions (the true enforcement seam), the
  *                  narration/monologue/suggestions text, headlines, the
@@ -59,7 +61,8 @@ import { appendTruthLedgerEntries } from '../../ai/core/engine';
 import { buildPlayerPerceivedDigest, PerceivedChange } from '../../perception/visibility';
 import { conditionsOf } from '../../ai/core/conditions';
 import { secretAffiliationsOf } from '../../ai/core/affiliations';
-import { computeTurnKnowledge, computeInvestigationKnowledge } from '../../knowledge/commit';
+import { composureRollsOf } from '../../ai/core/composure';
+import { computeTurnKnowledge, computeInvestigationKnowledge, narrationSignsSeen } from '../../knowledge/commit';
 import { deriveDossier, knownAffiliationsOf, SCHEME_CLUES_TO_REVEAL, type KnowledgeClaim, type InvestigationKind } from '../../knowledge/store';
 import { saveGame, loadGame, clearSave as clearPersistedSave, SaveGameState } from '../../persistence/saveGame';
 import { normalizeTurnSubmissionInput, projectForExternalInference } from '../../playerInput/turnSubmission';
@@ -482,6 +485,13 @@ export interface JourneyTurnDef {
   script?: TurnScript;
   /** Pre-decided d20 results, in draw order (resolution roll first, then validated mortality rolls in delta order). */
   rolls?: number[];
+  /**
+   * Pre-decided composure d20s (D50), drawn from the same generator straight
+   * after `rolls` - one per inward mark and secret tie of each figure present,
+   * in record order. When given, INV-ROLL checks the recorded composure rolls
+   * against them too; left out, composure draws whatever the seed gives.
+   */
+  composureRolls?: number[];
   /** GM-intervention text for this turn (the must-honor world-fact channel). */
   gmIntervention?: string;
   /** Set true only for a turn that deliberately exercises a swallowed-error path. */
@@ -604,6 +614,15 @@ function assertNoLeaks(outcome: {
     { label: 'headline attribution names field', value: 'actorNames' },
     { label: 'headline attribution unresolved field', value: 'unresolvedActors' },
     { label: 'living-at-commit field', value: 'livingAtCommit' },
+    // D50: composure rolls and the subjects signs betrayed are GM-private -
+    // the turn's record, and a scene's. The tiers words ("frays") are
+    // ordinary English; the GM-private fact is the RECORD, carried only by
+    // these fields.
+    { label: 'turn composure rolls field', value: 'composureRolls' },
+    { label: 'composure signs field', value: 'composureSigns' },
+    { label: 'scene composure seed field', value: 'composureSeed' },
+    { label: 'scene NPC composure field', value: 'npcComposure' },
+    { label: 'scene player composure field', value: 'playerComposure' },
     // Roll mechanics as prose ("roll 13", "rolled 4").
     { label: 'roll mechanics', pattern: /\broll(?:ed)?\s+\d+\b/i },
   ];
@@ -699,6 +718,31 @@ function assertNoLeaks(outcome: {
     }
   }
 
+  // D50: a composure subject that HELD this turn never reaches the
+  // narrator - not even by name - so no prose and no voice can carry it; and
+  // a sign the player keeps (a 'sign:' claim, Personae's "Signs seen") never
+  // names or recounts the inward mark or secret tie it betrayed.
+  const narrationSurfaces = surfaces.filter(({ surface }) => surface.startsWith('narration'));
+  for (const bearer of composureRollsOf(entry)) {
+    for (const roll of bearer.rolls) {
+      if (roll.tier !== 'holds') continue;
+      for (const { surface, text } of narrationSurfaces) {
+        if (text.includes(roll.subjectName)) violations.push(`${bearer.entityId}'s held ${roll.subjectKind} "${roll.subjectName}" reached ${surface}`);
+      }
+    }
+  }
+  const signText = JSON.stringify(knowledge.filter(claim => claim.claimKey.startsWith('sign:')));
+  for (const entity of result.updatedEntities) {
+    if (entity.entity_id === playerId) continue;
+    const hidden = [
+      ...conditionsOf(entity).filter(mark => !mark.outward).flatMap(mark => [mark.name, mark.description]),
+      ...secretAffiliationsOf(entity).map(tie => tie.name),
+    ].filter(value => value.length > 0);
+    for (const value of hidden) {
+      if (signText.includes(value)) violations.push(`${entity.entity_id}'s hidden subject "${value}" reached a sign the player keeps`);
+    }
+  }
+
   // D49 the other way round: the PLAYER's secret ties never reach an
   // NPC-facing prompt (a mind, a private scene) - unless that NPC witnessed
   // one, which then lives in its own memories and may.
@@ -727,13 +771,17 @@ function assertNoLeaks(outcome: {
 }
 
 /** INV-ROLL: the dice the journey scripted must equal the dice the pipeline recorded, in draw order. */
-function assertRolls(entry: TurnHistoryEntry, scripted: number[], label: string): void {
+function assertRolls(entry: TurnHistoryEntry, scripted: number[], label: string, scriptedComposure?: number[]): void {
   const actual: number[] = [];
   if (entry.resolutionTrace) actual.push(entry.resolutionTrace.roll);
   for (const ev of entry.mortalityTrace ?? []) {
     if (ev.valid && typeof ev.roll === 'number') actual.push(ev.roll);
   }
   expect(actual, `[${label}] INV-ROLL: scripted rolls != recorded rolls`).toEqual(scripted);
+  if (scriptedComposure) {
+    const composure = composureRollsOf(entry).flatMap(bearer => bearer.rolls.map(roll => roll.roll));
+    expect(composure, `[${label}] INV-ROLL: scripted composure rolls != recorded composure rolls`).toEqual(scriptedComposure);
+  }
 }
 
 // --- The runner -----------------------------------------------------------
@@ -834,7 +882,7 @@ export class JourneyRunner {
     const client = new ScriptedClient(script, label);
     const stages: TurnStage[] = [];
     const rolls = def.rolls ?? [];
-    const seeded = installSeededRolls(rolls);
+    const seeded = installSeededRolls([...rolls, ...(def.composureRolls ?? [])]);
     const consoleErrors: string[] = [];
     const errorSpy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
       consoleErrors.push(args.map(a => String(a)).join(' '));
@@ -932,6 +980,8 @@ export class JourneyRunner {
       reportsAfter: result.updatedReports,
       turnNumber: ranAsTurn,
       relationshipObservations: { evidence: relationshipEvidence, drafts: relationshipDrafts, entities: entityDirectory, knownEntityIds },
+      // D50: the narration's signs, as App.tsx's commit takes them.
+      signsSeen: narrationSignsSeen(result.newHistoryEntry),
     });
 
     this.thread.entities = result.updatedEntities;
@@ -972,7 +1022,7 @@ export class JourneyRunner {
     // INV-SCRIPT
     expect(client.unconsumed(), `[${label}] INV-SCRIPT: scripted responses never requested by the pipeline`).toEqual([]);
     // INV-ROLL
-    assertRolls(entry, rolls, label);
+    assertRolls(entry, rolls, label, def.composureRolls);
     // INV-DIGEST: every perceived change is source-attributed (D5).
     for (const change of digest) {
       expect(

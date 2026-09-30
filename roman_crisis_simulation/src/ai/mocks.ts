@@ -38,6 +38,14 @@ export function mockContinuePrivateScene(input: PrivateScenePromptInput): Privat
             ? 'Then we have said all that needs saying.'
             : 'I hear your request. Speak plainly, and I will answer in kind.';
 
+    // D50: the NPC's first subject that did not hold this scene shows - a
+    // delivery for the line and one sign for it; a scene where everything
+    // held gets neither. Deterministic: the first such subject, fixed words.
+    const tell = input.npc.composure?.find(subject => subject.tier !== 'holds');
+    const tells: Pick<PrivateSceneModelResponse, 'delivery' | 'signs'> = !tell ? {} : tell.tier === 'frays'
+        ? { delivery: 'voice catching', signs: [{ subject: tell.subject, sign: 'A catch comes into their voice, and they look away.' }] }
+        : { delivery: 'as if fighting to keep it down', signs: [{ subject: tell.subject, sign: 'It is plain in their face and bearing, whatever they say.' }] };
+
     return {
         disposition,
         npcUtterance,
@@ -52,6 +60,7 @@ export function mockContinuePrivateScene(input: PrivateScenePromptInput): Privat
             hiddenIntent: refused ? 'Avoid entanglement.' : ended ? 'End the conversation without further commitment.' : 'Learn what the player truly wants.',
             plannedFollowThrough: disposition === 'continues' ? ['Listen before deciding what to do next.'] : [],
         },
+        ...tells,
     };
 }
 

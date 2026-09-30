@@ -1,4 +1,5 @@
 import React from 'react';
+import type { ComposureRoll } from '../../types';
 
 export const GOLD = '#F0D089', DIM = '#A99A76', PARCH = '#E6E1D0', RED = '#E0968B', GREEN = '#A8BC7E';
 export const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
@@ -28,3 +29,15 @@ export const redacted: React.CSSProperties = {
  */
 export const tyrian: React.CSSProperties = { background: 'rgba(94,34,70,.22)', border: '1px solid rgba(94,34,70,.5)' };
 export const TYRIAN_KICKER = '#C89BB4';
+
+/**
+ * One composure roll (D50) as the console reads it beside its die: the
+ * subject's kind and weight, the bearer's modifier against the difficulty,
+ * and the tier - "mark serious · +1.5 vs 10 → frays". GM-only, like every
+ * roll (D4).
+ */
+export function composureRollNote(roll: Pick<ComposureRoll, 'subjectKind' | 'severity' | 'tieKind' | 'modifier' | 'difficulty' | 'tier'>): string {
+    const weight = roll.subjectKind === 'mark' ? roll.severity : roll.tieKind;
+    const modifier = `${roll.modifier >= 0 ? '+' : '−'}${Math.abs(roll.modifier)}`;
+    return `${roll.subjectKind}${weight ? ` ${weight}` : ''} · ${modifier} vs ${roll.difficulty} → ${roll.tier}`;
+}

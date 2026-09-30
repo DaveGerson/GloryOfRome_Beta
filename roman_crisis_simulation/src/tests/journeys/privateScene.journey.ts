@@ -247,7 +247,9 @@ describe('journey: player private scenes across audience, reload, and macro-turn
       // A turn count, labelled as one (the masthead's calendar week is another fact).
       expect(app.container.textContent).toContain('The door opens again on Turn III.');
       expect(app.container.querySelector('[aria-label="Private-scene opening"]')).toBeNull();
-      for (const forbidden of [FIRST_HIDDEN, FIRST_MECHANICS, REFUSAL_HIDDEN, REFUSAL_MECHANICS, 'npcPrivate']) {
+      // D50: the scene's composure record is GM-private - the player sees
+      // their own composure only in words, never the record or a roll.
+      for (const forbidden of [FIRST_HIDDEN, FIRST_MECHANICS, REFUSAL_HIDDEN, REFUSAL_MECHANICS, 'npcPrivate', 'npcComposure', 'playerComposure', 'composureSeed', 'composureSigns']) {
         expect(app.container.textContent).not.toContain(forbidden);
       }
 

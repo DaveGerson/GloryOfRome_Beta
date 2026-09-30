@@ -1,4 +1,6 @@
-import type { Entity } from '../types';
+import type { ComposureRoll, Entity } from '../types';
+import { MAX_SIGNS_PER_SCENE, type ScreenedNpcTells } from '../ai/core/composure';
+import { validateDelivery } from '../narration/performanceScript';
 
 export const PRIVATE_SCENE_MAX_NPC_RESPONSES = 6;
 export const PRIVATE_SCENE_MAX_UTTERANCE_CHARS = 2_000;
@@ -26,6 +28,54 @@ export interface PrivateSceneModelResponse {
   npcUtterance: string;
   speechActs: PrivateSceneSpeechAct[];
   npcPrivate: PrivateSceneNpcPrivateState;
+  /**
+   * D50, RAW model output: a short stage direction for how `npcUtterance` is
+   * said. Never taken as is - ai/core/composure.ts::screenNpcTells screens
+   * it, and a transition takes only the screened `tells`.
+   */
+  delivery?: unknown;
+  /** D50, RAW model output: the tells the player saw, `{ subject, sign }` each - screened as `delivery` is. */
+  signs?: unknown;
+}
+
+/** One line of a scene, as spoken. */
+export interface PrivateSceneTranscriptLine {
+  sequence: number;
+  speaker: PrivateSceneSpeaker;
+  text: string;
+  /**
+   * D50: an NPC line's delivery - how it was said ("voice catching"), shown
+   * as a stage direction beside the line and performed as its leading cue.
+   * Player-visible; only ever a screened delivery (ai/core/composure.ts).
+   * Optional: lines without one, and every line saved before D50, lack it.
+   */
+  delivery?: string;
+}
+
+/**
+ * One of the PLAYER's own composure rolls in a scene (D50), with EXACTLY the
+ * line the NPC was told of it (ai/core/composure.ts::playerComposureTell),
+ * or null when it held and the NPC was told nothing. The roll itself is
+ * GM-private; the player is shown the outcome in words and `told`
+ * (perception/visibility.ts::projectPrivateSceneForPlayer).
+ */
+export interface PrivateScenePlayerComposureRoll extends ComposureRoll {
+  told: string | null;
+}
+
+/** A tell the NPC let show in this scene, and code let stand (D50). GM-PRIVATE: `subject` is the handle of what it betrayed. */
+export interface PrivateSceneSign {
+  subject: string;
+  sign: string;
+  exchange: number;
+}
+
+/** Both parties' composure for one scene, rolled once as the scene opens (D50). */
+export interface PrivateSceneComposure {
+  /** The seed of the scene's composure generator: the NPC's rolls first, then the player's. */
+  seed: number;
+  npc: ComposureRoll[];
+  player: PrivateScenePlayerComposureRoll[];
 }
 
 export interface PrivateSceneRecord {
@@ -36,7 +86,7 @@ export interface PrivateSceneRecord {
   playerName: string;
   npcName: string;
   status: PrivateSceneStatus;
-  transcript: Array<{ sequence: number; speaker: PrivateSceneSpeaker; text: string }>;
+  transcript: PrivateSceneTranscriptLine[];
   npcResponseCount: number;
   speechActs: PrivateSceneSpeechAct[];
   npcPrivate: PrivateSceneNpcPrivateState;
@@ -44,6 +94,19 @@ export interface PrivateSceneRecord {
   lastWord?: string;
   consequenceStatus: 'pending' | 'consumed';
   consumedByTurn?: number;
+  /**
+   * GM-PRIVATE (D50): the seed the scene's composure was rolled from. The
+   * rolls are made ONCE, as the scene opens, and persisted with it, so a
+   * reload never rolls again. Optional, as are the three fields below:
+   * scenes opened before D50 lack them all.
+   */
+  composureSeed?: number;
+  /** GM-PRIVATE (D50): the NPC's composure this scene - one roll per inward mark and secret tie. */
+  npcComposure?: ComposureRoll[];
+  /** GM-PRIVATE (D50) as a record: the player's own composure this scene, and what the NPC was told of each. */
+  playerComposure?: PrivateScenePlayerComposureRoll[];
+  /** GM-PRIVATE (D50): the tells that showed and were let stand, each with its subject. Bounded at MAX_SIGNS_PER_SCENE. */
+  composureSigns?: PrivateSceneSign[];
 }
 
 export interface PrivateSceneAdjudicatorProjection {
@@ -61,6 +124,12 @@ export interface PrivateSceneNpcMemoryProjection {
   speechActs: Array<Pick<PrivateSceneSpeechAct, 'speaker' | 'kind' | 'text'>>;
   lastWord?: string;
   npcPrivate: PrivateSceneNpcPrivateState;
+  /**
+   * D50: EXACTLY what this NPC was told of the player's own composure in that
+   * audience - the code-written lines, never the rolls - so it may remember
+   * what it saw. Absent when it was told nothing.
+   */
+  playerTells?: string[];
 }
 
 export type PrivateSceneTransitionResult =
@@ -171,7 +240,40 @@ function cloneRecord(scene: PrivateSceneRecord): PrivateSceneRecord {
       ...scene.npcPrivate,
       plannedFollowThrough: [...scene.npcPrivate.plannedFollowThrough],
     },
+    ...(scene.npcComposure ? { npcComposure: scene.npcComposure.map(roll => ({ ...roll })) } : {}),
+    ...(scene.playerComposure ? { playerComposure: scene.playerComposure.map(roll => ({ ...roll })) } : {}),
+    ...(scene.composureSigns ? { composureSigns: scene.composureSigns.map(sign => ({ ...sign })) } : {}),
   };
+}
+
+/**
+ * What one NPC reply adds of its tells (D50), re-gated here although the
+ * controller screened them (ai/core/composure.ts::screenNpcTells): the
+ * delivery must still pass the cue rules, and a sign must still name one of
+ * this scene's NPC subjects that did not hold - so no caller can hand the
+ * record a tell the roll kept hidden. Signs past MAX_SIGNS_PER_SCENE for the
+ * scene are dropped.
+ */
+function tellsForReply(
+  tells: ScreenedNpcTells | undefined,
+  npcComposure: readonly ComposureRoll[] | undefined,
+  existing: readonly PrivateSceneSign[],
+  exchange: number,
+): { delivery?: string; signs: PrivateSceneSign[] } {
+  const delivery = validateDelivery(tells?.delivery) ?? undefined;
+  const open = new Set((npcComposure ?? []).filter(roll => roll.tier !== 'holds').map(roll => roll.subjectId));
+  const room = Math.max(0, MAX_SIGNS_PER_SCENE - existing.length);
+  const signs = (tells?.signs ?? [])
+    .filter(sign => open.has(sign.subject) && typeof sign.sign === 'string' && sign.sign.trim().length > 0)
+    .slice(0, room)
+    .map(sign => ({ subject: sign.subject, sign: sign.sign.trim(), exchange }));
+  return { ...(delivery ? { delivery } : {}), signs };
+}
+
+/** The scene's signs with this reply's appended, or no field at all when there are none. */
+function withSigns(existing: readonly PrivateSceneSign[], added: readonly PrivateSceneSign[]): { composureSigns?: PrivateSceneSign[] } {
+  const all = [...existing.map(sign => ({ ...sign })), ...added];
+  return all.length > 0 ? { composureSigns: all } : {};
 }
 
 function closureForResponse(
@@ -229,6 +331,10 @@ export function beginPrivateScene(input: {
   opening: string;
   response: PrivateSceneModelResponse;
   existing: readonly PrivateSceneRecord[];
+  /** D50: both parties' composure, rolled as the scene opens and kept with it. Absent: a scene without composure. */
+  composure?: PrivateSceneComposure;
+  /** D50: the NPC's first reply's tells, screened (ai/core/composure.ts::screenNpcTells). */
+  tells?: ScreenedNpcTells;
 }): PrivateSceneTransitionResult {
   const sceneId = trimmedRequired(input.sceneId, 'scene ID');
   if (!sceneId.ok) return failure(sceneId.error);
@@ -265,6 +371,11 @@ export function beginPrivateScene(input: {
   const response = canonicalResponse(input.response, 1);
   if (!response.ok) return failure(response.error);
   const lifecycle = closureForResponse(response.value.disposition, 1);
+  const composure = input.composure;
+  if (composure && (!Number.isInteger(composure.seed) || !Array.isArray(composure.npc) || !Array.isArray(composure.player))) {
+    return failure('the scene composure is invalid');
+  }
+  const tells = tellsForReply(input.tells, composure?.npc, [], 1);
 
   return {
     ok: true,
@@ -278,7 +389,7 @@ export function beginPrivateScene(input: {
       status: lifecycle.status,
       transcript: [
         { sequence: 1, speaker: 'player', text: opening.value },
-        { sequence: 2, speaker: 'npc', text: response.value.npcUtterance },
+        { sequence: 2, speaker: 'npc', text: response.value.npcUtterance, ...(tells.delivery ? { delivery: tells.delivery } : {}) },
       ],
       npcResponseCount: 1,
       speechActs: [
@@ -288,6 +399,12 @@ export function beginPrivateScene(input: {
       npcPrivate: response.value.npcPrivate,
       ...(lifecycle.closureReason ? { closureReason: lifecycle.closureReason } : {}),
       consequenceStatus: 'pending',
+      ...(composure ? {
+        composureSeed: composure.seed,
+        npcComposure: composure.npc.map(roll => ({ ...roll })),
+        playerComposure: composure.player.map(roll => ({ ...roll })),
+      } : {}),
+      ...withSigns([], tells.signs),
     },
   };
 }
@@ -297,6 +414,8 @@ export function appendPrivateSceneExchange(input: {
   expectedNpcResponseCount: number;
   playerUtterance: string;
   response: PrivateSceneModelResponse;
+  /** D50: this reply's tells, screened (ai/core/composure.ts::screenNpcTells). */
+  tells?: ScreenedNpcTells;
 }): PrivateSceneTransitionResult {
   if (input.scene.status !== 'active') return failure('only an active private scene can continue');
   if (!validResponseCount(input.scene.npcResponseCount)) return failure('scene response count is invalid');
@@ -321,16 +440,19 @@ export function appendPrivateSceneExchange(input: {
   if (!response.ok) return failure(response.error);
   const lifecycle = closureForResponse(response.value.disposition, nextCount);
   const nextSequence = input.scene.transcript.length + 1;
+  const priorSigns = input.scene.composureSigns ?? [];
+  const tells = tellsForReply(input.tells, input.scene.npcComposure, priorSigns, nextCount);
 
   return {
     ok: true,
     scene: {
       ...cloneRecord(input.scene),
+      ...withSigns(priorSigns, tells.signs),
       status: lifecycle.status,
       transcript: [
         ...input.scene.transcript.map(line => ({ ...line })),
         { sequence: nextSequence, speaker: 'player', text: playerUtterance.value },
-        { sequence: nextSequence + 1, speaker: 'npc', text: response.value.npcUtterance },
+        { sequence: nextSequence + 1, speaker: 'npc', text: response.value.npcUtterance, ...(tells.delivery ? { delivery: tells.delivery } : {}) },
       ],
       npcResponseCount: nextCount,
       speechActs: [
@@ -429,13 +551,19 @@ export function buildPrivateSceneNpcMemoryProjection(
     .filter(scene => scene.npcId === npcId && scene.status === 'closed' && scene.closureReason)
     .sort((a, b) => b.macroTurn - a.macroTurn)
     .slice(0, 3)
-    .map(scene => ({
-      closureReason: scene.closureReason!,
-      transcript: scene.transcript.map(line => ({ ...line })),
-      speechActs: scene.speechActs.map(({ speaker, kind, text }) => ({ speaker, kind, text })),
-      ...(scene.lastWord === undefined ? {} : { lastWord: scene.lastWord }),
-      npcPrivate: { ...scene.npcPrivate, plannedFollowThrough: [...scene.npcPrivate.plannedFollowThrough] },
-    }));
+    .map(scene => {
+      const playerTells = (scene.playerComposure ?? [])
+        .map(roll => roll.told)
+        .filter((told): told is string => typeof told === 'string' && told.length > 0);
+      return {
+        closureReason: scene.closureReason!,
+        transcript: scene.transcript.map(({ sequence, speaker, text }) => ({ sequence, speaker, text })),
+        speechActs: scene.speechActs.map(({ speaker, kind, text }) => ({ speaker, kind, text })),
+        ...(scene.lastWord === undefined ? {} : { lastWord: scene.lastWord }),
+        npcPrivate: { ...scene.npcPrivate, plannedFollowThrough: [...scene.npcPrivate.plannedFollowThrough] },
+        ...(playerTells.length > 0 ? { playerTells } : {}),
+      };
+    });
 }
 
 export function consumePrivateSceneOutcome(

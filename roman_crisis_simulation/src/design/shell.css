@@ -104,6 +104,9 @@
 .gor-mark-name-gloss{cursor:help;border-bottom:1px dotted var(--border-strong)}
 .gor-mark-name-gloss:focus-visible{outline:none;box-shadow:var(--focus-ring);border-radius:2px}
 .gor-persona-marks{display:flex;flex-direction:column;gap:3px}
+/* D50: a sign caught on a figure - what was seen or heard, in the body's voice, never the mark behind it. */
+.gor-sign-text{font-style:italic;color:var(--text-body)}
+.gor-sign-gloss{font-size:13px;font-style:italic;color:var(--text-muted)}
 
 /* ── IV · The manuscript: the chat log as a reading column ─────────────────
    App.tsx's log (`role="log"`, inline padding) spans the whole column; the

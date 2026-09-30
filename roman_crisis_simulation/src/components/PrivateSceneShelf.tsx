@@ -4,6 +4,7 @@ import { WaxSeal } from './ui/Brand';
 import { EmptyRegister, FoldedLetterSilhouette } from './tabs/EmptyRegister';
 import { NarrationVoiceControl } from './Chat';
 import type { PrivateSceneNpcVoice } from '../hooks/usePrivateSceneVoice';
+import { ComposureNotes } from './ComposureNotes';
 
 /**
  * The shelf of closed private scenes (WP-16), split out of PrivateScene.tsx:
@@ -26,8 +27,11 @@ export const SCENE_VOICE_COPY = {
 
 /**
  * One line of a scene's transcript, attributed "You" or by the NPC's name.
- * With the scene voice on (hooks/usePrivateSceneVoice.ts), an NPC's
- * committed line carries a play control that speaks it in their own voice.
+ * An NPC line said a particular way carries its delivery (D50) as an italic
+ * stage direction after the name - "(voice catching)" - which the voice
+ * then performs. With the scene voice on (hooks/usePrivateSceneVoice.ts), an
+ * NPC's committed line carries a play control that speaks it in their own
+ * voice.
  */
 export const TranscriptLine: React.FC<{
   line: PrivateScenePlayerView['transcript'][number];
@@ -37,7 +41,10 @@ export const TranscriptLine: React.FC<{
   const state = voice?.npcVoice.stateFor(voice.scene, line);
   return (
     <div style={transcriptLineStyle}>
-      <p style={{ margin: 0 }}><strong>{line.speaker === 'player' ? 'You' : npcName}:</strong> {line.text}</p>
+      <p style={{ margin: 0 }}>
+        <strong>{line.speaker === 'player' ? 'You' : npcName}{line.delivery ? '' : ':'}</strong>
+        {line.delivery && <> <em className="gor-scene-delivery">({line.delivery})</em><strong>:</strong></>} {line.text}
+      </p>
       {voice && state !== undefined && (
         <NarrationVoiceControl state={state} label={SCENE_VOICE_COPY.line} onToggle={() => voice.npcVoice.onToggle(voice.scene, line)} />
       )}
@@ -153,6 +160,7 @@ export const PrivateSceneShelf: React.FC<{
             </section>
           )}
           <p style={{ margin: '10px 0 0' }}><strong>Closure:</strong> {describeClosure(reading)}</p>
+          <ComposureNotes notes={reading.composureNotes} npcName={reading.npcName} />
           {/* Absence is a line, not a missing element — silence was a choice too. */}
           <div className="gor-lastword">
             <span className="gor-lastword-title">Your last word</span>

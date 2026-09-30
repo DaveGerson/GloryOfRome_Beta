@@ -16,6 +16,8 @@
  *   2. each `mortalityTrace` event that carries a numeric `roll`, in array
  *      order. An INVALIDATED claim never reaches the dice, so it consumes no
  *      draw - skipping it is what keeps every later draw aligned.
+ *   3. each composure roll (D50, `composureRolls`), bearer by bearer and
+ *      subject by subject, in record order.
  *
  * Per DESIGN_DECISIONS.md D4, rolls are GM-console-only ground truth and
  * NEVER reach a player-facing surface. Everything this module returns is a
@@ -25,6 +27,12 @@
 
 import { TurnHistoryEntry } from '../../types';
 import { createSeededRng, rollD20 } from './resolution';
+import { composureRollsOf } from './composure';
+
+/** The label a composure draw is listed under - here and in the Fixtures pane (D50). */
+export function composureDrawLabel(bearerName: string, subjectName: string): string {
+    return `Composure · ${bearerName} · ${subjectName}`;
+}
 
 /** One draw, as recorded and as re-drawn from the seed. */
 export interface ReplayedDraw {
@@ -73,6 +81,11 @@ export function replayTurnDraws(entry: TurnHistoryEntry): TurnReplayResult {
     for (const event of entry.mortalityTrace ?? []) {
         if (typeof event.roll !== 'number') continue;
         draws.push(makeDraw(`Mortality · ${event.entity_name}`, event.roll, rollD20(rng)));
+    }
+    for (const bearer of composureRollsOf(entry)) {
+        for (const roll of bearer.rolls) {
+            draws.push(makeDraw(composureDrawLabel(bearer.entityName, roll.subjectName), roll.roll, rollD20(rng)));
+        }
     }
 
     return { verifiable: true, draws, allMatch: draws.every(draw => draw.matches) };

@@ -38,6 +38,25 @@ import { legacyStatusFromReason } from '../ai/core/legacyStatus';
 import { conditionDeltaEffect, conditionsOf, type ConditionEffect } from '../ai/core/conditions';
 import { affiliationDeltaEffect, affiliationsOf, type AffiliationEffect } from '../ai/core/affiliations';
 
+/**
+ * One of the PLAYER's own inward marks or secret ties, as they are shown its
+ * composure in a scene (D50 - the one exception to D4): the subject (theirs
+ * to know), the outcome in words, and EXACTLY what the NPC was told of it.
+ * Never the die, the modifier or the difficulty - the projection has no
+ * field for any number.
+ */
+export interface PlayerComposureNote {
+  subjectKind: 'mark' | 'tie';
+  subjectName: string;
+  /** A tie's kind, for the words that say what showed of it. */
+  tieKind?: AffiliationKind;
+  outcome: 'held' | 'frayed' | 'broke';
+  /** The exact line the NPC was told, or null - it was told nothing. */
+  told: string | null;
+}
+
+const COMPOSURE_OUTCOME_WORD = { holds: 'held', frays: 'frayed', breaks: 'broke' } as const;
+
 export interface PrivateScenePlayerView {
   sceneId: string;
   npcId: string;
@@ -49,26 +68,44 @@ export interface PrivateScenePlayerView {
    */
   macroTurn: number;
   status: PrivateSceneStatus;
-  transcript: Array<{ sequence: number; speaker: PrivateSceneSpeaker; text: string }>;
+  /** Each line as spoken - an NPC line with its screened delivery (D50), when it had one. */
+  transcript: Array<{ sequence: number; speaker: PrivateSceneSpeaker; text: string; delivery?: string }>;
   speechActs: PrivateSceneSpeechAct[];
   npcResponseCount: number;
   closureReason?: PrivateSceneClosureReason;
   lastWord?: string;
+  /** D50: the player's own composure this scene, one note per subject - absent when they kept nothing hidden. */
+  composureNotes?: PlayerComposureNote[];
 }
 
-/** Explicit D5 boundary for player components: intentionally excludes every GM-private scene field. */
+/**
+ * Explicit D5 boundary for player components: intentionally excludes every
+ * GM-private scene field - the NPC's private state, both parties' composure
+ * ROLLS and the signs' subjects (D50). Of composure the player gets only
+ * their own notes, in words.
+ */
 export function projectPrivateSceneForPlayer(scene: PrivateSceneRecord): PrivateScenePlayerView {
+  const composureNotes: PlayerComposureNote[] = (scene.playerComposure ?? []).map(roll => ({
+    subjectKind: roll.subjectKind,
+    subjectName: roll.subjectName,
+    ...(roll.subjectKind === 'tie' && roll.tieKind ? { tieKind: roll.tieKind } : {}),
+    outcome: COMPOSURE_OUTCOME_WORD[roll.tier],
+    told: roll.told,
+  }));
   return {
     sceneId: scene.sceneId,
     npcId: scene.npcId,
     npcName: scene.npcName,
     macroTurn: scene.macroTurn,
     status: scene.status,
-    transcript: scene.transcript.map(line => ({ ...line })),
+    transcript: scene.transcript.map(({ sequence, speaker, text, delivery }) => ({
+      sequence, speaker, text, ...(delivery ? { delivery } : {}),
+    })),
     speechActs: scene.speechActs.map(act => ({ ...act })),
     npcResponseCount: scene.npcResponseCount,
     ...(scene.closureReason ? { closureReason: scene.closureReason } : {}),
     ...(scene.lastWord ? { lastWord: scene.lastWord } : {}),
+    ...(composureNotes.length > 0 ? { composureNotes } : {}),
   };
 }
 

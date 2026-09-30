@@ -1,6 +1,6 @@
 import React from 'react';
 import type { PrivateSceneRecord } from '../../privateScene/model';
-import { well, lbl, GmNote, GOLD, DIM, PARCH, RED, MONO } from './shared';
+import { well, lbl, GmNote, GOLD, DIM, PARCH, RED, MONO, composureRollNote } from './shared';
 
 /** Raw private-scene inspection. This component is reachable only inside the GM console. */
 export const PrivateSceneGmView: React.FC<{ scenes: readonly PrivateSceneRecord[] }> = ({ scenes }) => (
@@ -28,7 +28,8 @@ export const PrivateSceneGmView: React.FC<{ scenes: readonly PrivateSceneRecord[
                     <span style={lbl}>Transcript</span>
                     {scene.transcript.map(line => (
                         <p key={line.sequence} style={{ margin: '3px 0', fontSize: 14 }}>
-                            <strong style={{ color: DIM }}>{line.speaker === 'player' ? scene.playerName : scene.npcName}:</strong> {line.text}
+                            <strong style={{ color: DIM }}>{line.speaker === 'player' ? scene.playerName : scene.npcName}:</strong>
+                            {line.delivery && <em style={{ color: DIM }}> ({line.delivery})</em>} {line.text}
                         </p>
                     ))}
                 </div>
@@ -46,6 +47,36 @@ export const PrivateSceneGmView: React.FC<{ scenes: readonly PrivateSceneRecord[
                         </ul>
                     )}
                 </div>
+                {(scene.npcComposure?.length || scene.playerComposure?.length) ? (
+                    <div style={{ ...well, marginTop: 8, border: '1px solid rgba(179,58,43,.45)' }}>
+                        <span style={{ ...lbl, color: RED }}>Composure — GM only</span>
+                        {scene.composureSeed !== undefined && (
+                            <div style={{ fontSize: 12, color: DIM, marginTop: 4 }}>Seed <span style={{ fontFamily: MONO }}>{scene.composureSeed}</span> · the NPC's rolls, then the player's</div>
+                        )}
+                        {([['npc', scene.npcName, scene.npcComposure ?? []], ['player', scene.playerName, scene.playerComposure ?? []]] as const).map(([side, name, rolls]) => rolls.length > 0 && (
+                            <ul key={side} style={{ margin: '4px 0', paddingLeft: 18 }}>
+                                {rolls.map((roll, index) => (
+                                    <li key={index} style={{ fontSize: 13 }}>
+                                        {name} · {roll.subjectName} · <span style={{ fontFamily: MONO, color: GOLD }}>d20 {roll.roll}</span> · {composureRollNote(roll)}
+                                        {'told' in roll && (
+                                            <div style={{ color: DIM }}>{roll.told ? <>Told: {roll.told}</> : 'Told nothing.'}</div>
+                                        )}
+                                    </li>
+                                ))}
+                            </ul>
+                        ))}
+                        {(scene.composureSigns ?? []).length > 0 && (
+                            <>
+                                <span style={lbl}>Signs let stand</span>
+                                <ul style={{ margin: '3px 0', paddingLeft: 18 }}>
+                                    {(scene.composureSigns ?? []).map((sign, index) => (
+                                        <li key={index} style={{ fontSize: 13 }}>Exchange {sign.exchange} · {sign.subject}: {sign.sign}</li>
+                                    ))}
+                                </ul>
+                            </>
+                        )}
+                    </div>
+                ) : null}
                 <div style={{ ...well, marginTop: 8, border: '1px solid rgba(179,58,43,.45)' }}>
                     <span style={{ ...lbl, color: RED }}>NPC private intent — GM only</span>
                     <div style={{ fontSize: 13, marginTop: 4 }}><strong style={{ color: DIM }}>Sincerity:</strong> {scene.npcPrivate.sincerity}</div>

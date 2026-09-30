@@ -161,13 +161,19 @@ export function buildPrivateSceneNpcMemoryBlock(
     const speechActs = memory.speechActs.length > 0
       ? memory.speechActs.map(act => `  - ${act.speaker} ${act.kind}: ${asPromptData(act.text)}`).join('\n')
       : '  - (none recorded)';
+    // D50: what the character noticed of the player in that audience -
+    // code-written lines, exactly as it was told them, and no more.
+    const noticed = (memory.playerTells ?? []).filter(tell => typeof tell === 'string' && tell.trim());
+    const noticedBlock = noticed.length > 0
+      ? `- What you noticed of them (it showed; nothing more is known of its cause):\n${noticed.map(tell => `  - ${asPromptData(tell)}`).join('\n')}\n`
+      : '';
     return `Audience ${index + 1}:
 - Closure: ${memory.closureReason}
 - Full transcript (this audience only):
 ${transcript}
 - Attributed speech acts (claims, not established truth):
 ${speechActs}
-${memory.lastWord === undefined ? '' : `- Last word: ${asPromptData(memory.lastWord)}\n`}- Your private state afterward:
+${memory.lastWord === undefined ? '' : `- Last word: ${asPromptData(memory.lastWord)}\n`}${noticedBlock}- Your private state afterward:
   - Sincerity: ${JSON.stringify(memory.npcPrivate.sincerity)}
   - Hidden intent (a plan, not proof it happened): ${JSON.stringify(memory.npcPrivate.hiddenIntent)}
   - Planned follow-through: ${memory.npcPrivate.plannedFollowThrough.length > 0

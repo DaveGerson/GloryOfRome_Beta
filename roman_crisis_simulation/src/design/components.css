@@ -344,6 +344,27 @@
 .gor-lastword{display:flex;flex-direction:column;gap:2px;margin-top:10px;padding:8px 11px;border-left:3px solid var(--metal-crimson);background:var(--surface-inset);box-shadow:var(--shadow-inset);border-radius:var(--radius-sm)}
 .gor-lastword-title{font-family:var(--font-display);font-size:9.5px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--crimson-500)}
 .gor-lastword-body{font-size:15px;color:var(--text-body)}
+/* D50: an NPC line's delivery - a stage direction, set in italic after the
+   name - and the player's own composure in the scene: a Tyrian-edged inset
+   well like the leaving notice, one note per subject (their mark or tie, the
+   outcome in words, what it means, and what the other was told). The
+   outcome word takes the pair the speech acts use: Tyrian where it frayed,
+   crimson where it broke; a hold stays quiet. */
+.gor-scene-delivery{font-style:italic;color:var(--text-muted)}
+.gor-composure{display:flex;flex-direction:column;gap:6px;margin:8px 0 6px;padding:9px 12px;border:1px solid var(--border-subtle);border-left:3px solid var(--tyrian-400);background:var(--surface-inset);box-shadow:var(--shadow-inset);border-radius:var(--radius-sm)}
+.gor-composure-title{margin:0;font-family:var(--font-display);font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--tyrian-600)}
+.gor-composure-gloss{margin:0;font-size:13.5px;font-style:italic;color:var(--text-muted)}
+.gor-composure-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px}
+.gor-composure-note{display:flex;flex-direction:column;gap:2px;overflow-wrap:anywhere}
+.gor-composure-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px}
+.gor-composure-head .gor-mark-flag{margin-left:0}
+.gor-composure-subject{font-weight:600;color:var(--text-heading)}
+.gor-composure-outcome{font-family:var(--font-display);font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted)}
+.gor-composure-frayed .gor-composure-outcome{color:var(--tyrian-500)}
+.gor-composure-broke .gor-composure-outcome{color:var(--crimson-500)}
+.gor-composure-meaning{font-size:14.5px;color:var(--text-body)}
+.gor-composure-told{font-size:14px;color:var(--text-muted)}
+.gor-composure-told q{font-style:italic;color:var(--text-body)}
 
 @media (prefers-reduced-motion:reduce){
   .gor-private-scene .gor-contact,.gor-scene-transcript-spent{transition:none}

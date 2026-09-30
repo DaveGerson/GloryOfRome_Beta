@@ -54,6 +54,10 @@
  *     witnessed sighting records AWARENESS on it, a paid 'scheme'
  *     investigation accretes a NATURE clue - only the paid clue advances the
  *     count toward the reveal, see ingestSchemeClue)
+ *   - sign: `sign:{entityId}` (D50 - ONE claim per figure; each tell the
+ *     player caught - in a private scene or the week's narration - appends
+ *     a witnessed update carrying only what was seen or heard, never the
+ *     mark or tie it betrayed, see ingestSignsSeen)
  * A rumor Report with `stance: 'contradicts'` (a counterplay refutation)
  * always FORKS a distinct claim node even when its base key matches, so the
  * refutation is a separate node linked by a 'contradicts' edge rather than
@@ -96,9 +100,10 @@ export type KnowledgeSource = PerceptionSource | ReportSource;
  * 'investigation' each have one ingestion function. 'scheme' is the D28
  * scheme-discovery channel: a schemer's ONE unified discovery claim, fed by
  * a proximity sighting (awareness only) and a paid investigation (which alone
- * advances the nature clue count) - see ingestSchemeClue.
+ * advances the nature clue count) - see ingestSchemeClue. 'sign' is the D50
+ * channel: the tells the player caught on a figure (ingestSignsSeen).
  */
-export type KnowledgeChannel = 'digest' | 'report' | 'investigation' | 'scheme';
+export type KnowledgeChannel = 'digest' | 'report' | 'investigation' | 'scheme' | 'sign';
 
 /** The deterministic edge relations between claims (D29). */
 export type KnowledgeEdgeType = 'about' | 'corroborates' | 'contradicts' | 'derives-from';
@@ -330,7 +335,7 @@ export function normalizeTopic(raw?: string): string {
 /** The channel a stored claim belongs to, read from its claimKey prefix. */
 function channelOf(claim: KnowledgeClaim): KnowledgeChannel {
   const prefix = claim.claimKey.split(':', 1)[0];
-  return prefix === 'digest' || prefix === 'investigation' || prefix === 'scheme'
+  return prefix === 'digest' || prefix === 'investigation' || prefix === 'scheme' || prefix === 'sign'
     ? prefix
     : 'report';
 }
@@ -350,7 +355,8 @@ function lastUpdatedTurn(claim: KnowledgeClaim): number {
 function evictionTier(claim: KnowledgeClaim): number {
   const channel = channelOf(claim);
   if (channel === 'investigation' || channel === 'scheme') return 2;
-  if (claim.relationshipObservation) return 1;
+  // A sign the player saw for themselves is held as belief, like a mark seen (D50).
+  if (channel === 'sign' || claim.relationshipObservation) return 1;
   if (claim.updates.some(update => update.status !== undefined || update.faction !== undefined || update.condition !== undefined || update.affiliation !== undefined)) return 1;
   return 0;
 }
@@ -726,6 +732,59 @@ export function ingestLearnedAffiliation(
     source: learned.source ?? 'spy',
     affiliation: { id, name, kind, public: false, member: true },
   });
+}
+
+/** One tell the player caught on a figure (D50): whose, and what was seen or heard. Nothing else. */
+export interface SignSeen {
+  entityId: string;
+  sign: string;
+}
+
+/**
+ * Records the tells the player caught this `turn` (D50) - in a private scene
+ * or in the week's narration - each as a WITNESSED update on its figure's
+ * one sign claim (`sign:{entityId}`), opening it on the first. Only the
+ * figure and the sentence are copied: the mark or tie a sign betrayed stays
+ * GM-side on the record that produced it (the scene's `composureSigns`, the
+ * history entry's), so no claim here can name it. Bounded like every claim
+ * (MAX_UPDATES_PER_CLAIM per figure, MAX_KNOWLEDGE_CLAIMS overall), held as
+ * belief in eviction order. Returns the input store when handed nothing.
+ */
+export function ingestSignsSeen(store: KnowledgeClaim[], signs: readonly SignSeen[], turn: number): KnowledgeClaim[] {
+  let next = store;
+  for (const { entityId, sign } of signs) {
+    const text = typeof sign === 'string' ? sign.trim() : '';
+    if (typeof entityId !== 'string' || !entityId || !text) continue;
+    next = upsertClaim(next, {
+      claimKey: `sign:${entityId}`,
+      subject: entityId,
+      topic: normalizeTopic('sign'),
+      channel: 'sign',
+      text,
+      turn,
+      source: 'witnessed',
+    });
+  }
+  return next;
+}
+
+/** One sign on a figure's card, as the player holds it. */
+export interface HeldSign {
+  text: string;
+  turn: number;
+}
+
+/**
+ * The signs the player has caught on `entityId` (D50), oldest first - a read
+ * model over the figure's sign claim, never over any record of the mark or
+ * tie behind them. Empty when they have caught none.
+ */
+export function signsSeenOf(store: readonly KnowledgeClaim[], entityId: string): HeldSign[] {
+  const claim = store.find(candidate => candidate.claimKey === `sign:${entityId}`);
+  if (!claim) return [];
+  return claim.updates
+    .filter(update => typeof update.text === 'string' && update.text.trim().length > 0 && typeof update.turn === 'number')
+    .map(update => ({ text: update.text, turn: update.turn }));
 }
 
 /**

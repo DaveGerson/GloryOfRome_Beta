@@ -26,12 +26,15 @@
  */
 
 import type { PerceivedChange } from '../perception/visibility';
-import type { Report } from '../types';
+import type { Report, TurnHistoryEntry } from '../types';
+import { composureSignsOf } from '../ai/core/composure';
 import {
   ingestDeepAnalysis,
   ingestInvestigationReveal,
   ingestPerceivedChanges,
   ingestReports,
+  ingestSignsSeen,
+  type SignSeen,
   InvestigationKind,
   KnowledgeClaim,
   PlayerSafeEvidence,
@@ -58,12 +61,23 @@ export interface TurnKnowledgeInput {
   /** The App's authoritative turn counter for the turn being committed. */
   turnNumber: number;
   relationshipObservations?: RelationshipObservationsInput;
+  /** D50: the tells the week's narration let the player catch (`narrationSignsSeen`) - figure and sentence only. */
+  signsSeen?: readonly SignSeen[];
+}
+
+/**
+ * The signs a committed turn's narration let the player catch (D50), as the
+ * knowledge store takes them: each one's figure and sentence, read off the
+ * entry's GM-private record - never the mark or tie it betrayed.
+ */
+export function narrationSignsSeen(entry: Pick<TurnHistoryEntry, 'composureSigns'>): SignSeen[] {
+  return composureSignsOf(entry).map(({ entityId, sign }) => ({ entityId, sign }));
 }
 
 /**
  * Computes the next knowledge store for a committing turn: the perceived
- * digest plus this turn's NEW Reports, both stamped with the authoritative
- * `turnNumber`.
+ * digest plus this turn's NEW Reports - and the signs its narration let the
+ * player catch (D50) - all stamped with the authoritative `turnNumber`.
  *
  * New reports are identified by id (not array position), so a future
  * bounding of the reports slice can never silently re-ingest old ones.
@@ -75,15 +89,16 @@ export function computeTurnKnowledge({
   perceivedChanges,
   reportsBefore,
   reportsAfter,
-  turnNumber, relationshipObservations,
+  turnNumber, relationshipObservations, signsSeen,
 }: TurnKnowledgeInput): KnowledgeClaim[] {
   const priorReportIds = new Set(reportsBefore.map(r => r.id));
   const reportsThisTurn = reportsAfter.filter(r => !priorReportIds.has(r.id));
-  const next = ingestReports(
+  const reported = ingestReports(
     ingestPerceivedChanges(prev, perceivedChanges, turnNumber),
     reportsThisTurn,
     turnNumber
   );
+  const next = signsSeen && signsSeen.length > 0 ? ingestSignsSeen(reported, signsSeen, turnNumber) : reported;
   return relationshipObservations ? ingestRelationshipObservations(next, {
     ...relationshipObservations,
     turn: turnNumber,

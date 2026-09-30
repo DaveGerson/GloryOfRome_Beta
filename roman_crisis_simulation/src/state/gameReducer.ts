@@ -252,8 +252,11 @@ export type GameAction =
    * happen even when no snapshot exists to restore.
    */
   | { type: 'TURN_ROLLED_BACK'; snapshot: SaveGameState }
-  /** Atomically replace the isolated private-scene slice only. */
-  | { type: 'PRIVATE_SCENES_COMMITTED'; privateScenes: PrivateSceneRecord[] }
+  /**
+   * Atomically replace the isolated private-scene slice - and, when a reply
+   * left signs the player caught (D50), the knowledge store with it.
+   */
+  | { type: 'PRIVATE_SCENES_COMMITTED'; privateScenes: PrivateSceneRecord[]; knowledge?: KnowledgeClaim[] }
   /** An authored event fired after a committed turn - open its modal. */
   | { type: 'EVENT_TRIGGERED'; event: GameEvent }
   /**
@@ -544,7 +547,7 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
       return { ...state, entities: action.entities };
 
     case 'PRIVATE_SCENES_COMMITTED':
-      return { ...state, privateScenes: action.privateScenes };
+      return { ...state, privateScenes: action.privateScenes, knowledge: action.knowledge ?? state.knowledge };
 
     case 'INVESTIGATION_COMMITTED':
       return {

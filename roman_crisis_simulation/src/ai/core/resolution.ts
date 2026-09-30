@@ -340,6 +340,16 @@ function clampToScale(value: number, scale: { MIN: number; MAX: number }): numbe
 }
 
 /**
+ * A personality trait's distance from average (5) on its 1-10 scale, the
+ * value clamped first - the raw term every trait-driven modifier here is
+ * built from. Exported for ai/core/composure.ts (D50), which weighs a
+ * bearer's traits the same way. Undefined reads as average (0).
+ */
+export function traitDeviation(value: number | undefined): number {
+    return clampToScale(value ?? TRAIT_MODIFIER_CENTER, TRAIT_SCALE) - TRAIT_MODIFIER_CENTER;
+}
+
+/**
  * The five coarse outcome tiers a resolved action lands in. Deliberately
  * coarse (not a numeric success percentage) so the adjudicator retains room
  * to invent *how* the tier manifests - see ROADMAP_0_MASTER_PLAN.md Phase 3

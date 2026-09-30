@@ -59,7 +59,7 @@ import {
 } from '../privateScene/model';
 import type { PrivateSceneRecord } from '../privateScene/model';
 import { replacePrivateSceneForCommit } from '../components/PrivateScene';
-import { computeTurnKnowledge } from '../knowledge/commit';
+import { computeTurnKnowledge, narrationSignsSeen } from '../knowledge/commit';
 import type { KnowledgeClaim } from '../knowledge/store';
 import { buildPlayerSafeEvidence, buildTurnRelationshipEvidence, knownRecipientOptionsForPlayer } from '../knowledge/relationships';
 import { getRelationshipObservations } from '../ai/tools/relationshipObservations';
@@ -401,6 +401,9 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
                 reportsBefore: reports,
                 reportsAfter: result.updatedReports,
                 turnNumber,
+                // D50: the tells the narration let the player catch - each
+                // figure's sign on their card, never the mark behind it.
+                signsSeen: narrationSignsSeen(result.newHistoryEntry),
                 relationshipObservations: {
                     evidence: relationshipEvidence,
                     drafts: relationshipDrafts,

@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { TurnHistoryEntry } from '../../types';
-import { replayTurnDraws, type TurnReplayResult } from '../../ai/core/turnReplay';
+import { composureDrawLabel, replayTurnDraws, type TurnReplayResult } from '../../ai/core/turnReplay';
+import { composureRollsOf, composureSignsOf } from '../../ai/core/composure';
+import { composureRollNote } from './shared';
 import { evalCorpusFilename } from '../../persistence/evalCorpus';
 import { well, lbl, GOLD, DIM, PARCH, RED, GREEN, MONO, TYRIAN_KICKER } from './shared';
 
@@ -38,13 +40,21 @@ export const FixturesView: React.FC<{
     const [struck, setStruck] = useState<{ entry: TurnHistoryEntry; result: TurnReplayResult } | null>(null);
     const replay = struck?.entry === entry ? struck.result : null;
     // Draw order: the player action's resolution roll first (when
-    // consequential), then each VALID mortality roll in claim order. An
-    // invalidated claim never reaches the dice, so it consumes no draw.
-    const draws: { label: string; roll: number }[] = [];
+    // consequential), then each VALID mortality roll in claim order, then
+    // each composure roll of the figures present (D50). An invalidated claim
+    // never reaches the dice, so it consumes no draw.
+    const draws: { label: string; roll: number; note?: string }[] = [];
     if (entry.resolutionTrace) draws.push({ label: `Action · ${entry.resolutionTrace.assessment.action_category}`, roll: entry.resolutionTrace.roll });
     for (const event of entry.mortalityTrace ?? []) {
         if (typeof event.roll === 'number') draws.push({ label: `Mortality · ${event.entity_name}`, roll: event.roll });
     }
+    for (const bearer of composureRollsOf(entry)) {
+        for (const roll of bearer.rolls) {
+            draws.push({ label: composureDrawLabel(bearer.entityName, roll.subjectName), roll: roll.roll, note: composureRollNote(roll) });
+        }
+    }
+    // D50: the tells the narration showed that code let stand, with the subject each betrayed.
+    const signs = composureSignsOf(entry);
     const promptTexts = history.reduce((sum, item) => sum + (item.rawCalls ?? []).filter(call => call.promptText).length, 0);
     const manifest: { label: string; count: string }[] = [
         { label: 'turns[]', count: `${history.length}` },
@@ -72,7 +82,7 @@ export const FixturesView: React.FC<{
                             const struck = replay?.draws[index];
                             return (
                                 <span key={index} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontFamily: MONO, fontSize: 12, color: PARCH }}>
-                                    <span>{index + 1}. {draw.label}</span>
+                                    <span>{index + 1}. {draw.label}{draw.note && <span style={{ color: DIM }}> · {draw.note}</span>}</span>
                                     <span style={{ color: GOLD }}>
                                         {draw.roll}
                                         {struck && (
@@ -85,6 +95,16 @@ export const FixturesView: React.FC<{
                             );
                         })}
                     </div>
+                    {signs.length > 0 && (
+                        <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                            <span style={lbl}>Signs the narration showed</span>
+                            {signs.map((sign, index) => (
+                                <span key={index} style={{ fontSize: 12.5, color: PARCH }}>
+                                    <span style={{ fontFamily: MONO, color: DIM }}>{sign.entityId} · {sign.subject}:</span> {sign.sign}
+                                </span>
+                            ))}
+                        </div>
+                    )}
                     {entry.turnSeed !== undefined && draws.length > 0 && (
                         <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
                             <button type="button" onClick={() => setStruck({ entry, result: replayTurnDraws(entry) })} className="gor-gm-gold-btn" style={gmButton}>

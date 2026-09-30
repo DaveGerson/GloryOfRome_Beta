@@ -187,7 +187,7 @@ const App: React.FC = () => {
     } = usePrivateSceneController({
         ai, isMockMode,
         privateScenes: state.privateScenes,
-        playerEntity, entities, privateSceneKnownIds, turnNumber,
+        playerEntity, entities, privateSceneKnownIds, knowledge, turnNumber,
         privateSceneInteractionLocked,
         runDomainMutation, commitDomainMutation, buildSaveState,
         privateSceneLockRef, privateScenesRef,

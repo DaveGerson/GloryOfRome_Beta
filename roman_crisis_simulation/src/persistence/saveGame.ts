@@ -36,7 +36,9 @@ import type {
 } from '../types';
 import type { AmbitionInference } from '../ai/tools/ambition';
 import type { KnowledgeClaim } from '../knowledge/store';
-import type { PrivateSceneRecord } from '../privateScene/model';
+import type { PrivateScenePlayerComposureRoll, PrivateSceneRecord, PrivateSceneSign } from '../privateScene/model';
+import { MAX_SIGNS_PER_SCENE, normalizeComposureRoll, normalizeComposureRolls } from '../ai/core/composure';
+import { validateDelivery } from '../narration/performanceScript';
 import type { VoiceCast } from '../narration/voiceCast';
 import { migrateSaveEnvelope } from './saveMigrations';
 import { conditionsOf, MAX_ENTITY_CONDITIONS, normalizeConditions } from '../ai/core/conditions';
@@ -258,10 +260,53 @@ export type ImportResult =
 function canonicalPrivateSceneTranscriptLine(
   line: PrivateSceneRecord['transcript'][number],
 ): PrivateSceneRecord['transcript'][number] {
+  // D50: a delivery is kept only while it still passes the cue rules - it
+  // is shown, and performed as a cue, so a hand-edited one is dropped here.
+  const delivery = line.speaker === 'npc' ? validateDelivery(line.delivery) : null;
   return {
     sequence: line.sequence,
     speaker: line.speaker,
     text: line.text,
+    ...(delivery ? { delivery } : {}),
+  };
+}
+
+/** A player composure roll (D50) rebuilt field by field, or null. */
+function canonicalPlayerComposureRoll(value: unknown): PrivateScenePlayerComposureRoll | null {
+  const roll = normalizeComposureRoll(value);
+  if (!roll) return null;
+  const told = (value as { told?: unknown }).told;
+  return { ...roll, told: typeof told === 'string' && told.trim() ? told : null };
+}
+
+/** A scene's sign (D50) rebuilt field by field, or null. */
+function canonicalPrivateSceneSign(value: unknown): PrivateSceneSign | null {
+  if (!isRecord(value)) return null;
+  const { subject, sign, exchange } = value;
+  if (typeof subject !== 'string' || !subject || typeof sign !== 'string' || !sign.trim() || !isNonNegativeInteger(exchange)) return null;
+  return { subject, sign, exchange };
+}
+
+/**
+ * The optional D50 composure fields of a scene, each rebuilt record by
+ * record - a malformed roll or sign is dropped, a malformed seed or list is
+ * left out - so neither a save nor a load can carry an unknown key through
+ * them, and a scene opened before D50 gains no field at all.
+ */
+function canonicalPrivateSceneComposure(scene: PrivateSceneRecord): Partial<Pick<PrivateSceneRecord, 'composureSeed' | 'npcComposure' | 'playerComposure' | 'composureSigns'>> {
+  const seed = scene.composureSeed;
+  const npc = Array.isArray(scene.npcComposure) ? normalizeComposureRolls(scene.npcComposure) : undefined;
+  const player = Array.isArray(scene.playerComposure)
+    ? scene.playerComposure.map(canonicalPlayerComposureRoll).filter((roll): roll is PrivateScenePlayerComposureRoll => roll !== null)
+    : undefined;
+  const signs = Array.isArray(scene.composureSigns)
+    ? scene.composureSigns.map(canonicalPrivateSceneSign).filter((sign): sign is PrivateSceneSign => sign !== null).slice(0, MAX_SIGNS_PER_SCENE)
+    : [];
+  return {
+    ...(isNonNegativeInteger(seed) ? { composureSeed: seed } : {}),
+    ...(npc ? { npcComposure: npc } : {}),
+    ...(player ? { playerComposure: player } : {}),
+    ...(signs.length > 0 ? { composureSigns: signs } : {}),
   };
 }
 
@@ -308,6 +353,7 @@ function canonicalPrivateScene(scene: PrivateSceneRecord): PrivateSceneRecord {
     ...(scene.lastWord === undefined ? {} : { lastWord: scene.lastWord }),
     consequenceStatus: scene.consequenceStatus,
     ...(scene.consumedByTurn === undefined ? {} : { consumedByTurn: scene.consumedByTurn }),
+    ...canonicalPrivateSceneComposure(scene),
   };
 }
 

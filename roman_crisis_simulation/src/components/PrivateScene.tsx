@@ -9,6 +9,7 @@ import { WaxSeal, toRoman } from './ui/Brand';
 import { radioGroupKeyDown, radioTabIndex } from './ui/rovingRadio';
 import { createFocusTrap } from './ui/focusTrap';
 import { PrivateSceneShelf, SCENE_VOICE_COPY, TranscriptLine } from './PrivateSceneShelf';
+import { ComposureNotes } from './ComposureNotes';
 import { Switch } from './ui/Forms';
 import type { PrivateSceneNpcVoice } from '../hooks/usePrivateSceneVoice';
 import { NARRATION_VOICE_COPY } from './Chat';
@@ -285,6 +286,8 @@ export const PrivateScene: React.FC<PrivateSceneProps> = ({
       </>}
       {active && <>
         <p className="gor-label" style={{ margin: '10px 0 4px' }}><strong style={{ color: 'var(--text-heading)' }}>{active.npcName}</strong> · {active.npcResponseCount}/6 replies</p>
+        {/* D50: the player's own composure, settled as the scene opened - in words, with what the other was told. */}
+        <ComposureNotes notes={active.composureNotes} npcName={active.npcName} />
         {/* Awaiting the last word: the exchange is over, so it recedes. */}
         {/* role="log": each reply is announced as it lands, and the label is
             valid on a landmark-less div only once it has a role. */}

@@ -11,8 +11,9 @@ import type { NarrationSubmissionProjection } from '../../playerInput/turnSubmis
 import type { PerceivedChange } from '../../perception/visibility';
 import { asPromptData, isPrivateMarkOrTieDelta, playerOutputDeltaKey, playerOutputDeltaReason } from './fragments';
 import { ACTORS_DESCRIPTION } from '../core/schemas';
-import { conditionClause, conditionsLine, conditionsOf } from '../core/conditions';
+import { conditionClause, conditionsLine, conditionsOf, outwardConditionsOf } from '../core/conditions';
 import { affiliationClause, affiliationsLine, affiliationsOf, publicAffiliationsOf } from '../core/affiliations';
+import { COMPOSURE_TIER_INSTRUCTIONS, TIE_KIND_WORD, type ComposureCue } from '../core/composure';
 
 /**
  * Strips GM-only / secret-survival state from an Entity before it's
@@ -142,7 +143,7 @@ export function buildPlayerMarksBlock(player: Entity): string {
   const ties = affiliationsOf(player);
   const blocks: string[] = [];
   if (marks.length > 0) {
-    blocks.push(`LASTING MARKS THE PLAYER BEARS (their own - keep the prose true to them; an inward mark is known to no one else):
+    blocks.push(`LASTING MARKS THE PLAYER BEARS (their own - keep the prose true to them, and let them colour how "you" are narrated, inward ones too, since this is the player's own window; an inward mark is known to no one else):
 ${marks.map(mark => `- ${conditionClause(mark)}`).join('\n')}`);
   }
   if (ties.length > 0) {
@@ -169,6 +170,56 @@ export function buildPublicTiesBlock(figures: readonly Entity[]): string {
 OPENLY PROFESSED TIES OF THE FIGURES AT HAND (public knowledge - texture only, never a new event):
 ${lines.join('\n')}
 `;
+}
+
+/**
+ * What the narrator is told of composure this turn (D50): the figures
+ * present with the player, and a cue for each inward mark or secret tie of
+ * theirs that frayed or broke (ai/core/composure.ts::composureCuesFrom). A
+ * subject that held is never here, so no prose - and no voice performing
+ * the prose - can carry it.
+ */
+export interface NarrationComposure {
+  /** The figures present with the player this turn - their OUTWARD marks may colour description. */
+  present: readonly Entity[];
+  cues: readonly ComposureCue[];
+}
+
+/**
+ * The narration prompt's COMPOSURE block (D50): the marks that show on the
+ * figures present (outward - anyone can see them), and each hidden subject
+ * that frayed or broke under its opaque handle - a mark by its NAME and
+ * weight (never its account), a secret tie by its KIND only (never its name:
+ * a tie is never learned from a slip, D49) - with the fixed instruction for
+ * each tier and the optional `signs` the narrator may return. Every value is
+ * quoted as data (D41). Empty when there is nothing to say.
+ */
+export function buildComposureBlock(composure: NarrationComposure | undefined): string {
+  if (!composure) return '';
+  const outward = composure.present
+    .map(figure => ({ figure, marks: outwardConditionsOf(figure) }))
+    .filter(({ marks }) => marks.length > 0)
+    .map(({ figure, marks }) => `- ${asPromptData(figure.name)}: ${marks.map(mark => asPromptData(`${mark.name} (${mark.severity})`)).join('; ')}`);
+  const cues = composure.cues.map(cue => {
+    const subject = cue.roll.subjectKind === 'mark'
+      ? `a mark borne inwardly: ${asPromptData(cue.roll.subjectName)}${cue.roll.severity ? ` (${cue.roll.severity})` : ''}`
+      : `a tie kept secret - some ${asPromptData(TIE_KIND_WORD[cue.roll.tieKind ?? 'other'])}, never named`;
+    return `- handle ${asPromptData(cue.handle)}: ${asPromptData(cue.entityName)} (entity ${asPromptData(cue.entityId)}) - ${cue.roll.tier} - ${subject}`;
+  });
+  const blocks: string[] = [];
+  if (outward.length > 0) {
+    blocks.push(`MARKS THAT SHOW ON THE FIGURES AT HAND (outward - anyone can see them; they may colour how you describe them):
+${outward.join('\n')}`);
+  }
+  if (cues.length > 0) {
+    blocks.push(`COMPOSURE OF THE FIGURES AT HAND (settled - never mention it, or any chance or check behind it). Each line is something a figure present with the player could not wholly keep hidden this turn:
+- frays: ${COMPOSURE_TIER_INSTRUCTIONS.frays}
+- breaks: ${COMPOSURE_TIER_INSTRUCTIONS.breaks}
+Let it surface in the prose only as what the player sees or hears - "her voice caught", a glance away - and only where the moment touches it. Anything of theirs not listed here stays hidden: never hint at it.
+${cues.join('\n')}
+When the prose shows one of these tells, you may add it to the optional "signs" list: {"entity": the figure's entity id, "handle": its handle, "sign": one short sentence of only what the player saw or heard - never the mark's or tie's name, never its account, and for one that frays never its cause}.`);
+  }
+  return blocks.length > 0 ? `\n${blocks.join('\n\n')}\n` : '';
 }
 
 /**
@@ -218,7 +269,10 @@ export function buildNarrationPrompt(
   // D49: the figures named in this turn's player-perceived events, whose
   // OPENLY professed ties the prose may use as texture
   // (buildPublicTiesBlock reads nothing else). Defaults to [] - no block.
-  figuresAtHand: readonly Entity[] = []
+  figuresAtHand: readonly Entity[] = [],
+  // D50: the figures present with the player and the cues of what they
+  // could not keep hidden (buildComposureBlock). Absent - no block.
+  composure?: NarrationComposure,
 ): { systemInstruction: string; prompt: string } {
   // String callers are legacy direct prompt tests. The real pipeline passes
   // the typed projection so private-only text can never be mistaken for an
@@ -265,7 +319,7 @@ ${JSON.stringify(sanitizeEntityForNarration(updatedPlayerEntity), null, 2)}
 ${buildPlayerMarksBlock(updatedPlayerEntity)}
 ${playerContextLabel}
 ${asPromptData(playerSubmission.context)}
-${buildVoiceCastBlock(voiceCast)}${buildPublicTiesBlock(figuresAtHand)}
+${buildVoiceCastBlock(voiceCast)}${buildPublicTiesBlock(figuresAtHand)}${buildComposureBlock(composure)}
 PLAYER-PERCEIVED TURN EVENTS:
 ${JSON.stringify(perceivedEvents.map(({ text, source }) => ({ text, source })), null, 2)}
 ${buildPlayerOutcomeBlock(playerOutcomeDirective)}`;

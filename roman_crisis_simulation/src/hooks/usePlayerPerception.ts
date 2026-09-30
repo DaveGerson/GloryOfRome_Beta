@@ -15,6 +15,7 @@ import type { Message, TurnHistoryEntry, WorldState } from '../types';
 import type { KnowledgeClaim } from '../knowledge/store';
 import { buildPlayerPerceivedDigest, type PerceivedChange, type TabId } from '../perception/visibility';
 import { illuminatedNarrationIndices } from '../components/Chat';
+import { composureSignsOf } from '../ai/core/composure';
 
 /**
  * The most recent GM-authored narration text, used as the epilogue's
@@ -57,7 +58,12 @@ const INVESTIGATION_EVIDENCE = /^(?:turn:\d+:)?investigation:/;
  * Reports, ai/core/resources.ts): they are minted by the engine, never pass
  * through the digest, and would otherwise arrive with no coin (B14). One per
  * notice the committed week brought, as each is a card of its own; rumors
- * already count through the digest, so only the merchant source is read. A
+ * already count through the digest, so only the merchant source is read.
+ * Dramatis Personae also counts the signs the committed week's narration
+ * let the player catch (D50), one per sign, each now on its figure's card.
+ * A sign caught in a private scene is not counted: it was read in the scene,
+ * in the interlude, exactly as an interlude investigation's observation was.
+ * Only how MANY is read off the entry's record - never whose or what. A
  * tab with nothing new is absent.
  */
 export function tabChangeCountsFor(
@@ -76,6 +82,8 @@ export function tabChangeCountsFor(
             && !INVESTIGATION_EVIDENCE.test(claim.relationshipObservation.evidenceId)
         ).length;
         if (observations > 0) bump('dramatis_personae', observations);
+        const signs = composureSignsOf(lastTurn).length;
+        if (signs > 0) bump('dramatis_personae', signs);
         // A report claim's updates carry the commit's turn (knowledge/commit.ts),
         // so a notice created or restated this week is an update stamped with it.
         const treasuryNotices = knowledge

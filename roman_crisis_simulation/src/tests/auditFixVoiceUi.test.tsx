@@ -527,6 +527,7 @@ describe('the private scene controller', () => {
     playerEntity: player,
     entities: initial.entities,
     privateSceneKnownIds: ['maximinus_thrax', 'gaius_pontius_magnus'],
+    knowledge: [],
     turnNumber: 3,
     privateSceneInteractionLocked: false,
     runDomainMutation: (async (work: Parameters<RunDomainMutation>[0]) => ({ acquired: true, value: await work({ isCurrent: () => true }) })) as RunDomainMutation,

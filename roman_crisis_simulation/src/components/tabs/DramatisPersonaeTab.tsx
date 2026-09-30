@@ -6,10 +6,10 @@ import { Card, Button } from '../ui/Core';
 import { Alert } from '../ui/Alert';
 import {
   InvestigationKind, KnowledgeClaim, SCHEME_CLUES_TO_REVEAL, deriveDossier,
-  knownAffiliationsOf, perceivedConditionsOf, perceivedStatusOf,
+  knownAffiliationsOf, perceivedConditionsOf, perceivedStatusOf, signsSeenOf,
 } from '../../knowledge/store';
 import { publicAffiliationsOf } from '../../ai/core/affiliations';
-import { MARKS_COPY, MarkList, TieList, type TieView } from '../ui/Marks';
+import { MARKS_COPY, MarkList, SignList, TieList, type TieView } from '../ui/Marks';
 import { DOSSIER_COLD_THRESHOLD } from '../../knowledge/dossierCost';
 import { knowledgeSourceLead } from '../../knowledge/credibilityFraming';
 import { isEntityKnownToPlayer, relationshipTimelineFor } from '../../knowledge/relationships';
@@ -90,6 +90,11 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
   const openTieIds = new Set(openTies.map(tie => tie.id));
   const learnedTies = knownAffiliationsOf(knowledge, entity.entity_id).filter(tie => !tie.public && !openTieIds.has(tie.id));
   const ties: TieView[] = [...openTies, ...learnedTies.map(tie => ({ ...tie, flag: MARKS_COPY.knownToYou }))];
+  // D50: the tells the player caught on this figure - in a private scene or
+  // the week's narration - as they saw or heard them. Read from their own
+  // knowledge store, which keeps only the sentence: never the mark or tie a
+  // sign betrayed.
+  const signs = signsSeenOf(knowledge, entity.entity_id);
 
   const investigations = (playerEntity.resources.investigations as number) || 0;
   const deepAnalyses = (playerEntity.resources.deep_analyses as number) || 0;
@@ -132,6 +137,13 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
           <div className="gor-persona-marks">
             <span className="gor-label">{MARKS_COPY.tiesLabel}</span>
             <TieList ties={ties} />
+          </div>
+        )}
+        {signs.length > 0 && (
+          <div className="gor-persona-marks">
+            <span className="gor-label">{MARKS_COPY.signsLabel}</span>
+            <span className="gor-sign-gloss">{MARKS_COPY.signsGloss}</span>
+            <SignList signs={signs} />
           </div>
         )}
         {personaeVoice &&<PersonaVoiceRow entityId={entity.entity_id} name={entity.name} voice={personaeVoice} paidNoteId={paidNoteId} />}

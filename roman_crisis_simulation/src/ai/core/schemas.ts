@@ -5,6 +5,7 @@ import {
     PRIVATE_SCENE_MAX_NPC_RESPONSES,
     PRIVATE_SCENE_MAX_UTTERANCE_CHARS,
 } from '../../privateScene/model';
+import { MAX_NARRATION_SIGNS, MAX_SIGNS_PER_REPLY } from './composure';
 
 /**
  * Actors-attribution contract (interchange-only, ai/core/zodSchemas.ts's
@@ -48,6 +49,27 @@ export const PrivateSceneModelResponseSchema = {
             },
             required: ['sincerity', 'hiddenIntent', 'plannedFollowThrough'],
             additionalProperties: false,
+        },
+        // D50: both optional, both screened by code before any surface takes
+        // them (ai/core/composure.ts::screenNpcTells) - an invalid one is
+        // dropped, never a reason to refuse the reply.
+        delivery: {
+            type: Type.STRING,
+            description: 'Optional. A short stage direction for how npcUtterance is said - a few lower-case words, no names, no numbers ("voice catching").',
+        },
+        signs: {
+            type: Type.ARRAY,
+            maxItems: MAX_SIGNS_PER_REPLY,
+            description: 'Optional. A tell the player could see or hear, for an npc.composure subject that frays or breaks and showed in this reply.',
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    subject: { type: Type.STRING, description: 'The subject handle from npc.composure.' },
+                    sign: { type: Type.STRING, description: 'One short sentence of only what was seen or heard.' },
+                },
+                required: ['subject', 'sign'],
+                additionalProperties: false,
+            },
         },
     },
     required: ['disposition', 'npcUtterance', 'speechActs', 'npcPrivate'],
@@ -510,8 +532,31 @@ export const NarrationPayloadSchema = {
     properties: {
         text: { type: Type.STRING, description: "The narrated prose." },
         actors: { type: Type.ARRAY, items: { type: Type.STRING }, description: ACTORS_DESCRIPTION },
+        // D50: optional, beside `text` - the streaming extractor reads only
+        // the depth-1 "text" value (ai/core/streamSplit.ts), so a sibling
+        // array never disturbs it. Screened by code before anything takes it
+        // (ai/core/composure.ts::screenNarrationSigns).
+        signs: {
+            type: Type.ARRAY,
+            maxItems: MAX_NARRATION_SIGNS,
+            description: 'Optional. A tell the prose shows, for a figure listed in COMPOSURE OF THE FIGURES AT HAND.',
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    entity: { type: Type.STRING, description: "The figure's entity id." },
+                    handle: { type: Type.STRING, description: 'The handle the listing gave that figure and tell.' },
+                    sign: { type: Type.STRING, description: 'One short sentence of only what the player saw or heard.' },
+                },
+                required: ['entity', 'handle', 'sign'],
+            },
+        },
     },
     required: ['text', 'actors'],
+    // The provider orders properties alphabetically unless told otherwise,
+    // which would put `signs` before the prose they point at. `actors` then
+    // `text` is the order this call already streamed in; the signs follow
+    // the prose that shows them.
+    propertyOrdering: ['actors', 'text', 'signs'],
 };
 
 export const PlayerMonologuePayloadSchema = {

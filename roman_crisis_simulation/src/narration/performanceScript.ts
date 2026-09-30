@@ -385,6 +385,58 @@ function cueChecker(original: string, transcript: string): (direction: string) =
   };
 }
 
+/**
+ * Longest DELIVERY accepted, in characters: a private-scene NPC's stage
+ * direction for one line (DESIGN_DECISIONS.md D50) is a few words of manner
+ * ("voice catching", "as if stifling a sob"), never a sentence of content.
+ */
+export const MAX_DELIVERY_CHARS = 60;
+
+/**
+ * Words a delivery may OPEN with capitalized beyond a cue's common openers
+ * (`COMMON_CUE_OPENERS`, an "-ly" adverb): the body and the manner a stage
+ * direction starts from ("Voice catching", "Eyes down"). A delivery that
+ * opens on a participle ("Trembling", "Choked") is read the same way. None
+ * is ever a name.
+ */
+const DELIVERY_OPENERS = new Set([
+  'voice', 'eyes', 'words', 'breath', 'almost', 'too', 'not', 'never', 'half', 'over', 'under', 'through', 'so',
+]);
+
+/** A capitalized word that opens a delivery and is a word of manner, not a name. */
+function isDeliveryOpener(word: string): boolean {
+  const lower = word.toLowerCase();
+  return DELIVERY_OPENERS.has(lower) || (lower.length >= 5 && /(?:ing|ed)$/.test(lower));
+}
+
+/**
+ * A private-scene NPC's DELIVERY for one line (D50), as it may be shown and
+ * performed, or null when it breaks a rule. It is judged by the per-cue
+ * rules a narrator's cue is judged by (`cueChecker`: no digits, no quote
+ * marks or brackets, no mechanics) against an EMPTY passage - so it may name
+ * nobody at all - and bounded to `MAX_DELIVERY_CHARS`. Only packaging is
+ * undone first: the brackets, parentheses or asterisks a model wraps a stage
+ * direction in, a trailing full stop, runs of whitespace. A capitalized
+ * opening word of manner ("Voice catching") is read in lower case; a name
+ * opening it ("Philip whispers") still fails. Nothing else is repaired: an
+ * invalid delivery is dropped whole.
+ */
+export function validateDelivery(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  let text = raw.replace(/\s+/g, ' ').trim();
+  const wrapped = /^[([<*_]+\s*([^()[\]<>*_]*?)\s*[)\]>*_]+$/.exec(text);
+  if (wrapped) text = wrapped[1];
+  text = text.replace(/[.\s]+$/, '').trim();
+  if (!text || text.length > MAX_DELIVERY_CHARS) return null;
+  const first = /^\p{Lu}\p{Ll}*/u.exec(text)?.[0];
+  if (first && isDeliveryOpener(first)) text = first.toLowerCase() + text.slice(first.length);
+  if (cueChecker('', text)(text)) return null;
+  // A common opener the checker let stand capitalized reads in lower case,
+  // as every other delivery does.
+  const opener = /^\p{Lu}\p{Ll}*(?=\s|$|[,;:])/u.exec(text)?.[0];
+  return opener ? opener.toLowerCase() + text.slice(opener.length) : text;
+}
+
 /** Whether every `<` closes before the next `<` opens, and every `>` closes one. */
 function cueStructureFault(transcript: string): 'nested_brackets' | 'unbalanced_brackets' | null {
   let open = false;

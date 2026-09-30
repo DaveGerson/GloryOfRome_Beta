@@ -220,6 +220,66 @@ export interface Affiliation {
   faction_id?: string;
 }
 
+/**
+ * How far a character keeps one INWARD mark (D48) or SECRET tie (D49) from
+ * showing in one scene (DESIGN_DECISIONS.md D50, ai/core/composure.ts):
+ *  - holds:  it shows only if the bearer chooses to confide it;
+ *  - frays:  a small tell escapes when the talk touches it, its cause unnamed;
+ *  - breaks: it shows through plainly whatever is said, still without the
+ *            full account.
+ * A hidden roll decides the tier; the model decides how and when the tell
+ * appears within it.
+ */
+export const ComposureTierEnum = ['holds', 'frays', 'breaks'] as const;
+export type ComposureTier = typeof ComposureTierEnum[number];
+
+/**
+ * One composure roll (D50): one subject - an inward mark or a secret tie -
+ * of one bearer, in one scene. GM-PRIVATE, like every roll (D4): the die,
+ * the bearer's modifier and the difficulty are never shown to the player.
+ * The player's OWN composure is the one exception D50 carves out of D4, and
+ * even then the player is shown the outcome in words and what the NPC was
+ * told - never these numbers (perception/visibility.ts projects them away).
+ */
+export interface ComposureRoll {
+  subjectKind: 'mark' | 'tie';
+  /** The mark's or tie's handle on its bearer (Condition.id / Affiliation.id). */
+  subjectId: string;
+  /** The mark's or tie's name, as its bearer knows it. */
+  subjectName: string;
+  /** A mark's weight - what its difficulty was read from. */
+  severity?: ConditionSeverity;
+  /** A tie's kind - what its difficulty was read from. */
+  tieKind?: AffiliationKind;
+  /** The d20, 1-20. */
+  roll: number;
+  /** The bearer's modifier (ai/core/composure.ts::deriveComposureModifier). */
+  modifier: number;
+  difficulty: number;
+  tier: ComposureTier;
+}
+
+/** One bearer's composure rolls for one turn's narration (TurnHistoryEntry.composureRolls). GM-PRIVATE. */
+export interface ComposureBearerRolls {
+  entityId: string;
+  /** The bearer's name when the turn committed. */
+  entityName: string;
+  rolls: ComposureRoll[];
+}
+
+/**
+ * A tell that showed and that code let stand (D50): WHOSE it was, WHICH of
+ * their subjects it betrayed (`subject`, the GM-side handle), and what the
+ * player saw or heard. The player's own knowledge store keeps only the
+ * figure and the sentence (knowledge/store.ts::ingestSignsSeen) - never the
+ * subject. GM-PRIVATE as a record.
+ */
+export interface ComposureSign {
+  entityId: string;
+  subject: string;
+  sign: string;
+}
+
 
 /**
  * Represents an entity in the game world, which can be an individual, group, or faction.
@@ -1039,12 +1099,32 @@ export interface TurnHistoryEntry {
    * (`ai/core/resolution.ts::createSeededRng`). Every hidden roll the turn
    * made draws from that one generator in a fixed order - the player
    * action's resolution roll first (when consequential), then each
-   * mortality roll in claim order - so the recorded seed replays the
+   * mortality roll in claim order, then each composure roll (D50,
+   * `composureRolls`) - so the recorded seed replays the
    * turn's dice exactly. Optional: entries persisted before this field
    * existed (and mock-mode turns) simply lack it. Per DESIGN_DECISIONS.md
    * D4 it is GM-console-only, never rendered on any player-facing surface.
    */
   turnSeed?: number;
+  /**
+   * GM-PRIVATE (D50): the composure of each figure present with the player
+   * in this turn's narration - one d20 per inward mark and secret tie, drawn
+   * from the turn's generator straight after the mortality rolls, in this
+   * order, so `turnSeed` replays them too (ai/core/turnReplay.ts). The
+   * narrator was told only the subjects that frayed or broke. Additive and
+   * optional: entries written before it, turns with no one present bearing
+   * an inward mark or a secret tie, and mock-mode turns lack it. Read
+   * through ai/core/composure.ts::composureRollsOf, which tolerates a
+   * malformed record.
+   */
+  composureRolls?: ComposureBearerRolls[];
+  /**
+   * GM-PRIVATE (D50): the tells the narration showed that code let stand,
+   * each with the subject it betrayed. The player's knowledge store gets
+   * only the figure and the sentence (knowledge/commit.ts). Optional, as
+   * `composureRolls`.
+   */
+  composureSigns?: ComposureSign[];
   /**
    * Every span of player-visible prose the no-attempt boundary removed this
    * turn, kept structured so the GM console's Narration pane can render each

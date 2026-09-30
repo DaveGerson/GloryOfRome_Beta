@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { buildPrivateScenePrompt as buildScenePromptInput } from '../hooks/usePrivateSceneController';
 import { buildPrivateScenePrompt, PRIVATE_SCENE_MAX_PROMPT_INPUT_CHARS } from '../ai/prompts/privateScene';
 import { makeEntity } from './factories';
+import { playerComposureTell } from '../ai/core/composure';
 import type { Condition } from '../types';
 
 const mark = (overrides: Partial<Condition> & Pick<Condition, 'id' | 'name'>): Condition =>
@@ -47,6 +48,26 @@ describe('D48/D49: a private scene speaks from the NPC\'s own marks and ties', (
     expect(all).not.toContain('PLAYER_MARK_ACCOUNT_SENTINEL');
     expect(all).not.toContain('PLAYER_INWARD_MARK_SENTINEL');
     expect(all).not.toContain('PLAYER_SECRET_TIE_SENTINEL');
+  });
+
+  it('SENTINEL (D50): of the player\'s inward marks and secret ties, only code\'s composure lines reach the NPC - a mark\'s name when it breaks, a tie\'s kind, never its name or any account', () => {
+    const rolled = (tier: 'frays' | 'breaks') => [
+      { subjectKind: 'mark' as const, subjectId: 'dread', subjectName: 'PLAYER_INWARD_MARK_SENTINEL', severity: 'serious' as const, roll: 1, modifier: 0, difficulty: 10, tier },
+      { subjectKind: 'tie' as const, subjectId: 'lararium', subjectName: 'PLAYER_SECRET_TIE_SENTINEL', tieKind: 'religion' as const, roll: 1, modifier: 0, difficulty: 9, tier },
+    ].map(roll => ({ ...roll, told: playerComposureTell(roll, player.name) }));
+    for (const tier of ['frays', 'breaks'] as const) {
+      const { systemInstruction, prompt } = buildPrivateScenePrompt(buildScenePromptInput(player, julia, opening, 1, { npc: [], player: rolled(tier) }));
+      const all = `${systemInstruction}\n${prompt}`;
+      const tells = rolled(tier).map(roll => roll.told!);
+      for (const tell of tells) expect(prompt).toContain(JSON.stringify(tell));
+      // Strip the code-written lines: nothing of the player's hidden marks or ties is left.
+      const rest = tells.reduce((text, tell) => text.split(JSON.stringify(tell)).join(''), all);
+      for (const sentinel of ['PLAYER_INWARD_MARK_SENTINEL', 'PLAYER_MARK_ACCOUNT_SENTINEL', 'PLAYER_SECRET_TIE_SENTINEL']) {
+        expect(rest, `${tier}: ${sentinel}`).not.toContain(sentinel);
+      }
+      expect(all).not.toContain('PLAYER_SECRET_TIE_SENTINEL');
+      expect(all).not.toContain('PLAYER_MARK_ACCOUNT_SENTINEL');
+    }
   });
 
   it('a figure with no marks or ties reads as before - no empty lists', () => {

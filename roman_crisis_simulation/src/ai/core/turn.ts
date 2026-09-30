@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent, TruthLedgerEntry, NpcIntent, NpcMindDecision, StoryRelevance, EntityAction, Memory, PacingPosture, EventFiringRecord, EventDelta, Scheme, SchemeStep, TurnSubmission, MortalityEvent } from '../../types';
+import { Entity, WorldState, Adjudication, Report, TurnHistoryEntry, SimulationState, ActionResolutionEvent, TruthLedgerEntry, NpcIntent, NpcMindDecision, StoryRelevance, EntityAction, Memory, PacingPosture, EventFiringRecord, EventDelta, Scheme, SchemeStep, TurnSubmission, MortalityEvent, ComposureBearerRolls, ComposureSign } from '../../types';
 import { AdjudicationSchema, NarrationPayloadSchema } from './schemas';
 import { applyAdjudication } from './engine';
 import { mockRunNewTurn } from "../mocks";
@@ -30,6 +30,7 @@ import { processMortality, detectDeathClaims } from './mortality';
 import { createNarrationStreamGate, createPayloadTextExtractor, splitNarrationSuggestions } from './streamSplit';
 import { rollD20, resolveAction, clampDifficulty, derivePersonalityModifier, deriveOppositionModifier, createSeededRng, generateSeed, type Rng } from './resolution';
 import { deriveLeverageTruth } from './groundTruth';
+import { composureCuesFrom, rollComposure, screenNarrationSigns } from './composure';
 import { deserializeTurnSubmission, isReservedTurnSubmissionArtifact, normalizeTurnSubmissionInput, projectForAdjudication, projectForNarration, projectForNoAttemptResponse, projectForPlayerReflection, projectForResolution, serializeTurnSubmission } from '../../playerInput/turnSubmission';
 import {
     assertNoInventedPlayerAction,
@@ -147,6 +148,25 @@ function figuresNamedIn(texts: readonly string[], entities: Entity[], playerId: 
         .filter(entity => entity.entity_id !== playerId && entity.name.trim().length > 0
             && texts.some(text => textContainsWholeDisplayName(text, entity.name)))
         .slice(0, MAX_VOICE_CAST);
+}
+
+/**
+ * The figures PRESENT with the player this turn (D50) - the ones whose
+ * composure the narration can show: among the figures the player's own
+ * perceived events name (`figuresAtHand`), the living individuals named in
+ * a line the player saw for themselves (a witnessed or their own) or
+ * standing where the player stands. A figure known only through a dispatch
+ * or the street's word was not in the room, and no tell of theirs can be
+ * seen. Roster order, so the rolls replay onto the same figures.
+ */
+function figuresPresentWith(
+    player: Entity,
+    figuresAtHand: readonly Entity[],
+    events: readonly Pick<PerceivedChange, 'text' | 'source'>[],
+): Entity[] {
+    const seenLines = events.filter(event => event.source === 'witnessed' || event.source === 'self').map(event => event.text);
+    return figuresAtHand.filter(figure => figure.entity_type === 'individual' && figure.status === 'alive'
+        && (figure.location === player.location || seenLines.some(text => textContainsWholeDisplayName(text, figure.name))));
 }
 
 // MAX_NPC_INTENTS/selectDurableIntents now live in ./directorIntents (moved
@@ -1071,6 +1091,9 @@ interface PlayerSurfacesStageResult {
     suggestedActions: string[];
     playerMonologue: string;
     proseRedactions: PlayerProseRedaction[];
+    /** D50, GM-private: the present figures' composure rolls, and the narration's signs code let stand. */
+    composureRolls: ComposureBearerRolls[];
+    composureSigns: ComposureSign[];
 }
 
 /**
@@ -1191,7 +1214,22 @@ async function runPlayerSurfacesStage(
     // D49: the same identities the voice cast may draw on - named in the
     // player's own perceived events - carry their OPENLY professed ties.
     const figuresAtHand = figuresNamedIn(playerNarrationEvents.map(event => event.text), updatedEntities, playerEntity.entity_id);
-    const narrationPrompt = buildNarrationPrompt(ctx.metaNarrative, updatedPlayerEntity, narrationSubmission, playerNarrationEvents, voiceCast, playerOutcomeDirective, figuresAtHand);
+    // D50: the figures present with the player roll their composure ONCE
+    // this turn - one d20 per inward mark and secret tie, drawn from the
+    // turn's generator straight after the mortality rolls, so `turnSeed`
+    // replays them (ai/core/turnReplay.ts). Only when the narration is
+    // written: a turn answered rather than narrated shows no one. The
+    // narrator is told only what frayed or broke (buildComposureBlock); what
+    // held never reaches it, so no prose and no voice can carry it.
+    const narrationRequested = !(noAttemptResponse && playerOutcomeDirective === undefined);
+    const present = narrationRequested ? figuresPresentWith(updatedPlayerEntity, figuresAtHand, playerNarrationEvents) : [];
+    const composureRolls: ComposureBearerRolls[] = present.flatMap(figure => {
+        const rolls = rollComposure(figure, ctx.turnRng);
+        return rolls.length > 0 ? [{ entityId: figure.entity_id, entityName: figure.name, rolls }] : [];
+    });
+    const composureCues = composureCuesFrom(composureRolls);
+    const narrationComposure = present.length > 0 ? { present, cues: composureCues } : undefined;
+    const narrationPrompt = buildNarrationPrompt(ctx.metaNarrative, updatedPlayerEntity, narrationSubmission, playerNarrationEvents, voiceCast, playerOutcomeDirective, figuresAtHand, narrationComposure);
     const narrationRequest = {
         callName: 'narration',
         model: GEMINI_PRO,
@@ -1225,7 +1263,7 @@ async function runPlayerSurfacesStage(
     // attempt on the player's life this turn: that settled fate is theirs,
     // and D2 has the narration convey it (D46 - the world acts whether or
     // not they do). The client sets the narration ahead of the answer.
-    const narrationPromise = noAttemptResponse && playerOutcomeDirective === undefined
+    const narrationPromise = !narrationRequested
         ? Promise.resolve<NarrationPayloadInterchange>({ text: '', actors: [] })
         : onNarrationChunk
             ? generateStructuredStream<NarrationPayloadInterchange>(ai, narrationRequest, (_rawJsonSoFar, chunkText) => {
@@ -1319,7 +1357,11 @@ async function runPlayerSurfacesStage(
         const finalNarration = playerVisibleStreamGate.finish(narration);
         if (finalNarration !== null) onNarrationChunk(finalNarration);
     }
-    return { updatedSimulationState, narration, suggestedActions, playerMonologue, proseRedactions };
+    // D50: the narration's optional signs, screened by code against the
+    // turn's cues - a sign for a subject that held, or one naming the mark
+    // or tie it betrays, never stands (ai/core/composure.ts).
+    const composureSigns = narration.trim() ? screenNarrationSigns(rawNarrationPayload.signs, composureCues, updatedEntities) : [];
+    return { updatedSimulationState, narration, suggestedActions, playerMonologue, proseRedactions, composureRolls, composureSigns };
 }
 
 // --- Stage 6: the history entry and the committed result -------------------
@@ -1374,6 +1416,12 @@ function assembleTurnResult(ctx: TurnContext, turn: {
         npcMindResults: npcMindResults.length > 0 ? npcMindResults : undefined,
         // Session-side only: stripped on serialize (persistence/saveGame.ts).
         proseRedactions: proseRedactions.length > 0 ? proseRedactions : undefined,
+        // GM-private (D50), additive and optional: the present figures'
+        // composure rolls and the narration's signs code let stand. The
+        // player's knowledge store takes only each sign's figure and sentence
+        // (knowledge/commit.ts, at the commit).
+        ...(surfaces.composureRolls.length > 0 ? { composureRolls: surfaces.composureRolls } : {}),
+        ...(surfaces.composureSigns.length > 0 ? { composureSigns: surfaces.composureSigns } : {}),
     };
 
     // Never dump the result to the console: it carries the turn's full raw-call
