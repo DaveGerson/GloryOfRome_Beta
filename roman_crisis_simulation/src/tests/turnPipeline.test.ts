@@ -2498,10 +2498,12 @@ describe('ai/core/turn.ts runNewTurn - no-attempt prose redaction vs. structural
       deltas: [],
       headlines: [
         // Trimmed: the tripwire cuts the invented player sentence, the rest stands.
-        { text: 'Creditors circle the Palatine. You seize the treasury.', actors: ['npc_crassus', 'npc_crassus'] },
+        // Declared once by id, once by display name in another case: one hand.
+        { text: 'Creditors circle the Palatine. You seize the treasury.', actors: ['npc_crassus', 'CRASSUS'] },
         // Dropped outright: it declares the player.
         { text: 'You execute the tribune.', actors: ['player_1'] },
-        { text: 'The Senate debates the grain dole.', actors: [] },
+        // A label that names no roster figure: no hand, kept apart for the GM.
+        { text: 'The Senate debates the grain dole.', actors: ['the grain factors'] },
       ],
       gm_private: [],
     }));
@@ -2516,7 +2518,7 @@ describe('ai/core/turn.ts runNewTurn - no-attempt prose redaction vs. structural
     // Each hand's name is frozen at commit, from the post-turn roster.
     expect(result.newHistoryEntry.headlineActors).toEqual([
       { text: 'Creditors circle the Palatine.', actorIds: ['npc_crassus'], actorNames: ['Crassus'] },
-      { text: 'The Senate debates the grain dole.', actorIds: [], actorNames: [] },
+      { text: 'The Senate debates the grain dole.', actorIds: [], actorNames: [], unresolvedActors: ['the grain factors'] },
     ]);
     // A separate record: the committed headlines themselves stay bare text (D42).
     expect(result.newHistoryEntry.adjudication.headlines).toEqual(result.headlines);
@@ -2530,7 +2532,7 @@ describe('ai/core/turn.ts runNewTurn - no-attempt prose redaction vs. structural
       playerIntent: 'Wait.',
       adjudication: { turn: 1, entityActions: [], deltas: [], headlines: ['A fire in the Subura.'], gm_private: [] },
       narration: 'Smoke over the Subura.',
-      headlineActors: [{ text: 'A fire in the Subura.', actorIds: ['npc_sentinel_hand'], actorNames: ['SENTINEL_HAND Aurelius'] }],
+      headlineActors: [{ text: 'A fire in the Subura.', actorIds: ['npc_sentinel_hand'], actorNames: ['SENTINEL_HAND Aurelius'], unresolvedActors: ['SENTINEL_LABEL'] }],
     };
 
     h.response.storyRelevance.resolve(storyRelevanceJson);
@@ -2547,7 +2549,7 @@ describe('ai/core/turn.ts runNewTurn - no-attempt prose redaction vs. structural
 
     for (const kind of ['simulationState', 'monologue', 'narration'] as const) {
       const sent = `${h.systemInstructionsByKind[kind]}\n${h.promptsByKind[kind]}`;
-      for (const token of ['headlineActors', 'actorIds', 'actorNames', 'npc_sentinel_hand', 'SENTINEL_HAND']) expect(sent, `${kind} carries ${token}`).not.toContain(token);
+      for (const token of ['headlineActors', 'actorIds', 'actorNames', 'unresolvedActors', 'npc_sentinel_hand', 'SENTINEL_HAND', 'SENTINEL_LABEL']) expect(sent, `${kind} carries ${token}`).not.toContain(token);
     }
   });
 

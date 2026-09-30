@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { Entity, WorldState, StoryRelevance, Adjudication, SimulationState, ActionResolutionEvent, NpcIntent, InvestigationRolls, InvestigationTruth, TruthLedgerEntry, GroundedOccurrenceQuestion, OccurrenceSiblingOutcome, OccurrenceTruth, TurnHistoryEntry } from '../../types';
-import type { OccurrenceQuestion } from '../../knowledge/store';
+import type { KnowledgeClaim, OccurrenceQuestion } from '../../knowledge/store';
+import { isEntityKnownToPlayer } from '../../knowledge/relationships';
 import { mockGetClarificationOnEvent, mockGetDeepAnalysis, mockGetInvestigationResult, mockGetPlayerMonologue, mockGetSchemeNatureReading, mockGetStoryRelevance, mockIntelSeed } from '../mocks';
 import { StoryRelevanceSchema, SimulationStateSchema, PlayerMonologuePayloadSchema, buildInvestigationResultSchema } from '../core/schemas';
 import { generateStructured, generateText, GEMINI_PRO, GEMINI_FLASH } from '../core/geminiService';
@@ -72,15 +73,15 @@ export const NO_THREAD_TO_FOLLOW: Record<GroundedOccurrenceQuestion, string> = {
 };
 
 /**
- * The figures the player knows by name - their visibility network. A
- * forecast reasons from them; a grounded answer's decoys are drawn from them
- * (and only them, of all the roster), and an invented stranger is told to be
- * none of them. Names only reach a prompt: an id never does.
+ * The figures in the player's network, by name - what a "What follows?"
+ * forecast reasons from, as it always has. Names only reach a prompt: an id
+ * never does. (A grounded answer's decoys are drawn otherwise: see
+ * groundTruth.ts::planOccurrence.)
  */
-function figuresKnownTo(player: Entity, allEntities: readonly Entity[]): Array<{ id: string; name: string }> {
+function figuresKnownTo(player: Entity, allEntities: readonly Entity[]): string[] {
     return player.visibility_network
-        .map(id => ({ id, name: allEntities.find(entity => entity.entity_id === id)?.name?.trim() ?? '' }))
-        .filter(figure => figure.name.length > 0 && figure.id !== player.entity_id);
+        .map(id => allEntities.find(entity => entity.entity_id === id)?.name ?? '')
+        .filter(name => name.trim().length > 0);
 }
 
 /**
@@ -97,16 +98,29 @@ function headlineStanding(occurrence: string, player: Entity, allEntities: reado
         : 'outsideNetwork';
 }
 
+/** What a question put to an occurrence reads, besides the question itself. */
+export interface OccurrenceAsking {
+    /** The live roster. */
+    allEntities: Entity[];
+    /** The reign's history: the attribution record the truth is read off. */
+    turnHistory: readonly TurnHistoryEntry[];
+    /** The player's own knowledge store: who they know, by the Dramatis Personae's own test - a decoy keeps a true hand's familiarity. */
+    knowledge: KnowledgeClaim[];
+    /** What the other grounded question on this occurrence already came back with (hooks/useIntelCommits.ts). */
+    sibling?: OccurrenceSiblingOutcome | null;
+}
+
 /**
  * A question put to a public occurrence (the Events tab). "Who is behind
  * it?" and "Who gains?" are GROUNDED (D47) in the turn's GM-private
  * attribution record (TurnHistoryEntry.headlineActors): the hands the
- * adjudicator declared - and, for "Who gains?", what each was after that turn
- * - reach the prompt at the rolled fidelity and accuracy, code picking every
- * entry the account carries, decoys included (groundTruth.ts::planOccurrence),
- * and the truth of the account comes back beside it. "What follows?" is a
- * forecast: ungrounded, unrolled, with no truth. An occurrence with no record
- * takes the honest NO_THREAD_TO_FOLLOW, unrolled and with no truth either.
+ * adjudicator declared - and, for "Who gains?", the open aims each pursued
+ * that turn - reach the prompt at the rolled fidelity and accuracy, code
+ * picking every entry the account carries, decoys included
+ * (groundTruth.ts::planOccurrence), and the truth of the account comes back
+ * beside it. "What follows?" is a forecast: ungrounded, unrolled, with no
+ * truth. An occurrence with no record takes the honest NO_THREAD_TO_FOLLOW,
+ * unrolled and with no truth either.
  *
  * WHAT THE ROLLS READ. An investigation rolls against its target's paranoia
  * and the player's intrigue; an occurrence has no single target, and asking
@@ -128,31 +142,28 @@ function headlineStanding(occurrence: string, player: Entity, allEntities: reado
  *                      false / garbled / true    fragment / partial / fuller
  *   inside the network  15%     30%      55%       25%        30%      45%
  *   outside it          30%     30%      40%       50%        30%      20%
- * `sibling` is what the other grounded question on this occurrence already
- * came back with (off the truth ledger, via hooks/useIntelCommits.ts), so the
- * two decide "came back empty" once between them. In Mock Mode the generator
- * is seeded from the occurrence and the question (ai/mocks.ts::mockIntelSeed),
- * so the same question lands the same way.
+ * `asking.sibling` is what the other grounded question on this occurrence
+ * already came back with, so the two decide "came back empty" once between
+ * them. In Mock Mode the generator is seeded from the occurrence and the
+ * question (ai/mocks.ts::mockIntelSeed), so the same question lands the same
+ * way.
  */
 export const getClarificationOnEvent = async (
     ai: GoogleGenAI,
     occurrence: string,
     question: OccurrenceQuestion,
     player: Entity,
-    allEntities: Entity[],
-    turnHistory: readonly TurnHistoryEntry[],
+    asking: OccurrenceAsking,
     isMockMode: boolean,
-    sibling: OccurrenceSiblingOutcome | null = null,
 ): Promise<OccurrenceAnswer> => {
-    const knownFigures = figuresKnownTo(player, allEntities);
-    const knownNames = knownFigures.map(figure => figure.name);
+    const { allEntities, turnHistory, knowledge, sibling = null } = asking;
     if (question === 'what_follows') {
         let forecast: string;
         if (isMockMode) {
             if(!mockGetClarificationOnEvent) throw new Error("Mock function 'mockGetClarificationOnEvent' is not implemented.");
             forecast = await mockGetClarificationOnEvent(occurrence, question, null);
         } else {
-            const { systemInstruction, prompt } = buildOccurrenceForecastPrompt(occurrence, player, knownNames);
+            const { systemInstruction, prompt } = buildOccurrenceForecastPrompt(occurrence, player, figuresKnownTo(player, allEntities));
             forecast = (await generateText(ai, { callName: 'clarification', model: GEMINI_FLASH, systemInstruction, prompt })) || "No response generated.";
         }
         assertPlayerVisibleTextSafe(forecast);
@@ -169,14 +180,25 @@ export const getClarificationOnEvent = async (
         targetParanoia: undefined,
         difficulty: OCCURRENCE_DIFFICULTY[standing],
     });
-    const plan = planOccurrence(grounding, question, rolls, rng, { playerId: player.entity_id, knownFigures, sibling });
+    // Every name a figure wears, now or in any snapshot: a stranger never borrows one.
+    const takenNames = new Set([
+        ...allEntities.map(entity => entity.name),
+        ...turnHistory.flatMap(entry => entry.postTurnEntities ?? []).map(entity => entity.name),
+        ...grounding.aliveThen.map(figure => figure.name),
+    ].filter((name): name is string => typeof name === 'string').map(name => name.trim().toLocaleLowerCase()));
+    const plan = planOccurrence(grounding, question, rolls, rng, {
+        playerId: player.entity_id,
+        isKnown: id => isEntityKnownToPlayer(player, allEntities.find(entity => entity.entity_id === id) ?? ({ entity_id: id } as Entity), knowledge),
+        takenNames,
+        sibling,
+    });
 
     let text: string;
     if (isMockMode) {
         if(!mockGetClarificationOnEvent) throw new Error("Mock function 'mockGetClarificationOnEvent' is not implemented.");
         text = await mockGetClarificationOnEvent(occurrence, question, plan);
     } else {
-        const { systemInstruction, prompt } = buildClarificationPrompt(occurrence, question, player, knownNames, plan);
+        const { systemInstruction, prompt } = buildClarificationPrompt(occurrence, question, player, plan);
         text = (await generateText(ai, { callName: 'clarification', model: GEMINI_FLASH, systemInstruction, prompt })) || "No response generated.";
     }
     assertPlayerVisibleTextSafe(text);

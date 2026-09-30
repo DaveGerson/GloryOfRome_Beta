@@ -113,33 +113,47 @@ export function stripActorsFromAdjudication(adjudication: AdjudicationInterchang
  * the capture pairs with none and gets no record - the occurrence question
  * then takes its honest "no record" path - never a guessed one.
  *
- * Each hand's display name is frozen here, from `rosters` in order (the
- * post-turn roster, then the pre-turn one), so the truth never depends on who
- * is still on the roster, or in a snapshot, when the question is asked. A
- * declared id that names no one on either is dropped: a hand that is no one
- * is no hand, and a headline left with none arose from circumstance.
+ * Each declared label is resolved here against `rosters` in order (the
+ * post-turn roster, then the pre-turn one): as an entity id, else as a
+ * display name, else as an epithet (case-insensitive) - an adjudicator that
+ * writes "Marcus Crassus" for `crassus` still names him. Each hand's name is
+ * frozen with it, so the truth never depends on who is still on the roster,
+ * or in a snapshot, when the question is asked. A label that resolves to no
+ * one is no hand: it is kept apart as `unresolvedActors` for the GM console,
+ * and a headline left with no hand arose from circumstance.
  */
 export function attributeHeadlines(
   declared: readonly { text: string; actors: readonly string[] }[],
   committed: readonly string[],
   rosters: readonly (readonly Entity[])[],
 ): HeadlineAttribution[] {
-  const nameOf = (id: string): string | undefined => {
-    for (const roster of rosters) {
-      const name = roster.find(entity => entity.entity_id === id)?.name?.trim();
-      if (name) return name;
-    }
-    return undefined;
-  };
+  const everyone = rosters.flat();
+  const folded = (value: string | undefined) => (value ?? '').trim().toLocaleLowerCase();
+  const resolve = (label: string): Entity | undefined =>
+    everyone.find(entity => entity.entity_id === label && entity.name?.trim())
+    ?? everyone.find(entity => folded(entity.name) === folded(label) && folded(label))
+    ?? everyone.find(entity => folded(entity.epithet) === folded(label) && folded(label) && entity.name?.trim());
   const unpaired = [...declared];
   const records: HeadlineAttribution[] = [];
   for (const text of committed) {
     const index = unpaired.findIndex(headline => headline.text === text);
     if (index < 0) continue;
-    const hands = [...new Set(unpaired[index].actors)]
-      .map(id => ({ id, name: nameOf(id) }))
-      .filter((hand): hand is { id: string; name: string } => hand.name !== undefined);
-    records.push({ text, actorIds: hands.map(hand => hand.id), actorNames: hands.map(hand => hand.name) });
+    const hands = new Map<string, string>();
+    const unresolved: string[] = [];
+    for (const label of unpaired[index].actors) {
+      const figure = resolve(label);
+      if (figure) {
+        if (!hands.has(figure.entity_id)) hands.set(figure.entity_id, figure.name.trim());
+      } else if (folded(label) && !unresolved.some(kept => folded(kept) === folded(label))) {
+        unresolved.push(label.trim());
+      }
+    }
+    records.push({
+      text,
+      actorIds: [...hands.keys()],
+      actorNames: [...hands.values()],
+      ...(unresolved.length > 0 ? { unresolvedActors: unresolved } : {}),
+    });
     unpaired.splice(index, 1);
   }
   return records;

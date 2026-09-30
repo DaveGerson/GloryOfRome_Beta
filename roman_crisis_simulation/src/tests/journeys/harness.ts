@@ -602,6 +602,7 @@ function assertNoLeaks(outcome: {
     { label: 'headline attribution field', value: 'headlineActors' },
     { label: 'headline attribution ids field', value: 'actorIds' },
     { label: 'headline attribution names field', value: 'actorNames' },
+    { label: 'headline attribution unresolved field', value: 'unresolvedActors' },
     // Roll mechanics as prose ("roll 13", "rolled 4").
     { label: 'roll mechanics', pattern: /\broll(?:ed)?\s+\d+\b/i },
   ];

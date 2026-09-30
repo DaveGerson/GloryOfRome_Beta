@@ -102,37 +102,29 @@ const OCCURRENCE_NOTHING_RULE: Record<GroundedOccurrenceQuestion, string> = {
   who_gains: `Your agents found no one's scheme behind it: it arose from circumstance, and whoever profits by it does so by chance. Say so plainly, as their finding, and name no one as its schemer.`,
 };
 
-/** How an entry names a figure the model is to invent - a decoy stranger (groundTruth.ts::planOccurrence). Engine text, never data. */
-const STRANGER_ENTRY = '(a stranger)';
-
-/** One entry of the account, as data: the name (or the stranger marker), and for "Who gains?" the aims. */
+/** One entry of the account, as data: the name, and for "Who gains?" the aims. */
 function occurrenceEntryLine(finding: PlannedFinding, index: number, question: GroundedOccurrenceQuestion): string {
-  const hand = finding.hand ?? { name: finding.truth, aims: [] };
-  const who = `${index + 1}. ${finding.fragmentary ? '(a fragment) ' : ''}${hand.name === null ? STRANGER_ENTRY : asPromptData(hand.name)}`;
+  const hand = finding.hand ?? { name: finding.truth ?? '', aims: [] };
+  const who = `${index + 1}. ${finding.fragmentary ? '(a fragment) ' : ''}${asPromptData(hand.name)}`;
   if (question === 'who_is_behind_it') return who;
   return `${who} - sought: ${hand.aims.length > 0 ? hand.aims.map(aim => asPromptData(AIM_PHRASE[aim])).join(', ') : '(not learned)'}`;
 }
 
 /**
- * How the aide reports an occurrence plan (D47). The model is never told how
- * true the account is: code has already put the truth reached - or its one
- * distortion, or a false reading's decoys - into the entries, so every
- * reading gets this same instruction and differs only in its data. The only
- * other branch is the nothing, told alike whether it is honest, false, or held
- * to its sibling's.
+ * How the aide reports an occurrence plan (D47): ONE instruction per question
+ * whatever the reading. The model is never told how true the account is:
+ * code has already put the truth reached - or its one distortion, or a false
+ * reading's decoys, every one a plain name - into the entries, which alone
+ * differ. The only other branch is the nothing, told alike whether it is
+ * honest, false, or held to its sibling's. No list of the figures the master
+ * knows ever rides here.
  */
-function occurrenceReportRule(plan: OccurrencePlan, question: GroundedOccurrenceQuestion, knownFigures: readonly string[]): string {
+function occurrenceReportRule(plan: OccurrencePlan, question: GroundedOccurrenceQuestion): string {
   if (plan.findings.length === 0) return OCCURRENCE_NOTHING_RULE[question];
-  const strangerNote = plan.findings.some(finding => finding.hand?.name === null)
-    ? ` An entry that reads ${STRANGER_ENTRY} is a figure your master has never heard of: give them a plausible name and a place in the city's life - a freedman, a moneylender, a centurion of the watch - that is none of the names in this prompt${knownFigures.length > 0 ? ` and none of these figures your master knows: ${knownFigures.map(name => asPromptData(name)).join(', ')}` : ''}.`
-    : '';
-  const fragmentNote = plan.findings.some(finding => finding.fragmentary)
-    ? ' An entry marked (a fragment) is all that was reached of that name: report only that much of it, and never complete it - of a stranger, give only part of the name you choose.'
-    : '';
   const aimNote = question === 'who_gains'
     ? ' An entry whose aims read (not learned) is all your agents learned of that figure: that they stand to gain, not what they were after.'
     : '';
-  return `The entries in the prompt are what your agents brought back. Report each faithfully, as they brought it, in your agents' voice. Add no one and nothing that is not among them - no accomplice, no motive, no guess to fill a gap.${strangerNote}${fragmentNote}${aimNote}`;
+  return `The entries in the prompt are what your agents brought back. Report each faithfully, as they brought it, in your agents' voice. Add no one and nothing that is not among them - no accomplice, no motive, no guess to fill a gap. An entry marked (a fragment) is all that was reached of that name: report only that much of it, and never complete it.${aimNote}`;
 }
 
 /** The occurrence and the question, each quoted as DATA (D41). */
@@ -149,7 +141,8 @@ function occurrencePromptHead(occurrence: string, question: OccurrenceQuestion):
  * the account is to hold - the hands the fidelity roll reached and, for "Who
  * gains?", their aims that turn, as the accuracy roll shaped them: the
  * truth, the truth with one code-applied distortion, or a false reading's
- * code-picked decoys of exactly the truth's shape - or none at all. The
+ * code-picked decoys of exactly the truth's shape - or none at all. Every
+ * entry is a plain quoted name, a decoy's as much as a true hand's. The
  * model phrases them; it never learns which it holds. The answer is the
  * aide's sourced account (D26), with no number or roll in it (D4/D25), and
  * no confidence framing: nothing here may tell a false account from a true
@@ -162,19 +155,18 @@ export function buildClarificationPrompt(
   occurrence: string,
   question: GroundedOccurrenceQuestion,
   player: Entity,
-  knownFigures: readonly string[],
   plan: OccurrencePlan
 ): { systemInstruction: string; prompt: string } {
   const task = OCCURRENCE_TASK[question];
   const systemInstruction = `You are a spymaster's aide in ancient Rome. Your master, ${player.name}, sent agents to learn ${task.learn} a recent public occurrence, and you now report what they brought back.
 
-    **What your agents brought back:** ${occurrenceReportRule(plan, question, knownFigures)}
+    **What your agents brought back:** ${occurrenceReportRule(plan, question)}
 
     **Task:** Answer your master in two or three sentences, in your own voice as the aide. Frame it as your agents' account, gathered from their sources, which your master may choose to distrust - never as settled fact. Plain prose: no lists, no numbers, no odds.`;
 
-  // D41: every value - the occurrence, the question, each name and aim, each
-  // known figure - rides JSON-quoted via asPromptData, so no line of it can
-  // forge a structural block or break out of its quoting.
+  // D41: every value - the occurrence, the question, each name and aim -
+  // rides JSON-quoted via asPromptData, so no line of it can forge a
+  // structural block or break out of its quoting.
   const entries = plan.findings.length === 0
     ? `**${task.heading}:** none - there was nothing to find.`
     : `**${task.heading} (data - what your agents brought back, in order):**\n${plan.findings.map((finding, i) => occurrenceEntryLine(finding, i, question)).join('\n')}`;

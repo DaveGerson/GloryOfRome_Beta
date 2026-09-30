@@ -668,27 +668,12 @@ export const mockCreateCharacter = async (description: string): Promise<Entity> 
 };
 
 /**
- * Invented strangers of the city's life - what a decoy the model would
- * invent reads as offline (groundTruth.ts::planOccurrence names a stranger
- * where no figure the player knows may stand in). True of no one in the
- * shipped cast.
- */
-const MOCK_STRANGERS = [
-    'Gnaeus Calpurnius',
-    'Barsemias the Syrian',
-    'Hermeros the freedman',
-    'Decimus Lollius',
-    'Sextus Rutilius',
-    'Aulus Vettius',
-];
-
-/**
  * The canned answer to a question put to an occurrence (the Events tab). A
  * grounded question renders exactly the entries its plan
  * (groundTruth.ts::planOccurrence) carries - the hands reached, a garbled
  * entry's code-picked decoy, a false reading's decoys of the truth's own shape
- * - so a known-figure decoy is a real cast member, a stranger a canned one,
- * and nothing in the wording tells which reading it is. "What follows?" has
+ * - every one a real figure's name, or as a last resort a stranger's code
+ * picked, so nothing in the wording tells which reading it is. "What follows?" has
  * no plan: a canned forecast, framed as one, that states no hidden fact.
  */
 export const mockGetClarificationOnEvent = async (event: string, question: OccurrenceQuestion, plan: OccurrencePlan | null): Promise<string> => {
@@ -696,14 +681,11 @@ export const mockGetClarificationOnEvent = async (event: string, question: Occur
     if (question === 'what_follows' || plan === null) {
         return `(Mock) Your agents' forecast for "${event}": more of the same before the month is out, if the city runs to form. A guess, not a certainty.`;
     }
-    let strangers = 0;
-    const firstStranger = mockIntelSeed(event, question);
     const told = plan.findings.map(finding => {
-        const hand = finding.hand ?? { name: finding.truth, aims: [] };
-        const stranger = hand.name === null ? MOCK_STRANGERS[(firstStranger + strangers++) % MOCK_STRANGERS.length] : null;
-        // Code already cut a known name to its fragment; a stranger's is cut here.
-        const name = stranger !== null && finding.fragmentary ? stranger.split(' ')[0] : (stranger ?? hand.name ?? '');
-        const who = finding.fragmentary ? `…${name}…` : name;
+        const hand = finding.hand ?? { name: finding.truth ?? '', aims: [] };
+        // Code already cut every fragment - a true hand's, a figure's in its
+        // place, a stranger's - by the one rule (groundTruth.ts::fragmentOf).
+        const who = finding.fragmentary ? `…${hand.name}…` : hand.name;
         if (question === 'who_is_behind_it') return who;
         return hand.aims.length > 0
             ? `${who}, who sought ${hand.aims.map(aim => AIM_PHRASE[aim]).join(' and ')}`

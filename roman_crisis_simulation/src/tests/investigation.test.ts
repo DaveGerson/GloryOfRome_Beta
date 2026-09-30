@@ -256,8 +256,7 @@ describe('ai/tools/intelligence.ts direct player-output mechanics boundaries', (
       'Senator Rufus left the Curia.',
       'what_follows',
       player,
-      [player, target],
-      [],
+      { allEntities: [player, target], turnHistory: [], knowledge: [] },
       false,
     )).rejects.toThrow('player-visible mechanics boundary');
   });

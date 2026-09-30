@@ -164,11 +164,22 @@ export const NO_DESIGN_TRUTH = 'There is no design: they are plotting nothing of
  * garbled reading, the decoys of a false one.
  */
 export interface PlannedHand {
-    /** The name to report - or null: a stranger of the city's life the model is to invent (a decoy only, never a figure on the roster). */
-    name: string | null;
-    /** "Who gains?" only: the aims to report, as entityAction intents; [] for a hand whose aim was never learned. */
-    aims: EntityActionIntent[];
+    /** The name to report: a true hand's, a real figure's in its place, or - only as a last resort - a stranger's from STRANGER_NAMES. */
+    name: string;
+    /** "Who gains?" only: the aims to report, as open (never covert) entityAction intents; [] for a hand whose aim was never learned. */
+    aims: OpenIntent[];
 }
+
+/**
+ * The entityAction intents that are moves made in the dark. An aim is never
+ * one of them - not on a true entry, not on a decoy - so "Who gains?" cannot
+ * put a secret move into words (D28), and a hand whose only moves were covert
+ * is a bare name on every reading.
+ */
+export const COVERT_INTENTS: readonly EntityActionIntent[] = ['assassinate', 'intrigue'];
+
+/** The intents an aim may be: every one but the covert. */
+export type OpenIntent = Exclude<EntityActionIntent, 'assassinate' | 'intrigue'>;
 
 /** One finding the prompt will ask for, with the truth the code knows about it. */
 export interface PlannedFinding {
@@ -523,37 +534,59 @@ export const NO_HAND_TRUTH: Record<GroundedOccurrenceQuestion, string> = {
 };
 
 /**
- * Each entityAction intent as an aim ("who sought to ..."). An aim is only
- * ever one of these phrases - never an action's notes or its target, which
- * may carry a secret move or a scheme's goal (D28).
+ * Each open intent as an aim ("who sought to ..."). An aim is only ever one of
+ * these phrases - never a covert intent (COVERT_INTENTS), an action's notes or
+ * its target, any of which may carry a secret move or a scheme's goal (D28).
  */
-export const AIM_PHRASE: Record<EntityActionIntent, string> = {
+export const AIM_PHRASE: Record<OpenIntent, string> = {
     appease_troops: 'to appease the troops',
     suppress_revolt: 'to put down a revolt',
     negotiate: 'to strike a bargain',
     fortify: 'to fortify a stronghold',
     raid: 'to raid',
-    assassinate: 'to have someone killed',
     tax_raise: 'to raise taxes',
     pay_arrears: 'to pay arrears owed',
     propaganda: 'to spread propaganda',
     march: 'to march an army',
     siege: 'to lay siege',
     recruit: 'to recruit men',
-    intrigue: 'to intrigue',
 };
+
+const OPEN_INTENTS: readonly OpenIntent[] = EntityActionIntentEnum.filter((intent): intent is OpenIntent => !COVERT_INTENTS.includes(intent));
+
+function isOpenIntent(intent: unknown): intent is OpenIntent {
+    return typeof intent === 'string' && (OPEN_INTENTS as readonly string[]).includes(intent);
+}
+
+/**
+ * The names a decoy takes only as a last resort - when no real figure of the
+ * right familiarity was alive and on the roster at the occurrence's turn.
+ * Code picks one, and it reaches the prompt as ordinary quoted data, like any
+ * name. None is a figure of the shipped cast, and any a figure on the roster
+ * wears, then or now, is skipped.
+ */
+export const STRANGER_NAMES: readonly string[] = [
+    'Gnaeus Calpurnius',
+    'Decimus Lollius',
+    'Sextus Rutilius',
+    'Aulus Vettius',
+    'Titus Annius',
+    'Publius Nonius',
+    'Servius Arrius',
+    'Lucius Cominius',
+];
 
 /** One hand behind an occurrence, as the record holds it. GM-PRIVATE. */
 export interface OccurrenceHand {
     id: string;
     name: string;
-    /** "Who gains?" only: the intents of its entityActions that turn, deduplicated, in order ([] for "Who is behind it?", or a hand with no action). */
-    aims: EntityActionIntent[];
+    /** "Who gains?" only: the open intents of its entityActions that turn, deduplicated, in order ([] for "Who is behind it?", or a hand whose moves were all covert or none). */
+    aims: OpenIntent[];
 }
 
 /** One entry as the ledger reads it (GM-only wording). */
-export function describeHand(hand: PlannedHand, question: GroundedOccurrenceQuestion): string {
-    const name = hand.name ?? '(a stranger the agents invented)';
+export function describeHand(hand: PlannedHand & { stranger?: boolean }, question: GroundedOccurrenceQuestion): string {
+    const name = hand.stranger ? `${hand.name} (a stranger, no roster figure)` : hand.name;
     if (question === 'who_is_behind_it') return name;
     return `${name}: ${hand.aims.length > 0 ? hand.aims.map(aim => AIM_PHRASE[aim]).join('; ') : 'no aim learned'}`;
 }
@@ -572,16 +605,17 @@ function isRecordOf(candidate: unknown, occurrence: string): candidate is Headli
  * older turn's record of the same text gives way to the newest). Names are
  * the ones frozen at commit; only a record written before names were frozen
  * is named from the roster, else the newest snapshot, dropping a hand named
- * nowhere. Null only when no turn holds a record of the text - a save from
- * before the record existed, or a headline a later gate pass changed - which
- * the caller answers with the honest "no thread to follow". Reads
- * defensively: a hand-edited or damaged save may hold anything here.
+ * nowhere. `unresolved` carries the declared labels that named no roster
+ * figure, for the GM. Null only when no turn holds a record of the text - a
+ * save from before the record existed, or a headline a later gate pass
+ * changed - which the caller answers with the honest "no thread to follow".
+ * Reads defensively: a hand-edited or damaged save may hold anything here.
  */
 export function findHeadlineHands(
     turnHistory: readonly TurnHistoryEntry[],
     occurrence: string,
     roster: readonly Entity[],
-): { entry: TurnHistoryEntry; hands: Array<{ id: string; name: string }> } | null {
+): { entry: TurnHistoryEntry; hands: Array<{ id: string; name: string }>; unresolved: string[] } | null {
     const nameFromRoster = (id: string): string | undefined => {
         const live = roster.find(entity => entity.entity_id === id)?.name?.trim();
         if (live) return live;
@@ -597,6 +631,7 @@ export function findHeadlineHands(
         const records = held.filter((candidate): candidate is HeadlineAttribution => isRecordOf(candidate, occurrence));
         if (records.length === 0) continue;
         const hands = new Map<string, string>();
+        const unresolved: string[] = [];
         for (const record of records) {
             record.actorIds.forEach((id, index) => {
                 if (typeof id !== 'string' || id.length === 0 || hands.has(id)) return;
@@ -604,10 +639,30 @@ export function findHeadlineHands(
                 const name = typeof frozen === 'string' && frozen.trim() ? frozen.trim() : nameFromRoster(id);
                 if (name) hands.set(id, name);
             });
+            for (const label of Array.isArray(record.unresolvedActors) ? record.unresolvedActors : []) {
+                if (typeof label === 'string' && label.trim() && !unresolved.includes(label)) unresolved.push(label);
+            }
         }
-        return { entry, hands: [...hands].map(([id, name]) => ({ id, name })) };
+        return { entry, hands: [...hands].map(([id, name]) => ({ id, name })), unresolved };
     }
     return null;
+}
+
+/**
+ * The figures alive and on the roster at an occurrence's OWN turn - the only
+ * real figures a decoy may be: the entry's post-turn snapshot where it still
+ * has one, else its pre-turn roster (named from the live roster), else the
+ * live roster. Never "alive now", which would tell an old occurrence's decoy
+ * by who has died since.
+ */
+function figuresAliveAt(entry: TurnHistoryEntry, roster: readonly Entity[]): Array<{ id: string; name: string }> {
+    const liveName = (id: string) => roster.find(entity => entity.entity_id === id)?.name?.trim() ?? '';
+    const alive = Array.isArray(entry.postTurnEntities)
+        ? entry.postTurnEntities.filter(entity => entity?.status === 'alive').map(entity => ({ id: entity.entity_id, name: entity.name?.trim() ?? '' }))
+        : Array.isArray(entry.preTurnRoster)
+            ? entry.preTurnRoster.filter(entity => entity?.status === 'alive').map(entity => ({ id: entity.entity_id, name: liveName(entity.entity_id) }))
+            : roster.filter(entity => entity.status === 'alive').map(entity => ({ id: entity.entity_id, name: entity.name?.trim() ?? '' }));
+    return alive.filter(figure => typeof figure.id === 'string' && figure.name.length > 0);
 }
 
 /** The truth an occurrence question reaches for, read off its attribution record. GM-PRIVATE. */
@@ -616,19 +671,23 @@ export interface OccurrenceGrounding {
     hands: OccurrenceHand[];
     /** The whole truth the account is measured against, for the ledger. */
     groundTruth: string;
+    /** The figures alive and on the roster at the occurrence's own turn: every real figure a decoy may be (the planner leaves out the true hands and the player). */
+    aliveThen: Array<{ id: string; name: string }>;
+    /** Every open intent pursued on the occurrence's turn, by whom: what a decoy's or a changed aim is drawn from. */
+    turnAims: Array<{ id: string; aim: OpenIntent }>;
 }
-
-const INTENTS: readonly EntityActionIntent[] = EntityActionIntentEnum;
 
 /**
  * The ground truth of one occurrence question (D47), in code:
  *  - who_is_behind_it: the headline's hands, by the names frozen at commit;
- *  - who_gains: the same hands, each with its aims that turn - the intents of
- *    its entityActions on the same history entry, deduplicated. Never an
- *    action's notes or target (D28); a hand with no action is a bare name.
- * An empty record is itself the truth (NO_HAND_TRUTH). Null only when there
- * is no record at all. The player's own id is a hand like any other - an
- * aide may have to tell their master that the hand was their own.
+ *  - who_gains: the same hands, each with its aims that turn - the OPEN
+ *    intents of its entityActions on the same history entry, deduplicated.
+ *    Never a covert intent, an action's notes or its target (D28); a hand
+ *    with no open action is a bare name.
+ * An empty record is itself the truth (NO_HAND_TRUTH) - save that labels the
+ * adjudicator declared but no roster figure answered are named for the GM.
+ * Null only when there is no record at all. The player's own id is a hand
+ * like any other - an aide may have to tell their master the hand was theirs.
  */
 export function occurrenceGrounding(params: {
     turnHistory: readonly TurnHistoryEntry[];
@@ -640,23 +699,27 @@ export function occurrenceGrounding(params: {
     const found = findHeadlineHands(turnHistory, occurrence, roster);
     if (!found) return null;
     const actions = Array.isArray(found.entry.adjudication?.entityActions) ? found.entry.adjudication.entityActions : [];
-    const aimsOf = (id: string): EntityActionIntent[] => [...new Set(actions
-        .filter(action => action?.id === id && INTENTS.includes(action.intent))
-        .map(action => action.intent))];
+    const turnAims = actions
+        .filter(action => typeof action?.id === 'string' && isOpenIntent(action.intent))
+        .map(action => ({ id: action.id, aim: action.intent as OpenIntent }));
+    const aimsOf = (id: string): OpenIntent[] => [...new Set(turnAims.filter(entry => entry.id === id).map(entry => entry.aim))];
     const hands = found.hands.map(({ id, name }): OccurrenceHand => ({ id, name, aims: question === 'who_gains' ? aimsOf(id) : [] }));
-    return {
-        hands,
-        groundTruth: hands.length > 0 ? hands.map(hand => describeHand(hand, question)).join(' | ') : NO_HAND_TRUTH[question],
-    };
+    const unresolvedNote = found.unresolved.length > 0 ? found.unresolved.join(', ') : '';
+    const groundTruth = hands.length > 0
+        ? `${hands.map(hand => describeHand(hand, question)).join(' | ')}${unresolvedNote ? ` | declared, but no roster figure: ${unresolvedNote}` : ''}`
+        : unresolvedNote ? `No roster figure; declared: ${unresolvedNote}` : NO_HAND_TRUTH[question];
+    return { hands, groundTruth, aliveThen: figuresAliveAt(found.entry, roster), turnAims };
 }
 
 /** What code needs to pick an occurrence account's decoys, and to keep it consistent with its sibling question. */
 export interface OccurrencePlanContext {
     /** The player's own id: a hand like any other, never a decoy. */
     playerId: string;
-    /** The figures the player knows by name (their network): the only roster figures a decoy may ever be. */
-    knownFigures: readonly { id: string; name: string }[];
-    /** What the other grounded question on the occurrence came back with, when it was asked and its ledger entry still stands. */
+    /** Whether the player knows a figure - the Dramatis Personae's own test (knowledge/relationships.ts::isEntityKnownToPlayer), handed in by the caller. */
+    isKnown: (id: string) => boolean;
+    /** Every name a figure on the roster wears, then or now, lower-cased: a stranger never borrows one. */
+    takenNames: ReadonlySet<string>;
+    /** What the other grounded question on the occurrence came back with, when the player asked it. */
     sibling: OccurrenceSiblingOutcome | null;
 }
 
@@ -674,13 +737,16 @@ export interface OccurrencePlan extends PoolPlan {
  *  - every entry keeps its SHAPE on every reading - a name alone, or a name
  *    and k aims; a false reading's decoy has exactly the shape of the true
  *    entry it replaces, and a garbled reading changes one thing in one entry;
- *  - a decoy name keeps the true hand's familiarity: for a hand that is the
- *    player or in their network, another figure they know (never a true hand,
- *    never the player); for a hand outside it - or when no known figure is
- *    left - a stranger of the city's life the model invents, never another
- *    roster figure, whose very existence the player has not learned;
- *  - a false aim is an intent the true entry never had; a garbled entry has
- *    its name pinned on a decoy or - only if it has aims - one aim changed.
+ *  - a decoy is a real figure alive and on the roster at the occurrence's own
+ *    turn, of the true hand's familiarity: a figure the player knows for a
+ *    hand they know, one they do not for a hand they do not - never a true
+ *    hand, never the player. Only when that pool runs dry does a stranger's
+ *    name from STRANGER_NAMES stand in. Every name is plain quoted data, so a
+ *    decoy reads exactly as a true hand would;
+ *  - a false or changed aim is an open intent some OTHER figure pursued that
+ *    same turn and this entry never had (any open intent, only when none is
+ *    left); a garbled entry has its name pinned on a decoy or - only if it
+ *    has aims - one aim changed.
  * "Came back empty" is decided once per occurrence, by `context.sibling`: when
  * the other question came back with nothing, so does this one (recorded false
  * when hands were behind it, whatever the roll); when it named hands, a false
@@ -700,11 +766,11 @@ export function planOccurrence(
         return { question, accuracy: 'true', fidelity, findings: [], withheld: hands.map(hand => describeHand(hand, question)), heldToSibling: true };
     }
 
-    const entry = (content: PlannedHand, fragmentary: boolean, standing: IntelAccuracy, groundTruth?: string): PlannedFinding => ({
+    const entry = (content: PlannedHand & { stranger?: boolean }, fragmentary: boolean, standing: IntelAccuracy, groundTruth?: string): PlannedFinding => ({
         truth: describeHand(content, question),
         fragmentary,
         standing,
-        hand: content,
+        hand: { name: content.name, aims: content.aims },
         ...(groundTruth !== undefined ? { groundTruth } : {}),
     });
     const fragmentary = fidelity === 'fragment';
@@ -717,15 +783,30 @@ export function planOccurrence(
     ));
 
     const trueIds = new Set(hands.map(hand => hand.id));
-    const isKnown = (id: string) => id === context.playerId || context.knownFigures.some(figure => figure.id === id);
-    const unusedFigures = context.knownFigures.filter(figure => figure.id !== context.playerId && !trueIds.has(figure.id));
-    const decoyName = (hand: OccurrenceHand, asFragment: boolean, draw: Rng): string | null => {
-        if (!isKnown(hand.id) || unusedFigures.length === 0) return null;
-        const [figure] = unusedFigures.splice(Math.floor(draw() * unusedFigures.length), 1);
-        return asFragment ? fragmentOf(figure.name, draw) : figure.name;
+    const candidates = grounding.aliveThen.filter(figure => figure.id !== context.playerId && !trueIds.has(figure.id));
+    const pools = {
+        known: candidates.filter(figure => context.isKnown(figure.id)),
+        unknown: candidates.filter(figure => !context.isKnown(figure.id)),
     };
-    const otherIntent = (excluded: readonly EntityActionIntent[], draw: Rng): EntityActionIntent => {
-        const open = INTENTS.filter(intent => !excluded.includes(intent));
+    const usedNames = new Set(hands.map(hand => hand.name.toLocaleLowerCase()));
+    const strangers = STRANGER_NAMES.filter(name => !context.takenNames.has(name.toLocaleLowerCase()) && !usedNames.has(name.toLocaleLowerCase()));
+    const decoy = (hand: OccurrenceHand, asFragment: boolean, draw: Rng): { name: string; stranger?: boolean } => {
+        const pool = context.isKnown(hand.id) ? pools.known : pools.unknown;
+        let name: string;
+        let stranger = false;
+        if (pool.length > 0) {
+            name = pool.splice(Math.floor(draw() * pool.length), 1)[0].name;
+        } else {
+            const open = strangers.length > 0 ? strangers : [...STRANGER_NAMES];
+            name = open.splice(Math.floor(draw() * open.length), 1)[0];
+            stranger = true;
+        }
+        return { name: asFragment ? fragmentOf(name, draw) : name, ...(stranger ? { stranger } : {}) };
+    };
+    const otherAim = (hand: OccurrenceHand, excluded: readonly OpenIntent[], draw: Rng): OpenIntent => {
+        const used = [...new Set(grounding.turnAims.filter(pursued => pursued.id !== hand.id).map(pursued => pursued.aim))]
+            .filter(aim => !excluded.includes(aim));
+        const open = used.length > 0 ? used : OPEN_INTENTS.filter(aim => !excluded.includes(aim));
         return open[Math.floor(draw() * open.length)];
     };
 
@@ -736,19 +817,19 @@ export function planOccurrence(
         decoys: {
             falsify: (finding, i, draw) => {
                 const hand = reached[i];
-                const aims: EntityActionIntent[] = [];
-                while (aims.length < hand.aims.length) aims.push(otherIntent([...hand.aims, ...aims], draw));
-                return entry({ name: decoyName(hand, finding.fragmentary, draw), aims }, finding.fragmentary, 'false');
+                const aims: OpenIntent[] = [];
+                while (aims.length < hand.aims.length) aims.push(otherAim(hand, [...hand.aims, ...aims], draw));
+                return entry({ ...decoy(hand, finding.fragmentary, draw), aims }, finding.fragmentary, 'false');
             },
             garble: (finding, i, distortion, draw) => {
                 const hand = reached[i];
                 const told = finding.hand!;
-                let content: PlannedHand;
+                let content: PlannedHand & { stranger?: boolean };
                 if (distortion === 'misattributed') {
-                    content = { name: decoyName(hand, finding.fragmentary, draw), aims: told.aims };
+                    content = { ...decoy(hand, finding.fragmentary, draw), aims: told.aims };
                 } else {
                     const changed = Math.floor(draw() * told.aims.length);
-                    content = { name: told.name, aims: told.aims.map((aim, a) => a === changed ? otherIntent(hand.aims, draw) : aim) };
+                    content = { name: told.name, aims: told.aims.map((aim, a) => a === changed ? otherAim(hand, [...hand.aims, ...told.aims], draw) : aim) };
                 }
                 return { ...entry(content, finding.fragmentary, 'garbled', finding.groundTruth), distortion };
             },

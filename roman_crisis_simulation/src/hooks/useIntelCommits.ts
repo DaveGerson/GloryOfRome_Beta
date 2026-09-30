@@ -18,7 +18,7 @@ import type { Entity, InvestigationResult, InvestigationTruth, Message, Occurren
 import type { DomainMutationContext } from '../state/domainMutation';
 import type { SaveGameState } from '../persistence/saveGame';
 import { computeDeepAnalysisKnowledge, computeInvestigationKnowledge } from '../knowledge/commit';
-import { deriveDossier, ingestOccurrenceFinding, occurrenceClaimKey, SCHEME_CLUES_TO_REVEAL, type KnowledgeClaim, type OccurrenceQuestion } from '../knowledge/store';
+import { deriveDossier, ingestOccurrenceFinding, occurrenceClaimKey, occurrenceSiblingInStore, SCHEME_CLUES_TO_REVEAL, type KnowledgeClaim, type OccurrenceQuestion } from '../knowledge/store';
 import {
     buildInvestigationRelationshipEvidence,
     knownRecipientOptionsForPlayer,
@@ -127,7 +127,12 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
         truth?: OccurrenceTruth,
     ): boolean => {
         if (!request.isCurrent()) return false;
-        const newKnowledge = ingestOccurrenceFinding(knowledge, { occurrence, question, text, turn: turnNumber });
+        // Whether the account named anyone rides on the player's own finding
+        // too: what they read, and the durable home the sibling question reads.
+        const newKnowledge = ingestOccurrenceFinding(knowledge, {
+            occurrence, question, text, turn: turnNumber,
+            ...(truth ? { cameBackEmpty: truth.finding.cameBackEmpty } : {}),
+        });
         const ledgerMove = truth
             ? { truthLedger: appendTruthLedgerEntries(truthLedger, [occurrenceLedgerEntry(truth, occurrenceClaimKey(occurrence, question), turnNumber, Date.now())]) }
             : {};
@@ -294,13 +299,16 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
 
     /**
      * D47: what the OTHER grounded question on an occurrence already came
-     * back with - no hand at all, or hands named - read off the GM-private
-     * ledger for the Events tab's next question, so the two answers decide
-     * "came back empty" once between them. It says no more than the player
-     * already read in that other answer.
+     * back with - no hand at all, or hands named - for the Events tab's next
+     * question, so the two answers decide "came back empty" once between
+     * them. Read off the player's own finding first (it says no more than
+     * they already read there, and the store keeps it), then the GM-private
+     * ledger, whose cap may have evicted the entry.
      */
     const occurrenceSibling = (occurrence: string, question: OccurrenceQuestion): OccurrenceSiblingOutcome | null =>
-        question === 'what_follows' ? null : siblingOccurrenceOutcome(truthLedger, occurrence, question);
+        question === 'what_follows'
+            ? null
+            : occurrenceSiblingInStore(knowledge, occurrence, question) ?? siblingOccurrenceOutcome(truthLedger, occurrence, question);
 
     // D32 - the GM console's free-text directive, persisted so it survives
     // a reload and is read by the next turn's adjudication.

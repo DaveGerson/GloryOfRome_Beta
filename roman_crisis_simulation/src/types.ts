@@ -877,9 +877,8 @@ export interface HeadlineAttribution {
     text: string;
     /**
      * The entity ids whose actions the headline narrates, as declared and
-     * resolved at commit; [] when it arose from circumstance, with no single
-     * hand behind it. An id that named no figure on the roster at commit is
-     * dropped, so a declaration of hands that are no one reads as circumstance.
+     * resolved at commit (by id, else by display name, else by epithet); []
+     * when it arose from circumstance, with no single hand behind it.
      */
     actorIds: string[];
     /**
@@ -889,6 +888,12 @@ export interface HeadlineAttribution {
      * records written before names were frozen.
      */
     actorNames?: string[];
+    /**
+     * Declared labels that resolved to no roster figure at commit - kept so the
+     * GM console can see what the adjudicator meant, never offered as a hand.
+     * Absent when every label resolved.
+     */
+    unresolvedActors?: string[];
 }
 
 /**

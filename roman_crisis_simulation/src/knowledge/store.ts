@@ -213,6 +213,17 @@ export interface KnowledgeClaim {
    * slug). Optional: findings recorded before the field existed omit it.
    */
   occurrence?: string;
+  /**
+   * Occurrence findings to "Who is behind it?" and "Who gains?" only: whether
+   * the agents' account named no one - exactly what the player read in it,
+   * nothing hidden. The other question on the same occurrence reads it, so the
+   * two answers agree on whether anyone acted (D47). Kept here, with the
+   * player's own finding, because the GM ledger's cap evicts free occurrence
+   * answers first, while the store holds a finding in its most-protected tier
+   * (see evictionTier). Absent on findings recorded before it existed, and on
+   * a forecast.
+   */
+  cameBackEmpty?: boolean;
 }
 
 /** Player-safe evidence that may be offered to the relationship selector. */
@@ -415,6 +426,8 @@ interface IngestArtifact {
   items?: string[];
   /** See KnowledgeClaim.occurrence - frozen when the claim opens. */
   occurrence?: string;
+  /** See KnowledgeClaim.cameBackEmpty - set when the claim opens, and again on a re-ask. */
+  cameBackEmpty?: boolean;
 }
 
 /**
@@ -516,6 +529,7 @@ function upsertClaim(store: KnowledgeClaim[], artifact: IngestArtifact): Knowled
       // The newest MAX_UPDATES_PER_CLAIM survive; `claim`/`firstLearnedTurn`
       // stay frozen at first arrival regardless (D21/D14).
       updates: [...existing.updates, update].slice(-MAX_UPDATES_PER_CLAIM),
+      ...(artifact.cameBackEmpty !== undefined ? { cameBackEmpty: artifact.cameBackEmpty } : {}),
     };
     return next;
   }
@@ -550,6 +564,7 @@ function upsertClaim(store: KnowledgeClaim[], artifact: IngestArtifact): Knowled
     newClaim.edges = edges;
   }
   if (artifact.occurrence !== undefined) newClaim.occurrence = artifact.occurrence;
+  if (artifact.cameBackEmpty !== undefined) newClaim.cameBackEmpty = artifact.cameBackEmpty;
   return enforceKnowledgeClaimCap([...store, newClaim]);
 }
 
@@ -873,7 +888,7 @@ export function occurrenceClaimKey(occurrence: string, question: OccurrenceQuest
  */
 export function ingestOccurrenceFinding(
   store: KnowledgeClaim[],
-  finding: { occurrence: string; question: OccurrenceQuestion; text: string; turn: number }
+  finding: { occurrence: string; question: OccurrenceQuestion; text: string; turn: number; cameBackEmpty?: boolean }
 ): KnowledgeClaim[] {
   return upsertClaim(store, {
     claimKey: occurrenceClaimKey(finding.occurrence, finding.question),
@@ -884,7 +899,26 @@ export function ingestOccurrenceFinding(
     turn: finding.turn,
     source: 'spy',
     occurrence: finding.occurrence,
+    ...(finding.cameBackEmpty !== undefined ? { cameBackEmpty: finding.cameBackEmpty } : {}),
   });
+}
+
+/**
+ * What the player already read in the OTHER grounded question on
+ * `occurrence` - an account naming no one, or one naming hands - off their
+ * own finding (KnowledgeClaim.cameBackEmpty). Null when they have not asked
+ * it, or asked it before the store said.
+ */
+export function occurrenceSiblingInStore(
+  store: KnowledgeClaim[],
+  occurrence: string,
+  question: 'who_gains' | 'who_is_behind_it',
+): 'empty' | 'named' | null {
+  const sibling = question === 'who_gains' ? 'who_is_behind_it' : 'who_gains';
+  const key = occurrenceClaimKey(occurrence, sibling);
+  const claim = store.find(candidate => candidate.claimKey === key && (candidate.occurrence === undefined || candidate.occurrence === occurrence));
+  if (typeof claim?.cameBackEmpty !== 'boolean') return null;
+  return claim.cameBackEmpty ? 'empty' : 'named';
 }
 
 /**
