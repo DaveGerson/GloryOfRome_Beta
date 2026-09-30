@@ -188,9 +188,11 @@ export interface NarrationComposure {
 /**
  * The narration prompt's COMPOSURE block (D50): the marks that show on the
  * figures present (outward - anyone can see them), and each hidden subject
- * that frayed or broke under its opaque handle - a mark by its NAME and
- * weight (never its account), a secret tie by its KIND only (never its name:
- * a tie is never learned from a slip, D49) - with the fixed instruction for
+ * that frayed or broke under its opaque handle - a mark that FRAYED by its
+ * weight alone (its name is its cause), one that BROKE by its name and
+ * weight unless the name carries another of the bearer's hidden subjects
+ * (`ComposureCue.named`), never its account; a secret tie by its KIND only
+ * (never its name: a tie is never learned from a slip, D49) - with the fixed instruction for
  * each tier and the optional `signs` the narrator may return. Every value is
  * quoted as data (D41). Empty when there is nothing to say.
  */
@@ -202,7 +204,7 @@ export function buildComposureBlock(composure: NarrationComposure | undefined): 
     .map(({ figure, marks }) => `- ${asPromptData(figure.name)}: ${marks.map(mark => asPromptData(`${mark.name} (${mark.severity})`)).join('; ')}`);
   const cues = composure.cues.map(cue => {
     const subject = cue.roll.subjectKind === 'mark'
-      ? `a mark borne inwardly: ${asPromptData(cue.roll.subjectName)}${cue.roll.severity ? ` (${cue.roll.severity})` : ''}`
+      ? `a mark borne inwardly${cue.named ? `: ${asPromptData(cue.roll.subjectName)}` : ''}${cue.roll.severity ? ` (${cue.roll.severity})` : ''}`
       : `a tie kept secret - some ${asPromptData(TIE_KIND_WORD[cue.roll.tieKind ?? 'other'])}, never named`;
     return `- handle ${asPromptData(cue.handle)}: ${asPromptData(cue.entityName)} (entity ${asPromptData(cue.entityId)}) - ${cue.roll.tier} - ${subject}`;
   });

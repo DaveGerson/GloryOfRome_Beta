@@ -7,11 +7,12 @@
  *    narration. She bears an inward mark and keeps a secret faith; each gets
  *    one composure d20 from the turn's generator, straight after the (here
  *    absent) action and mortality rolls. Scripted: the mark FRAYS, the faith
- *    HOLDS. The narrator is told the fraying mark by name - never its
- *    account - and nothing at all of the faith. The narration's signs are
- *    screened: the one for the fraying mark stands and lands on Julia's card
- *    as a sign seen, figure and sentence only; the one for the faith that
- *    held is dropped. The seed replays the composure draws.
+ *    HOLDS. The narrator is told the fraying mark by its weight alone - its
+ *    name is its cause - and nothing at all of the faith. The narration's
+ *    signs are screened: the one for the fraying mark stands and lands on
+ *    Julia's card as a sign seen, figure and sentence only; one that recounts
+ *    the mark's account, and the one for the faith that held, are dropped.
+ *    The seed replays the composure draws.
  *  - Turn 2: nobody is present - nobody rolls.
  */
 
@@ -26,7 +27,7 @@ import type { EventDelta } from '../../types';
 const JULIA = 'julia_mamaea'; // on the Palatine with the Emperor; cunning 8, paranoia 7
 const MARK_NAME = 'JULIA_INWARD_MARK_SENTINEL';
 const MARK_ACCOUNT = 'JULIA_MARK_ACCOUNT_SENTINEL: she wakes before dawn, listening for the Guard.';
-const SIGN = 'Her voice caught when the Guard was named.';
+const SIGN = 'Her voice caught, and she looked to the door.';
 
 describe('journey: composure (D50)', () => {
   it('rolls the composure of the figures present, tells the narrator only what frayed or broke, and keeps a sign as a sign', async () => {
@@ -53,6 +54,8 @@ describe('journey: composure (D50)', () => {
           ]),
           signs: [
             { entity: JULIA, handle: 'c1', sign: SIGN },
+            // The fraying mark's cause (its account names the Guard) never stands as a sign.
+            { entity: JULIA, handle: 'c1', sign: 'She listens for the Guard.' },
             // No such cue: the faith held, so the narrator was given no handle for it.
             { entity: JULIA, handle: 'c2', sign: 'She murmured a prayer under her breath.' },
           ],
@@ -76,20 +79,20 @@ describe('journey: composure (D50)', () => {
       'Composure · Julia Mamaea · the circle of Origen',
     ]);
 
-    // The narrator: what frayed, by name and tier, under an opaque handle;
-    // what showed outwardly; never the mark's account, never the faith that held.
+    // The narrator: what frayed, by weight and tier, under an opaque handle;
+    // what showed outwardly; never the mark's name or account, never the faith that held.
     const narrationPrompt = t1.client.promptsFor('narration')[0];
     expect(narrationPrompt).toContain('COMPOSURE OF THE FIGURES AT HAND');
-    expect(narrationPrompt).toContain(`- handle "c1": "Julia Mamaea" (entity "${JULIA}") - frays - a mark borne inwardly: "${MARK_NAME}" (serious)`);
+    expect(narrationPrompt).toContain(`- handle "c1": "Julia Mamaea" (entity "${JULIA}") - frays - a mark borne inwardly (serious)`);
     expect(narrationPrompt).toContain('MARKS THAT SHOW ON THE FIGURES AT HAND');
     expect(narrationPrompt).toContain('"a burned hand (light)"');
-    for (const hidden of [MARK_ACCOUNT, 'circle of Origen', 'circle_of_origen', 'dread_of_the_guard', '"c2"']) {
+    for (const hidden of [MARK_NAME, MARK_ACCOUNT, 'circle of Origen', 'circle_of_origen', 'dread_of_the_guard', '"c2"']) {
       expect(narrationPrompt).not.toContain(hidden);
     }
 
     // The signs: the fraying mark's stands, GM-side with its subject; the
     // player keeps only the figure and the sentence.
-    expect(t1.entry.composureSigns).toEqual([{ entityId: JULIA, subject: 'dread_of_the_guard', sign: SIGN }]);
+    expect(t1.entry.composureSigns).toEqual([{ entityId: JULIA, subject: 'mark:dread_of_the_guard', sign: SIGN }]);
     expect(signsSeenOf(t1.knowledge, JULIA)).toEqual([{ text: SIGN, turn: 1 }]);
     const signClaims = JSON.stringify(t1.knowledge.filter(claim => claim.claimKey.startsWith('sign:')));
     for (const hidden of [MARK_NAME, MARK_ACCOUNT, 'dread_of_the_guard', 'Origen', 'prayer']) {

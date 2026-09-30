@@ -15,7 +15,10 @@ import {
   MAX_NARRATION_SIGNS,
   MAX_SIGNS_PER_REPLY,
   TIE_COMPOSURE_DIFFICULTY,
+  breakingMarkNameMayShow,
+  buildTellScreen,
   composureCuesFrom,
+  composureSubjectHandle,
   composureRollsOf,
   composureSignsOf,
   composureSubjectsOf,
@@ -26,7 +29,9 @@ import {
   rollComposure,
   screenNarrationSigns,
   screenNpcTells,
+  stemOf,
 } from '../ai/core/composure';
+import { validateDelivery } from '../narration/performanceScript';
 import { createSeededRng } from '../ai/core/resolution';
 import type { Affiliation, AffiliationKind, ComposureRoll, ComposureTier, Condition, ConditionSeverity } from '../types';
 import { makeEntity, makePersonality } from './factories';
@@ -142,28 +147,69 @@ describe('D50 composure: the roll', () => {
   });
 });
 
+/** A roll as rollComposure writes it: handle and all. */
+function rolled(subjectKind: 'mark' | 'tie', subjectId: string, subjectName: string, tier: ComposureTier, extra: Partial<ComposureRoll> = {}): ComposureRoll {
+  return { subjectKind, subjectId, handle: `${subjectKind}:${subjectId}`, subjectName, roll: 6, modifier: 0, difficulty: 10, tier, ...extra };
+}
+
 describe('D50 composure: what an NPC is told of the player - code lines, never the model', () => {
-  const roll = (subjectKind: 'mark' | 'tie', tier: ComposureTier, extra: Partial<ComposureRoll> = {}) =>
-    ({ subjectKind, subjectName: subjectKind === 'mark' ? 'nightmares of the Guard' : 'the sages of the lararium', tier, ...extra });
+  const severus = makeEntity({
+    entity_id: 'player', name: 'Severus',
+    conditions: [mark({ id: 'nightmares', name: 'nightmares of the Guard' })],
+    affiliations: [tie({ id: 'lararium', name: 'the sages of the lararium', kind: 'religion' })],
+  });
+  const markRoll = (tier: ComposureTier) => rolled('mark', 'nightmares', 'nightmares of the Guard', tier);
+  const tieRoll = (tier: ComposureTier, tieKind: AffiliationKind = 'religion') => rolled('tie', 'lararium', 'the sages of the lararium', tier, { tieKind });
 
   it('says nothing for what held', () => {
-    expect(playerComposureTell(roll('mark', 'holds'), 'Severus')).toBeNull();
-    expect(playerComposureTell(roll('tie', 'holds'), 'Severus')).toBeNull();
+    expect(playerComposureTell(markRoll('holds'), severus)).toBeNull();
+    expect(playerComposureTell(tieRoll('holds'), severus)).toBeNull();
   });
 
   it('a mark that frays shows its weight, not its cause; one that breaks shows its NAME only', () => {
-    expect(playerComposureTell(roll('mark', 'frays'), 'Severus')).toBe('Something weighs on Severus: at moments it shows in the voice or the eyes, its cause unspoken.');
-    expect(playerComposureTell(roll('mark', 'breaks'), 'Severus')).toBe('It shows plainly on Severus: nightmares of the Guard.');
+    expect(playerComposureTell(markRoll('frays'), severus)).toBe('Something weighs on Severus: at moments it shows in the voice or the eyes, its cause unspoken.');
+    expect(playerComposureTell(markRoll('breaks'), severus)).toBe('It shows plainly on Severus: nightmares of the Guard.');
   });
 
   it('a tie that frays is a hint; one that breaks is a plain sign of its KIND - never its name', () => {
-    expect(playerComposureTell(roll('tie', 'frays'), 'Severus')).toBe('Severus lets slip a hint of some private devotion or allegiance — a gesture, a word caught back.');
-    expect(playerComposureTell(roll('tie', 'breaks', { tieKind: 'religion' }), 'Severus')).toBe('Severus shows plain signs of some secret faith, though it goes unnamed.');
-    expect(playerComposureTell(roll('tie', 'breaks', { tieKind: 'cult' }), 'Severus')).toBe('Severus shows plain signs of some secret cult, though it goes unnamed.');
-    expect(playerComposureTell(roll('tie', 'breaks', { tieKind: 'faction' }), 'Severus')).toContain('some secret faction');
-    for (const tier of ['frays', 'breaks'] as const) {
-      expect(playerComposureTell(roll('tie', tier, { tieKind: 'religion' }), 'Severus')).not.toContain('lararium');
-    }
+    expect(playerComposureTell(tieRoll('frays'), severus)).toBe('Severus lets slip a hint of some private devotion or allegiance — a gesture, a word caught back.');
+    expect(playerComposureTell(tieRoll('breaks'), severus)).toBe('Severus shows plain signs of some secret faith, though it goes unnamed.');
+    expect(playerComposureTell(tieRoll('breaks', 'cult'), severus)).toBe('Severus shows plain signs of some secret cult, though it goes unnamed.');
+    expect(playerComposureTell(tieRoll('breaks', 'faction'), severus)).toContain('some secret faction');
+    for (const tier of ['frays', 'breaks'] as const) expect(playerComposureTell(tieRoll(tier), severus)).not.toContain('lararium');
+  });
+
+  it('S2: a breaking mark whose NAME would betray another thing the player keeps is told unnamed', () => {
+    const convert = makeEntity({
+      entity_id: 'player', name: 'Severus',
+      conditions: [mark({ id: 'dread', name: 'Dread of being found out as a Christian' })],
+      affiliations: [tie({ id: 'christ', name: 'the Christian faith', kind: 'religion' })],
+    });
+    const breaking = rolled('mark', 'dread', 'Dread of being found out as a Christian', 'breaks');
+    expect(playerComposureTell(breaking, convert)).toBe('Something weighs plainly on Severus, though it goes unnamed.');
+    // Nothing else kept that the name could betray: it is told by name.
+    expect(playerComposureTell(breaking, { ...convert, affiliations: [] })).toBe('It shows plainly on Severus: Dread of being found out as a Christian.');
+  });
+});
+
+describe('D50 composure: the narrator is told a mark\'s name only when it broke and betrays nothing else', () => {
+  const bearer = makeEntity({
+    entity_id: 'lycinia', name: 'Lycinia Stolo',
+    conditions: [mark({ id: 'terror', name: 'Terror that her rites to Bacchus will be found out' }), mark({ id: 'grief', name: 'grief for her brother' })],
+    affiliations: [tie({ id: 'cult_of_bacchus', name: 'Cult of Bacchus' })],
+  });
+
+  it('S1: never for a fraying mark; for a breaking one, not when its name carries a kept tie', () => {
+    expect(breakingMarkNameMayShow(bearer, rolled('mark', 'terror', 'Terror that her rites to Bacchus will be found out', 'frays'))).toBe(false);
+    expect(breakingMarkNameMayShow(bearer, rolled('mark', 'terror', 'Terror that her rites to Bacchus will be found out', 'breaks'))).toBe(false);
+    expect(breakingMarkNameMayShow(bearer, rolled('mark', 'grief', 'grief for her brother', 'breaks'))).toBe(true);
+    expect(breakingMarkNameMayShow({ ...bearer, affiliations: [] }, rolled('mark', 'terror', 'Terror that her rites to Bacchus will be found out', 'breaks'))).toBe(true);
+    const cues = composureCuesFrom([{ entityId: 'lycinia', entityName: 'Lycinia Stolo', rolls: [
+      rolled('mark', 'terror', 'Terror that her rites to Bacchus will be found out', 'breaks'),
+      rolled('mark', 'grief', 'grief for her brother', 'breaks'),
+      rolled('tie', 'cult_of_bacchus', 'Cult of Bacchus', 'holds', { tieKind: 'cult' }),
+    ] }], [bearer]);
+    expect(cues.map(cue => [cue.handle, cue.named])).toEqual([['c1', false], ['c2', true]]);
   });
 });
 
@@ -178,54 +224,54 @@ describe('D50 composure: the screen a model-authored tell passes', () => {
     affiliations: [tie({ id: 'circle_of_origen', name: 'the circle of Origen', kind: 'religion' })],
   });
   const rolls: ComposureRoll[] = [
-    { subjectKind: 'mark', subjectId: 'grief_for_varius', subjectName: 'NPC_MARK_NAME_SENTINEL', severity: 'serious', roll: 6, modifier: 0, difficulty: 10, tier: 'frays' },
-    { subjectKind: 'mark', subjectId: 'dread', subjectName: 'a dread of the Guard', severity: 'light', roll: 18, modifier: 0, difficulty: 7, tier: 'holds' },
-    { subjectKind: 'tie', subjectId: 'circle_of_origen', subjectName: 'the circle of Origen', tieKind: 'religion', roll: 1, modifier: 0, difficulty: 9, tier: 'breaks' },
+    rolled('mark', 'grief_for_varius', 'NPC_MARK_NAME_SENTINEL', 'frays', { severity: 'serious' }),
+    rolled('mark', 'dread', 'a dread of the Guard', 'holds', { severity: 'light' }),
+    rolled('tie', 'circle_of_origen', 'the circle of Origen', 'breaks', { tieKind: 'religion' }),
   ];
 
-  it('keeps a valid delivery and a sign for a subject that frayed or broke', () => {
+  it('keeps a valid delivery and a sign for a subject that frayed or broke, by its handle', () => {
     const screened = screenNpcTells({
       delivery: 'voice catching',
       signs: [
-        { subject: 'grief_for_varius', sign: 'Her voice catches, and she looks to the window.' },
-        { subject: 'circle_of_origen', sign: 'Her lips move in a prayer she does not finish.' },
+        { subject: 'mark:grief_for_varius', sign: 'Her voice catches, and she looks to the window.' },
+        { subject: 'tie:circle_of_origen', sign: 'Her lips move in a prayer she does not finish.' },
       ],
     }, npc, rolls);
     expect(screened).toEqual({
       delivery: 'voice catching',
       signs: [
-        { subject: 'grief_for_varius', sign: 'Her voice catches, and she looks to the window.' },
-        { subject: 'circle_of_origen', sign: 'Her lips move in a prayer she does not finish.' },
+        { subject: 'mark:grief_for_varius', sign: 'Her voice catches, and she looks to the window.' },
+        { subject: 'tie:circle_of_origen', sign: 'Her lips move in a prayer she does not finish.' },
       ],
     });
   });
 
-  it('drops a sign for a subject that HELD, one that is not this NPC\'s hidden subject, and a second for the same subject', () => {
+  it('drops a sign for a subject that HELD, one that is not this NPC\'s hidden subject, a bare id, and a second for the same subject', () => {
     const screened = screenNpcTells({
       signs: [
-        { subject: 'dread', sign: 'She glances at the door.' },
-        { subject: 'scar', sign: 'She rubs the old scar.' },
-        { subject: 'someone_elses', sign: 'A shiver.' },
-        { subject: 'grief_for_varius', sign: 'Her voice catches.' },
-        { subject: 'grief_for_varius', sign: 'She looks away again.' },
+        { subject: 'mark:dread', sign: 'She glances at the door.' },
+        { subject: 'mark:scar', sign: 'She rubs the old scar.' },
+        { subject: 'mark:someone_elses', sign: 'A shiver.' },
+        { subject: 'grief_for_varius', sign: 'She looks away.' },
+        { subject: 'mark:grief_for_varius', sign: 'Her voice catches.' },
+        { subject: 'mark:grief_for_varius', sign: 'She looks away again.' },
       ],
     }, npc, rolls);
-    expect(screened.signs).toEqual([{ subject: 'grief_for_varius', sign: 'Her voice catches.' }]);
+    expect(screened.signs).toEqual([{ subject: 'mark:grief_for_varius', sign: 'Her voice catches.' }]);
   });
 
   it('SENTINEL: drops any sign or delivery that names or recounts a hidden mark or tie', () => {
     const screened = screenNpcTells({
       delivery: 'NPC_MARK_NAME_SENTINEL',
       signs: [
-        { subject: 'grief_for_varius', sign: 'She speaks of NPC_MARK_NAME_SENTINEL.' },
-        { subject: 'grief_for_varius', sign: 'npc_mark_account_sentinel: she mourns in secret.' },
-        { subject: 'circle_of_origen', sign: 'She murmurs a word of Origen.' },
-        { subject: 'circle_of_origen', sign: 'She betrays the circle of Origen.' },
+        { subject: 'mark:grief_for_varius', sign: 'She speaks of NPC_MARK_NAME_SENTINEL.' },
+        { subject: 'mark:grief_for_varius', sign: 'npc_mark_account_sentinel: she mourns in secret.' },
+        { subject: 'tie:circle_of_origen', sign: 'She murmurs a word of Origen.' },
+        { subject: 'tie:circle_of_origen', sign: 'She betrays the circle of Origen.' },
       ],
     }, npc, rolls);
     expect(screened).toEqual({ signs: [] });
-    const withGrief = screenNpcTells({ delivery: 'grief for varius', signs: [] }, npc, rolls);
-    expect(withGrief.delivery).toBeUndefined();
+    expect(screenNpcTells({ delivery: 'grief for varius', signs: [] }, npc, rolls).delivery).toBeUndefined();
   });
 
   it('drops an invalid delivery - a name, a figure, a runaway, quotation - and bounds the signs', () => {
@@ -235,42 +281,164 @@ describe('D50 composure: the screen a model-authored tell passes', () => {
     expect(screenNpcTells({ delivery: '(Voice catching.)' }, npc, rolls).delivery).toBe('voice catching');
     expect(screenNpcTells({ delivery: 'As if stifling a sob' }, npc, rolls).delivery).toBe('as if stifling a sob');
     const many = screenNpcTells({ signs: [
-      { subject: 'grief_for_varius', sign: 'One.' }, { subject: 'circle_of_origen', sign: 'Two.' }, { subject: 'grief_for_varius', sign: 'Three.' },
+      { subject: 'mark:grief_for_varius', sign: 'One.' }, { subject: 'tie:circle_of_origen', sign: 'Two.' }, { subject: 'mark:grief_for_varius', sign: 'Three.' },
     ] }, npc, rolls);
     expect(many.signs.length).toBeLessThanOrEqual(MAX_SIGNS_PER_REPLY);
     for (const sign of ['Her hand shakes 3 times.', 'x'.repeat(161), '', 7, 'She rolled a natural 20.']) {
-      expect(screenNpcTells({ signs: [{ subject: 'grief_for_varius', sign }] }, npc, rolls).signs, String(sign)).toEqual([]);
+      expect(screenNpcTells({ signs: [{ subject: 'mark:grief_for_varius', sign }] }, npc, rolls).signs, String(sign)).toEqual([]);
     }
     expect(screenNpcTells({ signs: 'not a list' }, npc, rolls).signs).toEqual([]);
   });
 
   it('gives the narrator opaque handles for what frayed or broke, never for what held, and screens its signs the same way', () => {
-    const cues = composureCuesFrom([{ entityId: 'julia', entityName: 'Julia Mamaea', rolls }]);
-    expect(cues.map(cue => [cue.handle, cue.roll.subjectId])).toEqual([['c1', 'grief_for_varius'], ['c2', 'circle_of_origen']]);
+    const bearers = [{ entityId: 'julia', entityName: 'Julia Mamaea', rolls }];
+    const cues = composureCuesFrom(bearers, [npc]);
+    expect(cues.map(cue => [cue.handle, cue.roll.handle, cue.named])).toEqual([['c1', 'mark:grief_for_varius', false], ['c2', 'tie:circle_of_origen', false]]);
     const signs = screenNarrationSigns([
       { entity: 'julia', handle: 'c1', sign: 'Her voice caught on the word.' },
       { entity: 'julia', handle: 'c1', sign: 'Again.' },
       { entity: 'someone', handle: 'c2', sign: 'A prayer.' },
       { entity: 'julia', handle: 'c9', sign: 'Nothing.' },
       { entity: 'julia', handle: 'c2', sign: 'She murmurs to Origen.' },
-    ], cues, [npc]);
-    expect(signs).toEqual([{ entityId: 'julia', subject: 'grief_for_varius', sign: 'Her voice caught on the word.' }]);
-    expect(screenNarrationSigns(undefined, cues, [npc])).toEqual([]);
-    expect(screenNarrationSigns(Array.from({ length: 9 }, (_, i) => ({ handle: `c${(i % 2) + 1}`, sign: `A tell.` })), cues, [npc]).length).toBeLessThanOrEqual(MAX_NARRATION_SIGNS);
+    ], cues, [npc], bearers);
+    expect(signs).toEqual([{ entityId: 'julia', subject: 'mark:grief_for_varius', sign: 'Her voice caught on the word.' }]);
+    expect(screenNarrationSigns(undefined, cues, [npc], bearers)).toEqual([]);
+    expect(screenNarrationSigns(Array.from({ length: 9 }, (_, i) => ({ handle: `c${(i % 2) + 1}`, sign: 'A tell.' })), cues, [npc], bearers).length).toBeLessThanOrEqual(MAX_NARRATION_SIGNS);
+  });
+});
+
+describe('D50 composure: the screen\'s stems (S3)', () => {
+  const tieScreen = (name: string) => buildTellScreen(makeEntity({ entity_id: 'x', name: 'X', affiliations: [tie({ id: 't', name })] }), []);
+
+  it('reduces a word to its stem by common endings, never below four letters', () => {
+    expect(stemOf('Christians')).toBe('christ');
+    expect(stemOf('Christianity')).toBe('christ');
+    expect(stemOf('Bacchus')).toBe('bacch');
+    expect(stemOf('Mithras')).toBe('mithra');
+    expect(stemOf('Origen')).toBe('origen');
+    expect(stemOf('rites')).toBe('rite');
+    expect(stemOf('Marcus')).toBe('marc');
+  });
+
+  it('never lets a secret tie\'s name through, by its stem at a word\'s start, whatever the tier or case', () => {
+    const probes: Array<[string, string]> = [
+      ['the Christian faith', 'She whispers a word to Christ.'],
+      ['the Christian faith', 'She has the look of the Christians.'],
+      ['the cult of Bacchus', 'A Bacchic hymn catches in her throat.'],
+      ['the cult of Bacchus', 'She sways like a Bacchant.'],
+      ['the cult of bacchus', 'She hums something bacchic.'],
+      ['the mysteries of Mithras', 'She makes the sign of Mithras.'],
+      ['the circle of Origen', 'An Origenist phrase slips out.'],
+    ];
+    for (const [name, sign] of probes) {
+      expect(tieScreen(name).sign(sign), `${name}: ${sign}`).toBeNull();
+      expect(tieScreen(name).delivery(sign.replace(/\.$/, '').toLowerCase().slice(0, 40)), `${name} delivery`).toBeNull();
+    }
+    expect(tieScreen('the cult of Bacchus').sign('Her hand goes still.')).toBe('Her hand goes still.');
+  });
+
+  it('keeps nothing of a HELD subject - mark or tie - in a sign or a delivery', () => {
+    const bearer = makeEntity({ entity_id: 'x', name: 'X', conditions: [mark({ id: 'marcus', name: 'grief for Marcus', description: 'She lost him at the river.' })] });
+    const screen = buildTellScreen(bearer, [rolled('mark', 'marcus', 'grief for Marcus', 'holds')]);
+    expect(screen.delivery('flinching at the name marcus')).toBeNull();
+    expect(screen.sign('Her grief is plain.')).toBeNull();
+    expect(screen.sign('She will not look at the river.')).toBeNull();
+    expect(screen.sign('She looks away.')).toBe('She looks away.');
+  });
+
+  it('keeps nothing of a FRAYING mark - its name or its account, the cause', () => {
+    const bearer = makeEntity({ entity_id: 'x', name: 'X', conditions: [mark({ id: 'arena', name: 'dread of the arena', description: 'She saw her brother Titus die on the sand.' })] });
+    const screen = buildTellScreen(bearer, [rolled('mark', 'arena', 'dread of the arena', 'frays')]);
+    expect(screen.sign('She will not look toward the arena.')).toBeNull();
+    expect(screen.sign('She flinches at the name Titus.')).toBeNull();
+    expect(screen.sign('Her voice catches.')).toBe('Her voice catches.');
+  });
+
+  it('lets a BREAKING mark\'s name show, never its account\'s proper nouns', () => {
+    const bearer = makeEntity({ entity_id: 'x', name: 'X', conditions: [mark({ id: 'grief', name: 'grief', description: 'She mourns Varius, her son.' })] });
+    const screen = buildTellScreen(bearer, [rolled('mark', 'grief', 'grief', 'breaks')]);
+    expect(screen.sign('Her grief is plain to see.')).toBe('Her grief is plain to see.');
+    expect(screen.sign('She mourns openly.')).toBe('She mourns openly.');
+    expect(screen.sign('She mourns Varius openly.')).toBeNull();
+  });
+
+  it('does not over-block: a short word matches whole, a longer one at a word\'s start, never inside a word', () => {
+    const bearer = makeEntity({ entity_id: 'x', name: 'X', conditions: [
+      mark({ id: 'war', name: 'War' }), mark({ id: 'ill', name: 'Ill' }), mark({ id: 'fear', name: 'Fear' }),
+    ] });
+    const screen = buildTellScreen(bearer, []);
+    expect(screen.sign('She glances toward the door.')).toBe('She glances toward the door.');
+    expect(screen.sign('She will not say.')).toBe('She will not say.');
+    expect(screen.sign('Talk of war silences her.')).toBeNull();
+    expect(screen.sign('A fearful glance.')).toBeNull();
+  });
+
+  it('drops a tell made only of punctuation (M3), or one that speaks of the mechanics (M7)', () => {
+    const screen = buildTellScreen(makeEntity({ entity_id: 'x', name: 'X' }), []);
+    for (const text of ['—', '...', '!?', 'Her composure roll failed.', 'At difficulty nine, she breaks.', 'By chance she looks up.', 'She would rather die.']) {
+      expect(screen.sign(text), text).toBeNull();
+    }
+    for (const text of ['—', '...', '!?', 'at difficulty nine', 'as her composure fails', 'rolled eyes']) {
+      expect(screen.delivery(text), text).toBeNull();
+    }
+    expect(screen.delivery('eyes lowered')).toBe('eyes lowered');
+    // Whole words only: a mechanics word inside another word is ordinary prose.
+    for (const text of ['Her checkered cloak trembles.', 'She dies a little inside.', 'A parchment unrolled in her hands.']) {
+      expect(screen.sign(text), text).toBe(text);
+    }
+    expect(screen.delivery('checkered by doubt')).toBe('checkered by doubt');
+  });
+
+  it('names no one on the roster in a delivery, in any case (M4), and no -ed name passes as a word of manner', () => {
+    const screen = buildTellScreen(makeEntity({ entity_id: 'x', name: 'X' }), [], ['Julia Mamaea', 'Maximinus Thrax']);
+    expect(screen.delivery('with a glance at mamaea')).toBeNull();
+    expect(screen.delivery('thrax-like, curt')).toBeNull();
+    expect(screen.delivery('with a glance at the door')).toBe('with a glance at the door');
+    expect(validateDelivery('Manfred whispers')).toBeNull();
+    expect(validateDelivery('Choked, barely audible')).toBe('choked, barely audible');
+    expect(validateDelivery('Trembling')).toBe('trembling');
+  });
+});
+
+describe('D50 composure: one handle space for marks and ties (S4)', () => {
+  it('gives a mark and a tie that share an id distinct handles, and screens each by its own', () => {
+    const bearer = makeEntity({
+      entity_id: 'x', name: 'X',
+      conditions: [mark({ id: 'mithras', name: 'dread of the dark', severity: 'grave' })],
+      affiliations: [tie({ id: 'mithras', name: 'the mysteries of the bull' })],
+    });
+    const rolls = rollComposure(bearer, createSeededRng(9)).map(roll => ({ ...roll, tier: roll.subjectKind === 'mark' ? 'frays' as const : 'holds' as const }));
+    expect(rolls.map(roll => roll.handle)).toEqual(['mark:mithras', 'tie:mithras']);
+    const screened = screenNpcTells({ signs: [{ subject: 'tie:mithras', sign: 'She looks down.' }, { subject: 'mark:mithras', sign: 'Her voice catches.' }] }, bearer, rolls);
+    expect(screened.signs).toEqual([{ subject: 'mark:mithras', sign: 'Her voice catches.' }]);
+  });
+
+  it('reads a bare id saved before handles as the one subject with it, and drops one it cannot place', () => {
+    const rolls = [rolled('mark', 'grief', 'grief', 'frays'), rolled('mark', 'mithras', 'a', 'frays'), rolled('tie', 'mithras', 'b', 'frays')];
+    expect(composureSubjectHandle('grief', rolls)).toBe('mark:grief');
+    expect(composureSubjectHandle('mithras', rolls)).toBeNull();
+    expect(composureSubjectHandle('nothing', rolls)).toBeNull();
+    expect(composureSubjectHandle('tie:mithras', rolls)).toBe('tie:mithras');
   });
 });
 
 describe('D50 composure: reading the persisted records', () => {
-  it('drops a malformed roll or sign, and reads an absent record as none', () => {
-    const good: ComposureRoll = { subjectKind: 'mark', subjectId: 'a', subjectName: 'a grief', severity: 'light', roll: 3, modifier: 0.5, difficulty: 7, tier: 'frays' };
-    expect(normalizeComposureRolls([good, { ...good, roll: 0 }, { ...good, tier: 'crumbles' }, null, 'x', { ...good, extra: 'POISON' }])).toEqual([good, good]);
+  it('drops a malformed roll or sign, rebuilds each handle, and reads an absent record as none', () => {
+    const good = rolled('mark', 'a', 'a grief', 'frays', { severity: 'light', roll: 3, modifier: 0.5, difficulty: 7 });
+    const { handle: _handle, ...legacy } = good;
+    expect(normalizeComposureRolls([good, { ...good, roll: 0 }, { ...good, tier: 'crumbles' }, null, 'x', { ...good, extra: 'POISON' }, legacy, { ...good, handle: 'tie:forged' }])).toEqual([good, good, good, good]);
     expect(normalizeComposureRolls(undefined)).toEqual([]);
     expect(composureRollsOf({})).toEqual([]);
     expect(composureRollsOf({ composureRolls: [{ entityId: 'j', entityName: 'J', rolls: [good, { bad: true }] }, { nope: 1 }] as never })).toEqual([
       { entityId: 'j', entityName: 'J', rolls: [good] },
     ]);
-    expect(composureSignsOf({ composureSigns: [{ entityId: 'j', subject: 'a', sign: 'A tell.' }, { entityId: 'j' }] as never })).toEqual([
-      { entityId: 'j', subject: 'a', sign: 'A tell.' },
+    // A 6901844-era sign names its subject by bare id: read against the entry's rolls.
+    expect(composureSignsOf({
+      composureRolls: [{ entityId: 'j', entityName: 'J', rolls: [good] }],
+      composureSigns: [{ entityId: 'j', subject: 'a', sign: 'A tell.' }, { entityId: 'j', subject: 'mark:a', sign: 'Another.' }, { entityId: 'j' }, { entityId: 'j', subject: 'zzz', sign: 'Lost.' }] as never,
+    })).toEqual([
+      { entityId: 'j', subject: 'mark:a', sign: 'A tell.' },
+      { entityId: 'j', subject: 'mark:a', sign: 'Another.' },
     ]);
   });
 });

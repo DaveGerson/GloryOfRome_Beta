@@ -195,6 +195,12 @@ describe('journey: structured player input through the real App transaction', ()
       expect(appControl<HTMLTextAreaElement>(app.container, 'Action 1').value).toBe('Address the Senate in open session.');
       expect(appControl<HTMLTextAreaElement>(app.container, 'What you intend').value).toBe(privateIntent);
 
+      // A retry re-runs the frozen submission with a fresh turn seed, and the
+      // seed now reaches the narration prompt: Julia, addressed in a letter
+      // and standing in the palace, is present, so her composure is rolled
+      // (D50). Pin the seed across both attempts, so the byte-identical check
+      // below is about the frozen submission, not the dice.
+      const seedPin = vi.spyOn(Math, 'random').mockReturnValue(0.25);
       // Fail at the final provider call, after the whole real turn pipeline ran.
       const failed = clientForTurn(seed, 3, 'structuredInput/failure', {
         relationshipFailure: new Error('deliberate relationship provider failure'),
@@ -222,6 +228,7 @@ describe('journey: structured player input through the real App transaction', ()
         'storyRelevance', 'assessment', 'npcMind', 'adjudication', 'simulationState',
         'monologue', 'narration', 'relationshipObservations', 'ambition',
       ]);
+      seedPin.mockRestore();
 
       const loaded = loadThreadState();
       expect(loaded.turnHistory).toHaveLength(2);

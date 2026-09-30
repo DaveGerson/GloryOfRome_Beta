@@ -65,7 +65,7 @@ const player = makeEntity({
   resources: { investigations: 1, deep_analyses: 0 },
   conditions: [
     mark({ id: 'scar', name: 'a scar across the jaw', outward: true, description: 'PLAYER_OUTWARD_ACCOUNT_SENTINEL' }),
-    mark({ id: 'dread', name: 'PLAYER_INWARD_MARK_SENTINEL', description: 'PLAYER_MARK_ACCOUNT_SENTINEL' }),
+    mark({ id: 'dread', name: 'INWARD_DREAD_MARKER', description: 'PLAYER_MARK_ACCOUNT_SENTINEL' }),
   ],
   affiliations: [{ id: 'lararium', name: 'PLAYER_SECRET_TIE_SENTINEL', kind: 'religion', public: false }],
 });
@@ -82,12 +82,12 @@ const julia = makeEntity({
 });
 
 const npcRoll = (subjectId: string, tier: ComposureRoll['tier']): ComposureRoll => subjectId === 'grief'
-  ? { subjectKind: 'mark', subjectId, subjectName: 'NPC_MARK_NAME_SENTINEL', severity: 'grave', roll: 9, modifier: 1.5, difficulty: 13, tier }
-  : { subjectKind: 'tie', subjectId, subjectName: 'the circle of Origen', tieKind: 'religion', roll: 17, modifier: 2, difficulty: 9, tier };
+  ? { subjectKind: 'mark', subjectId, handle: `mark:${subjectId}`, subjectName: 'NPC_MARK_NAME_SENTINEL', severity: 'grave', roll: 9, modifier: 1.5, difficulty: 13, tier }
+  : { subjectKind: 'tie', subjectId, handle: `tie:${subjectId}`, subjectName: 'the circle of Origen', tieKind: 'religion', roll: 17, modifier: 2, difficulty: 9, tier };
 const playerRolls = (markTier: ComposureRoll['tier'], tieTier: ComposureRoll['tier']) => ([
-  { subjectKind: 'mark', subjectId: 'dread', subjectName: 'PLAYER_INWARD_MARK_SENTINEL', severity: 'serious', roll: 2, modifier: 0, difficulty: 10, tier: markTier },
-  { subjectKind: 'tie', subjectId: 'lararium', subjectName: 'PLAYER_SECRET_TIE_SENTINEL', tieKind: 'religion', roll: 7, modifier: 0, difficulty: 9, tier: tieTier },
-] satisfies ComposureRoll[]).map(roll => ({ ...roll, told: playerComposureTell(roll, player.name) }));
+  { subjectKind: 'mark', subjectId: 'dread', handle: 'mark:dread', subjectName: 'INWARD_DREAD_MARKER', severity: 'serious', roll: 2, modifier: 0, difficulty: 10, tier: markTier },
+  { subjectKind: 'tie', subjectId: 'lararium', handle: 'tie:lararium', subjectName: 'PLAYER_SECRET_TIE_SENTINEL', tieKind: 'religion', roll: 7, modifier: 0, difficulty: 9, tier: tieTier },
+] satisfies ComposureRoll[]).map(roll => ({ ...roll, told: playerComposureTell(roll, player) }));
 const composure = (overrides: Partial<PrivateSceneComposure> = {}): PrivateSceneComposure => ({
   seed: 42,
   npc: [npcRoll('grief', 'frays'), npcRoll('origen', 'holds')],
@@ -128,8 +128,8 @@ describe('D50: the NPC prompt', () => {
   it('tells the NPC each of ITS hidden subjects\' tier, with the fixed instruction per tier - outward marks and open ties are not subjects', () => {
     const { systemInstruction, prompt } = buildPrivateScenePrompt(buildScenePromptInput(player, julia, opening, 1, composure()));
     expect(contextOf(prompt).npc.composure).toEqual([
-      { subject: 'grief', of: 'NPC_MARK_NAME_SENTINEL', kind: 'mark', tier: 'frays' },
-      { subject: 'origen', of: 'the circle of Origen', kind: 'tie', tier: 'holds' },
+      { subject: 'mark:grief', of: 'NPC_MARK_NAME_SENTINEL', kind: 'mark', tier: 'frays' },
+      { subject: 'tie:origen', of: 'the circle of Origen', kind: 'tie', tier: 'holds' },
     ]);
     for (const tier of ['holds', 'frays', 'breaks'] as const) {
       expect(systemInstruction).toContain(`- ${tier}: ${COMPOSURE_TIER_INSTRUCTIONS[tier]}`);
@@ -146,10 +146,10 @@ describe('D50: the NPC prompt', () => {
     // A mark that breaks: its NAME, once, inside the exact line; a tie that frays: a hint, never its name.
     const broke = all(composure());
     expect(broke.tells).toEqual([
-      'It shows plainly on Severus Alexander: PLAYER_INWARD_MARK_SENTINEL.',
+      'It shows plainly on Severus Alexander: INWARD_DREAD_MARKER.',
       'Severus Alexander lets slip a hint of some private devotion or allegiance — a gesture, a word caught back.',
     ]);
-    expect(countOf(broke.request, 'PLAYER_INWARD_MARK_SENTINEL')).toBe(1);
+    expect(countOf(broke.request, 'INWARD_DREAD_MARKER')).toBe(1);
     expect(broke.request).not.toContain('PLAYER_MARK_ACCOUNT_SENTINEL');
     expect(broke.request).not.toContain('PLAYER_SECRET_TIE_SENTINEL');
     expect(broke.request).not.toContain('PLAYER_OUTWARD_ACCOUNT_SENTINEL');
@@ -159,12 +159,12 @@ describe('D50: the NPC prompt', () => {
       'Something weighs on Severus Alexander: at moments it shows in the voice or the eyes, its cause unspoken.',
       'Severus Alexander shows plain signs of some secret faith, though it goes unnamed.',
     ]);
-    expect(tieBroke.request).not.toContain('PLAYER_INWARD_MARK_SENTINEL');
+    expect(tieBroke.request).not.toContain('INWARD_DREAD_MARKER');
     expect(tieBroke.request).not.toContain('PLAYER_SECRET_TIE_SENTINEL');
     // Everything held: nothing at all.
     const held = all(composure({ player: playerRolls('holds', 'holds') }));
     expect(held.tells).toBeUndefined();
-    for (const sentinel of ['PLAYER_INWARD_MARK_SENTINEL', 'PLAYER_SECRET_TIE_SENTINEL', 'PLAYER_MARK_ACCOUNT_SENTINEL']) {
+    for (const sentinel of ['INWARD_DREAD_MARKER', 'PLAYER_SECRET_TIE_SENTINEL', 'PLAYER_MARK_ACCOUNT_SENTINEL']) {
       expect(held.request).not.toContain(sentinel);
     }
   });
@@ -175,7 +175,7 @@ describe('D50: the NPC prompt', () => {
     expect(a.seed).toBe(1234);
     expect(a.npc.map(roll => roll.subjectId)).toEqual(['grief', 'origen']);
     expect(a.player.map(roll => roll.subjectId)).toEqual(['dread', 'lararium']);
-    for (const roll of a.player) expect(roll.told).toBe(playerComposureTell(roll, player.name));
+    for (const roll of a.player) expect(roll.told).toBe(playerComposureTell(roll, player));
   });
 });
 
@@ -183,7 +183,7 @@ describe('D50: the reply boundary', () => {
   it('never refuses a reply over a bad delivery or sign - code drops them instead', () => {
     for (const extra of [
       { delivery: null, signs: 'not a list' },
-      { delivery: 'I rolled a natural 20', signs: [{ subject: 'grief', sign: 'Trust level 8/10.' }] },
+      { delivery: 'I rolled a natural 20', signs: [{ subject: 'mark:grief', sign: 'Trust level 8/10.' }] },
       { delivery: 42, signs: [null, { subject: 7 }] },
     ]) {
       const parsed = zPrivateSceneModelResponse.safeParse({ ...response(), ...extra });
@@ -201,9 +201,9 @@ describe('D50: the scene record', () => {
       tells: {
         delivery: 'voice catching',
         signs: [
-          { subject: 'grief', sign: 'Her voice catches.' },
+          { subject: 'mark:grief', sign: 'Her voice catches.' },
           // Handed straight to the model, past the controller's screen: the record still refuses it.
-          { subject: 'origen', sign: 'She murmurs a prayer.' },
+          { subject: 'tie:origen', sign: 'She murmurs a prayer.' },
         ],
       },
     });
@@ -211,7 +211,7 @@ describe('D50: the scene record', () => {
     expect(scene.npcComposure).toEqual(composure().npc);
     expect(scene.playerComposure).toEqual(composure().player);
     expect(scene.transcript[1]).toEqual({ sequence: 2, speaker: 'npc', text: 'Speak, my son.', delivery: 'voice catching' });
-    expect(scene.composureSigns).toEqual([{ subject: 'grief', sign: 'Her voice catches.', exchange: 1 }]);
+    expect(scene.composureSigns).toEqual([{ subject: 'mark:grief', sign: 'Her voice catches.', exchange: 1 }]);
   });
 
   it('a later reply adds its signs under its exchange, never re-rolls, and never lands an invalid delivery', () => {
@@ -219,14 +219,14 @@ describe('D50: the scene record', () => {
     const next = appendPrivateSceneExchange({
       scene, expectedNpcResponseCount: 1, playerUtterance: 'You seem troubled.',
       response: response({ speechActs: [{ speaker: 'npc', kind: 'claim', text: 'Speak, my son.', exchange: 2 }] }),
-      tells: { delivery: 'Philip whispers', signs: [{ subject: 'grief', sign: 'She looks away.' }] },
+      tells: { delivery: 'Philip whispers', signs: [{ subject: 'mark:grief', sign: 'She looks away.' }] },
     });
     if (!next.ok) throw new Error(next.error);
     expect(next.scene.npcComposure).toEqual(scene.npcComposure);
     expect(next.scene.playerComposure).toEqual(scene.playerComposure);
     expect(next.scene.composureSeed).toBe(42);
     expect(next.scene.transcript[3]).not.toHaveProperty('delivery');
-    expect(next.scene.composureSigns).toEqual([{ subject: 'grief', sign: 'She looks away.', exchange: 2 }]);
+    expect(next.scene.composureSigns).toEqual([{ subject: 'mark:grief', sign: 'She looks away.', exchange: 2 }]);
   });
 
   it('lets the NPC remember exactly what it was told of the player, through its existing audience memory', () => {
@@ -238,7 +238,7 @@ describe('D50: the scene record', () => {
     expect(memory.playerTells).toEqual(composure().player.map(roll => roll.told));
     const block = buildPrivateSceneNpcMemoryBlock([memory]);
     expect(block).toContain('What you noticed of them');
-    expect(block).toContain(JSON.stringify('It shows plainly on Severus Alexander: PLAYER_INWARD_MARK_SENTINEL.'));
+    expect(block).toContain(JSON.stringify('It shows plainly on Severus Alexander: INWARD_DREAD_MARKER.'));
     expect(block).not.toContain('PLAYER_SECRET_TIE_SENTINEL');
   });
 });
@@ -270,10 +270,10 @@ function renderScene(scene: PrivateSceneRecord): HTMLDivElement {
 
 describe('D50: what the player sees', () => {
   it('projects the player\'s composure in words - the outcome and the exact line - and nothing GM-side', () => {
-    const scene = openScene({ tells: { delivery: 'voice catching', signs: [{ subject: 'grief', sign: 'Her voice catches.' }] } });
+    const scene = openScene({ tells: { delivery: 'voice catching', signs: [{ subject: 'mark:grief', sign: 'Her voice catches.' }] } });
     const view = projectPrivateSceneForPlayer(scene);
     expect(view.composureNotes).toEqual([
-      { subjectKind: 'mark', subjectName: 'PLAYER_INWARD_MARK_SENTINEL', outcome: 'broke', told: 'It shows plainly on Severus Alexander: PLAYER_INWARD_MARK_SENTINEL.' },
+      { subjectKind: 'mark', subjectName: 'INWARD_DREAD_MARKER', outcome: 'broke', told: 'It shows plainly on Severus Alexander: INWARD_DREAD_MARKER.' },
       { subjectKind: 'tie', subjectName: 'PLAYER_SECRET_TIE_SENTINEL', tieKind: 'religion', outcome: 'frayed', told: 'Severus Alexander lets slip a hint of some private devotion or allegiance — a gesture, a word caught back.' },
     ]);
     expect(JSON.stringify(view.composureNotes)).not.toMatch(/\d/);
@@ -364,6 +364,9 @@ describe('D50: signs seen on Personae', () => {
       { text: 'She does not finish her prayer.', turn: 3 },
     ]);
     expect(ingestSignsSeen(more, [], 4)).toBe(more);
+    // The same tell, whatever its case or spacing, is not kept twice.
+    const again = ingestSignsSeen(more, [{ entityId: 'julia', sign: '  her voice CATCHES when the Guard   is named. ' }], 4);
+    expect(signsSeenOf(again, 'julia')).toHaveLength(2);
 
     const container = document.createElement('div');
     document.body.appendChild(container);
@@ -432,7 +435,7 @@ describe('D50: the controller, in Mock Mode', () => {
     expect(scene.playerComposure).toEqual(rollSceneComposure(player, julia, seed).player);
     // The mock NPC let the fraying mark show: a delivery for its line, one sign.
     expect(scene.transcript[1].delivery).toBe('voice catching');
-    expect(scene.composureSigns).toEqual([{ subject: 'grief', sign: 'A catch comes into their voice, and they look away.', exchange: 1 }]);
+    expect(scene.composureSigns).toEqual([{ subject: 'mark:grief', sign: 'A catch comes into their voice, and they look away.', exchange: 1 }]);
     const first = committed[0] as Extract<GameAction, { type: 'PRIVATE_SCENES_COMMITTED' }>;
     expect(first.knowledge).toBeDefined();
     expect(signsSeenOf(first.knowledge!, 'julia')).toEqual([{ text: 'A catch comes into their voice, and they look away.', turn: 2 }]);
@@ -500,7 +503,14 @@ describe('D50: the save boundary', () => {
     expect(loaded).not.toHaveProperty('playerComposure');
     expect(loaded).not.toHaveProperty('smuggled');
     expect(loaded.npcComposure).toEqual([npcRoll('grief', 'frays')]);
-    expect(loaded.composureSigns).toEqual([{ subject: 'grief', sign: 'Her voice catches.', exchange: 1 }]);
+    expect(loaded.composureSigns).toEqual([{ subject: 'mark:grief', sign: 'Her voice catches.', exchange: 1 }]);
+
+    // A roll saved before handles gains its handle; a bare sign id two subjects share cannot be placed, and is dropped.
+    const { handle: _handle, ...unhandled } = npcRoll('grief', 'frays');
+    const shared = { ...npcRoll('origen', 'frays'), subjectId: 'grief', handle: 'tie:grief' };
+    const [ambiguous] = normalizeLoadedPrivateScenes([{ ...legacy, npcComposure: [unhandled, shared], composureSigns: [{ subject: 'grief', sign: 'Which?', exchange: 1 }, { subject: 'tie:grief', sign: 'This one.', exchange: 1 }] }]);
+    expect(ambiguous.npcComposure!.map(roll => roll.handle)).toEqual(['mark:grief', 'tie:grief']);
+    expect(ambiguous.composureSigns).toEqual([{ subject: 'tie:grief', sign: 'This one.', exchange: 1 }]);
   });
 });
 
@@ -511,10 +521,10 @@ describe('D50: the Mock Mode NPC', () => {
 
   it('shows a subject that frays or breaks - a delivery and a sign - and nothing for one that holds, deterministically', () => {
     expect(mockContinuePrivateScene(input(['frays', 'holds']))).toMatchObject({
-      delivery: 'voice catching', signs: [{ subject: 'grief', sign: 'A catch comes into their voice, and they look away.' }],
+      delivery: 'voice catching', signs: [{ subject: 'mark:grief', sign: 'A catch comes into their voice, and they look away.' }],
     });
     expect(mockContinuePrivateScene(input(['holds', 'breaks']))).toMatchObject({
-      delivery: 'as if fighting to keep it down', signs: [{ subject: 'origen', sign: 'It is plain in their face and bearing, whatever they say.' }],
+      delivery: 'as if fighting to keep it down', signs: [{ subject: 'tie:origen', sign: 'It is plain in their face and bearing, whatever they say.' }],
     });
     const held = mockContinuePrivateScene(input(['holds', 'holds']));
     expect(held).not.toHaveProperty('delivery');

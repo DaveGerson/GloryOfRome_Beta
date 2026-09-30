@@ -21,7 +21,8 @@ export const COMPOSURE_COPY = {
         mark: {
             held: 'You kept it behind your face. It shows only if you choose to speak of it.',
             frayed: 'It slipped at moments — in the voice, in the eyes — though never its cause.',
-            broke: 'It showed through plainly, whatever you said: named, but never its whole account.',
+            // Named or not (a name that would betray another thing kept is withheld), the told line below says which.
+            broke: 'It showed through plainly, whatever you said — though never its whole account.',
         },
         tie: {
             held: 'You kept it close. It shows only if you choose to confide it.',

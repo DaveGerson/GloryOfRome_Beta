@@ -52,13 +52,16 @@ describe('D48/D49: a private scene speaks from the NPC\'s own marks and ties', (
 
   it('SENTINEL (D50): of the player\'s inward marks and secret ties, only code\'s composure lines reach the NPC - a mark\'s name when it breaks, a tie\'s kind, never its name or any account', () => {
     const rolled = (tier: 'frays' | 'breaks') => [
-      { subjectKind: 'mark' as const, subjectId: 'dread', subjectName: 'PLAYER_INWARD_MARK_SENTINEL', severity: 'serious' as const, roll: 1, modifier: 0, difficulty: 10, tier },
-      { subjectKind: 'tie' as const, subjectId: 'lararium', subjectName: 'PLAYER_SECRET_TIE_SENTINEL', tieKind: 'religion' as const, roll: 1, modifier: 0, difficulty: 9, tier },
-    ].map(roll => ({ ...roll, told: playerComposureTell(roll, player.name) }));
+      { subjectKind: 'mark' as const, subjectId: 'dread', handle: 'mark:dread', subjectName: 'PLAYER_INWARD_MARK_SENTINEL', severity: 'serious' as const, roll: 1, modifier: 0, difficulty: 10, tier },
+      { subjectKind: 'tie' as const, subjectId: 'lararium', handle: 'tie:lararium', subjectName: 'PLAYER_SECRET_TIE_SENTINEL', tieKind: 'religion' as const, roll: 1, modifier: 0, difficulty: 9, tier },
+    ].map(roll => ({ ...roll, told: playerComposureTell(roll, player) }));
     for (const tier of ['frays', 'breaks'] as const) {
       const { systemInstruction, prompt } = buildPrivateScenePrompt(buildScenePromptInput(player, julia, opening, 1, { npc: [], player: rolled(tier) }));
       const all = `${systemInstruction}\n${prompt}`;
       const tells = rolled(tier).map(roll => roll.told!);
+      // This mark's name shares words with the secret tie ("PLAYER", "SENTINEL"):
+      // told by name it would betray the tie, so when it breaks it is told unnamed (S2).
+      if (tier === 'breaks') expect(tells[0]).toBe('Something weighs plainly on Severus Alexander, though it goes unnamed.');
       for (const tell of tells) expect(prompt).toContain(JSON.stringify(tell));
       // Strip the code-written lines: nothing of the player's hidden marks or ties is left.
       const rest = tells.reduce((text, tell) => text.split(JSON.stringify(tell)).join(''), all);

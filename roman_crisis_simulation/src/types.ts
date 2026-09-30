@@ -243,8 +243,16 @@ export type ComposureTier = typeof ComposureTierEnum[number];
  */
 export interface ComposureRoll {
   subjectKind: 'mark' | 'tie';
-  /** The mark's or tie's handle on its bearer (Condition.id / Affiliation.id). */
+  /** The mark's or tie's id on its bearer (Condition.id / Affiliation.id). */
   subjectId: string;
+  /**
+   * The subject's handle in every prompt, screen and sign: `mark:<id>` or
+   * `tie:<id>` - one space for both kinds, so a mark and a tie sharing an id
+   * never collide (ai/core/composure.ts::composureHandle). Rebuilt from
+   * `subjectKind` and `subjectId` on load, so a roll saved before it existed
+   * reads the same.
+   */
+  handle: string;
   /** The mark's or tie's name, as its bearer knows it. */
   subjectName: string;
   /** A mark's weight - what its difficulty was read from. */
@@ -269,7 +277,8 @@ export interface ComposureBearerRolls {
 
 /**
  * A tell that showed and that code let stand (D50): WHOSE it was, WHICH of
- * their subjects it betrayed (`subject`, the GM-side handle), and what the
+ * their subjects it betrayed (`subject`, the GM-side handle, `mark:<id>` or
+ * `tie:<id>`), and what the
  * player saw or heard. The player's own knowledge store keeps only the
  * figure and the sentence (knowledge/store.ts::ingestSignsSeen) - never the
  * subject. GM-PRIVATE as a record.

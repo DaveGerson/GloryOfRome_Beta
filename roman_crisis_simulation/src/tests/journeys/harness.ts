@@ -719,15 +719,17 @@ function assertNoLeaks(outcome: {
   }
 
   // D50: a composure subject that HELD this turn never reaches the
-  // narrator - not even by name - so no prose and no voice can carry it; and
-  // a sign the player keeps (a 'sign:' claim, Personae's "Signs seen") never
+  // narrator - not even by name - and neither does a mark that FRAYED (its
+  // name is its cause), so no prose and no voice can carry either; and a
+  // sign the player keeps (a 'sign:' claim, Personae's "Signs seen") never
   // names or recounts the inward mark or secret tie it betrayed.
   const narrationSurfaces = surfaces.filter(({ surface }) => surface.startsWith('narration'));
   for (const bearer of composureRollsOf(entry)) {
     for (const roll of bearer.rolls) {
-      if (roll.tier !== 'holds') continue;
+      const unnamed = roll.tier === 'holds' || (roll.subjectKind === 'mark' && roll.tier === 'frays');
+      if (!unnamed) continue;
       for (const { surface, text } of narrationSurfaces) {
-        if (text.includes(roll.subjectName)) violations.push(`${bearer.entityId}'s held ${roll.subjectKind} "${roll.subjectName}" reached ${surface}`);
+        if (text.includes(roll.subjectName)) violations.push(`${bearer.entityId}'s ${roll.tier === 'holds' ? 'held' : 'fraying'} ${roll.subjectKind} "${roll.subjectName}" reached ${surface}`);
       }
     }
   }

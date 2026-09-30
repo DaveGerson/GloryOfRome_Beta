@@ -357,23 +357,37 @@ scene or voice.
 - **Private scene** (`privateScene.ts`): rolled ONCE as the scene opens
   (the NPC's rolls, then the player's, from one seed kept with the scene -
   `hooks/usePrivateSceneController.ts::rollSceneComposure`). `npc.composure`
-  gives the NPC each of its own subjects' tier, under the fixed
-  `COMPOSURE_TIER_INSTRUCTIONS`; `player.tells` gives it EXACTLY the lines
-  CODE wrote of the player's own composure (`playerComposureTell`: a mark's
-  name when it breaks, a tie's kind, never a tie's name or any account) -
-  the only way anything of the player's inward marks or secret ties reaches
-  it. The reply may add a `delivery` (a short stage direction) and `signs`
-  (`{subject, sign}`); both are screened by code (`screenNpcTells`: the cue
-  rules, the subject must not have held, nothing of a hidden subject's name
-  or account) before any surface takes them. What the NPC was told rides
-  its audience memory into its mind (`npcMind.ts`).
+  gives the NPC each of its own subjects' tier by handle (`mark:<id>` or
+  `tie:<id>` - one space, so a mark and a tie never collide), under the
+  fixed `COMPOSURE_TIER_INSTRUCTIONS`; `player.tells` gives it EXACTLY the
+  lines CODE wrote of the player's own composure (`playerComposureTell`: a
+  mark's name when it breaks - unless that name carries another of the
+  player's hidden subjects, when it is told unnamed - a tie's kind, never a
+  tie's name or any account) - the only way anything of the player's inward
+  marks or secret ties reaches it. The reply may add a `delivery` (a short
+  stage direction) and `signs` (`{subject, sign}`); both pass the NPC's
+  screen for the scene (`buildTellScreen`) before any surface takes them.
+  What the NPC was told rides its audience memory into its mind
+  (`npcMind.ts`).
+- **The screen** (`composure.ts::buildTellScreen`), one per bearer and scene
+  or turn, by word stems matched at a word's start: a secret tie's name
+  never; a subject that held, nothing of its name or account; a mark that
+  frayed, nothing of its name or account (its cause); a mark that broke, its
+  name but never its account's proper nouns. A tell must hold a word, carry
+  no figure in digits and no game-mechanics word, and a delivery must pass
+  the cue rules and name no one on the roster (`validateDelivery`).
 - **Turn narration** (`narration.ts::buildComposureBlock`): the figures
-  PRESENT with the player roll once a turn, after the mortality rolls, from
-  the turn's seed. The narrator is told only what frayed or broke, under
-  opaque handles - a mark by name and weight, a tie by kind - plus the
-  outward marks of those present; it may return optional `signs` beside
-  `text` (the streaming extractor reads only `text`), screened by
-  `screenNarrationSigns`.
+  PRESENT with the player - standing where the player stands AND the subject
+  of a change the player saw, an actor or target of an entity action, or
+  addressed by the player (`turn.ts::figuresPresentWith`) - roll once a
+  turn, after the mortality rolls, from the turn's seed. The narrator is
+  told only what frayed or broke, under opaque handles: a fraying mark by
+  weight alone, a breaking one by name and weight unless its name carries
+  another hidden subject, a tie by kind - plus the outward marks of those
+  present. It may return optional `signs` beside `text` (the streaming
+  extractor reads only `text`), screened by `screenNarrationSigns`; if a
+  gate changed the prose after it was written, every sign of the turn is
+  dropped (`turn.ts::narrationSignsToKeep`), with a GM note.
 - **Never performed beyond the text:** the narration's voice performance
   (`narrationPerformance.ts`) is given no mark, tie or tier - it performs
   the narration text, which already carries any tell as prose.

@@ -23,6 +23,7 @@
  */
 
 import type {
+  ComposureRoll,
   Entity,
   WorldState,
   SimulationState,
@@ -37,7 +38,7 @@ import type {
 import type { AmbitionInference } from '../ai/tools/ambition';
 import type { KnowledgeClaim } from '../knowledge/store';
 import type { PrivateScenePlayerComposureRoll, PrivateSceneRecord, PrivateSceneSign } from '../privateScene/model';
-import { MAX_SIGNS_PER_SCENE, normalizeComposureRoll, normalizeComposureRolls } from '../ai/core/composure';
+import { MAX_SIGNS_PER_SCENE, composureSubjectHandle, normalizeComposureRoll, normalizeComposureRolls } from '../ai/core/composure';
 import { validateDelivery } from '../narration/performanceScript';
 import type { VoiceCast } from '../narration/voiceCast';
 import { migrateSaveEnvelope } from './saveMigrations';
@@ -280,10 +281,18 @@ function canonicalPlayerComposureRoll(value: unknown): PrivateScenePlayerComposu
 }
 
 /** A scene's sign (D50) rebuilt field by field, or null. */
-function canonicalPrivateSceneSign(value: unknown): PrivateSceneSign | null {
+/**
+ * A scene's sign (D50) rebuilt field by field, or null. Its subject is read
+ * as a handle against the scene's NPC rolls: a sign saved by 6901844, before
+ * handles carried the kind, names a bare id, which becomes the handle of the
+ * one roll with that id - or, when none has it or a mark and a tie both do,
+ * the sign is dropped (ai/core/composure.ts::composureSubjectHandle).
+ */
+function canonicalPrivateSceneSign(value: unknown, npcRolls: readonly ComposureRoll[]): PrivateSceneSign | null {
   if (!isRecord(value)) return null;
-  const { subject, sign, exchange } = value;
-  if (typeof subject !== 'string' || !subject || typeof sign !== 'string' || !sign.trim() || !isNonNegativeInteger(exchange)) return null;
+  const { sign, exchange } = value;
+  const subject = composureSubjectHandle(value.subject, npcRolls);
+  if (!subject || typeof sign !== 'string' || !sign.trim() || !isNonNegativeInteger(exchange)) return null;
   return { subject, sign, exchange };
 }
 
@@ -300,7 +309,7 @@ function canonicalPrivateSceneComposure(scene: PrivateSceneRecord): Partial<Pick
     ? scene.playerComposure.map(canonicalPlayerComposureRoll).filter((roll): roll is PrivateScenePlayerComposureRoll => roll !== null)
     : undefined;
   const signs = Array.isArray(scene.composureSigns)
-    ? scene.composureSigns.map(canonicalPrivateSceneSign).filter((sign): sign is PrivateSceneSign => sign !== null).slice(0, MAX_SIGNS_PER_SCENE)
+    ? scene.composureSigns.map(sign => canonicalPrivateSceneSign(sign, npc ?? [])).filter((sign): sign is PrivateSceneSign => sign !== null).slice(0, MAX_SIGNS_PER_SCENE)
     : [];
   return {
     ...(isNonNegativeInteger(seed) ? { composureSeed: seed } : {}),

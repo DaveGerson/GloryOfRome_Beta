@@ -60,11 +60,16 @@
  * WHO SEES WHAT (D4/D5/D25/D50): every roll is GM-private and recorded for
  * the GM console. An NPC's tiers reach only that NPC's own private-scene
  * prompt and - for a subject that frays or breaks - the turn narrator, who
- * is told a mark's name (never its account) and a tie's kind (never its
- * name). A subject that holds reaches no player-facing prompt at all, so no
- * text and no voice can carry it. The PLAYER's own composure is the one
- * exception D50 carves out of D4: they are told the outcome in words and
- * EXACTLY what the NPC was told (`playerComposureTell`), never the die.
+ * is told a fraying mark's weight alone (its name is its cause), a breaking
+ * mark's name only when that name carries nothing of the bearer's other
+ * hidden subjects (`breakingMarkNameMayShow`), never an account, and a
+ * tie's kind (never its name). A subject that holds reaches no
+ * player-facing prompt at all, so no text and no voice can carry it. Every
+ * model-authored tell passes one screen per bearer and scene or turn
+ * (`buildTellScreen`) before a player surface takes it. The PLAYER's own
+ * composure is the one exception D50 carves out of D4: they are told the
+ * outcome in words and EXACTLY what the NPC was told
+ * (`playerComposureTell`), never the die.
  */
 
 import type {
@@ -83,7 +88,7 @@ import { conditionsOf } from './conditions';
 import { secretAffiliationsOf } from './affiliations';
 import { rollD20, traitDeviation, type Rng } from './resolution';
 import { assertPlayerVisibleTextSafe } from './playerBoundary';
-import { validateDelivery } from '../../narration/performanceScript';
+import { carriesTellMechanicsWord, validateDelivery } from '../../narration/performanceScript';
 
 // --- The roll ---------------------------------------------------------------
 
@@ -184,6 +189,7 @@ export function rollComposure(bearer: Pick<Entity, 'conditions' | 'affiliations'
     return {
       subjectKind: subject.kind,
       subjectId: subject.id,
+      handle: composureHandle(subject.kind, subject.id),
       subjectName: subject.name,
       ...(subject.kind === 'mark' ? { severity: subject.severity } : { tieKind: subject.tieKind }),
       roll,
@@ -192,6 +198,15 @@ export function rollComposure(bearer: Pick<Entity, 'conditions' | 'affiliations'
       tier,
     };
   });
+}
+
+/**
+ * A subject's handle in every prompt, screen and sign: `mark:<id>` or
+ * `tie:<id>`. One space for both kinds, so a mark and a tie that share an id
+ * ("mithras" the dread, "mithras" the cult) never answer to one handle.
+ */
+export function composureHandle(kind: ComposureSubject['kind'], id: string): string {
+  return `${kind}:${id}`;
 }
 
 // --- What a tier tells a model ----------------------------------------------
@@ -206,6 +221,123 @@ export const COMPOSURE_TIER_INSTRUCTIONS: Readonly<Record<ComposureTier, string>
   frays: 'A small tell escapes when the talk touches it - a voice catching, a glance away, a hand gone still - with no cause named.',
   breaks: 'It shows through plainly whatever is said - in the face, the voice, the bearing - still without the full account of it.',
 };
+
+// --- Stems: how a hidden subject is recognised in free text ------------------
+//
+// One vocabulary for every check that asks "does this text carry something
+// of a hidden subject?" - the screen a model-authored tell passes, and the
+// overlap test that decides whether a breaking mark's NAME may be told. A
+// subject's name (and, for a mark, its account) is cut into words; each
+// content word is reduced to a stem by stripping common endings while at
+// least MIN_STEM letters remain ("Christians" -> "christ", "Bacchus" ->
+// "bacch", "Mithras" -> "mithra"), and matched case-insensitively at the
+// START of a word, so "Christ", "Bacchic", "Bacchant", "Mithraic" and
+// "Origenist" are all caught. A word too short to stem (under MIN_STEM
+// letters) matches only as a whole word, so "War" never drops "toward" and
+// "Ill" never drops "will". Matching at a word's start never looks inside a
+// word; "Fear" dropping "fearful" is the accepted cost.
+
+/** Common words a subject's name or account carries that never point at it. */
+const STOPWORDS = new Set([
+  'a', 'an', 'the', 'of', 'and', 'or', 'nor', 'but', 'yet', 'so', 'as', 'than', 'then', 'in', 'on', 'at', 'to',
+  'for', 'from', 'by', 'with', 'into', 'onto', 'over', 'under', 'upon', 'about', 'after', 'before', 'again',
+  'against', 'between', 'through', 'during', 'above', 'below', 'out', 'off', 'up', 'down', 'his', 'her', 'hers',
+  'their', 'theirs', 'its', 'our', 'ours', 'my', 'mine', 'your', 'yours', 'him', 'them', 'they', 'she', 'he', 'it',
+  'we', 'you', 'that', 'this', 'these', 'those', 'what', 'when', 'where', 'which', 'who', 'whom', 'whose', 'while',
+  'will', 'would', 'shall', 'should', 'could', 'can', 'may', 'might', 'must', 'not', 'no', 'is', 'are', 'was',
+  'were', 'be', 'been', 'being', 'has', 'have', 'had', 'does', 'did', 'done', 'all', 'any', 'some', 'each',
+  'every', 'none', 'one', 'own', 'same', 'such', 'very', 'too', 'just', 'only', 'also', 'even', 'ever', 'never',
+  'still', 'more', 'most', 'less', 'much', 'many', 'other', 'others', 'there', 'here', 'how', 'why', 'if', 'else',
+]);
+
+/** Endings stripped to reach a word's stem, longest first. */
+const STEM_ENDINGS = ['ians', 'ity', 'ism', 'ian', 'ist', 'ic', 'us', 'ae', 'es', 's'] as const;
+/** The shortest stem an ending may be stripped down to - and the shortest word matched at a word's start rather than whole. */
+const MIN_STEM = 4;
+/** The shortest word counted at all. */
+const MIN_TERM = 3;
+
+/** A word's stem: common endings stripped while at least MIN_STEM letters remain. */
+export function stemOf(word: string): string {
+  let stem = word.normalize('NFKC').toLowerCase();
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const ending of STEM_ENDINGS) {
+      if (stem.endsWith(ending) && stem.length - ending.length >= MIN_STEM) {
+        stem = stem.slice(0, -ending.length);
+        changed = true;
+        break;
+      }
+    }
+  }
+  return stem;
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** The pattern one word is recognised by: its stem at a word's start, or - too short to stem - the whole word. */
+function termPattern(word: string): RegExp {
+  const lower = word.normalize('NFKC').toLowerCase();
+  return lower.length >= MIN_STEM
+    ? new RegExp(`(?<![\\p{L}\\p{M}])${escapeRegExp(stemOf(lower))}`, 'u')
+    : new RegExp(`(?<![\\p{L}\\p{M}])${escapeRegExp(lower)}(?![\\p{L}\\p{M}])`, 'u');
+}
+
+function wordsOf(text: string): string[] {
+  return text.normalize('NFKC').replace(/_/g, ' ').match(/[\p{L}\p{M}]+/gu) ?? [];
+}
+
+/** Every content word of these texts - a subject's name, id and account. */
+function contentWordsOf(...texts: string[]): string[] {
+  return texts.flatMap(wordsOf).filter(word => word.length >= MIN_TERM && !STOPWORDS.has(word.toLowerCase()));
+}
+
+/** The capitalized words of a text that are not common words - its proper nouns ("Varius", "Guard"). */
+function properNounsOf(text: string): string[] {
+  return wordsOf(text).filter(word => /^\p{Lu}/u.test(word) && word.length >= MIN_TERM && !STOPWORDS.has(word.toLowerCase()));
+}
+
+function patternsFor(words: readonly string[]): RegExp[] {
+  return [...new Set(words.map(word => word.toLowerCase()))].map(termPattern);
+}
+
+function carriesAny(text: string, patterns: readonly RegExp[]): boolean {
+  const normalized = text.normalize('NFKC').toLowerCase();
+  return patterns.some(pattern => pattern.test(normalized));
+}
+
+/** What of one bearer's hidden subjects gives each away, as words: every secret tie's name, every inward mark's name and account. */
+function hiddenWordsOf(bearer: Pick<Entity, 'conditions' | 'affiliations'>, except?: { kind: ComposureSubject['kind']; id: string }): string[] {
+  const words: string[] = [];
+  for (const tie of secretAffiliationsOf(bearer)) {
+    if (except?.kind === 'tie' && except.id === tie.id) continue;
+    words.push(...contentWordsOf(tie.name, tie.id));
+  }
+  for (const mark of conditionsOf(bearer).filter(mark => !mark.outward)) {
+    if (except?.kind === 'mark' && except.id === mark.id) continue;
+    words.push(...contentWordsOf(mark.name, mark.description, mark.id));
+  }
+  return words;
+}
+
+/**
+ * Whether a mark that BROKE may be told by its NAME (D50) - to the turn
+ * narrator, or to an NPC of the player's own mark. Only when the name
+ * carries nothing of the bearer's OTHER hidden subjects, by the stems above:
+ * a mark named "Terror that her rites to Bacchus will be found out" is never
+ * named while "the cult of Bacchus" is kept, nor "Dread of being found out
+ * as a Christian" while "the Christian faith" is. A mark that frayed or held
+ * is never named.
+ */
+export function breakingMarkNameMayShow(
+  bearer: Pick<Entity, 'conditions' | 'affiliations'>,
+  roll: Pick<ComposureRoll, 'subjectKind' | 'subjectId' | 'subjectName' | 'tier'>,
+): boolean {
+  if (roll.subjectKind !== 'mark' || roll.tier !== 'breaks') return false;
+  return !carriesAny(roll.subjectName, patternsFor(hiddenWordsOf(bearer, { kind: 'mark', id: roll.subjectId })));
+}
 
 // --- What an NPC is told of the player (CODE-authored, never the model) -----
 
@@ -224,19 +356,25 @@ export const TIE_KIND_WORD: Readonly<Record<AffiliationKind, string>> = {
  * it, never a model, and the same line is shown to the player word for
  * word:
  *  - a mark that frays: that something weighs on them, cause unspoken;
- *  - a mark that breaks: its NAME only, never its account;
+ *  - a mark that breaks: its NAME only, never its account - unless the name
+ *    carries something of the player's other hidden subjects
+ *    (`breakingMarkNameMayShow`), when it shows plainly but unnamed;
  *  - a tie that frays: a hint of some private devotion or allegiance;
  *  - a tie that breaks: a plain sign of some secret faith, cult, faction...
  *    - its KIND, never its name: a tie is learned only by witness,
  *    investigation or exposure (D49), never from a slip.
  */
-export function playerComposureTell(roll: Pick<ComposureRoll, 'subjectKind' | 'subjectName' | 'tieKind' | 'tier'>, playerName: string): string | null {
+export function playerComposureTell(
+  roll: Pick<ComposureRoll, 'subjectKind' | 'subjectId' | 'subjectName' | 'tieKind' | 'tier'>,
+  player: Pick<Entity, 'name' | 'conditions' | 'affiliations'>,
+): string | null {
   if (roll.tier === 'holds') return null;
-  const who = playerName.trim() || 'them';
+  const who = player.name.trim() || 'them';
   if (roll.subjectKind === 'mark') {
-    return roll.tier === 'frays'
-      ? `Something weighs on ${who}: at moments it shows in the voice or the eyes, its cause unspoken.`
-      : `It shows plainly on ${who}: ${roll.subjectName.trim().replace(/[.!?;:,]+$/, '')}.`;
+    if (roll.tier === 'frays') return `Something weighs on ${who}: at moments it shows in the voice or the eyes, its cause unspoken.`;
+    return breakingMarkNameMayShow(player, roll)
+      ? `It shows plainly on ${who}: ${roll.subjectName.trim().replace(/[.!?;:,]+$/, '')}.`
+      : `Something weighs plainly on ${who}, though it goes unnamed.`;
   }
   return roll.tier === 'frays'
     ? `${who} lets slip a hint of some private devotion or allegiance — a gesture, a word caught back.`
@@ -254,91 +392,87 @@ export const MAX_SIGNS_PER_SCENE = 12;
 /** At most this many signs one turn's narration may leave. */
 export const MAX_NARRATION_SIGNS = 4;
 
-/** Common words a tie's name may carry capitalized that never name it ("The Brotherhood of ..."). */
-const COMMON_TITLE_WORDS = new Set(['the', 'a', 'an', 'of', 'and', 'in', 'to', 'for', 'at', 'on', 'his', 'her', 'their', 'our', 'my']);
-
-function normalizeForMatch(text: string): string {
-  return text.normalize('NFKC').toLowerCase().replace(/[_\s]+/g, ' ').trim();
-}
-
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 /**
- * What of a bearer's hidden subjects no model-authored tell may carry onto a
- * player surface (D50: "a sign the player saw, never the mark or tie
- * itself"): each inward mark's name, account and handle, and each secret
- * tie's name and handle - and, for a tie, every proper noun in its name
- * ("Bacchus", "Origen"), since a tie is never learned from a slip (D49).
- * Phrases match anywhere; a lone proper noun matches as a whole word.
+ * The screen one bearer's model-authored tells pass in one scene or turn
+ * (D50), built from their hidden subjects and this scene's or turn's tiers:
+ *  - a SECRET TIE's name: never, whatever its tier;
+ *  - a subject that HELD, mark or tie: nothing of its name or account;
+ *  - a mark that FRAYED: nothing of its name or account - its cause;
+ *  - a mark that BROKE: its name may show, never its account's proper nouns;
+ * every one by the stems above. Both a sign and a delivery must also hold at
+ * least one word, carry no figure in digits, no game-mechanics word
+ * (narration/performanceScript.ts::carriesTellMechanicsWord) and no hidden
+ * mechanics; a delivery must pass the cue rules too, and name no one on the
+ * roster (`validateDelivery`). What fails is dropped whole, never repaired.
  */
-function hiddenPatternsOf(bearer: Pick<Entity, 'conditions' | 'affiliations'>): RegExp[] {
-  const phrases = new Set<string>();
-  const words = new Set<string>();
+export interface TellScreen {
+  /** A sign's sentence as a player surface may take it, or null. */
+  sign(raw: unknown): string | null;
+  /** A delivery as a player surface may take it, or null. */
+  delivery(raw: unknown): string | null;
+}
+
+/** Builds one bearer's `TellScreen` for one scene or turn, from their hidden subjects and these rolls' tiers (see above). */
+export function buildTellScreen(
+  bearer: Pick<Entity, 'conditions' | 'affiliations'>,
+  rolls: readonly ComposureRoll[],
+  /** Every figure's display name on the roster: no delivery may name one (validateDelivery). */
+  rosterNames: readonly string[] = [],
+): TellScreen {
+  // A subject without a roll here is read as held - the strictest.
+  const tierOf = (kind: ComposureSubject['kind'], id: string): ComposureTier =>
+    rolls.find(roll => roll.subjectKind === kind && roll.subjectId === id)?.tier ?? 'holds';
+  const words: string[] = [];
+  for (const tie of secretAffiliationsOf(bearer)) words.push(...contentWordsOf(tie.name, tie.id));
   for (const mark of conditionsOf(bearer).filter(mark => !mark.outward)) {
-    for (const text of [mark.name, mark.description, mark.id]) {
-      const phrase = normalizeForMatch(text);
-      if (phrase.length >= 3) phrases.add(phrase);
+    if (tierOf('mark', mark.id) === 'breaks') {
+      const named = new Set(contentWordsOf(mark.name).map(stemOf));
+      words.push(...properNounsOf(mark.description).filter(word => !named.has(stemOf(word))));
+    } else {
+      words.push(...contentWordsOf(mark.name, mark.description, mark.id));
     }
   }
-  for (const tie of secretAffiliationsOf(bearer)) {
-    for (const text of [tie.name, tie.id]) {
-      const phrase = normalizeForMatch(text);
-      if (phrase.length >= 3) phrases.add(phrase);
+  const hidden = patternsFor(words);
+  const passes = (text: string) => {
+    if (!/\p{L}{2,}/u.test(text) || carriesTellMechanicsWord(text) || carriesAny(text, hidden)) return false;
+    try {
+      assertPlayerVisibleTextSafe(text);
+    } catch {
+      return false;
     }
-    for (const word of tie.name.match(/\p{Lu}[\p{L}\p{M}'’-]+/gu) ?? []) {
-      const lower = word.toLowerCase();
-      if (lower.length >= 3 && !COMMON_TITLE_WORDS.has(lower)) words.add(lower);
-    }
-  }
-  return [
-    ...[...phrases].map(phrase => new RegExp(escapeRegExp(phrase), 'u')),
-    ...[...words].map(word => new RegExp(`(?<![\\p{L}\\p{M}])${escapeRegExp(word)}(?![\\p{L}\\p{M}])`, 'u')),
-  ];
-}
-
-function carriesHidden(text: string, hidden: readonly RegExp[]): boolean {
-  const normalized = normalizeForMatch(text);
-  return hidden.some(pattern => pattern.test(normalized));
-}
-
-/**
- * One sign's sentence as a player surface may take it, or null: a short
- * sentence (whitespace collapsed, at most `MAX_SIGN_CHARS`), no figure in
- * digits, no hidden mechanics, and nothing of the bearer's hidden subjects
- * (`hiddenPatternsOf`). Never repaired: a sign that fails is dropped.
- */
-function screenSignText(raw: unknown, hidden: readonly RegExp[]): string | null {
-  if (typeof raw !== 'string') return null;
-  const text = raw.replace(/\s+/g, ' ').trim();
-  if (!text || text.length > MAX_SIGN_CHARS || /\p{N}/u.test(text)) return null;
-  try {
-    assertPlayerVisibleTextSafe(text);
-  } catch {
-    return null;
-  }
-  return carriesHidden(text, hidden) ? null : text;
+    return true;
+  };
+  return {
+    sign(raw) {
+      if (typeof raw !== 'string') return null;
+      const text = raw.replace(/\s+/g, ' ').trim();
+      if (!text || text.length > MAX_SIGN_CHARS || /\p{N}/u.test(text)) return null;
+      return passes(text) ? text : null;
+    },
+    delivery(raw) {
+      const text = validateDelivery(raw, rosterNames);
+      return text && passes(text) ? text : null;
+    },
+  };
 }
 
 /** A private-scene reply's tells once screened: what the record may keep. */
 export interface ScreenedNpcTells {
   /** The line's delivery, valid and free of the bearer's hidden subjects - or absent. */
   delivery?: string;
-  /** Each surviving sign, with its subject's handle (GM-side). */
+  /** Each surviving sign, with its subject's handle (GM-side, `mark:<id>` or `tie:<id>`). */
   signs: Array<{ subject: string; sign: string }>;
 }
 
 /**
  * Screens a private-scene NPC's model-authored tells (D50) before its record
- * - and so any player surface - takes them:
- *  - `delivery`: the stage direction for the line must pass the cue rules
- *    (narration/performanceScript.ts::validateDelivery: no names, no
- *    numbers, a length bound) and carry nothing of the NPC's hidden
- *    subjects; otherwise it is dropped.
- *  - `signs`: each must name one of THIS NPC's inward or secret subjects
- *    that did NOT hold this scene (`rolls`), once, and its sentence must pass
- *    `screenSignText`; the rest are dropped, and at most
+ * - and so any player surface - takes them, through the NPC's `TellScreen`
+ * for this scene:
+ *  - `delivery`: the stage direction for the line; dropped when it fails
+ *    the screen, and the line still stands.
+ *  - `signs`: each must name, by handle, one of THIS NPC's inward or secret
+ *    subjects that did NOT hold this scene (`rolls`), once, and its sentence
+ *    must pass the screen; the rest are dropped, and at most
  *    `MAX_SIGNS_PER_REPLY` survive.
  * Pure; the model's raw fields are read as `unknown`.
  */
@@ -346,11 +480,11 @@ export function screenNpcTells(
   raw: { delivery?: unknown; signs?: unknown },
   bearer: Pick<Entity, 'conditions' | 'affiliations'>,
   rolls: readonly ComposureRoll[],
+  rosterNames: readonly string[] = [],
 ): ScreenedNpcTells {
-  const hidden = hiddenPatternsOf(bearer);
-  const validDelivery = validateDelivery(raw.delivery);
-  const delivery = validDelivery && !carriesHidden(validDelivery, hidden) ? validDelivery : undefined;
-  const open = new Set(rolls.filter(roll => roll.tier !== 'holds').map(roll => roll.subjectId));
+  const screen = buildTellScreen(bearer, rolls, rosterNames);
+  const delivery = screen.delivery(raw.delivery) ?? undefined;
+  const open = new Set(rolls.filter(roll => roll.tier !== 'holds').map(roll => roll.handle));
   const signs: ScreenedNpcTells['signs'] = [];
   const seen = new Set<string>();
   for (const item of Array.isArray(raw.signs) ? raw.signs : []) {
@@ -358,7 +492,7 @@ export function screenNpcTells(
     if (!item || typeof item !== 'object') continue;
     const { subject, sign } = item as Record<string, unknown>;
     if (typeof subject !== 'string' || !open.has(subject) || seen.has(subject)) continue;
-    const text = screenSignText(sign, hidden);
+    const text = screen.sign(sign);
     if (!text) continue;
     seen.add(subject);
     signs.push({ subject, sign: text });
@@ -372,23 +506,33 @@ export function screenNpcTells(
  * One subject the turn narrator is told of (D50): a figure present with the
  * player whose inward mark or secret tie frayed or broke this turn, under an
  * opaque `handle` ("c1", "c2" ...) - never the subject's own handle, which
- * is its name in snake case and would carry a secret tie's name into a
- * player-facing prompt. A subject that held is never a cue.
+ * carries its id, its name in snake case, and would carry a secret tie's
+ * name into a player-facing prompt. A subject that held is never a cue.
+ * `named` says whether a mark may be told by its name: only one that BROKE
+ * and whose name carries nothing of the bearer's other hidden subjects
+ * (`breakingMarkNameMayShow`) - a fraying mark's name is its cause, so the
+ * narrator is told its weight alone. A tie is never named.
  */
 export interface ComposureCue {
   handle: string;
   entityId: string;
   entityName: string;
   roll: ComposureRoll;
+  named: boolean;
 }
 
 /** The narrator's cues from one turn's rolls: every subject that did not hold, handled in order. */
-export function composureCuesFrom(bearers: readonly ComposureBearerRolls[]): ComposureCue[] {
+export function composureCuesFrom(
+  bearers: readonly ComposureBearerRolls[],
+  roster: readonly Pick<Entity, 'entity_id' | 'conditions' | 'affiliations'>[],
+): ComposureCue[] {
   const cues: ComposureCue[] = [];
   for (const bearer of bearers) {
+    const entity = roster.find(candidate => candidate.entity_id === bearer.entityId);
     for (const roll of bearer.rolls) {
       if (roll.tier === 'holds') continue;
-      cues.push({ handle: `c${cues.length + 1}`, entityId: bearer.entityId, entityName: bearer.entityName, roll });
+      const named = entity !== undefined && breakingMarkNameMayShow(entity, roll);
+      cues.push({ handle: `c${cues.length + 1}`, entityId: bearer.entityId, entityName: bearer.entityName, roll, named });
     }
   }
   return cues;
@@ -397,17 +541,27 @@ export function composureCuesFrom(bearers: readonly ComposureBearerRolls[]): Com
 /**
  * Screens the narration payload's optional `signs` (D50) against the turn's
  * cues: a sign must name a cue's handle (and, when it names a figure, that
- * cue's figure), once, and its sentence must pass the same screen a scene's
- * sign does, against its bearer's hidden subjects. At most
- * `MAX_NARRATION_SIGNS` survive, each with its GM-side subject.
+ * cue's figure), once, and its sentence must pass its bearer's `TellScreen`
+ * for this turn. At most `MAX_NARRATION_SIGNS` survive, each with its
+ * GM-side subject handle.
  */
 export function screenNarrationSigns(
   raw: unknown,
   cues: readonly ComposureCue[],
   roster: readonly Pick<Entity, 'entity_id' | 'conditions' | 'affiliations'>[],
+  bearers: readonly ComposureBearerRolls[],
 ): ComposureSign[] {
   if (!Array.isArray(raw) || cues.length === 0) return [];
   const byHandle = new Map(cues.map(cue => [cue.handle, cue]));
+  const screens = new Map<string, TellScreen>();
+  const screenFor = (entityId: string): TellScreen | undefined => {
+    if (!screens.has(entityId)) {
+      const bearer = roster.find(candidate => candidate.entity_id === entityId);
+      if (!bearer) return undefined;
+      screens.set(entityId, buildTellScreen(bearer, bearers.find(b => b.entityId === entityId)?.rolls ?? []));
+    }
+    return screens.get(entityId);
+  };
   const signs: ComposureSign[] = [];
   const used = new Set<string>();
   for (const item of raw) {
@@ -417,12 +571,10 @@ export function screenNarrationSigns(
     const cue = typeof handle === 'string' ? byHandle.get(handle.trim()) : undefined;
     if (!cue || used.has(cue.handle)) continue;
     if (entity !== undefined && entity !== cue.entityId) continue;
-    const bearer = roster.find(candidate => candidate.entity_id === cue.entityId);
-    if (!bearer) continue;
-    const text = screenSignText(sign, hiddenPatternsOf(bearer));
+    const text = screenFor(cue.entityId)?.sign(sign);
     if (!text) continue;
     used.add(cue.handle);
-    signs.push({ entityId: cue.entityId, subject: cue.roll.subjectId, sign: text });
+    signs.push({ entityId: cue.entityId, subject: cue.roll.handle, sign: text });
   }
   return signs;
 }
@@ -435,7 +587,9 @@ function isFiniteNumber(value: unknown): value is number {
 
 /**
  * One persisted composure roll rebuilt field by field, or null when it is
- * not one - a save written by hand, or damaged, never crashes a reader.
+ * not one - a save written by hand, or damaged, never crashes a reader. Its
+ * `handle` is always rebuilt from its kind and id, so a roll saved before
+ * handles carried the kind reads the same as a new one.
  */
 export function normalizeComposureRoll(value: unknown): ComposureRoll | null {
   if (!value || typeof value !== 'object') return null;
@@ -450,6 +604,7 @@ export function normalizeComposureRoll(value: unknown): ComposureRoll | null {
   return {
     subjectKind: r.subjectKind,
     subjectId: r.subjectId,
+    handle: composureHandle(r.subjectKind, r.subjectId),
     subjectName: r.subjectName,
     ...(severity ? { severity } : {}),
     ...(tieKind ? { tieKind } : {}),
@@ -477,17 +632,33 @@ export function composureRollsOf(entry: Pick<TurnHistoryEntry, 'composureRolls'>
   });
 }
 
-/** One persisted sign rebuilt, or null. */
-function normalizeComposureSign(value: unknown): ComposureSign | null {
+/**
+ * A persisted sign's subject as a handle (`mark:<id>` or `tie:<id>`), or
+ * null. A sign saved before handles carried the kind names a bare id: it is
+ * read as the handle of the ONE subject among `rolls` with that id, and
+ * dropped when none has it or a mark and a tie both do.
+ */
+export function composureSubjectHandle(subject: unknown, rolls: readonly ComposureRoll[]): string | null {
+  if (typeof subject !== 'string' || !subject) return null;
+  if (/^(?:mark|tie):./.test(subject)) return subject;
+  const matches = rolls.filter(roll => roll.subjectId === subject);
+  return matches.length === 1 ? matches[0].handle : null;
+}
+
+/** One persisted sign rebuilt, its subject read as a handle against its bearer's rolls, or null. */
+function normalizeComposureSign(value: unknown, bearers: readonly ComposureBearerRolls[]): ComposureSign | null {
   if (!value || typeof value !== 'object') return null;
   const s = value as Record<string, unknown>;
-  if (typeof s.entityId !== 'string' || typeof s.subject !== 'string' || typeof s.sign !== 'string' || !s.sign.trim()) return null;
-  return { entityId: s.entityId, subject: s.subject, sign: s.sign };
+  if (typeof s.entityId !== 'string' || typeof s.sign !== 'string' || !s.sign.trim()) return null;
+  const entityId = s.entityId;
+  const subject = composureSubjectHandle(s.subject, bearers.find(bearer => bearer.entityId === entityId)?.rolls ?? []);
+  return subject ? { entityId, subject, sign: s.sign } : null;
 }
 
 /** A turn's narration signs (TurnHistoryEntry.composureSigns), tolerating an absent or malformed record. */
-export function composureSignsOf(entry: Pick<TurnHistoryEntry, 'composureSigns'>): ComposureSign[] {
+export function composureSignsOf(entry: Pick<TurnHistoryEntry, 'composureSigns' | 'composureRolls'>): ComposureSign[] {
   const list = entry.composureSigns;
   if (!Array.isArray(list)) return [];
-  return list.map(normalizeComposureSign).filter((sign): sign is ComposureSign => sign !== null);
+  const bearers = composureRollsOf(entry);
+  return list.map(sign => normalizeComposureSign(sign, bearers)).filter((sign): sign is ComposureSign => sign !== null);
 }

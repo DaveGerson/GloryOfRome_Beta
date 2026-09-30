@@ -395,18 +395,46 @@ export const MAX_DELIVERY_CHARS = 60;
 /**
  * Words a delivery may OPEN with capitalized beyond a cue's common openers
  * (`COMMON_CUE_OPENERS`, an "-ly" adverb): the body and the manner a stage
- * direction starts from ("Voice catching", "Eyes down"). A delivery that
- * opens on a participle ("Trembling", "Choked") is read the same way. None
- * is ever a name.
+ * direction starts from ("Voice catching", "Eyes down", "Choked"). A
+ * delivery that opens on an "-ing" participle ("Trembling") is read the
+ * same way. An "-ed" word is not taken on its ending - "Manfred" ends so
+ * too - only when it is listed here. None is ever a name.
  */
 const DELIVERY_OPENERS = new Set([
   'voice', 'eyes', 'words', 'breath', 'almost', 'too', 'not', 'never', 'half', 'over', 'under', 'through', 'so',
+  'choked', 'hushed', 'strained', 'pained', 'measured', 'guarded', 'clipped', 'subdued', 'muted', 'forced', 'halted',
 ]);
 
 /** A capitalized word that opens a delivery and is a word of manner, not a name. */
 function isDeliveryOpener(word: string): boolean {
   const lower = word.toLowerCase();
-  return DELIVERY_OPENERS.has(lower) || (lower.length >= 5 && /(?:ing|ed)$/.test(lower));
+  return DELIVERY_OPENERS.has(lower) || (lower.length >= 5 && lower.endsWith('ing'));
+}
+
+/**
+ * Game-mechanics words no tell may carry (D50, D4): a delivery or a sign
+ * that speaks of a roll, a check or a tier - "Her composure roll failed",
+ * "at difficulty nine" - is dropped. Matched as whole words, any case.
+ */
+export const TELL_MECHANICS_WORDS = [
+  'roll', 'rolls', 'rolled', 'check', 'difficulty', 'composure', 'dice', 'die', 'd20', 'modifier', 'tier', 'chance',
+] as const;
+
+const TELL_MECHANICS_PATTERN = new RegExp(`(?<![\\p{L}\\p{N}])(?:${TELL_MECHANICS_WORDS.join('|')})(?![\\p{L}\\p{N}])`, 'iu');
+
+/** Whether a tell names a game mechanic (`TELL_MECHANICS_WORDS`). */
+export function carriesTellMechanicsWord(text: string): boolean {
+  return TELL_MECHANICS_PATTERN.test(text.normalize('NFKC'));
+}
+
+/**
+ * The words of the roster's names a delivery may not carry, lower-cased:
+ * every word of four letters or more of any figure's display name
+ * ("Mamaea", "Julia", "Thrax"), so "with a glance at mamaea" is
+ * refused as surely as "Mamaea" is.
+ */
+function rosterNameWords(rosterNames: readonly string[]): Set<string> {
+  return new Set(rosterNames.flatMap(name => name.normalize('NFKC').toLowerCase().match(/[\p{L}\p{M}]{4,}/gu) ?? []));
 }
 
 /**
@@ -414,20 +442,25 @@ function isDeliveryOpener(word: string): boolean {
  * performed, or null when it breaks a rule. It is judged by the per-cue
  * rules a narrator's cue is judged by (`cueChecker`: no digits, no quote
  * marks or brackets, no mechanics) against an EMPTY passage - so it may name
- * nobody at all - and bounded to `MAX_DELIVERY_CHARS`. Only packaging is
- * undone first: the brackets, parentheses or asterisks a model wraps a stage
- * direction in, a trailing full stop, runs of whitespace. A capitalized
- * opening word of manner ("Voice catching") is read in lower case; a name
- * opening it ("Philip whispers") still fails. Nothing else is repaired: an
- * invalid delivery is dropped whole.
+ * nobody at all - and bounded to `MAX_DELIVERY_CHARS`. It must hold a word
+ * (two letters running, not punctuation alone), carry no game-mechanics word
+ * (`TELL_MECHANICS_WORDS`), and - given the roster's names - no word of
+ * any figure's name, in any case. Only packaging is undone first: the
+ * brackets, parentheses or asterisks a model wraps a stage direction in, a
+ * trailing full stop, runs of whitespace. A capitalized opening word of
+ * manner ("Voice catching") is read in lower case; a name opening it
+ * ("Philip whispers", "Manfred whispers") still fails. Nothing else is
+ * repaired: an invalid delivery is dropped whole.
  */
-export function validateDelivery(raw: unknown): string | null {
+export function validateDelivery(raw: unknown, rosterNames: readonly string[] = []): string | null {
   if (typeof raw !== 'string') return null;
   let text = raw.replace(/\s+/g, ' ').trim();
   const wrapped = /^[([<*_]+\s*([^()[\]<>*_]*?)\s*[)\]>*_]+$/.exec(text);
   if (wrapped) text = wrapped[1];
   text = text.replace(/[.\s]+$/, '').trim();
-  if (!text || text.length > MAX_DELIVERY_CHARS) return null;
+  if (!text || text.length > MAX_DELIVERY_CHARS || !/\p{L}{2,}/u.test(text) || carriesTellMechanicsWord(text)) return null;
+  const named = rosterNameWords(rosterNames);
+  if (named.size > 0 && (text.normalize('NFKC').toLowerCase().match(/[\p{L}\p{M}]+/gu) ?? []).some(word => named.has(word))) return null;
   const first = /^\p{Lu}\p{Ll}*/u.exec(text)?.[0];
   if (first && isDeliveryOpener(first)) text = first.toLowerCase() + text.slice(first.length);
   if (cueChecker('', text)(text)) return null;

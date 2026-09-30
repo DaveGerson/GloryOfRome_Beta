@@ -734,6 +734,11 @@ export function ingestLearnedAffiliation(
   });
 }
 
+function sameSignText(a: unknown, b: string): boolean {
+  const normalize = (text: string) => text.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+  return typeof a === 'string' && normalize(a) === normalize(b);
+}
+
 /** One tell the player caught on a figure (D50): whose, and what was seen or heard. Nothing else. */
 export interface SignSeen {
   entityId: string;
@@ -748,13 +753,19 @@ export interface SignSeen {
  * GM-side on the record that produced it (the scene's `composureSigns`, the
  * history entry's), so no claim here can name it. Bounded like every claim
  * (MAX_UPDATES_PER_CLAIM per figure, MAX_KNOWLEDGE_CLAIMS overall), held as
- * belief in eviction order. Returns the input store when handed nothing.
+ * belief in eviction order. A sign the figure's claim already holds - the
+ * same words, whatever their case or spacing - is not stored again. Returns
+ * the input store when nothing new was handed in.
  */
 export function ingestSignsSeen(store: KnowledgeClaim[], signs: readonly SignSeen[], turn: number): KnowledgeClaim[] {
   let next = store;
   for (const { entityId, sign } of signs) {
     const text = typeof sign === 'string' ? sign.trim() : '';
     if (typeof entityId !== 'string' || !entityId || !text) continue;
+    // The same tell caught twice is one sign: skip one the figure's claim
+    // already holds, read without regard to case or spacing.
+    const held = next.find(claim => claim.claimKey === `sign:${entityId}`);
+    if (held?.updates.some(update => sameSignText(update.text, text))) continue;
     next = upsertClaim(next, {
       claimKey: `sign:${entityId}`,
       subject: entityId,

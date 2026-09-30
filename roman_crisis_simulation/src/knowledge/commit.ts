@@ -70,7 +70,7 @@ export interface TurnKnowledgeInput {
  * knowledge store takes them: each one's figure and sentence, read off the
  * entry's GM-private record - never the mark or tie it betrayed.
  */
-export function narrationSignsSeen(entry: Pick<TurnHistoryEntry, 'composureSigns'>): SignSeen[] {
+export function narrationSignsSeen(entry: Pick<TurnHistoryEntry, 'composureSigns' | 'composureRolls'>): SignSeen[] {
   return composureSignsOf(entry).map(({ entityId, sign }) => ({ entityId, sign }));
 }
 

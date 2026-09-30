@@ -136,14 +136,14 @@ export function rollSceneComposure(player: Entity, npc: Entity, seed: number = g
     const rng = createSeededRng(seed);
     const npcRolls = rollComposure(npc, rng);
     const playerRolls: PrivateScenePlayerComposureRoll[] = rollComposure(player, rng)
-        .map(roll => ({ ...roll, told: playerComposureTell(roll, player.name) }));
+        .map(roll => ({ ...roll, told: playerComposureTell(roll, player) }));
     return { seed, npc: npcRolls, player: playerRolls };
 }
 
 /** The NPC's composure as the prompt carries it: each subject's handle, name, kind and tier - never the roll. */
 function npcComposureForPrompt(rolls: readonly ComposureRoll[]) {
     return rolls.slice(0, PRIVATE_SCENE_MAX_COMPOSURE_ITEMS).map(roll => ({
-        subject: roll.subjectId, of: roll.subjectName, kind: roll.subjectKind, tier: roll.tier,
+        subject: roll.handle, of: roll.subjectName, kind: roll.subjectKind, tier: roll.tier,
     }));
 }
 
@@ -322,7 +322,7 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
             try {
                 const response = await continuePrivateScene(ai, privateScenePromptFor(npc, [{ sequence: 1, speaker: 'player', text: privateSceneOpeningDraft.trim() }], 1, composure), isMockMode);
                 if (!transaction.isCurrent() || privateScenesFingerprint(privateScenesRef.current) !== expectedScenes) return false;
-                const tells = screenNpcTells(response, npc, composure?.npc ?? []);
+                const tells = screenNpcTells(response, npc, composure?.npc ?? [], entities.map(entity => entity.name));
                 const transition = beginPrivateScene({ sceneId: `private-scene-${turnNumber}-${npc.entity_id}`, macroTurn: turnNumber, player: playerEntity, npc, knownEntityIds: privateSceneKnownIds, opening, response, existing: privateScenesRef.current, composure, tells });
                 if (!transition.ok) return false;
                 const signs = newSignsSeen(transition.scene, 1);
@@ -362,7 +362,7 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
                 const current = privateScenesRef.current.find(candidate => candidate.sceneId === sceneId);
                 if (!current || current.status !== 'active' || current.macroTurn !== scene.macroTurn || current.npcResponseCount !== scene.npcResponseCount) return false;
                 if (privateScenesFingerprint(privateScenesRef.current) !== expectedScenes) return false;
-                const tells = screenNpcTells(response, npc, current.npcComposure ?? []);
+                const tells = screenNpcTells(response, npc, current.npcComposure ?? [], entities.map(entity => entity.name));
                 const transition = appendPrivateSceneExchange({ scene: current, expectedNpcResponseCount: scene.npcResponseCount, playerUtterance: reply, response, tells });
                 if (!transition.ok) return false;
                 const signs = newSignsSeen(transition.scene, transition.scene.npcResponseCount);

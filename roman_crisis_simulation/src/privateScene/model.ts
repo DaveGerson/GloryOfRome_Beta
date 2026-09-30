@@ -63,7 +63,7 @@ export interface PrivateScenePlayerComposureRoll extends ComposureRoll {
   told: string | null;
 }
 
-/** A tell the NPC let show in this scene, and code let stand (D50). GM-PRIVATE: `subject` is the handle of what it betrayed. */
+/** A tell the NPC let show in this scene, and code let stand (D50). GM-PRIVATE: `subject` is the handle of what it betrayed (`mark:<id>` or `tie:<id>`). */
 export interface PrivateSceneSign {
   subject: string;
   sign: string;
@@ -261,7 +261,7 @@ function tellsForReply(
   exchange: number,
 ): { delivery?: string; signs: PrivateSceneSign[] } {
   const delivery = validateDelivery(tells?.delivery) ?? undefined;
-  const open = new Set((npcComposure ?? []).filter(roll => roll.tier !== 'holds').map(roll => roll.subjectId));
+  const open = new Set((npcComposure ?? []).filter(roll => roll.tier !== 'holds').map(roll => roll.handle));
   const room = Math.max(0, MAX_SIGNS_PER_SCENE - existing.length);
   const signs = (tells?.signs ?? [])
     .filter(sign => open.has(sign.subject) && typeof sign.sign === 'string' && sign.sign.trim().length > 0)

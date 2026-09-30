@@ -150,23 +150,85 @@ function figuresNamedIn(texts: readonly string[], entities: Entity[], playerId: 
         .slice(0, MAX_VOICE_CAST);
 }
 
+/** What decides who stands with the player this turn (`figuresPresentWith`). */
+export interface PresenceInput {
+    /** The player as the turn began, and as it ends. */
+    playerBefore: Pick<Entity, 'entity_id' | 'location'>;
+    playerAfter: Pick<Entity, 'entity_id' | 'location'>;
+    /** The roster as the turn ends (the candidates, in order), and as it began (where each stood then). */
+    roster: readonly Entity[];
+    rosterBefore: readonly Pick<Entity, 'entity_id' | 'location'>[];
+    /** The player's own perceived changes this turn - their structured subjects, never their prose. */
+    perceived: readonly Pick<PerceivedChange, 'subject' | 'source'>[];
+    /** This turn's entity actions: who acted, and on whom. */
+    entityActions: readonly Pick<EntityAction, 'id' | 'target'>[];
+    /** Whom the player addressed by name in a message or order this turn. */
+    addressedIds: readonly string[];
+    /** The player's observable attempt this turn, or null - a figure it names was summoned or addressed. */
+    attemptText: string | null;
+}
+
 /**
  * The figures PRESENT with the player this turn (D50) - the ones whose
- * composure the narration can show: among the figures the player's own
- * perceived events name (`figuresAtHand`), the living individuals named in
- * a line the player saw for themselves (a witnessed or their own) or
- * standing where the player stands. A figure known only through a dispatch
- * or the street's word was not in the room, and no tell of theirs can be
- * seen. Roster order, so the rolls replay onto the same figures.
+ * composure the narration can show, and whose tells the player could catch.
+ * Presence REQUIRES standing where the player stands: the figure's place, at
+ * the turn's start or end, is the player's place at its start or end. A
+ * name in a line of prose never places anyone ("word spreads that Lycinia
+ * has bought a clerk" does not put her in the room). Beyond that it is
+ * enough to be, this turn:
+ *  - the structured subject of a change the player saw for themselves (a
+ *    witnessed or their own perceived change);
+ *  - an actor in, or the target of, one of the turn's entity actions;
+ *  - addressed by the player - a known recipient of their message or order,
+ *    or named in their observable attempt.
+ * Living individuals only, never the player; roster order, so the rolls
+ * replay onto the same figures; capped at MAX_VOICE_CAST AFTER the presence
+ * filter, so an absent figure never takes a present one's place. Pure;
+ * exported for direct unit testing.
  */
-function figuresPresentWith(
-    player: Entity,
-    figuresAtHand: readonly Entity[],
-    events: readonly Pick<PerceivedChange, 'text' | 'source'>[],
-): Entity[] {
-    const seenLines = events.filter(event => event.source === 'witnessed' || event.source === 'self').map(event => event.text);
-    return figuresAtHand.filter(figure => figure.entity_type === 'individual' && figure.status === 'alive'
-        && (figure.location === player.location || seenLines.some(text => textContainsWholeDisplayName(text, figure.name))));
+export function figuresPresentWith(input: PresenceInput): Entity[] {
+    const places = new Set([input.playerBefore.location, input.playerAfter.location].filter(place => typeof place === 'string' && place.length > 0));
+    const wasAt = new Map(input.rosterBefore.map(entity => [entity.entity_id, entity.location]));
+    const seen = new Set(input.perceived.filter(change => change.source === 'witnessed' || change.source === 'self').map(change => change.subject));
+    const acting = new Set(input.entityActions.flatMap(action => [action.id, action.target ?? '']).filter(id => id.length > 0));
+    const addressed = new Set(input.addressedIds);
+    return input.roster
+        .filter(figure => {
+            if (figure.entity_id === input.playerAfter.entity_id || figure.entity_type !== 'individual' || figure.status !== 'alive') return false;
+            const colocated = [figure.location, wasAt.get(figure.entity_id)].some(place => place !== undefined && places.has(place));
+            if (!colocated) return false;
+            return seen.has(figure.entity_id) || acting.has(figure.entity_id) || addressed.has(figure.entity_id)
+                || (input.attemptText !== null && figure.name.trim().length > 0 && textContainsWholeDisplayName(input.attemptText, figure.name));
+        })
+        .slice(0, MAX_VOICE_CAST);
+}
+
+/** The GM note when a rewritten narration costs the turn its signs (D50). GM-only. */
+export function narrationSignsDroppedNote(count: number): string {
+    return `[Composure] The narration was changed after it was written - a gate redacted part of it - so its ${count} sign(s) were dropped: a tell stands only on the prose that shows it.`;
+}
+
+/**
+ * The narration's signs a turn may keep (D50): all of them while the prose
+ * stands as the model wrote it, and none once any gate changed it - a
+ * redaction, or any other rewrite - since a sign stands only on the prose
+ * that shows the tell. Dropping signs leaves the GM a note saying why. Pure;
+ * exported for direct unit testing.
+ */
+export function narrationSignsToKeep(
+    written: string,
+    committed: { value: string; redactions: readonly unknown[] },
+    signs: readonly ComposureSign[],
+): { signs: ComposureSign[]; note?: string } {
+    const rewritten = committed.redactions.length > 0 || committed.value !== written;
+    if (!rewritten) return { signs: [...signs] };
+    return signs.length > 0 ? { signs: [], note: narrationSignsDroppedNote(signs.length) } : { signs: [] };
+}
+
+/** The known figures the player's structured submission addressed a message or order to. */
+function addressedIdsOf(submission: TurnSubmission): string[] {
+    if (submission.kind !== 'structured') return [];
+    return (submission.messagesOrOrders ?? []).flatMap(item => item.recipient.kind === 'known_entity' ? [item.recipient.entityId] : []);
 }
 
 // MAX_NPC_INTENTS/selectDurableIntents now live in ./directorIntents (moved
@@ -1222,12 +1284,21 @@ async function runPlayerSurfacesStage(
     // narrator is told only what frayed or broke (buildComposureBlock); what
     // held never reaches it, so no prose and no voice can carry it.
     const narrationRequested = !(noAttemptResponse && playerOutcomeDirective === undefined);
-    const present = narrationRequested ? figuresPresentWith(updatedPlayerEntity, figuresAtHand, playerNarrationEvents) : [];
+    const present = narrationRequested ? figuresPresentWith({
+        playerBefore: playerEntity,
+        playerAfter: updatedPlayerEntity,
+        roster: updatedEntities,
+        rosterBefore: ctx.currentEntities,
+        perceived: playerPerceivedDigest,
+        entityActions: transformedAdjudication.entityActions,
+        addressedIds: addressedIdsOf(ctx.normalizedSubmission),
+        attemptText: ctx.resolutionAttempt,
+    }) : [];
     const composureRolls: ComposureBearerRolls[] = present.flatMap(figure => {
         const rolls = rollComposure(figure, ctx.turnRng);
         return rolls.length > 0 ? [{ entityId: figure.entity_id, entityName: figure.name, rolls }] : [];
     });
-    const composureCues = composureCuesFrom(composureRolls);
+    const composureCues = composureCuesFrom(composureRolls, updatedEntities);
     const narrationComposure = present.length > 0 ? { present, cues: composureCues } : undefined;
     const narrationPrompt = buildNarrationPrompt(ctx.metaNarrative, updatedPlayerEntity, narrationSubmission, playerNarrationEvents, voiceCast, playerOutcomeDirective, figuresAtHand, narrationComposure);
     const narrationRequest = {
@@ -1359,8 +1430,14 @@ async function runPlayerSurfacesStage(
     }
     // D50: the narration's optional signs, screened by code against the
     // turn's cues - a sign for a subject that held, or one naming the mark
-    // or tie it betrays, never stands (ai/core/composure.ts).
-    const composureSigns = narration.trim() ? screenNarrationSigns(rawNarrationPayload.signs, composureCues, updatedEntities) : [];
+    // or tie it betrays, never stands (ai/core/composure.ts). A sign stands
+    // only on the prose that shows it: when a gate changed the narration
+    // after it was written, every sign of the turn is dropped, and the GM
+    // is told why.
+    const screenedSigns = narration.trim() ? screenNarrationSigns(rawNarrationPayload.signs, composureCues, updatedEntities, composureRolls) : [];
+    const kept = narrationSignsToKeep(rawNarrationPayload.text, narrationRedaction, screenedSigns);
+    if (kept.note) transformedAdjudication.gm_private.push(kept.note);
+    const composureSigns = kept.signs;
     return { updatedSimulationState, narration, suggestedActions, playerMonologue, proseRedactions, composureRolls, composureSigns };
 }
 
