@@ -142,8 +142,9 @@ const CurrentEventsTab: React.FC<{
             await runDomainMutation(async transaction => {
                 const request: DomainMutationContext = { isCurrent: () => transaction.isCurrent() };
                 const { text, truth } = await getClarificationOnEvent(
-                    ai, occurrence, question, playerEntity, allEntities, turnHistory, isMockMode,
-                    occurrenceSibling?.(occurrence, question) ?? null,
+                    ai, occurrence, question, playerEntity,
+                    { allEntities, turnHistory, knowledge, sibling: occurrenceSibling?.(occurrence, question) ?? null },
+                    isMockMode,
                 );
                 if (!request.isCurrent()) return;
                 const committed = await onFinding(occurrence, question, text, request, truth);
