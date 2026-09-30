@@ -741,15 +741,21 @@ slips as a hint, never its name.
 - The voice performs only what the text shows, so nothing the roll kept
   hidden can leak through it.
 
-**Review.** Two adversarial reviews found 13 defects: leaks through the
-narrator, the player's own mark naming a secret tie, a word screen that
-missed word forms, and absent figures counted as present. All are fixed.
-Code now screens every sign and stage direction:
-- a tie's name never passes, in any form ("Christ", "Bacchic",
-  "Origenist");
+**Review.** Two adversarial reviewers, one on secrecy and one on
+mechanics and the live UI, found 20 defects over two rounds. They
+included leaks through the narrator, the player's own mark naming a
+secret tie, a word screen that missed word forms, and absent figures
+counted as present. All are fixed. Code now screens every sign and stage
+direction:
+- a tie's name never passes, in any form or Latin or Greek spelling
+  ("Christ", "Iesus", "Bacchic", "Bakchos", "Isiac", "Origenist");
 - nothing of a held subject passes, nor the cause of a fraying mark.
 
-Checks after Part 8: 3055 unit tests (from 2995), 13 journeys (1 new:
+A figure counts as present when they share your place and you saw them
+act or be acted on, or you addressed them: by name, by title ("the
+Regent") or by kin ("my mother").
+
+Checks after Part 8: 3062 unit tests (from 2995), 13 journeys (1 new:
 composure), typecheck, lint, the deterministic eval and the build all
 pass. A live check in Mock Mode covered light and dark themes, 1280px and
 375px: the composure note, stage directions and "Signs seen" render, with

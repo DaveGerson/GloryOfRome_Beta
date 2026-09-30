@@ -949,8 +949,9 @@ difficulty depends on its kind: a faction or cause 6, "other" 7, a cult or
 faith 9, which live in habits and rites and slip more easily. It holds on
 meeting the difficulty, frays within five below it, and breaks beneath
 that. It is rolled once per private scene per subject, for the NPC and the
-player, and once per turn for NPCs truly present with the player, meaning
-in the same place and part of what the player saw. Code screens every
+player, and once per turn for NPCs truly present with the player. That
+means in the same place, and either part of what the player saw or
+addressed by the player (by name, title or kin). Code screens every
 sign and stage direction:
 - a tie's name never passes, in any form;
 - nothing of a held subject passes, nor the cause of a fraying mark.

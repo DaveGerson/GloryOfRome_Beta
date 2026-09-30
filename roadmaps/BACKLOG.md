@@ -1698,9 +1698,25 @@ given.
 - **Stage directions are checked against the roster's names only where
   the roster is to hand**, when the scene commits. Checks on load and at
   speech time enforce every other rule.
-- **A retried turn rolls composure again**, as it rolls the action again.
-  The structured-input retry journey fixes the random source across the
-  retry, so that it tests the frozen submission rather than the dice.
+- **A retried turn rolls every die again**: the action, mortality and
+  now composure. Whether a retry of the exact frozen turn should keep its
+  dice is an open product question. The structured-input retry journey
+  fixes the random source across the retry, so that it tests the frozen
+  submission rather than the dice.
+- **Spelling folding works one way for some names.** A tie spelled
+  "Bakchos" does not catch "Bacchus". Different words for the same thing
+  (Chrestus, Nazarene, Dionysus, Liber) are not caught at all.
+- **Short names over-block.** A four-letter name is also matched by its
+  first three letters, so a bearer whose hidden subject mentions "Rome"
+  cannot show a tell containing "Roman".
+- **Stage directions re-checked without the roster** (on load, in the
+  scene record, at speech time) accept a capitalised name at the start;
+  the roster check runs when the reply is first screened.
+- **The private-scene screen knows the roster's names and places, but not
+  the world's regions**, which the scene controller does not hold.
+- **The check on whether a breaking mark may be named does not use roster
+  or place names**, so a lower-case place in another mark's account does
+  not stop it being named.
 - **Mock Mode turns roll no composure**, because a mock turn has no turn
   seed. The mock private scene does roll.
 - **A sign caught in a private scene does not count on the Personae coin
