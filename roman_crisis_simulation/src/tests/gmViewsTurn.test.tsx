@@ -550,7 +550,7 @@ describe('GroundTruthView', () => {
         worldState={worldState}
       />);
     expect(seeded.textContent).toContain(
-      "123 — replays this turn's hidden rolls in draw order (action roll, then mortality rolls).");
+      "123 — replays this turn's hidden rolls in draw order (action roll, then mortality rolls, then composure rolls).");
 
     const unseeded = await mount(
       <GroundTruthView

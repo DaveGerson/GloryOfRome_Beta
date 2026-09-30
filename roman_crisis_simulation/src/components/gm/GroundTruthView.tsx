@@ -66,7 +66,7 @@ export const GroundTruthView: React.FC<{
                 <span style={lbl}>Turn Seed</span>
                 <p style={{ fontSize: 13, margin: '4px 0 0', fontFamily: MONO, color: typeof entry.turnSeed === 'number' ? PARCH : DIM }}>
                     {typeof entry.turnSeed === 'number'
-                        ? `${entry.turnSeed} — replays this turn's hidden rolls in draw order (action roll, then mortality rolls).`
+                        ? `${entry.turnSeed} — replays this turn's hidden rolls in draw order (action roll, then mortality rolls, then composure rolls).`
                         : 'None recorded for this turn.'}
                 </p>
                 {typeof reignSeed === 'number' && (

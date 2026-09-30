@@ -1726,3 +1726,21 @@ given.
   again** when the week lands, since the player read it in the scene.
 - **Fractional trait modifiers round down**, the convention the other
   hidden rolls use.
+
+---
+
+## Residuals from D51, a retried turn keeps its dice (2026-09-30)
+
+- **A seed given to an older save lives only in the session if storage is
+  full** when it is first written. A reload before the next successful save
+  would then draw a different one.
+- **A copy of a reign taken before D51 gets a new seed each time it is
+  restored**, since it carries none. A copy taken since keeps its seed.
+- **`loadGame` now writes to storage in that one case** (a save without a
+  seed), including when it is called while rendering or building a save.
+- **The journey harness's own turn runner still draws a fresh seed each
+  run.** The new retry journey covers the App's path.
+- **Knowing your luck.** A player who glimpsed a bad outcome before a turn
+  failed now knows that turn's dice are poor, and may choose a safer action
+  on retry. This is accepted: the luck cannot be rerolled, which is what
+  the ruling asks.

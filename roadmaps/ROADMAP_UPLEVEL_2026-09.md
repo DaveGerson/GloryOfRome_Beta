@@ -761,3 +761,25 @@ pass. A live check in Mock Mode covered light and dark themes, 1280px and
 375px: the composure note, stage directions and "Signs seen" render, with
 no errors and no sideways scroll. Residuals are at the end of
 `BACKLOG.md`.
+
+---
+
+## Part 9 — A retried turn keeps its dice (D51, 2026-09-30)
+
+The narration streams as it is written. So when a turn failed partway,
+say on a connection error, a player might already have glimpsed a bad
+outcome, and Retry used to roll every die again. The owner ruled: "Keep
+the same dice".
+
+Each reign now draws one hidden seed when it begins. Each turn's dice come
+from that seed and the turn's number, so they stay the same whether you
+retry, change your action before retrying, reload the page, or restore an
+earlier copy of the reign. "Strike the mould again" still replays a
+committed turn's dice in the GM console. The owner also accepted the new
+player-facing text from Parts 7 and 8 as written.
+
+A new journey drives the real app through a failed turn and checks four
+paths: Retry, an edited action, a reload, and a restored copy. The action,
+mortality and composure rolls come out identical each time, and the next
+turn gets new dice. Checks after Part 9: 3081 unit tests, 17 journeys,
+typecheck, lint, the deterministic eval and the build all pass.

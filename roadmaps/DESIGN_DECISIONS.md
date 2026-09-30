@@ -971,3 +971,15 @@ and saved with it, combined with the turn's number. They stay the same
 whether the player retries, changes the action before retrying, reloads
 the page, or restores an earlier copy of the reign. "Strike the mould
 again" still replays a committed turn's recorded dice for the GM.
+*As built (2026-09-30):*
+- `reignSeed` is drawn when a reign begins and saved with it (SAVE_VERSION
+  stays 1). A save without a valid one is given one when loaded or
+  imported, and that seed is written back at once.
+- Each turn's seed is `deriveTurnSeed(reignSeed, turnNumber)`, a pure
+  32-bit mix, so neighbouring turns get unrelated dice.
+- The GM console shows the reign seed beside each turn's seed. No player
+  surface shows it.
+- The intelligence rolls (investigations, the Events questions, the
+  Spymaster) were checked and left as they are. They do not stream, and a
+  failed request shows nothing, so a fresh roll on asking again gives the
+  player nothing they have seen.
