@@ -164,7 +164,7 @@ export const NO_DESIGN_TRUTH = 'There is no design: they are plotting nothing of
  * garbled reading, the decoys of a false one.
  */
 export interface PlannedHand {
-    /** The name to report: a true hand's, a real figure's in its place, or - only as a last resort - a stranger's from STRANGER_NAMES. */
+    /** The name to report: a true hand's, a real figure's in its place, or - only as a last resort - a stranger's name code generated (`strangerName`). */
     name: string;
     /** "Who gains?" only: the aims to report, as open (never covert) entityAction intents; [] for a hand whose aim was never learned. */
     aims: OpenIntent[];
@@ -554,33 +554,104 @@ export const AIM_PHRASE: Record<OpenIntent, string> = {
 
 const OPEN_INTENTS: readonly OpenIntent[] = EntityActionIntentEnum.filter((intent): intent is OpenIntent => !COVERT_INTENTS.includes(intent));
 
+/**
+ * The most aims one hand is ever reported with: the first this many distinct
+ * open intents it pursued that turn, in declared order. A cap, so a decoy of
+ * the same shape can always be drawn without repeating an aim.
+ */
+export const MAX_AIMS_PER_HAND = 3;
+
 function isOpenIntent(intent: unknown): intent is OpenIntent {
     return typeof intent === 'string' && (OPEN_INTENTS as readonly string[]).includes(intent);
 }
 
 /**
- * The names a decoy takes only as a last resort - when no real figure of the
- * right familiarity was alive and on the roster at the occurrence's turn.
- * Code picks one, and it reaches the prompt as ordinary quoted data, like any
- * name. None is a figure of the shipped cast, and any a figure on the roster
- * wears, then or now, is skipped.
+ * The parts a stranger's name is built from (`strangerName`): praenomina,
+ * nomina (masculine; a woman bears the feminine, -ia) and cognomina as
+ * [masculine, feminine] pairs - Latin, Greek and provincial forms of the
+ * third century. Tens of thousands of combinations, so no name recurs often
+ * enough to be learned as the mark of a false reading.
  */
-export const STRANGER_NAMES: readonly string[] = [
-    'Gnaeus Calpurnius',
-    'Decimus Lollius',
-    'Sextus Rutilius',
-    'Aulus Vettius',
-    'Titus Annius',
-    'Publius Nonius',
-    'Servius Arrius',
-    'Lucius Cominius',
-];
+export const STRANGER_NAME_PARTS: {
+    readonly praenomina: readonly string[];
+    readonly nomina: readonly string[];
+    readonly cognomina: readonly (readonly [string, string])[];
+} = {
+    praenomina: [
+        'Gaius', 'Lucius', 'Marcus', 'Publius', 'Quintus', 'Titus', 'Gnaeus', 'Aulus',
+        'Sextus', 'Decimus', 'Servius', 'Tiberius', 'Manius', 'Spurius', 'Numerius', 'Appius',
+    ],
+    nomina: [
+        'Aelius', 'Aemilius', 'Afranius', 'Annius', 'Antonius', 'Appuleius', 'Arrius', 'Asinius',
+        'Atilius', 'Aufidius', 'Aurelius', 'Caecilius', 'Calpurnius', 'Canuleius', 'Cassius', 'Claudius',
+        'Cocceius', 'Cominius', 'Cornelius', 'Curtius', 'Domitius', 'Egnatius', 'Fabius', 'Flavius',
+        'Fulvius', 'Furius', 'Gavius', 'Hortensius', 'Julius', 'Junius', 'Laelius', 'Licinius',
+        'Livius', 'Lollius', 'Lucretius', 'Marcius', 'Minucius', 'Munatius', 'Nonius', 'Octavius',
+        'Ovinius', 'Papirius', 'Petronius', 'Plautius', 'Pompeius', 'Pomponius', 'Popillius', 'Rutilius',
+        'Sallustius', 'Sempronius', 'Sentius', 'Servilius', 'Statilius', 'Sulpicius', 'Terentius', 'Titinius',
+        'Valerius', 'Vettius', 'Vibius', 'Volusius',
+    ],
+    cognomina: [
+        ['Rufus', 'Rufa'], ['Maximus', 'Maxima'], ['Severus', 'Severa'], ['Priscus', 'Prisca'],
+        ['Longinus', 'Longina'], ['Paulinus', 'Paulina'], ['Crispinus', 'Crispina'], ['Firmus', 'Firma'],
+        ['Sabinus', 'Sabina'], ['Marcellus', 'Marcella'], ['Albinus', 'Albina'], ['Balbus', 'Balbina'],
+        ['Celsus', 'Celsa'], ['Clemens', 'Clementina'], ['Felix', 'Felicitas'], ['Fortunatus', 'Fortunata'],
+        ['Gallus', 'Galla'], ['Justus', 'Justa'], ['Lepidus', 'Lepida'], ['Macer', 'Macrina'],
+        ['Martialis', 'Martina'], ['Modestus', 'Modesta'], ['Nepos', 'Nepotilla'], ['Pollio', 'Polla'],
+        ['Proculus', 'Procula'], ['Pudens', 'Pudentilla'], ['Quietus', 'Quieta'], ['Restitutus', 'Restituta'],
+        ['Saturninus', 'Saturnina'], ['Secundus', 'Secunda'], ['Tertullus', 'Tertulla'], ['Urbanus', 'Urbana'],
+        ['Vitalis', 'Vitalina'], ['Verus', 'Vera'], ['Victorinus', 'Victorina'], ['Honoratus', 'Honorata'],
+        ['Candidus', 'Candida'], ['Castus', 'Casta'], ['Faustinus', 'Faustina'], ['Ingenuus', 'Ingenua'],
+        ['Primus', 'Prima'], ['Rusticus', 'Rustica'], ['Silvanus', 'Silvana'], ['Donatus', 'Donata'],
+        ['Optatus', 'Optata'],
+        // Greek and provincial.
+        ['Hermogenes', 'Hermione'], ['Eutyches', 'Eutychia'], ['Philetus', 'Philete'], ['Theodotus', 'Theodote'],
+        ['Zosimus', 'Zosime'], ['Onesimus', 'Onesime'], ['Callistus', 'Calliste'], ['Heliodorus', 'Heliodora'],
+        ['Syrus', 'Syra'], ['Afer', 'Afra'], ['Maurus', 'Maura'], ['Antiochus', 'Antiochis'],
+    ],
+};
+
+/**
+ * A stranger's name, when no real figure of the right familiarity is left to
+ * stand in for a true hand (planOccurrence), built from STRANGER_NAME_PARTS
+ * by the planner's own generator: a man's praenomen and nomen, or praenomen,
+ * nomen and cognomen; a woman's nomen and cognomen. It reaches the prompt as
+ * ordinary quoted data, like any name - to the player, as unheard-of as a
+ * real figure they have never met. Never a name `isTaken` refuses (every name
+ * a roster figure wears, then or now, and every hand's frozen name).
+ */
+export function strangerName(rng: Rng, isTaken: (name: string) => boolean): string {
+    const { praenomina, nomina, cognomina } = STRANGER_NAME_PARTS;
+    let name = '';
+    for (let attempt = 0; attempt < 64; attempt++) {
+        const form = rng();
+        const nomen = pick(nomina, rng);
+        const [cognomen, feminine] = pick(cognomina, rng);
+        name = form < 0.3
+            ? `${nomen.replace(/ius$/, 'ia')} ${feminine}`
+            : form < 0.55
+                ? `${pick(praenomina, rng)} ${nomen}`
+                : `${pick(praenomina, rng)} ${nomen} ${cognomen}`;
+        if (!isTaken(name)) return name;
+    }
+    // Sixty-four refusals in a row cannot happen short of a roster of tens of
+    // thousands; even then, walk the three-part names in order for a free one.
+    for (const praenomen of praenomina) {
+        for (const nomen of nomina) {
+            for (const [cognomen] of cognomina) {
+                const candidate = `${praenomen} ${nomen} ${cognomen}`;
+                if (!isTaken(candidate)) return candidate;
+            }
+        }
+    }
+    return name;
+}
 
 /** One hand behind an occurrence, as the record holds it. GM-PRIVATE. */
 export interface OccurrenceHand {
     id: string;
     name: string;
-    /** "Who gains?" only: the open intents of its entityActions that turn, deduplicated, in order ([] for "Who is behind it?", or a hand whose moves were all covert or none). */
+    /** "Who gains?" only: the first MAX_AIMS_PER_HAND distinct open intents of its entityActions that turn, in order ([] for "Who is behind it?", or a hand whose moves were all covert or none). */
     aims: OpenIntent[];
 }
 
@@ -616,15 +687,7 @@ export function findHeadlineHands(
     occurrence: string,
     roster: readonly Entity[],
 ): { entry: TurnHistoryEntry; hands: Array<{ id: string; name: string }>; unresolved: string[] } | null {
-    const nameFromRoster = (id: string): string | undefined => {
-        const live = roster.find(entity => entity.entity_id === id)?.name?.trim();
-        if (live) return live;
-        for (let i = turnHistory.length - 1; i >= 0; i--) {
-            const past = turnHistory[i]?.postTurnEntities?.find(entity => entity.entity_id === id)?.name?.trim();
-            if (past) return past;
-        }
-        return undefined;
-    };
+    const nameFromRoster = namer(turnHistory, roster);
     for (let i = turnHistory.length - 1; i >= 0; i--) {
         const entry = turnHistory[i];
         const held: unknown[] = Array.isArray(entry?.headlineActors) ? entry.headlineActors : [];
@@ -648,21 +711,45 @@ export function findHeadlineHands(
     return null;
 }
 
+/** A figure's name: off the live roster, else the newest snapshot that holds them; undefined when named nowhere. */
+function namer(turnHistory: readonly TurnHistoryEntry[], roster: readonly Entity[]): (id: string) => string | undefined {
+    return id => {
+        const live = roster.find(entity => entity.entity_id === id)?.name?.trim();
+        if (live) return live;
+        for (let i = turnHistory.length - 1; i >= 0; i--) {
+            const past = turnHistory[i]?.postTurnEntities?.find(entity => entity?.entity_id === id)?.name?.trim();
+            if (past) return past;
+        }
+        return undefined;
+    };
+}
+
 /**
  * The figures alive and on the roster at an occurrence's OWN turn - the only
- * real figures a decoy may be: the entry's post-turn snapshot where it still
- * has one, else its pre-turn roster (named from the live roster), else the
- * live roster. Never "alive now", which would tell an old occurrence's decoy
- * by who has died since.
+ * real figures a decoy may be. Read off the ids frozen at commit
+ * (TurnHistoryEntry.livingAtCommit, kept past the snapshot trim), else the
+ * entry's post-turn snapshot, else its pre-turn roster; only an entry with
+ * none of these - a save from before the freeze - falls back to the live
+ * roster. Never "alive now" where the entry says otherwise, which would tell
+ * an old occurrence's decoy by who has arrived or died since. Each is named
+ * off the live roster, else any snapshot; one named nowhere is left out.
  */
-function figuresAliveAt(entry: TurnHistoryEntry, roster: readonly Entity[]): Array<{ id: string; name: string }> {
-    const liveName = (id: string) => roster.find(entity => entity.entity_id === id)?.name?.trim() ?? '';
-    const alive = Array.isArray(entry.postTurnEntities)
-        ? entry.postTurnEntities.filter(entity => entity?.status === 'alive').map(entity => ({ id: entity.entity_id, name: entity.name?.trim() ?? '' }))
-        : Array.isArray(entry.preTurnRoster)
-            ? entry.preTurnRoster.filter(entity => entity?.status === 'alive').map(entity => ({ id: entity.entity_id, name: liveName(entity.entity_id) }))
-            : roster.filter(entity => entity.status === 'alive').map(entity => ({ id: entity.entity_id, name: entity.name?.trim() ?? '' }));
-    return alive.filter(figure => typeof figure.id === 'string' && figure.name.length > 0);
+function figuresAliveAt(entry: TurnHistoryEntry, turnHistory: readonly TurnHistoryEntry[], roster: readonly Entity[]): Array<{ id: string; name: string }> {
+    const ids: unknown[] = Array.isArray(entry.livingAtCommit)
+        ? entry.livingAtCommit
+        : Array.isArray(entry.postTurnEntities)
+            ? entry.postTurnEntities.filter(entity => entity?.status === 'alive').map(entity => entity.entity_id)
+            : Array.isArray(entry.preTurnRoster)
+                ? entry.preTurnRoster.filter(entity => entity?.status === 'alive').map(entity => entity.entity_id)
+                : roster.filter(entity => entity.status === 'alive').map(entity => entity.entity_id);
+    const nameOf = namer(turnHistory, roster);
+    const figures: Array<{ id: string; name: string }> = [];
+    for (const id of new Set(ids)) {
+        if (typeof id !== 'string' || id.length === 0) continue;
+        const name = nameOf(id);
+        if (name) figures.push({ id, name });
+    }
+    return figures;
 }
 
 /** The truth an occurrence question reaches for, read off its attribution record. GM-PRIVATE. */
@@ -680,10 +767,10 @@ export interface OccurrenceGrounding {
 /**
  * The ground truth of one occurrence question (D47), in code:
  *  - who_is_behind_it: the headline's hands, by the names frozen at commit;
- *  - who_gains: the same hands, each with its aims that turn - the OPEN
- *    intents of its entityActions on the same history entry, deduplicated.
- *    Never a covert intent, an action's notes or its target (D28); a hand
- *    with no open action is a bare name.
+ *  - who_gains: the same hands, each with its aims that turn - the first
+ *    MAX_AIMS_PER_HAND distinct OPEN intents of its entityActions on the
+ *    same history entry. Never a covert intent, an action's notes or its
+ *    target (D28); a hand with no open action is a bare name.
  * An empty record is itself the truth (NO_HAND_TRUTH) - save that labels the
  * adjudicator declared but no roster figure answered are named for the GM.
  * Null only when there is no record at all. The player's own id is a hand
@@ -702,13 +789,13 @@ export function occurrenceGrounding(params: {
     const turnAims = actions
         .filter(action => typeof action?.id === 'string' && isOpenIntent(action.intent))
         .map(action => ({ id: action.id, aim: action.intent as OpenIntent }));
-    const aimsOf = (id: string): OpenIntent[] => [...new Set(turnAims.filter(entry => entry.id === id).map(entry => entry.aim))];
+    const aimsOf = (id: string): OpenIntent[] => [...new Set(turnAims.filter(entry => entry.id === id).map(entry => entry.aim))].slice(0, MAX_AIMS_PER_HAND);
     const hands = found.hands.map(({ id, name }): OccurrenceHand => ({ id, name, aims: question === 'who_gains' ? aimsOf(id) : [] }));
     const unresolvedNote = found.unresolved.length > 0 ? found.unresolved.join(', ') : '';
     const groundTruth = hands.length > 0
         ? `${hands.map(hand => describeHand(hand, question)).join(' | ')}${unresolvedNote ? ` | declared, but no roster figure: ${unresolvedNote}` : ''}`
         : unresolvedNote ? `No roster figure; declared: ${unresolvedNote}` : NO_HAND_TRUTH[question];
-    return { hands, groundTruth, aliveThen: figuresAliveAt(found.entry, roster), turnAims };
+    return { hands, groundTruth, aliveThen: figuresAliveAt(found.entry, turnHistory, roster), turnAims };
 }
 
 /** What code needs to pick an occurrence account's decoys, and to keep it consistent with its sibling question. */
@@ -717,7 +804,7 @@ export interface OccurrencePlanContext {
     playerId: string;
     /** Whether the player knows a figure - the Dramatis Personae's own test (knowledge/relationships.ts::isEntityKnownToPlayer), handed in by the caller. */
     isKnown: (id: string) => boolean;
-    /** Every name a figure on the roster wears, then or now, lower-cased: a stranger never borrows one. */
+    /** Every name a figure on the roster wears, then or now, and every hand's frozen name, lower-cased: a stranger never borrows one. */
     takenNames: ReadonlySet<string>;
     /** What the other grounded question on the occurrence came back with, when the player asked it. */
     sibling: OccurrenceSiblingOutcome | null;
@@ -740,13 +827,15 @@ export interface OccurrencePlan extends PoolPlan {
  *  - a decoy is a real figure alive and on the roster at the occurrence's own
  *    turn, of the true hand's familiarity: a figure the player knows for a
  *    hand they know, one they do not for a hand they do not - never a true
- *    hand, never the player. Only when that pool runs dry does a stranger's
- *    name from STRANGER_NAMES stand in. Every name is plain quoted data, so a
- *    decoy reads exactly as a true hand would;
+ *    hand, never the player, and never one of the other familiarity (a known
+ *    decoy for an unknown hand would be a tell). Only when that pool runs dry
+ *    does a stranger's name, built by `strangerName` from the planner's own
+ *    generator, stand in. Every name is plain quoted data, so a decoy reads
+ *    exactly as a true hand would;
  *  - a false or changed aim is an open intent some OTHER figure pursued that
- *    same turn and this entry never had (any open intent, only when none is
- *    left); a garbled entry has its name pinned on a decoy or - only if it
- *    has aims - one aim changed.
+ *    same turn and this entry never had; when those run short, any other
+ *    open intent - never one the entry already carries. A garbled entry has
+ *    its name pinned on a decoy or - only if it has aims - one aim changed.
  * "Came back empty" is decided once per occurrence, by `context.sibling`: when
  * the other question came back with nothing, so does this one (recorded false
  * when hands were behind it, whatever the roll); when it named hands, a false
@@ -788,25 +877,28 @@ export function planOccurrence(
         known: candidates.filter(figure => context.isKnown(figure.id)),
         unknown: candidates.filter(figure => !context.isKnown(figure.id)),
     };
+    // Names already in this account, so no two entries share one.
     const usedNames = new Set(hands.map(hand => hand.name.toLocaleLowerCase()));
-    const strangers = STRANGER_NAMES.filter(name => !context.takenNames.has(name.toLocaleLowerCase()) && !usedNames.has(name.toLocaleLowerCase()));
+    const isTaken = (name: string) => context.takenNames.has(name.toLocaleLowerCase()) || usedNames.has(name.toLocaleLowerCase());
     const decoy = (hand: OccurrenceHand, asFragment: boolean, draw: Rng): { name: string; stranger?: boolean } => {
         const pool = context.isKnown(hand.id) ? pools.known : pools.unknown;
-        let name: string;
-        let stranger = false;
-        if (pool.length > 0) {
-            name = pool.splice(Math.floor(draw() * pool.length), 1)[0].name;
-        } else {
-            const open = strangers.length > 0 ? strangers : [...STRANGER_NAMES];
-            name = open.splice(Math.floor(draw() * open.length), 1)[0];
-            stranger = true;
-        }
+        const stranger = pool.length === 0;
+        const name = stranger ? strangerName(draw, isTaken) : pool.splice(Math.floor(draw() * pool.length), 1)[0].name;
+        usedNames.add(name.toLocaleLowerCase());
         return { name: asFragment ? fragmentOf(name, draw) : name, ...(stranger ? { stranger } : {}) };
     };
-    const otherAim = (hand: OccurrenceHand, excluded: readonly OpenIntent[], draw: Rng): OpenIntent => {
-        const used = [...new Set(grounding.turnAims.filter(pursued => pursued.id !== hand.id).map(pursued => pursued.aim))]
+    /**
+     * One false or changed aim for `hand`: an open intent another figure
+     * pursued that turn, none of `excluded` (its true aims and those already
+     * told); when those run short, any open intent not excluded; and at the
+     * very least one the entry does not already carry (`entryAims`) - never
+     * undefined, since an entry holds at most MAX_AIMS_PER_HAND of eleven.
+     */
+    const otherAim = (hand: OccurrenceHand, excluded: readonly OpenIntent[], entryAims: readonly OpenIntent[], draw: Rng): OpenIntent => {
+        const others = [...new Set(grounding.turnAims.filter(pursued => pursued.id !== hand.id).map(pursued => pursued.aim))]
             .filter(aim => !excluded.includes(aim));
-        const open = used.length > 0 ? used : OPEN_INTENTS.filter(aim => !excluded.includes(aim));
+        const rest = OPEN_INTENTS.filter(aim => !excluded.includes(aim));
+        const open = others.length > 0 ? others : rest.length > 0 ? rest : OPEN_INTENTS.filter(aim => !entryAims.includes(aim));
         return open[Math.floor(draw() * open.length)];
     };
 
@@ -818,7 +910,7 @@ export function planOccurrence(
             falsify: (finding, i, draw) => {
                 const hand = reached[i];
                 const aims: OpenIntent[] = [];
-                while (aims.length < hand.aims.length) aims.push(otherAim(hand, [...hand.aims, ...aims], draw));
+                while (aims.length < hand.aims.length) aims.push(otherAim(hand, [...hand.aims, ...aims], aims, draw));
                 return entry({ ...decoy(hand, finding.fragmentary, draw), aims }, finding.fragmentary, 'false');
             },
             garble: (finding, i, distortion, draw) => {
@@ -829,7 +921,8 @@ export function planOccurrence(
                     content = { ...decoy(hand, finding.fragmentary, draw), aims: told.aims };
                 } else {
                     const changed = Math.floor(draw() * told.aims.length);
-                    content = { name: told.name, aims: told.aims.map((aim, a) => a === changed ? otherAim(hand, [...hand.aims, ...told.aims], draw) : aim) };
+                    const kept = told.aims.filter((_, a) => a !== changed);
+                    content = { name: told.name, aims: told.aims.map((aim, a) => a === changed ? otherAim(hand, [...hand.aims, ...told.aims], kept, draw) : aim) };
                 }
                 return { ...entry(content, finding.fragmentary, 'garbled', finding.groundTruth), distortion };
             },

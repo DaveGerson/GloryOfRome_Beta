@@ -98,6 +98,12 @@ export function stripActorsFromAdjudication(adjudication: AdjudicationInterchang
   } as Adjudication;
 }
 
+/** A leading article a label may carry ("the Senate"), stripped before the looser passes. */
+const LEADING_ARTICLE = /^(?:the|a|an)\s+/u;
+
+/** The shortest label, article stripped, a whole-word match may rest on: "the mob" names no one. */
+const MIN_LOOSE_LABEL = 4;
+
 /**
  * The one place a declaration outlives the commit boundary, and only as a
  * SEPARATE, additive GM-private record (D42 leaves every persisted shape as it
@@ -114,25 +120,55 @@ export function stripActorsFromAdjudication(adjudication: AdjudicationInterchang
  * then takes its honest "no record" path - never a guessed one.
  *
  * Each declared label is resolved here against `rosters` in order (the
- * post-turn roster, then the pre-turn one): as an entity id, else as a
- * display name, else as an epithet (case-insensitive) - an adjudicator that
- * writes "Marcus Crassus" for `crassus` still names him. Each hand's name is
- * frozen with it, so the truth never depends on who is still on the roster,
- * or in a snapshot, when the question is asked. A label that resolves to no
- * one is no hand: it is kept apart as `unresolvedActors` for the GM console,
- * and a headline left with no hand arose from circumstance.
+ * post-turn roster, then the pre-turn one), strictest first:
+ *  1. as an entity id, else a display name, else an epithet (the last two
+ *     case-insensitive) - an adjudicator that writes "Marcus Crassus" for
+ *     `crassus` still names him;
+ *  2. the same, with a leading article ("the", "a", "an") stripped from both
+ *     sides - "the Praetorian Guard";
+ *  3. a whole-word match inside a name or an epithet - "the Senate" for the
+ *     Roman Senate - accepted ONLY when exactly one figure matches, the
+ *     stripped label runs to MIN_LOOSE_LABEL characters ("the mob" names no
+ *     one), and that figure is not the player (`playerId`): a loose label is
+ *     never read as the player's own act.
+ * Each hand's name is frozen with it, so the truth never depends on who is
+ * still on the roster, or in a snapshot, when the question is asked. A label
+ * that resolves to no one is no hand: it is kept apart as `unresolvedActors`
+ * for the GM console, and a headline left with no hand arose from
+ * circumstance.
  */
 export function attributeHeadlines(
   declared: readonly { text: string; actors: readonly string[] }[],
   committed: readonly string[],
   rosters: readonly (readonly Entity[])[],
+  playerId?: string,
 ): HeadlineAttribution[] {
-  const everyone = rosters.flat();
+  const everyone = rosters.flat().filter(entity => Boolean(entity?.name?.trim()));
   const folded = (value: string | undefined) => (value ?? '').trim().toLocaleLowerCase();
-  const resolve = (label: string): Entity | undefined =>
-    everyone.find(entity => entity.entity_id === label && entity.name?.trim())
-    ?? everyone.find(entity => folded(entity.name) === folded(label) && folded(label))
-    ?? everyone.find(entity => folded(entity.epithet) === folded(label) && folded(label) && entity.name?.trim());
+  const bare = (value: string | undefined) => folded(value).replace(LEADING_ARTICLE, '');
+  const words = (value: string | undefined) => bare(value).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const holds = (haystack: readonly string[], needle: readonly string[]) =>
+    needle.length > 0 && haystack.some((_, start) => needle.every((word, i) => haystack[start + i] === word));
+  const resolve = (label: string): Entity | undefined => {
+    const key = folded(label);
+    if (!key) return undefined;
+    const exact = everyone.find(entity => entity.entity_id === label)
+      ?? everyone.find(entity => folded(entity.name) === key)
+      ?? everyone.find(entity => entity.epithet !== undefined && folded(entity.epithet) === key);
+    if (exact) return exact;
+    const stripped = bare(label);
+    if (!stripped) return undefined;
+    const unarticled = everyone.find(entity => bare(entity.name) === stripped)
+      ?? everyone.find(entity => entity.epithet !== undefined && bare(entity.epithet) === stripped);
+    if (unarticled) return unarticled;
+    if (stripped.length < MIN_LOOSE_LABEL) return undefined;
+    const needle = words(label);
+    const loose = new Map(everyone
+      .filter(entity => holds(words(entity.name), needle) || holds(words(entity.epithet), needle))
+      .map(entity => [entity.entity_id, entity] as const));
+    const [only] = loose.values();
+    return loose.size === 1 && only.entity_id !== playerId ? only : undefined;
+  };
   const unpaired = [...declared];
   const records: HeadlineAttribution[] = [];
   for (const text of committed) {
@@ -157,6 +193,17 @@ export function attributeHeadlines(
     unpaired.splice(index, 1);
   }
   return records;
+}
+
+/**
+ * The ids alive and on the roster at commit - written beside a non-empty
+ * attribution record (TurnHistoryEntry.livingAtCommit), so an occurrence
+ * answer's decoys are drawn from who was alive THEN, past the snapshot trim.
+ */
+export function livingAtCommit(roster: readonly Entity[]): string[] {
+  return [...new Set(roster
+    .filter(entity => entity?.status === 'alive' && typeof entity.entity_id === 'string' && entity.entity_id.length > 0)
+    .map(entity => entity.entity_id))];
 }
 
 /** Drops the interchange-only top-level `actors` off a parsed SimulationState. */
