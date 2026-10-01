@@ -912,14 +912,5 @@ describe('state/gameReducer', () => {
       expect(result).toBe(state);
       expect(result.inferredAmbition).toBe(newer);
     });
-
-    it('RESOURCE_SPENT replaces the entity roster', () => {
-      const state = makePlayingState();
-      const spent = state.entities.map(e =>
-        e.entity_id === PLAYER_ID ? { ...e, resources: { ...e.resources, deep_analyses: 3 } } : e
-      );
-      const result = gameReducer(state, { type: 'RESOURCE_SPENT', entities: spent });
-      expect(result.entities).toBe(spent);
-    });
   });
 });

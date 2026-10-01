@@ -303,8 +303,6 @@ export type GameAction =
     }
   /** Restore a whole campaign from the autosave (persistence/saveGame.ts). */
   | { type: 'GAME_LOADED'; save: SaveGameState }
-  /** A player resource spend (deep analysis) already applied to `entities`. */
-  | { type: 'RESOURCE_SPENT'; entities: Entity[] }
   /**
    * One investigation reveal = one atomic commit: the spend, any blackmail
    * filing (secrets), the fallout-queue append, and the knowledge-store
@@ -563,9 +561,6 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
             : GameState.AWAITING_PLAYER_INPUT,
       };
     }
-
-    case 'RESOURCE_SPENT':
-      return { ...state, entities: action.entities };
 
     case 'PRIVATE_SCENES_COMMITTED':
       return { ...state, privateScenes: action.privateScenes, knowledge: action.knowledge ?? state.knowledge };
