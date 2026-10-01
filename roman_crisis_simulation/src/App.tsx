@@ -186,7 +186,7 @@ const App: React.FC = () => {
         handlePrivateSceneLastWord,
         handlePrivateSceneSkipLastWord,
     } = usePrivateSceneController({
-        ai, isMockMode,
+        ai, isMockMode, online,
         privateScenes: state.privateScenes,
         playerEntity, entities, privateSceneKnownIds, knowledge, turnNumber,
         privateSceneInteractionLocked,

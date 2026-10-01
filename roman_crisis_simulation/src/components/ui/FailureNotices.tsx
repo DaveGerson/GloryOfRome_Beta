@@ -119,8 +119,11 @@ const NoKeyNotice: React.FC<{ onOpenSettings: () => void; onEnableMockMode: () =
   </Alert>
 );
 
+/** The roads are shut: the one title every offline hold goes by (the turn's notice, the strip, the private scene). */
+const NO_WORD_LEAVES = 'No word can leave the city';
+
 const OfflineNotice: React.FC = () => (
-  <Alert tone="bronze" title="No word can leave the city">
+  <Alert tone="bronze" title={NO_WORD_LEAVES}>
     The roads are shut. Keep writing the week — it is kept here, and it will send when they reopen.
   </Alert>
 );
@@ -224,9 +227,13 @@ export const ImportFailureNotice: React.FC<{ reason: Exclude<ImportResult, { ok:
  * controller names the failure; the words live here. The title says what
  * failed - a reply that met no answer is not a door that did not open - and
  * a request the scene's input bound refuses (`*_refused`) is never offered
- * as a retry, since the same words would be refused again.
+ * as a retry, since the same words would be refused again. `offline` is not
+ * a failure of the scene at all: the roads are shut, so the invitation or
+ * reply was held before anything was sent, exactly as the composer holds a
+ * turn - bronze, and in the composer's words.
  */
 export type PrivateSceneFailure =
+  | 'offline'
   | 'invite_unanswered'
   | 'invite_refused'
   | 'contact_missing'
@@ -243,6 +250,7 @@ const NO_ANSWER_CAME = 'No answer came';
 const SCENE_COULD_NOT_CONTINUE = 'The scene could not continue. Your words remain ready to retry.';
 
 export const PRIVATE_SCENE_FAILURE_COPY: Record<PrivateSceneFailure, { title: string; message: string }> = {
+  offline: { title: NO_WORD_LEAVES, message: 'The roads are shut. Your words are kept here — send them when the roads reopen.' },
   invite_unanswered: { title: DOOR_DID_NOT_OPEN, message: SCENE_COULD_NOT_CONTINUE },
   invite_refused: { title: DOOR_DID_NOT_OPEN, message: 'This contact cannot be drawn into a private word. Your words are kept; choose another to send them to.' },
   contact_missing: { title: INVITATION_NOT_SENT, message: 'That contact can no longer be found. Choose another and try again.' },
@@ -257,7 +265,7 @@ export const PRIVATE_SCENE_FAILURE_COPY: Record<PrivateSceneFailure, { title: st
 
 /** The private scene dialog's one failure surface. */
 export const PrivateSceneFailureNotice: React.FC<{ failure: PrivateSceneFailure; style?: React.CSSProperties }> = ({ failure, style }) => (
-  <Alert title={PRIVATE_SCENE_FAILURE_COPY[failure].title} style={style}>
+  <Alert tone={failure === 'offline' ? 'bronze' : 'crimson'} title={PRIVATE_SCENE_FAILURE_COPY[failure].title} style={style}>
     {PRIVATE_SCENE_FAILURE_COPY[failure].message}
   </Alert>
 );
@@ -304,7 +312,7 @@ export const OfflineStrip: React.FC = () => (
   <div className="gor-offline" role="status">
     <span className="gor-offline-tick" aria-hidden="true" />
     <span className="gor-offline-body">
-      <span className="gor-offline-title">No word can leave the city</span>{' '}
+      <span className="gor-offline-title">{NO_WORD_LEAVES}</span>{' '}
       The roads are shut. Keep writing the week — it is kept here, and it will send when they reopen.
     </span>
     <span className="gor-offline-watch">Watching the gates</span>

@@ -39,7 +39,7 @@ import * as voiceCasting from '../ai/tools/voiceCasting';
 import { NarrationLog, NARRATION_LOG_COPY } from '../components/NarrationLog';
 import { CustomNarratorEditor, CUSTOM_NARRATOR_COPY } from '../components/CustomNarratorEditor';
 import { PrivateScene } from '../components/PrivateScene';
-import { PRIVATE_SCENE_FAILURE_COPY, type PrivateSceneFailure } from '../components/ui/FailureNotices';
+import { PRIVATE_SCENE_FAILURE_COPY, PrivateSceneFailureNotice, type PrivateSceneFailure } from '../components/ui/FailureNotices';
 import { VoiceStylePicker } from '../components/VoiceStylePicker';
 import type { CustomNarrator } from '../narration/customNarrators';
 import { makeEntity, makeWorldState } from './factories';
@@ -535,7 +535,65 @@ describe('the private scene controller', () => {
     buildSaveState: () => ({}) as SaveGameState,
     privateSceneLockRef: { current: false },
     privateScenesRef: scenesRef,
+    online: true,
     ...overrides,
+  });
+
+  it('with the roads shut, an invitation is held before any call, its words kept, and goes once they reopen', async () => {
+    const scenesRef = { current: [] as PrivateSceneRecord[] };
+    const generateContent = vi.fn();
+    const network = { models: { generateContent } } as unknown as GoogleGenAI;
+    const hook = renderHook(usePrivateSceneController, baseDeps(scenesRef, { ai: network, isMockMode: false, online: false }));
+    act(() => hook.current.setPrivateSceneOpeningDraft('A word, General.'));
+    act(() => hook.current.handlePrivateSceneInvite('maximinus_thrax'));
+    await settle();
+    expect(generateContent).not.toHaveBeenCalled();
+    expect(scenesRef.current).toEqual([]);
+    expect(hook.current.privateSceneError).toBe('offline');
+    expect(hook.current.privateSceneOpeningDraft).toBe('A word, General.');
+    expect(hook.current.canStartScene).toBe(true);
+    // The roads reopen: the same words go, and the notice gives way.
+    hook.rerender(baseDeps(scenesRef));
+    act(() => hook.current.handlePrivateSceneInvite('maximinus_thrax'));
+    await settle();
+    expect(scenesRef.current[0]?.status).toBe('active');
+    expect(scenesRef.current[0]?.transcript[0]?.text).toBe('A word, General.');
+    expect(hook.current.privateSceneError).toBeNull();
+    hook.unmount();
+  });
+
+  it('with the roads shut, a reply inside an open scene is held before any call, and kept as written', async () => {
+    const scenesRef = { current: [] as PrivateSceneRecord[] };
+    const hook = renderHook(usePrivateSceneController, baseDeps(scenesRef));
+    act(() => hook.current.setPrivateSceneOpeningDraft('A word, General.'));
+    act(() => hook.current.handlePrivateSceneInvite('maximinus_thrax'));
+    await settle();
+    const opened = scenesRef.current[0];
+    expect(opened.status).toBe('active');
+    const generateContent = vi.fn();
+    hook.rerender(baseDeps(scenesRef, { ai: { models: { generateContent } } as unknown as GoogleGenAI, isMockMode: false, online: false }));
+    act(() => hook.current.setPrivateSceneReplyDraft('And the Guard?'));
+    act(() => hook.current.handlePrivateSceneReply(opened.sceneId));
+    await settle();
+    expect(generateContent).not.toHaveBeenCalled();
+    expect(scenesRef.current[0]).toBe(opened);
+    expect(hook.current.privateSceneError).toBe('offline');
+    expect(hook.current.privateSceneReplyDraft).toBe('And the Guard?');
+    hook.unmount();
+  });
+
+  it('says the roads are shut in the composer\'s title, bronze - something in the way, not a failure of the scene', () => {
+    expect(PRIVATE_SCENE_FAILURE_COPY.offline).toEqual({
+      title: 'No word can leave the city',
+      message: 'The roads are shut. Your words are kept here — send them when the roads reopen.',
+    });
+    const view = mountUi(<PrivateSceneFailureNotice failure="offline" />);
+    const alert = view.host.querySelector('[role="alert"]')!;
+    expect(alert.classList.contains('gor-alert-bronze')).toBe(true);
+    view.unmount();
+    const other = mountUi(<PrivateSceneFailureNotice failure="reply_unanswered" />);
+    expect(other.host.querySelector('[role="alert"]')!.classList.contains('gor-alert-crimson')).toBe(true);
+    other.unmount();
   });
 
   it('an unsent reply to one NPC is gone once the scene ends - it never greets the next', async () => {

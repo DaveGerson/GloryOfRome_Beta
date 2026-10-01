@@ -50,6 +50,12 @@ import {
 export interface PrivateSceneControllerDeps {
     ai: GoogleGenAI;
     isMockMode: boolean;
+    /**
+     * Whether the roads are open (components/ui/FailureNotices.tsx's
+     * useOnline). Shut, an invitation or a reply is held before any call, as
+     * the composer holds a turn, and the words stay where they were written.
+     */
+    online: boolean;
     privateScenes: PrivateSceneRecord[];
     playerEntity: Entity | null;
     entities: Entity[];
@@ -230,7 +236,7 @@ function newSignsSeen(scene: PrivateSceneRecord, fromExchange: number): Array<{ 
 
 export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
     const {
-        ai, isMockMode, privateScenes, playerEntity, entities, privateSceneKnownIds, knowledge, turnNumber,
+        ai, isMockMode, online, privateScenes, playerEntity, entities, privateSceneKnownIds, knowledge, turnNumber,
         privateSceneInteractionLocked, runDomainMutation, commitDomainMutation, buildSaveState,
         privateSceneLockRef, privateScenesRef,
     } = deps;
@@ -294,8 +300,14 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
 
     const handlePrivateSceneInvite = useCallback((targetId: string) => {
         void runDomainMutation(async transaction => {
+            if (!transaction.isCurrent()) return false;
+            // The roads are shut: held before any call, the opening kept as written.
+            if (!online) {
+                fail('offline');
+                return false;
+            }
             const opening = privateSceneOpeningDraft.trim();
-            if (!transaction.isCurrent() || !playerEntity || !opening || opening.length > PRIVATE_SCENE_MAX_UTTERANCE_CHARS) {
+            if (!playerEntity || !opening || opening.length > PRIVATE_SCENE_MAX_UTTERANCE_CHARS) {
                 if (opening.length > PRIVATE_SCENE_MAX_UTTERANCE_CHARS) fail('too_long');
                 return false;
             }
@@ -340,10 +352,16 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
                 return false;
             }
         }, { allowDuringPrivateScene: true });
-    }, [ai, commitPrivateScene, entities, fail, isMockMode, knowledge, playerEntity, privateSceneKnownIds, privateSceneOpeningDraft, privateScenePromptFor, privateScenesRef, runDomainMutation, turnNumber]);
+    }, [ai, commitPrivateScene, entities, fail, isMockMode, knowledge, online, playerEntity, privateSceneKnownIds, privateSceneOpeningDraft, privateScenePromptFor, privateScenesRef, runDomainMutation, turnNumber]);
 
     const handlePrivateSceneReply = useCallback((sceneId: string) => {
         void runDomainMutation(async transaction => {
+            if (!transaction.isCurrent()) return false;
+            // As for the invitation: held before any call, the reply kept as written.
+            if (!online) {
+                fail('offline');
+                return false;
+            }
             const reply = privateSceneReplyDraft.trim();
             const expectedScenes = privateScenesFingerprint(privateScenesRef.current);
             const scene = privateScenesRef.current.find(candidate => candidate.sceneId === sceneId);
@@ -377,7 +395,7 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
                 return false;
             }
         }, { allowDuringPrivateScene: true });
-    }, [ai, commitPrivateScene, entities, fail, isMockMode, knowledge, privateScenePromptFor, privateSceneReplyDraft, privateScenesRef, runDomainMutation]);
+    }, [ai, commitPrivateScene, entities, fail, isMockMode, knowledge, online, privateScenePromptFor, privateSceneReplyDraft, privateScenesRef, runDomainMutation]);
 
     const handlePrivateSceneEnd = useCallback((sceneId: string) => {
         void runDomainMutation(() => {

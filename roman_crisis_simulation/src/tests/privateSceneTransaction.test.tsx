@@ -452,6 +452,42 @@ describe('private-scene App transaction boundary', () => {
     expect(loadGame()!.state.privateScenes![0].transcript.some(line => line.text === 'Obsolete reply')).toBe(false);
   });
 
+  it('holds an invitation and a reply before any provider call while the roads are shut, keeping the words, and sends them once they reopen', async () => {
+    const roads = { open: true };
+    vi.spyOn(window.navigator, 'onLine', 'get').mockImplementation(() => roads.open);
+    const setRoads = (open: boolean) => act(async () => {
+      roads.open = open;
+      window.dispatchEvent(new Event(open ? 'online' : 'offline'));
+    });
+    const notice = (container: HTMLElement) => container.querySelector('.gor-private-scene [role="alert"]');
+    const container = await mount();
+    await setRoads(false);
+    await invite(container, 'Held at the gate');
+    await waitFor(() => expect(notice(container)?.textContent).toContain('No word can leave the city'));
+    expect(notice(container)?.classList.contains('gor-alert-bronze')).toBe(true);
+    expect(mockContinue).not.toHaveBeenCalled();
+    expect(loadGame()!.state.privateScenes).toEqual([]);
+    expect(container.querySelector<HTMLTextAreaElement>('[aria-label="Private-scene opening"]')!.value).toBe('Held at the gate');
+
+    // The roads reopen: the same words go.
+    await setRoads(true);
+    mockContinue.mockResolvedValueOnce(response(1));
+    await click(button(container, 'Send invitation'));
+    await waitFor(() => expect(loadGame()!.state.privateScenes).toHaveLength(1));
+    expect(mockContinue).toHaveBeenCalledTimes(1);
+    expect(loadGame()!.state.privateScenes![0].transcript[0].text).toBe('Held at the gate');
+    expect(notice(container)).toBeNull();
+
+    // Shut again, a reply is held the same way.
+    await setRoads(false);
+    await setValue(container.querySelector<HTMLTextAreaElement>('[aria-label="Private-scene reply"]')!, 'And the Guard?');
+    await click(button(container, 'Send reply'));
+    await waitFor(() => expect(notice(container)?.textContent).toContain('The roads are shut. Your words are kept here'));
+    expect(mockContinue).toHaveBeenCalledTimes(1);
+    expect(loadGame()!.state.privateScenes![0].npcResponseCount).toBe(1);
+    expect(container.querySelector<HTMLTextAreaElement>('[aria-label="Private-scene reply"]')!.value).toBe('And the Guard?');
+  });
+
   it('blocks over-limit invitations before provider cost and preserves the visible draft/error', async () => {
     const container = await mount();
     const opening = container.querySelector<HTMLTextAreaElement>('[aria-label="Private-scene opening"]')!;

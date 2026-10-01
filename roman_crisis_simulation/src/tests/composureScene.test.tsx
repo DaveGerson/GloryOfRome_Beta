@@ -405,6 +405,7 @@ describe('D50: the controller, in Mock Mode', () => {
   const deps = (scenesRef: { current: PrivateSceneRecord[] }, knowledge: KnowledgeClaim[] = []): PrivateSceneControllerDeps => ({
     ai: {} as GoogleGenAI,
     isMockMode: true,
+    online: true,
     privateScenes: scenesRef.current,
     playerEntity: player,
     entities: [player, julia],
