@@ -929,9 +929,31 @@ export function ingestDeepAnalysis(
 export const OCCURRENCE_QUESTIONS = ['who_gains', 'who_is_behind_it', 'what_follows'] as const;
 export type OccurrenceQuestion = typeof OCCURRENCE_QUESTIONS[number];
 
-/** A stable, bounded key for an occurrence's free-prose headline. */
+/** A readable, bounded slug of an occurrence's free-prose headline. */
 function occurrenceSlug(occurrence: string): string {
   return occurrence.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 60);
+}
+
+/** A short, stable hash of the whole headline (32-bit FNV-1a, base 36). */
+function headlineHash(occurrence: string): string {
+  const text = occurrence.trim();
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+/**
+ * An occurrence's own part of its findings' claim keys: the readable slug,
+ * then a hash of the whole headline. The slug alone merged two occurrences'
+ * findings when their headlines shared their first 60 characters, or held
+ * nothing but punctuation (both slug to the same text, the latter to '').
+ * A slug never holds '-', so this form is never mistaken for the older one.
+ */
+function occurrenceKeyPart(occurrence: string): string {
+  return `${occurrenceSlug(occurrence)}-${headlineHash(occurrence)}`;
 }
 
 /**
@@ -940,7 +962,23 @@ function occurrenceSlug(occurrence: string): string {
  * (hooks/useIntelCommits.ts), which links the two.
  */
 export function occurrenceClaimKey(occurrence: string, question: OccurrenceQuestion): string {
-  return `investigation:occurrence:${occurrenceSlug(occurrence)}:${question}`;
+  return `investigation:occurrence:${occurrenceKeyPart(occurrence)}:${question}`;
+}
+
+/**
+ * The claim answering `question` about `occurrence`: under its own key, or,
+ * for a finding saved before keys carried the hash, under the slug-only key
+ * it was filed by - and its truth-ledger entry's `reportId` still names that
+ * key, so nothing is rewritten. An older claim is taken only when the
+ * headline it froze (when it froze one) is this one, which keeps two
+ * colliding headlines apart there too; one saved before the headline was
+ * kept is matched by its slug, as it always was.
+ */
+function occurrenceClaimFor(store: readonly KnowledgeClaim[], occurrence: string, question: OccurrenceQuestion): KnowledgeClaim | undefined {
+  const key = occurrenceClaimKey(occurrence, question);
+  const slugKey = `investigation:occurrence:${occurrenceSlug(occurrence)}:${question}`;
+  return store.find(claim => claim.claimKey === key)
+    ?? store.find(claim => claim.claimKey === slugKey && (claim.occurrence === undefined || claim.occurrence.trim() === occurrence.trim()));
 }
 
 /**
@@ -985,8 +1023,7 @@ export function occurrenceSiblingInStore(
   question: 'who_gains' | 'who_is_behind_it',
 ): 'empty' | 'named' | null {
   const sibling = question === 'who_gains' ? 'who_is_behind_it' : 'who_gains';
-  const key = occurrenceClaimKey(occurrence, sibling);
-  const claim = store.find(candidate => candidate.claimKey === key && (candidate.occurrence === undefined || candidate.occurrence === occurrence));
+  const claim = occurrenceClaimFor(store, occurrence, sibling);
   if (typeof claim?.cameBackEmpty !== 'boolean') return null;
   return claim.cameBackEmpty ? 'empty' : 'named';
 }
@@ -1009,9 +1046,9 @@ export function examinedOccurrences(store: KnowledgeClaim[], alsoCried: readonly
       note(claim.occurrence, claim.firstLearnedTurn);
     }
   }
-  const bySlug = new Set([...newestTurn.keys()].map(occurrenceSlug));
+  const listed = new Set([...newestTurn.keys()].map(occurrenceKeyPart));
   for (const occurrence of alsoCried) {
-    if (bySlug.has(occurrenceSlug(occurrence))) continue;
+    if (listed.has(occurrenceKeyPart(occurrence))) continue;
     const findings = occurrenceFindings(store, occurrence);
     if (findings.length > 0) note(occurrence, Math.max(...findings.map(finding => finding.turn)));
   }
@@ -1030,17 +1067,14 @@ export interface OccurrenceFinding {
  * A read model over the store — nothing separate is persisted.
  */
 export function occurrenceFindings(store: KnowledgeClaim[], occurrence: string): OccurrenceFinding[] {
-  const prefix = `investigation:occurrence:${occurrenceSlug(occurrence)}:`;
   const findings: OccurrenceFinding[] = [];
-  for (const claim of store) {
-    if (!claim.claimKey.startsWith(prefix)) continue;
-    const question = claim.claimKey.slice(prefix.length) as OccurrenceQuestion;
-    if (!OCCURRENCE_QUESTIONS.includes(question)) continue;
-    const latest = claim.updates[claim.updates.length - 1];
-    if (!latest) continue;
+  for (const question of OCCURRENCE_QUESTIONS) {
+    const claim = occurrenceClaimFor(store, occurrence, question);
+    const latest = claim?.updates[claim.updates.length - 1];
+    if (!claim || !latest) continue;
     findings.push({ question, text: latest.text, turn: claim.firstLearnedTurn });
   }
-  return findings.sort((a, b) => OCCURRENCE_QUESTIONS.indexOf(a.question) - OCCURRENCE_QUESTIONS.indexOf(b.question));
+  return findings;
 }
 
 /**

@@ -780,7 +780,9 @@ export interface TruthLedgerEntry {
      * finding never becomes a Report: it names the knowledge claim key of
      * the dossier aspect the finding landed on instead
      * (`investigation:{targetId}:{kind}`, or `scheme:{targetId}`), or of the
-     * occurrence finding (`investigation:occurrence:{slug}:{question}`).
+     * occurrence finding (`investigation:occurrence:{slug}-{hash}:{question}`;
+     * an entry saved before the hash names `investigation:occurrence:{slug}:
+     * {question}`, the key its finding still holds - knowledge/store.ts).
      */
     reportId: string;
     /**
