@@ -650,7 +650,7 @@ const LEGACY_STATUS_LINE = /(?:is|you are) now (alive|dead|exiled|missing)\.$/;
  * template that wrote it: its status word, or about ('alive') for a move
  * ("is now changed.") or any word that was no status.
  */
-export function perceivedStatusOf(store: KnowledgeClaim[], entityId: string): Entity['status'] | undefined {
+export function perceivedStatusOf(store: readonly KnowledgeClaim[], entityId: string): Entity['status'] | undefined {
   const claim = store.find(candidate => candidate.claimKey === `digest:status:${entityId}`);
   const latest = claim?.updates[claim.updates.length - 1];
   if (!latest) return undefined;

@@ -51,7 +51,8 @@ import type { GameAction } from '../state/gameReducer';
 import type { RunDomainMutation } from '../state/domainMutation';
 import type { DomainCommit } from '../app/transactions';
 import type { SaveGameState } from '../persistence/saveGame';
-import { makeEntity, makePersonality } from './factories';
+import { makeEntity, makePersonality, makeTurnHistoryEntry } from './factories';
+import { tabChangeCountsFor } from '../hooks/usePlayerPerception';
 import { renderHook } from './renderHook';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -440,6 +441,10 @@ describe('D50: the controller, in Mock Mode', () => {
     expect(first.knowledge).toBeDefined();
     expect(signsSeenOf(first.knowledge!, 'julia')).toEqual([{ text: 'A catch comes into their voice, and they look away.', turn: 2 }]);
     expect(JSON.stringify(first.knowledge)).not.toMatch(/grief|NPC_MARK|Origen|origen/);
+    // The Personae coin counts it once: now, in the interlude after week 1 -
+    // and not again when week 2 (the week the scene was held in) lands.
+    expect(tabChangeCountsFor([], first.knowledge!, makeTurnHistoryEntry({ turnNumber: 1 })).get('dramatis_personae')).toBe(1);
+    expect(tabChangeCountsFor([], first.knowledge!, makeTurnHistoryEntry({ turnNumber: 2 })).has('dramatis_personae')).toBe(false);
 
     // Reload: the persisted scene comes back whole - the same rolls, the same seed.
     const reloaded = normalizeLoadedPrivateScenes(JSON.parse(JSON.stringify(scenesRef.current)));

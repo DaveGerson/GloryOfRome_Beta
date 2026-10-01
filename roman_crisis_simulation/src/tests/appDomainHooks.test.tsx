@@ -16,7 +16,8 @@ import { useOnboarding } from '../hooks/useOnboarding';
 import { hasSeenOnboarding } from '../persistence/onboarding';
 import { GameState, type KnownRecipientOption, type Report, type StructuredTurnDraft, type TurnSubmission } from '../types';
 import { emptyStructuredDraft } from '../playerInput/composerState';
-import { computeTurnKnowledge } from '../knowledge/commit';
+import { computeTurnKnowledge, narrationSignsSeen } from '../knowledge/commit';
+import { ingestSignsSeen } from '../knowledge/store';
 import { makeEntity, makeKnowledgeClaim, makePerceivedChange, makeTurnHistoryEntry } from './factories';
 
 const executeTurn = vi.fn<(submission: TurnSubmission, draft: string | StructuredTurnDraft) => Promise<boolean>>(
@@ -55,7 +56,7 @@ describe('pulsingTabsFor', () => {
         expect([...tabs].sort()).toEqual(['reports', 'resources', 'world_state']);
     });
 
-    it('never pulses Dramatis Personae from a perceived change alone', () => {
+    it('never pulses Dramatis Personae from a perceived line that is no mark or tie', () => {
         const tabs = pulsingTabsFor([makePerceivedChange({ tabs: ['dramatis_personae'] })], [], lastTurn);
         expect(tabs.has('dramatis_personae')).toBe(false);
     });
@@ -84,7 +85,7 @@ describe('tabChangeCountsFor', () => {
         expect(Object.fromEntries(counts)).toEqual({ reports: 2, world_state: 1, resources: 1 });
     });
 
-    it('counts Dramatis Personae only by relationship observations first learned on the last turn', () => {
+    it('counts relationship observations on Dramatis Personae only when first learned on the last turn, and no other line', () => {
         const counts = tabChangeCountsFor([makePerceivedChange({ tabs: ['dramatis_personae'] })], [
             makeKnowledgeClaim({ firstLearnedTurn: 5, relationshipObservation: observation }),
             makeKnowledgeClaim({ firstLearnedTurn: 5, relationshipObservation: { ...observation, evidenceId: 'e2' } }),
@@ -121,6 +122,54 @@ describe('tabChangeCountsFor', () => {
         expect(tabChangeCountsFor([], before, lastTurn).has('reports')).toBe(false);
         expect(tabChangeCountsFor([], knowledge, null).size).toBe(0);
         expect([...tabChangeCountsFor([], knowledge, lastTurn).keys()]).toEqual([...pulsingTabsFor([], knowledge, lastTurn)]);
+    });
+
+    // D48/D49: a mark or tie the week let the player see on another figure.
+    const markSeen = (subject: string, id: string, gone = false) => makePerceivedChange({
+        deltaType: 'condition', subject, deltaKey: `${subject}:${id}`, text: `A mark on ${subject}.`,
+        tabs: subject === 'severus_alexander' ? [] : ['dramatis_personae'],
+        perceivedCondition: { id, name: id, description: '', severity: 'light', outward: true, gone },
+    });
+    const tieSeen = (subject: string, id: string, member = true) => makePerceivedChange({
+        deltaType: 'affiliation', subject, deltaKey: `${subject}:${id}`, text: `A tie of ${subject}.`, tabs: ['dramatis_personae'],
+        perceivedAffiliation: { id, name: id, kind: 'cult', public: false, member },
+    });
+
+    it('counts each mark and tie newly seen on another figure once, and only what the card now shows (D48/D49)', () => {
+        const counts = tabChangeCountsFor([
+            markSeen('maximinus_thrax', 'scarred_face'), markSeen('maximinus_thrax', 'scarred_face'), // one mark, two lines
+            markSeen('julia_mamaea', 'burned_hand'), markSeen('julia_mamaea', 'burned_hand', true), // seen, then seen healed
+            tieSeen('julia_mamaea', 'circle_of_origen'),
+            tieSeen('maximinus_thrax', 'mithras', false), // seen given up
+            markSeen('severus_alexander', 'limp'), // the player's own: their status panel, not Personae
+            makePerceivedChange({ deltaType: 'status', subject: 'maximinus_thrax', tabs: ['dramatis_personae'] }), // still not a Personae count
+        ], [], lastTurn);
+        expect(counts.get('dramatis_personae')).toBe(2);
+        expect(tabChangeCountsFor([tieSeen('julia_mamaea', 'circle_of_origen')], [], null).get('dramatis_personae')).toBe(1);
+    });
+
+    it('does not point Personae at a mark on a figure the player now believes gone', () => {
+        const seenDead = makeKnowledgeClaim({
+            claimKey: 'digest:status:maximinus_thrax', subject: 'maximinus_thrax', firstLearnedTurn: 5,
+            updates: [{ turn: 5, source: 'witnessed', text: 'Maximinus Thrax falls.', status: 'dead' }],
+        });
+        expect(tabChangeCountsFor([markSeen('maximinus_thrax', 'scarred_face')], [seenDead], lastTurn).has('dramatis_personae')).toBe(false);
+        expect(tabChangeCountsFor([markSeen('julia_mamaea', 'burned_hand')], [seenDead], lastTurn).get('dramatis_personae')).toBe(1);
+    });
+
+    it('counts a sign caught in a private scene as the scene commits it, and never again when the week lands (D50)', () => {
+        const sign = { entityId: 'julia_mamaea', sign: 'Her hand went to her throat.' };
+        // The interlude after week 5: the scene's sign is stamped with the week in hand, 6.
+        const afterScene = ingestSignsSeen([], [sign], 6);
+        expect(tabChangeCountsFor([], afterScene, lastTurn).get('dramatis_personae')).toBe(1);
+        // Week 6 lands with nothing on Personae of its own: the scene's sign was read already.
+        expect(tabChangeCountsFor([], afterScene, makeTurnHistoryEntry({ turnNumber: 6 })).has('dramatis_personae')).toBe(false);
+        // Week 6's narration lets the player catch a sign too: that one alone counts.
+        const narrated = makeTurnHistoryEntry({ turnNumber: 6, composureSigns: [{ entityId: 'julia_mamaea', subject: 'mark:grief', sign: 'Her voice caught.' }] });
+        const landed = ingestSignsSeen(afterScene, narrationSignsSeen(narrated), 6);
+        expect(tabChangeCountsFor([], landed, narrated).get('dramatis_personae')).toBe(1);
+        // A scene before the first week counts as well.
+        expect(tabChangeCountsFor([], ingestSignsSeen([], [sign], 1), null).get('dramatis_personae')).toBe(1);
     });
 
     it('names exactly the tabs pulsingTabsFor pulses - a count never appears where no pulse would', () => {

@@ -98,8 +98,9 @@ describe('journey: composure (D50)', () => {
     for (const hidden of [MARK_NAME, MARK_ACCOUNT, 'dread_of_the_guard', 'Origen', 'prayer']) {
       expect(signClaims).not.toContain(hidden);
     }
-    // The Personae coin counts the sign the committed week brought.
-    expect(tabChangeCountsFor(t1.digest, t1.knowledge, t1.entry).get('dramatis_personae')).toBe(1);
+    // The Personae coin counts what the committed week put on Julia's card:
+    // the sign, and the burned hand the player saw her take (D48).
+    expect(tabChangeCountsFor(t1.digest, t1.knowledge, t1.entry).get('dramatis_personae')).toBe(2);
 
     // --- Turn 2: nobody present, nobody rolls --------------------------------
     const t2 = await runner.runTurn({ intent: 'Read the dispatches alone.' });
@@ -107,5 +108,7 @@ describe('journey: composure (D50)', () => {
     expect(t2.entry.composureSigns).toBeUndefined();
     expect(t2.client.promptsFor('narration')[0]).not.toContain('COMPOSURE OF THE FIGURES AT HAND');
     expect(signsSeenOf(t2.knowledge, JULIA)).toEqual([{ text: SIGN, turn: 1 }]);
+    // Nothing new reached a card: neither counts again.
+    expect(tabChangeCountsFor(t2.digest, t2.knowledge, t2.entry).has('dramatis_personae')).toBe(false);
   });
 });

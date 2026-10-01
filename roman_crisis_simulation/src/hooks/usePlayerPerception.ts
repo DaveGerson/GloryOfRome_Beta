@@ -12,7 +12,7 @@
 
 import { useMemo } from 'react';
 import type { Message, TurnHistoryEntry, WorldState } from '../types';
-import type { KnowledgeClaim } from '../knowledge/store';
+import { perceivedStatusOf, type KnowledgeClaim } from '../knowledge/store';
 import { buildPlayerPerceivedDigest, type PerceivedChange, type TabId } from '../perception/visibility';
 import { illuminatedNarrationIndices } from '../components/Chat';
 import { composureSignsOf } from '../ai/core/composure';
@@ -41,15 +41,40 @@ export function lastGmNarrationOf(messages: readonly Message[]): string {
 const INVESTIGATION_EVIDENCE = /^(?:turn:\d+:)?investigation:/;
 
 /**
+ * The marks and ties the week let the player see on other figures (D48/D49),
+ * one per mark or tie whose line on its figure's card the week changed and
+ * the card now shows - a mark borne (not seen healed), a tie held (not seen
+ * given up) - however many dispatch lines spoke of it. Read off the same
+ * filtered digest the Dispatches show; a figure the player now believes
+ * gone has no card to point at.
+ */
+function marksAndTiesNewlySeen(perceivedChanges: readonly PerceivedChange[], knowledge: readonly KnowledgeClaim[]): number {
+    // The last word the week had on each mark and tie: whether the card shows it now.
+    const lastWord = new Map<string, { figure: string; onCard: boolean }>();
+    for (const change of perceivedChanges) {
+        if (!change.tabs.includes('dramatis_personae')) continue;
+        if (change.deltaType === 'condition' && change.perceivedCondition) {
+            lastWord.set(`mark:${change.subject}:${change.perceivedCondition.id}`, { figure: change.subject, onCard: !change.perceivedCondition.gone });
+        } else if (change.deltaType === 'affiliation' && change.perceivedAffiliation) {
+            lastWord.set(`tie:${change.subject}:${change.perceivedAffiliation.id}`, { figure: change.subject, onCard: change.perceivedAffiliation.member });
+        }
+    }
+    return [...lastWord.values()]
+        .filter(({ figure, onCard }) => onCard && (perceivedStatusOf(knowledge, figure) ?? 'alive') === 'alive')
+        .length;
+}
+
+/**
  * How many things changed on each SidePanel tab in the most recently
  * committed turn ("what changed since you last looked", ROADMAP_UPLEVEL
  * P6) - built strictly from the already-filtered perceived changes, never
  * from the raw deltas, so a count can never itself leak something the
  * perception filter withheld: it counts only lines the Dispatches digest
- * already shows. Dramatis Personae counts only relationship observations
- * first learned on the last turn (D36 - the player reads relationships from
- * sourced observations, never from engine sentiment), so a perceived change
- * naming that tab adds nothing to it - and only observations the committed
+ * already shows. Dramatis Personae counts relationship observations first
+ * learned on the last turn (D36 - the player reads relationships from
+ * sourced observations, never from engine sentiment), and of the perceived
+ * changes naming that tab only the marks and ties now on a figure's card
+ * (D48/D49, `marksAndTiesNewlySeen`) - and only observations the committed
  * week itself brought. One drawn from an investigation the player bought in
  * the interlude is stamped with the week then in hand (useIntelCommits), so
  * it would otherwise be counted as new again once that week is sent, though
@@ -59,12 +84,15 @@ const INVESTIGATION_EVIDENCE = /^(?:turn:\d+:)?investigation:/;
  * through the digest, and would otherwise arrive with no coin (B14). One per
  * notice the committed week brought, as each is a card of its own; rumors
  * already count through the digest, so only the merchant source is read.
- * Dramatis Personae also counts the signs the committed week's narration
- * let the player catch (D50), one per sign, each now on its figure's card.
- * A sign caught in a private scene is not counted: it was read in the scene,
- * in the interlude, exactly as an interlude investigation's observation was.
- * Only how MANY is read off the entry's record - never whose or what. A
- * tab with nothing new is absent.
+ *
+ * Dramatis Personae also counts each sign the player caught (D50) once, at
+ * the moment it reaches its figure's card: one the committed week's
+ * narration let them catch, as the week lands (read off the entry's record:
+ * how MANY, never whose or what); one caught in a private scene, as soon as
+ * the scene commits it. A scene is held in the interlude, so its signs are
+ * stamped with the week then in hand - after the last committed week - and
+ * once that week lands they are neither on its record nor after it, so they
+ * are never counted a second time. A tab with nothing new is absent.
  */
 export function tabChangeCountsFor(
     perceivedChanges: readonly PerceivedChange[],
@@ -76,6 +104,17 @@ export function tabChangeCountsFor(
     perceivedChanges.forEach(change => new Set(change.tabs).forEach(tab => {
         if (tab !== 'dramatis_personae') bump(tab);
     }));
+    const marksAndTies = marksAndTiesNewlySeen(perceivedChanges, knowledge);
+    if (marksAndTies > 0) bump('dramatis_personae', marksAndTies);
+    // Signs caught in a private scene since the last week landed (before the
+    // first, since the reign began).
+    const sinceWeek = lastTurn?.turnNumber ?? 0;
+    const sceneSigns = knowledge
+        .filter(claim => claim.claimKey.startsWith('sign:'))
+        .flatMap(claim => claim.updates)
+        .filter(update => update.turn > sinceWeek)
+        .length;
+    if (sceneSigns > 0) bump('dramatis_personae', sceneSigns);
     if (lastTurn) {
         const observations = knowledge.filter(claim =>
             claim.relationshipObservation && claim.firstLearnedTurn === lastTurn.turnNumber
