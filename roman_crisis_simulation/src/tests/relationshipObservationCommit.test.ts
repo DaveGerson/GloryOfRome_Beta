@@ -263,7 +263,6 @@ beforeEach(() => {
     investigationKind: 'secrets',
     charged: true,
     cost: 1,
-    display: ['REPORT_DATA_PRIVATE_POISON'],
     reportData: ['REPORT_DATA_PRIVATE_POISON'],
     outcome: {
       target_id: 'maximinus_thrax',

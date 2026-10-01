@@ -92,7 +92,7 @@ describe('components/tabs/dramatisPersonaeIntel - resolveIntelRequest (mock mode
     expect(outcome).toEqual({ kind: 'investigation', investigationKind: 'beliefs', charged: false });
   });
 
-  it('beliefs: charged=true carries the priced cost, display data, and a call-ready outcome payload', async () => {
+  it('beliefs: charged=true carries the priced cost, the findings for the commit, and a call-ready outcome payload', async () => {
     const player = makeEntity({ resources: { investigations: 1 } });
     const outcome = await resolveIntelRequest({
       type: 'beliefs', target, playerEntity: player, knowledge: [], ai: unusedAi, isMockMode: true,
@@ -100,7 +100,9 @@ describe('components/tabs/dramatisPersonaeIntel - resolveIntelRequest (mock mode
     expect(outcome.kind).toBe('investigation');
     if (outcome.kind === 'investigation' && outcome.charged && outcome.investigationKind === 'beliefs') {
       expect(outcome.cost).toBe(1);
-      expect(outcome.display).toEqual(outcome.reportData);
+      expect(Array.isArray(outcome.reportData)).toBe(true);
+      // Nothing for the tab to show itself: the held reading renders from the store.
+      expect('display' in outcome).toBe(false);
       // Byte-identical to what App.tsx:870's handleInvestigationOutcome destructures.
       // handleRequest always calls getInvestigationResult with isRisky=true (unchanged),
       // so the mock's risky consequence string is expected here, not null.
@@ -114,7 +116,7 @@ describe('components/tabs/dramatisPersonaeIntel - resolveIntelRequest (mock mode
     }
   });
 
-  it('secrets: charged=true carries the priced cost, display data, and a call-ready outcome payload', async () => {
+  it('secrets: charged=true carries the priced cost, the findings for the commit, and a call-ready outcome payload', async () => {
     const player = makeEntity({ resources: { investigations: 1 } });
     const outcome = await resolveIntelRequest({
       type: 'secrets', target, playerEntity: player, knowledge: [], ai: unusedAi, isMockMode: true,
@@ -122,7 +124,8 @@ describe('components/tabs/dramatisPersonaeIntel - resolveIntelRequest (mock mode
     expect(outcome.kind).toBe('investigation');
     if (outcome.kind === 'investigation' && outcome.charged && outcome.investigationKind === 'secrets') {
       expect(outcome.cost).toBe(1);
-      expect(outcome.display).toEqual(outcome.reportData);
+      expect(Array.isArray(outcome.reportData)).toBe(true);
+      expect('display' in outcome).toBe(false);
       // Byte-identical to what App.tsx:870's handleInvestigationOutcome destructures.
       // handleRequest always calls getInvestigationResult with isRisky=true (unchanged),
       // so the mock's risky consequence string is expected here, not null.
@@ -136,18 +139,17 @@ describe('components/tabs/dramatisPersonaeIntel - resolveIntelRequest (mock mode
     }
   });
 
-  it("scheme: charged=true never puts reportData into the descriptor's display field (D28 non-display)", async () => {
+  it("scheme: charged=true hands the tab nothing to display, only the commit's reportData (D28 non-display)", async () => {
     const player = makeEntity({ resources: { investigations: 1 } });
     const outcome = await resolveIntelRequest({
       type: 'scheme', target, playerEntity: player, knowledge: [], ai: unusedAi, isMockMode: true,
     });
     expect(outcome.kind).toBe('investigation');
     if (outcome.kind === 'investigation' && outcome.charged && outcome.investigationKind === 'scheme') {
-      // The 'scheme' variant of the discriminated union has no `display` field at all -
-      // the type system, not a runtime undefined check, enforces D28 non-display.
+      // No outcome carries a `display` field: the type has none, so no tab can
+      // show a scheme buy's raw findings (D28) - the commit files them as one clue.
       expect('display' in outcome).toBe(false);
-      // The callback payload (App.tsx's knowledge-store commit) still gets the full reportData -
-      // only the tab's OWN inline display is suppressed.
+      // The callback payload (the knowledge-store commit) still gets the full reportData.
       expect(outcome.reportData).toBeDefined();
       expect(Array.isArray(outcome.reportData)).toBe(true);
       expect((outcome.reportData as string[]).length).toBeGreaterThan(0);

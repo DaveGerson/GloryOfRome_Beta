@@ -54,10 +54,13 @@ export const DEEP_ANALYSIS_COST = 1;
 /**
  * The pure data descriptor `resolveIntelRequest` returns: which intel
  * request was made, whether it was actually charged (the affordability
- * gate), and the exact data the component applies to its own display state
- * or forwards, byte-identical, to App.tsx's `onInvestigationOutcome`
- * (App.tsx:870's `handleInvestigationOutcome`). No side effects beyond the
- * underlying AI call - no React state, no callback invocation.
+ * gate), and the exact data the component forwards, byte-identical, to the
+ * commit (hooks/useIntelCommits.ts's `handleInvestigationOutcome` /
+ * `handleDeepAnalysis`). Nothing in it is for the tab to show itself: what
+ * the player holds renders from the knowledge store once committed (D14),
+ * and a scheme buy's reportData becomes one nature clue there, never a list
+ * (D28). No side effects beyond the underlying AI call - no React state, no
+ * callback invocation.
  */
 export type IntelRequestOutcome =
   | { kind: 'deep_analysis'; charged: false }
@@ -71,23 +74,10 @@ export type IntelRequestOutcome =
     }
   | { kind: 'investigation'; investigationKind: InvestigationKind; charged: false }
   | {
-      /** D28: a scheme buy never displays its raw reportData - only the Active Scheme discovery-state surface. This variant cannot carry `display`. */
       kind: 'investigation';
-      investigationKind: 'scheme';
+      investigationKind: InvestigationKind;
       charged: true;
       cost: number;
-      reportData: unknown;
-      outcome: InvestigationResult;
-      /** GM-PRIVATE (D11/D47) - forwarded, untouched and unrendered, to the commit that writes the truth ledger. */
-      truth?: InvestigationTruth;
-    }
-  | {
-      /** beliefs/secrets show their findings inline - `display` is required, never optional. */
-      kind: 'investigation';
-      investigationKind: 'beliefs' | 'secrets';
-      charged: true;
-      cost: number;
-      display: string[];
       reportData: unknown;
       outcome: InvestigationResult;
       /** GM-PRIVATE (D11/D47) - forwarded, untouched and unrendered, to the commit that writes the truth ledger. */
@@ -134,24 +124,11 @@ export async function resolveIntelRequest(params: {
       if ((playerEntity.resources.investigations as number) >= cost) {
         const result = await getInvestigationResult(ai, target, playerEntity, true, isMockMode, type);
         const outcome = { target_id: target.entity_id, report: result.report, consequences: result.consequences };
-        // A 'scheme' buy does NOT display its raw reportData (D28): the
-        // store commits it as ONE nature clue and the Active Scheme surface
-        // renders the earned discovery state. beliefs/secrets show their
-        // findings inline. The GM-private `truth` rides beside the outcome,
-        // never inside it: the outcome is what the player's surfaces read.
-        if (type === 'scheme') {
-          return { kind: 'investigation', investigationKind: type, charged: true, cost, reportData: result.reportData, outcome, truth: result.truth };
-        }
-        return {
-          kind: 'investigation',
-          investigationKind: type,
-          charged: true,
-          cost,
-          display: result.reportData as string[],
-          reportData: result.reportData,
-          outcome,
-          truth: result.truth,
-        };
+        // The commit decides what reportData becomes: beliefs/secrets keep
+        // it as the reading's findings, a 'scheme' buy only as ONE nature
+        // clue (D28). The GM-private `truth` rides beside the outcome, never
+        // inside it: the outcome is what the player's surfaces read.
+        return { kind: 'investigation', investigationKind: type, charged: true, cost, reportData: result.reportData, outcome, truth: result.truth };
       }
       return { kind: 'investigation', investigationKind: type, charged: false };
     }
