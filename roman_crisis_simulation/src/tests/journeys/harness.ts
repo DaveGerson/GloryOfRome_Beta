@@ -556,7 +556,7 @@ function assertStageOrder(stages: TurnStage[], label: string): void {
   }
 }
 
-interface ForbiddenDatum {
+export interface ForbiddenDatum {
   label: string;
   /** Literal substring that must not appear on a player-facing surface. */
   value?: string;
@@ -590,6 +590,52 @@ function assertNoLeaks(outcome: {
 }): void {
   const { entry, result, digestTexts, knowledge, client, newReports, playerId, label } = outcome;
 
+  const forbidden = gmPrivateLeakList(entry, result.updatedEntities, knowledge, playerId);
+
+  const surfaces: Array<{ surface: string; text: string }> = [
+    ...client.promptsFor('narration').map((text, i) => ({ surface: `narration prompt #${i}`, text })),
+    ...client.systemInstructionsFor('narration').map((text, i) => ({ surface: `narration systemInstruction #${i}`, text })),
+    ...client.promptsFor('monologue').map((text, i) => ({ surface: `monologue prompt #${i}`, text })),
+    ...client.systemInstructionsFor('monologue').map((text, i) => ({ surface: `monologue systemInstruction #${i}`, text })),
+    { surface: 'narration text', text: result.narration },
+    { surface: 'player monologue', text: result.playerMonologue },
+    { surface: 'suggested actions', text: result.suggestedActions.join('\n') },
+    { surface: 'headlines', text: result.headlines.join('\n') },
+    { surface: 'perceived digest', text: digestTexts.join('\n') },
+    { surface: 'new report claims', text: newReports.map(r => r.claim).join('\n') },
+    { surface: 'knowledge store', text: JSON.stringify(knowledge) },
+  ];
+
+  const violations = leakViolations(surfaces, forbidden);
+  assertNoComposureOrTieLeaks({ entry, result, knowledge, client, playerId, surfaces, violations });
+  expect(violations, `[${label}] INV-LEAK violations:\n${violations.join('\n')}`).toEqual([]);
+}
+
+/** Every forbidden datum found on a surface, as a line naming both. */
+export function leakViolations(surfaces: ReadonlyArray<{ surface: string; text: string }>, forbidden: readonly ForbiddenDatum[]): string[] {
+  const violations: string[] = [];
+  for (const { surface, text } of surfaces) {
+    for (const item of forbidden) {
+      if (item.value !== undefined && item.value.length > 0 && text.includes(item.value)) {
+        violations.push(`${item.label} leaked into ${surface}: "${item.value.slice(0, 120)}"`);
+      }
+      if (item.pattern && item.pattern.test(text)) {
+        violations.push(`${item.label} (pattern ${item.pattern}) leaked into ${surface}`);
+      }
+    }
+  }
+  return violations;
+}
+
+/**
+ * INV-LEAK's list: every GM-private datum of a committed turn that must
+ * reach no player surface - the static field and marker names, and this
+ * turn's own notes, bands, tiers, motives, rivals' schemes, NPCs' inward
+ * marks and unlearned secret ties. `entities` is the roster after the turn;
+ * `knowledge` the player's store (a secret tie it holds is theirs to see).
+ * Exported so a journey through the real App can scan its DOM with it.
+ */
+export function gmPrivateLeakList(entry: TurnHistoryEntry, entities: readonly Entity[], knowledge: KnowledgeClaim[], playerId: string): ForbiddenDatum[] {
   const forbidden: ForbiddenDatum[] = [
     // Static GM-console/GM-prompt markers that must never surface.
     { label: 'mortality GM marker', value: '[Mortality]' },
@@ -665,7 +711,7 @@ function assertNoLeaks(outcome: {
   // never dumped onto a player surface). The player's OWN scheme is
   // self-knowledge and legitimately rides in the player-profile of the
   // narration prompt, so it is not forbidden.
-  for (const entity of result.updatedEntities) {
+  for (const entity of entities) {
     if (entity.secret_truth) {
       forbidden.push({ label: `secret motive of ${entity.entity_id}`, value: entity.secret_truth.motive });
     }
@@ -700,33 +746,20 @@ function assertNoLeaks(outcome: {
   // ORIGINATED this rumor), carried by the `origin_id`/`is_true` FIELDS - the
   // static field-name guards above are the enforcement point, and the
   // narration sanitizer strips those fields (ai/prompts/narration.ts).
+  return forbidden;
+}
 
-  const surfaces: Array<{ surface: string; text: string }> = [
-    ...client.promptsFor('narration').map((text, i) => ({ surface: `narration prompt #${i}`, text })),
-    ...client.systemInstructionsFor('narration').map((text, i) => ({ surface: `narration systemInstruction #${i}`, text })),
-    ...client.promptsFor('monologue').map((text, i) => ({ surface: `monologue prompt #${i}`, text })),
-    ...client.systemInstructionsFor('monologue').map((text, i) => ({ surface: `monologue systemInstruction #${i}`, text })),
-    { surface: 'narration text', text: result.narration },
-    { surface: 'player monologue', text: result.playerMonologue },
-    { surface: 'suggested actions', text: result.suggestedActions.join('\n') },
-    { surface: 'headlines', text: result.headlines.join('\n') },
-    { surface: 'perceived digest', text: digestTexts.join('\n') },
-    { surface: 'new report claims', text: newReports.map(r => r.claim).join('\n') },
-    { surface: 'knowledge store', text: JSON.stringify(knowledge) },
-  ];
-
-  const violations: string[] = [];
-  for (const { surface, text } of surfaces) {
-    for (const item of forbidden) {
-      if (item.value !== undefined && item.value.length > 0 && text.includes(item.value)) {
-        violations.push(`${item.label} leaked into ${surface}: "${item.value.slice(0, 120)}"`);
-      }
-      if (item.pattern && item.pattern.test(text)) {
-        violations.push(`${item.label} (pattern ${item.pattern}) leaked into ${surface}`);
-      }
-    }
-  }
-
+/** INV-LEAK's composure and tie checks (D49/D50), appending what they find to `violations`. */
+function assertNoComposureOrTieLeaks(outcome: {
+  entry: TurnHistoryEntry;
+  result: TurnOutcome['result'];
+  knowledge: KnowledgeClaim[];
+  client: ScriptedClient;
+  playerId: string;
+  surfaces: ReadonlyArray<{ surface: string; text: string }>;
+  violations: string[];
+}): void {
+  const { entry, result, knowledge, client, playerId, surfaces, violations } = outcome;
   // D50: a composure subject that HELD this turn never reaches the
   // narrator - not even by name - and neither does a mark that FRAYED (its
   // name is its cause), so no prose and no voice can carry either; and a
@@ -777,8 +810,6 @@ function assertNoLeaks(outcome: {
       }
     }
   }
-
-  expect(violations, `[${label}] INV-LEAK violations:\n${violations.join('\n')}`).toEqual([]);
 }
 
 /** INV-ROLL: the dice the journey scripted must equal the dice the pipeline recorded, in draw order. */
@@ -1288,7 +1319,8 @@ export interface MountedJourneyApp {
   unmount(): Promise<void>;
 }
 
-async function renderJourneyApp(): Promise<MountedJourneyApp> {
+/** Renders the real App on the destiny screen. */
+async function renderAppAtTheDestinies(): Promise<MountedJourneyApp> {
   Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
 
   const React = await import('react');
@@ -1302,10 +1334,6 @@ async function renderJourneyApp(): Promise<MountedJourneyApp> {
   const root = createRoot(container);
   await React.act(async () => root.render(React.createElement(GameProvider, null, React.createElement(App))));
   await waitForApp(() => expect(container.textContent).toContain('Choose Your Destiny'));
-  await appClick(appButton(container, 'Continue Your Reign'));
-  await waitForApp(() => expect(
-    container.querySelector('[aria-label="Chat input"], [aria-label="Action 1"]'),
-  ).not.toBeNull());
   return {
     container,
     async unmount() {
@@ -1313,6 +1341,15 @@ async function renderJourneyApp(): Promise<MountedJourneyApp> {
       container.remove();
     },
   };
+}
+
+async function renderJourneyApp(): Promise<MountedJourneyApp> {
+  const app = await renderAppAtTheDestinies();
+  await appClick(appButton(app.container, 'Continue Your Reign'));
+  await waitForApp(() => expect(
+    app.container.querySelector('[aria-label="Chat input"], [aria-label="Action 1"]'),
+  ).not.toBeNull());
+  return app;
 }
 
 /**
@@ -1341,4 +1378,35 @@ export async function mountJourneyAppFromAutosave(): Promise<MountedJourneyApp> 
   (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   if (!loadGame()) throw new Error('mountJourneyAppFromAutosave: no valid autosave exists');
   return renderJourneyApp();
+}
+
+/**
+ * Boots App as a keyless player first meets it - a fresh device, no save, no
+ * key on the device or in the environment - picks `destiny`, then presses
+ * "Play against canned responses": Mock Mode, the real App and the real
+ * pipeline with canned answers, so nothing reaches the SDK boundary and no
+ * script is installed. Unmounting puts the environment's key back.
+ */
+export async function mountJourneyAppInMockMode(destiny = 'The Young Emperor'): Promise<MountedJourneyApp> {
+  if (typeof document === 'undefined') throw new Error('mountJourneyAppInMockMode requires the jsdom environment');
+  (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  localStorage.clear();
+  localStorage.setItem('gloryOfRome:onboardingSeen', '1');
+  // The dev build reads a key from the environment (app/transactions.ts's readDevApiKey).
+  const environmentKey = process.env.GEMINI_API_KEY;
+  delete process.env.GEMINI_API_KEY;
+  const app = await renderAppAtTheDestinies();
+  const choice = Array.from(app.container.querySelectorAll('button')).find(button => button.textContent?.includes(destiny));
+  expect(choice, `destiny "${destiny}"`).toBeDefined();
+  await appClick(choice!);
+  await waitForApp(() => expect(app.container.querySelector('[aria-label="Chat input"]')).not.toBeNull());
+  await appClick(appButton(app.container, 'Play against canned responses'));
+  await waitForApp(() => expect(app.container.textContent).not.toContain('No token on this device'));
+  return {
+    container: app.container,
+    async unmount() {
+      await app.unmount();
+      if (environmentKey !== undefined) process.env.GEMINI_API_KEY = environmentKey;
+    },
+  };
 }
