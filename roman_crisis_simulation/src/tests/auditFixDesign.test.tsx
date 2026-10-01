@@ -564,7 +564,7 @@ function atEveryWidth(css: string): string {
   }
 }
 
-describe('box sizes the narrow screens no longer patch', () => {
+describe('boxes that no longer spill past their container', () => {
   it('sizes the private scene and its fields as border boxes once, at every width, keeping the desktop box', () => {
     const everywhere = atEveryWidth(components);
     // 662 = the old 620px content box + 2 x 20px padding + 2 x 1px border, so
@@ -575,5 +575,12 @@ describe('box sizes the narrow screens no longer patch', () => {
     for (const rule of ['.gor-private-scene{box-sizing', '.gor-private-scene textarea,.gor-private-scene select{box-sizing']) {
       expect(`${components}\n${shell}`.split(rule)).toHaveLength(2);
     }
+  });
+
+  it('positions the side panel\'s scroller, so its hidden screen-reader text stays inside it', () => {
+    // Every gor-sr-only is absolute; unpositioned, the scroller let the
+    // Personae voice row's "(name)" escape to the <aside> and stretch the page.
+    expect(atEveryWidth(components)).toMatch(/\.gor-sr-only\{position:absolute;/);
+    expect(atEveryWidth(shell)).toMatch(/\.gor-panel-body\{position:relative;[^}]*overflow-y:auto/);
   });
 });
