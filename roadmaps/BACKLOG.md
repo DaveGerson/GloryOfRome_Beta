@@ -1406,6 +1406,10 @@ as written; any line can still be reworded if it reads wrong in play.
     - "[Composure] The narration was changed after it was written - a gate
       redacted part of it - so its <n> sign(s) were dropped: a tell stands
       only on the prose that shows it."
+- **The polish pass (2026-10-01)**: a private scene while the roads are
+  shut. The title is "No word can leave the city", the composer's own; the
+  message is "The roads are shut. Your words are kept here — send them when
+  the roads reopen."
 ---
 
 ## Residuals from the visual-enhancement pass (WP-1…WP-21 + adversarial review)
@@ -1466,7 +1470,12 @@ rather than rediscover it.
   and replies, and the relationship-observation commit, still call the
   provider and fail. Behaviour is degraded-but-honest (an in-fiction notice,
   draft kept), which is why it was left — but it is inconsistent with the
-  composer and should converge.
+  composer and should converge. **CLOSED 2026-10-01** - a private-scene invitation or
+  reply is now refused before any call while offline, with the composer's
+  notice and the draft kept. A relationship observation is skipped, not
+  deferred: the turn or the bought reveal still commits, and its evidence
+  stays in the Dispatches and Reports. Investigations and the Events
+  questions still try the call and show their own failure notice.
 - **`EmptyRegister.action` is built, correct and unused.** WP-20 specified
   exactly one caller — the Reports zero state carrying a Personae row of
   unspent-investigation pips — and that row needs data `ReportsTab` does not
@@ -1497,13 +1506,16 @@ rather than rediscover it.
   occurrence explains itself instead of being lost as the first one was.
 - **`occurrenceSlug` can collide** (`knowledge/store.ts`): 60-char truncation,
   or an all-punctuation headline slugging to `''`, can merge two occurrences'
-  findings under one claim key. Cosmetic misfiling, bounded.
+  findings under one claim key. Cosmetic misfiling, bounded. **CLOSED 2026-10-01** -
+  keys now carry a short hash of the whole headline. Older saves are read
+  in both forms, so their ledger entries still find their findings.
 - **Two content-box overhangs at desktop.** `.gor-private-scene` and its
   textareas are `width:100%` with padding and border and no `box-sizing`, so
   the textarea overhangs its dialog by 18px at EVERY width inside a container
   with `overflow:auto`. Fixed only inside the narrow-viewport queries, because
   gap H's brief forbade changing desktop. Wants a one-line fix outside any
-  query.
+  query. **CLOSED 2026-10-01** - fixed outside any query, at the same desktop size.
+  Between 652px and 768px the scene now takes its desktop width.
 - **Gaps C and I remain undrawn** — Consulting the Fates, and the player
   dossier header. Gap H was closed by this pass and is recorded in D45.
 
@@ -1541,7 +1553,7 @@ each deliberately not done, with the reason. Owner questions are in B14.
   production caller now that deep analysis commits through
   `INVESTIGATION_COMMITTED`; `IntelRequestOutcome.display` is no longer
   read; `usePlayerPerception` still returns `pulsingTabs`, which only its
-  tests use.
+  tests use. **CLOSED 2026-10-01** - all three removed.
 - **New device-local key**: `gloryOfRome:seenRegisters` (`{ week, tabs }`),
   the tabs the player has looked at this week, so a reload does not
   re-announce the same counts. A convenience in the reading-prefs mould,
@@ -1614,6 +1626,17 @@ Part 6) and deliberately left, with the reason.
     of scroll height inside the panel.
   - The GM console's "What changed" pane overflows sideways by 10px at
     375px.
+  **CLOSED 2026-10-01** - all three:
+  - Personae counts newly seen marks, ties and private-scene signs, each
+    once. The tab memory now keeps how many changes each tab showed, so a
+    sign that arrives after Personae was opened still gets a coin.
+  - The phantom scroll came from hidden text positioned against the page,
+    not the panel.
+  - The console was in fact 499px wide at 375px. Its two columns now
+    stack.
+  Still open: at 375px the GM console's header and tabs leave the turn's
+  pane little room, and a narration sign worded exactly like a scene sign
+  in the same week can count twice.
 
 ---
 
@@ -1675,7 +1698,9 @@ purpose, and the reason is given.
   player.
 - **Not built:**
   - a journey that asks an occurrence question (unit tests cover the whole
-    flow through the tab);
+    flow through the tab); **CLOSED 2026-10-01** - `occurrenceQuestions.journey.ts`
+    asks both questions of a named hand and of circumstance through the
+    real App;
   - a GM view of the per-turn attribution record itself (only its ledger
     entries show).
 

@@ -783,3 +783,33 @@ paths: Retry, an edited action, a reload, and a restored copy. The action,
 mortality and composure rolls come out identical each time, and the next
 turn gets new dice. Checks after Part 9: 3081 unit tests, 17 journeys,
 typecheck, lint, the deterministic eval and the build all pass.
+
+---
+
+## Part 10 — A polish pass over the remaining small residuals (2026-10-01)
+
+Eight small items from the residual lists, cleared in one pass:
+- **Layout.**
+  - The private scene's text box no longer overhangs its dialog.
+  - The GM console no longer runs off a phone screen: it was 499px wide
+    at 375px.
+  - Hidden screen-reader text no longer adds about 1300px of empty scroll
+    to the side panel.
+- **Personae's coin** now counts newly seen marks, ties and private-scene
+  signs, each once, even when they arrive after the tab was opened.
+- **Offline.**
+  - A private scene waits while the roads are shut, as the composer does:
+    no call is made and the draft is kept.
+  - A relationship observation is skipped while offline, rather than
+    failing the turn.
+- **An end-to-end journey** asks "Who is behind it?" and "Who gains?"
+  through the real app. It checks the findings, their ledger entries, that
+  the two answers agree, and that nothing GM-private reaches the screen.
+- **Dead code removed:** `RESOURCE_SPENT`, `IntelRequestOutcome.display`
+  and `pulsingTabs`.
+- **Occurrence keys** carry a hash of the whole headline, so two headlines
+  can no longer share findings. Older saves still read.
+
+Checks after Part 10: 3098 unit tests, 18 journeys, typecheck, lint, the
+deterministic eval and the build all pass. A live check at 375px and
+1280px found no sideways overflow, no phantom scroll and no errors.
