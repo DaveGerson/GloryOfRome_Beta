@@ -253,9 +253,13 @@
 .gor-event-choice-title{font-family:var(--font-display);font-weight:700;font-size:15px;letter-spacing:.05em;color:var(--crimson-500)}
 .gor-event-choice-desc{font-size:14px;font-style:italic;color:var(--text-muted)}
 
-.gor-private-scene{position:fixed;z-index:90;inset:12vh 50% auto 50%;transform:translateX(-50%);width:min(620px,calc(100vw - 32px));max-height:76vh;overflow:auto;padding:20px;background:var(--surface-card);border:1px solid var(--border-strong);box-shadow:var(--shadow-raised);color:var(--text-body)}
+/* Border-box at every width, so the stated size is the real one: the scene
+   used to hang its 20px padding and 1px border 42px past `width` (wider than
+   a phone below 652px), and its `width:100%` fields 18px past the scene.
+   The outer bounds keep the desktop's old content box: 620 + 2x20 + 2x1. */
+.gor-private-scene{box-sizing:border-box;position:fixed;z-index:90;inset:12vh 50% auto 50%;transform:translateX(-50%);width:min(662px,calc(100vw - 32px));max-height:calc(76vh + 42px);overflow:auto;padding:20px;background:var(--surface-card);border:1px solid var(--border-strong);box-shadow:var(--shadow-raised);color:var(--text-body)}
 .gor-private-scene::backdrop{background:rgba(24,16,10,.62)}
-.gor-private-scene header{display:flex;justify-content:space-between;align-items:center;gap:12px}.gor-private-scene textarea,.gor-private-scene select{display:block;width:100%;margin:10px 0;padding:8px}.gor-private-scene button{margin:4px}
+.gor-private-scene header{display:flex;justify-content:space-between;align-items:center;gap:12px}.gor-private-scene textarea,.gor-private-scene select{box-sizing:border-box;display:block;width:100%;margin:10px 0;padding:8px}.gor-private-scene button{margin:4px}
 
 /* ── The private scene, whole (audit item 41) ──
    How you get in, what is kept afterwards, and every way it fails. The
@@ -796,15 +800,6 @@ div:has(>div>form>#chat-input){flex-wrap:wrap}
 .gor-shelf{flex-direction:column;align-items:stretch}
 .gor-shelf-rail{width:auto;max-height:150px;padding-bottom:6px;border-bottom:1px solid var(--border-faint)}
 .gor-shelf-pane{flex:none}
-
-/* The private scene is `width:min(620px,100vw - 32px)` on a content box, so
-   its 20px padding and 1px border hang 42px past that - it is 10px wider
-   than the viewport at every width below 652px. Border-box makes the stated
-   width the real one. The textareas inside it are the same bug one level
-   down (`width:100%` + 8px padding + 1px border = 18px of overhang, at
-   EVERY width - see the report; the desktop case is deliberately untouched). */
-.gor-private-scene{box-sizing:border-box}
-.gor-private-scene textarea,.gor-private-scene select{box-sizing:border-box}
 
 /* Button rows that cannot shrink - `.gor-btn` is `white-space:nowrap`, so
    its min-content is the whole label. Wrapping is self-activating: no

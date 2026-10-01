@@ -545,3 +545,35 @@ describe('small repairs', () => {
     expect(shell).toContain('@media (max-width:374px){\n.gor-masthead-title,.gor-masthead-compact .gor-masthead-title{font-size:clamp(13px,4.3vw,16.5px)}\n}');
   });
 });
+
+/** A stylesheet without its comments and its conditional blocks (@media, @container, @supports): what is left applies at every width. */
+function atEveryWidth(css: string): string {
+  const source = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  let kept = '';
+  let index = 0;
+  for (;;) {
+    const found = source.slice(index).search(/@(?:media|container|supports)\b/);
+    if (found < 0) return kept + source.slice(index);
+    kept += source.slice(index, index + found);
+    let cursor = source.indexOf('{', index + found) + 1;
+    for (let depth = 1; depth > 0 && cursor < source.length; cursor++) {
+      if (source[cursor] === '{') depth++;
+      else if (source[cursor] === '}') depth--;
+    }
+    index = cursor;
+  }
+}
+
+describe('box sizes the narrow screens no longer patch', () => {
+  it('sizes the private scene and its fields as border boxes once, at every width, keeping the desktop box', () => {
+    const everywhere = atEveryWidth(components);
+    // 662 = the old 620px content box + 2 x 20px padding + 2 x 1px border, so
+    // the desktop scene is the size it always was, and the same for its height.
+    expect(everywhere).toMatch(/\.gor-private-scene\{box-sizing:border-box;[^}]*width:min\(662px,calc\(100vw - 32px\)\);max-height:calc\(76vh \+ 42px\);[^}]*padding:20px;[^}]*border:1px solid/);
+    expect(everywhere).toMatch(/\.gor-private-scene textarea,\.gor-private-scene select\{box-sizing:border-box;display:block;width:100%;margin:10px 0;padding:8px\}/);
+    // Once: no narrow-viewport query or shell rule restates either.
+    for (const rule of ['.gor-private-scene{box-sizing', '.gor-private-scene textarea,.gor-private-scene select{box-sizing']) {
+      expect(`${components}\n${shell}`.split(rule)).toHaveLength(2);
+    }
+  });
+});

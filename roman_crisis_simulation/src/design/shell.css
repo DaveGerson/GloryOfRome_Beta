@@ -235,9 +235,6 @@ button,input,select,textarea{font-family:inherit}
 @keyframes gorSceneIn{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%)}}
 .gor-private-scene{box-shadow:var(--elev-3)}
 .gor-private-scene::backdrop{-webkit-backdrop-filter:blur(3px) saturate(.85);backdrop-filter:blur(3px) saturate(.85)}
-/* Its textareas were width:100% on a content box - 18px past the scene's
-   right edge at every width, not only the narrow ones. */
-.gor-private-scene textarea,.gor-private-scene select{box-sizing:border-box}
 .gor-toast{box-shadow:var(--elev-3)}
 /* Thin, gilt scrollbars in engines that only take the standard properties. */
 @supports not selector(::-webkit-scrollbar){*{scrollbar-width:thin;scrollbar-color:var(--gold-600) transparent}}
