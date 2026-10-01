@@ -7,13 +7,15 @@
  * appTransactionContracts.test.ts, and pinned here in isolation so a change
  * to one of them fails next to its own name.
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
     newestInferredAmbition,
     isSameCampaignPrefix,
     privateScenesFingerprint,
     pickSaveState,
     loadSavedGameSummary,
+    relationshipDraftsUnlessOffline,
+    roadsOpenNow,
 } from '../app/transactions';
 import { createInitialGameState } from '../state/gameReducer';
 import { saveGame, type InferredAmbitionState } from '../persistence/saveGame';
@@ -154,5 +156,39 @@ describe('loadSavedGameSummary', () => {
         expect(loadSavedGameSummary()).toEqual({ unreadable: 'unreadable' });
         localStorage.setItem('gloryOfRome:autosave', JSON.stringify({ hello: 'world' }));
         expect(loadSavedGameSummary()).toEqual({ unreadable: 'not_a_reign' });
+    });
+});
+
+describe('relationshipDraftsUnlessOffline (D45: the offline hold)', () => {
+    let roadsOpen = true;
+    beforeEach(() => {
+        roadsOpen = true;
+        vi.spyOn(window.navigator, 'onLine', 'get').mockImplementation(() => roadsOpen);
+    });
+    afterEach(() => vi.restoreAllMocks());
+
+    it('reads the roads when asked, not when the handler was made', () => {
+        expect(roadsOpenNow()).toBe(true);
+        roadsOpen = false;
+        expect(roadsOpenNow()).toBe(false);
+    });
+
+    it('with the roads open, draws what the selector draws', async () => {
+        await expect(relationshipDraftsUnlessOffline(async () => ['drawn'])).resolves.toEqual(['drawn']);
+    });
+
+    it('with the roads shut, does not call the selector and draws nothing', async () => {
+        roadsOpen = false;
+        const select = vi.fn(async () => ['drawn']);
+        await expect(relationshipDraftsUnlessOffline(select)).resolves.toEqual([]);
+        expect(select).not.toHaveBeenCalled();
+    });
+
+    it('lets go of a call the roads shut on, but still throws a failure with them open', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        await expect(relationshipDraftsUnlessOffline(async () => { roadsOpen = false; throw new TypeError('Failed to fetch'); })).resolves.toEqual([]);
+        expect(warn).toHaveBeenCalledTimes(1);
+        roadsOpen = true;
+        await expect(relationshipDraftsUnlessOffline(async () => { throw new Error('Bad Request'); })).rejects.toThrow('Bad Request');
     });
 });

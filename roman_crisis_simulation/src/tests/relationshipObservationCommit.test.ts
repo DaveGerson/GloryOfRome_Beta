@@ -506,6 +506,75 @@ describe('App relationship-observation transaction', () => {
     errorSpy.mockRestore();
   });
 
+  // D45, the offline hold: the composer will not send with the roads shut,
+  // but a turn already under way can lose them before its last call. The
+  // observations are drawn from the week, never a condition of it.
+  const roads = () => {
+    const state = { open: true };
+    vi.spyOn(window.navigator, 'onLine', 'get').mockImplementation(() => state.open);
+    return state;
+  };
+
+  it('commits the turn without observations, and makes no call, when the roads shut before the selector', async () => {
+    const shut = roads();
+    mockRunNewTurn.mockImplementation(async (...args) => {
+      const result = withPoisonedPlayerResult(await defaultTurnResult(...args));
+      shut.open = false;
+      return result;
+    });
+    const container = await mountApp();
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Hold court in the Curia.');
+    await click(buttonNamed(container, 'Speak'));
+    await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
+
+    expect(mockGetRelationshipObservations).not.toHaveBeenCalled();
+    const committed = loadGame()!.state;
+    expect(committed.turnHistory).toHaveLength(1);
+    expect((committed.reports ?? []).some(report => report.id === 'report_task7_lucius')).toBe(true);
+    expect((committed.knowledge ?? []).some(claim => claim.relationshipObservation)).toBe(false);
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input').value).toBe('');
+  });
+
+  it('commits the turn without observations when the roads shut during the selector\'s call', async () => {
+    const shut = roads();
+    mockRunNewTurn.mockImplementation(async (...args) => withPoisonedPlayerResult(await defaultTurnResult(...args)));
+    mockGetRelationshipObservations.mockImplementationOnce(async () => {
+      shut.open = false;
+      throw new TypeError('Failed to fetch');
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const container = await mountApp();
+    await setValue(byAriaLabel<HTMLTextAreaElement>(container, 'Chat input'), 'Hold court in the Curia.');
+    await click(buttonNamed(container, 'Speak'));
+    await waitFor(() => expect(loadGame()?.state.turnNumber).toBe(3));
+
+    expect(mockGetRelationshipObservations).toHaveBeenCalledTimes(1);
+    expect(loadGame()!.state.turnHistory).toHaveLength(1);
+    expect((loadGame()!.state.knowledge ?? []).some(claim => claim.relationshipObservation)).toBe(false);
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('the roads shut'), expect.any(TypeError));
+  });
+
+  it('commits a bought reveal - spend, reading and fallout - without observations when the roads shut during the selector\'s call', async () => {
+    const shut = roads();
+    mockGetRelationshipObservations.mockImplementationOnce(async () => {
+      shut.open = false;
+      throw new TypeError('Failed to fetch');
+    });
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const container = await mountApp();
+    await openFirstIntelCard(container);
+    await click(revealSecretsButton(container));
+    await waitFor(() => expect(loadGame()!.state.pendingIntelligenceFallout).toHaveLength(1));
+
+    const committed = loadGame()!.state;
+    expect(committed.entities.find(entity => entity.entity_id === 'severus_alexander')!.resources.investigations).toBe(0);
+    expect((committed.knowledge ?? []).length).toBeGreaterThan(0);
+    expect((committed.knowledge ?? []).some(claim => claim.relationshipObservation)).toBe(false);
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
   it('awaits investigation extraction inside the atomic lease and retries without partial display, spend, fallout, knowledge, or save', async () => {
     mockGetRelationshipObservations
       .mockRejectedValueOnce(new Error('observation provider offline'))

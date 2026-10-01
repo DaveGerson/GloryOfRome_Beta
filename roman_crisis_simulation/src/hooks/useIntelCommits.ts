@@ -28,7 +28,7 @@ import { settleInvestigationTruth, type SettledInvestigationTruth } from '../ai/
 import { investigationLedgerEntries, occurrenceLedgerEntry, siblingOccurrenceOutcome } from '../ai/core/groundTruth';
 import { appendTruthLedgerEntries } from '../ai/core/engine';
 import { appendFallout, hasFallout } from '../components/investigationLoop';
-import type { DomainCommit, TransactionNote } from '../app/transactions';
+import { relationshipDraftsUnlessOffline, type DomainCommit, type TransactionNote } from '../app/transactions';
 
 export interface IntelCommitsDeps {
     ai: GoogleGenAI;
@@ -229,13 +229,15 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
                     .map(option => option.entityId),
             ]
             : [];
-        const relationshipDrafts = relationshipEvidence.length === 0 ? [] : await getRelationshipObservations(
+        // With the roads shut (before or during this call) the reveal the
+        // player paid for commits without its observation markers.
+        const relationshipDrafts = relationshipEvidence.length === 0 ? [] : await relationshipDraftsUnlessOffline(() => getRelationshipObservations(
             ai,
             relationshipEvidence,
             entityDirectory,
             knownEntityIds,
             isMockMode,
-        );
+        ));
         if (!request.isCurrent()) return false;
         const newEntities = entities.map(e => {
             if (e.entity_id === playerCharacterId) {

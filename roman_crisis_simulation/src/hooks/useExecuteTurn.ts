@@ -84,7 +84,7 @@ import { buildPlayerPerceivedDigest, toPreTurnRoster } from '../perception/visib
 // The two pure helpers executeTurn shares with the other commit sites
 // (commitPrivateScene, buildSaveState, the ambition-tracking effect) - once
 // App.tsx-local values passed through `deps`, now one module-scope import.
-import { newestInferredAmbition, privateScenesFingerprint } from '../app/transactions';
+import { newestInferredAmbition, privateScenesFingerprint, relationshipDraftsUnlessOffline } from '../app/transactions';
 import type { DomainCommit, TransactionNote } from '../app/transactions';
 
 // DESIGN_DECISIONS.md D8 - how often the "cheap periodic model call" that
@@ -401,13 +401,15 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
                         .map(option => option.entityId),
                 ]
                 : [];
-            const relationshipDrafts = await getRelationshipObservations(
+            // With the roads shut (before or during this call) the week commits
+            // without its observation markers rather than being lost to them.
+            const relationshipDrafts = await relationshipDraftsUnlessOffline(() => getRelationshipObservations(
                 ai,
                 relationshipEvidence,
                 entityDirectory,
                 knownEntityIds,
                 isMockMode,
-            );
+            ));
             if (!transaction.isCurrent() || !turnSnapshotIsCurrent()) return;
             const newKnowledge = computeTurnKnowledge({
                 prev: knowledge,

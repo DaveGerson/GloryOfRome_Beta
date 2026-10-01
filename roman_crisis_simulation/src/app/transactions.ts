@@ -11,8 +11,8 @@
  * a hook must never import its own composition root.
  *
  * Nothing here touches React. The only side effects are the persistence
- * read in `loadSavedGameSummary` (readSaveSlot) and the dev-only env read
- * in `readDevApiKey`.
+ * read in `loadSavedGameSummary` (readSaveSlot), the dev-only env read
+ * in `readDevApiKey`, and the `navigator.onLine` read in `roadsOpenNow`.
  */
 
 import type { GameAction } from '../state/gameReducer';
@@ -138,6 +138,41 @@ export function privateScenesFingerprint(scenes: readonly PrivateSceneRecord[]):
  */
 export function isPrivateSceneInteractionLocked(scenes: readonly PrivateSceneRecord[]): boolean {
     return scenes.some(scene => scene.status === 'active' || scene.status === 'awaiting_last_word');
+}
+
+/**
+ * Whether the roads are open at this moment: `navigator.onLine`, read when
+ * asked rather than when a handler was made, since a turn's calls outlast
+ * the render that started them (components/ui/FailureNotices.tsx's
+ * useOnline mirrors the same value for the screen). Where nothing can be
+ * asked, they are open.
+ */
+export function roadsOpenNow(): boolean {
+    return typeof navigator === 'undefined' || navigator.onLine !== false;
+}
+
+/**
+ * The relationship-observation selector as a commit runs it (D36), with the
+ * roads open or shut (D45). Its observations are drawn FROM what the commit
+ * already holds - the week's dispatches and reports, a bought report - and
+ * are never a condition of it. So with the roads shut it is not called and
+ * draws nothing, and a call the roads shut on mid-flight is let go the same
+ * way: the turn the player watched being written, or the reveal they paid
+ * for, commits without that one commit's observation markers. The evidence
+ * stays where the player reads it. Skipped, not deferred: carrying the
+ * evidence to the next open road would need it in the save and would date
+ * each observation a week late. A failure with the roads open still throws,
+ * and the commit rolls back exactly as before.
+ */
+export async function relationshipDraftsUnlessOffline<T>(select: () => Promise<T[]>): Promise<T[]> {
+    if (!roadsOpenNow()) return [];
+    try {
+        return await select();
+    } catch (error) {
+        if (roadsOpenNow()) throw error;
+        console.warn('relationshipObservations: the roads shut during the call; committing without them', error);
+        return [];
+    }
 }
 
 /**
