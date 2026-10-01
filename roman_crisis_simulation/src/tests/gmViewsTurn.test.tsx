@@ -333,6 +333,27 @@ describe('WhatChangedView', () => {
     // The moved card shows the entity's status · location line.
     expect(text).toContain('Full Roman — alive · Rome');
   });
+
+  it('stacks its two columns where both cannot have room, and lets no long run hold the pane open', async () => {
+    // At 375px the console's pane is ~134px beside the turn rail. `1fr 1fr`
+    // kept each column as wide as its longest unbroken run, and that width
+    // carried the whole console past the screen's edge. Layout cannot be
+    // measured in jsdom, so the contract is pinned on the grid itself.
+    const entry = makeTurnHistoryEntry({
+      adjudication: makeAdjudication({
+        deltas: [{ type: 'resource', key: 'praetorian_guard:donative_promised_by_the_emperor', delta: 1, reason: 'praetorian_guard:donative_promised' }],
+      }),
+      postTurnEntities: [makeEntity({ entity_id: 'praetorian_guard', name: 'Praetorian Guard' })],
+    });
+    const container = await mount(<WhatChangedView entry={entry} />);
+    const grid = container.firstElementChild as HTMLElement;
+    expect(grid.style.display).toBe('grid');
+    expect(grid.style.gridTemplateColumns).toBe('repeat(auto-fit, minmax(min(100%, 240px), 1fr))');
+    expect(grid.style.overflowWrap).toBe('anywhere');
+    const columns = Array.from(grid.children) as HTMLElement[];
+    expect(columns.map(column => column.firstElementChild?.textContent)).toEqual(['The ledger', 'Who moved']);
+    expect(columns.every(column => column.style.minWidth === '0px' || column.style.minWidth === '0')).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

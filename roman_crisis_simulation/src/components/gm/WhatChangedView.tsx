@@ -57,6 +57,12 @@ function movedEntityIds(adjudication: Adjudication, roster: Entity[]): string[] 
  * What changed, in one turn — the ledger on the left, who moved on the right.
  * Entity States and Deltas were two answers to the same question (audit item
  * 31), so they read as one pane.
+ *
+ * The two columns stack where they cannot both have room, and neither may
+ * hold the pane open: `1fr 1fr` kept each column at least as wide as its
+ * longest unbroken run (a delta key, an id in a reason), and that width
+ * travelled up through the pane into the console itself - at 375px the
+ * whole console stood wider than the screen and the pane scrolled sideways.
  */
 export const WhatChangedView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }) => {
     const adjudication = entry.adjudication;
@@ -64,8 +70,8 @@ export const WhatChangedView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }
     const moved = roster ? movedEntityIds(adjudication, roster) : [];
 
     return (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, alignItems: 'start' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: 14, alignItems: 'start', overflowWrap: 'anywhere' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
                 <span style={{ ...lbl, color: GOLD }}>The ledger</span>
                 {adjudication.deltas.length === 0 ? (
                     <GmNote>No state deltas were recorded.</GmNote>
@@ -83,7 +89,7 @@ export const WhatChangedView: React.FC<{ entry: TurnHistoryEntry }> = ({ entry }
                     </div>
                 ))}
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
                 <span style={{ ...lbl, color: GOLD }}>Who moved</span>
                 {!roster ? (
                     <GmNote>Entity snapshot trimmed for this older turn - only the most recent turns retain one.</GmNote>
