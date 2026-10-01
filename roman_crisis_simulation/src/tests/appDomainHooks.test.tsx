@@ -11,7 +11,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { renderHook } from './renderHook';
-import { lastGmNarrationOf, pulsingTabsFor, tabChangeCountsFor } from '../hooks/usePlayerPerception';
+import { lastGmNarrationOf, tabChangeCountsFor } from '../hooks/usePlayerPerception';
 import { useOnboarding } from '../hooks/useOnboarding';
 import { hasSeenOnboarding } from '../persistence/onboarding';
 import { GameState, type KnownRecipientOption, type Report, type StructuredTurnDraft, type TurnSubmission } from '../types';
@@ -45,33 +45,8 @@ describe('lastGmNarrationOf', () => {
     });
 });
 
-describe('pulsingTabsFor', () => {
-    const lastTurn = makeTurnHistoryEntry({ turnNumber: 5 });
-
-    it('pulses exactly the tabs the perceived changes name', () => {
-        const tabs = pulsingTabsFor([
-            makePerceivedChange({ tabs: ['resources'] }),
-            makePerceivedChange({ tabs: ['reports', 'world_state'] }),
-        ], [], lastTurn);
-        expect([...tabs].sort()).toEqual(['reports', 'resources', 'world_state']);
-    });
-
-    it('never pulses Dramatis Personae from a perceived line that is no mark or tie', () => {
-        const tabs = pulsingTabsFor([makePerceivedChange({ tabs: ['dramatis_personae'] })], [], lastTurn);
-        expect(tabs.has('dramatis_personae')).toBe(false);
-    });
-
-    it('pulses Dramatis Personae for a relationship observation learned on the last turn only', () => {
-        const observation = { evidenceId: 'e1', participantIds: ['a', 'b'] };
-        const fresh = makeKnowledgeClaim({ firstLearnedTurn: 5, relationshipObservation: observation });
-        const stale = makeKnowledgeClaim({ firstLearnedTurn: 4, relationshipObservation: observation });
-        const plain = makeKnowledgeClaim({ firstLearnedTurn: 5 });
-        expect(pulsingTabsFor([], [fresh], lastTurn).has('dramatis_personae')).toBe(true);
-        expect(pulsingTabsFor([], [stale, plain], lastTurn).has('dramatis_personae')).toBe(false);
-        expect(pulsingTabsFor([], [fresh], null).size).toBe(0);
-    });
-});
-
+// The tabs that pulse are the tabs with an unseen count (hooks/useSeenRegisters.ts's
+// unseenTabs), so these counts are also what pulses.
 describe('tabChangeCountsFor', () => {
     const lastTurn = makeTurnHistoryEntry({ turnNumber: 5 });
     const observation = { evidenceId: 'e1', participantIds: ['a', 'b'] };
@@ -121,7 +96,6 @@ describe('tabChangeCountsFor', () => {
         // A week that brought no notice leaves the older one uncounted.
         expect(tabChangeCountsFor([], before, lastTurn).has('reports')).toBe(false);
         expect(tabChangeCountsFor([], knowledge, null).size).toBe(0);
-        expect([...tabChangeCountsFor([], knowledge, lastTurn).keys()]).toEqual([...pulsingTabsFor([], knowledge, lastTurn)]);
     });
 
     // D48/D49: a mark or tie the week let the player see on another figure.
@@ -170,13 +144,6 @@ describe('tabChangeCountsFor', () => {
         expect(tabChangeCountsFor([], landed, narrated).get('dramatis_personae')).toBe(1);
         // A scene before the first week counts as well.
         expect(tabChangeCountsFor([], ingestSignsSeen([], [sign], 1), null).get('dramatis_personae')).toBe(1);
-    });
-
-    it('names exactly the tabs pulsingTabsFor pulses - a count never appears where no pulse would', () => {
-        const changes = [makePerceivedChange({ tabs: ['locations', 'world_state'] }), makePerceivedChange({ tabs: ['dramatis_personae'] })];
-        const knowledge = [makeKnowledgeClaim({ firstLearnedTurn: 5, relationshipObservation: observation })];
-        expect([...tabChangeCountsFor(changes, knowledge, lastTurn).keys()].sort())
-            .toEqual([...pulsingTabsFor(changes, knowledge, lastTurn)].sort());
     });
 });
 

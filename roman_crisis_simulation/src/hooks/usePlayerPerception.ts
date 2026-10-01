@@ -2,9 +2,10 @@
  * hooks/usePlayerPerception.ts
  *
  * What the player's screen derives from committed state each render - the
- * last turn's perceived digest, which SidePanel tabs pulse and with how many
- * changes, the illuminated narrations, and the epilogue's cause-of-death
- * text. Moved verbatim out of
+ * last turn's perceived digest, how many changes each SidePanel tab has (what
+ * the player has not yet looked at of them, and so which tabs pulse, is
+ * hooks/useSeenRegisters.ts's), the illuminated narrations, and the
+ * epilogue's cause-of-death text. Moved verbatim out of
  * App.tsx (2026-09-23). Everything here is derived, never stored: it
  * recomputes from slices that already persist, so it survives a reload
  * with no save-format change.
@@ -135,18 +136,6 @@ export function tabChangeCountsFor(
     return counts;
 }
 
-/**
- * Which SidePanel tabs to pulse: exactly the tabs `tabChangeCountsFor`
- * counts something on.
- */
-export function pulsingTabsFor(
-    perceivedChanges: readonly PerceivedChange[],
-    knowledge: readonly KnowledgeClaim[],
-    lastTurn: TurnHistoryEntry | null,
-): Set<TabId> {
-    return new Set(tabChangeCountsFor(perceivedChanges, knowledge, lastTurn).keys());
-}
-
 export function usePlayerPerception(
     messages: Message[],
     turnHistory: TurnHistoryEntry[],
@@ -191,7 +180,6 @@ export function usePlayerPerception(
         () => tabChangeCountsFor(lastTurnPerceivedChanges, knowledge, lastTurn),
         [knowledge, lastTurn, lastTurnPerceivedChanges],
     );
-    const pulsingTabs = useMemo(() => new Set(tabChangeCounts.keys()), [tabChangeCounts]);
 
-    return { lastTurn, lastTurnPerceivedChanges, pulsingTabs, tabChangeCounts, illuminatedNarrations, lastGmNarration };
+    return { lastTurn, lastTurnPerceivedChanges, tabChangeCounts, illuminatedNarrations, lastGmNarration };
 }

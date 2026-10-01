@@ -111,7 +111,8 @@ const SidePanel: React.FC<{
     turnHistory: TurnHistoryEntry[];
     /** Tabs whose underlying data was touched by a VISIBLE change in the
      * most recently committed turn (see perception/visibility.ts's
-     * tabsForDelta and App.tsx's pulsingTabs). Gets a brief CSS pulse so the
+     * tabsForDelta, counted by hooks/usePlayerPerception.ts's
+     * tabChangeCountsFor). Gets a brief CSS pulse so the
      * player notices where to look, without leaking anything the perception
      * filter didn't already let through - this set is built strictly from
      * buildPlayerPerceivedDigest's output, never raw deltas. App passes only
