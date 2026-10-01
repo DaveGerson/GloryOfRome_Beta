@@ -399,6 +399,46 @@ describe('"N new" belongs to the committed week and to what was looked at', () =
     another.unmount();
   });
 
+  it('a tab looked at earlier in the week shows only what reached it after - a sign caught in a private scene (D50)', () => {
+    type Props = { counts: Map<TabId, number> };
+    const hook = renderHook((props: Props) => useSeenRegisters({ weekKey: '4:a', tabChangeCounts: props.counts }), {
+      counts: new Map<TabId, number>([['dramatis_personae', 2], ['reports', 1]]),
+    });
+    act(() => hook.current.selectTab('dramatis_personae'));
+    act(() => hook.current.selectTab('reports'));
+    expect(hook.current.unseenCounts.size).toBe(0);
+    // In the interlude a scene commits a sign: Personae shows that one, not nothing and not the week again.
+    hook.rerender({ counts: new Map<TabId, number>([['dramatis_personae', 3], ['reports', 1]]) });
+    expect(hook.current.unseenCounts.get('dramatis_personae')).toBe(1);
+    expect(hook.current.unseenTabs.has('dramatis_personae')).toBe(true);
+    expect(hook.current.unseenCounts.has('reports')).toBe(false);
+    act(() => hook.current.selectTab('dramatis_personae'));
+    expect(hook.current.unseenCounts.has('dramatis_personae')).toBe(false);
+    // Open on the screen as another arrives: looked at already, as the week's own are.
+    hook.rerender({ counts: new Map<TabId, number>([['dramatis_personae', 4], ['reports', 1]]) });
+    expect(hook.current.unseenCounts.has('dramatis_personae')).toBe(false);
+    hook.unmount();
+    // A reload keeps how far each tab was looked at.
+    const again = renderHook((props: Props) => useSeenRegisters({ weekKey: '4:a', tabChangeCounts: props.counts }), {
+      counts: new Map<TabId, number>([['dramatis_personae', 5], ['reports', 1]]),
+    });
+    expect(again.current.unseenCounts.get('dramatis_personae')).toBe(1);
+    expect(again.current.unseenCounts.has('reports')).toBe(false);
+    again.unmount();
+  });
+
+  it('reads a memory kept before the counts were as having seen all of that tab\'s week', () => {
+    localStorage.setItem('gloryOfRome:seenRegisters', JSON.stringify({ week: '4:a', tabs: ['reports'] }));
+    const hook = renderHook((props: { weekKey: string }) => useSeenRegisters({ weekKey: props.weekKey, tabChangeCounts: counts }), { weekKey: '4:a' });
+    expect(hook.current.unseenCounts.has('reports')).toBe(false);
+    expect(hook.current.unseenCounts.get('events')).toBe(1);
+    // It is written back with the counts beside the tabs an older build reads.
+    expect(JSON.parse(localStorage.getItem('gloryOfRome:seenRegisters')!)).toEqual({
+      week: '4:a', tabs: ['reports', 'world_state'], counts: { world_state: 1 },
+    });
+    hook.unmount();
+  });
+
   it('on a phone the open tab is looked at once the panel is swiped into view, not as the week lands', () => {
     type Props = { weekKey: string; panelInView: boolean };
     const hook = renderHook((props: Props) => useSeenRegisters({ ...props, tabChangeCounts: counts }), { weekKey: '4:a', panelInView: false });
