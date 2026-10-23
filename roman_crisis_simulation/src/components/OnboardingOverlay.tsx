@@ -1,17 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { WaxSeal } from './ui/Brand';
 import { createFocusTrap, FocusTrap } from './ui/focusTrap';
+import { focusComposer } from '../app/domCommands';
 
 /**
  * components/OnboardingOverlay.tsx
  *
  * ROADMAP_0_MASTER_PLAN.md Phase 3 item 6 - a dismissable 3-step intro shown
  * the FIRST time a fresh campaign reaches GameState.AWAITING_PLAYER_INPUT
- * (both a preset-character start and a custom-created one - see App.tsx's
- * `startGameWithCharacter`). Never shown on "Continue your reign", and never
- * shown again after it's been dismissed once on this device - see
- * persistence/onboarding.ts's `hasSeenOnboarding`/`markOnboardingSeen`, which
- * App.tsx owns; this component only renders what it's told to via `isOpen`.
+ * (both a preset-character start and a custom-created one - see
+ * hooks/useCampaignLifecycle.ts). Never shown on "Continue your reign", and
+ * never shown again after it's been dismissed once on this device - see
+ * persistence/onboarding.ts's `hasSeenOnboarding`/`markOnboardingSeen` and
+ * hooks/useOnboarding.ts; this component only renders what it's told to via
+ * `isOpen`.
  *
  * Content is deliberately in-fiction and consistent with DESIGN_DECISIONS.md:
  * D5 (the player is never omniscient - the side panel is framed as what you
@@ -118,9 +120,6 @@ const STEPS: readonly OnboardingStep[] = [
   },
 ];
 
-/** The chat input's element id (see components/Chat.tsx's ChatInput) - focus returns here on close. */
-const CHAT_INPUT_ELEMENT_ID = 'chat-input';
-
 const OnboardingOverlay: React.FC<OnboardingOverlayProps> = ({ isOpen, onClose }) => {
   const [step, setStep] = useState(0);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -128,9 +127,10 @@ const OnboardingOverlay: React.FC<OnboardingOverlayProps> = ({ isOpen, onClose }
 
   // Focus the dialog on open (components/ui/focusTrap.ts's `activate` -
   // remembers whatever was focused beforehand and moves focus in); on close
-  // (isOpen -> false, or unmount), return focus to the chat input
-  // specifically, per spec - falling back to the trap's own remembered
-  // element (`release`) if the input isn't on the page for some reason.
+  // (isOpen -> false, or unmount), return focus to whichever composer is
+  // mounted (#chat-input or #structured-input via `focusComposer`) - falling
+  // back to the trap's own remembered element (`release`) if the composer
+  // isn't on the page or is disabled.
   useEffect(() => {
     if (!isOpen || !dialogRef.current) return;
     const trap = createFocusTrap(dialogRef.current);
@@ -138,10 +138,7 @@ const OnboardingOverlay: React.FC<OnboardingOverlayProps> = ({ isOpen, onClose }
     trap.activate();
 
     return () => {
-      const chatInput = document.getElementById(CHAT_INPUT_ELEMENT_ID) as HTMLElement | null;
-      if (chatInput) {
-        chatInput.focus();
-      } else {
+      if (!focusComposer()) {
         trap.release();
       }
       trapRef.current = null;

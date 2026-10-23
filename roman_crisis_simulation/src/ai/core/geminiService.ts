@@ -38,11 +38,10 @@ import { base64ToBytes, concatBytes } from '../../narration/wav';
 import { logAiFailure } from '../../diagnostics/logger';
 
 /**
- * Centralized model ids. `gemini-3-pro-preview` is a preview id Google can
- * retire at any time; `gemini-2.5-flash` is used for cheap/flavor calls.
- * Previously hardcoded at ~14 call sites (10 for the pro tier alone, per
- * ROADMAP_2_AI_ARCHITECTURE.md's dependency notes) - now a one-line change
- * if either model is retired or swapped.
+ * Centralized model ids. `GEMINI_PRO` and `GEMINI_FLASH` both target
+ * `gemini-3.8-flash`. Previously hardcoded at ~14 call sites (10 for the pro
+ * tier alone, per ROADMAP_2_AI_ARCHITECTURE.md's dependency notes) - now a
+ * one-line change if either model is retired or swapped.
  */
 export const GEMINI_PRO = 'gemini-3.8-flash';
 export const GEMINI_FLASH = 'models/gemini-3.8-flash';
@@ -157,7 +156,7 @@ export interface ThinkingConfigLike {
 export class AiServiceError extends Error {
   readonly kind: 'transient' | 'fatal';
   readonly callName: string;
-  readonly cause?: unknown;
+  override readonly cause?: unknown;
   /**
    * Truncated snippet of the offending raw model output (or parse-failure
    * detail quoting it), for GM/console-side diagnostics only. Deliberately
@@ -848,7 +847,7 @@ export async function generateText(ai: GeminiClient, req: GenerateTextRequest): 
 export interface GenerateSpeechRequest {
   callName: string;
   model: string;
-  /** The full TTS prompt: style note plus the performed transcript. */
+  /** The full TTS prompt: `## Transcript:` plus the acted script (never a style prefix). */
   prompt: string;
   /** A prebuilt voice name, e.g. `DEFAULT_NARRATOR_VOICE`. */
   voiceName: string;

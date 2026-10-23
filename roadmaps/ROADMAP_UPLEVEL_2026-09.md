@@ -12,6 +12,7 @@ Baseline before the pass: 1897 unit tests, 10 journeys, all green.
 After the pass: **2067 unit tests, 10 journeys**, all green. Typecheck, lint
 with zero warnings, the deterministic eval and the build all pass on every
 merge.
+*(Note: Parts 3–10 below continue the record through October 2026 — current suite totals stand at **3,098+ unit tests** and **18 journeys**, all green.)*
 
 ---
 

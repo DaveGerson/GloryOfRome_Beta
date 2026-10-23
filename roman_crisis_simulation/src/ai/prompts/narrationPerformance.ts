@@ -63,9 +63,6 @@ import type { CastManner } from '../../narration/voiceCast';
 
 export { cleanActedScript, cleanSpokenTranscript };
 
-/** The built-in narrator's temperature: theatrical range for dramatic performance. */
-export const NARRATION_PERFORMANCE_TEMPERATURE = DRAMATIC_READER_NARRATOR.prep.temperature;
-
 /**
  * The acting-script rule: the raw narration becomes a performance that
  * gives it thematic direction - the narrator's own lines in its persona,

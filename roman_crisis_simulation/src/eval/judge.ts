@@ -61,6 +61,7 @@ export async function judgeTurn(ai: GeminiClient, turn: EvalCorpusTurn): Promise
     prompt,
     responseSchema: EvalJudgeVerdictSchema,
     zodSchema: zEvalJudgeVerdict,
+    thinkingConfig: { thinkingBudget: 512 },
   });
 }
 

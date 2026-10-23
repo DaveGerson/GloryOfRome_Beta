@@ -45,6 +45,7 @@ export async function getRelationshipObservations(
         prompt,
         responseSchema: RelationshipObservationsSchema,
         zodSchema: zRelationshipObservations,
+        thinkingConfig: { thinkingBudget: 256 },
       });
     })();
   const accepted = validateRelationshipObservationDrafts({

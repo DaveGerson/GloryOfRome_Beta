@@ -10,12 +10,6 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['tooling/**/*.mjs'],
-    languageOptions: {
-      globals: globals.node,
-    },
-  },
-  {
     files: ['**/*.{ts,tsx}'],
     languageOptions: {
       globals: {
@@ -30,9 +24,8 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       // These six rules were seeded at 'warn' to tolerate a 17-item legacy
       // inventory (roadmaps/BACKLOG.md B11) while it was burned down. That
-      // inventory reached zero (tooling/eslint-warning-baseline.json is
-      // empty), so the ratchet is locked: each is now 'error'. The
-      // baseline machinery itself is retired (Q5, roadmaps/BACKLOG.md
+      // inventory reached zero, so the ratchet is locked: each is now 'error'.
+      // The baseline machinery itself is retired (Q5, roadmaps/BACKLOG.md
       // B11); a future deliberate exception goes through an inline
       // disable with a justification comment.
       // The one accepted `any` (ai/core/geminiService.ts's Zod escape
@@ -41,8 +34,10 @@ export default tseslint.config(
       // `ignoreRestSiblings` recognizes the deliberate
       // `const { drop, ...rest } = obj` omit idiom (used by the narration
       // redaction that strips gm_private/secret_truth fields) instead of
-      // flagging the omitted name as an unused variable.
-      '@typescript-eslint/no-unused-vars': ['error', { ignoreRestSiblings: true }],
+      // flagging the omitted name as an unused variable. `argsIgnorePattern`
+      // aligns with tsconfig's `noUnusedParameters` (`_`-prefixed positional
+      // parameters).
+      '@typescript-eslint/no-unused-vars': ['error', { ignoreRestSiblings: true, argsIgnorePattern: '^_' }],
       'prefer-const': 'error',
       'no-useless-assignment': 'error',
       'preserve-caught-error': 'error',

@@ -15,7 +15,11 @@ This plan synthesizes the six domain roadmaps in this directory:
 
 Items below cite their source as `<Domain>-<Priority>` (e.g. `AI-P0.1` = Roadmap 2, initiative P0.1).
 
-## Status (July 2026)
+## Status (October 2026)
+
+> **Current Ground Truth:** Phases 0–6 of the master roadmap and the September–October 2026 multi-track uplevel passes (`ROADMAP_UPLEVEL_2026-09.md`, rulings `D1–D51` in `DESIGN_DECISIONS.md`) have **all shipped**. The verification suite now stands at **3,098+ unit tests** across **136 test files** and **18 end-to-end journeys** across **12 journey files**, plus the deterministic eval harness (`npm run eval:ci`), all running in CI on every push. The July 2026 snapshot below is preserved as the historical record of how Phases 0–3 landed.
+
+### Historical Snapshot (July 2026)
 
 Phases 0–3 are shipped. PR #4 additionally landed a full design-system re-skin
 (LVX/NOX day/night themes, `gor-*` component classes, Tailwind removed) —

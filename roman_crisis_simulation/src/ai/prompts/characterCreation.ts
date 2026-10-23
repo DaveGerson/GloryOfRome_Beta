@@ -30,6 +30,7 @@ const CHARACTER_CREATION_SYSTEM_INSTRUCTION = `You are a game master for a polit
 12. The 'memories' array must be present and empty.
 13. Give the character a 'voice' - a COMPACT speech-style directive for how they talk and think (e.g. "clipped soldier's Latin, contempt for senatorial flourish") - and an 'epithet', a SHORT public byname (e.g. "the Thracian"). Keep both short, fitting the player's description.
 14. Give the character 0-2 'affiliations' their description suggests beyond their faction_id - a cause, a cult, a faith - each openly professed (public: true, e.g. "the boosters of the triumph") or kept secret (public: false, e.g. "the cult of Bacchus", "the Christians"). A secret one should be a secret worth keeping, and only when the description invites it.
+15. Populate 0-2 'conditions' (D48 lasting marks: each with 'name', 'description', 'outward': true/false, 'severity': 'light' | 'serious' | 'grave') ONLY when the character's concept, history, or age clearly warrants a starting physical mark (e.g. an old battle scar, failing sight, a limp - outward: true) or inward burden (e.g. grief, nightmares - outward: false); use an empty array [] otherwise.
 
 **CRITICAL JSON FORMATTING RULES:**
 Your response MUST be a perfectly valid JSON object that adheres to the schema. Ensure all quotes inside strings are escaped (e.g., \\"). Do not use trailing commas.`;

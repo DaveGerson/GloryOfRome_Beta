@@ -1,8 +1,18 @@
 node_modules/
 dist/
+coverage/
+*.tsbuildinfo
 .env
 .env.local
+.env.*.local
+.DS_Store
 .idea/
 .claude/
+CLAUDE.md
 *.log
 roman_crisis_simulation/src/narration/tuning/out/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key

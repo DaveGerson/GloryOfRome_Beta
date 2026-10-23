@@ -122,7 +122,21 @@ export function tabChangeCountsFor(
             && !INVESTIGATION_EVIDENCE.test(claim.relationshipObservation.evidenceId)
         ).length;
         if (observations > 0) bump('dramatis_personae', observations);
-        const signs = composureSignsOf(lastTurn).length;
+        const normalizeSign = (s: string) => s.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+        const seenInTurn = new Set<string>();
+        let signs = 0;
+        for (const { entityId, sign } of composureSignsOf(lastTurn)) {
+            const norm = normalizeSign(sign);
+            const key = `${entityId}\0${norm}`;
+            if (seenInTurn.has(key)) continue;
+            seenInTurn.add(key);
+            const claim = knowledge.find(c => c.claimKey === `sign:${entityId}`);
+            const alreadyHeld = claim?.updates.some(
+                u => u.turn < lastTurn.turnNumber && normalizeSign(u.text) === norm,
+            );
+            if (alreadyHeld) continue;
+            signs++;
+        }
         if (signs > 0) bump('dramatis_personae', signs);
         // A report claim's updates carry the commit's turn (knowledge/commit.ts),
         // so a notice created or restated this week is an update stamped with it.

@@ -139,6 +139,7 @@ const EpilogueScreen: React.FC<{
           systemInstruction,
           prompt,
           temperature: EPILOGUE_TEMPERATURE,
+          thinkingConfig: { thinkingBudget: 512 },
         });
         const safeText = text && text.trim() ? text.trim() : buildStaticFallbackEpitaph(player, causeNarration);
         assertPlayerVisibleTextSafe(safeText);

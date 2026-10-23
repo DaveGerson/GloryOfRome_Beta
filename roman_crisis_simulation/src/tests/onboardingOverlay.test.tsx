@@ -280,6 +280,24 @@ describe('the focus the rite borrows (WP-17)', () => {
         chatInput.remove();
     });
 
+    it('returns focus to the structured input on close when in structured mode', async () => {
+        const structuredInput = document.createElement('textarea');
+        structuredInput.id = 'structured-input';
+        document.body.appendChild(structuredInput);
+        const container = document.createElement('div');
+        document.body.appendChild(container);
+        const root = createRoot(container);
+
+        await act(async () => root.render(<OnboardingOverlay isOpen onClose={() => {}} />));
+        expect(document.activeElement).toBe(dialog(container));
+
+        await act(async () => root.unmount());
+        expect(document.activeElement).toBe(structuredInput);
+
+        container.remove();
+        structuredInput.remove();
+    });
+
     it('falls back to whatever was focused before when there is no chat input on the page', async () => {
         const opener = document.createElement('button');
         document.body.appendChild(opener);

@@ -17,7 +17,7 @@ export const createCharacter = async (ai: GoogleGenAI, description: string, isMo
 
     const { systemInstruction, prompt } = buildCharacterCreationPrompt(description, ALL_INITIAL_ENTITIES);
 
-    if (import.meta.env.DEV) console.log(`[CharCreator] Sending request to Gemini 3.0...`);
+    if (import.meta.env.DEV) console.log(`[CharCreator] Sending request to Gemini...`);
     try {
         const character = await generateStructured<Entity>(ai, {
             callName: 'characterCreation',

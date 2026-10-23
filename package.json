@@ -1,0 +1,25 @@
+{
+  "name": "realmweaver-glory-of-rome",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "install:app": "npm --prefix roman_crisis_simulation/src ci",
+    "setup": "npm --prefix roman_crisis_simulation/src install",
+    "dev": "npm --prefix roman_crisis_simulation/src run dev",
+    "build": "npm --prefix roman_crisis_simulation/src run build",
+    "preview": "npm --prefix roman_crisis_simulation/src run preview",
+    "test": "npm --prefix roman_crisis_simulation/src test",
+    "test:journeys": "npm --prefix roman_crisis_simulation/src run test:journeys",
+    "eval": "npm --prefix roman_crisis_simulation/src run eval",
+    "eval:ci": "npm --prefix roman_crisis_simulation/src run eval:ci",
+    "narrator:tune": "npm --prefix roman_crisis_simulation/src run narrator:tune",
+    "typecheck": "npm --prefix roman_crisis_simulation/src run typecheck",
+    "lint": "npm --prefix roman_crisis_simulation/src run lint",
+    "verify:static": "npm --prefix roman_crisis_simulation/src run verify:static",
+    "verify:unit": "npm --prefix roman_crisis_simulation/src run verify:unit",
+    "verify:integration": "npm --prefix roman_crisis_simulation/src run verify:integration",
+    "verify": "npm --prefix roman_crisis_simulation/src run verify"
+  }
+}

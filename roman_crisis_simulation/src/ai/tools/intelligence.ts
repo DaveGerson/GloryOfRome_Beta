@@ -164,7 +164,7 @@ export const getClarificationOnEvent = async (
             forecast = await mockGetClarificationOnEvent(occurrence, question, null);
         } else {
             const { systemInstruction, prompt } = buildOccurrenceForecastPrompt(occurrence, player, figuresKnownTo(player, allEntities));
-            forecast = (await generateText(ai, { callName: 'clarification', model: GEMINI_FLASH, systemInstruction, prompt })) || "No response generated.";
+            forecast = (await generateText(ai, { callName: 'clarification', model: GEMINI_FLASH, systemInstruction, prompt, thinkingConfig: { thinkingBudget: 256 } })) || "No response generated.";
         }
         assertPlayerVisibleTextSafe(forecast);
         return { text: forecast };
@@ -202,7 +202,7 @@ export const getClarificationOnEvent = async (
         text = await mockGetClarificationOnEvent(occurrence, question, plan);
     } else {
         const { systemInstruction, prompt } = buildClarificationPrompt(occurrence, question, player, plan);
-        text = (await generateText(ai, { callName: 'clarification', model: GEMINI_FLASH, systemInstruction, prompt })) || "No response generated.";
+        text = (await generateText(ai, { callName: 'clarification', model: GEMINI_FLASH, systemInstruction, prompt, thinkingConfig: { thinkingBudget: 256 } })) || "No response generated.";
     }
     assertPlayerVisibleTextSafe(text);
     return { text, truth: occurrenceTruth(plan, grounding, occurrence, rolls, text) };
@@ -306,7 +306,7 @@ export const getDeepAnalysis = async (ai: GoogleGenAI, target: Entity, player: E
         playerVisibleText = await mockGetDeepAnalysis(target, plan);
     } else {
         const { systemInstruction, prompt } = buildDeepAnalysisPrompt(target, player, isVisible, plan);
-        const text = await generateText(ai, { callName: 'deepAnalysis', model: GEMINI_FLASH, systemInstruction, prompt });
+        const text = await generateText(ai, { callName: 'deepAnalysis', model: GEMINI_FLASH, systemInstruction, prompt, thinkingConfig: { thinkingBudget: 256 } });
         playerVisibleText = text || "Intelligence unavailable.";
     }
     assertPlayerVisibleTextSafe(playerVisibleText);
@@ -462,7 +462,7 @@ export const getSchemeNatureReading = async (ai: GoogleGenAI, target: Entity, pl
         text = await mockGetSchemeNatureReading(target, plan);
     } else {
         const { systemInstruction, prompt } = buildSchemeNaturePrompt(target, player, plan);
-        text = (await generateText(ai, { callName: 'schemeNature', model: GEMINI_FLASH, systemInstruction, prompt })) ?? '';
+        text = (await generateText(ai, { callName: 'schemeNature', model: GEMINI_FLASH, systemInstruction, prompt, thinkingConfig: { thinkingBudget: 256 } })) ?? '';
     }
     const nature = text.trim();
     if (nature.length === 0) return null;
@@ -554,6 +554,7 @@ export const getPlayerMonologue = async (
         prompt,
         responseSchema: PlayerMonologuePayloadSchema,
         zodSchema: zPlayerMonologuePayload,
+        thinkingConfig: { thinkingBudget: 256 },
     });
     const playerVisibleText = payload.text || "I am contemplative.";
     assertPlayerVisibleTextSafe(playerVisibleText);

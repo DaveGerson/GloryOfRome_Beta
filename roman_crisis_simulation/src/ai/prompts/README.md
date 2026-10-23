@@ -4,8 +4,8 @@ Every prompt sent to Gemini lives here, one file per call family, instead
 of as inline template literals scattered through `ai/core/turn.ts`,
 `ai/core/engine.ts`, `ai/tools/intelligence.ts`, `ai/core/initiator.ts`, and
 `ai/tools/characterCreator.ts`. Every call site routes through
-`ai/core/geminiService.ts` (`generateStructured`/`generateText`), passing
-one of the builders below.
+`ai/core/geminiService.ts` (`generateStructured` / `generateStructuredStream` /
+`generateText` / `generateSpeech`), passing one of the builders below.
 
 ## Prompt inventory
 
@@ -13,8 +13,8 @@ one of the builders below.
 |---|---|---|---|---|---|
 | `assessment` | `assessment.ts::buildActionAssessmentPrompt` | flash | `zActionAssessment` | `ActionAssessmentSchema` | `turn.ts` step 0 (observable-attempt gatekeeper, concurrent with `storyRelevance`; skipped for question/private-only submissions) |
 | `adjudication` | `adjudication.ts::buildAdjudicationPrompt` | pro | `zAdjudication` | `AdjudicationSchema` | `turn.ts` step 2 (main turn) |
-| `narration` | `narration.ts::buildNarrationPrompt` | pro | - (prose) | - | `turn.ts` step 5 |
-| `playerMonologue` | `narration.ts::buildPlayerMonologuePrompt` | flash | - (prose) | - | `turn.ts` step 4 |
+| `narration` | `narration.ts::buildNarrationPrompt` | pro | `zNarrationPayload` | `NarrationPayloadSchema` | `turn.ts` step 5 (D42 structured JSON `{ text, actors, signs? }`; streamed via `generateStructuredStream` + `createPayloadTextExtractor`) |
+| `playerMonologue` | `narration.ts::buildPlayerMonologuePrompt` | flash | `zPlayerMonologuePayload` | `PlayerMonologuePayloadSchema` | `turn.ts` step 4 (D42 structured JSON `{ text, actors }`, concurrent with `narration` and `updatedSimulationState`) |
 | `storyRelevance` | `intelligence.ts::buildStoryRelevancePrompt` | pro | `zStoryRelevance` | `StoryRelevanceSchema` | `turn.ts` step 0 (Director) |
 | `npcMind` | `npcMind.ts::buildNpcMindPrompt` | flash | `zNpcMindDecision` | `NpcMindDecisionSchema` | `turn.ts` step 1.5 (per-spotlight minds, between the Director and adjudication - up to `MAX_MINDS_PER_TURN` in one `Promise.all`) |
 | `updatedSimulationState` | `intelligence.ts::buildSimulationStateUpdatePrompt` | pro | `zSimulationState` | `SimulationStateSchema` | `turn.ts` step 2.5 |
@@ -32,11 +32,11 @@ one of the builders below.
 | `characterCreation` | `characterCreation.ts::buildCharacterCreationPrompt` | pro | `zEntity` | `CharacterCreationEntitySchema` | Player character creation |
 | `ambitionInference` | `ambition.ts::buildAmbitionInferencePrompt` | flash | `zAmbitionInference` (local to `ai/tools/ambition.ts`) | `AmbitionInferenceSchema` (local to `ai/tools/ambition.ts`) | `App.tsx` `executeTurn`, every 3rd committed turn (D8, fire-and-forget) |
 | `epilogue` | `epilogue.ts::buildEpiloguePrompt` | pro | - (prose) | - | `components/EpilogueScreen.tsx`, once per run on `GameState.GAME_OVER` |
-| `narrationPerformance` | `narrationPerformance.ts::buildNarrationPerformancePrompt` (personas: the profile's own; `buildInCharacterPersona`; `buildCustomNarratorPersona`) | prep (`GEMINI_NARRATION_PREP` at LOW thinking, or the narrator profile's own, which may be tuned) | - (prose; checked by `narration/performanceScript.ts`: a cue that breaks a per-cue rule is dropped alone (`droppedCues`); unparseable brackets, the length and cue-count caps and a mechanics leak in the spoken words refuse wholesale; the no-new-names/figures fidelity rule cuts the offending sentences (`patchedOut`) and falls back only when more than half would go) | - | `ai/tools/narrationVoice.ts`, on demand (or `auto` mode after a turn commits) for ONE committed GM narration, skipped when the narration log already holds this narrator's transcript of it. The chosen narrator converts it into an ACTED SCRIPT of at most 2 paragraphs: spoken words plus performance cues in `<angle brackets>` that give the narration thematic direction (`PERFORMANCE_CUE_RULE`: the narrator's own lines carry its persona; every quoted or described speaker is played by station and character - senators regal, soldiers clipped, freedmen obsequious, the mob crass, bodily and crowd noises welcome where they fit; a cue says HOW, never WHAT, a name only if the passage already uses it, no numbers or quotes; cues are performed and everything outside them is spoken). The built-in Dramatic Reader is the owner's PR #9 system instruction and user prompt word for word, plus the fidelity line and, by the owner's later direction, rule 4 asking for cues (and "acted" for "clean" in rule 1 and the task). Other narrators: persona, then the fixed fidelity and acted-script rules, unless the persona already states each as its own line; the user prompt closes with the profile's `task` or the neutral default. In character: name and public standing only, as data. Custom: the player's brief as JSON-quoted data (D41). A chosen voice style (a preset, the player's own text, or a cast note for a narrator in character) is appended after the task as a separate DELIVERY BRIEF (`buildDeliveryBrief`, the manner as JSON-quoted data): carry the manner in the words and in the cues, never describe it outside the brackets. Then, for each voice-cast member the passage names (name or epithet, whole words, case-insensitive; at most 6), a CAST BLOCK (`buildCastBlock`): "HOW THOSE IN THE PASSAGE SPEAK (…)" and one `"Name": "manner"` line each, both JSON-quoted (D41: the notes are player-editable); the mob and unnamed plebs are left to the cue rule's class guidance. "As written" and no named cast member add nothing, so the Dramatic Reader's prompt is then byte-identical to the owner's |
-| `narrationVoice` | `narrationPerformance.ts::buildNarrationTtsPrompt` | tts (`GEMINI_TTS`, via `generateSpeech`) | - (audio) | - | `ai/tools/narrationVoice.ts::speakTranscript`, right after `narrationPerformance` (or alone, re-voicing a logged transcript). Performs the acted script word for word: the input is `## Transcript:` and the script with its `<cues>` intact (the owner's reference shape; packaging stripped, a `[cue]` made a `<cue>`), and nothing else, always. Cues are performed; everything outside them is spoken, so no prose instruction or style prefix is ever sent; the TTS model has no style parameter, so a delivery style shapes the prep call's script instead (`narration/voiceStyle.ts`). The call log keeps an `[audio: N bytes, mime]` placeholder |
+| `narrationPerformance` | `narrationPerformance.ts::buildNarrationPerformancePrompt` | prep (`GEMINI_NARRATION_PREP` at LOW thinking, or narrator profile's model) | - (prose, guarded by `narration/performanceScript.ts`) | - | `ai/tools/narrationVoice.ts`: converts one committed GM narration into a ≤2-paragraph acted script with `<angle-bracket>` performance cues. See **Narration performance & voice casting** below |
+| `narrationVoice` | `narrationPerformance.ts::buildNarrationTtsPrompt` | tts (`GEMINI_TTS`, via `generateSpeech`) | - (audio) | - | `ai/tools/narrationVoice.ts::speakTranscript`, right after `narrationPerformance` (or alone, re-voicing a logged transcript). Performs `## Transcript:` + the acted script word for word |
 | `narrationReplay` | `narrationPerformance.ts::buildNarrationTtsPrompt` | tts | - (audio) | - | `hooks/useNarrationLog.ts`: replay from the narration log: the logged script (cues and all) alone, in its logged voice, with no prep call |
-| `privateSceneVoice` | `narrationPerformance.ts::buildNarrationTtsPrompt` | tts | - (audio) | - | `hooks/usePrivateSceneVoice.ts`: a private-scene NPC's committed line (cleaned by `narration/sceneVoice.ts`), opened by the line's own validated delivery as one `<cue>` when it has one (D50, `sceneLineForSpeech` - the stage direction the transcript shows, and only while it passes the cue rules), in the NPC's voice-cast voice, with no prep call. Their cast delivery note is shown, never sent: the voice carries their character |
-| `castVoices` | `voiceCasting.ts::buildVoiceCastingPrompt` | prep (`GEMINI_NARRATION_PREP` at LOW thinking) | `zVoiceCasting` (local to `ai/tools/voiceCasting.ts`) | `VoiceCastingSchema` (local to `ai/tools/voiceCasting.ts`; voice ids an enum of the catalog) | `hooks/useVoiceCast.ts` via `ai/tools/voiceCasting.ts::castVoices`. It runs once per campaign when the narration voice is first needed ('full': every known individual; the director never chooses the narrator - the Dramatic Reader keeps its own voice, listed as taken, and the response schema carries no narrator, though an older-shaped answer with one still parses and is ignored). Then one small 'newcomers' call covers whoever became known uncast, and "Recast everyone" makes an explicit full call. Input: the theme and the names as JSON-quoted data (D41), the player's name and position, each known individual's name, position, epithet and entity type ONLY (`narration/voiceCast.ts::castingCandidatesFor`), the voice catalog, and the voices already taken. Validated member by member: an unknown voice or a missing member is cast by rule, and notes and rationales are sanitized. Any failure is the deterministic casting. Skipped in Mock Mode |
+| `privateSceneVoice` | `narrationPerformance.ts::buildNarrationTtsPrompt` | tts | - (audio) | - | `hooks/usePrivateSceneVoice.ts`: a private-scene NPC's committed line (cleaned by `narration/sceneVoice.ts`), opened by the line's own validated delivery as one `<cue>` when it has one (D50, `sceneLineForSpeech`), in the NPC's voice-cast voice, with no prep call |
+| `castVoices` | `voiceCasting.ts::buildVoiceCastingPrompt` | prep (`GEMINI_NARRATION_PREP` at LOW thinking) | `zVoiceCasting` (local to `ai/tools/voiceCasting.ts`) | `VoiceCastingSchema` (local to `ai/tools/voiceCasting.ts`) | `hooks/useVoiceCast.ts` via `ai/tools/voiceCasting.ts::castVoices`: assigns each known individual a unique catalog voice and manner note. See **Narration performance & voice casting** below |
 | `imperialDispatch` | `narrationPerformance.ts::buildImperialDispatchPrompt` | prep (`GEMINI_NARRATION_PREP` at LOW thinking) | - (prose; a crisp briefing without cues, cleaned by `cleanSpokenTranscript`, falls back to the fact summary) | - | `hooks/useImperialDispatch.ts` via `ai/tools/narrationVoice.ts::performImperialDispatch`, on demand from the side panel's Imperial Dispatch control |
 | `imperialDispatchVoice` | `narrationPerformance.ts::buildNarrationTtsPrompt` | tts (`GEMINI_TTS`, via `generateSpeech`, voice Sadaltager) | - (audio) | - | right after `imperialDispatch`; same `[audio: N bytes, mime]` placeholder in the call log |
 | `evalJudge` | `evalJudge.ts::buildEvalJudgePrompt` | flash | `zEvalJudgeVerdict` | `EvalJudgeVerdictSchema` | Offline eval runner ONLY (`eval/judge.ts::judgeTurn` via `npm run eval`, D18) - never called from app code, and only invoked when a real API key is present |
@@ -63,17 +63,84 @@ relationship serialization, the GM-secret secretly-alive-entities block)
 that more than one prompt above pulls from - it is the one source of truth
 for each fragment; nothing else re-serializes state inline.
 
+## Narration performance & voice casting
+
+- **`narrationPerformance`** (`narrationPerformance.ts::buildNarrationPerformancePrompt`;
+  personas: the profile's own, `buildInCharacterPersona`, `buildCustomNarratorPersona`)
+  runs in `ai/tools/narrationVoice.ts` on demand (or `auto` mode after a turn
+  commits) for ONE committed GM narration, skipped when the narration log
+  already holds this narrator's transcript of it.
+  - **Acted script & `PERFORMANCE_CUE_RULE`:** the chosen narrator converts the
+    narration into an ACTED SCRIPT of at most 2 paragraphs — spoken words plus
+    performance cues in `<angle brackets>` that give the narration thematic
+    direction. The narrator's own lines carry its persona; every quoted or
+    described speaker is played by station and character (senators regal,
+    soldiers clipped, freedmen obsequious, the mob crass, bodily and crowd
+    noises welcome where they fit). A cue says HOW, never WHAT, uses a name
+    only if the passage already uses it, and carries no numbers or quotes; cues
+    are performed and everything outside them is spoken.
+  - **Personas:** the built-in Dramatic Reader is the owner's PR #9 system
+    instruction and user prompt word for word, plus the fidelity line and, by
+    the owner's later direction, rule 4 asking for cues (and "acted" for
+    "clean" in rule 1 and the task). Other narrators use their persona, then
+    the fixed fidelity and acted-script rules unless the persona already states
+    each as its own line; the user prompt closes with the profile's `task` or
+    the neutral default. "In character…" passes name and public standing only,
+    as data. Custom narrators pass the player's brief as JSON-quoted data (D41).
+  - **Delivery brief & cast block:** a chosen voice style (a preset, the
+    player's own text, or a cast note for a narrator in character) is appended
+    after the task as a separate DELIVERY BRIEF (`buildDeliveryBrief`, the
+    manner as JSON-quoted data): carry the manner in the words and in the cues,
+    never describe it outside the brackets. Then, for each voice-cast member
+    the passage names (name or epithet, whole words, case-insensitive; at most
+    6), a CAST BLOCK (`buildCastBlock`) adds `"HOW THOSE IN THE PASSAGE SPEAK (…)"`
+    and one `"Name": "manner"` line each, both JSON-quoted (D41: the notes are
+    player-editable); the mob and unnamed plebs are left to the cue rule's
+    class guidance. "As written" and no named cast member add nothing, so the
+    Dramatic Reader's prompt is then byte-identical to the owner's.
+  - **Deterministic guard (`narration/performanceScript.ts`):** a cue that
+    breaks a per-cue rule is dropped alone (`droppedCues`); unparseable
+    brackets, the length and cue-count caps, or a mechanics leak in the spoken
+    words refuse wholesale; the no-new-names/figures fidelity rule cuts the
+    offending sentences (`patchedOut`) and falls back only when more than half
+    would go.
+- **`narrationVoice`** (`narrationPerformance.ts::buildNarrationTtsPrompt`)
+  runs via `generateSpeech` (`GEMINI_TTS`) right after `narrationPerformance`
+  (or alone when re-voicing a logged transcript). Its input is `## Transcript:`
+  followed by the script with its `<cues>` intact (packaging stripped, any
+  `[cue]` normalized to `<cue>`), and nothing else. Because the TTS model has
+  no style parameter and speaks everything outside `<angle brackets>`, delivery
+  styles shape the prep call's script instead (`narration/voiceStyle.ts`). The
+  call log records an `[audio: N bytes, mime]` placeholder.
+- **`castVoices`** (`voiceCasting.ts::buildVoiceCastingPrompt`, schemas
+  `zVoiceCasting` / `VoiceCastingSchema` with voice IDs constrained to the
+  catalog enum) is invoked by `hooks/useVoiceCast.ts` via
+  `ai/tools/voiceCasting.ts::castVoices`. It runs once per campaign when the
+  narration voice is first needed (`'full'`: every known individual; the
+  director never chooses the narrator — the Dramatic Reader keeps its own
+  voice, listed as taken, and the response schema carries no narrator, though
+  an older-shaped answer with one still parses and is ignored). Thereafter one
+  small `'newcomers'` call covers whoever became known uncast, and "Recast
+  everyone" makes an explicit full call. Its input is the theme and names as
+  JSON-quoted data (D41), the player's name and position, each known
+  individual's name, position, epithet, and entity type ONLY
+  (`narration/voiceCast.ts::castingCandidatesFor`), the voice catalog, and the
+  voices already taken. Validated member by member: an unknown voice or a
+  missing member is cast by rule, notes and rationales are sanitized, and any
+  failure (or Mock Mode) falls back to deterministic casting.
+
 ## The mortality pipeline: the model never decides death
 
 `mortalityValidation` and `mortalityOutcome` (`ai/prompts/mortality.ts`,
 consumed by `ai/core/mortality.ts::processMortality`) are a deliberately
 different shape from every other call family above: **the model never
 decides an outcome, only narrates one the code already rolled**
-(DESIGN_DECISIONS.md D2/D3/D4).
+(DESIGN_DECISIONS.md D2/D3/D4/D51).
 
 - `mortalityValidation` only dispositions whether a claimed death is real
   and earned (`valid: boolean`) - it does not choose what happens next.
-- A hidden `Math.random()`-backed d20 (`ai/core/resolution.ts::rollD20`) is
+- A hidden seeded d20 (`ai/core/resolution.ts::rollD20`, drawn from the turn's
+  `turnSeed` generator) is
   then resolved by a PURE function (`resolvePlayerDeathSave`/
   `resolveNpcFate`) into a band. This roll is never sent to, or requested
   from, the model, and never shown to the player - it's recorded in the
@@ -109,7 +176,7 @@ hallucinated-death problem D2/D3 exist to close.
 `assessment` (`ai/prompts/assessment.ts`, consumed by
 `ai/tools/assessment.ts::getActionAssessment`) and `ai/core/resolution.ts`'s
 `resolveAction` are the general-purpose sibling of the mortality pipeline
-above (ROADMAP_0_MASTER_PLAN.md Phase 3 item 4) - they share its exact
+above (ROADMAP_0_MASTER_PLAN.md Phase 3 item 4, DESIGN_DECISIONS.md D51) - they share its exact
 contract: **the model never decides whether an action succeeds, only
 narrates a pre-decided outcome.**
 
@@ -126,7 +193,11 @@ narrates a pre-decided outcome.**
   dice, no `PLAYER ACTION OUTCOME` block in the adjudication prompt, and no
   `resolutionTrace` on the turn's `TurnHistoryEntry` (types.ts).
 - For a consequential action, `ai/core/turn.ts` resolves a HIDDEN
-  `rollD20()` via `resolveAction` (`ai/core/resolution.ts`), using the
+  `rollD20(ctx.turnRng)` via `resolveAction` (`ai/core/resolution.ts`), drawn
+  from the turn's deterministic `turnSeed` — derived via
+  `deriveTurnSeed(reignSeed, turnNumber)` (D51) so retrying a failed turn,
+  editing the action before retrying, or reloading the page always replays the
+  exact same luck. It combines the roll with the
   player's own skill/personality (`derivePersonalityModifier`) and the
   opposing entity's directional stats toward the player
   (`deriveOppositionModifier` - `perceived_threat` raises their guard,

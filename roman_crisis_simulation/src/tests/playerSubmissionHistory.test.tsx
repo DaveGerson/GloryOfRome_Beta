@@ -5,7 +5,7 @@
  * Message remains plaintext, but Chat must parse that plaintext through the
  * public submission projection instead of exposing the storage envelope.
  */
-import React, { act } from 'react';
+import { act } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { ChatMessage } from '../components/Chat';

@@ -1,30 +1,24 @@
-# Glory of Rome — Current Interface Descriptions (Wireframes)
+# Realmweaver: The Glory of Rome — Interface Wireframes & Visual Gallery
 
-> **Status (July 2026):** written before the Phase 2-3 engine work and the PR #4 design-system
-> re-skin; annotations below mark what has since shipped.
+> **Status (October 2026 — Post-Uplevel Parts 1–10):** Originally written in July 2026 as structural wireframes for the visual redesign, this document now pairs the structural schematics with **production screenshots of the shipped `LVX` and `NOX Romae` interfaces** and updates every screen inventory to match the October 2026 codebase.
 
-**Purpose:** A complete, neutral description of every interface that exists in the game today —
-structure, elements, behaviors, and states — intended as input for a holistic visual redesign.
-It describes *what is*, not what should be; redesign proposals live separately in
-`UI_SYSTEMS_CURRENT_AND_FUTURE.md` Part II.
+---
 
-For each screen:
-- a **wireframe** showing structure, zones, and hierarchy (not pixel-accurate),
-- an **element inventory** listing every widget, its data source, and its behavior,
-- the **states and variants** the screen can be in.
+## Current Shipped State (October 2026 — Visual Gallery)
 
-Current visual styling, briefly (full detail in `UI_SYSTEMS_CURRENT_AND_FUTURE.md` §2):
-an "aged parchment & carved stone" Roman theme — Cinzel serif typefaces, sepia/stone palette
-with imperial-red accents and amber highlights, double-line borders between regions,
-translucent stone-textured card surfaces, a dark noise-textured surface for the GM overlay,
-and a small motion vocabulary (fade-in entrances, button hover-lift, staggered pill slide-up,
-bouncing typing dots).
-*(STALE — the app has since been re-skinned onto the `gor-*` design system (`design/tokens/*.css`,
-`design/components.css`), with a second Nox Romae night theme (`design/nocturne.css`) toggled by
-an LVX/NOX switch. Palette, class names, and some surface language below (`.roman-stone-panel`,
-etc.) reflect the pre-redesign look. Structure, zones, and behaviors described in the wireframes
-below are still largely accurate; visual specifics are not — see
-`UI_SYSTEMS_CURRENT_AND_FUTURE.md` §2 and 5.2/5.3.)*
+| **S1 — Choose / Forge Your Destiny (`NOX Romae`)** | **S1 — Compact Hero & Destiny Forge (`LVX`)** |
+| :---: | :---: |
+| ![Choose Your Destiny NOX](../docs/ui-refresh/04-after-desktop-select-nox.png) | ![Choose Your Destiny LVX](../docs/ui-refresh/19-destiny-compact-hero.png) |
+| **S2 — Main Game View & Crisis Banner (`NOX Romae`)** | **S2 — Main Game View & Intelligence Desk (`LVX`)** |
+| ![Main Game View NOX](../docs/ui-refresh/05-after-desktop-game-crisis-nox.png) | ![Main Game View LVX](../docs/ui-refresh/10-after-desktop-game-lvx.png) |
+| **S2b — Dramatis Personae, Marks, Ties & Voice Row** | **Overlays — `Ctrl+K` Command Palette & Gold Coin Badges** |
+| ![Dramatis Personae Dossier](../docs/ui-refresh/19-dossier-ties-keyless-1280x720.png) | ![Command Palette NOX](../docs/ui-refresh/16-command-palette-nox.png) |
+| **Overlays — 1-on-1 Private Audience & Direct Voice** | **Mobile (`< 768px`) — Swipeable Diptych Leaves** |
+| ![Private Scene Voice](../docs/ui-refresh/13-private-scene-voice.png) | ![Mobile Swipeable Leaves](../docs/ui-refresh/08-after-phone-game-nox.png) |
+
+---
+
+**Purpose:** A complete structural and behavioral description of every interface in the game — wireframes, element inventories, data sources, and states — alongside companion design notes in `UI_SYSTEMS_CURRENT_AND_FUTURE.md`.
 
 All file references are relative to `roman_crisis_simulation/src/`.
 
@@ -46,74 +40,64 @@ flags decide what is visible.
            ▼                                               ▼
  ┌───────────────────────┐                   ┌───────────────────────────┐
  │ S1 CHARACTER SELECT   │                   │ S2 MAIN GAME VIEW         │
- │  (fills chat pane;    │                   │  chat pane + side panel   │
- │   side panel = idle)  │                   │  (6 tabs)                 │  *(STALE — now 7 tabs, see S2b)*
+ │  (full-width hero     │                   │  • Chronicle + Composer   │
+ │   + Forge Destiny)    │                   │  • 7-Tab Intel Desk       │
  └───────────────────────┘                   └─────────────┬─────────────┘
-                                                           │ overlays (modal, on top)
+                                                           │ focus-trapped overlays (role="dialog")
                                        ┌───────────────────┼──────────────────┐
                                        ▼                   ▼                  ▼
                              ┌──────────────────┐ ┌────────────────┐ ┌───────────────┐
-                             │ S3 GM SCREEN     │ │ S4 EVENT MODAL │ │ S5 ERROR      │
-                             │ (isGmScreen-     │ │ (activeEvent   │ │ BOUNDARY      │
-                             │  Visible flag)   │ │  != null)      │ │ (render crash)│
+                             │ S3 GM LEDGER     │ │ S4 EVENT MODAL │ │ S5 ERROR /    │
+                             │ (11 tabs +       │ │ (activeEvent   │ │ S6 EPILOGUE   │
+                             │  turn rail)      │ │  != null)      │ │ + Cmd/Settings│
                              └──────────────────┘ └────────────────┘ └───────────────┘
 ```
 
-Input-enablement per state: `AWAITING_PLAYER_INPUT` (input live; pills/retry may show),
-`PROCESSING` (input locked, typing indicator visible), `AWAITING_EVENT_CHOICE` (S4 blocks the
-screen until a choice is made).
-
-*(SHIPPED, not diagrammed above — `GameState` gained a fifth state, `GAME_OVER`, which replaces
-S2 entirely with an `EpilogueScreen` (input locked). See UI_SYSTEMS_CURRENT_AND_FUTURE.md 7.2.)*
+Input-enablement per state: `AWAITING_PLAYER_INPUT` (composer live; pills/retry may show),
+`PROCESSING` (composer locked, staged `TypingIndicator` and streaming narration visible),
+`AWAITING_EVENT_CHOICE` (S4 blocks the screen until a choice is made), and `GAME_OVER`
+(replaces S2 with `EpilogueScreen`).
 
 ---
 
 ## S0. App Shell (persistent chrome)
 
-Files: `App.tsx:487-572`, `components/Header.tsx`, `components/CrisisBanner.tsx`
+Files: `App.tsx`, `components/Header.tsx`, `components/CrisisBanner.tsx`, `design/shell.css`
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────┐
-│                              [eagle icon]                                  │
-│                       ROMAN CRISIS SIMULATION                 [Mock ☑]*    │  ← Header
-│      Year: 235 CE │ Week: 14 │ Econ: Strained │ Politics: Volatile         │  ← world meter strip
+│ [Medallion]  THE GLORY OF ROME   Year 235 · Wk XIV · Econ ●●●○○ · Politics │
+│                                        [Commands ⌘K] [LVX/NOX] [⚙ Settings]│
 ├────────────────────────────────────────────────────────────────────────────┤
-│ ⚠  ONGOING CRISIS   Succession dispute grips the capital                ⚠ │  ← CrisisBanner (conditional)
+│ ⚠  ONGOING CRISIS   Succession dispute grips the capital                ⚠ │
 ├──────────────────────────────────────────────┬─────────────────────────────┤
 │                                              │                             │
-│              CHAT PANE (2/3)                 │      SIDE PANEL (1/3)       │
-│              [see S2a]                       │      [see S2b]              │
+│         CHRONICLE PANE (2/3 desktop)         │  INTELLIGENCE DESK (1/3)    │
+│         (Leaf 1 < 768px, swipeable)          │  (Leaf 2 < 768px, swipeable)│
+│         [see S2a]                            │  [see S2b]                  │
 │                                              │                             │
 └──────────────────────────────────────────────┴─────────────────────────────┘
-* dev builds only
 ```
 
 **Element inventory**
 | Element | Data | Behavior |
 |---|---|---|
-| Game title + large eagle icon | static | none |
+| Italia Medallion + Game Title | static (`docs/ui-refresh/11-logo-closeup.png`) | decorative emblem + *Cinzel Decorative* masthead |
 | Year / Week | `worldState.year`, `.week` | advances each turn; week rolls over to a new year at 52 |
-| Economic Stability / Political Climate | `worldState.economic_stability`, `.political_climate` | plain text; currently never changes (no game system writes these fields) *(STALE — a `'world'` delta type now writes both fields, see `ai/core/engine.ts`; still rendered as plain text, not a trend meter)* |
-| Mock Mode checkbox | dev-only (`import.meta.env.DEV`) | routes all AI calls to canned mocks |
-| Crisis banner | `simulationState.major_ongoing_crisis` | renders only when non-null; full-width, `role="alert"`, warning glyphs both sides |
+| Economic Stability / Political Climate | `worldState.economic_stability`, `.political_climate` | updated by `'world'` deltas (`ai/core/engine.ts`); Economic Stability renders a 5-pip grade meter (`events/stabilityVocabulary.ts`) and a "changed this week" mark |
+| Commands (`Ctrl+K` / `?`) | `hooks/useCommandPalette.ts` | opens `CommandPalette.tsx` (jumps to any of the 7 registers with unseen counts, composer, Private Audience, Narration Log, Settings, or GM Ledger) |
+| Lighting switch (`LVX` / `NOX`) | `persistence/uiPrefs.ts` | switches between **LVX** (warm stone/papyrus) and **NOX Romae** (`design/nocturne.css` obsidian/torchlight) |
+| `⚙ Settings` button | `components/SettingsMenu.tsx` | opens consolidated configuration modal (Gemini API key `D34`, Pacing `D23`, Reading register, Narration Voice & Cast, Workshop toggles for Mock Mode & GM Console) |
+| Crisis banner | `simulationState.major_ongoing_crisis` | renders when non-null; full-width, `role="alert"` |
+| Keyless Mock Banner | `persistence/apiKey.ts` | when no API key is set and Mock Mode is off, offers one-click *"Play against canned responses"* |
 
-*(SHIPPED, not in the inventory above — a second dev-only checkbox, "GM Console", now sits next to
-Mock Mode; it (or `Ctrl+Shift+G` from anywhere) toggles whether the GM Log button/screen is
-reachable at all, since the console is now hidden by default. See S3 and
-UI_SYSTEMS_CURRENT_AND_FUTURE.md 4.4.)*
-
-**States:** crisis banner present/absent; mock toggle present (dev) / absent (prod).
-
-**Notes:** the header is tall (icon + display-size title) relative to the information it
-carries; the page never scrolls at the top level — both panes scroll internally within a fixed
-full-viewport layout. There is no responsive/mobile layout; the 2/3–1/3 split is fixed.
+**Responsive layout:** During `SETUP`, `CharacterSelection` spans full width (`docs/ui-refresh/18-destiny-full-width.png`). During active play on desktop (`>= 768px`), the Chronicle (2/3) and Intelligence Desk (1/3) sit side-by-side. Below `768px` (`design/shell.css` Section VIII), the two panes become horizontally swipeable scroll-snap leaves and the masthead compacts into a 2×2 stat grid.
 
 ---
 
 ## S1. Character Selection
 
-File: `components/CharacterSelection.tsx`. Fills the chat pane during `SETUP`. During this
-state the side panel shows only a centered line: *"Awaiting Character Selection…"*.
+File: `components/CharacterSelection.tsx`. Spans full width during `SETUP` (`docs/ui-refresh/04-after-desktop-select-nox.png`, `docs/ui-refresh/19-destiny-compact-hero.png`).
 
 ### S1a — Default (shown with an existing save)
 
@@ -187,410 +171,246 @@ No progress bar or stage indication, though world generation takes many seconds 
 
 ## S2. Main Game View
 
-### S2a — Chat pane (left 2/3)
+### S2a — Chronicle & Composer Pane (left 2/3 on desktop, Leaf 1 `< 768px`)
 
-Files: `App.tsx:501-546`, `components/Chat.tsx`
+Files: `App.tsx`, `components/Chat.tsx`, `components/DispatchesDigest.tsx`, `components/StructuredComposer.tsx`
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
+│  ────────  WEEK XIV · THE CHRONICLER SETS DOWN THE DAY ───── │  ← TurnRibbon (sender: 'ribbon')
 │  ┌────────────────────────────────────────────┐              │
-│  │ GM narration bubble                        │              │  ← left-aligned; stone
-│  │ multi-paragraph prose, **bold** supported  │              │    surface, red left
-│  └────────────────────────────────────────────┘              │    edge; ~28rem max width
+│  │ GM narration bubble (streamed or instant)  │              │  ← stone/obsidian card, crimson
+│  │ safe React inline formatting (no innerHTML)│              │    left edge, literary Garamond
+│  │ [ ▸ Hear it performed ]                    │              │  ← NarrationVoiceControl (TTS)
+│  └────────────────────────────────────────────┘              │
+│  ┌────────────────────────────────────────────┐              │
+│  │ DISPATCHES DIGEST (perception-filtered)    │              │  ← DispatchesDigest.tsx
+│  │ • Denarii −20,000 · The Suburra → Unrest   │              │    (only player-visible deltas)
+│  └────────────────────────────────────────────┘              │
 │                 ┌───────────────────────────────────────┐    │
-│                 │ Player action bubble                  │    │  ← right-aligned; solid
-│                 └───────────────────────────────────────┘    │    imperial red, light text
+│                 │ Player decree / action bubble         │    │  ← right-aligned crimson card
+│                 └───────────────────────────────────────┘    │
 │              ────────  INNER THOUGHTS  ────────              │
-│  ┊ centered card, dashed border, italic prose             ┊  │  ← third message voice
-│              ──────────────────────────────────              │    (player monologue)
+│  ┊ centered card, dashed border, italic monologue          ┊  │  ← sender: 'player_monologue'
+│              ──────────────────────────────────              │
 │  ┌──────────────────────────┐                                │
-│  │ ● ● ●  Whispers cross    │   ← typing indicator bubble,   │
-│  │        the Senate floor… │     only while PROCESSING;     │
-│  └──────────────────────────┘     flavor text rotates ~3.2s  │
-│ ─────────────────────────────────────────────────────────────│  ← input dock (bordered
-│           [ ↻ Retry: "Bribe the Praetorian…" ]               │    bar at pane bottom)
-│   ( Suggested action ) ( Suggested action ) ( Suggested )    │  ← action pills, ≤3,
-│  ┌───────────────────────────────────────────┐ ┌──────────┐  │    staggered entrance
-│  │ Enter your action… (Shift+Enter newline)  │ │  SEND    │  │  ← autosizing textarea
-│  └───────────────────────────────────────────┘ └──────────┘  │
-│                                               [ GM LOG ]     │  ← opens S3
+│  │ ● ● ●  Rivals move in    │   ← TypingIndicator driven by  │
+│  │        the dark…         │     live TurnStage callbacks   │
+│  └──────────────────────────┘                                │
+│ ─────────────────────────────────────────────────────────────│  ← Composer Dock
+│   ( Suggested action ) ( Suggested action ) ( Suggested )    │  ← ActionPills (counsel)
+│  ┌───────────────────────────────────────────┐ ┌──────────┐  │
+│  │ Enter your decree… (or open Tablet ▾)     │ │  SEND    │  │  ← ChatInput + StructuredComposer
+│  └───────────────────────────────────────────┘ └──────────┘  │    (Order + Private Intent +
+│  [ Private Audience ]  [ Narration Log ]       [ GM LOG ]*   │     Inquiries)
 └──────────────────────────────────────────────────────────────┘
 ```
 
 **Message stream**
-- Three visually distinct message voices: **GM narration** (left, stone panel, red edge),
-  **player action** (right, solid red), **inner monologue** (centered, dashed border, italic,
-  with an "Inner Thoughts" caption). System/error notices currently reuse the GM voice.
-  *(STALE — a fourth voice shipped: `sender: 'ribbon'` renders a decorative `TurnRibbon`
-  week-advance divider ("Week XIV · The chronicler sets down the day") into the stream on each
-  turn commit, not a speech bubble at all. See `types.ts`'s `Message.sender` and
-  `components/ui/Brand.tsx`'s `TurnRibbon`.)*
-- Text formatting is bold-only: `**bold**` converted by regex and injected via
-  `dangerouslySetInnerHTML` (unsanitized LLM output).
-- Auto-scrolls to the newest message; `aria-live="polite"`; each message fades in.
-- The full turn narration appears at once when the turn completes — there is no streaming and
-  no per-stage progress during the multi-call pipeline (tens of seconds); the typing indicator
-  and rotating placeholder copy are the only feedback.
-  *(SHIPPED — both staged per-pipeline-stage progress and token-by-token streaming narration now
-  exist; see UI_SYSTEMS_CURRENT_AND_FUTURE.md 6.1/6.2.)*
+- Four visually distinct stream voices:
+  1. **GM narration** (`sender: 'gm'`): left-aligned stone/obsidian card with crimson border, safe React-rendered formatting (no `dangerouslySetInnerHTML`), and a **"Hear it performed"** button (`NarrationVoiceControl`, `narration/`).
+  2. **Player action** (`sender: 'player'`): right-aligned imperial-crimson bubble.
+  3. **Inner monologue** (`sender: 'player_monologue'`): centered dashed-border card with italic prose.
+  4. **Week-advance ribbon** (`sender: 'ribbon'`): decorative **`TurnRibbon`** divider (`components/ui/Brand.tsx`).
+- **Dispatches Digest (`components/DispatchesDigest.tsx`):** compact perception-filtered summary of what visibly changed this week (`buildPlayerPerceivedDigest` in `perception/visibility.ts`).
+- **Staged Progress & Streaming (`6.1` / `6.2`):** `TypingIndicator` reflects real-time `TurnStage` callbacks from `ai/core/turn.ts`, and `StreamingNarrationBubble` streams narration token-by-token (unless set to Instant in `ReadingSettings.tsx`).
+- **Smart Scroll Follow (`hooks/useChatFollow.ts`):** follows streaming text when at the bottom, or surfaces a *"Back to the latest"* pill when the reader has scrolled up (`docs/ui-refresh/16-to-the-latest-lvx.png`).
 
-**Input dock**
+**Composer dock**
 | Element | Behavior |
 |---|---|
-| Textarea | autosizes with content (max ~10rem); Enter sends, Shift+Enter inserts newline; disabled during PROCESSING; placeholder cycles the same themed status copy while processing |
-| SEND button | disabled during PROCESSING |
-| Action pills | up to ~3 AI-suggested actions per turn; clicking **fills** the input (does not send); hidden during processing |
-| Retry button | appears only after a *transient* AI failure; single click re-runs the exact failed action (truncated to 60 chars in the label); the failed action text is also restored into the textarea |
-| GM LOG button | opens S3; disabled until at least one turn has been played *(STALE — the button is no longer merely disabled pre-turn, it's not rendered at all unless the GM console is enabled via `Ctrl+Shift+G` or a dev checkbox; see S3)* |
+| `ChatInput` & `StructuredComposer` | Free-text decree textarea plus an expandable **Structured Tablet** (`playerInput/composerState.ts`, `turnSubmission.ts`) separating **Primary Order**, **Private Intent**, and **Inquiries** (`docs/ui-refresh/18-structured-desk-1280x720.png`) |
+| `ActionPills` | AI-suggested counsel actions (plus 3 zero-call starter pills on Turn 1 via `deriveStarterActions`); clicking fills the composer |
+| `Private Audience` | Opens `PrivateSceneSheet.tsx` (`D39`) for a 1-on-1 multi-exchange conversation with a known NPC in your location |
+| `Narration Log` | Opens `NarrationLogSheet.tsx` (`narration/narrationLog.ts`) to inspect or replay acted scripts and `<performance cues>` |
+| Retry button | Appears after a transient `AiServiceError`; re-runs the failed turn submission and restores the draft |
+| `GM LOG` button | Opens S3 (`GameMasterScreen`); hidden by default until unlocked via `Ctrl+Shift+G` or **⚙ Settings → Workshop** |
 
-**Pane states:** awaiting-input (idle) · awaiting-input + pills · awaiting-input + retry
-(+ pills) · processing (locked + indicator) · event-pending (S4 overlays everything).
+---
 
-### S2b — Side panel (right 1/3)
+### S2b — Intelligence Desk / Side Panel (right 1/3 on desktop, Leaf 2 `< 768px`)
 
 Files: `components/SidePanel.tsx`, `components/PlayerStatus.tsx`, `components/tabs/*`
 
 ```
-┌───────────────────────────────────┐
-│ MAXIMINUS THRAX                   │  ← PlayerStatus card
-│ Commander of Legio XXII           │    (always visible above tabs;
-│ ─────────────────────────────     │     subtle vertical gradient)
-│ Current Goal (?)                  │
-│   Secure the loyalty of the Rhine │  ← first short_term_goal
-│ Current State (?)                 │
-│   The legions grumble…            │  ← first 2 sentences of
-├───────────────────────────────────┤     character narrative
-│ EVENTS│REPORTS│CHRONICLE│DRAMATIS │  ← 6 equal-width uppercase
-│ PERSONAE│EMPIRE│ASSETS            │    text tabs; wraps to 2 rows
-├───────────────────────────────────┤    at this pane width; active
-│                                   │    tab = red text + underline
-│  [active tab content, scrolls]    │
-│                                   │
-└───────────────────────────────────┘
-```
-*(STALE — now 7 tabs: a new WORLD tab (`components/tabs/WorldStateTab.tsx`) leads the row and is
-the default/active tab on load; see Tab 0 below and UI_SYSTEMS_CURRENT_AND_FUTURE.md 3.5/7.1.)*
-
-The "(?)" marks are `InfoTooltip` hover bubbles. Tabs have no icons, no change indicators, and
-no ARIA tablist semantics. Tab content scrolls independently of the chat pane.
-*(STALE — the tab bar now has `role="tablist"`/`role="tab"`/`aria-selected` (`SidePanel.tsx`), and
-a per-tab "new intelligence" pulse dot (a change indicator) driven by
-`perception/visibility.ts`'s `tabsForDelta`. Still no tab icons.)*
-
-#### Tab 0 — WORLD (`tabs/WorldStateTab.tsx`) *(SHIPPED, not in the original inventory below)*
-```
-│ The State of the Empire           │
-│ ┌───────────────────────────────┐ │
-│ │ The Throne          [Stable]  │ │  ← severity-badged macro
-│ │ The Senate       [Functional] │ │    SimulationState fields,
-│ │ The Legions          [Loyal]  │ │    treated as public per D5
-│ │ The Plebs           [Content] │ │
-│ │ Ongoing Crisis    [None]      │ │
-│ └───────────────────────────────┘ │
-│ Recent Headlines                  │
-│  • this turn's headlines          │
-│ Your Intelligence Picture         │
-│  [known region cards] / [regions  │  ← same locality/network
-│   marked "beyond your sight"]     │    sight rule as Empire tab
-```
-This is the tab that fills the role the "Drama Meter" idea (see
-`UI_SYSTEMS_CURRENT_AND_FUTURE.md` 7.1) proposed for the previously-empty `WorldStateTab.tsx`.
-
-#### Tab 1 — EVENTS (`tabs/CurrentEventsTab.tsx`)
-```
-│ Recent Occurrences                │
-│ ┌───────────────────────────────┐ │
-│ │ Grain riots erupt in Ostia    │ │  ← headline row (whole row
-│ │ ┌───────────────────────────┐ │ │    is a button)
-│ │ │ Seeking clarification…    │ │ │  ← inline expansion: fires a
-│ │ │ → analysis paragraph      │ │ │    live AI "clarify motives"
-│ │ └───────────────────────────┘ │ │    call, shows loading text
-│ └───────────────────────────────┘ │
-│ ┌───────────────────────────────┐ │
-│ │ The Senate delays the vote    │ │
-│ └───────────────────────────────┘ │
-│ (empty: "The city is quiet. No    │
-│  new events to report.")          │
-```
-Click toggles expansion (re-click collapses). Only the current turn's headlines are listed —
-the list is replaced wholesale each turn.
-
-#### Tab 2 — REPORTS (`tabs/ReportsTab.tsx`)
-```
-│ Intelligence Reports              │
-│ ┌───────────────────────────────┐ │
-│ │ Turn 11: "Pontius is moving   │ │
-│ │ money to Antioch"   (Dubious  │ │  ← credibility badge pill:
-│ │ Source: paid informant   38%) │ │    Credible >70% (green) /
-│ │ About: gaius pontius magnus   │ │    Uncertain (yellow) /
-│ └───────────────────────────────┘ │    Dubious <40% (red)
-│  … newest first, accumulates      │
-│  across turns …                   │
-```
-Each report: turn number, quoted claim, source, subject, and a color-coded credibility badge
-with percentage. Reports persist and accumulate across the campaign.
-
-#### Tab 3 — CHRONICLE (`tabs/ChronicleTab.tsx`)
-```
-│ Chronicle of Events               │
-│ ┌───────────────────────────────┐ │
-│ │ Turn 9                        │ │
-│ │ THE PRAETORIAN DEMAND         │ │  ← scripted-event title
-│ │ Your Choice: "Pay the         │ │
-│ │  donative"                    │ │
-│ └───────────────────────────────┘ │
-│ (empty: "No major events have     │
-│  been recorded…")                 │
-```
-Logs **scripted-event choices only** (title + chosen option + turn), newest first. Turn-by-turn
-narration history is *not* shown here — it exists only inside S3.
-
-#### Tab 4 — DRAMATIS PERSONAE (`tabs/DramatisPersonaeTab.tsx`) — the deepest view in the game
-```
-│ Dramatis Personae                 │
-│ ┌───────────────────────────────┐ │
-│ │ ▌PRAETORIAN GUARD             │ │  ← faction header band (red);
-│ │ ▌"Restless and unpaid…"       │ │    name may carry a glossary
-│ ├───────────────────────────────┤ │    tooltip with Wikipedia link
-│ │ Marcus Aedinius Julianus      │ │  ← member card (collapsed):
-│ │ Praetorian Prefect    [Intel] │ │    name, position, expand btn
-│ │ ▓▓▓▓▓▓▓░░░░░░░                │ │  ← trust bar: −10…+10 mapped
-│ │ Trust: 3   Respect: 5         │ │    to green/grey/red fill
-│ │ Threat: 6  Align: 2  Dep: 1   │ │  ← 5 numeric relationship axes
-│ ├───────────────────────────────┤ │
-│ │ ── expanded (Intel open) ──   │ │
-│ │ "current state narrative…"    │ │
-│ │ Goals: secure pay, curb…      │ │
-│ │ ┌───────────────────────────┐ │ │
-│ │ │ RAW THOUGHTS (Free)       │ │ │  ← free AI probe: player's
-│ │ │ "Click to gauge your…"    │ │ │    gut read on this person
-│ │ └───────────────────────────┘ │ │
-│ │ Intelligence Briefing         │ │
-│ │  Beliefs (?)      [Unknown]   │ │  ← three paywalled categories;
-│ │            [Reveal (1 Inv.)]  │ │    each Reveal costs 1
-│ │  Active Scheme (?) [Unknown]  │ │    "investigations" resource;
-│ │            [Reveal (1 Inv.)]  │ │    button disabled when the
-│ │  Secrets (?)       [Unknown]  │ │    player can't afford it;
-│ │            [Reveal (1 Inv.)]  │ │    revealed content renders in
-│ └───────────────────────────────┘ │    place (list, or scheme
-│  UNALIGNED                        │    goal+steps block)
-│  (same cards, no faction band)    │
-```
-Behaviors: NPCs grouped by faction, then an "Unaligned" section; dead characters are hidden;
-revealing Secrets also converts them into `blackmail_on_<target>` entries visible in the ASSETS
-tab and generates an intelligence report. Revealed intel is held in component-local state — it
-disappears when the tab unmounts (there is no persistent dossier).
-
-#### Tab 5 — EMPIRE (`tabs/EmpireTab.tsx`)
-```
-│ Locations in Rome                 │
-│ ┌───────────────────────────────┐ │
-│ │ Palatine Hill (glossary link) │ │
-│ │ Status: Stable                │ │  ← keyword-matched color:
-│ │ Control: Imperial Court       │ │    stable=green, unrest=yellow,
-│ │ Local Events:                 │ │    rebellion/revolt=red
-│ │  • …                          │ │
-│ │ Characters Present:           │ │  ← living individuals whose
-│ │  • …                          │ │    location matches the region
-│ └───────────────────────────────┘ │
-│  (one card per region; no map)    │
+┌───────────────────────────────────────────┐
+│ MAXIMINUS THRAX                    [Fold] │  ← PlayerStatus card (foldable via
+│ Commander of Legio XXII                   │    readingPrefs; shows Goal, State,
+│ Marks: Battle-Scarred · Ties: Legions     │    Outward Marks D48 & Open Ties D49)
+├───────────────────────────────────────────┤
+│ IMPERIAL DISPATCH          [Hear Report]  │  ← High English TTS reading of all
+│ High English tab report                   │    7 intelligence registers
+├───────────────────────────────────────────┤
+│ WORLD ②│EVENTS ①│REPORTS ③│CHRONICLE      │  ← 7 ARIA tabs (role="tablist",
+│ PERSONAE│EMPIRE│ASSETS                    │    roving arrows, 1–7 keys) with
+├───────────────────────────────────────────┤    GOLD COIN CHANGE-COUNT BADGES
+│                                           │
+│  [active register content, scrolls]       │
+│                                           │
+└───────────────────────────────────────────┘
 ```
 
-#### Tab 6 — ASSETS (`tabs/ResourcesTab.tsx`)
+- **Gold Coin Change-Count Badges (`tabChangeCountsFor`):** Replaced the old pulsing dot. Whenever a committed turn produces player-perceivable changes (`perception/visibility.ts`), each affected register displays a **gold coin badge with the exact unseen change count** (`①`, `②`, …) until the player views that register (`hooks/useSeenRegisters.ts`, `docs/ui-refresh/16-tab-counts.png`).
+- **Imperial Dispatch (`hooks/useImperialDispatch.ts`):** Synthesizes and voices a spoken situation briefing across the intelligence registers on demand.
+- **Keyboard & ARIA Contract:** `role="tablist"`/`role="tab"`/`aria-selected`/`aria-controls` with roving arrow-key navigation (`components/ui/rovingRadio.ts`) and direct `1`–`7` single-key shortcuts.
+
+#### Tab 0 — WORLD (`tabs/WorldStateTab.tsx`, 204 lines)
 ```
-│ Direct Assets (?)                 │
-│   Denarii (?)          120,000    │  ← label + tooltip … value
-│   Investigations (?)         3    │    (right-aligned, bold)
-│   Blackmail on Pontius (?)        │
-│      "skimmed the grain fund"     │  ← array-valued resources
-│                                   │    render as quoted,
-│ Influence & Support (?)           │    truncated lines
-│   Legion Support (?)      High    │
-│   Senatorial Support (?)   Low    │
-│   Legitimacy (?)            42    │
-│ (either group can be empty, with  │
-│  themed empty copy)               │
+│ The State of the Empire                   │
+│ ┌───────────────────────────────────────┐ │
+│ │ The Throne                  [Stable]  │ │  ← 5 macro SimulationState standings
+│ │ The Senate               [Fractured]  │ │    with severity badges and fallen-
+│ │ The Legions                [Restive]  │ │    standing warnings (fellStandings)
+│ │ The Plebs                  [Content]  │ │
+│ │ Ongoing Crisis       [Succession...]  │ │
+│ └───────────────────────────────────────┘ │
+│ Recent Headlines & Briefing Pointers      │
+│ Your Intelligence Picture (by Region)     │  ← filtered by isRegionKnownToPlayer;
+│  [known region cards] / ["Beyond sight"]  │    unmonitored regions masked
 ```
-Resources are split by key into two curated groups: **Direct Assets** (denarii, fortune,
-investigations, deep analyses, blackmail material) and **Influence & Support** (everything
-else). Every row carries an explanation tooltip; `blackmail_on_*` rows get dynamically
-generated tooltip text. Values are raw numbers/strings with no scale, cap, or change indicator.
+
+#### Tab 1 — EVENTS (`tabs/CurrentEventsTab.tsx`, 256 lines)
+- Lists this week's public headlines and occurrence inquiries (`occurrenceFindings` in `knowledge/store.ts`).
+- Clicking a headline triggers an in-world intelligence inquiry (`getClarificationOnEvent`) whose findings commit to the persistent knowledge store.
+
+#### Tab 2 — REPORTS (`tabs/ReportsTab.tsx`, 229 lines)
+```
+│ [ By Source (4)  |  By Topic (3) ]        │  ← SubRail register switcher
+│ ───────────────────────────────────────── │
+│ YOUR INFORMANT NETWORK        as of Wk XI │
+│  "Pontius is moving silver to Antioch."   │
+│  An uncorroborated claim; plausible...    │  ← prose certaintyClause (D25/D26:
+│  Corroborated by 1 other report           │    NO numeric % badge ever shown)
+```
+- **No Numeric Credibility Percentages (`D25`, `D26`):** `CredibilityBadge` percentages were removed. Reports group by **Source** or **Topic** (`SubRail`) and frame reliability strictly in-world via source voice (`knowledgeSourceLead`), corroboration counts (`corroboration`), and prose certainty clauses (`certaintyClause`).
+
+#### Tab 3 — CHRONICLE (`tabs/ChronicleTab.tsx`, 109 lines)
+```
+│ [ The Reign (14)  |  The Fates (3) ]      │  ← SubRail register switcher
+│ ───────────────────────────────────────── │
+│  ●  Turn XIV · Crisis                     │  ← Continuous vertical Reign Spine
+│  │  The Rhine Legions Refuse the Donative │    (buildChronicleSpine)
+│  │  Your order: "Arrest the tribunes..."  │
+│  ◌  Turns VIII–XIII (6 quiet weeks)       │  ← Quiet stretches collapse into
+│  │  [ Unroll them ]                       │    an expandable summary row
+│  ◆  Turn VII · Fate                       │
+│     THE PRAETORIAN DEMAND                 │
+```
+- **Shipped Reign Spine (`buildChronicleSpine`):** Default sub-register **The Reign** renders every week from `turnHistory` along a continuous vertical spine with collapsible quiet stretches. **The Fates** sub-register preserves the reverse-chronological log of scripted-event choices (`eventHistory`).
+
+#### Tab 4 — DRAMATIS PERSONAE & RELATIONSHIPS (`tabs/DramatisPersonaeTab.tsx`, 247 lines + `tabs/RelationshipsTab.tsx`, 135 lines)
+```
+│ [ Dossiers (6)  |  Relationships (4) ]    │  ← SubRail switches between Dossiers
+│ ───────────────────────────────────────── │    and the Sourced Relationship Web
+│ ▌PRAETORIAN GUARD                         │
+│ ┌───────────────────────────────────────┐ │
+│ │ Marcus Aedinius Julianus              │ │  ← Only entities known to player
+│ │ Praetorian Prefect   [Collapse] [❧]   │ │    (isEntityKnownToPlayer); [❧]
+│ │ Status: Alive (as perceived)          │ │    toggles inline Glossary marginalia
+│ │ Voice: Fenrir · clipped camp Latin [▸]│ │  ← PersonaVoiceRow (voiceCast.ts)
+│ │ Outward Marks: Limping (since Wk IV)  │ │  ← Perceived conditions only (D48)
+│ │ Ties: Praetorian Guard · Cult (Known) │ │  ← Open + learned secret ties (D49)
+│ │ Signs Seen: "His hand shook..." (Wk X)│ │  ← Composure tells witnessed (D50)
+│ │ Sourced Observations:                 │ │  ← RelationshipObservations.tsx
+│ │  • Wk IX (Informant): "Met Thrax..."  │ │    (no numeric trust bar / axes!)
+│ │ Persistent Dossier (D14 / D27):       │ │
+│ │  • Assessment (Held since Wk VI)      │ │  ← Persisted in knowledge/store.ts
+│ │  • Beliefs (Held · Stale > 4 wks)     │ │    across tab switches & saves!
+│ │  • Scheme Clues (2 / 3 clues gathered)│ │  ← Progressive clue threshold
+│ │  • Secrets [ Gather Intel (1 Inv.) ]  │ │
+│ └───────────────────────────────────────┘ │
+```
+- **Sub-Register 1 — Dossiers (`DramatisPersonaeTab.tsx` + `dramatisPersonaeUi.tsx`):**
+  - Omniscient numeric trust bars, 5-axis numbers, and free "Raw Thoughts" probes are **gone** (`D13`, `D25`, `D36`).
+  - Displays **Outward Marks** (`perceivedConditionsOf`, `D48`), **Open & Secret Ties** (`publicAffiliationsOf` + `knownAffiliationsOf`, `D49`), **Composure Signs Seen** (`signsSeenOf`, `D50`), and the character's **AI Cast Voice Row** (`PersonaVoiceRow.tsx`).
+  - Uncovered *Beliefs*, *Scheme Clues*, *Secrets*, and *Deep Analyses* are stored durably in `knowledge/store.ts` (`deriveDossier`, `D14`) with staleness indicators (`DOSSIER_COLD_THRESHOLD`, `D27`).
+- **Sub-Register 2 — Relationships (`components/tabs/RelationshipsTab.tsx`, 135 lines):**
+  - Renders the player's **Sourced Relationship Web** (`D13`, `D42`): unordered pairs of characters (`Marcus — Maximinus Thrax`) listing every witnessed or reported bond, direct quote, source attribution, prose certainty clause, and turn age. Never reads ground-truth `entity.relationships`.
+
+#### Tab 5 — EMPIRE (`tabs/EmpireTab.tsx`, 166 lines)
+- Cards for each region in `worldState.regions`, gated by `isRegionKnownToPlayer` (`perception/visibility.ts`). Known regions show stability badge, controlling faction, local events, and present characters; unmonitored regions show *"Beyond your sight"*.
+
+#### Tab 6 — ASSETS (`tabs/ResourcesTab.tsx`, 189 lines)
+- Splits `playerEntity.resources` into **Direct Assets** (with `CoinPips` visual counters) and **Influence & Support**, plus quoted blackmail holdings (`blackmail_on_*`).
 
 ---
 
-## S3. Game Master Screen (overlay)
+## S3. The Fates' Ledger — Game Master Screen (`components/GameMasterScreen.tsx`, 351 lines)
 
-File: `components/GameMasterScreen.tsx`. Full-screen dimmed backdrop; centered 80%×80% panel
-on a dark noise-textured surface; monospace type — visually a "dev console" register, distinct
-from the rest of the game. Serves two roles at once: a player-facing director tool (the
-intervention box) and a developer inspection surface (raw pipeline data).
+Files: `components/GameMasterScreen.tsx`, `components/gm/*`
+
+Full-screen dark-tablinum modal (`Ctrl+Shift+G`), equipped with `createFocusTrap` (`components/ui/focusTrap.ts`), `Escape`-to-close, and roving arrow-key navigation (`radioGroupKeyDown`).
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│ GAME MASTER TOOLS                                          ✕   │  ← close (no Escape key,
-│ ┌────────────────────────────────────────────────────────────┐ │     no focus trap)
-│ │ GM INTERVENTION                                            │ │
-│ │ "Add a directive for the AI to consider in the next        │ │
-│ │  turn's adjudication…"                                     │ │
-│ │ ┌────────────────────────────────────────────────────────┐ │ │
-│ │ │ [textarea] e.g. "A plague breaks out in the Suburra."  │ │ │
-│ │ └────────────────────────────────────────────────────────┘ │ │
-│ │ [Set Directive for Next Turn]   ✓ Directive Saved!         │ │  ← confirmation text
-│ └────────────────────────────────────────────────────────────┘ │     flashes for 3s
-│ SUMMARY│ENTITY STATES│ACTIONS│DELTAS│PRIVATE│RAW JSON          │  ← 6 tabs (own style,
-│ ┌────────────────────────────────────────────────────────────┐ │     different from S2b's)
-│ │ TURN 12                                (newest first)      │ │
-│ │  [active tab's content for this turn]                      │ │
-│ │ ────────────────────────────────────────────────────────── │ │
-│ │ TURN 11 …                                                  │ │
-│ └────────────────────────────────────────────────────────────┘ │
-└────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────┐
+│ THE FATES' LEDGER (GAME MASTER TOOLS)         [Export Eval Corpus]    [✕]  │
+│ ┌────────────────────────────────────────────────────────────────────────┐ │
+│ │ GM INTERVENTION (gated by D32 gmInterventionEnabled)                   │ │
+│ │ [textarea: inject directive into next turn's adjudication]  [Save]     │ │
+│ └────────────────────────────────────────────────────────────────────────┘ │
+│ Turn Selector Rail: [ Turn XIV (Latest) ▾ ]  Reign Seed: 0x8F4A...         │
+│ ────────────────────────────────────────────────────────────────────────── │
+│ SUMMARY │ WHAT CHANGED │ NARRATION │ ACTIONS │ PRIVATE │ GROUND TRUTH │    │
+│ NPC PERCEPTION │ RAW JSON │ FIXTURES │ TRUTH LEDGER │ PLAYER KNOWLEDGE     │
+│ ┌────────────────────────────────────────────────────────────────────────┐ │
+│ │ [Active Tab Inspector for Selected Turn (or Campaign-Wide Collection)] │ │
+│ │  e.g. Ground Truth vs. Player Perceived + [Strike the mould again]     │ │
+│ └────────────────────────────────────────────────────────────────────────┘ │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
-*(STALE — the tab row is now 7 tabs, not 6: a GROUND TRUTH tab was inserted between PRIVATE and
-RAW JSON. The `✕` close still has no Escape key/focus trap (still true), but the modal now carries
-`role="dialog"` `aria-modal="true"` — see UI_SYSTEMS_CURRENT_AND_FUTURE.md 10.1. The tab row also
-now has `role="tablist"`/`role="tab"` semantics, contrary to §6's Primitive Inventory below.)*
 
-Tab contents (each renders per-turn sections, newest first):
-| Tab | Content |
-|---|---|
-| SUMMARY | player intent (quoted) + generated narration |
-| ENTITY STATES | full post-turn dump per entity: status, location, resources, personality, skills, beliefs, secrets, active scheme (name/goal/steps), last 3 memories, relationship axes vs. every other entity |
-| ACTIONS | each NPC's adjudicated action this turn (id, intent, target, notes) |
-| DELTAS | structured state changes (type, key, delta value, reason) |
-| PRIVATE | GM-private notes from adjudication |
-| GROUND TRUTH *(SHIPPED, new)* | side-by-side of raw ground truth vs. what `perception/visibility.ts` would let the player perceive — auditing surface for the perception filter |
-| RAW JSON | collapsible per-call records of every AI call (call name, model, latency, attempt count, validated flag, prompt size, full raw response) + pretty-printed adjudication JSON |
+**The 11 Specialized GM Inspector Tabs (`TABS` in `GameMasterScreen.tsx`):**
 
-The intervention directive is consumed by the next turn's adjudication and then cleared.
-*(STALE — the GM console (this whole screen) is now hidden by default in every build; it opens via
-`Ctrl+Shift+G` or a dev-only Header checkbox, rather than always being reachable via a visible GM
-LOG button. See UI_SYSTEMS_CURRENT_AND_FUTURE.md 4.4.)*
+| # | Tab | Component | What It Inspects |
+|---|---|---|---|
+| 1 | `summary` | `SummaryView.tsx` | Player submission, generated narration, and `LatencyStrip` per pipeline stage |
+| 2 | `what changed` | `WhatChangedView.tsx` | Unified post-turn delta diff and full entity state snapshot for the selected turn |
+| 3 | `narration` | `NarrationView.tsx` | Schema-declared attribution audit and redaction inspection (`D42`) |
+| 4 | `actions` | `ActionsView.tsx` | AI Director spotlight selection, persistent `npcIntents`, and each NPC mind's private reasoning |
+| 5 | `private` | `PrivateView.tsx` | GM-private notes, raw `PrivateSceneGmView` records (`D39`), and pending intelligence fallout |
+| 6 | `ground truth` | `GroundTruthView.tsx` | Side-by-side raw ground truth vs. `perception/visibility.ts` player view, hidden d20 & composure rolls, and one-click deterministic seed replay (*"Strike the mould again"*, `D51`) |
+| 7 | `npc perception` | `NpcPerceptionView.tsx` | Exact bounded world slice (`perception/npcPerception.ts`, `D10`) each spotlight NPC saw |
+| 8 | `raw json` | `RawView.tsx` | Captured `RawCallRecord`s (model, latency, attempts, validation, prompt/response) + adjudication JSON |
+| 9 | `fixtures` | `FixturesView.tsx` | Exportable test/eval fixtures from live turns |
+| 10 | `truth ledger` | `TruthLedgerView.tsx` | Campaign-wide `D11` Truth Ledger (ground truth vs. what reports claimed) |
+| 11 | `player knowledge` | `PlayerKnowledgeView.tsx` | Campaign-wide `D21` player belief graph (`knowledge/store.ts`) |
 
 ---
 
-## S4. Event Modal (overlay)
+## S4. Event Modal (`components/EventModal.tsx`)
 
-File: `components/EventModal.tsx`. Dimmed backdrop; centered card (~max-w-2xl); decorative
-double red border. **Mandatory choice** — there is no close, Escape, or click-outside; the game
-stays in `AWAITING_EVENT_CHOICE` until an option is picked.
-
-```
-┌──────────────────────────────────────────────┐
-│            THE PRAETORIAN DEMAND             │  ← event title (display type)
-│ ──────────────────────────────────────────── │
-│   The Guard assembles before the palace…     │  ← description (centered prose)
-│                                              │
-│ ┌──────────────────────────────────────────┐ │
-│ │ Pay the donative                         │ │  ← choice card: bold title +
-│ │ Empty the treasury to buy their loyalty. │ │    one-line consequence hint;
-│ └──────────────────────────────────────────┘ │    whole card is the button;
-│ ┌──────────────────────────────────────────┐ │    border highlights on hover
-│ │ Refuse and address the men yourself      │ │
-│ │ Trust your oratory. Risk everything.     │ │
-│ └──────────────────────────────────────────┘ │
-└──────────────────────────────────────────────┘
-```
-
-Choosing applies the option's state deltas immediately, posts a GM chat message recording the
-choice, logs it to the Chronicle tab, and returns to `AWAITING_PLAYER_INPUT`. No probability,
-cost, or stakes metadata is displayed — only title + hint text. Entrance is the standard 0.5s
-fade (no special staging).
+Blocking modal (`role="dialog"`, `aria-modal="true"`, focus-trapped via `createFocusTrap`) for scripted fate events (`events/engine.ts`). Mandatory choice — no Escape/close until an option is selected; logs the choice to `ChronicleTab` (`The Fates` register).
 
 ---
 
-## S5. Error Boundary (full-screen)
+## S5. Error Boundary (`components/ErrorBoundary.tsx`) & S6. Epilogue Screen (`components/EpilogueScreen.tsx`)
 
-File: `components/ErrorBoundary.tsx`. Replaces the entire app on a render crash.
-
-```
-┌──────────────────────────────────────────────┐
-│            THE REPUBLIC ENDURES              │
-│  A fracture appeared in the chronicle and    │
-│  the scene could not be rendered. Your       │
-│  progress is not lost…                       │
-│ ┌──────────────────────────────────────────┐ │
-│ │ <error.message, monospace, small>        │ │
-│ └──────────────────────────────────────────┘ │
-│         [ Restore Last Save ]                │  ← label falls back to
-└──────────────────────────────────────────────┘     "Reload" when no save exists
-```
-
-The button reloads the page; with an autosave present, the player lands on S1a's
-"Continue Your Reign" card.
-
-**Related in-chat error surfaces** (not separate screens): transient AI failure → GM-voice
-bubble ("The courier was waylaid — the Fates offer another chance.") plus the Retry button and
-restored input; fatal AI failure → GM-voice bubble containing the real error detail, with the
-action restored to the input. In both cases game state is rolled back to the pre-turn snapshot.
+- **S5 (`ErrorBoundary.tsx`):** Full-screen render-crash recovery ("The Republic Endures") with **Restore Last Save** / Reload.
+- **S6 (`EpilogueScreen.tsx`):** Rendered when `GameState === GAME_OVER` (player death). Displays an AI-generated Tacitus-style obituary stele (with a deterministic fallback epitaph in Mock Mode or offline), reign statistics, inferred ambition, and a **Begin a New Reign** button.
 
 ---
 
-## 6. Primitive Inventory
+## 6. Primitive Inventory (October 2026)
 
-Every reusable widget pattern the current UI contains — the vocabulary a holistic redesign
-needs to cover. Near-duplicates are noted (today several of these exist as multiple hand-rolled
-variants rather than shared components).
-
-| Primitive | Where it appears today | Current behavior/notes |
+| Primitive | Implementation | Behavior & Accessibility |
 |---|---|---|
-| Panel / card surface | every tab card, chat bubbles, modals (`.roman-stone-panel`) | translucent stone texture, inset shadow, slight blur |
-| Buttons | Send, Select, Reveal, Continue, Retry, GM Log, links | several ad-hoc red/stone/dark variants; shared hover-lift animation; disabled = grey |
-| Pill button | ActionPills | staggered slide-up entrance; hover swaps to red |
-| Tab bar | side panel (6 tabs) and GM screen (6 tabs) | two different hand-rolled styles; text-only labels; no ARIA tablist roles; no change indicators *(STALE — side panel is now 7 tabs, GM screen is now 7 tabs; both now carry `role="tablist"`/`role="tab"`/`aria-selected`; side panel tabs now have a per-tab pulse change-indicator (`perception/visibility.ts`). Still text-only, no icons.)* |
-| Modal / dialog | GM screen, EventModal | hand-rolled fixed overlays; no focus trap, no Escape; EventModal is intentionally unskippable *(PARTIALLY STALE — both now render `role="dialog"` `aria-modal="true"`; still hand-rolled, still no focus trap or Escape on either)* |
-| Meter / bar | TrustBar | −10…+10 mapped to fill % with green/grey/red thresholds; value in a `title` attribute |
-| Badge | CredibilityBadge | 3 severity levels + percentage, color-coded pill; region stability uses colored text instead |
-| Stat row | ResourcesTab | label + tooltip left, bold value right; array values as quoted truncated lines; no units/caps/deltas |
-| Info tooltip | InfoTooltip "?" icons | hover-only CSS bubble; no touch or keyboard support |
-| Glossary term | GlossaryTooltip | dotted underline, hover bubble with description + external Wikipedia link |
-| Typing / progress indicator | TypingIndicator | 3 bouncing dots + rotating themed copy; single generic stage |
-| Expandable list item | Events headlines, EntityDetails, RAW JSON `<details>` | three different disclosure implementations |
-| Empty state | every tab | themed copy, text only |
-| Inline error text | forms, chat error bubbles | red text (forms); GM-voice bubble (chat) |
-| Destructive confirm | "Start anew" | native `window.confirm()` |
-| Transient confirmation | "Directive Saved!" | text appears for 3 s |
+| Card & Panel surfaces | `components/ui/Core.tsx` (`Card`), `design/components.css` | Tokenized `LVX` stone/papyrus and `NOX Romae` obsidian surfaces |
+| Buttons & ActionPills | `components/ui/Core.tsx` (`Button`), `components/ui/Game.tsx` (`ActionPill`) | Shared variants, reduced-motion aware, high-contrast focus rings |
+| Tab bars & SubRails | `SidePanel.tsx` (7 tabs), `GameMasterScreen.tsx` (11 tabs), `components/ui/SubRail.tsx` | Full `role="tablist"`/`role="tab"`/`aria-selected`/`aria-controls` + roving arrow-key navigation (`rovingRadio.ts`); `SidePanel` tabs carry **gold coin change-count badges** (`tabChangeCountsFor`) |
+| Accessible Dialogs | `GameMasterScreen`, `EventModal`, `SettingsMenu`, `CommandPalette`, `PrivateSceneSheet`, `NarrationLogSheet` | `role="dialog"`, `aria-modal="true"`, `createFocusTrap` (`components/ui/focusTrap.ts`), and `Escape`-to-close (except mandatory `EventModal`) |
+| Marks, Ties & Signs | `components/ui/Marks.tsx` (`MarkList`, `TieList`, `SignList`) | Displays perceived outward marks (`D48`), open/learned secret ties (`D49`), and witnessed composure tells (`D50`) |
+| Economic & Coin Meters | `Header.tsx` (5-pip grade meter), `dramatisPersonaeUi.tsx` (`CoinPips`) | Non-color redundant pip meters (`events/stabilityVocabulary.ts`) |
+| Inline Glossary Marginalia | `DramatisPersonaeTab.tsx` (`❧ Glossary`), `GlossaryTooltip.tsx` | Keyboard-accessible inline marginalia disclosures + tooltips |
+| Stage & Streaming Progress | `TypingIndicator`, `StreamingNarrationBubble` | Driven by `TurnStage` pipeline callbacks and streaming chunks |
+| Empty Register Silhouettes | `components/tabs/EmptyRegister.tsx` | Bespoke SVG silhouettes + actionable hints per register |
 
-**Motion vocabulary:** fade-in entrances (0.5 s), button hover-lift + active press, staggered
-pill slide-up (50 ms increments), tooltip fade+rise, bouncing dots. No
-`prefers-reduced-motion` handling.
+---
 
-## 7. Structural Facts a Redesign Inherits
+## 7. Core Architectural Invariants Reflected in the UI
 
-Neutral constraints and characteristics of the current system, listed so a holistic redesign
-starts from ground truth:
-
-1. **The chat stream is the core surface.** The game is a conversational loop with 30–60 s
-   AI-processed turns; every other surface is instrumentation around it.
-2. **Four message roles exist in the data** (GM, player, monologue, system/error) but only
-   three visual voices — system messages borrow the GM style.
-   *(STALE — the data model's `sender` union is `'player' | 'gm' | 'player_monologue' | 'ribbon'`;
-   a `'ribbon'` role shipped with its own fourth voice, a decorative turn divider, see S2a above.)*
-3. **Uncertain and hidden information are gameplay primitives**: credibility-scored reports,
-   trust meters, and "[Unknown] → Reveal (cost)" paywalled intel appear throughout.
-4. **Resource-gated actions** are a recurring pattern: the cost is printed on the button and
-   the button disables when unaffordable.
-5. **Fixed-viewport desktop layout**: the page never scrolls; panes scroll internally;
-   there is no responsive breakpoint, and modals are sized in viewport percentages.
-6. **Overlays layer over a live session** — no navigation ever unmounts the game.
-7. **Accessibility present today**: `aria-live` message stream, `aria-label`s on inputs,
-   `role="alert"` banner. Absent today: dialog semantics/focus traps, tablist roles,
-   keyboard tooltip access, non-color severity redundancy, reduced-motion support.
-   *(PARTIALLY STALE — `role="dialog"`/`aria-modal` now present on both modals; `role="tablist"`/
-   `role="tab"` now present on both tab bars. Still absent: focus traps, Escape-to-close, keyboard
-   tooltip access, non-color severity redundancy. Reduced-motion is now respected for the
-   SidePanel tab-pulse animation specifically, not audited elsewhere.)*
-8. **Planned-but-unbuilt surfaces** (empty files or roadmap items that a new design system
-   will be asked to cover next): a world-state/"drama meter" tab, a relationship map tab, a
-   game-over/epilogue screen, persistent NPC dossiers, a rumor feed, and a settings surface —
-   see `UI_SYSTEMS_CURRENT_AND_FUTURE.md` Part II.
-   *(Status per item, July 2026 — **world-state/"drama meter" tab**: SHIPPED, see
-   `components/tabs/WorldStateTab.tsx` and Tab 0 in S2b above. **Relationship map tab**: still
-   unbuilt — `RelationshipsTab.tsx` remains a 0-byte, unimported file; now committed for Phase 4B
-   as interpretation+hearsay only (`roadmaps/DESIGN_DECISIONS.md` D13,
-   `roadmaps/ROADMAP_PHASE_4.md`). **Game-over/epilogue screen**: SHIPPED, see
-   `components/EpilogueScreen.tsx` and `GameState.GAME_OVER`. **Persistent NPC dossiers**: still
-   unbuilt — Dramatis Personae intel is still component-local state (see S2b Tab 4). **Rumor
-   feed**: still unbuilt. **Settings surface**: SHIPPED as the consolidated configuration menu
-   (D31/D43, `components/SettingsMenu.tsx`) — pacing, lighting, GM toggles, API key, and the
-   dev-only Mock Mode / GM-console switches all live there; the floating chrome is gone.)*
+1. **The Chronicle + Structured Composer is the primary turn surface.** Players can write free-form decrees or expand the **Structured Tablet** (`Order` + `Private Intent` + `Inquiries`), hold 1-on-1 **Private Audiences** (`D39`), and listen to acted TTS performances (`narration/`).
+2. **Four stream voices (`gm`, `player`, `player_monologue`, `ribbon`)** plus the perception-filtered **Dispatches Digest** (`DispatchesDigest.tsx`) structure every week in the Chronicle.
+3. **Information asymmetry is strictly enforced in code (`D5`, `D11`, `D13`, `D25`, `D26`):** No player-facing component ever reads hidden ground truth, numeric relationship axes, or numeric credibility percentages. The player's 7 registers render strictly from `perception/visibility.ts` and `knowledge/store.ts`.
+4. **The Fates' Ledger (`Ctrl+Shift+G`) is the single omniscient surface (`D7`):** Its 11 tabs expose ground truth vs. player belief, bounded NPC perception, the Truth Ledger, seed replay verification (`D51`), and eval-corpus export.
+5. **Responsive Desktop & Mobile Diptych:** Desktop (`>= 768px`) renders the 2/3 + 1/3 split; mobile (`< 768px`) renders two horizontally swipeable scroll-snap leaves (`design/shell.css`).
+6. **WCAG AA Contrast, Keyboard Navigation & Motion Safety:** Pinned by `tests/colorContrast.test.ts`, `focusTrap.ts`, `rovingRadio.ts`, `CommandPalette.tsx` (`Ctrl+K`), and `ReadingSettings.tsx`.

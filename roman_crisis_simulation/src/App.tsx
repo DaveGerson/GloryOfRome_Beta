@@ -188,7 +188,7 @@ const App: React.FC = () => {
     } = usePrivateSceneController({
         ai, isMockMode, online,
         privateScenes: state.privateScenes,
-        playerEntity, entities, privateSceneKnownIds, knowledge, turnNumber,
+        playerEntity, entities, worldState, privateSceneKnownIds, knowledge, turnNumber,
         privateSceneInteractionLocked,
         runDomainMutation, commitDomainMutation, buildSaveState,
         privateSceneLockRef, privateScenesRef,
@@ -513,7 +513,7 @@ const App: React.FC = () => {
                                                         // Whichever composer is mounted — `#chat-input`
                                                         // does not exist in structured mode, where this
                                                         // used to dismiss the notice and focus nothing.
-                                                        document.querySelector<HTMLElement>('#chat-input, #structured-input')?.focus();
+                                                        focusComposer();
                                                     }}
                                                     onOpenSettings={openSettings}
                                                     onEnableMockMode={() => {

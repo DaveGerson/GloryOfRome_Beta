@@ -56,11 +56,19 @@ describe('ai/tools/ambition.ts', () => {
 
       const player = makePlayer({
         voice: 'FORBIDDEN_VOICE_6T2',
-        epithet: 'FORBIDDEN_EPITHET_6T2',
+        epithet: 'PUBLIC_EPITHET_6T2',
         status: 'exiled',
         location: 'FORBIDDEN_LOCATION_6T2',
         personality: { ambition: 91, paranoia: 92, loyalty: 93, cunning: 94, honor: 95 },
         faction_id: 'FORBIDDEN_FACTION_6T2',
+        affiliations: [
+          { id: 'stoics', name: 'the Stoics', kind: 'cause', public: true },
+          { id: 'secret_cult', name: 'FORBIDDEN_SECRET_TIE_6T2', kind: 'religion', public: false },
+        ],
+        conditions: [
+          { id: 'scar', name: 'a battle scar', description: 'FORBIDDEN_MARK_ACCOUNT_6T2', outward: true, severity: 'serious', since_turn: 1 },
+          { id: 'grief', name: 'FORBIDDEN_INWARD_MARK_6T2', description: 'FORBIDDEN_INWARD_ACCOUNT_6T2', outward: false, severity: 'grave', since_turn: 1 },
+        ],
         size: 9876,
         culture: { FORBIDDEN_CULTURE_6T2: ['FORBIDDEN_CULTURE_VALUE_6T2'] },
         faction_members: ['FORBIDDEN_MEMBER_6T2'],
@@ -131,6 +139,9 @@ describe('ai/tools/ambition.ts', () => {
         name: 'Severus Alexander',
         entityType: 'individual',
         position: 'Emperor',
+        epithet: 'PUBLIC_EPITHET_6T2',
+        publicAffiliations: ['the Stoics'],
+        outwardConditions: ['a battle scar (serious)'],
       }, null, 2));
       expect(call.contents).toContain('OBSERVABLE_AMBITION_ACTION_6T2');
       expect(call.contents).toContain('PUBLIC_HEADLINE_6T2');
@@ -140,7 +151,10 @@ describe('ai/tools/ambition.ts', () => {
         'PRIVATE_AMBITION_FORBIDDEN_6T2',
         'QUESTION_AMBITION_FORBIDDEN_6T2',
         'FORBIDDEN_VOICE_6T2',
-        'FORBIDDEN_EPITHET_6T2',
+        'FORBIDDEN_SECRET_TIE_6T2',
+        'FORBIDDEN_MARK_ACCOUNT_6T2',
+        'FORBIDDEN_INWARD_MARK_6T2',
+        'FORBIDDEN_INWARD_ACCOUNT_6T2',
         'exiled',
         'FORBIDDEN_LOCATION_6T2',
         'FORBIDDEN_FACTION_6T2',

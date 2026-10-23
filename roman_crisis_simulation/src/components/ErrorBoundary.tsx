@@ -48,7 +48,7 @@ const DANGER_ARM_MS = 300;
  * render crash, so the escape must never fire on a single accidental press.
  */
 class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  state: ErrorBoundaryState;
+  override state: ErrorBoundaryState;
 
   private armTimer: ReturnType<typeof setTimeout> | null = null;
   private escapeRef = React.createRef<HTMLButtonElement>();
@@ -68,11 +68,11 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
     };
   }
 
-  componentWillUnmount(): void {
+  override componentWillUnmount(): void {
     if (this.armTimer !== null) clearTimeout(this.armTimer);
   }
 
-  componentDidCatch(error: Error, info: React.ErrorInfo): void {
+  override componentDidCatch(error: Error, info: React.ErrorInfo): void {
     // Keep the full error + component stack in the console for diagnosis -
     // the fallback UI below only shows the player a short summary.
     console.error('ErrorBoundary caught a render error:', error, info.componentStack);
@@ -116,7 +116,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
     window.location.reload();
   };
 
-  render(): React.ReactNode {
+  override render(): React.ReactNode {
     const { error, confirmAbandon } = this.state;
     if (!error) {
       return this.props.children;

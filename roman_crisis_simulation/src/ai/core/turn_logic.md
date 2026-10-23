@@ -1,118 +1,181 @@
 # **Turn Structure and Mechanics: A Deep Dive**
 
-> ## ⚠️ STALE DOCUMENT
-> This walkthrough predates the resolution layer (hidden action rolls),
-> the mortality pipeline, the Director's persistent intents, the per-turn
-> NPC mind calls, the perception/knowledge layers, and the pipeline's
-> parallelized legs — its step ordering and its "6–7 Gemini calls per
-> turn" accounting no longer match the code. **The accurate pipeline
-> record is `ai/prompts/README.md`** (one entry per call, in order, with
-> models and consumers); `ai/core/turn.ts`'s own comments document the
-> exact stage sequence. The prose below is kept for the player-implication
-> commentary only.
+The core of **Realmweaver — The Glory of Rome (235 CE)** is its turn-based simulation engine (`ai/core/turn.ts::runNewTurn`), where each turn simulates one tumultuous week in Rome. A turn is not a simple "player move, computer move" sequence. Instead, it is an 8-stage pipeline where the player's action is weighed by deterministic dice, spotlight NPCs deliberate from their own bounded perceptions, an omniscient AI Game Master adjudicates the collision of wills, code-side gates enforce mortality and information asymmetry, and the player's belief graph commits atomically.
 
-The core of the Roman Crisis Simulation is its turn-based engine, where each turn simulates one tumultuous week in Rome. A turn is not just a simple "player move, computer move" sequence. Instead, it's a comprehensive simulation where the player's actions happen concurrently with the schemes and reactions of every other character in the world. This creates a dynamic and unpredictable narrative.
+For the prompt-by-prompt inventory (builders, Zod/Gemini schemas, and rules), see `ai/prompts/README.md`.
 
-Here is a detailed, step-by-step breakdown of how a single turn unfolds, both mechanically and from a player's perspective.
+---
 
-### **1\. The Player's Action (The Intent)**
+## **End-to-End Turn Pipeline (`runNewTurn` + `useExecuteTurn`)**
 
-It all begins with you. You type your action for the week into the input box—this is your **Intent**.
+```mermaid
+flowchart TD
+    Input["1. Player Submission (Chat or Structured)<br/>projectSubmission() + deriveTurnSeed(reignSeed, turnNumber) [D37, D51]"]
+    
+    subgraph Stage0 ["2. Pre-Turn Parallel Stage [TurnStage: story_relevance]"]
+        Director["Director: getStoryRelevance (GEMINI_PRO)<br/>2-4 spotlights + durable spotlight_intents [4C.3]"]
+        Assess["Action Assessment: getActionAssessment (GEMINI_FLASH)<br/>is_consequential, skill, difficulty (5-25), opposition"]
+    end
 
-* **Mechanics**: The text you enter is captured by the main App.tsx component. This string of text is the primary input that will shape the entire turn's simulation. It's stored as the playerIntent variable.  
-* **Player Implication**: The clarity and specificity of your intent matter significantly. "I will host a lavish banquet for influential senators to win their favor" provides the AI with more context and direction than "Talk to the Senate." The more detailed your intent, the more nuanced and logical the simulation's response can be. Think of yourself as giving orders to a subordinate; the better the order, the better the execution.
+    Roll["3. Deterministic Action Roll (resolution.ts)<br/>1st draw from turnRng: rollD20 + skill + personality + opposition vs clamped DC"]
+    
+    Minds["4. Bounded Spotlight NPC Minds [TurnStage: npc_minds]<br/>Promise.all up to MAX_MINDS_PER_TURN (GEMINI_FLASH)<br/>Sees ONLY NPC's own self-brief, perceived digest, memories & public world [D10, D30]"]
+    
+    Adjudicate["5. Main Adjudication [TurnStage: adjudication]<br/>buildAdjudicationPrompt -> generateStructured (GEMINI_PRO)<br/>Pre-decided action tier + mind decisions -> AdjudicationInterchange (with D42 actors)<br/>enforceNoAttemptBoundary -> attributeHeadlines -> stripActors -> foldMindSchemeDeltas"]
+    
+    Mortality["6. Mortality Pipeline [TurnStage: mortality, conditional]<br/>processMortality (mortality.ts) [D2, D3, D4]<br/>Gate 1: mortalityValidation (GEMINI_PRO) -> Gate 2: hidden d20 roll -> Gate 3: mortalityOutcome (GEMINI_PRO)"]
+    
+    Apply["7. Pure Engine Application & Perception Stamp (engine.ts)<br/>applyAdjudication: applies deltas (resources, relations, status, rumors, schemes, conditions [D48], affiliations [D49])<br/>Updates GM Truth Ledger [D11] & stamps bounded NPC memories [D5, D10]"]
+    
+    subgraph Stage5 ["8. Player Surfaces Stage (Parallel Promise.all)"]
+        SimState["getUpdatedSimulationState (GEMINI_PRO)<br/>[TurnStage: simulation_state]"]
+        Monologue["getPlayerMonologue (GEMINI_FLASH)<br/>[TurnStage: monologue]"]
+        Narration["Composure Rolls (composure.ts) [D50] -> Streamed Narration (GEMINI_PRO)<br/>[TurnStage: narration] generateStructuredStream + createPayloadTextExtractor<br/>narrationStreamGate -> playerVisibleStreamGate -> screenNarrationSigns"]
+    end
 
-### **2\. Context Compilation & Story Relevance**
+    Commit["9. Atomic Commit & Post-Turn Hooks (useExecuteTurn.ts & App.tsx)<br/>noAttemptEvidenceSelection (if question-only) + getRelationshipObservations (GEMINI_FLASH)<br/>computeTurnKnowledge (knowledge/store.ts) [D21, D29] + saveGame (localStorage) -> checkForTriggeredEvent (events/engine.ts)"]
 
-Before simulating the week, the game determines which characters are most central to the unfolding drama and gathers all the necessary information for the AI Game Master.
+    Input --> Stage0
+    Director --> Minds
+    Assess --> Roll
+    Roll --> Adjudicate
+    Minds --> Adjudicate
+    Adjudicate --> Mortality
+    Mortality --> Apply
+    Apply --> Stage5
+    Stage5 --> Commit
+```
 
-* **Mechanics**: The runNewTurn function in ai/core/turn.ts makes its first call to the Gemini AI using the getStoryRelevance function (ai/tools/intelligence.ts), on the **gemini-3-pro-preview** model. It sends the previous turn's public headlines and the current WorldState (e.g., political climate is 'Volatile'). The AI responds by identifying 2-4 "spotlight entities"—characters whose actions are most likely to drive the story forward this week—and may also suggest adding/removing an entity or location to keep the world evolving. Subsequently, the compileContext function assembles a massive text prompt. This "World Bible" includes:  
-  * The current WorldState.  
-  * Detailed profiles of every Entity, including their personality, goals, relationships, and resources. Spotlight NPCs are explicitly marked as "proactive."  
-  * A summary of the last six turns to provide historical context.  
-  * A `Meta-Narrative` string. This is a high-level directive (e.g., 'An imperial succession crisis' or 'A gothic horror story') that guides the AI's tonal and thematic choices throughout the simulation, ensuring consistency.  
-  * And, crucially, your **Intent** for the current turn.  
-* **Player Implication**: This is a key feature that makes the world feel alive. It means that major NPCs aren't just waiting for you to act; they are actively pursuing their own goals. If your rival, Maximinus Thrax, is in the spotlight, you can expect him to make a significant move this turn, regardless of what you do. Your action is also placed into the context of the entire world; the AI will judge it not in a vacuum, but based on who you are, who your allies and enemies are, and the current political climate.
+---
 
-### **3\. Proactive NPC Simulation**
+## **Step-by-Step Walkthrough**
 
-The AI Game Master receives the "World Bible" and begins the simulation. The first phase is to determine what the most important NPCs do on their own initiative.
+### **1. The Player's Submission & Seed Derivation (`projectSubmission` & D51)**
 
-* **Mechanics**: This is the first part of the main adjudication call to Gemini (on the **gemini-3-pro-preview** model, with `thinkingConfig.thinkingBudget: 1024`). The AI is specifically instructed to look at the "spotlight" NPCs and, based on their personality and active\_scheme, decide on a proactive course of action for the week. For example, if Maximinus Thrax's scheme is to "undermine the Emperor," he might independently decide to spread propaganda or attempt to bribe a guard captain.  
-* **Player Implication**: The world moves without you. This phase ensures that plots are always in motion and that the political situation can change even if you choose to do nothing. It prevents the game from becoming a simple reactive sandbox and makes it feel like a living, breathing world.
+It all begins when you submit your week's turn from the tablet composer — either in **Chat** mode (freeform prose) or **Structured** mode (explicit observable actions, addressed messages/orders to known recipients, private intent, and questions/context).
 
-### **4\. Player Action Adjudication & NPC Reactions**
+* **Mechanics**: `hooks/useExecuteTurn.ts` normalizes your input into a versioned `TurnSubmission` (`playerInput/turnSubmission.ts`, D37) and projects it into audience-specific views (`projectSubmission` in `ai/core/turn.ts`) so each downstream stage sees only what it is allowed to see (for example, a question-only or private-intent-only turn hands `observableAttempt: null` to the adjudicator so it can never fabricate an avatar action). At the same time, the turn's deterministic random generator (`turnRng`) is initialized from `deriveTurnSeed(reignSeed, turnNumber)` (`ai/core/resolution.ts`, D51). Every hidden d20 rolled during the turn — action resolution, mortality saves, and composure checks — draws from this single seeded generator in a fixed order.
+* **Player Implication**: Specificity matters, and the distinction between *observable actions*, *private intent*, and *questions* is enforced in code. If you only ask a question or harbor a private thought, the world still advances around you (D46), but the Game Master is mechanically barred from inventing public conduct on your behalf. And because your turn's dice are fixed by `reignSeed` and the turn number (D51), a network drop or page reload never rerolls your luck — retrying a turn replays the exact same dice.
 
-In the second phase of the simulation, the AI adjudicates the outcome of your action and simulates how *all* other characters react to it, as well as to the proactive moves from the previous step.
+---
 
-* **Mechanics**: Still within the same Gemini call, the AI now focuses on your playerIntent. It determines the likely success and consequences of your action. It then simulates the reactions of every relevant NPC. A senator might be pleased by your banquet, while a rival might become suspicious.  
-* **Player Implication**: This is where the direct consequences of your actions are calculated. Your action is just one of many inputs into a complex system. You might try to win over the Senate, but if Maximinus Thrax's proactive move was to intimidate those same senators, the outcome might be a net loss of stability. This is where emergent storytelling truly happens.
+### **2. Pre-Turn Parallel Stage: The Director & Action Assessment (`story_relevance`)**
 
-A critical part of this simulation is strategic adaptation. The AI doesn't just execute pre-written plans. If an NPC's `active_scheme` is completed, becomes impossible, or is simply no longer the best strategic option due to the turn's events, the AI is empowered to generate a completely new scheme for that character. This is reflected in the final `Adjudication` object as a `scheme` delta, ensuring that characters are constantly re-evaluating their long-term strategies in response to the player and the world.
+Before simulating the week, `runDirectorStage` launches two independent pre-turn calls concurrently via `Promise.all` under the `story_relevance` stage notification, costing zero extra wall-clock time over a single call.
 
-### **5\. State Adjudication (The "Source Code" of the Turn)**
+* **Mechanics**:
+  1. **The Director (`getStoryRelevance`, `GEMINI_PRO`)**: Receives last turn's public headlines, the current `WorldState`, the living NPC roster (with each character's `active_scheme` and recent perception-filtered `memories`), and the previous turn's committed `npcIntents`. It picks 2–4 **spotlight entities** to drive the drama this week, emits `spotlight_intents` (`{ entity_id, intent, continuity: 'continue' | 'pivot' | 'new' }`, filtered and capped by `selectDurableIntents`), and may suggest world evolution (`add_entities`, `remove_entities`, `add_locations`).
+  2. **Action Assessment (`getActionAssessment`, `GEMINI_FLASH`)**: Runs concurrently whenever your submission contains an observable attempt (skipped for question-only or private-only turns). It classifies whether your attempt is consequential (`is_consequential`), its `action_category`, the relevant skill (`'oratory' | 'strategy' | 'intrigue' | null`), a `difficulty` (clamped in code to 5–25), and an `opposing_entity_id`.
+* **Player Implication**: Major NPCs do not wait passively for you to act; the Director carries their agendas across turns. Meanwhile, the assessor determines whether your move is routine conversation or a high-stakes gamble against a rival's strengths.
 
-The AI's simulation is complete. It doesn't return a story; instead, it returns a highly structured JSON object called the Adjudication. This object is the raw, mechanical "source code" of the turn's events.
+---
 
-* **Mechanics**: The Adjudication object, defined by ai/core/schemas.ts, is the sole output of the main Gemini call. It contains:  
-  * entityActions: A log of the key actions taken by NPCs (e.g., maximinus\_thrax \-\> propaganda).  
-  * deltas: An array of all the atomic state changes that result from all actions (e.g., severus\_alexander:denarii decreases by 5000; relationship\_trust between you and the Senate increases by 2).  
-  * headlines: A list of the major, publicly known events of the week.  
-  * gm\_private: Secret events or information known only to the Game Master (and visible in the GM screen).  
-* **Player Implication**: This behind-the-scenes data structure is what ensures the game's logic is consistent and transparent. Every change to the world is explicitly recorded before it is turned into a narrative.
+### **3. Deterministic Action Resolution (`resolvePlayerAction`)**
 
-### **5.5. Meta-Narrative State Update**
+**Code decides WHETHER you succeed; the model only decides HOW it unfolds.**
 
-Immediately after the Adjudication JSON comes back, the game updates a separate, high-level tracker of the empire's overall condition, before any deltas are applied to individual entities.
+* **Mechanics**: If `actionAssessment.is_consequential` is true, `resolvePlayerAction` draws the **first** hidden `rollD20(ctx.turnRng)` of the turn and passes it to `resolveAction` (`ai/core/resolution.ts`). Code computes:
+  $$\text{total} = \text{d20} + \text{skill} + \text{personalityModifier} + \text{oppositionModifier}$$
+  where `oppositionModifier` reads the opposing entity's directional relationship toward you (`perceived_threat` raises their guard; `trust_level` eases it). Comparing `total` against the clamped `difficulty` yields one of five coarse outcome tiers: `critical_failure`, `failure`, `partial_success`, `success`, or `critical_success`. The tier is injected into the adjudication prompt's `PLAYER ACTION OUTCOME` block and recorded on `TurnHistoryEntry.resolutionTrace` (and as a `[Resolution]` `gm_private` note) for the GM console only (D4).
+* **Player Implication**: Your character's skills (`oratory`, `strategy`, `intrigue`), personality traits, and the relationships you've cultivated have real teeth. Courting a paranoid senator who views you as a threat is mechanically harder than persuading a trusted ally, even though raw dice numbers never clutter your prose.
 
-* **Mechanics**: The runNewTurn function calls getUpdatedSimulationState (ai/tools/intelligence.ts), on the **gemini-3-pro-preview** model. It sends the previous SimulationState plus the turn's headlines and a sample of the deltas, and asks the AI to return a new SimulationState object with fields like imperial\_status ('Stable' | 'Contested' | 'Vacant'), senate\_status, military\_status, plebeian\_mood, and major\_ongoing\_crisis. The AI is instructed with hard rules (e.g., if an emperor was killed, imperial\_status MUST become 'Vacant').  
-* **Player Implication**: This is the empire's "big picture" health bar, distinct from any single entity's stats. It's what lets the game recognize when a Civil War or Succession Crisis has begun, even before that reality is reflected in any one character's sheet.
+---
 
-### **6\. State Application (Making It Real)**
+### **4. Bounded Spotlight NPC Minds (`npc_minds`, D10 / D22 / D30)**
 
-The game's code now takes the AI's Adjudication plan and executes it, permanently changing the game world.
+Before the omniscient Game Master adjudicates the week, each living spotlight NPC gets to think for themselves in character.
 
-* **Mechanics**: The applyAdjudication function in ai/core/engine.ts iterates through every delta in the Adjudication object and applies the changes to the entities and worldState objects being managed in App.tsx. Resources are updated, relationships shift, statuses change, and new reports (from rumors) are created.  
-* **Player Implication**: This is the point of no return. The consequences of the week's events are now locked in. Your resources have been spent, your reputation has changed, and the world has moved on. You can see these new values reflected in the Side Panel tabs.
+* **Mechanics**: `runNpcMindsStage` selects up to `MAX_MINDS_PER_TURN` living spotlight NPCs (`selectMindEntities`) and calls `getNpcMindDecision` (`GEMINI_FLASH`) for all of them in a single `Promise.all`.
+  * **Strict Information Asymmetry (`buildMindSelfBrief`)**: Each mind prompt receives **only** what that NPC could plausibly know — their own personality, skills, beliefs, secrets, `voice`/`epithet`, `conditions` (D48), and `affiliations` (D49); their own `active_scheme` and Director intent; their own `memories` and private-scene memories; their own viewer-filtered digest of last week's events (`buildPerceivedDigest` from *their* vantage); the outward marks and open ties of figures in their view (`figuresInViewOf`); and public headlines. Another character's secrets, schemes, inward marks, or `secret_truth` never enter a mind prompt.
+  * **Mind-Owned Scheme Evolution (D30)**: Each mind returns `chosen_action`, `method`, `private_reasoning`, and an optional `scheme_adjustment`. After adjudication, `foldMindSchemeDeltas` converts any `scheme_adjustment` into a committed `'scheme'` delta (`evolveSchemeFromAdjustment`), superseding any competing adjudicator `'scheme'` delta for that same character. If an individual mind call fails, it degrades softly with a `[Mind]` `gm_private` note and falls back to the Director's intent.
+* **Player Implication**: Rivals can be fooled, act on incomplete intelligence, or pivot their long-term schemes behind closed doors based on what they personally witnessed or heard in a private audience with you.
 
-### **7\. Narrative Generation (Crafting the Story)**
+---
 
-The game world is updated, but you, the player, see numbers and stats. The simulation now translates these mechanical changes into a compelling narrative, in two more sequential Gemini calls.
+### **5. Main Adjudication & The No-Attempt Boundary (`adjudication`, D42 / D46)**
 
-* **Mechanics**:  
-  1. **Player Monologue** (called first): getPlayerMonologue (ai/tools/intelligence.ts), on the **gemini-2.5-flash** model. It sends your *updated* character profile (with new resources, relationships, etc.), this week's headlines, and your last few turns' intents, asking the AI to generate a brief, first-person inner thought reflecting your character's personality and recent strategy.  
-  2. **Main Narration** (called second): A direct `ai.models.generateContent` call inline in runNewTurn, on the **gemini-3-pro-preview** model (`thinkingConfig.thinkingBudget: 512`). It sends the entire Adjudication object plus your updated character profile and asks the AI to write a 2-3 paragraph story summarizing the turn from your perspective (direct consequences → observed/reported events → sourced information), followed by exactly 3 "SUGGESTION:"-prefixed next actions, which are parsed out of the response text.  
-* **Player Implication**: This is how the game communicates the results to you. Instead of just seeing "-5000 denarii," you read a story about the crippling cost of the grain dole you authorized. The monologue gives you insight into your character's evolving state of mind, enhancing your future decisions.
+The omniscient AI Game Master now synthesizes the entire week into a single structured `Adjudication`.
 
-### **8\. Event Check (Checking for Fateful Events)**
+* **Mechanics**: `runAdjudicationStage` builds the master prompt (`buildAdjudicationPrompt`), weaving together the `WorldState`, `SimulationState`, `Meta-Narrative`, pacing posture (D23) and ripe historical event material (D24), your submission and pre-decided `playerActionOutcome`, the spotlight `npcIntents` and `npcMindDecisions` (`chosen_action` + `method`), any closed private audience (`privateSceneAdjudicatorProjection`), and the truth behind any filed blackmail (`deriveLeverageTruth`, D47). It calls `generateStructured` on `GEMINI_PRO` (`thinkingBudget: 1024`, `temperature: 0.8`), validated against `AdjudicationSchema` / `zAdjudication`.
+  * **Schema-Declared Attribution & Boundary Gate (D42)**: Every prose field in the raw `AdjudicationInterchange` (`headlines`, delta `reason`, `entityActions.notes`) carries an `actors: string[]` declaration naming whose conduct it narrates. `enforceNoAttemptBoundary` checks structural invariants (`assertNoInventedPlayerAction` — failing closed on illegal player-owned deltas on a no-attempt turn while permitting world-originated changes on the player per D46) and redacts any invented player prose via declaration + flat tripwire (`redactInventedPlayerProse`).
+  * **Headline Attribution Record (D42 / D47)**: Before `stripActorsFromAdjudication` removes the interchange-only `actors` arrays, `declaredHeadlines` captures which entities were declared behind each post-redaction headline (`TurnHistoryEntry.headlineActors`), grounding later "Who is behind it?" and "Who gains?" inquiries on the Events tab.
+* **Player Implication**: The Adjudication is the mechanical "source code" of the week — atomic `EventDelta`s, NPC `entityActions`, public `headlines`, and `gm_private` notes — ensuring that every narrative beat is backed by auditable state changes.
 
-Finally, with the new state of the world in place, the game checks if this new reality has triggered any special, pre-scripted events.
+---
 
-* **Mechanics**: The checkForTriggeredEvent function in events/engine.ts runs. It checks the list of GameEvents from constants/events.ts. Each event has a trigger condition (e.g., worldState.economic\_stability \=== 'Crisis'). If the conditions are met for an event that hasn't happened yet, the game state is paused, and the EventModal is displayed.  
-* **Player Implication**: This adds another layer of narrative richness. Your actions might not just have immediate consequences but could push the world state over a threshold that triggers a major crisis, like a grain shortage or a military mutiny, forcing you to make a difficult and impactful choice.
+### **6. The Mortality Pipeline (`mortality`, D2 / D3 / D4)**
 
-### **Summary of Gemini AI Calls Per Turn**
+**The model never decides death.** Every death in `adjudication.deltas` is treated as a *claim* (`new_status: 'dead'`) that must pass code-side gates in `ai/core/mortality.ts::processMortality` before state is applied.
 
-A single player turn (`runNewTurn` in `ai/core/turn.ts`) makes a variable number of Gemini calls because the assessment and per-spotlight NPC mind calls are conditional. The main adjudication is the sole authority for turn consequences, including directional relationship deltas. `isMockMode` bypasses the provider calls via `mockRunNewTurn`.
+* **Mechanics**: When `detectDeathClaims` finds one or more death deltas, `runMortalityStage` fires `onStage('mortality')` and processes each claim:
+  1. **Gate 1 — Independent Validation (`mortalityValidation`, `GEMINI_PRO`)**: A dedicated validator checks whether the claimed death was earned by prior setup, vulnerability, and context (`valid: boolean`). Vetoed claims are stripped (preserving prior status) and logged in `mortalityTrace` without touching the dice.
+  2. **Gate 2 — Hidden Fate Roll (`rollD20(ctx.turnRng)`)**: Validated claims draw the next d20 from `turnRng`.
+     * **Player Death Save (`resolvePlayerDeathSave`, D2)**: `1–5` `dies` (game over), `6–10` `survive_with_loss` (validated loss deltas: removed hard asset and/or new condition per D48), `11–17` `survive`, `18–20` `survive_with_boon`.
+     * **NPC Fate Table (`resolveNpcFate`, D3)**: `1–12` `confirmed_dead`, `13–15` `gravely_wounded`, `16–18` `presumed_dead` (public `status: 'dead'`, but `secret_truth: { actually_alive: true, hidden_since_turn, motive }` attached in code), `19–20` `escapes_openly`.
+  3. **Gate 3 — Pre-Decided Outcome Dressing (`mortalityOutcome`, `GEMINI_PRO`)**: For bands that require consequence deltas or a survival directive (`survive_with_loss`, `survive_with_boon`, `gravely_wounded`, `presumed_dead`, `escapes_openly`), the model authors bounded deltas and a one-line narration directive for the already-settled band.
+* **Player Implication**: Neither you nor major NPCs can be killed off by an arbitrary AI whim. If you survive an assassination attempt with a loss, you bear a real scar or lost holding (D48); if a rival rolls *presumed dead*, the whole Empire mourns them while they plot their return in secret.
 
-1.  **getStoryRelevance** — *gemini-3-pro-preview*  
-   * **Purpose**: Determine which 2-4 NPCs are the primary drivers of the story for this turn (and optionally suggest adding/removing an entity or location).  
-   * **Context Included**: Previous turn's headlines, current WorldState (political climate, etc.), turn number.  
-   * **Result Usage**: The "spotlight entities" are woven into the main prompt (compileContext) to instruct the AI to simulate proactive actions for them, and reused in Step 4 below.  
-2.  **Main Adjudication Call** — *gemini-3-pro-preview* (`thinkingBudget: 1024`)  
-   * **Purpose**: Simulate the entire week's events — proactive spotlight-NPC actions, the consequences of the player's intent, and every other NPC's reaction — as a single structured `Adjudication` JSON object (schema in ai/core/schemas.ts).  
-   * **Context Included**: The complete "World Bible" from compileContext — all Entity data, WorldState, recent history, the player's intent, the Meta-Narrative theme, and Step 1's spotlight entities.  
-   * **Result Usage**: Parsed into the `Adjudication` object used by every subsequent step.  
-3.  **getUpdatedSimulationState** — *gemini-3-pro-preview*  
-   * **Purpose**: Update the empire-wide `SimulationState` (imperial\_status, senate\_status, military\_status, plebeian\_mood, major\_ongoing\_crisis) based on the Adjudication's headlines and deltas.  
-   * **Result Usage**: Returned SimulationState is stored as-is; this happens before `applyAdjudication` mutates entities/world state.  
-   * *(Non-AI step in between: `applyAdjudication`/`applyDeltas` mechanically apply all of the Adjudication's deltas to entities, worldState, and reports.)*  
-4.  **getPlayerMonologue** — *gemini-2.5-flash*
-   * **Purpose**: Generate a brief first-person inner thought for the player character.  
-   * **Context Included**: The player's *updated* Entity profile, this turn's headlines, and the player's last few turns' intents.  
-   * **Result Usage**: Displayed to the player as the "Inner Thoughts" monologue.  
-5.  **Main Narration Call** (inline `ai.models.generateContent`, not a named tool function) — *gemini-3-pro-preview* (`thinkingBudget: 512`)
-   * **Purpose**: Turn the Adjudication JSON into a 2-3 paragraph narrative plus exactly 3 suggested next actions.  
-   * **Context Included**: The full Adjudication object and the player's updated Entity profile.  
-   * **Result Usage**: Split on the `SUGGESTION:` marker into the displayed narration text and the 3 suggested-action prompts.  
-After all of this, `runNewTurn` returns and App.tsx commits the results, increments its own `turnNumber` state, and then `checkForTriggeredEvent` (events/engine.ts, Step 8 above) runs — a synchronous, non-AI check.
+---
+
+### **7. Pure State Application, Truth Ledger & Perception (`applyTurnState`, D5 / D11 / D48 / D49)**
+
+With mortality settled, the pure engine applies the week's deltas to the world.
+
+* **Mechanics**: `applyAdjudication` (`ai/core/engine.ts`) iterates through `transformedAdjudication.deltas` and produces updated `entities`, `worldState`, `reports`, and `truthLedger`:
+  * Updates `resource` (including `lost_item` hard-asset removal, D48, and bankruptcy creditor dependency, D6), directional `relation` (`A:B:attribute` modifies only A's view of B), `status` (`new_status` / `new_location`), `region`, `faction`, `world`, `scheme`, `condition` (`add`/`deepen`/`ease`/`heal`, outward vs. inward, D48), and `affiliation` (`join`/`leave`/`go_public`/`expose`, open vs. secret, D49).
+  * Converts `rumor` deltas into player-visible `Report`s (carrying `source`, `credibility`, `topic`, and `stance`, D29) while writing the ground-truth `is_true` and `origin_id` disposition into the GM-private `TruthLedgerEntry[]` (D11).
+  * Stamps perception-filtered memories (`perception/visibility.ts::buildPerceivedDigest`) onto a bounded set of perceiving NPCs (spotlight cast first, D10), recording `perceivingNpcIds` on the history entry.
+* **Player Implication**: Every change is now locked into the simulation's ground truth — yet you and each NPC will only learn the slice of those changes your own eyes and spy networks could reach.
+
+---
+
+### **8. Parallel Player Surfaces: Simulation State, Monologue, Composure & Streamed Narration (`runPlayerSurfacesStage`, D42 / D50)**
+
+Once `applyTurnState` completes, `runPlayerSurfacesStage` launches three calls **concurrently via `Promise.all`**:
+
+* **Mechanics**:
+  1. **Empire Simulation State (`getUpdatedSimulationState`, `GEMINI_PRO`, `simulation_state`)**: Updates macro trackers (`imperial_status`, `senate_status`, `military_status`, `plebeian_mood`, `major_ongoing_crisis`, `crisis_severity`), gated for D42 `actors` before stripping.
+  2. **Player Inner Monologue (`getPlayerMonologue`, `GEMINI_FLASH`, `monologue`)**: Generates a brief first-person reflection from your updated profile, your own marks and ties, this week's public headlines (plus open ties of figures named in them, D49), and your recent intents (`zPlayerMonologuePayload`).
+  3. **Composure Rolls & Streamed Narration (`GEMINI_PRO`, `narration`)**:
+     * **Perception Filter (D5)**: `buildPlayerPerceivedDigest` filters the turn's deltas down to `{ text, source }` items you could actually perceive (`self`, `witnessed`, `network`, `public`). Raw deltas, `gm_private`, `secret_truth`, and NPC inward marks never enter the narration prompt.
+     * **Composure Rolls (`ai/core/composure.ts`, D50)**: Living individuals standing in the same location who interacted with you this turn (`figuresPresentWith`) roll one hidden d20 from `turnRng` (immediately after mortality rolls) for each of their inward marks and secret ties (`holds` / `frays` / `breaks`). Only subjects that frayed or broke are handed to the narrator under opaque handles (`buildComposureBlock`).
+     * **Structured JSON Streaming (`streamSplit.ts`, D42)**: Narration runs as a single `generateStructuredStream` call (`NarrationPayloadSchema` / `zNarrationPayload`: `{ text, actors, signs? }`). As raw JSON chunks arrive, `createPayloadTextExtractor` incrementally decodes the `"text"` prefix in sub-millisecond time and pipes it through `createNarrationStreamGate` (hiding trailing `SUGGESTION:` lines) and `createPlayerVisibleStreamGate` (halting on any mechanics leak) straight to `onNarrationChunk`.
+     * **Post-Join Screening**: When `Promise.all` settles, prose redaction gates run, `splitNarrationSuggestions` extracts the 3 suggested actions (filtered by `filterFeasibleSuggestedActions`), and `screenNarrationSigns` validates any composure `signs` against `buildTellScreen` (dropping all signs if a boundary gate rewrote the narration prose, `narrationSignsToKeep`).
+* **Player Implication**: You watch the chronicle stream onto the tablet in real time, grounded strictly in what your character perceived, complete with subtle behavioral tells ("Signs seen") when a present NPC's composure frays or breaks.
+
+---
+
+### **9. Atomic Commit, Knowledge Graph & Event Check (`useExecuteTurn.ts` & `events/engine.ts`)**
+
+After `runNewTurn` returns `RunNewTurnResult`, `hooks/useExecuteTurn.ts` finishes the transaction before anything is shown as final.
+
+* **Mechanics**:
+  * For question-only turns, `buildNoAttemptPlayerResponse` (`ai/tools/noAttemptResponse.ts`, `GEMINI_FLASH`) selects existing evidence IDs from your knowledge store to answer your question without inventing facts.
+  * `getRelationshipObservations` (`ai/tools/relationshipObservations.ts`, `GEMINI_FLASH`) selects cited, player-safe relationship observations from this week's perceived evidence (skipped gracefully if offline).
+  * `computeTurnKnowledge` (`knowledge/commit.ts`) ingests the perceived digest, reports, relationship observations, outward marks/ties, and screened composure signs into the **Player Knowledge Graph** (`knowledge/store.ts`, D21/D29).
+  * `useCampaignTransactions` writes the updated state and `reignSeed` to `localStorage` (`persistence/saveGame.ts`) and dispatches `TURN_COMMITTED` to `state/gameReducer.ts` atomically — or rolls back cleanly on failure, keeping your draft in the composer (D45).
+  * Every 3rd committed turn, `getAmbitionInference` (`ai/tools/ambition.ts`, `GEMINI_FLASH`) fires asynchronously in the background for the GM console (D8).
+  * Finally, `checkForTriggeredEvent` (`events/engine.ts`) evaluates whether the new `WorldState` / `SimulationState` triggers an authored `GameEvent` (respecting `stabilityVocabulary.ts` grades and repeatable cooldowns).
+* **Player Implication**: Your Personae dossiers, Rumor Feed, and Chronicle update in lockstep with your autosave, and crossing a political or economic threshold can immediately confront you with a fateful event modal.
+
+---
+
+## **Summary of Gemini AI Calls Per Turn**
+
+All calls route through `ai/core/geminiService.ts` (`GEMINI_PRO` and `GEMINI_FLASH` both resolve to `gemini-3.8-flash`, with automatic GA fallback `gemini-pro-latest` for pro calls). `isMockMode` bypasses network calls via `mockRunNewTurn`.
+
+| Order | Call Name | Model Tier | Execution | Purpose |
+|---|---|---|---|---|
+| **1a** | `storyRelevance` | `GEMINI_PRO` | Parallel (`Promise.all` with 1b) | Director: selects 2–4 spotlight NPCs, durable `spotlight_intents` (`continue`/`pivot`/`new`), and world-evolution suggestions. |
+| **1b** | `assessment` | `GEMINI_FLASH` | Parallel (`Promise.all` with 1a; skipped if no observable attempt) | Classifies whether the player's observable attempt is consequential, its skill, difficulty (5–25), and opposing entity. |
+| **2** | `npcMind:<id>` | `GEMINI_FLASH` | Parallel (`Promise.all`, up to `MAX_MINDS_PER_TURN`; conditional) | In-character decision (`chosen_action`, `method`, `private_reasoning`, `scheme_adjustment`) from that NPC's bounded knowledge only (D10/D30). |
+| **3** | `adjudication` | `GEMINI_PRO` (`thinkingBudget: 1024`) | Sequential | Simulates the week's collision of actions using the pre-decided action roll tier and NPC mind decisions; emits `AdjudicationInterchange` with D42 `actors`. |
+| **4a** | `mortalityValidation` | `GEMINI_PRO` | Sequential per death claim (conditional) | Gate 1 of `processMortality`: dispositions whether a claimed death was earned (`valid: boolean`) before any mortality die is rolled (D2/D3). |
+| **4b** | `mortalityOutcome` | `GEMINI_PRO` | Sequential per validated claim needing content (conditional) | Gate 3 of `processMortality`: authors bounded deltas and a survival/fate directive for the code-rolled mortality band. |
+| **5a** | `updatedSimulationState` | `GEMINI_PRO` | Parallel (`Promise.all` with 5b & 5c) | Updates empire-level macro statuses (`imperial_status`, `senate_status`, `military_status`, `plebeian_mood`, `major_ongoing_crisis`). |
+| **5b** | `playerMonologue` | `GEMINI_FLASH` | Parallel (`Promise.all` with 5a & 5c; skipped on no-attempt) | Generates the player's first-person inner thought (`zPlayerMonologuePayload`). |
+| **5c** | `narration` | `GEMINI_PRO` (`thinkingBudget: 512`, streamed) | Parallel (`Promise.all` with 5a & 5b; skipped on no-attempt without player mortality) | Streams the player-perceived chronicle, 3 `SUGGESTION:` actions, D42 `actors`, and optional D50 composure `signs` (`zNarrationPayload`). |
+| **6a** | `noAttemptEvidenceSelection` | `GEMINI_FLASH` | Post-`runNewTurn` in `useExecuteTurn` (question-only turns) | Selects existing knowledge-store evidence IDs to answer a player's question without inventing new facts. |
+| **6b** | `relationshipObservations` | `GEMINI_FLASH` | Post-`runNewTurn` in `useExecuteTurn` (before commit) | Extracts cited, provenance-backed relationship observations from player-safe turn evidence (D29/D44). |
+| **7** | `ambitionInference` | `GEMINI_FLASH` | Fire-and-forget after every 3rd committed turn | Infers the player's apparent ambition for the GM console only (D8). |
+| **Opt.** | `narrationPerformance` → `narrationVoice` | `GEMINI_NARRATION_PREP` → `GEMINI_TTS` | On-demand or `auto` after commit | Converts the committed narration into an `<angle-bracket>` acted script and performs it as WAV audio (`narration/`). |

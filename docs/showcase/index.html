@@ -1,0 +1,2304 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="nox">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Realmweaver — The Glory of Rome (235 CE) | Interactive Architecture Atlas</title>
+  <style>
+    /* ==========================================================================
+       1. SELF-HOSTED LATIN TYPOGRAPHY (@font-face)
+       Loads actual woff2 files from design/fonts/ with public/fonts/ & serif fallbacks
+       ========================================================================== */
+    @font-face {
+      font-family: 'Cinzel';
+      font-style: normal;
+      font-display: swap;
+      font-weight: 400 900;
+      src: url('../../roman_crisis_simulation/src/design/fonts/cinzel-latin-wght-normal.woff2') format('woff2'),
+           url('../../roman_crisis_simulation/src/public/fonts/cinzel-latin.woff2') format('woff2');
+    }
+    @font-face {
+      font-family: 'Cinzel Decorative';
+      font-style: normal;
+      font-display: swap;
+      font-weight: 700 900;
+      src: url('../../roman_crisis_simulation/src/design/fonts/cinzel-decorative-latin-700-normal.woff2') format('woff2'),
+           url('../../roman_crisis_simulation/src/public/fonts/cinzel-decorative-latin.woff2') format('woff2');
+    }
+    @font-face {
+      font-family: 'EB Garamond';
+      font-style: normal;
+      font-display: swap;
+      font-weight: 400 800;
+      src: url('../../roman_crisis_simulation/src/design/fonts/eb-garamond-latin-wght-normal.woff2') format('woff2'),
+           url('../../roman_crisis_simulation/src/public/fonts/eb-garamond-latin.woff2') format('woff2');
+    }
+    @font-face {
+      font-family: 'EB Garamond';
+      font-style: italic;
+      font-display: swap;
+      font-weight: 400 800;
+      src: url('../../roman_crisis_simulation/src/design/fonts/eb-garamond-latin-wght-italic.woff2') format('woff2'),
+           url('../../roman_crisis_simulation/src/public/fonts/eb-garamond-italic-latin.woff2') format('woff2');
+    }
+
+    /* ==========================================================================
+       2. DUAL IMPERIAL DESIGN TOKENS: NOX ROMAE (DARK) & LVX (MARBLE DAY)
+       ========================================================================== */
+    :root,
+    [data-theme="nox"] {
+      --bg-surface: #0c0b0e;
+      --bg-elevated: #151319;
+      --bg-inset: #09080b;
+      --bg-card-hover: #1d1a24;
+      --bg-glass: rgba(21, 19, 25, 0.88);
+      --text-primary: #efe8d8;
+      --text-secondary: #c8bda6;
+      --text-muted: #958972;
+      --gold-bright: #d4af37;
+      --gold-rule: #c59b27;
+      --gold-dim: rgba(212, 175, 55, 0.25);
+      --gold-glow: rgba(212, 175, 55, 0.12);
+      --crimson: #8b1e1e;
+      --crimson-bright: #d94e43;
+      --crimson-bg: rgba(139, 30, 30, 0.22);
+      --tyrian: #6c3483;
+      --tyrian-bright: #bb8fce;
+      --tyrian-bg: rgba(108, 52, 131, 0.22);
+      --laurel: #3b7a57;
+      --laurel-bright: #68b888;
+      --laurel-bg: rgba(59, 122, 87, 0.2);
+      --bronze: #b87333;
+      --border-outer: rgba(197, 155, 39, 0.42);
+      --border-inner: rgba(197, 155, 39, 0.18);
+      --shadow-card: 0 10px 30px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(212, 175, 55, 0.12);
+      --code-bg: #08070a;
+      --code-text: #e6dcc8;
+    }
+
+    [data-theme="lvx"] {
+      --bg-surface: #f6f1e7;
+      --bg-elevated: #ebe3d3;
+      --bg-inset: #e0d6c1;
+      --bg-card-hover: #e3d9c4;
+      --bg-glass: rgba(246, 241, 231, 0.92);
+      --text-primary: #1f1912;
+      --text-secondary: #3f3528;
+      --text-muted: #695942;
+      --gold-bright: #8c6d1f;
+      --gold-rule: #8c6d1f;
+      --gold-dim: rgba(140, 109, 31, 0.32);
+      --gold-glow: rgba(140, 109, 31, 0.1);
+      --crimson: #7a1c1c;
+      --crimson-bright: #8b1e1e;
+      --crimson-bg: rgba(122, 28, 28, 0.12);
+      --tyrian: #5e2246;
+      --tyrian-bright: #5e2246;
+      --tyrian-bg: rgba(94, 34, 70, 0.12);
+      --laurel: #2e5a36;
+      --laurel-bright: #2e5a36;
+      --laurel-bg: rgba(46, 90, 54, 0.12);
+      --bronze: #8c6d1f;
+      --border-outer: rgba(140, 109, 31, 0.5);
+      --border-inner: rgba(140, 109, 31, 0.24);
+      --shadow-card: 0 6px 20px rgba(36, 28, 17, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+      --code-bg: #201b14;
+      --code-text: #f3ede0;
+    }
+
+    :root {
+      --font-display: 'Cinzel', 'Trajan Pro', Georgia, serif;
+      --font-epic: 'Cinzel Decorative', 'Cinzel', Georgia, serif;
+      --font-body: 'EB Garamond', Garamond, Georgia, serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background-color: var(--bg-surface);
+      color: var(--text-primary);
+      font-family: var(--font-body);
+      font-size: 18px;
+      line-height: 1.6;
+      transition: background-color 0.25s ease, color 0.25s ease;
+      overflow-x: hidden;
+    }
+
+    /* Engraved Roman Double-Rule Borders & Containers */
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 0 1.5rem;
+    }
+
+    .roman-card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-outer);
+      box-shadow: var(--shadow-card);
+      border-radius: 4px;
+      position: relative;
+      padding: 1.5rem;
+      transition: transform 0.18s ease, border-color 0.18s ease;
+    }
+
+    .roman-card::before {
+      content: '';
+      position: absolute;
+      inset: 3px;
+      border: 1px solid var(--border-inner);
+      pointer-events: none;
+      border-radius: 2px;
+    }
+
+    /* Top Masthead & Theme Toggle */
+    .masthead {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--bg-glass);
+      backdrop-filter: blur(12px);
+      border-bottom: 2px solid var(--gold-rule);
+      padding: 0.7rem 0;
+    }
+
+    .masthead-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.9rem;
+      text-decoration: none;
+      color: var(--text-primary);
+    }
+
+    .brand-medallion {
+      width: 46px;
+      height: 46px;
+      border-radius: 50%;
+      border: 1.5px solid var(--gold-bright);
+      object-fit: cover;
+      box-shadow: 0 0 14px var(--gold-dim);
+    }
+
+    .brand-title {
+      font-family: var(--font-epic);
+      font-size: 1.2rem;
+      letter-spacing: 0.08em;
+      color: var(--gold-bright);
+      text-transform: uppercase;
+      line-height: 1.15;
+    }
+
+    .brand-subtitle {
+      font-family: var(--font-display);
+      font-size: 0.72rem;
+      letter-spacing: 0.14em;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+
+    .masthead-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    .kbd-hint {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      background: var(--bg-inset);
+      border: 1px solid var(--border-inner);
+      padding: 0.25rem 0.55rem;
+      border-radius: 3px;
+    }
+
+    .theme-toggle {
+      font-family: var(--font-display);
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      padding: 0.45rem 0.95rem;
+      border-radius: 3px;
+      border: 1px solid var(--gold-bright);
+      background: var(--gold-glow);
+      color: var(--gold-bright);
+      cursor: pointer;
+      transition: all 0.18s ease;
+    }
+
+    .theme-toggle:hover {
+      background: var(--gold-bright);
+      color: var(--bg-surface);
+    }
+
+    /* Hero Banner */
+    .hero {
+      padding: 2.75rem 0 1.75rem;
+      text-align: center;
+      border-bottom: 1px solid var(--border-inner);
+      background: radial-gradient(ellipse at top, var(--gold-glow) 0%, transparent 70%);
+    }
+
+    .hero-medallion {
+      width: 96px;
+      height: 96px;
+      border-radius: 50%;
+      border: 2px solid var(--gold-bright);
+      box-shadow: 0 0 28px var(--gold-dim);
+      margin-bottom: 1rem;
+      cursor: pointer;
+      transition: transform 0.25s ease;
+    }
+
+    .hero-medallion:hover {
+      transform: scale(1.06);
+    }
+
+    .hero-eyebrow {
+      font-family: var(--font-display);
+      font-size: 0.82rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--gold-bright);
+      margin-bottom: 0.4rem;
+    }
+
+    .hero h1 {
+      font-family: var(--font-epic);
+      font-size: clamp(1.9rem, 3.8vw, 3.1rem);
+      letter-spacing: 0.06em;
+      color: var(--text-primary);
+      margin-bottom: 0.65rem;
+    }
+
+    .hero-lead {
+      max-width: 840px;
+      margin: 0 auto 1.8rem;
+      font-size: 1.2rem;
+      color: var(--text-secondary);
+      font-style: italic;
+    }
+
+    .hero-lead strong {
+      color: var(--gold-bright);
+      font-style: normal;
+    }
+
+    /* Live Metrics Ribbon */
+    .metrics-ribbon {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 1rem;
+      margin-top: 1.2rem;
+    }
+
+    .metric-card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-outer);
+      padding: 1rem 1.15rem;
+      border-radius: 4px;
+      text-align: left;
+      position: relative;
+    }
+
+    .metric-value {
+      font-family: var(--font-display);
+      font-size: 1.35rem;
+      font-weight: 800;
+      color: var(--gold-bright);
+      letter-spacing: 0.04em;
+    }
+
+    .metric-label {
+      font-family: var(--font-display);
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-primary);
+      margin-top: 0.15rem;
+    }
+
+    .metric-sub {
+      font-size: 0.88rem;
+      color: var(--text-muted);
+      margin-top: 0.25rem;
+    }
+
+    /* Section Tab Bar */
+    .section-nav {
+      display: flex;
+      gap: 0.45rem;
+      overflow-x: auto;
+      padding: 1rem 0;
+      border-bottom: 1px solid var(--border-outer);
+      margin-bottom: 2rem;
+    }
+
+    .nav-tab {
+      font-family: var(--font-display);
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 0.65rem 1rem;
+      border: 1px solid var(--border-inner);
+      background: var(--bg-elevated);
+      color: var(--text-secondary);
+      border-radius: 3px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.18s ease;
+    }
+
+    .nav-tab:hover {
+      border-color: var(--gold-bright);
+      color: var(--text-primary);
+    }
+
+    .nav-tab.active {
+      background: linear-gradient(135deg, var(--crimson) 0%, #5a1212 100%);
+      color: #fff8e7;
+      border-color: var(--gold-bright);
+      box-shadow: 0 0 15px var(--crimson-bg);
+    }
+
+    .atlas-section {
+      display: none;
+      animation: fadeIn 0.24s ease;
+      padding-bottom: 4rem;
+    }
+
+    .atlas-section.active {
+      display: block;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .section-header {
+      margin-bottom: 1.75rem;
+      border-left: 4px solid var(--gold-bright);
+      padding-left: 1.1rem;
+    }
+
+    .section-eyebrow {
+      font-family: var(--font-display);
+      font-size: 0.78rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--gold-bright);
+    }
+
+    .section-title {
+      font-family: var(--font-display);
+      font-size: clamp(1.45rem, 2.5vw, 2.1rem);
+      color: var(--text-primary);
+      letter-spacing: 0.04em;
+      margin: 0.2rem 0 0.4rem;
+    }
+
+    .section-desc {
+      color: var(--text-secondary);
+      font-size: 1.08rem;
+      max-width: 960px;
+    }
+
+    /* Badges & Pills */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-family: var(--font-mono);
+      font-size: 0.73rem;
+      padding: 0.18rem 0.55rem;
+      border-radius: 3px;
+      border: 1px solid var(--border-inner);
+      background: var(--bg-inset);
+      color: var(--text-secondary);
+    }
+
+    .badge-gold {
+      background: var(--gold-glow);
+      border-color: var(--gold-bright);
+      color: var(--gold-bright);
+    }
+
+    .badge-crimson {
+      background: var(--crimson-bg);
+      border-color: var(--crimson-bright);
+      color: var(--crimson-bright);
+    }
+
+    .badge-tyrian {
+      background: var(--tyrian-bg);
+      border-color: var(--tyrian-bright);
+      color: var(--tyrian-bright);
+    }
+
+    .badge-laurel {
+      background: var(--laurel-bg);
+      border-color: var(--laurel-bright);
+      color: var(--laurel-bright);
+    }
+
+    /* Grids & Comparison Tables */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+      gap: 1.35rem;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.25rem;
+    }
+
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(275px, 1fr));
+      gap: 1.1rem;
+    }
+
+    .comparison-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.25rem 0;
+      font-size: 0.98rem;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-outer);
+    }
+
+    .comparison-table th,
+    .comparison-table td {
+      padding: 0.9rem 1.05rem;
+      border: 1px solid var(--border-inner);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .comparison-table th {
+      font-family: var(--font-display);
+      font-size: 0.8rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      background: var(--bg-inset);
+      color: var(--gold-bright);
+    }
+
+    .comparison-table tr.clickable-row {
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    .comparison-table tr.clickable-row:hover,
+    .comparison-table tr.clickable-row.selected {
+      background: var(--gold-glow);
+    }
+
+    /* Pipeline Stepper */
+    .pipeline-stepper {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+      gap: 0.65rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .stage-btn {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-outer);
+      padding: 0.85rem 0.75rem;
+      border-radius: 4px;
+      text-align: left;
+      cursor: pointer;
+      transition: all 0.18s ease;
+      color: var(--text-primary);
+    }
+
+    .stage-btn:hover {
+      border-color: var(--gold-bright);
+      transform: translateY(-2px);
+    }
+
+    .stage-btn.active {
+      background: linear-gradient(160deg, var(--crimson-bg), var(--gold-glow));
+      border: 1.5px solid var(--gold-bright);
+      box-shadow: 0 0 18px var(--gold-dim);
+    }
+
+    .stage-num {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--gold-bright);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      display: block;
+    }
+
+    .stage-name {
+      font-family: var(--font-display);
+      font-size: 0.85rem;
+      font-weight: 700;
+      margin-top: 0.2rem;
+      display: block;
+    }
+
+    .code-block {
+      background: var(--code-bg);
+      color: var(--code-text);
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      line-height: 1.5;
+      padding: 1.05rem;
+      border-radius: 4px;
+      border: 1px solid var(--border-outer);
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* Filter Bar */
+    .filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.55rem;
+      align-items: center;
+      margin-bottom: 1.35rem;
+    }
+
+    .filter-pill {
+      font-family: var(--font-display);
+      font-size: 0.75rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 0.45rem 0.85rem;
+      border: 1px solid var(--border-outer);
+      background: var(--bg-elevated);
+      color: var(--text-secondary);
+      border-radius: 3px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .filter-pill.active,
+    .filter-pill:hover {
+      background: var(--gold-bright);
+      color: var(--bg-surface);
+      border-color: var(--gold-bright);
+      font-weight: 700;
+    }
+
+    .search-input {
+      margin-left: auto;
+      background: var(--bg-inset);
+      border: 1px solid var(--border-outer);
+      color: var(--text-primary);
+      font-family: var(--font-body);
+      font-size: 0.95rem;
+      padding: 0.42rem 0.85rem;
+      border-radius: 3px;
+      min-width: 240px;
+    }
+
+    /* Gallery & Lightbox */
+    .gallery-card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-outer);
+      border-radius: 4px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: transform 0.2s ease, border-color 0.2s ease;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .gallery-card:hover {
+      transform: translateY(-3px);
+      border-color: var(--gold-bright);
+    }
+
+    .gallery-card img {
+      width: 100%;
+      height: 220px;
+      object-fit: cover;
+      object-position: top center;
+      border-bottom: 1px solid var(--border-inner);
+    }
+
+    .gallery-card-body {
+      padding: 1rem 1.15rem;
+    }
+
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      z-index: 999;
+      background: rgba(6, 5, 8, 0.92);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+
+    .lightbox.open {
+      display: flex;
+    }
+
+    .lightbox-content {
+      max-width: 1200px;
+      width: 100%;
+      background: var(--bg-elevated);
+      border: 2px solid var(--gold-bright);
+      border-radius: 6px;
+      overflow: hidden;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.85);
+    }
+
+    .lightbox-img-wrap {
+      max-height: 76vh;
+      overflow: auto;
+      background: #050507;
+      text-align: center;
+    }
+
+    .lightbox-img-wrap img {
+      max-width: 100%;
+      height: auto;
+      display: block;
+      margin: 0 auto;
+    }
+
+    .lightbox-footer {
+      padding: 1rem 1.4rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      border-top: 1px solid var(--border-outer);
+    }
+
+    footer {
+      border-top: 2px solid var(--gold-rule);
+      padding: 2rem 0;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.92rem;
+    }
+
+    @media (max-width: 768px) {
+      .grid-2, .grid-3, .grid-4 {
+        grid-template-columns: 1fr;
+      }
+      .search-input {
+        width: 100%;
+        margin-left: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- STICKY IMPERIAL MASTHEAD -->
+  <header class="masthead">
+    <div class="container masthead-inner">
+      <a href="#top" class="brand">
+        <img src="../ui-refresh/11-logo-closeup.png" alt="Realmweaver Italia Medallion" class="brand-medallion" />
+        <div>
+          <div class="brand-title">Realmweaver · Glory of Rome</div>
+          <div class="brand-subtitle">235 CE Interactive Engineering &amp; Architecture Atlas</div>
+        </div>
+      </a>
+      <div class="masthead-controls">
+        <span class="kbd-hint" title="Keyboard Shortcuts">Keys: [1–6] Sections · [T] Theme · [Esc] Close</span>
+        <button id="themeToggleBtn" class="theme-toggle" type="button" aria-label="Switch between NOX Romae and LVX themes">
+          ☾ NOX Romae
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- HERO & LIVE METRICS RIBBON -->
+  <section id="top" class="hero">
+    <div class="container">
+      <img
+        src="../ui-refresh/11-logo-closeup.png"
+        alt="Italia Medallion"
+        class="hero-medallion"
+        onclick="openLightbox('../ui-refresh/11-logo-closeup.png', 'Italia Medallion Crest — Self-Hosted Roman Emblem (`docs/ui-refresh/11-logo-closeup.png`)')"
+      />
+      <div class="hero-eyebrow">Client-Side Multi-Agent Historical Simulation Engine</div>
+      <h1>“Code Decides <em>Whether</em>, AI Decides <em>How</em>”</h1>
+      <p class="hero-lead">
+        An interactive architectural deep-dive into <strong>Realmweaver — The Glory of Rome (235 CE)</strong>:
+        where reign-seeded deterministic resolution (<code>mulberry32</code>), code-enforced information asymmetry,
+        and bounded autonomous NPC minds meet dramatic multi-agent storytelling and acted TTS performance.
+      </p>
+
+      <div class="metrics-ribbon">
+        <div class="metric-card">
+          <div class="metric-value">21 AI Call Roles</div>
+          <div class="metric-label">Bounded Multi-Agent Architecture</div>
+          <div class="metric-sub"><code>gemini-3.8-flash</code> + <code>gemini-3.8-flash-tts</code> across 16 prompt modules</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value">8-Stage Pipeline</div>
+          <div class="metric-label">Transactional Turn Execution</div>
+          <div class="metric-sub"><code>ai/core/turn.ts::runNewTurn</code> with atomic rollback &amp; <code>0.7ms</code> stream extraction</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value">51 Rulings (D1–D51)</div>
+          <div class="metric-label">Binding Architectural Laws</div>
+          <div class="metric-sub">Information firewall, two-gate mortality, lasting marks (<code>D48</code>), ties (<code>D49</code>) &amp; composure (<code>D50</code>)</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value">3,100+ Unit Tests</div>
+          <div class="metric-label">&amp; 18 Full Campaign Journeys</div>
+          <div class="metric-sub">136 test suites + offline deterministic &amp; 5-axis LLM-Judge evaluation harness</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MAIN INTERACTIVE ATLAS WORKSPACE -->
+  <main class="container">
+    <nav class="section-nav" role="tablist" aria-label="Architecture Atlas Sections">
+      <button class="nav-tab active" role="tab" aria-selected="true" data-tab="sec-thesis">I. The Realmweaver Thesis</button>
+      <button class="nav-tab" role="tab" aria-selected="false" data-tab="sec-pipeline">II. 8-Stage Turn Pipeline</button>
+      <button class="nav-tab" role="tab" aria-selected="false" data-tab="sec-agents">III. 21 AI Roles &amp; Prompts</button>
+      <button class="nav-tab" role="tab" aria-selected="false" data-tab="sec-firewall">IV. Perception Firewall Simulator</button>
+      <button class="nav-tab" role="tab" aria-selected="false" data-tab="sec-domain">V. Embodied Characters &amp; Knowledge Graph</button>
+      <button class="nav-tab" role="tab" aria-selected="false" data-tab="sec-gallery">VI. Visual UI &amp; Fates' Ledger Gallery</button>
+    </nav>
+
+    <!-- ======================================================================
+         SECTION I: THE REALMWEAVER THESIS
+         ====================================================================== -->
+    <section id="sec-thesis" class="atlas-section active" role="tabpanel">
+      <div class="section-header">
+        <div class="section-eyebrow">Section I · Architectural Philosophy</div>
+        <h2 class="section-title">The Realmweaver Thesis: Solving the Strategy-vs-Storytime Paradox</h2>
+        <p class="section-desc">
+          Click any architectural dimension below to inspect how Realmweaver bridges rigid strategy spreadsheets and unbounded LLM chat sandboxes through deterministic code seams.
+        </p>
+      </div>
+
+      <table class="comparison-table" id="thesisTable">
+        <thead>
+          <tr>
+            <th>Dimension</th>
+            <th>1. Traditional Strategy Spreadsheets</th>
+            <th>2. Unbounded LLM Chatbots</th>
+            <th>3. Realmweaver Hybrid Simulation Engine</th>
+          </tr>
+        </thead>
+        <tbody id="thesisTableBody"></tbody>
+      </table>
+
+      <div class="grid-2" style="margin-top: 1.5rem;">
+        <div class="roman-card" id="thesisDeepDiveCard">
+          <!-- Populated dynamically when clicking a row -->
+        </div>
+        <div class="roman-card">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+            <span class="badge badge-gold">LIVE VISUAL PREVIEW</span>
+            <span class="badge">Click Image for Fullscreen Lightbox</span>
+          </div>
+          <img
+            src="../ui-refresh/05-after-desktop-game-crisis-nox.png"
+            alt="NOX Romae Crisis Workspace"
+            style="width:100%; border-radius:3px; border:1px solid var(--border-outer); cursor:pointer;"
+            onclick="openLightbox('../ui-refresh/05-after-desktop-game-crisis-nox.png', 'NOX Romae Active Crisis Workspace — Streaming Chronicle (Left) + 7-Register Intelligence Desk (Right)')"
+          />
+          <p style="font-size:0.92rem; color:var(--text-muted); margin-top:0.65rem;">
+            <strong>The Crisis of 235 CE in NOX Romae:</strong> While the left Chronicle streams player-scoped dramatic prose, the right 7-Register Desk tracks sourced claims, outward marks, open/secret ties, and unseen change badges.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================================
+         SECTION II: INTERACTIVE 8-STAGE TURN PIPELINE EXPLORER
+         ====================================================================== -->
+    <section id="sec-pipeline" class="atlas-section" role="tabpanel">
+      <div class="section-header">
+        <div class="section-eyebrow">Section II · Turn Orchestration (<code>ai/core/turn.ts::runNewTurn</code>)</div>
+        <h2 class="section-title">Interactive 8-Stage Turn Pipeline Explorer</h2>
+        <p class="section-desc">
+          Select any stage of <code>runNewTurn</code> below to inspect its exact TypeScript module path, Gemini model tier, thinking budget, information boundary, deterministic code guardrails, and live JSON wire payload.
+        </p>
+      </div>
+
+      <div class="pipeline-stepper" id="pipelineStepper"></div>
+      <div id="pipelineDetailContainer"></div>
+    </section>
+
+    <!-- ======================================================================
+         SECTION III: MULTI-AGENT ROSTER & PROMPT ENGINEERING MATRIX (21 ROLES)
+         ====================================================================== -->
+    <section id="sec-agents" class="atlas-section" role="tabpanel">
+      <div class="section-header">
+        <div class="section-eyebrow">Section III · <code>ai/prompts/</code> &amp; <code>ai/tools/</code></div>
+        <h2 class="section-title">Multi-Agent Roster &amp; Prompt Engineering Matrix (All 21 AI Roles)</h2>
+        <p class="section-desc">
+          Filter across all 21 specialized AI call roles routing through <code>ai/core/geminiService.ts</code>. Every role operates inside a strict information boundary with Zod + Gemini response schema enforcement and <code>D41</code> <code>asPromptData</code> injection immunity.
+        </p>
+      </div>
+
+      <div class="filter-bar" id="agentFilterBar">
+        <button class="filter-pill active" data-cat="All">All (21)</button>
+        <button class="filter-pill" data-cat="Turn Core">Turn Core</button>
+        <button class="filter-pill" data-cat="Autonomous Minds & Scenes">Autonomous Minds &amp; Scenes</button>
+        <button class="filter-pill" data-cat="Intelligence & Grounded Truth">Intelligence &amp; Grounded Truth</button>
+        <button class="filter-pill" data-cat="World & Character Forge">World &amp; Character Forge</button>
+        <button class="filter-pill" data-cat="Acted Voice & Eval">Acted Voice &amp; Eval</button>
+        <input
+          type="search"
+          id="agentSearchInput"
+          class="search-input"
+          placeholder="Search role, schema, ruling (e.g. D47, composure, tts)..."
+          aria-label="Search AI roles"
+        />
+      </div>
+
+      <div class="grid-3" id="agentGrid"></div>
+    </section>
+
+    <!-- ======================================================================
+         SECTION IV: INFORMATION ASYMMETRY & PERCEPTION FIREWALL SIMULATOR
+         ====================================================================== -->
+    <section id="sec-firewall" class="atlas-section" role="tabpanel">
+      <div class="section-header">
+        <div class="section-eyebrow">Section IV · <code>perception/visibility.ts</code> · <code>npcPerception.ts</code> · <code>playerBoundary.ts</code></div>
+        <h2 class="section-title">Interactive Information Asymmetry &amp; Perception Firewall Simulator</h2>
+        <p class="section-desc">
+          Select one of three live historical turn scenarios from 235 CE to compare side-by-side what the omniscient GM knows, what reaches the Player's belief graph, what Rival NPC Minds see, and how the Player-Boundary Firewall intercepts LLM hallucinations in code.
+        </p>
+      </div>
+
+      <div class="filter-bar" id="scenarioSelectorBar"></div>
+      <div class="grid-4" id="firewallColumns"></div>
+    </section>
+
+    <!-- ======================================================================
+         SECTION V: WORLD DESIGN, EMBODIED CHARACTERS & KNOWLEDGE GRAPH MODEL
+         ====================================================================== -->
+    <section id="sec-domain" class="atlas-section" role="tabpanel">
+      <div class="section-header">
+        <div class="section-eyebrow">Section V · <code>types.ts</code> · <code>knowledge/store.ts</code> · <code>conditions.ts</code> · <code>affiliations.ts</code></div>
+        <h2 class="section-title">Embodied Characters &amp; Player Knowledge Graph Explorer</h2>
+        <p class="section-desc">
+          Explore the living domain model: inspect how historical figures in 235 CE carry outward/inward <strong>Lasting Marks (<code>D48</code>)</strong>, open/secret <strong>Ties (<code>D49</code>)</strong>, <strong>Active Schemes (<code>D28</code>)</strong>, and <strong>Bespoke Voices</strong>—and how the player's <strong>Knowledge Graph (<code>D21</code>/<code>D29</code>)</strong> links corroborating and contradicting claims without raw percentage bars.
+        </p>
+      </div>
+
+      <div class="filter-bar" id="entitySelectorBar"></div>
+      <div class="grid-2" id="domainExplorerContainer"></div>
+    </section>
+
+    <!-- ======================================================================
+         SECTION VI: VISUAL INTERFACE & 11-TAB FATES' LEDGER GALLERY
+         ====================================================================== -->
+    <section id="sec-gallery" class="atlas-section" role="tabpanel">
+      <div class="section-header">
+        <div class="section-eyebrow">Section VI · Dual Imperial Skins &amp; Shipped Surfaces (<code>docs/ui-refresh/*.png</code>)</div>
+        <h2 class="section-title">Visual Interface &amp; 11-Tab Fates' Ledger Gallery</h2>
+        <p class="section-desc">
+          Filter shipped screenshots across <strong>NOX Romae</strong>, <strong>LVX</strong>, the <strong>7-Register Intelligence Desk</strong>, <strong>Structured Turn Composer</strong>, <strong>AI Voice Cast &amp; Acted Script Log</strong>, and <strong>Mobile Responsive Leaves</strong>. Click any card to inspect full-resolution artwork.
+        </p>
+      </div>
+
+      <div class="filter-bar" id="galleryFilterBar">
+        <button class="filter-pill active" data-gcat="All">All Surfaces</button>
+        <button class="filter-pill" data-gcat="NOX Romae">NOX Romae</button>
+        <button class="filter-pill" data-gcat="LVX">LVX (Marble Day)</button>
+        <button class="filter-pill" data-gcat="7-Register Intelligence Desk">7-Register Intelligence Desk</button>
+        <button class="filter-pill" data-gcat="Structured Turn Composer">Structured Turn Composer</button>
+        <button class="filter-pill" data-gcat="AI Voice Cast & Acted Script Log">AI Voice Cast &amp; Acted Script Log</button>
+        <button class="filter-pill" data-gcat="Mobile Responsive Leaves">Mobile Responsive Leaves</button>
+      </div>
+
+      <div class="grid-3" id="galleryGrid"></div>
+
+      <!-- 11-Tab Fates' Ledger Reference Matrix -->
+      <div class="roman-card" style="margin-top: 2rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.85rem;">
+          <div>
+            <span class="badge badge-gold">CTRL + SHIFT + G</span>
+            <h3 style="font-family:var(--font-display); font-size:1.25rem; margin-top:0.35rem;">
+              The Fates' Ledger — 11-Tab Omniscient GM Diagnostic &amp; Replay Console (<code>components/GameMasterScreen.tsx</code>)
+            </h3>
+          </div>
+          <span class="badge badge-tyrian">D7 · D18 · D51</span>
+        </div>
+        <p style="color:var(--text-secondary); margin-bottom:1rem;">
+          Built for developers, designers, and curious players after a campaign: press <code>Ctrl+Shift+G</code> to open the dark-tablinum inspector comparing Ground Truth against Player Perception and re-verifying deterministic reign seeds.
+        </p>
+        <div class="grid-4" id="gmTabsGrid"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- FULLSCREEN LIGHTBOX MODAL -->
+  <div id="lightboxModal" class="lightbox" role="dialog" aria-modal="true" aria-label="Screenshot Lightbox" onclick="if(event.target===this) closeLightbox()">
+    <div class="lightbox-content">
+      <div class="lightbox-img-wrap">
+        <img id="lightboxImg" src="" alt="" />
+      </div>
+      <div class="lightbox-footer">
+        <div id="lightboxCaption" style="font-family:var(--font-display); font-size:0.92rem; color:var(--gold-bright);"></div>
+        <button class="theme-toggle" type="button" onclick="closeLightbox()">Close [Esc]</button>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <div class="container">
+      <div style="font-family:var(--font-display); color:var(--gold-bright); letter-spacing:0.12em; text-transform:uppercase; margin-bottom:0.35rem;">
+        Realmweaver — The Glory of Rome (235 CE) · Architecture Atlas
+      </div>
+      <div>
+        Self-contained offline HTML showcase (<code>docs/showcase/index.html</code>) · Zero build step · Powered by React 19, TypeScript 5.8, Vite 6 &amp; Gemini 3.8 Multi-Agent Simulation
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    /* ==========================================================================
+       INTERACTIVE ATLAS DATA MODEL
+       ========================================================================== */
+
+    // 1. SECTION I: THESIS COMPARISON ROWS
+    const thesisData = [
+      {
+        dim: "1. Action Resolution & Agency",
+        spreadsheet: "Fixed button menu ('Bribe: 64% chance'). Zero freeform tactical nuance or contextual leverage.",
+        chatbot: "Sycophantic compliance: typing 'I brilliantly persuade the legions' succeeds automatically with zero mechanical pushback.",
+        realmweaver: "Seeded d20 resolution (mulberry32, D51) weighs skills, personality, D48 marks, D49 ties & D47 leverageTruth BEFORE the LLM narrates.",
+        module: "ai/core/resolution.ts · ai/tools/assessment.ts (D4, D47, D51)",
+        deepDive: "Before the Adjudicator or Chronicler writes a single word, getActionAssessment classifies whether your move is consequential. Code then rolls a reign-seeded mulberry32 d20 against target opposition (perceived_threat vs. trust_level) and locks one of five tiers (critical_failure to critical_success). Retrying or reloading replays the exact same die roll."
+      },
+      {
+        dim: "2. Information Asymmetry & Fog of War",
+        spreadsheet: "Omniscient tooltips expose exact '-15 Opinion' modifiers and global troop counts across the map.",
+        chatbot: "Context window bleed: the narrator casually leaks NPC secrets, private schemes, or off-screen plots in prose.",
+        realmweaver: "Strict code-side projection firewall (visibility.ts). The UI is an honest window (D26); only in-fiction sources can lie, with zero '% credibility' numbers (D25).",
+        module: "perception/visibility.ts · knowledge/store.ts · ai/core/playerBoundary.ts (D5, D11, D25, D26)",
+        deepDive: "Every EventDelta emitted by the omniscient GM is filtered by locality, co-located witnesses, and your spy network before reaching buildNarrationPrompt or knowledge/commit.ts. Rumor truth flags (is_true, origin_id) are stripped into the GM-only TruthLedger (D11)."
+      },
+      {
+        dim: "3. Autonomous Rival NPC Minds",
+        spreadsheet: "Utility-AI scripts tick predictable timers without memory of nuanced conversations.",
+        chatbot: "NPCs freeze when off-screen and exist only as sockpuppets reacting to the player's latest prompt.",
+        realmweaver: "Parallel bounded NPC Minds (npcMind:${id}) see ONLY their own npcPerception.ts slice and advance multi-step schemes even on quiet player turns (D46).",
+        module: "ai/tools/npcMind.ts · perception/npcPerception.ts (D10, D30, D46)",
+        deepDive: "Each week, the AI Director spotlights 2–4 rivals. Each executes an independent gemini-3.8-flash call receiving ONLY its own memories, outward marks/open ties of figures in view, and its own active_scheme. Mind-authored scheme adjustments supersede GM scheme deltas in code (foldMindSchemeDeltas)."
+      },
+      {
+        dim: "4. Mortality & Plot Armor",
+        spreadsheet: "Binary RNG assassination popups or scripted unavoidable game-over screens.",
+        chatbot: "Either arbitrary one-sentence character deaths or refusal to let the player face lethal consequences.",
+        realmweaver: "Two-Gate Mortality Pipeline (mortality.ts, D2/D3): Gate 1 validates narrative earning; Gate 2 rolls a seeded fate d20 including 'presumed_dead' secret survival.",
+        module: "ai/core/mortality.ts · ai/prompts/mortality.ts (D1, D2, D3, D4)",
+        deepDive: "The LLM never decides life or death. Every status:'dead' delta is intercepted as a claim. If Gate 1 confirms the death was earned, Gate 2 rolls the turn's seeded RNG. An NPC rolling 16–18 ('presumed_dead') becomes publicly dead while code attaches secret_truth: { actually_alive: true }, hiding them from all player prompts until a dramatic return."
+      },
+      {
+        dim: "5. Character Embodiment, Marks, Ties & Tells",
+        spreadsheet: "Static trait icons (+2 Martial, -1 Diplomacy) that never surface in dialogue.",
+        chatbot: "Purely cosmetic adjectives forgotten two turns later.",
+        realmweaver: "Outward/inward Lasting Marks (D48) and Open/Secret Ties (D49) governed by hidden Composure Rolls (D50: holds, frays, breaks) and Tell Screening.",
+        module: "ai/core/conditions.ts · ai/core/affiliations.ts · ai/core/composure.ts (D48, D49, D50)",
+        deepDive: "When you share a scene or Private Audience with an NPC carrying an inward burden ('nightmares of Mesopotamia') or secret tie ('the Christians'), code rolls a hidden d20 composure check. If it frays or breaks, the narrator is allowed a physical tell ('voice catching'), while buildTellScreen blocks any leak of the secret's actual name."
+      },
+      {
+        dim: "6. Theatrical Voice & Streaming Performance",
+        spreadsheet: "Static text boxes with repetitive bark sound effects.",
+        chatbot: "Unstructured wall-of-text generation or raw TTS reading markdown artifacts aloud.",
+        realmweaver: "0.7ms incremental JSON stream extraction + two-stage Acted Script (<angle-bracket> cues guarded by performanceScript.ts) -> gemini-3.8-flash-tts.",
+        module: "ai/core/streamSplit.ts · narration/performanceScript.ts · ai/tools/voiceCasting.ts",
+        deepDive: "Chronicle narration streams structured JSON through createPayloadTextExtractor at sub-millisecond speed while gating suggestions and mechanics leaks. On demand or auto, a narrator persona converts the passage into a 2-paragraph acted script with <angle-bracket> performance cues and voices it via gemini-3.8-flash-tts."
+      }
+    ];
+
+    // 2. SECTION II: 8-STAGE TURN PIPELINE DATA
+    const pipelineStages = [
+      {
+        num: "Stage 1",
+        shortName: "Director & Seed",
+        title: "Stage 1: Pre-Turn Setup & Director (storyRelevance)",
+        module: "ai/core/turn.ts · ai/core/resolution.ts · events/engine.ts · ai/prompts/intelligence.ts",
+        model: "gemini-3.8-flash (GEMINI_PRO)",
+        thinking: "thinkingBudget: 512",
+        boundary: "Reads public headlines, living NPC roster, each NPC's active_scheme, last DIRECTOR_MEMORY_LINES of D10 memories, and prior npcIntents.",
+        guardrails: [
+          "Derives deterministic turnSeed = deriveTurnSeed(reignSeed, turnNumber) (D51) — retry-proof mulberry32 RNG stream.",
+          "Evaluates authored historical & crisis events (events/engine.ts) with repeatable cooldowns and ripe historical material (D24).",
+          "selectDurableIntents() filters Director spotlight_intents ('continue' | 'pivot' | 'new') to living roster entities and caps at MAX_NPC_INTENTS."
+        ],
+        payload: `{
+  "turnSeed": 2948105724,
+  "spotlight_entities": ["maximinus_thrax", "julia_mamaea", "gaius_pontius"],
+  "spotlight_intents": [
+    {
+      "entity_id": "maximinus_thrax",
+      "intent": "Exploit arrears in the Danubian recruits' pay to bind the centurions to his personal banner",
+      "continuity": "continue"
+    },
+    {
+      "entity_id": "julia_mamaea",
+      "intent": "Secure discreet senatorial backing for the Persian tribute audit before word reaches Mogontiacum",
+      "continuity": "pivot"
+    }
+  ],
+  "story_evolution": { "add_entities": [], "remove_entities": [], "add_locations": [] }
+}`
+      },
+      {
+        num: "Stage 2",
+        shortName: "Assessment & d20",
+        title: "Stage 2: Player Action Assessment & Seeded d20 Roll (assessment + resolution.ts)",
+        module: "ai/tools/assessment.ts · ai/core/resolution.ts · ai/core/groundTruth.ts",
+        model: "gemini-3.8-flash (GEMINI_FLASH) + Pure TypeScript RNG",
+        thinking: "thinkingBudget: 256 (concurrent with Stage 1)",
+        boundary: "Sees player's observable attempt, skills, personality, D48 conditions, D49 affiliations, and target entity public profile. Skipped on question/private-only turns.",
+        guardrails: [
+          "Clamps difficulty strictly to [5, 25] in code; evaluates D47 deriveLeverageTruth when blackmail/leverage is invoked.",
+          "Draws first hidden d20 from turnRng: total = d20 + skill + personalityMod + oppositionMod (perceived_threat vs. trust_level).",
+          "Locks outcome tier ('critical_failure' | 'failure' | 'partial_success' | 'success' | 'critical_success') into TurnHistoryEntry.resolutionTrace."
+        ],
+        payload: `{
+  "assessment": {
+    "is_consequential": true,
+    "action_category": "subterfuge_and_bribery",
+    "relevant_skill": "intrigue",
+    "difficulty": 16,
+    "opposing_entity_id": "maximinus_thrax"
+  },
+  "resolutionTrace": {
+    "roll": 14,
+    "skill": "intrigue",
+    "skillModifier": 3,
+    "personalityModifier": 1,
+    "oppositionModifier": -1,
+    "total": 17,
+    "difficulty": 16,
+    "tier": "success"
+  }
+}`
+      },
+      {
+        num: "Stage 3",
+        shortName: "Bounded NPC Minds",
+        title: "Stage 3: Bounded Autonomous NPC Minds (npcMind:${id})",
+        module: "ai/tools/npcMind.ts · ai/prompts/npcMind.ts · perception/npcPerception.ts",
+        model: "gemini-3.8-flash (GEMINI_FLASH × parallel Promise.all)",
+        thinking: "thinkingBudget: 256 per spotlight mind",
+        boundary: "STRICT FIREWALL (D10/D30): Receives ONLY that NPC's own self-brief, own marks/ties, own memories, viewer-scoped perceived digest, and outward marks/open ties of figures in view. NEVER sees player secrets, inward marks, or GM truth.",
+        guardrails: [
+          "Runs up to MAX_MINDS_PER_TURN living spotlight NPCs concurrently via Promise.all.",
+          "Mind-owned scheme evolution (D30): scheme_adjustment is converted by foldMindSchemeDeltas() into a committed 'scheme' delta.",
+          "Soft degradation: if a single mind call fails, logs a [Mind] gm_private note and falls back to the Director's intent without aborting the turn."
+        ],
+        payload: `{
+  "callName": "npcMind:maximinus_thrax",
+  "chosen_action": "Distribute personal silver donatives to the Pannonian standard-bearers at nightfall and drill them in double-time camp marches.",
+  "method": "military",
+  "private_reasoning": "Alexander's envoys smell of Syrian silk and hesitation. If the Rhine legions see who feeds them when Rome's pay-wagons stall, the purple will fall into my hands.",
+  "scheme_adjustment": {
+    "step_index": 1,
+    "new_status": "completed",
+    "next_step_objective": "Sound out Legio XXII Primigenia tribunes for a joint acclamation"
+  }
+}`
+      },
+      {
+        num: "Stage 4",
+        shortName: "Master Adjudication",
+        title: "Stage 4: Master Adjudication (adjudication)",
+        module: "ai/prompts/adjudication.ts · ai/core/actorsBoundary.ts · ai/core/playerBoundary.ts",
+        model: "gemini-3.8-flash (GEMINI_PRO)",
+        thinking: "thinkingBudget: 1024 · temperature: 0.8",
+        boundary: "Omniscient GM Synthesis: receives WorldState, locked Stage 2 d20 outcome tier, Stage 3 NPC mind decisions (DIRECTION PRECEDENCE: mind > Director > scheme), D47 leverageTruth, and secret survivors.",
+        guardrails: [
+          "Every prose field in AdjudicationInterchange carries a mandatory D42 actors: string[] attribution array.",
+          "enforceNoAttemptBoundary() + assertNoInventedPlayerAction() fail closed if the model invents player conduct on a quiet/observational turn (D46).",
+          "Rumor deltas require explicit D11 truth flags (is_true, origin_id) and support true, false, misattributed, and exaggerated accounts."
+        ],
+        payload: `{
+  "headlines": [
+    {
+      "text": "Pannonian vexillations cheer General Maximinus after private silver donatives clear camp arrears",
+      "actors": ["maximinus_thrax"]
+    }
+  ],
+  "deltas": [
+    {
+      "type": "relation",
+      "key": "legio_iv_flavia:maximinus_thrax:trust_level",
+      "delta": 2,
+      "reason": "Maximinus paid the camp arrears from his own campaign chest",
+      "actors": ["maximinus_thrax"]
+    },
+    {
+      "type": "rumor",
+      "key": "julia_mamaea",
+      "delta": 0,
+      "reason": "Camp sutlers whisper that Mamaea diverted Rhine legion pay to buy peace with Artaxerxes",
+      "source": "rumor",
+      "credibility": 0.65,
+      "topic": "diverted_legion_pay",
+      "is_true": false,
+      "origin_id": "maximinus_thrax",
+      "actors": ["maximinus_thrax"]
+    }
+  ]
+}`
+      },
+      {
+        num: "Stage 5",
+        shortName: "Two-Gate Mortality",
+        title: "Stage 5: Two-Gate Mortality & Fate Table (mortality.ts)",
+        module: "ai/core/mortality.ts · ai/prompts/mortality.ts · ai/core/resolution.ts",
+        model: "gemini-3.8-flash (GEMINI_PRO) + Seeded d20 Fate Table",
+        thinking: "thinkingBudget: 512 (conditional on death claims)",
+        boundary: "Intercepts every status:'dead' delta as an unconfirmed CLAIM. The LLM never decides whether a character dies (D2/D3/D4).",
+        guardrails: [
+          "Gate 1 (mortalityValidation): verifies narrative setup, causality, and vulnerability. Unearned deaths are vetoed and stripped in code.",
+          "Gate 2 (Seeded d20 Roll): Player Save (1–5 dies, 6–10 survive_with_loss [D48 mark or lost_item], 11–17 survive, 18–20 survive_with_boon). NPC Fate (1–12 confirmed_dead, 13–15 gravely_wounded, 16–18 presumed_dead, 19–20 escapes_openly).",
+          "Presumed-Dead Secret Survival (D3): attaches secret_truth: { actually_alive: true, hidden_since_turn, motive } while setting public status to 'dead'."
+        ],
+        payload: `{
+  "candidateId": "gaius_pontius",
+  "gate1_validation": {
+    "valid": true,
+    "rationale": "Praetorian daggers struck after his bodyguard was lured away in the Subura."
+  },
+  "gate2_seededRoll": {
+    "d20": 17,
+    "table": "npc_fate",
+    "band": "presumed_dead"
+  },
+  "appliedState": {
+    "public_status": "dead",
+    "secret_truth": {
+      "actually_alive": true,
+      "hidden_since_turn": 4,
+      "motive": "Fled across the Tiber in a fuller's cart while a decoy corpse burned in his villa"
+    }
+  }
+}`
+      },
+      {
+        num: "Stage 6",
+        shortName: "Pure State Engine",
+        title: "Stage 6: Pure State Engine & Grounded Truth (engine.ts)",
+        module: "ai/core/engine.ts · ai/core/conditions.ts · ai/core/affiliations.ts · events/stabilityVocabulary.ts",
+        model: "Pure Deterministic TypeScript Reducer + GEMINI_PRO (updatedSimulationState)",
+        thinking: "0ms Pure State Apply + 512 (SimulationState)",
+        boundary: "Applies surviving EventDelta[] to WorldState, Entities, TruthLedger (D11), and stamps viewer-filtered D10 memories onto perceiving NPCs.",
+        guardrails: [
+          "Enforces D6 resource floors and automatic creditor dependency when treasury/denarii drop below zero, plus D48 lost_item hard-asset removal.",
+          "Applies D48 lasting marks (add/deepen/ease/heal, outward vs. inward) and D49 ties (join/leave/go_public/expose, open vs. secret).",
+          "Separates player-safe Report objects from GM-private TruthLedgerEntry records (is_true, origin_id)."
+        ],
+        payload: `{
+  "appliedDeltas": 7,
+  "conditionChange": {
+    "entity": "severus_alexander",
+    "id": "persian_fever_scar",
+    "change": "add",
+    "outward": true,
+    "severity": "serious"
+  },
+  "truthLedgerEntry": {
+    "turn": 4,
+    "subject": "julia_mamaea",
+    "topic": "diverted_legion_pay",
+    "claim": "Camp sutlers whisper that Mamaea diverted Rhine legion pay...",
+    "is_true": false,
+    "origin_id": "maximinus_thrax"
+  },
+  "perceivingNpcIds": ["maximinus_thrax", "julia_mamaea"]
+}`
+      },
+      {
+        num: "Stage 7",
+        shortName: "Composure & Stream",
+        title: "Stage 7: Composure Rolls, Acted Narration & Player Boundary (composure.ts + narration + playerBoundary.ts)",
+        module: "ai/core/composure.ts · ai/prompts/narration.ts · ai/core/streamSplit.ts · ai/core/playerBoundary.ts",
+        model: "gemini-3.8-flash (GEMINI_PRO Stream + GEMINI_FLASH Monologue)",
+        thinking: "thinkingBudget: 512 (Streamed JSON)",
+        boundary: "Receives ONLY buildPlayerPerceivedDigest (self, witnessed, network, public) + opaque composure handles (mark:<id> / tie:<id>) for co-located NPCs whose composure frayed or broke.",
+        guardrails: [
+          "Rolls hidden D50 composure d20s ('holds' | 'frays' | 'breaks') for every inward mark and secret tie of figures present with the player.",
+          "createPayloadTextExtractor() decodes streamed JSON 'text' in 0.7ms at 128KB, piped through createNarrationStreamGate and createPlayerVisibleStreamGate.",
+          "screenNarrationSigns() + buildTellScreen() drop any composure sign that leaks the secret tie/mark's name or if a boundary gate rewrote prose."
+        ],
+        payload: `{
+  "composureRoll": {
+    "entityId": "julia_mamaea",
+    "handle": "tie:christian_sympathies",
+    "roll": 6,
+    "modifier": 2,
+    "difficulty": 12,
+    "tier": "frays"
+  },
+  "streamedNarrationPayload": {
+    "text": "Beneath the smoking bronze lamps of the Palatine tablinum, Julia Mamaea's fingers tighten almost imperceptibly around a plain silver fish token at her wrist before she tucks it back inside her stola...",
+    "actors": ["julia_mamaea", "severus_alexander"],
+    "signs": [
+      {
+        "entityId": "julia_mamaea",
+        "subject": "tie:christian_sympathies",
+        "sign": "Her fingers tightened around a plain silver token at her wrist when the eastern shrines were mentioned."
+      }
+    ]
+  }
+}`
+      },
+      {
+        num: "Stage 8",
+        shortName: "Knowledge & Voice",
+        title: "Stage 8: Knowledge Graph Commit & Acted Voice Cast (knowledge/commit.ts + narration/)",
+        module: "knowledge/commit.ts · knowledge/store.ts · narration/performanceScript.ts · ai/tools/narrationVoice.ts",
+        model: "gemini-3.8-flash (LOW thinking prep) -> gemini-3.8-flash-tts (Enceladus / Cast)",
+        thinking: "thinkingLevel: 'low' (Prep) + PCM-to-WAV Audio Synthesis",
+        boundary: "Ingests perceived digest, reports, cited relationshipObservations (D13/D44), outward marks, open ties, and screened composure signs (never the secret subject handle!) into PlayerKnowledgeStore.",
+        guardrails: [
+          "Deterministic graph edges (D29): links claims via 'corroborates', 'contradicts' (forking #c1/#c2 nodes), 'derives-from', and 'about'.",
+          "Atomic persistence (useCampaignTransactions): commits state + reignSeed to localStorage or rolls back cleanly on error (D45).",
+          "Optional Acted Voice pipeline: converts chronicle into a <=2-paragraph script with <angle-bracket> performance cues, sanitized by performanceScript.ts before gemini-3.8-flash-tts."
+        ],
+        payload: `{
+  "knowledgeGraphCommit": {
+    "newClaimsOpened": 3,
+    "updatedClaims": 2,
+    "contradictionForks": ["report:julia_mamaea:diverted_legion_pay:scout#c1"],
+    "signsIngested": [
+      {
+        "subject": "julia_mamaea",
+        "turn": 4,
+        "text": "Her fingers tightened around a plain silver token at her wrist when the eastern shrines were mentioned."
+      }
+    ]
+  },
+  "actedVoiceScript": "<low, measured senatorial baritone> Beneath the smoking bronze lamps of the Palatine tablinum, <voice dropping to a conspiratorial hush> Julia Mamaea's fingers tighten almost imperceptibly..."
+}`
+      }
+    ];
+
+    // 3. SECTION III: ALL 21 AI CALL ROLES
+    const agentRoles = [
+      {
+        name: "1. storyRelevance (The Director)",
+        cat: "Turn Core",
+        builder: "ai/prompts/intelligence.ts::buildStoryRelevancePrompt",
+        model: "gemini-3.8-flash (GEMINI_PRO)",
+        thinking: "512",
+        schema: "StoryRelevanceSchema / zStoryRelevance",
+        sees: "Public headlines, WorldState, living NPC roster with active_scheme & recent D10 memories, prior committed npcIntents.",
+        redacted: "Player private monologue, unperceived secret_truth details, raw RNG seeds.",
+        rules: "Emits 2–4 spotlight_entities + durable spotlight_intents ('continue'|'pivot'|'new') filtered by selectDurableIntents (4C.3); D41 asPromptData."
+      },
+      {
+        name: "2. assessment (Action Gatekeeper)",
+        cat: "Turn Core",
+        builder: "ai/prompts/assessment.ts::buildActionAssessmentPrompt",
+        model: "gemini-3.8-flash (GEMINI_FLASH)",
+        thinking: "256",
+        schema: "ActionAssessmentSchema / zActionAssessment",
+        sees: "Player observable attempt, player skills/personality/conditions/affiliations, public roster.",
+        redacted: "Player privateIntent, questions, NPC secret schemes, GM truth ledger.",
+        rules: "Runs concurrently with storyRelevance; classifies is_consequential, skill, difficulty (clamped 5–25), opposing_entity_id. Never decides success (D51)."
+      },
+      {
+        name: "3. npcMind:${id} (Autonomous Rival Mind)",
+        cat: "Autonomous Minds & Scenes",
+        builder: "ai/prompts/npcMind.ts::buildNpcMindPrompt",
+        model: "gemini-3.8-flash (GEMINI_FLASH)",
+        thinking: "256",
+        schema: "NpcMindDecisionSchema / zNpcMindDecision",
+        sees: "ONLY this NPC's self-brief, own marks/ties, own scheme, own memories, and npcPerception.ts view of co-located figures.",
+        redacted: "Player secrets, other NPCs' secrets/schemes/inward marks, GM TruthLedger, secret_truth.",
+        rules: "D10/D30 bounded agency; returns chosen_action, method, private_reasoning, and scheme_adjustment (supersedes GM scheme deltas via foldMindSchemeDeltas)."
+      },
+      {
+        name: "4. adjudication (Master Game Master)",
+        cat: "Turn Core",
+        builder: "ai/prompts/adjudication.ts::buildAdjudicationPrompt",
+        model: "gemini-3.8-flash (GEMINI_PRO)",
+        thinking: "1024",
+        schema: "AdjudicationSchema / zAdjudication",
+        sees: "Full ground-truth WorldState, locked Stage 2 d20 outcome tier, NPC mind decisions, D47 leverageTruth, secret survivors.",
+        redacted: "Cannot invent player conduct when observableAttempt is null (D46); cannot bypass mortality gates.",
+        rules: "D42 ACTORS_CONTRACT_INSTRUCTION on every headline/delta/action; DIRECTION PRECEDENCE (mind > Director > scheme); DEATHS ARE CLAIMS rule (D2/D3)."
+      },
+      {
+        name: "5. mortalityValidation (Mortality Gate 1)",
+        cat: "Turn Core",
+        builder: "ai/prompts/mortality.ts::buildMortalityValidationPrompt",
+        model: "gemini-3.8-flash (GEMINI_PRO)",
+        thinking: "512",
+        schema: "MortalityValidationSchema / zMortalityValidation",
+        sees: "Candidate entity profile, death claim delta, recent turn context and vulnerability setup.",
+        redacted: "Never sees or influences the Gate 2 seeded d20 fate roll.",
+        rules: "D2/D3: Dispositions only whether the claimed death was narratively earned (valid: boolean). Unearned claims are stripped in code."
+      },
+      {
+        name: "6. mortalityOutcome (Mortality Gate 3)",
+        cat: "Turn Core",
+        builder: "ai/prompts/mortality.ts::buildMortalityOutcomePrompt",
+        model: "gemini-3.8-flash (GEMINI_PRO)",
+        thinking: "512",
+        schema: "MortalityOutcomeSchema / zMortalityOutcome",
+        sees: "Candidate profile + the ALREADY-DECIDED code d20 band (e.g. survive_with_loss, presumed_dead, gravely_wounded).",
+        redacted: "Cannot alter the rolled band or emit status/world/unrelated-entity deltas.",
+        rules: "Dresses the pre-decided mortality band in bounded consequence deltas (e.g. D48 scar or lost_item) and a 1-line narration directive."
+      },
+      {
+        name: "7. updatedSimulationState (Macro Tracker)",
+        cat: "Turn Core",
+        builder: "ai/prompts/intelligence.ts::buildSimulationStateUpdatePrompt",
+        model: "gemini-3.8-flash (GEMINI_PRO)",
+        thinking: "512",
+        schema: "SimulationStateSchema / zSimulationState",
+        sees: "Post-delta WorldState, previous SimulationState, and this week's headlines.",
+        redacted: "Player private thoughts and unrevealed secret_truths.",
+        rules: "Updates imperial_status, senate_status, military_status, plebeian_mood, major_ongoing_crisis, crisis_severity; D42 actors-gated."
+      },
+      {
+        name: "8. playerMonologue (Inner Reflection)",
+        cat: "Turn Core",
+        builder: "ai/prompts/narration.ts::buildPlayerMonologuePrompt",
+        model: "gemini-3.8-flash (GEMINI_FLASH)",
+        thinking: "256",
+        schema: "PlayerMonologuePayloadSchema / zPlayerMonologuePayload",
+        sees: "Player's own profile, own marks/ties, public headlines (plus open ties of named figures, D49), recent player intents.",
+        redacted: "Unperceived deltas, NPC secrets, GM truth ledger.",
+        rules: "D42 structured JSON { text, actors }; checked by redactInventedPlayerProse and assertPlayerVisibleProseClean."
+      },
+      {
+        name: "9. narration (Streaming Chronicler)",
+        cat: "Turn Core",
+        builder: "ai/prompts/narration.ts::buildNarrationPrompt",
+        model: "gemini-3.8-flash (GEMINI_PRO Stream)",
+        thinking: "512",
+        schema: "NarrationPayloadSchema / zNarrationPayload",
+        sees: "STRICTLY buildPlayerPerceivedDigest (D5) + player mortality directive (D2) + frayed/broken D50 composure handles.",
+        redacted: "Raw EventDeltas, gm_private notes, NPC secret_truth, held composure subjects, unperceived NPC schemes.",
+        rules: "Streamed via createPayloadTextExtractor (0.7ms); D42 actors gate; D50 composure signs screened by buildTellScreen."
+      },
+      {
+        name: "10. privateScene (1-on-1 Audience Loop)",
+        cat: "Autonomous Minds & Scenes",
+        builder: "ai/prompts/privateScene.ts::buildPrivateScenePrompt",
+        model: "gemini-3.8-flash (GEMINI_PRO)",
+        thinking: "512",
+        schema: "PrivateSceneModelResponseSchema / zPrivateSceneModelResponse",
+        sees: "Target NPC's bounded self-brief (npcPerception.ts), scene transcript, player speech act ('plain'|'guarded'|'press'), and D50 composure rolls for this exchange.",
+        redacted: "Player secrets/inward marks (unless player's own composure frayed/broke), GM truth ledger.",
+        rules: "D38–D40, D50: NPC speaks in character with optional validated stage-direction delivery cue and screened composure sign."
+      },
+      {
+        name: "11. relationshipObservations (Cited Web)",
+        cat: "Intelligence & Grounded Truth",
+        builder: "ai/prompts/relationshipObservations.ts::buildRelationshipObservationsPrompt",
+        model: "gemini-3.8-flash (GEMINI_FLASH)",
+        thinking: "256",
+        schema: "RelationshipObservationsSchema / zRelationshipObservations",
+        sees: "PlayerSafeEvidence[] from this turn's perceived digest and reports ONLY.",
+        redacted: "Live Entity.relationships ground-truth numbers (-10 to +10 trust/threat).",
+        rules: "D13/D29/D44: Model selects evidenceId + participantIds; code deterministically verifies every citation and extracts trusted quotes."
+      },
+      {
+        name: "12. noAttemptEvidenceSelection (Quiet Inquiry)",
+        cat: "Intelligence & Grounded Truth",
+        builder: "ai/prompts/noAttemptResponse.ts::buildNoAttemptEvidenceSelectionPrompt",
+        model: "gemini-3.8-flash (GEMINI_FLASH)",
+        thinking: "256",
+        schema: "NoAttemptEvidenceSelectionSchema / zNoAttemptEvidenceSelection",
+        sees: "Player's question + existing claim IDs and summaries in PlayerKnowledgeStore.",
+        redacted: "Any ground truth not already held in PlayerKnowledgeStore.",
+        rules: "Returns existing evidence IDs ONLY; playerView/noAttemptResponse.ts synthesizes the answer strictly from cited claims without inventing facts."
+      },
+      {
+        name: "13. investigation (Grounded Espionage)",
+        cat: "Intelligence & Grounded Truth",
+        builder: "ai/prompts/intelligence.ts::buildInvestigationPrompt",
+        model: "gemini-3.8-flash (GEMINI_PRO)",
+        thinking: "512",
+        schema: "buildInvestigationResultSchema(subject) / zInvestigationResult",
+        sees: "Code-planned findings (ai/core/groundTruth.ts::planInvestigation) from target's real beliefs/secrets/scheme/ties shaped by hidden fidelity & accuracy rolls.",
+        redacted: "Unplanned target secrets outside the rolled fidelity slice.",
+        rules: "D47 Code-Planned Lies: code decides whether each finding is true, garbled, or a decoy lie BEFORE prompting; post-hoc enforces reportData length."
+      },
+      {
+        name: "14. schemeNature (D28 3-Clue Reveal)",
+        cat: "Intelligence & Grounded Truth",
+        builder: "ai/prompts/intelligence.ts::buildSchemeNaturePrompt",
+        model: "gemini-3.8-flash (GEMINI_FLASH)",
+        thinking: "256",
+        schema: "Plain Prose (guarded by assertPlayerVisibleProseClean)",
+        sees: "Accumulated paid scheme clues + code-settled disposition (true/garbled/false from TruthLedger clue standings).",
+        redacted: "Unrevealed steps of other NPCs' schemes.",
+        rules: "D28/D47: Fires ONLY when the 3rd paid scheme clue settles; synthesizes the revealed scheme nature according to code-decided truth standing."
+      },
+      {
+        name: "15. clarification & deepAnalysis (Intel Desk)",
+        cat: "Intelligence & Grounded Truth",
+        builder: "ai/prompts/intelligence.ts::buildClarificationPrompt / buildDeepAnalysisPrompt",
+        model: "gemini-3.8-flash (GEMINI_FLASH)",
+        thinking: "256",
+        schema: "Plain Prose (guarded by assertPlayerVisibleProseClean)",
+        sees: "For 'Who is behind it?' / 'Who gains?': code-planned actors + decoys from TurnHistoryEntry.headlineActors (groundTruth.ts::planOccurrence).",
+        redacted: "Target's active_scheme (never leaked in deepAnalysis).",
+        rules: "D47: Code picks the exact actors/decoys from the hidden fidelity & accuracy rolls so the model only phrases the intelligence report."
+      },
+      {
+        name: "16. scenarioStructure & entityBatch (World Weaver)",
+        cat: "World & Character Forge",
+        builder: "ai/prompts/worldGen.ts::buildScenarioStructurePrompt & buildEntityBatchPrompt",
+        model: "gemini-3.8-flash (GEMINI_PRO)",
+        thinking: "1024",
+        schema: "ScenarioStructureSchema / EntityListSchema",
+        sees: "Player's custom Meta-Narrative theme (wrapped via D41 asPromptData) and Step 1 EntityStubs.",
+        redacted: "N/A (Campaign genesis).",
+        rules: "Two-step parallel world generator (ai/core/initiator.ts): builds regions, factions, and parallel entity batches with conditions (D48), affiliations (D49), and voices."
+      },
+      {
+        name: "17. characterCreation (Custom Persona Weaver)",
+        cat: "World & Character Forge",
+        builder: "ai/prompts/characterCreation.ts::buildCharacterCreationPrompt",
+        model: "gemini-3.8-flash (GEMINI_PRO)",
+        thinking: "512",
+        schema: "CharacterCreationEntitySchema / zEntity",
+        sees: "Player's custom character concept (asPromptData) + existing scenario roster and regions.",
+        redacted: "Does not overwrite existing historical NPC secrets.",
+        rules: "Weaves a custom 5th playable character into 235 CE (or a custom scenario) with balanced starting resources, relationships, marks, and ties."
+      },
+      {
+        name: "18. ambitionInference & epilogue (Arc & Reign End)",
+        cat: "World & Character Forge",
+        builder: "ai/prompts/ambition.ts & ai/prompts/epilogue.ts",
+        model: "gemini-3.8-flash (FLASH for Ambition / PRO for Epilogue)",
+        thinking: "256 / 512",
+        schema: "AmbitionInferenceSchema (local) / Plain Prose",
+        sees: "Committed turn history, player actions, and terminal reign state.",
+        redacted: "Ambition inference is GM-console only (D8, every 3rd turn, fire-and-forget).",
+        rules: "D1/D8: Epilogue runs once on GameState.GAME_OVER (player death) to chronicle the reign's legacy."
+      },
+      {
+        name: "19. castVoices (AI Casting Director)",
+        cat: "Acted Voice & Eval",
+        builder: "ai/prompts/voiceCasting.ts::buildVoiceCastingPrompt",
+        model: "gemini-3.8-flash (GEMINI_NARRATION_PREP)",
+        thinking: "LOW (thinkingLevel: 'low')",
+        schema: "VoiceCastingSchema / zVoiceCasting",
+        sees: "Theme, player name/position, and each known individual's name, position, epithet, and entity_type ONLY (castingCandidatesFor).",
+        redacted: "NPC secrets, schemes, conditions, affiliations, or hidden traits.",
+        rules: "Assigns each known character a unique Gemini catalog voice and manner note; falls back deterministically per member if offline or invalid."
+      },
+      {
+        name: "20. narrationPerformance & narrationVoice (Acted TTS)",
+        cat: "Acted Voice & Eval",
+        builder: "ai/prompts/narrationPerformance.ts::buildNarrationPerformancePrompt & buildNarrationTtsPrompt",
+        model: "gemini-3.8-flash (LOW prep) -> gemini-3.8-flash-tts (Audio)",
+        thinking: "LOW -> PCM/WAV Audio",
+        schema: "Guarded by narration/performanceScript.ts -> Audio InlineData",
+        sees: "One committed player-visible narration + public voice-cast manner notes for figures named in the passage (up to 6).Also powers imperialDispatch & privateSceneVoice.",
+        redacted: "All GM state. performanceScript.ts strips illegal cues, patches out hallucinated names, and rejects mechanics leaks.",
+        rules: "PERFORMANCE_CUE_RULE: <=2 paragraphs with <angle-bracket> cues saying HOW (never WHAT), then spoken verbatim by gemini-3.8-flash-tts."
+      },
+      {
+        name: "21. evalJudge (Offline 5-Axis LLM Judge)",
+        cat: "Acted Voice & Eval",
+        builder: "ai/prompts/evalJudge.ts::buildEvalJudgePrompt",
+        model: "gemini-3.8-flash (GEMINI_FLASH)",
+        thinking: "512",
+        schema: "EvalJudgeVerdictSchema / zEvalJudgeVerdict",
+        sees: "Exported turn corpus record (eval/judge.ts via npm run eval).",
+        redacted: "Never imported or invoked by runtime application code (D18).",
+        rules: "Scores exported turns across 5 qualitative axes alongside eval/harness.ts's deterministic schema, completeness, and seed-replay checks."
+      }
+    ];
+
+    // 4. SECTION IV: 3 INTERACTIVE INFORMATION ASYMMETRY SCENARIOS
+    const firewallScenarios = [
+      {
+        id: "rhine_mutiny",
+        title: "Scenario 1: The Rhine Mutiny & Hidden Bribe (Mogontiacum, Week 3)",
+        context: "Player (Emperor Severus Alexander, in Rome) takes a quiet inquiry turn (`observableAttempt: null`), while in Germania Superior General Maximinus Thrax secretly bribes the centurions of Legio XXII Primigenia and plants a false rumor blaming Julia Mamaea.",
+        gmTruth: {
+          subtitle: "WorldState + TruthLedger (D11)",
+          items: [
+            "Delta [relation]: legio_xxii:maximinus_thrax:trust_level +3 (Secret night donative in Mogontiacum camp).",
+            "Delta [scheme]: maximinus_thrax step 2 'Bind Rhine centurions' -> COMPLETED (via foldMindSchemeDeltas, D30).",
+            "TruthLedgerEntry [D11]: Rumor 'Mamaea melted legionary silver for Persian envoys' -> is_true: FALSE, origin_id: 'maximinus_thrax'.",
+            "TurnHistoryEntry.headlineActors: ['maximinus_thrax'] recorded for later D47 'Who is behind it?' inquiries."
+          ]
+        },
+        playerView: {
+          subtitle: "visibility.ts + knowledge/store.ts (D5, D25, D26)",
+          items: [
+            "Location Check: Player is in Italia (Rome); Mogontiacum camp donative is NOT witnessed and outside player's spy network -> REDACTED from digest.",
+            "Public Rumor Report: Arrives via 'merchant' channel with topic 'persian_tribute_silver'. Zero '%' credibility numbers shown (D25).",
+            "Knowledge Graph (D29): Opens claim `report:julia_mamaea:persian_tribute_silver:merchant`. Contradicts prior Senate treasury audit (#c1 fork).",
+            "Scheme Awareness (D28): Only 'Something is afoot in Germania Superior' (0/3 paid nature clues — nature remains undefined)."
+          ]
+        },
+        npcMindView: {
+          subtitle: "npcPerception.ts (Julia Mamaea's Mind View, D10)",
+          items: [
+            "Sees ONLY Italia public events, her own Palatine network, and the false merchant rumor targeting her name.",
+            "Does NOT know Maximinus planted the rumor (`origin_id` is stripped by visibility.ts).",
+            "Sees Severus Alexander's outward mark ('persian_fever_scar') and open tie ('Senatorial Party'), but NEVER his private monologue.",
+            "Reacts in-character on Turn 4 based on imperfect intelligence, ordering her own agents to audit the Ostia grain customs."
+          ]
+        },
+        firewallGate: {
+          subtitle: "playerBoundary.ts + actorsBoundary.ts (D42, D46)",
+          items: [
+            "Hallucination Attempt: Suppose Adjudicator emits delta `{ type: 'resource', key: 'severus_alexander:denarii', reason: 'You dispatched secret gold to appease the Rhine', actors: ['severus_alexander'] }` on a quiet turn.",
+            "Code Gate 1 (`assertNoInventedPlayerAction`): Detects player ID in `actors` when `observableAttempt === null` -> REJECTED / REDACTED.",
+            "Code Gate 2 (`redactInventedPlayerProse`): Flat second-person tripwire scans headlines & delta reasons for unsubmitted player conduct.",
+            "Code Gate 3 (`createPlayerVisibleStreamGate`): Halts stream immediately if raw enum keys (`trust_level`, `critical_failure`) appear in prose."
+          ]
+        }
+      },
+      {
+        id: "poisoned_cup",
+        title: "Scenario 2: The Poisoned Cup & Presumed-Dead Survivor (Rome, Week 6)",
+        context: "An assassination attempt targets Senator Gaius Pontius Magnus at a Subura banquet. Adjudication claims `new_status: 'dead'`, triggering the Two-Gate Mortality Pipeline (`mortality.ts`, D3).",
+        gmTruth: {
+          subtitle: "mortality.ts + buildSecretSurvivorsBlock (D3, D4)",
+          items: [
+            "Gate 1 (`mortalityValidation`): `valid: true` (Prior turn's scheme stripped his bodyguard).",
+            "Gate 2 (`resolveNpcFate`): Seeded d20 rolls `17` -> Band: `presumed_dead` (16–18).",
+            "Engine State (`Entity.status`): Publicly set to `'dead'`, but code attaches `secret_truth: { actually_alive: true, hidden_since_turn: 6, motive: 'Fled to Campania in a wine barge' }`.",
+            "GM Console (`mortalityTrace`): Full roll breakdown and secret survival motive logged for Fates' Ledger inspection."
+          ]
+        },
+        playerView: {
+          subtitle: "visibility.ts + PlayerKnowledgeStore (D3, D5)",
+          items: [
+            "Perceived Digest: Witnesses report Gaius Pontius Magnus collapsed at the banquet; his villa burned before dawn.",
+            "Dossier Status (`DramatisPersonaeTab`): Marked `DEAD` (Turn 6) based on witnessed status claim `digest:status:gaius_pontius`.",
+            "Zero Leak Guarantee: `secret_truth` is stripped by `narration.ts` and `visibility.ts`—neither narration nor suggested actions ever hint he survived.",
+            "Weeks Later: Only when the GM Adjudicator emits `new_status: 'alive'` does the nemesis return to the player's reality."
+          ]
+        },
+        npcMindView: {
+          subtitle: "npcPerception.ts + selectMindEntities (D10)",
+          items: [
+            "Rival NPC Minds believe Gaius Pontius is dead and adjust their senate coalition math accordingly.",
+            "`selectDurableIntents` & `selectMindEntities` exclude `status: 'dead'` entities from routine public spotlight calls.",
+            "Conspirators who ordered the hit celebrate their apparent triumph in their private memories (`Entity.memories`).",
+            "No NPC mind receives `buildSecretSurvivorsBlock`—only the omniscient Adjudicator holds the secret thread."
+          ]
+        },
+        firewallGate: {
+          subtitle: "mortality.ts + zodSchemas.ts Enforcement",
+          items: [
+            "Schema Exclusion: `secret_truth` is NOT part of `AdjudicationSchema` or `zAdjudication`—the LLM cannot invent or clear it directly.",
+            "Gate 3 Scope Lock (`mortalityOutcome`): Rejects any mortality outcome delta that tries to alter unrelated entities, regions, or world stability.",
+            "Narration Sanitizer: `buildNarrationPrompt` omits NPC `mortalityOutcome` directives entirely so a 'presumed_dead' directive never enters the chronicler's context window."
+          ]
+        }
+      },
+      {
+        id: "private_audience",
+        title: "Scenario 3: Private Audience with Julia Mamaea & Fraying Secret Tie (Palatine, Week 8)",
+        context: "Player summons Julia Mamaea for a 1-on-1 Private Audience (`privateScene/`, D39) and chooses speech act `'press'` regarding Eastern religious tolerance. Mamaea holds an inward mark (`mark:mesopotamian_guilt`) and a secret tie (`tie:christian_sympathies`).",
+        gmTruth: {
+          subtitle: "composure.ts + PrivateScene State (D48, D49, D50)",
+          items: [
+            "Hidden Seeded d20 Composure Rolls (`rollComposureForBearer`):",
+            "• `mark:mesopotamian_guilt` (severity: serious, DC 12): d20(14) + mod(2) = 16 -> `holds`.",
+            "• `tie:christian_sympathies` (kind: religion, DC 12): d20(5) + mod(2) = 7 -> `frays`!",
+            "Prompt Injection (`buildComposureBlock`): Passes ONLY frayed handle `tie:christian_sympathies` to the scene model with rule: 'Let a small physical tell escape; NEVER name Christianity or Antioch presbyters.'"
+          ]
+        },
+        playerView: {
+          subtitle: "PrivateSceneModal + ingestSignsSeen (D50)",
+          items: [
+            "Spoken Line & Delivery: `<voice dropping, eyes fixed on the brazier>` 'The shrines of the East are best left to their own prayers, Caesar.'",
+            "Screened Sign Seen: 'Her thumb traced a small, worn silver fish token at her cuff before she hid her hand in her stola.'",
+            "Knowledge Graph (`sign:julia_mamaea`): Stores ONLY the figure ID and the witnessed sentence—NEVER the handle `tie:christian_sympathies`!",
+            "Follow-Up Gameplay: The tell tips off the player to commission a targeted paid Espionage Investigation into her secret affiliations."
+          ]
+        },
+        npcMindView: {
+          subtitle: "PrivateScene Memory Stamp (D39, D50)",
+          items: [
+            "Julia Mamaea's private-scene memory records that she was pressed hard on Eastern cults and felt her composure fray.",
+            "If the PLAYER's own composure had frayed on a player secret tie, `visibility.ts` tells the player in plain words which secret slipped to Mamaea.",
+            "On the next weekly turn, Mamaea's `npcMind` call reads her private audience transcript and pivots her scheme to protect her eastern contacts."
+          ]
+        },
+        firewallGate: {
+          subtitle: "composure.ts::buildTellScreen & performanceScript.ts",
+          items: [
+            "Tell Screen Tripwire (`buildTellScreen`): Builds forbidden token stems from the secret tie's name (`'christian'`, `'khristos'`, `'urchristen'`).",
+            "Automatic Rejection: If the LLM outputs `sign: 'Her Christian sympathies showed in her eyes'`, `screenNarrationSigns()` blocks the sign before commit!",
+            "Voice Guard (`sceneLineForSpeech`): Validates the NPC's delivery cue through `performanceScript.ts` before sending her line to `gemini-3.8-flash-tts`."
+          ]
+        }
+      }
+    ];
+
+    // 5. SECTION V: EMBODIED CHARACTERS & KNOWLEDGE GRAPH PRESETS
+    const domainEntities = [
+      {
+        id: "severus_alexander",
+        name: "Imperator Caesar Marcus Aurelius Severus Alexander",
+        epithet: "the Syrian Prince",
+        role: "Emperor of Rome (Player Archetype I · Italia)",
+        voice: "Measured philosophical Latin, earnest and conciliatory, yet shadowed by deference to his mother's counsel",
+        voiceCast: "Orus (Manner: Youthful imperial tenor, deliberate and reflective)",
+        skills: { oratory: 4, statecraft: 4, scholarship: 5, strategy: 2, intrigue: 2 },
+        personality: { ambition: 5, paranoia: 6, loyalty: 8, cunning: 5, honor: 8 },
+        resources: { treasury_denarii: 14500, praetorian_loyalty: 42, senatorial_goodwill: 68, personal_estate: "Horti Lamiani" },
+        scheme: {
+          name: "Constitutio of the Severan Consilium",
+          overall_goal: "Bind sixteen senior Consulars into a permanent regency council to counterbalance the frontier legates",
+          clues: "2 / 3 Paid Clues Gathered (Awareness: Revealed · Nature: Locked until 3rd clue)"
+        },
+        conditions: [
+          { id: "persian_fever_scar", name: "Lingering Fever of the Euphrates", outward: true, severity: "light", desc: "A pale tremor in the left hand contracted during the Mesopotamian withdrawal (Visible to all in same region)." },
+          { id: "shadow_of_heliogabalus", name: "Nightmares of the Praetorian Ditch", outward: false, severity: "serious", desc: "Haunted by the memory of his cousin Elagabalus's murder by the Guard (INWARD: GM & bearer only; subject to D50 composure rolls)." }
+        ],
+        affiliations: [
+          { id: "senatorial_consilium", name: "The Senatorial Restoration Circle", kind: "faction", public: true },
+          { id: "lararium_of_abraham_and_orpheus", name: "Syncretic Sanctuary of the Inner Lararium", kind: "religion", public: false }
+        ],
+        knowledgeGraph: [
+          {
+            claimId: "claim_01",
+            key: "report:maximinus_thrax:rhine_donatives:scout",
+            channel: "report (scout)",
+            turn: "Week 2 -> Updated Week 4",
+            text: "Frontier scouts report General Maximinus distributed personal silver to the Pannonian standard-bearers at Mogontiacum.",
+            edges: ["corroborates -> claim_02 (merchant report on camp arrears)", "about -> maximinus_thrax"]
+          },
+          {
+            claimId: "claim_02",
+            key: "report:maximinus_thrax:rhine_donatives:rumor#c1",
+            channel: "report (contradiction fork #c1)",
+            turn: "Week 4",
+            text: "Camp heralds insist the silver distributed at Mogontiacum was routine imperial congiarium authorized by Rome.",
+            edges: ["contradicts -> claim_01 (stance: 'contradicts' forks separate node #c1)"]
+          },
+          {
+            claimId: "claim_03",
+            key: "sign:julia_mamaea",
+            channel: "sign (D50 Composure Tell)",
+            turn: "Week 5",
+            text: "Witnessed in Private Audience: Her fingers tightened around a plain silver token at her wrist when the eastern shrines were mentioned.",
+            edges: ["derives-from <- investigation:julia_mamaea:affiliation (Paid dossier inquiry)"]
+          }
+        ]
+      },
+      {
+        id: "maximinus_thrax",
+        name: "Gaius Julius Verus Maximinus",
+        epithet: "the Thracian",
+        role: "Praefectus Tironibus on the Rhine (Archetype II · Germania Superior)",
+        voice: "Clipped Danubian camp Latin, gravelly and blunt, openly contemptuous of senatorial Greek",
+        voiceCast: "Fenrir (Manner: Thunderous camp-prefect bass, clipped and iron-jawed)",
+        skills: { strategy: 5, command: 5, intrigue: 3, oratory: 2, finance: 2 },
+        personality: { ambition: 9, paranoia: 7, loyalty: 3, cunning: 6, honor: 4 },
+        resources: { campaign_chest: 6200, recruit_cohorts: 8500, camp_popularity: 88, siege_engines: "Rhine Depot" },
+        scheme: {
+          name: "The Purple of the Standards",
+          overall_goal: "Incite the Pannonian and Rhine vexillations to hail him Imperator the moment Alexander hesitates at the bridge",
+          clues: "3 / 3 Paid Clues Gathered (D28 Nature REVEALED via schemeNature prompt!)"
+        },
+        conditions: [
+          { id: "alemannic_spear_welt", name: "Jagged Spear-Welt Across the Collarbone", outward: true, severity: "serious", desc: "Worn uncovered above his breastplate as proof he bleeds beside the rankers (Outward mark)." },
+          { id: "thracian_lowborn_fury", name: "Bitter Resentment of Patrician Sneers", outward: false, severity: "grave", desc: "Fierce inward humiliation whenever Rome's noble houses mock his herdsman lineage (Inward mark, D48)." }
+        ],
+        affiliations: [
+          { id: "danubian_centurionate", name: "Brotherhood of the Danubian Centurions", kind: "faction", public: true },
+          { id: "cult_of_mithras_invictus", name: "Sworn Mithraeum of Carnuntum (Grade of Leo)", kind: "cult", public: false }
+        ],
+        knowledgeGraph: [
+          {
+            claimId: "claim_11",
+            key: "digest:status:severus_alexander",
+            channel: "digest (network)",
+            turn: "Week 3",
+            text: "Courier network from Italia confirms Emperor Alexander summoned the Consilium behind closed doors after the Persian dispatches arrived.",
+            edges: ["about -> severus_alexander"]
+          },
+          {
+            claimId: "claim_12",
+            key: "investigation:gaius_pontius:secret_ties",
+            channel: "investigation (paid spy)",
+            turn: "Week 5",
+            text: "D47 Grounded Espionage Reading: Agent intercepted ciphered tablets linking Senator Pontius to the Praetorian tribunes.",
+            edges: ["derives-from -> report:gaius_pontius:praetorian_bribes:spy"]
+          }
+        ]
+      },
+      {
+        id: "lycinia_stolo",
+        name: "Lycinia Stolo",
+        epithet: "the Weaver of Subura",
+        role: "Mistress of Whispers & Freedwoman Broker (Archetype IV · Rome)",
+        voice: "Silken urban Latin laced with dry irony, never raising her voice above a chamber hush",
+        voiceCast: "Kore (Manner: Velvet patrician contralto, unhurried and razor-sharp)",
+        skills: { intrigue: 5, finance: 4, statecraft: 4, oratory: 3, strategy: 2 },
+        personality: { ambition: 8, paranoia: 9, loyalty: 4, cunning: 9, honor: 3 },
+        resources: { informant_rings: 5, blackmail_tablets: 12, silver_credit: 9400, safe_houses: "Velabrum & Ostia" },
+        scheme: {
+          name: "The Ledger of Three Emperors",
+          overall_goal: "Acquire actionable debt and blood-guilt over both the Palatine court and the Rhine legates so neither can rule without her",
+          clues: "1 / 3 Paid Clues Gathered (Awareness: Something is afoot · Nature: Unrevealed)"
+        },
+        conditions: [
+          { id: "ink_stained_signet", name: "Calloused Signet-Burn on the Right Ring Finger", outward: true, severity: "light", desc: "From sealingwax and heated bronze styluses in the night archives." },
+          { id: "ostia_drowning_debt", name: "Unforgiven Vow to the Ostia Grain Guild", outward: false, severity: "serious", desc: "A secret blood-obligation from the famine winter of 231 CE (Inward mark)." }
+        ],
+        affiliations: [
+          { id: "collegium_of_tabularii", name: "The Palatine Archive Freedmen", kind: "other", public: true },
+          { id: "frumentarii_shadow_cell", name: "Dissident Cell of the Peregrine Camp", kind: "cause", public: false }
+        ],
+        knowledgeGraph: [
+          {
+            claimId: "claim_21",
+            key: "scheme:maximinus_thrax",
+            channel: "scheme (D28 Discovery)",
+            turn: "Week 1 -> Week 6",
+            text: "Paid Espionage Clues (3/3): Revealed scheme 'The Purple of the Standards' — Maximinus is actively preparing a Rhine acclamation.",
+            edges: ["corroborates -> claim_01", "derives-from -> investigation:maximinus_thrax:scheme"]
+          }
+        ]
+      }
+    ];
+
+    // 6. SECTION VI: SHIPPED UI GALLERY & 11-TAB FATES' LEDGER
+    const galleryItems = [
+      {
+        img: "../ui-refresh/05-after-desktop-game-crisis-nox.png",
+        title: "Active Crisis Workspace in NOX Romae",
+        cat: ["NOX Romae", "7-Register Intelligence Desk"],
+        desc: "Obsidian marble & torchlight gold (`#0c0b0e` / `#d4af37`): streaming Chronicle on the left 2/3, 7-register Intelligence Desk on the right 1/3."
+      },
+      {
+        img: "../ui-refresh/10-after-desktop-game-lvx.png",
+        title: "Carrara Marble & Parchment Workspace in LVX",
+        cat: ["LVX", "7-Register Intelligence Desk"],
+        desc: "Warm papyrus & carnelian wax seals (`#f6f1e7` / `#7a1c1c`): WCAG AA contrast-verified daytime skin switchable via header toggle."
+      },
+      {
+        img: "../ui-refresh/04-after-desktop-select-nox.png",
+        title: "Choose Your Destiny — 235 CE Historical Presets (NOX)",
+        cat: ["NOX Romae"],
+        desc: "Full-width imperial selection screen featuring asymmetric historical archetypes and the World Weaver entrance."
+      },
+      {
+        img: "../ui-refresh/19-destiny-compact-hero.png",
+        title: "Choose — or Forge — Your Destiny (LVX Compact Hero)",
+        cat: ["LVX"],
+        desc: "Compact hero layout in LVX showing immediate entry into 235 CE or custom Meta-Narrative world generation."
+      },
+      {
+        img: "../ui-refresh/18-structured-desk-1280x720.png",
+        title: "Structured Turn Composer (`TurnSubmission` v1)",
+        cat: ["NOX Romae", "Structured Turn Composer"],
+        desc: "Compose explicit Observable Actions, Addressed Orders to known recipients, Private Intent, and Inquiries (D37)."
+      },
+      {
+        img: "../ui-refresh/19-dossier-ties-keyless-1280x720.png",
+        title: "Persistent Dossiers: Marks (D48), Ties (D49) & Signs (D50)",
+        cat: ["LVX", "7-Register Intelligence Desk"],
+        desc: "Dramatis Personae dossier backed strictly by `PlayerKnowledgeStore`—showing outward marks, ties, composure signs, and zero-config Mock Mode banner."
+      },
+      {
+        img: "../ui-refresh/06-after-desktop-personae-nox.png",
+        title: "Dramatis Personae & Espionage Dossiers (NOX)",
+        cat: ["NOX Romae", "7-Register Intelligence Desk"],
+        desc: "Inspect known figures, commission D47 grounded espionage readings, and trace sourced relationship observations."
+      },
+      {
+        img: "../ui-refresh/16-command-palette-nox.png",
+        title: "Ctrl+K / ⌘K Command Palette & Gold Coin Change Badges",
+        cat: ["NOX Romae", "Structured Turn Composer"],
+        desc: "Instant keyboard navigation across all 7 intelligence registers, Private Audiences, Settings, and unseen change counts."
+      },
+      {
+        img: "../ui-refresh/14-voice-cast.png",
+        title: "AI Voice Casting Director (`castVoices`)",
+        cat: ["AI Voice Cast & Acted Script Log"],
+        desc: "Assigns each known character a distinct Gemini catalog voice (`Enceladus`, `Fenrir`, `Kore`, `Orus`) and custom delivery manner."
+      },
+      {
+        img: "../ui-refresh/13-private-scene-voice.png",
+        title: "1-on-1 Private Audience with Direct NPC Voice (D39, D50)",
+        cat: ["AI Voice Cast & Acted Script Log", "NOX Romae"],
+        desc: "Multi-exchange private scene modal where NPCs speak their lines in their cast voice with `<angle-bracket>` delivery cues."
+      },
+      {
+        img: "../ui-refresh/13-narration-log.png",
+        title: "Acted Script & Device Narration Log (`narrationLog.ts`)",
+        cat: ["AI Voice Cast & Acted Script Log"],
+        desc: "Inspect the `<angle-bracket>` acted scripts generated by `narrationPerformance` and replay cached WAV audio with zero prep cost."
+      },
+      {
+        img: "../ui-refresh/08-after-phone-game-nox.png",
+        title: "Mobile Leaf 1: Swipeable Chronicle & Composer (390×844)",
+        cat: ["Mobile Responsive Leaves", "NOX Romae"],
+        desc: "Responsive scroll-snap diptych leaf 1 with compact 2×2 world-state masthead and touch-optimized turn composer."
+      },
+      {
+        img: "../ui-refresh/09-after-phone-panel-nox.png",
+        title: "Mobile Leaf 2: Swipeable 7-Register Intelligence Desk",
+        cat: ["Mobile Responsive Leaves", "7-Register Intelligence Desk"],
+        desc: "Horizontal scroll-snap leaf 2 bringing all 7 intelligence registers and dossiers to mobile viewports."
+      }
+    ];
+
+    const gmTabs = [
+      { num: "Tab 1", name: "Overview & Pacing (D23)", desc: "Inspect macro crisis severity, Fates pacing posture, and active campaign reignSeed." },
+      { num: "Tab 2", name: "Ground Truth vs. Perceived", desc: "Side-by-side diff of omniscient WorldState deltas vs. D5 player-perceived digest." },
+      { num: "Tab 3", name: "Truth Ledger (D11)", desc: "Audit every rumor's ground-truth `is_true` flag, `origin_id` planter, and D47 clue standing." },
+      { num: "Tab 4", name: "Bounded NPC Minds (D10)", desc: "Read each spotlight rival's private reasoning, chosen method, and D30 scheme adjustments." },
+      { num: "Tab 5", name: "Dice & Mortality Trace (D2–D4)", desc: "Inspect hidden d20 action rolls, opposition modifiers, Gate 1 validations, and `secret_truth` survivors." },
+      { num: "Tab 6", name: "Composure & Tell Screen (D50)", desc: "View every bearer's hidden composure roll (`holds`/`frays`/`breaks`) and screened/dropped signs." },
+      { num: "Tab 7", name: "Attribution & Redactions (D42)", desc: "Verify `actors` declarations on headlines/deltas and inspect any boundary redactions." },
+      { num: "Tab 8", name: "Knowledge Graph Inspector", desc: "Traverse all `KnowledgeClaim` nodes, `#c1` contradiction forks, and cited relationship edges." },
+      { num: "Tab 9", name: "Seed Replay ('Strike the Mould')", desc: "Re-run `turnReplay.ts` from `deriveTurnSeed(reignSeed, turn)` to prove 100% deterministic RNG parity." },
+      { num: "Tab 10", name: "Raw Prompt & JSON Wire Log", desc: "Inspect exact prompts, thinking budgets, Zod validation retries, and latency per Gemini call." },
+      { num: "Tab 11", name: "GM Directives & Eval Export", desc: "Inject live GM story directives (D32) or export a sanitized session corpus for `npm run eval` (D18)." }
+    ];
+
+    /* ==========================================================================
+       RENDERING & INTERACTIVITY CONTROLLERS
+       ========================================================================== */
+
+    // 1. Render Thesis Table & Deep Dive
+    let selectedThesisIdx = 0;
+    function renderThesis() {
+      const tbody = document.getElementById('thesisTableBody');
+      tbody.innerHTML = thesisData.map((row, idx) => `
+        <tr class="clickable-row ${idx === selectedThesisIdx ? 'selected' : ''}" onclick="selectThesisRow(${idx})">
+          <td><strong style="font-family:var(--font-display); color:var(--gold-bright);">${row.dim}</strong></td>
+          <td style="color:var(--text-muted);">${row.spreadsheet}</td>
+          <td style="color:var(--text-muted);">${row.chatbot}</td>
+          <td><strong>${row.realmweaver}</strong></td>
+        </tr>
+      `).join('');
+
+      const item = thesisData[selectedThesisIdx];
+      document.getElementById('thesisDeepDiveCard').innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.75rem;">
+          <span class="badge badge-gold">ARCHITECTURAL SEAM INSPECTOR</span>
+          <span class="badge badge-crimson">${item.module}</span>
+        </div>
+        <h3 style="font-family:var(--font-display); font-size:1.3rem; color:var(--gold-bright); margin-bottom:0.65rem;">
+          ${item.dim}
+        </h3>
+        <p style="font-size:1.05rem; color:var(--text-primary); margin-bottom:1rem;">
+          ${item.deepDive}
+        </p>
+        <div style="padding:0.85rem 1rem; background:var(--bg-inset); border-left:3px solid var(--gold-bright); font-size:0.94rem; color:var(--text-secondary);">
+          <strong>Realmweaver Invariant:</strong> ${item.realmweaver}
+        </div>
+      `;
+    }
+    window.selectThesisRow = function(idx) {
+      selectedThesisIdx = idx;
+      renderThesis();
+    };
+
+    // 2. Render 8-Stage Turn Pipeline
+    let selectedStageIdx = 0;
+    function renderPipeline() {
+      const stepper = document.getElementById('pipelineStepper');
+      stepper.innerHTML = pipelineStages.map((s, idx) => `
+        <button type="button" class="stage-btn ${idx === selectedStageIdx ? 'active' : ''}" onclick="selectPipelineStage(${idx})">
+          <span class="stage-num">${s.num}</span>
+          <span class="stage-name">${s.shortName}</span>
+        </button>
+      `).join('');
+
+      const st = pipelineStages[selectedStageIdx];
+      document.getElementById('pipelineDetailContainer').innerHTML = `
+        <div class="grid-2">
+          <div class="roman-card">
+            <div style="display:flex; flex-wrap:wrap; gap:0.45rem; margin-bottom:0.8rem;">
+              <span class="badge badge-gold">${st.num} of 8</span>
+              <span class="badge badge-crimson">${st.model}</span>
+              <span class="badge badge-tyrian">${st.thinking}</span>
+            </div>
+            <h3 style="font-family:var(--font-display); font-size:1.35rem; color:var(--gold-bright); margin-bottom:0.5rem;">
+              ${st.title}
+            </h3>
+            <div style="font-family:var(--font-mono); font-size:0.78rem; color:var(--text-muted); margin-bottom:1rem;">
+              <strong>Modules:</strong> ${st.module}
+            </div>
+            <div style="margin-bottom:1rem; padding:0.8rem; background:var(--bg-inset); border-radius:3px; border:1px solid var(--border-inner);">
+              <strong style="font-family:var(--font-display); font-size:0.8rem; text-transform:uppercase; color:var(--gold-bright); display:block; margin-bottom:0.25rem;">
+                Information Boundary (What It Sees)
+              </strong>
+              <span style="font-size:0.96rem; color:var(--text-secondary);">${st.boundary}</span>
+            </div>
+            <h4 style="font-family:var(--font-display); font-size:0.85rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-primary); margin-bottom:0.5rem;">
+              Deterministic Code Guardrails &amp; Rulings
+            </h4>
+            <ul style="padding-left:1.25rem; color:var(--text-secondary); font-size:0.96rem; display:grid; gap:0.45rem;">
+              ${st.guardrails.map(g => `<li>${g}</li>`).join('')}
+            </ul>
+          </div>
+          <div class="roman-card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+              <span class="badge badge-gold">SAMPLE WIRE / TRACE PAYLOAD</span>
+              <span class="badge">Validated via Zod + Gemini Schema</span>
+            </div>
+            <pre class="code-block">${st.payload}</pre>
+          </div>
+        </div>
+      `;
+    }
+    window.selectPipelineStage = function(idx) {
+      selectedStageIdx = idx;
+      renderPipeline();
+    };
+
+    // 3. Render 21 AI Roles Matrix
+    let activeAgentCat = "All";
+    function renderAgents() {
+      const q = (document.getElementById('agentSearchInput').value || '').toLowerCase().trim();
+      const filtered = agentRoles.filter(a => {
+        const matchesCat = activeAgentCat === "All" || a.cat === activeAgentCat;
+        const matchesQ = !q || [a.name, a.cat, a.builder, a.model, a.schema, a.sees, a.redacted, a.rules].join(' ').toLowerCase().includes(q);
+        return matchesCat && matchesQ;
+      });
+
+      document.getElementById('agentGrid').innerHTML = filtered.map(a => `
+        <div class="roman-card" style="display:flex; flex-direction:column; gap:0.65rem;">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.35rem;">
+            <span class="badge badge-gold">${a.cat}</span>
+            <span class="badge badge-tyrian">Thinking: ${a.thinking}</span>
+          </div>
+          <h3 style="font-family:var(--font-display); font-size:1.08rem; color:var(--text-primary);">
+            ${a.name}
+          </h3>
+          <div style="font-family:var(--font-mono); font-size:0.73rem; color:var(--gold-bright); word-break:break-all;">
+            ${a.builder}
+          </div>
+          <div style="display:flex; flex-wrap:wrap; gap:0.35rem;">
+            <span class="badge badge-crimson">${a.model}</span>
+            <span class="badge">${a.schema}</span>
+          </div>
+          <div style="font-size:0.9rem; background:var(--bg-inset); padding:0.65rem; border-radius:3px; border-left:2px solid var(--laurel-bright);">
+            <strong style="color:var(--laurel-bright);">Sees:</strong> ${a.sees}
+          </div>
+          <div style="font-size:0.9rem; background:var(--bg-inset); padding:0.65rem; border-radius:3px; border-left:2px solid var(--crimson-bright);">
+            <strong style="color:var(--crimson-bright);">Redacted:</strong> ${a.redacted}
+          </div>
+          <div style="font-size:0.88rem; color:var(--text-secondary); margin-top:auto; padding-top:0.4rem; border-top:1px solid var(--border-inner);">
+            <strong style="color:var(--gold-bright);">Contract &amp; Rulings:</strong> ${a.rules}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // 4. Render Information Asymmetry & Perception Firewall Simulator
+    let selectedScenarioIdx = 0;
+    function renderFirewall() {
+      const bar = document.getElementById('scenarioSelectorBar');
+      bar.innerHTML = firewallScenarios.map((sc, idx) => `
+        <button type="button" class="filter-pill ${idx === selectedScenarioIdx ? 'active' : ''}" onclick="selectFirewallScenario(${idx})">
+          ${sc.title}
+        </button>
+      `).join('');
+
+      const s = firewallScenarios[selectedScenarioIdx];
+      const cols = [
+        { badge: "1. GM GROUND TRUTH", badgeClass: "badge-gold", title: "Omniscient Engine State", data: s.gmTruth },
+        { badge: "2. PLAYER PERCEPTION", badgeClass: "badge-laurel", title: "Player Belief Graph Slice", data: s.playerView },
+        { badge: "3. BOUNDED NPC MIND", badgeClass: "badge-tyrian", title: "Rival Mind Projection", data: s.npcMindView },
+        { badge: "4. BOUNDARY FIREWALL", badgeClass: "badge-crimson", title: "Code Tripwire & Redaction", data: s.firewallGate }
+      ];
+
+      document.getElementById('firewallColumns').innerHTML = `
+        <div class="roman-card" style="grid-column: 1 / -1; margin-bottom: 0.4rem;">
+          <span class="badge badge-gold">ACTIVE 235 CE SCENARIO CONTEXT</span>
+          <p style="font-size:1.06rem; color:var(--text-primary); margin-top:0.45rem;">${s.context}</p>
+        </div>
+        ${cols.map(c => `
+          <div class="roman-card">
+            <span class="badge ${c.badgeClass}">${c.badge}</span>
+            <h3 style="font-family:var(--font-display); font-size:1.1rem; color:var(--gold-bright); margin:0.5rem 0 0.2rem;">
+              ${c.title}
+            </h3>
+            <div style="font-family:var(--font-mono); font-size:0.74rem; color:var(--text-muted); margin-bottom:0.8rem;">
+              ${c.data.subtitle}
+            </div>
+            <ul style="padding-left:1.15rem; display:grid; gap:0.55rem; font-size:0.93rem; color:var(--text-secondary);">
+              ${c.data.items.map(it => `<li>${it}</li>`).join('')}
+            </ul>
+          </div>
+        `).join('')}
+      `;
+    }
+    window.selectFirewallScenario = function(idx) {
+      selectedScenarioIdx = idx;
+      renderFirewall();
+    };
+
+    // 5. Render Embodied Characters & Knowledge Graph Explorer
+    let selectedEntityIdx = 0;
+    function renderDomain() {
+      const bar = document.getElementById('entitySelectorBar');
+      bar.innerHTML = domainEntities.map((ent, idx) => `
+        <button type="button" class="filter-pill ${idx === selectedEntityIdx ? 'active' : ''}" onclick="selectDomainEntity(${idx})">
+          ${ent.name} (“${ent.epithet}”)
+        </button>
+      `).join('');
+
+      const e = domainEntities[selectedEntityIdx];
+      document.getElementById('domainExplorerContainer').innerHTML = `
+        <div class="roman-card">
+          <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:0.4rem; margin-bottom:0.6rem;">
+            <span class="badge badge-gold">ENTITY MODEL (types.ts::Entity)</span>
+            <span class="badge badge-tyrian">id: ${e.id}</span>
+          </div>
+          <h3 style="font-family:var(--font-display); font-size:1.3rem; color:var(--gold-bright);">
+            ${e.name} <span style="font-weight:400; color:var(--text-muted);">— “${e.epithet}”</span>
+          </h3>
+          <div style="font-size:0.94rem; color:var(--text-secondary); margin-bottom:0.9rem;">${e.role}</div>
+
+          <div style="background:var(--bg-inset); padding:0.75rem; border-radius:3px; margin-bottom:0.9rem; font-size:0.9rem;">
+            <div><strong style="color:var(--gold-bright);">Bespoke Prose Voice (4C.5):</strong> <em>“${e.voice}”</em></div>
+            <div style="margin-top:0.3rem;"><strong style="color:var(--gold-bright);">AI Voice Cast (TTS):</strong> ${e.voiceCast}</div>
+          </div>
+
+          <div class="grid-2" style="gap:0.75rem; margin-bottom:0.9rem;">
+            <div style="background:var(--bg-inset); padding:0.7rem; border-radius:3px;">
+              <strong style="font-family:var(--font-display); font-size:0.76rem; color:var(--gold-bright); text-transform:uppercase;">Skills &amp; Personality</strong>
+              <div style="font-family:var(--font-mono); font-size:0.75rem; margin-top:0.35rem; color:var(--text-secondary);">
+                Skills: ${Object.entries(e.skills).map(([k,v]) => `${k}:${v}`).join(' · ')}<br/>
+                Traits: ${Object.entries(e.personality).map(([k,v]) => `${k}:${v}`).join(' · ')}
+              </div>
+            </div>
+            <div style="background:var(--bg-inset); padding:0.7rem; border-radius:3px;">
+              <strong style="font-family:var(--font-display); font-size:0.76rem; color:var(--gold-bright); text-transform:uppercase;">Dynamic Resource Bag (D6)</strong>
+              <div style="font-family:var(--font-mono); font-size:0.75rem; margin-top:0.35rem; color:var(--text-secondary);">
+                ${Object.entries(e.resources).map(([k,v]) => `${k}: ${v}`).join('<br/>')}
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-bottom:0.9rem;">
+            <strong style="font-family:var(--font-display); font-size:0.8rem; color:var(--gold-bright); text-transform:uppercase; display:block; margin-bottom:0.4rem;">
+              Lasting Marks (Condition[], D48 — Outward vs. Inward)
+            </strong>
+            ${e.conditions.map(c => `
+              <div style="padding:0.55rem 0.7rem; background:var(--bg-inset); border-left:3px solid ${c.outward ? 'var(--laurel-bright)' : 'var(--crimson-bright)'}; margin-bottom:0.45rem; font-size:0.88rem;">
+                <span class="badge ${c.outward ? 'badge-laurel' : 'badge-crimson'}">${c.outward ? 'OUTWARD (Publicly Visible)' : 'INWARD (Bearer & GM Only · D50 Composure)'}</span>
+                <span class="badge">severity: ${c.severity}</span>
+                <div style="margin-top:0.25rem;"><strong>${c.name}</strong> (<code>mark:${c.id}</code>) — ${c.desc}</div>
+              </div>
+            `).join('')}
+          </div>
+
+          <div>
+            <strong style="font-family:var(--font-display); font-size:0.8rem; color:var(--gold-bright); text-transform:uppercase; display:block; margin-bottom:0.4rem;">
+              Open &amp; Secret Ties (Affiliation[], D49)
+            </strong>
+            <div style="display:flex; flex-wrap:wrap; gap:0.5rem;">
+              ${e.affiliations.map(a => `
+                <span class="badge ${a.public ? 'badge-gold' : 'badge-tyrian'}">
+                  ${a.public ? 'OPEN TIE' : 'SECRET TIE (D50)'}: ${a.name} [${a.kind}]
+                </span>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+
+        <div class="roman-card">
+          <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:0.4rem; margin-bottom:0.6rem;">
+            <span class="badge badge-gold">KNOWLEDGE GRAPH &amp; ACTIVE SCHEME (knowledge/store.ts)</span>
+            <span class="badge badge-laurel">D13 · D21 · D28 · D29</span>
+          </div>
+
+          <div style="background:var(--bg-inset); padding:0.85rem; border-radius:3px; border:1px solid var(--border-inner); margin-bottom:1rem;">
+            <span class="badge badge-crimson">ACTIVE SCHEME (D28 / D30)</span>
+            <h4 style="font-family:var(--font-display); font-size:1.05rem; color:var(--gold-bright); margin-top:0.35rem;">
+              ${e.scheme.name}
+            </h4>
+            <p style="font-size:0.92rem; color:var(--text-secondary); margin:0.25rem 0;">${e.scheme.overall_goal}</p>
+            <div style="font-family:var(--font-mono); font-size:0.76rem; color:var(--tyrian-bright);">${e.scheme.clues}</div>
+          </div>
+
+          <h4 style="font-family:var(--font-display); font-size:0.86rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--gold-bright); margin-bottom:0.6rem;">
+            PlayerKnowledgeStore Claim Nodes &amp; Deterministic Edges
+          </h4>
+          <div style="display:grid; gap:0.7rem;">
+            ${e.knowledgeGraph.map(k => `
+              <div style="background:var(--bg-inset); padding:0.8rem; border-radius:3px; border-left:3px solid var(--gold-bright);">
+                <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:0.3rem; margin-bottom:0.3rem;">
+                  <span class="badge badge-gold">${k.channel}</span>
+                  <span class="badge">${k.turn}</span>
+                </div>
+                <div style="font-family:var(--font-mono); font-size:0.74rem; color:var(--text-muted); margin-bottom:0.3rem;">
+                  claimKey: ${k.key}
+                </div>
+                <div style="font-size:0.93rem; color:var(--text-primary); margin-bottom:0.45rem;">
+                  ${k.text}
+                </div>
+                <div style="display:flex; flex-wrap:wrap; gap:0.35rem;">
+                  ${k.edges.map(ed => `<span class="badge badge-tyrian">${ed}</span>`).join('')}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+    window.selectDomainEntity = function(idx) {
+      selectedEntityIdx = idx;
+      renderDomain();
+    };
+
+    // 6. Render Gallery & 11-Tab Fates' Ledger
+    let activeGalleryCat = "All";
+    function renderGallery() {
+      const items = galleryItems.filter(g => activeGalleryCat === "All" || g.cat.includes(activeGalleryCat));
+      document.getElementById('galleryGrid').innerHTML = items.map(g => `
+        <div class="gallery-card" onclick="openLightbox('${g.img}', '${g.title.replace(/'/g, "\\'")} — ${g.desc.replace(/'/g, "\\'")}')">
+          <img src="${g.img}" alt="${g.title}" loading="lazy" />
+          <div class="gallery-card-body">
+            <div style="display:flex; flex-wrap:wrap; gap:0.3rem; margin-bottom:0.45rem;">
+              ${g.cat.map(c => `<span class="badge badge-gold">${c}</span>`).join('')}
+            </div>
+            <h3 style="font-family:var(--font-display); font-size:1.02rem; color:var(--text-primary); margin-bottom:0.35rem;">
+              ${g.title}
+            </h3>
+            <p style="font-size:0.88rem; color:var(--text-secondary);">${g.desc}</p>
+          </div>
+        </div>
+      `).join('');
+
+      document.getElementById('gmTabsGrid').innerHTML = gmTabs.map(t => `
+        <div style="background:var(--bg-inset); padding:0.75rem; border-radius:3px; border:1px solid var(--border-inner);">
+          <span class="badge badge-gold">${t.num}</span>
+          <h4 style="font-family:var(--font-display); font-size:0.9rem; color:var(--text-primary); margin:0.35rem 0 0.2rem;">
+            ${t.name}
+          </h4>
+          <p style="font-size:0.84rem; color:var(--text-secondary);">${t.desc}</p>
+        </div>
+      `).join('');
+    }
+
+    // Lightbox Functions
+    window.openLightbox = function(src, caption) {
+      document.getElementById('lightboxImg').src = src;
+      document.getElementById('lightboxCaption').textContent = caption;
+      document.getElementById('lightboxModal').classList.add('open');
+    };
+    window.closeLightbox = function() {
+      document.getElementById('lightboxModal').classList.remove('open');
+    };
+
+    // Theme Switcher (NOX Romae <-> LVX)
+    const themeBtn = document.getElementById('themeToggleBtn');
+    function setTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      themeBtn.textContent = theme === 'nox' ? '☾ NOX Romae (Switch to LVX)' : '☼ LVX Marble Day (Switch to NOX)';
+      try { localStorage.setItem('gor_atlas_theme', theme); } catch (_) {}
+    }
+    themeBtn.addEventListener('click', () => {
+      const current = document.documentElement.getAttribute('data-theme') || 'nox';
+      setTheme(current === 'nox' ? 'lvx' : 'nox');
+    });
+
+    // Section Navigation Tabs
+    const navTabs = document.querySelectorAll('.nav-tab');
+    const sections = document.querySelectorAll('.atlas-section');
+    function activateSection(tabId) {
+      navTabs.forEach(btn => {
+        const active = btn.getAttribute('data-tab') === tabId;
+        btn.classList.toggle('active', active);
+        btn.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      sections.forEach(sec => {
+        sec.classList.toggle('active', sec.id === tabId);
+      });
+    }
+    navTabs.forEach(btn => {
+      btn.addEventListener('click', () => activateSection(btn.getAttribute('data-tab')));
+    });
+
+    // Agent Filter Bar & Search
+    document.querySelectorAll('#agentFilterBar .filter-pill').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#agentFilterBar .filter-pill').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeAgentCat = btn.getAttribute('data-cat');
+        renderAgents();
+      });
+    });
+    document.getElementById('agentSearchInput').addEventListener('input', renderAgents);
+
+    // Gallery Filter Bar
+    document.querySelectorAll('#galleryFilterBar .filter-pill').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#galleryFilterBar .filter-pill').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeGalleryCat = btn.getAttribute('data-gcat');
+        renderGallery();
+      });
+    });
+
+    // Keyboard Accessibility Shortcuts (1-6 sections, T theme, Esc lightbox)
+    window.addEventListener('keydown', (e) => {
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+      if (e.key === 'Escape') closeLightbox();
+      if (e.key.toLowerCase() === 't') themeBtn.click();
+      const tabMap = {
+        '1': 'sec-thesis',
+        '2': 'sec-pipeline',
+        '3': 'sec-agents',
+        '4': 'sec-firewall',
+        '5': 'sec-domain',
+        '6': 'sec-gallery'
+      };
+      if (tabMap[e.key]) activateSection(tabMap[e.key]);
+    });
+
+    // Initialize Atlas on Load
+    (function initAtlas() {
+      let savedTheme = 'nox';
+      try { savedTheme = localStorage.getItem('gor_atlas_theme') || 'nox'; } catch (_) {}
+      setTheme(savedTheme);
+      renderThesis();
+      renderPipeline();
+      renderAgents();
+      renderFirewall();
+      renderDomain();
+      renderGallery();
+    })();
+  </script>
+</body>
+</html>

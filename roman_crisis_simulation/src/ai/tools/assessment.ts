@@ -26,6 +26,7 @@
  * assessment skipped, no roll" contract (see ai/prompts/README.md).
  */
 import { Entity, WorldState } from '../../types';
+import type { LeverageTruth } from '../core/groundTruth';
 import { GeminiClient, generateStructured, GEMINI_FLASH } from '../core/geminiService';
 import { ActionAssessmentSchema } from '../core/schemas';
 import { zActionAssessment } from '../core/zodSchemas';
@@ -48,7 +49,8 @@ export const getActionAssessment = async (
   playerIntent: string,
   worldState: WorldState,
   npcEntities: Entity[],
-  isMockMode: boolean
+  isMockMode: boolean,
+  leverageTruth?: LeverageTruth[],
 ): Promise<ActionAssessment> => {
   if (isMockMode) {
     return {
@@ -66,6 +68,7 @@ export const getActionAssessment = async (
     playerBrief: getEntityBrief(playerEntity),
     worldSummary: buildWorldSummary(worldState),
     npcEntities,
+    leverageTruth,
   });
 
   return generateStructured<ActionAssessment>(ai, {

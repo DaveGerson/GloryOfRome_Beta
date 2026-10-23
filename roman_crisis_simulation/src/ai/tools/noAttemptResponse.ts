@@ -40,6 +40,7 @@ export async function selectNoAttemptEvidence(
       prompt,
       responseSchema: NoAttemptEvidenceSelectionSchema,
       zodSchema: zNoAttemptEvidenceSelection,
+      thinkingConfig: { thinkingBudget: 256 },
     });
     // Actors-attribution parse boundary (D42): strip the interchange-only
     // `actors` sibling before this reaches selection validation/downstream use.

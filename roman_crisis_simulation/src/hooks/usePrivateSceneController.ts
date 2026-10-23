@@ -17,7 +17,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { MutableRefObject } from 'react';
 import type { GoogleGenAI } from '@google/genai';
-import type { ComposureRoll, Entity } from '../types';
+import type { ComposureRoll, Entity, WorldState } from '../types';
 import type { RunDomainMutation } from '../state/domainMutation';
 import type { SaveGameState } from '../persistence/saveGame';
 import {
@@ -59,6 +59,7 @@ export interface PrivateSceneControllerDeps {
     privateScenes: PrivateSceneRecord[];
     playerEntity: Entity | null;
     entities: Entity[];
+    worldState?: WorldState;
     /** The player's known contacts (knownRecipientOptionsForPlayer's ids). */
     privateSceneKnownIds: string[];
     /** The player's knowledge store: a tell they catch in the scene is recorded there as a sign seen (D50). */
@@ -236,7 +237,7 @@ function newSignsSeen(scene: PrivateSceneRecord, fromExchange: number): Array<{ 
 
 export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
     const {
-        ai, isMockMode, online, privateScenes, playerEntity, entities, privateSceneKnownIds, knowledge, turnNumber,
+        ai, isMockMode, online, privateScenes, playerEntity, entities, worldState, privateSceneKnownIds, knowledge, turnNumber,
         privateSceneInteractionLocked, runDomainMutation, commitDomainMutation, buildSaveState,
         privateSceneLockRef, privateScenesRef,
     } = deps;
@@ -334,7 +335,7 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
             try {
                 const response = await continuePrivateScene(ai, privateScenePromptFor(npc, [{ sequence: 1, speaker: 'player', text: privateSceneOpeningDraft.trim() }], 1, composure), isMockMode);
                 if (!transaction.isCurrent() || privateScenesFingerprint(privateScenesRef.current) !== expectedScenes) return false;
-                const tells = screenNpcTells(response, npc, composure?.npc ?? [], tellWorldOf(entities));
+                const tells = screenNpcTells(response, npc, composure?.npc ?? [], tellWorldOf(entities, Object.keys(worldState?.regions ?? {})));
                 const transition = beginPrivateScene({ sceneId: `private-scene-${turnNumber}-${npc.entity_id}`, macroTurn: turnNumber, player: playerEntity, npc, knownEntityIds: privateSceneKnownIds, opening, response, existing: privateScenesRef.current, composure, tells });
                 if (!transition.ok) return false;
                 const signs = newSignsSeen(transition.scene, 1);
@@ -352,7 +353,7 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
                 return false;
             }
         }, { allowDuringPrivateScene: true });
-    }, [ai, commitPrivateScene, entities, fail, isMockMode, knowledge, online, playerEntity, privateSceneKnownIds, privateSceneOpeningDraft, privateScenePromptFor, privateScenesRef, runDomainMutation, turnNumber]);
+    }, [ai, commitPrivateScene, entities, fail, isMockMode, knowledge, online, playerEntity, privateSceneKnownIds, privateSceneOpeningDraft, privateScenePromptFor, privateScenesRef, runDomainMutation, turnNumber, worldState]);
 
     const handlePrivateSceneReply = useCallback((sceneId: string) => {
         void runDomainMutation(async transaction => {
@@ -380,7 +381,7 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
                 const current = privateScenesRef.current.find(candidate => candidate.sceneId === sceneId);
                 if (!current || current.status !== 'active' || current.macroTurn !== scene.macroTurn || current.npcResponseCount !== scene.npcResponseCount) return false;
                 if (privateScenesFingerprint(privateScenesRef.current) !== expectedScenes) return false;
-                const tells = screenNpcTells(response, npc, current.npcComposure ?? [], tellWorldOf(entities));
+                const tells = screenNpcTells(response, npc, current.npcComposure ?? [], tellWorldOf(entities, Object.keys(worldState?.regions ?? {})));
                 const transition = appendPrivateSceneExchange({ scene: current, expectedNpcResponseCount: scene.npcResponseCount, playerUtterance: reply, response, tells });
                 if (!transition.ok) return false;
                 const signs = newSignsSeen(transition.scene, transition.scene.npcResponseCount);
@@ -395,7 +396,7 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
                 return false;
             }
         }, { allowDuringPrivateScene: true });
-    }, [ai, commitPrivateScene, entities, fail, isMockMode, knowledge, online, privateScenePromptFor, privateSceneReplyDraft, privateScenesRef, runDomainMutation]);
+    }, [ai, commitPrivateScene, entities, fail, isMockMode, knowledge, online, privateScenePromptFor, privateSceneReplyDraft, privateScenesRef, runDomainMutation, worldState]);
 
     const handlePrivateSceneEnd = useCallback((sceneId: string) => {
         void runDomainMutation(() => {

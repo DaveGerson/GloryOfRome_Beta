@@ -294,7 +294,6 @@ function canonicalPlayerComposureRoll(value: unknown): PrivateScenePlayerComposu
   return { ...roll, told: typeof told === 'string' && told.trim() ? told : null };
 }
 
-/** A scene's sign (D50) rebuilt field by field, or null. */
 /**
  * A scene's sign (D50) rebuilt field by field, or null. Its subject is read
  * as a handle against the scene's NPC rolls: a sign saved by 6901844, before

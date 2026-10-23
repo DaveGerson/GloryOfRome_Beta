@@ -12,7 +12,7 @@
  * told, never a number.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import React, { act } from 'react';
+import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { GoogleGenAI } from '@google/genai';
 import type { ComposureRoll, Condition } from '../types';
@@ -482,6 +482,66 @@ describe('D50: the controller, in Mock Mode', () => {
     expect(scene.transcript[1]).not.toHaveProperty('delivery');
     expect(scene.composureSigns).toBeUndefined();
     expect((committed[0] as Extract<GameAction, { type: 'PRIVATE_SCENES_COMMITTED' }>).knowledge).toBeUndefined();
+    hook.unmount();
+  });
+
+  it('passes worldState.regions into tellWorldOf so an unoccupied region in a breaking mark account is screened out of delivery and signs', async () => {
+    committed.length = 0;
+    const npcWithRegionAccount = makeEntity({
+      ...julia,
+      conditions: [mark({ id: 'grief', name: 'grief', description: 'her son drowned off ostia', severity: 'grave' })],
+      affiliations: [],
+    });
+    // Find a seed where the single mark breaks
+    let breakingSeed = 1;
+    for (let s = 1; s < 100_000; s++) {
+      const r = rollSceneComposure(player, npcWithRegionAccount, s);
+      if (r.npc[0]?.tier === 'breaks') {
+        breakingSeed = s;
+        break;
+      }
+    }
+    const aiWithRegionTell = {
+      models: {
+        generateContent: vi.fn(async () => ({
+          text: JSON.stringify(response({
+            delivery: 'looking toward ostia',
+            signs: [{ subject: 'mark:grief', sign: 'Talk of ostia silences her.' }],
+          })),
+        })),
+      },
+    } as unknown as GoogleGenAI;
+
+    const scenesRef = { current: [] as PrivateSceneRecord[] };
+    const worldWithOstia = {
+      year: 235,
+      week: 2,
+      political_climate: 'Tense',
+      economic_stability: 'Stable',
+      regions: {
+        'Palatine Hill': { stability: 'Stable', controlling_faction: null, current_events: [] },
+        Ostia: { stability: 'Stable', controlling_faction: null, current_events: [] },
+      },
+    };
+    const hook = renderHook(usePrivateSceneController, {
+      ...deps(scenesRef),
+      ai: aiWithRegionTell,
+      isMockMode: false,
+      entities: [player, npcWithRegionAccount],
+      worldState: worldWithOstia,
+    });
+    act(() => hook.current.setPrivateSceneOpeningDraft('Mother, a word.'));
+    const random = vi.spyOn(Math, 'random').mockReturnValue(breakingSeed / 0x100000000);
+    act(() => hook.current.handlePrivateSceneInvite('julia'));
+    await settle();
+    random.mockRestore();
+
+    const scene = scenesRef.current[0];
+    expect(scene.npcComposure![0].tier).toBe('breaks');
+    // Because 'Ostia' is in worldState.regions (even though no entity is at Ostia),
+    // 'ostia' in the breaking mark's description is recognized as a proper noun and screened out!
+    expect(scene.transcript[1]).not.toHaveProperty('delivery');
+    expect(scene.composureSigns).toBeUndefined();
     hook.unmount();
   });
 });

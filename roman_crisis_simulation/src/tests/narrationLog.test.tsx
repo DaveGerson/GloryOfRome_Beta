@@ -11,7 +11,7 @@
  * listing, replaying, copying, clearing, focus trap.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import React, { act } from 'react';
+import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GameState, type Message } from '../types';
 import type { GeminiClient } from '../ai/core/geminiService';

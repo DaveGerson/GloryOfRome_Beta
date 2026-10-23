@@ -1,5 +1,3 @@
-import React from 'react';
-
 /**
  * The panel's sub-rail (audit items 34–37). Five tabs mix two kinds of thing —
  * Assets (coin / standing / leverage), Reports (corroboration / chronology),
