@@ -75,7 +75,7 @@ export function buildEntityBatchPrompt(
     **Requirements:**
     1.  **Match IDs:** You MUST use the exact 'entity_id's provided.
     2.  **Deep Relationships:** Every entity must have a 'relationships' object keyed by the IDs of the OTHER entities in the Full Cast Context.
-        - Set 'trust_level' (-10 to 10).
+        - Set 'trust_level' and 'respect_level' (-10 to 10).
         - Set 'perceived_threat', 'ideological_alignment', 'dependency_level'.
     3.  **Schemes:** Give every entity (except maybe the player) a multi-step 'active_scheme'.
     4.  **Resources:** Create unique, thematic resources.
@@ -84,6 +84,7 @@ export function buildEntityBatchPrompt(
     7.  **Voice & Epithet:** Give EVERY entity (the player included) a 'voice' - a COMPACT speech-style directive for how they talk and think (e.g. "clipped soldier's Latin, contempt for senatorial flourish") - and an 'epithet', a SHORT public byname (e.g. "the Thracian"). Keep both short and make each voice DISTINCT from the others'; for a collective entity (a faction, a guard, a mob) a group voice and collective epithet are fine.
     8.  **Personality & Skills Scale:** Rate every 'personality' trait (ambition, paranoia, loyalty, cunning, honor) and every skill (e.g. oratory, strategy, intrigue) from 1 to 10, where 5 is ordinary and 10 is exceptional - never a percentage or a 0-100 score.
     9.  **Affiliations:** Give an individual 0-2 'affiliations' beyond its faction_id - a cause, a cult, a faith, or a tie to a faction it does not openly profess - each openly professed (public: true) or kept secret (public: false). Most ties are open; make ONE or two across the whole cast secret, and let each secret be one worth keeping (a mystery cult, a forbidden faith, a quiet tie to a rival faction).
+    10. **Conditions (Lasting Marks, D48):** Populate 0-2 'conditions' (each with 'name', 'description', 'outward': true/false, 'severity': 'light' | 'serious' | 'grave') ONLY when a character's concept, history, or age clearly warrants a starting physical mark (e.g. an old battle scar, failing sight, a limp - outward: true) or inward burden (e.g. grief, nightmares - outward: false); use an empty array [] otherwise.
 
     **CRITICAL OUTPUT RULES:**
     - Output pure JSON only.

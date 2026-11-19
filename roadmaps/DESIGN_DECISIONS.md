@@ -469,6 +469,7 @@ guarded against regression by the directory-walking scan in
 pattern (`ai/prompts/characterCreation.ts`'s `description`,
 `ai/prompts/intelligence.ts`'s `event`/`question`) were found but not yet
 closed; tracked in `BACKLOG.md` B7.
+*(Factual update, September 2026: both remaining instances — `characterCreation.ts` and `intelligence.ts::buildClarificationPrompt` — were closed with `asPromptData`; `KNOWN_DEFERRED_GAPS` in `tests/promptDataBoundary.test.ts` is now empty.)*
 
 ## D42 - Schema-declared per-field player-action attribution replaces clause-grammar inference
 Every prose-bearing field in a provider's structured-output response

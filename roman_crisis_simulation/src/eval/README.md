@@ -49,11 +49,21 @@ Per turn:
 
 - **Schema validity** - each captured call's `rawResponse` is re-parsed
   (same cleaning as the live service) and re-validated against its call
-  family's zod schema via an explicit callName -> schema map. Prose calls
-  (narration, monologue, clarification, deep analysis, epilogue) are
-  skipped. Historical corpora may contain the retired `rawThoughts` family;
-  it is accurately reported as `skipped_unknown`, rather than failed,
-  because the current runtime no longer emits it. A response that was
+  family's zod schema via an explicit callName -> schema map
+  (`STRUCTURED_CALL_SCHEMAS`, plus prefix rules for `entityBatch:*` and
+  `npcMind:*`). Calls listed in `PROSE_CALL_NAMES` (`narration`,
+  `playerMonologue`, `clarification`, `deepAnalysis`, `epilogue`) are
+  reported as `skipped_prose` — note that even though live `narration` and
+  `playerMonologue` calls now return D42 structured `{ text, actors, signs? }`
+  JSON payloads at runtime, `eval/harness.ts` keeps both in `PROSE_CALL_NAMES`
+  so pre-D42 corpora (including `eval/fixtures/ci-corpus.json`) remain
+  compatible without false schema violations. Out-of-band calls outside both
+  sets — such as `schemeNature`, voice/prep calls (`narrationPerformance`,
+  `castVoices`, `imperialDispatch`), TTS audio calls (`narrationVoice`,
+  `narrationReplay`, `privateSceneVoice`, `imperialDispatchVoice`, which
+  record an `[audio: N bytes, mime]` placeholder), or the retired
+  `rawThoughts` family in historical corpora — are reported as
+  `skipped_unknown`, rather than failed. A response that was
   truncated at capture time (~20k chars) shows up as `unparseable_json` -
   the corpus no longer carries enough text to re-check it.
 - **Consequence-density proxies** - delta count and headline count.
@@ -61,10 +71,13 @@ Per turn:
   system instruction, and whether the turn's seed was recorded.
 - **Roll reproducibility** - where a seed and traces exist, the turn's
   hidden rolls are re-derived via `createSeededRng` and compared
-  draw-for-draw. Draw order mirrors `ai/core/turn.ts`: the player action's
-  resolution roll first (consequential turns only), then each mortality
-  roll in claim order (invalidated claims never rolled, so they consume no
-  draw).
+  draw-for-draw. Since D51, `turnSeed` is deterministically derived from the
+  campaign's `reignSeed` and `turnNumber` (`deriveTurnSeed(reignSeed, turnNumber)`),
+  so retries and reloads produce identical draws. Draw order mirrors
+  `ai/core/turn.ts`: the player action's resolution roll first (consequential
+  turns only), then each mortality roll in claim order (invalidated claims
+  never rolled, so they consume no draw; D50 composure rolls draw after
+  mortality and are verified in-app via `ai/core/turnReplay.ts`).
 
 Plus a schema-validity pass over the session-wide call log - the only
 channel carrying out-of-band calls (ad-hoc investigations, clarifications,

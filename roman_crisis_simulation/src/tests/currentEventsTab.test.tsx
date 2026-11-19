@@ -6,7 +6,7 @@
  * as an unhandled rejection (the button fires `void ask(...)`).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import React, { act } from 'react';
+import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { GoogleGenAI } from '@google/genai';
 import CurrentEventsTab from '../components/tabs/CurrentEventsTab';

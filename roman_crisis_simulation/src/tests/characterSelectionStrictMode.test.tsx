@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import React, { StrictMode, act, useState } from 'react';
+import { StrictMode, act, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import CharacterSelection from '../components/CharacterSelection';

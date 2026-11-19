@@ -41,7 +41,7 @@ export const ALL_EVENTS: GameEvent[] = [
         premise: "The Egyptian grain fleet fails and bread prices triple in the Suburra - the mob's patience is thinning toward riot.",
         // Role-agnostic (4D.2): a starving capital confronts ANY player -
         // emperor, senator, or broker - the moment the economy fails.
-        trigger: (worldState: WorldState, entities: Entity[], player: Entity | null) => {
+        trigger: (worldState: WorldState, _entities: Entity[], player: Entity | null) => {
             return player !== null && isEconomyAtOrWorseThan(worldState.economic_stability, 'Failing');
         },
         // Famine recurs while the economy stays broken; a season's relief
@@ -85,7 +85,7 @@ export const ALL_EVENTS: GameEvent[] = [
         // has soured on while it warms to some OTHER patron - the Guard's
         // OWN directional relationships are read (its trust toward the
         // player vs. toward any rival), not the player's perception of it.
-        trigger: (worldState: WorldState, entities: Entity[], player: Entity | null) => {
+        trigger: (_worldState: WorldState, entities: Entity[], player: Entity | null) => {
             if (!player) return false;
             const guard = entities.find(e => e.entity_id === 'praetorian_guard');
             if (!guard || guard.status !== 'alive') return false;
@@ -146,7 +146,7 @@ export const ALL_EVENTS: GameEvent[] = [
         // means what the crisis banner means (components/crisisGrade.ts): a
         // blank crisis string - turn.ts commits '' for a fully redacted one -
         // is no crisis.
-        trigger: (worldState: WorldState, entities: Entity[], player: Entity | null, simulationState?: SimulationState) => {
+        trigger: (_worldState: WorldState, _entities: Entity[], player: Entity | null, simulationState?: SimulationState) => {
             if (!player || !simulationState) return false;
             return simulationState.military_status === 'Rebellious'
                 || (simulationState.military_status === 'Divided' && Boolean(simulationState.major_ongoing_crisis?.trim()));
@@ -191,7 +191,7 @@ export const ALL_EVENTS: GameEvent[] = [
         // after a procurator's extortions, embraced by the Senate. Keys off
         // the meta-state: a wobbling throne plus a Senate still capable of
         // blessing a rival.
-        trigger: (worldState: WorldState, entities: Entity[], player: Entity | null, simulationState?: SimulationState) => {
+        trigger: (_worldState: WorldState, _entities: Entity[], player: Entity | null, simulationState?: SimulationState) => {
             if (!player || !simulationState) return false;
             return simulationState.imperial_status !== 'Stable'
                 && (simulationState.senate_status === 'Functional' || simulationState.senate_status === 'Ascendant');
@@ -235,7 +235,7 @@ export const ALL_EVENTS: GameEvent[] = [
         // Claudius). Keys off a failing economy plus an army no longer
         // reliably loyal - role-agnostic: the Guard presents the bill to
         // whoever holds visible power or wealth.
-        trigger: (worldState: WorldState, entities: Entity[], player: Entity | null, simulationState?: SimulationState) => {
+        trigger: (worldState: WorldState, _entities: Entity[], player: Entity | null, simulationState?: SimulationState) => {
             if (!player || !simulationState) return false;
             return isEconomyAtOrWorseThan(worldState.economic_stability, 'Failing')
                 && simulationState.military_status !== 'Loyal';

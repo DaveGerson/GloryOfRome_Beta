@@ -8,6 +8,24 @@ not a commitment or a schedule — it's the memory so nothing gets lost.
 
 ---
 
+## Queued TODO Plan (2026-11)
+
+Full prioritized Value × Effort × Subagent Resolvability matrix, file seams, and parallel execution topology: [`TODO_PLAN_2026-11.md`](./TODO_PLAN_2026-11.md).
+
+- [ ] **TODO (1A):** Voice Cast Manner → Private-Scene Speech & Prompts (`Small`, ~12–15m)
+- [ ] **TODO (1B):** D12 Modal-Weave Cooldown Gate (`Small`, ~12–15m)
+- [ ] **TODO (1C):** Overturned-Death Headline Guard (D2) (`Small`, ~12–15m)
+- [ ] **TODO (1D):** Wire Cross-Tab Save Conflict Banner (P1) (`Small`, ~12–15m)
+- [ ] **TODO (1E):** Incremental Streaming Boundary Gate (A5) (`Small`, ~12–15m)
+- [ ] **TODO (2A):** Shareable End-of-Reign Illustrated Scroll (P7) (`Medium`, ~18–20m)
+- [ ] **TODO (2B):** Economy with Seasonal Momentum & ±1 Clamp (G2) (`Medium`, ~15–20m)
+- [ ] **TODO (2C):** Turn Cancellation & `AbortSignal` Plumbing (A1) (`Medium`, ~18–22m)
+- [ ] **TODO (3A):** Intel Currency Converter & Graded Dossier Pricing (B1 + D27) (`Medium-Large`, needs design choices)
+- [ ] **TODO (3B):** Clue-Driven Scheme Deduction Board (B3 / G1) (`Large`, needs design choices)
+- [ ] **TODO (3C):** Faction Collective Minds (B6 / G3) & Turned Spy Contacts (G4) (`Large`, needs design spec)
+
+---
+
 ## Design tensions (recurring, cross-cutting)
 
 ### T1 — Soft/stochastic resources ↔ hard structured mechanics
@@ -1544,6 +1562,9 @@ each deliberately not done, with the reason. Owner questions are in B14.
   console's GroundTruthView and NpcPerceptionView, and a mind's
   previous-turn digest (`ai/core/turn.ts`). A departure or no-op status line
   can differ there from what the player saw. GM-only, minor.
+  **CLOSED 2026-10-23 (GM console views)** - `GroundTruthView` and
+  `NpcPerceptionView` now pass `entry.preTurnRoster` to `classifyDelta` and
+  `buildPerceivedDigest`, matching `usePlayerPerception` and the turn commit.
 - **World State takes no tab count.** Regions now count on Locations
   (D44's one owner per fact), and world deltas mark the masthead's ✦, so
   nothing bumps World State. A fallen standing (the briefing's new ▾ mark,
@@ -1595,6 +1616,10 @@ Part 6) and deliberately left, with the reason.
     since no truth is sent that could rule it out.
   - The action-assessment call still sees blackmail items without their
     truth; only the adjudicator was asked for.
+    **CLOSED 2026-10-23** - `getActionAssessment` and
+    `buildActionAssessmentPrompt` now receive `deriveLeverageTruth` and
+    render `buildLeverageTruthBlock` so difficulty assessment weighs whether
+    pressed blackmail rests on truth, garbled intel, or falsehood.
   - Mock Mode's consequence line stays the canned risky one, whatever the
     tier.
 - **Mock Mode's garbled wording is distinguishable in principle.** With no
@@ -1636,7 +1661,10 @@ Part 6) and deliberately left, with the reason.
     stack.
   Still open: at 375px the GM console's header and tabs leave the turn's
   pane little room, and a narration sign worded exactly like a scene sign
-  in the same week can count twice.
+  in the same week can count twice (**CLOSED 2026-10-23** for repeated/duplicate
+  narration signs: `tabChangeCountsFor` now deduplicates `(entityId, normalizedSign)`
+  within `lastTurn.composureSigns` and excludes any sign already held on
+  `sign:<entityId>` from an earlier turn).
 
 ---
 
@@ -1702,7 +1730,11 @@ purpose, and the reason is given.
     asks both questions of a named hand and of circumstance through the
     real App;
   - a GM view of the per-turn attribution record itself (only its ledger
-    entries show).
+    entries show). **CLOSED 2026-10-23** - `GroundTruthView` now renders a
+    compact "Headline attribution (D42/D47)" section whenever
+    `entry.headlineActors` is present and non-empty, showing each headline,
+    its attributed `actorNames` (or `"circumstance"`), and any
+    `unresolvedActors`.
 
 ---
 
@@ -1734,6 +1766,11 @@ given.
 - **Spelling folding works one way for some names.** A tie spelled
   "Bakchos" does not catch "Bacchus". Different words for the same thing
   (Chrestus, Nazarene, Dionysus, Liber) are not caught at all.
+  **CLOSED 2026-10-23 (Greek/Latin `-os`/`-us` stem folding)** - `STEM_ENDINGS`
+  in `ai/core/composure.ts` now includes `'os'` alongside `'us'`, so
+  `stemOf('Bakchos')` and `stemOf('Bacchus')` both fold to `'bacch'` after
+  `foldSpelling`, catching both directions. Different lexical roots
+  (Chrestus/Nazarene, Dionysus/Liber) remain distinct words.
 - **Short names over-block.** A four-letter name is also matched by its
   first three letters, so a bearer whose hidden subject mentions "Rome"
   cannot show a tell containing "Roman".
@@ -1742,6 +1779,9 @@ given.
   the roster check runs when the reply is first screened.
 - **The private-scene screen knows the roster's names and places, but not
   the world's regions**, which the scene controller does not hold.
+  **CLOSED 2026-10-23** - `usePrivateSceneController` now receives
+  `worldState` from `App.tsx` and passes `Object.keys(worldState?.regions ?? {})`
+  to `tellWorldOf(entities, ...)` on both invite and reply.
 - **The check on whether a breaking mark may be named does not use roster
   or place names**, so a lower-case place in another mark's account does
   not stop it being named.

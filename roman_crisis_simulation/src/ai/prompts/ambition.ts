@@ -20,6 +20,8 @@
  */
 
 import { Entity } from '../../types';
+import { publicAffiliationsOf } from '../core/affiliations';
+import { outwardConditionsOf } from '../core/conditions';
 import { asPromptData } from './fragments';
 
 export interface ApparentAmbitionPlayerBrief {
@@ -27,14 +29,22 @@ export interface ApparentAmbitionPlayerBrief {
   name: string;
   entityType: Entity['entity_type'];
   position?: string;
+  epithet?: string;
+  publicAffiliations?: string[];
+  outwardConditions?: string[];
 }
 
 export function buildApparentAmbitionPlayerBrief(player: Entity): ApparentAmbitionPlayerBrief {
+  const publicAffiliations = publicAffiliationsOf(player).map(a => a.name);
+  const outwardConditions = outwardConditionsOf(player).map(c => `${c.name} (${c.severity})`);
   return {
     entityId: player.entity_id,
     name: player.name,
     entityType: player.entity_type,
     ...(player.position ? { position: player.position } : {}),
+    ...(player.epithet ? { epithet: player.epithet } : {}),
+    ...(publicAffiliations.length > 0 ? { publicAffiliations } : {}),
+    ...(outwardConditions.length > 0 ? { outwardConditions } : {}),
   };
 }
 

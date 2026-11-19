@@ -286,7 +286,7 @@ const TELL_VOCABULARY = new Set([
 ]);
 
 /** Endings stripped to reach a word's stem, longest first. */
-const STEM_ENDINGS = ['ians', 'ity', 'ism', 'ian', 'ist', 'ic', 'us', 'ae', 'es', 's'] as const;
+const STEM_ENDINGS = ['ians', 'ity', 'ism', 'ian', 'ist', 'ic', 'us', 'os', 'ae', 'es', 's'] as const;
 /** The shortest stem an ending may be stripped down to - and the shortest word matched at a word's start rather than whole. */
 const MIN_STEM = 4;
 /** The shortest word counted at all. */

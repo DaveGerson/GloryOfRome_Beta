@@ -39,6 +39,11 @@ import {
   zWorldState,
   zRegionState,
 } from '../ai/core/zodSchemas';
+import {
+  CharacterCreationEntitySchema,
+  EntitySchema,
+} from '../ai/core/schemas';
+import { ALL_INITIAL_ENTITIES } from '../constants/baseScenario';
 import type {
   Relationship,
   Memory,
@@ -258,5 +263,35 @@ describe('world-state pair: zWorldState <-> WorldState + zRegionState <-> Region
       regions: { italia: { stability: 'unrest', current_events: [] } },
     };
     expect(zWorldState.safeParse(broken).success).toBe(false);
+  });
+});
+
+// --- CharacterCreationEntitySchema <-> EntitySchema / ALL_INITIAL_ENTITIES ---
+
+describe('CharacterCreationEntitySchema <-> EntitySchema / ALL_INITIAL_ENTITIES (lockstep)', () => {
+  it('covers all 9 ALL_INITIAL_ENTITIES IDs in relationships.properties and allows additionalProperties', () => {
+    const initialIds = ALL_INITIAL_ENTITIES.map(e => e.entity_id).sort();
+    expect(initialIds).toHaveLength(9);
+    const relProps = CharacterCreationEntitySchema.properties.relationships.properties as Record<string, unknown>;
+    expect(Object.keys(relProps).sort()).toEqual(initialIds);
+    for (const id of initialIds) {
+      expect(relProps[id]).toBe(EntitySchema.properties.relationships.additionalProperties);
+    }
+    expect(CharacterCreationEntitySchema.properties.relationships.additionalProperties).toBe(
+      EntitySchema.properties.relationships.additionalProperties,
+    );
+  });
+
+  it('uses MemorySchema for memories.items and ConditionSchema for optional conditions (matching EntitySchema)', () => {
+    expect(CharacterCreationEntitySchema.properties.memories.items).toBe(
+      EntitySchema.properties.memories.items,
+    );
+    expect(Object.keys(CharacterCreationEntitySchema.properties.memories.items.properties).sort()).toEqual([
+      ...MEMORY_KEYS,
+    ]);
+    expect(CharacterCreationEntitySchema.properties.conditions).toEqual(
+      EntitySchema.properties.conditions,
+    );
+    expect(CharacterCreationEntitySchema.required).not.toContain('conditions');
   });
 });

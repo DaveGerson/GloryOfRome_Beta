@@ -17,7 +17,8 @@ import type { ActionResolutionTier } from '../core/resolution';
 import { AIM_PHRASE, type InvestigationPlan, type OccurrencePlan, type PlannedFinding, type PoolPlan, type SchemeNaturePlan } from '../core/groundTruth';
 import type { OccurrenceQuestion } from '../../knowledge/store';
 import { publicAffiliationsOf } from '../core/affiliations';
-import { asPromptData, playerOutputDeltaKey, playerOutputDeltaReason } from './fragments';
+import { outwardConditionsOf } from '../core/conditions';
+import { asPromptData, formatEntityAffiliations, formatEntityConditions, playerOutputDeltaKey, playerOutputDeltaReason } from './fragments';
 import { ACTORS_DESCRIPTION } from '../core/schemas';
 
 // --- D47 grounding: what the agents actually reached -----------------------
@@ -224,8 +225,14 @@ export function buildDeepAnalysisPrompt(
     - Frame the report as your own read, which your master may choose to distrust - never as settled fact.
     - **Grounding (what your sources actually established):** ${groundingRule(plan, 'fact', { one: 'fact about them', many: 'facts about them' }, target.name)} Your assessment of the threat they pose is your own judgment of these facts.`;
 
+  const openTies = publicAffiliationsOf(target).map(tie => tie.name);
+  const outwardMarks = outwardConditionsOf(target).map(mark => `${mark.name} (${mark.severity})`);
   const prompt = `Target: ${target.name}.
-Position: ${target.position || target.entity_type}.
+Position: ${target.position || target.entity_type}.${target.location ? `
+Location: ${target.location}.` : ''}${target.epithet ? `
+Known as: ${target.epithet}.` : ''}${openTies.length > 0 ? `
+Openly professes: ${openTies.join('; ')}.` : ''}${outwardMarks.length > 0 ? `
+Outward marks: ${outwardMarks.join('; ')}.` : ''}
 ${findingsBlock(plan, 'FACTS')}`;
 
   return { systemInstruction, prompt };
@@ -333,11 +340,14 @@ export function buildInvestigationPrompt(
   // "consistent with the profile" could be true while the ledger calls it
   // false.
   const openTies = publicAffiliationsOf(target).map(tie => tie.name);
+  const outwardMarks = outwardConditionsOf(target).map(mark => `${mark.name} (${mark.severity})`);
   const prompt = `**Target Profile (what is publicly known):**
     - Name: ${target.name}
-    - Position: ${target.position}${target.epithet ? `
+    - Position: ${target.position}${target.location ? `
+    - Location: ${target.location}` : ''}${target.epithet ? `
     - Known as: ${target.epithet}` : ''}${openTies.length > 0 ? `
-    - Openly professes: ${openTies.join('; ')}` : ''}
+    - Openly professes: ${openTies.join('; ')}` : ''}${outwardMarks.length > 0 ? `
+    - Outward marks: ${outwardMarks.join('; ')}` : ''}
 
 ${findingsBlock(plan, 'FINDINGS')}`;
 
@@ -470,8 +480,9 @@ export function buildStoryRelevancePrompt(
         - 'pivot': the character abandons or redirects its previous intent because events made it obsolete or opened something better.
         - 'new': the character has no previous intent on record.
         Ground each intent in the character's active scheme and its recent memories - what the character itself witnessed or heard, not what you as narrator know. Intents are GM-private direction and never reach the player.
-        INTENT KNOWLEDGE BOUND (hard rule): each intent's text is later handed VERBATIM to that character's own simulated mind as the character's own carried thought. Phrase every intent strictly from that character's own knowledge - their scheme, their memories and perceptions as provided below - and NEVER reference another NPC's scheme, secret, or any act this character did not witness or hear of. You see the whole cast; the character does not, and your wording must not smuggle your omniscience into their head.
+        INTENT KNOWLEDGE BOUND (hard rule): each intent's text is later handed VERBATIM to that character's own simulated mind as the character's own carried thought. Phrase every intent strictly from that character's own knowledge - their scheme, their memories and perceptions, and their own conditions and affiliations as provided below - and NEVER reference another NPC's scheme, secret, inward condition (outward: false), secret affiliation (public: false), or any act this character did not witness or hear of. You see the whole cast; the character does not, and your wording must not smuggle your omniscience into their head.
         RESOURCE FEASIBILITY (hard rule): Process whether or not resources are required for an entity's intent. If an activity requires resources (denarii, legion support, senatorial backing), the character MUST possess them. Do not assign intents that require resources the character lacks (e.g. do not direct a general with 0 denarii to bribe officials, or an isolated politician with no legion support to stage a military coup). If an activity requires no resources (rhetoric, personal appeals, defiance), it may be directed freely.
+        CONDITION FEASIBILITY (hard rule): Respect each character's Conditions (lasting marks). A gravely wounded, ill, or incapacitated character cannot personally undertake physically demanding feats without accounting for that burden, though their marks and ties may strongly motivate their schemes.
     3.  **Evolve The World (Optional):** To keep the story fresh, consider if the cast or setting should change.
         - **Add Entity?** Is there a new character archetype missing that would create compelling conflict? (e.g., a populist tribune, a foreign envoy, a ruthless crime boss). If so, suggest adding ONE.
         - **Remove Entity?** Has an existing character become irrelevant or served their purpose? If so, suggest removing ONE to streamline the story.
@@ -486,10 +497,15 @@ export function buildStoryRelevancePrompt(
   const castLines = npcEntities
     .filter(e => e.status === 'alive')
     .map(e => {
+      const loc = e.location ? ` Location: ${e.location}.` : '';
       const res = e.resources && Object.keys(e.resources).length > 0
         ? ` Resources: ${Object.entries(e.resources).map(([k, v]) => `${k}:${v}`).join(', ')}.`
         : '';
-      return `- ${e.entity_id} — ${e.name} (${e.position || e.entity_type}).${res} Active scheme: ${schemeLine(e)}`;
+      const conds = formatEntityConditions(e);
+      const condText = conds ? ` Conditions: ${conds}.` : '';
+      const ties = formatEntityAffiliations(e);
+      const affText = ties ? ` Affiliations: ${ties}.` : '';
+      return `- ${e.entity_id} — ${e.name} (${e.position || e.entity_type}).${loc}${res}${condText}${affText} Active scheme: ${schemeLine(e)}`;
     });
 
   const prompt = `

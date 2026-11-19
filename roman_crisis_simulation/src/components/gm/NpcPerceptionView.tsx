@@ -52,7 +52,7 @@ export const NpcPerceptionView: React.FC<{
                 // visibility_network, which classifyDelta reads
                 // unconditionally - the console must render, not crash.
                 const npc = { ...npcRecord, visibility_network: npcRecord.visibility_network ?? [] };
-                const changes = buildPerceivedDigest(entry.adjudication.deltas, npc, snapshotEntities, worldState);
+                const changes = buildPerceivedDigest(entry.adjudication.deltas, npc, snapshotEntities, worldState, entry.preTurnRoster);
                 return (
                     <div key={entityId} style={well}>
                         <span style={{ color: RED, fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14 }}>{npc.name}</span>

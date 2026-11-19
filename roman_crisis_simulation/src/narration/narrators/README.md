@@ -87,9 +87,12 @@ or the crowd's roar, a quoted speaker's manner), never WHAT; it carries no
 names, numbers or quotation marks. A heading, a label or a "Say it gravely:" prefix
 outside the brackets would be read aloud, so none is ever sent. The TTS
 input is `## Transcript:` and the script, exactly the shape of the owner's
-reference call. The Imperial Dispatch stays a crisp briefing without cues,
-and a private-scene NPC's committed line gets no cues (there is no prep
-call).
+reference call. The Imperial Dispatch stays a crisp briefing without cues. A
+private-scene NPC's committed line has no prep call (any inline `<angled>`
+or `[bracketed]` asides in `text` are stripped by `sceneVoice.ts`), but when
+the line carries a validated stage-direction `delivery` from D50 composure
+(e.g. `"voice catching"`), `sceneVoice.ts::sceneLineForSpeech` prepends it as
+a single leading `<cue>` (`<voice catching> …`) so the TTS model performs it.
 
 Delivery style is not part of a profile. **Settings → Voice style** is the
 player's to choose. It never reaches the TTS model as an instruction. A
@@ -124,8 +127,10 @@ choose the narrator.
 - **Notes shape writing, never sound.** A delivery note is a manner of
   speech for a writer ("clipped soldier's sentences, few words"). Where a
   prep call exists it becomes that call's delivery brief; where none does
-  (a private-scene NPC's committed line) the note is shown and sent
-  nowhere, and the voice alone carries the character.
+  (a private-scene NPC's committed line) the cast delivery note is shown and
+  sent nowhere — the cast voice carries the character, opened only by the
+  line's own validated D50 stage-direction `delivery` `<cue>` when present
+  (`sceneVoice.ts::sceneLineForSpeech`).
 - **Uniqueness.** No two cast members share voice and note, and none takes
   the narrator's voice while another remains.
 

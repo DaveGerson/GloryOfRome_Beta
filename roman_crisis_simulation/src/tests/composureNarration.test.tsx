@@ -14,7 +14,7 @@
  * and the Personae coin counts the signs the week brought.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import React, { act } from 'react';
+import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { ComposureBearerRolls, ComposureRoll, Condition, TurnHistoryEntry } from '../types';
 import { composureCuesFrom } from '../ai/core/composure';
@@ -214,6 +214,36 @@ describe('D50: the GM record of a turn\'s composure', () => {
     expect(JSON.stringify(knowledge)).not.toContain('grief');
     expect(tabChangeCountsFor([], knowledge, recorded).get('dramatis_personae')).toBe(1);
     expect(tabChangeCountsFor([], knowledge, entry()).get('dramatis_personae')).toBeUndefined();
+  });
+
+  it('does not bump the Personae coin a second time when a narration sign repeats a sign already on the card from an earlier turn or is duplicated within the same turn', () => {
+    const turn4 = entry({ turnNumber: 4, composureSigns: [{ entityId: 'julia', subject: 'mark:grief', sign: 'Her voice caught.' }] });
+    const knowledgeAfterT4 = computeTurnKnowledge({ prev: [], perceivedChanges: [], reportsBefore: [], reportsAfter: [], turnNumber: 4, signsSeen: narrationSignsSeen(turn4) });
+    expect(tabChangeCountsFor([], knowledgeAfterT4, turn4).get('dramatis_personae')).toBe(1);
+
+    // Turn 5 repeats the exact same sign (with different casing/spacing) plus a duplicate within Turn 5 itself:
+    const turn5RepeatedOnly = entry({
+      turnNumber: 5,
+      composureSigns: [
+        { entityId: 'julia', subject: 'mark:grief', sign: '  her VOICE caught. ' },
+        { entityId: 'julia', subject: 'mark:grief', sign: 'Her voice caught.' },
+      ],
+    });
+    const knowledgeAfterT5 = computeTurnKnowledge({ prev: knowledgeAfterT4, perceivedChanges: [], reportsBefore: [], reportsAfter: [], turnNumber: 5, signsSeen: narrationSignsSeen(turn5RepeatedOnly) });
+    expect(signsSeenOf(knowledgeAfterT5, 'julia')).toHaveLength(1);
+    expect(tabChangeCountsFor([], knowledgeAfterT5, turn5RepeatedOnly).has('dramatis_personae')).toBe(false);
+
+    // Turn 6 has two identical copies of a brand-new sign: it counts once, not twice.
+    const turn6DupedNew = entry({
+      turnNumber: 6,
+      composureSigns: [
+        { entityId: 'julia', subject: 'mark:grief', sign: 'Her hands trembled.' },
+        { entityId: 'julia', subject: 'tie:origen', sign: '  her hands   trembled. ' },
+      ],
+    });
+    const knowledgeAfterT6 = computeTurnKnowledge({ prev: knowledgeAfterT5, perceivedChanges: [], reportsBefore: [], reportsAfter: [], turnNumber: 6, signsSeen: narrationSignsSeen(turn6DupedNew) });
+    expect(signsSeenOf(knowledgeAfterT6, 'julia')).toHaveLength(2);
+    expect(tabChangeCountsFor([], knowledgeAfterT6, turn6DupedNew).get('dramatis_personae')).toBe(1);
   });
 });
 

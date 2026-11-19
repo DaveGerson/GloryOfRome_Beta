@@ -912,7 +912,7 @@ export const mockGetInvestigationResult = async (target: Entity, isRisky: boolea
  * is faithful, not a placeholder - this is the player's own pure interior
  * cognition (task-4-design.md's mock-mirror design), never an authored act.
  */
-export const mockGetPlayerMonologue = async (player: Entity, turnHeadlines: string[], recentPlayerIntents: string[]): Promise<{ text: string; actors: string[] }> => {
+export const mockGetPlayerMonologue = async (_player: Entity, turnHeadlines: string[], recentPlayerIntents: string[]): Promise<{ text: string; actors: string[] }> => {
     console.log("--- MOCK PLAYER MONOLOGUE ---");
     const recentActionsSummary = recentPlayerIntents.length > 0 ? `my recent actions (${recentPlayerIntents.join('; ')})` : `my inaction`;
     const text = `(Mock Monologue) These events... (${turnHeadlines.join(', ')}). Considering ${recentActionsSummary}, a pattern emerges. This plays directly into my hands. If I'm careful, I can use this chaos to my advantage. But I must watch for vipers in the grass.`;
@@ -966,7 +966,7 @@ export const mockGetNpcMindDecision = async (
     };
 };
 
-export const mockGetStoryRelevance = async (turnNumber: number, previousIntents: NpcIntent[] = []): Promise<StoryRelevance> => {
+export const mockGetStoryRelevance = async (_turnNumber: number, previousIntents: NpcIntent[] = []): Promise<StoryRelevance> => {
     console.log("--- MOCK STORY RELEVANCE ---");
     // Continuity loop offline (4C.3): an NPC that already held an intent
     // last turn is ruled 'continue', a freshly spotlighted one 'new' - so a

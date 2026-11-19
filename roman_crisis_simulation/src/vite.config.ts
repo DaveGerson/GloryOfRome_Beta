@@ -124,18 +124,20 @@ function gorDevLoggerPlugin(): Plugin {
 
 export default defineConfig(({ mode, command }) => {
     const env = loadEnv(mode, '.', '');
-    // Owner dev-key priority: an explicit .env beats the machine-global
-    // credential store; the in-app configuration-menu key (localStorage)
-    // beats both at runtime in App.tsx. Resolved only for the actual dev
-    // server: `command === 'serve'` alone is NOT enough, because Vitest
-    // also invokes this factory with command 'serve' — the VITEST guard
+    const rootEnv = env.GEMINI_API_KEY ? undefined : loadEnv(mode, path.resolve(__dirname, '../..'), '');
+    const envGeminiKey = env.GEMINI_API_KEY || rootEnv?.GEMINI_API_KEY;
+    // Owner dev-key priority: an explicit .env (in src/ or at the repo root)
+    // beats the machine-global credential store; the in-app configuration-menu
+    // key (localStorage) beats both at runtime in App.tsx. Resolved only for
+    // the actual dev server: `command === 'serve'` alone is NOT enough, because
+    // Vitest also invokes this factory with command 'serve' — the VITEST guard
     // keeps the owner's real key out of every test process (tests run
     // against ai/mocks.ts and must never touch a live key).
     const isDevServer = command === 'serve' && !process.env.VITEST;
     const devGeminiKey = isDevServer
-      ? (env.GEMINI_API_KEY || readWindowsGenericCredential(CREDMAN_TARGET))
+      ? (envGeminiKey || readWindowsGenericCredential(CREDMAN_TARGET))
       : undefined;
-    if (isDevServer && !env.GEMINI_API_KEY && devGeminiKey) {
+    if (isDevServer && !envGeminiKey && devGeminiKey) {
       console.log(`[gor] GEMINI_API_KEY sourced from Windows Credential Manager (${CREDMAN_TARGET})`);
     }
     return {

@@ -160,12 +160,24 @@ export function getEntityBrief(entity: Entity): string {
   const resources = entity.resources && Object.keys(entity.resources).length > 0
     ? `Resources: ${Object.entries(entity.resources).map(([name, value]) => `${name}:${value}`).join(', ')}`
     : '';
-  const marks = conditionsOf(entity);
-  const conditions = marks.length > 0 ? `Conditions: ${conditionsLine(marks, { handle: true })}` : '';
-  const ties = affiliationsOf(entity);
-  const affiliations = ties.length > 0 ? `Affiliations: ${affiliationsLine(ties, { handle: true })}` : '';
+  const conds = formatEntityConditions(entity);
+  const conditions = conds ? `Conditions: ${conds}` : '';
+  const ties = formatEntityAffiliations(entity);
+  const affiliations = ties ? `Affiliations: ${ties}` : '';
   const middle = [scheme, personality, skills, beliefs, resources, conditions, affiliations].filter(Boolean).join('. ');
   return `${entity.name}${entity.epithet ? ` "${entity.epithet}"` : ''} (${entity.position || entity.entity_type}) [Status: ${entity.status}, Location: ${entity.location}] Goals: ${entity.short_term_goals.join(', ')}.${middle ? ` ${middle}.` : ''} Relationships: ${relationships}`;
+}
+
+/** Formats an entity's lasting conditions (D48) into a semicolon-separated summary, or '' when none exist. */
+export function formatEntityConditions(entity: Pick<Entity, 'conditions'> | undefined): string {
+  const marks = conditionsOf(entity);
+  return marks.length > 0 ? conditionsLine(marks, { handle: true }) : '';
+}
+
+/** Formats an entity's affiliations (D49) into a semicolon-separated summary, or '' when none exist. */
+export function formatEntityAffiliations(entity: Pick<Entity, 'affiliations'> | undefined): string {
+  const ties = affiliationsOf(entity);
+  return ties.length > 0 ? affiliationsLine(ties, { handle: true }) : '';
 }
 
 /** One-line world summary (year/week/political climate/economic stability). */

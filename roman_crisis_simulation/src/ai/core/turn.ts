@@ -766,7 +766,15 @@ async function runDirectorStage(ctx: TurnContext): Promise<DirectorStageResult> 
     const storyRelevancePromise = getStoryRelevance(ctx.ai, ctx.turnNumber, ctx.turnHistory.slice(-1)[0]?.adjudication.headlines || [], ctx.currentWorldState, ctx.npcEntities, ctx.currentNpcIntents, ctx.isMockMode);
     const actionAssessmentPromise = ctx.resolutionAttempt === null
         ? Promise.resolve(undefined)
-        : getActionAssessment(ctx.ai, ctx.playerEntity, ctx.resolutionAttempt, ctx.currentWorldState, ctx.npcEntities, ctx.isMockMode);
+        : getActionAssessment(
+            ctx.ai,
+            ctx.playerEntity,
+            ctx.resolutionAttempt,
+            ctx.currentWorldState,
+            ctx.npcEntities,
+            ctx.isMockMode,
+            deriveLeverageTruth(ctx.playerEntity, ctx.currentTruthLedger),
+        );
     const [storyRelevance, actionAssessment] = await Promise.all([storyRelevancePromise, actionAssessmentPromise]);
     return {
         storyRelevance,

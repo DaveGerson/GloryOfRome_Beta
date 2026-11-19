@@ -46,7 +46,7 @@ export const GroundTruthView: React.FC<{
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         {entry.adjudication.deltas.map((delta, index) => {
-                            const visibility = classifyDelta(delta, playerAtTurn, snapshotEntities, worldState);
+                            const visibility = classifyDelta(delta, playerAtTurn, snapshotEntities, worldState, entry.preTurnRoster);
                             return (
                                 <div key={index} style={{ ...well, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13 }}>
                                     <div>
@@ -62,6 +62,30 @@ export const GroundTruthView: React.FC<{
                     </div>
                 )}
             </div>
+            {entry.headlineActors && entry.headlineActors.length > 0 && (
+                <div>
+                    <span style={lbl}>Headline attribution (D42/D47)</span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+                        {entry.headlineActors.map((record, index) => {
+                            const names = record.actorNames && record.actorNames.length > 0
+                                ? record.actorNames
+                                : record.actorIds;
+                            const hands = names.length > 0 ? names.join(', ') : 'circumstance';
+                            return (
+                                <div key={index} style={{ ...well, fontSize: 13 }}>
+                                    <div style={{ color: PARCH }}>“{record.text}”</div>
+                                    <div style={{ fontFamily: MONO, fontSize: 12, color: DIM, marginTop: 3 }}>
+                                        Hands: <span style={{ color: names.length > 0 ? GREEN : DIM }}>{hands}</span>
+                                        {record.unresolvedActors && record.unresolvedActors.length > 0 && (
+                                            <span> · unresolved: {record.unresolvedActors.join(', ')}</span>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
             <div>
                 <span style={lbl}>Turn Seed</span>
                 <p style={{ fontSize: 13, margin: '4px 0 0', fontFamily: MONO, color: typeof entry.turnSeed === 'number' ? PARCH : DIM }}>

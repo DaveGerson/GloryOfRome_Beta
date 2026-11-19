@@ -11,8 +11,9 @@ states or victory conditions — see `roadmaps/DESIGN_DECISIONS.md` D1).
 Do not treat anything in this folder as current or aspirational design truth. For that, see:
 
 - `roadmaps/ROADMAP_0_MASTER_PLAN.md` — the phased master plan.
-- `roadmaps/DESIGN_DECISIONS.md` — binding owner rulings (D1–D34).
-- `roadmaps/ROADMAP_PHASE_4.md` — the current in-flight plan.
+- `roadmaps/DESIGN_DECISIONS.md` — binding owner rulings (D1–D51).
+- `roadmaps/ROADMAP_PHASE_4.md` — the Phase 4 architecture and perception/knowledge plan.
+- `roadmaps/ROADMAP_UPLEVEL_2026-09.md` — the September–October 2026 multi-track uplevel and D46–D51 audit pass.
 - the code itself, under `roman_crisis_simulation/src`.
 
 ## What's here

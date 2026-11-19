@@ -700,6 +700,8 @@ export const CharacterCreationEntitySchema = {
         epithet: { type: Type.STRING, nullable: true, description: "A SHORT public byname the street knows this character by (e.g. \"the Thracian\"). A few words, without the character's name itself." },
         location: { type: Type.STRING, description: "The character's starting location from this list: Palatine Hill, The Curia, Praetorian Camp, The Suburra." },
         faction_id: { type: Type.STRING, description: "Optional. Assign to 'senatorial_party' or 'military_cabal' if appropriate, otherwise omit." },
+        // D48 - optional here as in EntitySchema (never in `required`).
+        conditions: { type: Type.ARRAY, nullable: true, items: ConditionSchema, description: "OPTIONAL and usually empty: lasting marks this character ALREADY bears from their past (an old wound, a limp, a grief they carry). Only what their history truly left - never flavour for its own sake." },
         // D49 - optional here as in EntitySchema (never in `required`).
         affiliations: { type: Type.ARRAY, nullable: true, items: AffiliationSchema, description: AFFILIATIONS_DESCRIPTION },
         personality: PersonalityTraitsSchema,
@@ -738,12 +740,15 @@ export const CharacterCreationEntitySchema = {
                 "praetorian_guard": RelationshipSchema,
                 "roman_senate": RelationshipSchema,
                 "julia_mamaea": RelationshipSchema,
+                "gaius_pontius_magnus": RelationshipSchema,
+                "lycinia_stolo": RelationshipSchema,
                 "senatorial_party": RelationshipSchema,
                 "military_cabal": RelationshipSchema
-            }
+            },
+            additionalProperties: RelationshipSchema,
         },
         visibility_network: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of entity_ids the character knows about." },
-        memories: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Should be an empty array." }
+        memories: { type: Type.ARRAY, items: MemorySchema, description: "Should be an empty array." }
     },
     required: ['entity_id', 'name', 'entity_type', 'status', 'position', 'location', 'personality', 'beliefs', 'secrets', 'skills', 'current_state_narrative', 'short_term_goals', 'long_term_ambitions', 'active_scheme', 'resources', 'relationships', 'visibility_network', 'memories']
 };

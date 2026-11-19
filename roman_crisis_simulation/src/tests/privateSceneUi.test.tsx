@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import React, { act } from 'react';
+import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { PrivateScene } from '../components/PrivateScene';
 import { projectPrivateSceneForPlayer, type PrivateScenePlayerView } from '../perception/visibility';

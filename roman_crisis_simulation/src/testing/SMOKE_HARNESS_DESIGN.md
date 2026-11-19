@@ -1,62 +1,67 @@
 # Journey Smoke Harness — Design
 
-**Status (against current HEAD — Phase-4 pipeline):** runnable, **4 journeys green**.
+**Status (against current HEAD — October 2026):** runnable, **18 journeys green** across **12 `*.journey.ts` files**.
 **Code:** `tests/journeys/` (harness + fixtures + `*.journey.ts` files), `vitest.journeys.config.ts`.
-**Run:** `npm run test:journeys` (never part of `npm test` / CI's default run — the default suite stays at 589).
+**Run:** `npm run test:journeys` (runs in CI on every push via `npm run verify:integration`, alongside the **3,098+ unit tests** across **136 test files** in `npm run verify:unit`).
 
 This harness was first prototyped against a PRE-Phase-4 snapshot (no minds, no
 truth ledger, no knowledge store, ~201 tests). It has since been **ported and
 adapted to the CURRENT pipeline** — `ai/core/turn.ts::runNewTurn` now threads
 the D11 truth ledger and the 4C.3 Director intents, runs a per-spotlight
-`npc_minds` stage, and draws every hidden die from ONE per-turn seeded
-generator; `App.tsx::executeTurn` commits the D21 player knowledge store. All
-of that is reflected below.
+`npc_minds` stage, enforces D42 schema-declared `actors` attribution, rolls
+D48/D49/D50 marks, ties, and composure, and draws every hidden die from ONE
+per-turn seeded generator derived deterministically from `reignSeed` +
+`turnNumber` (D51); `hooks/useExecuteTurn.ts` commits the D21/D29 player
+knowledge store and relationship observations atomically. All of that is
+reflected below.
 
 ---
 
 ## 1. What this is, and what it is not
 
-The unit suite (`tests/*.test.ts`, 589 tests) proves each mechanism in
+The unit suite (`tests/*.test.ts[x]`, **3,098+ tests across 136 files**) proves each mechanism in
 isolation. What nothing proved before this harness existed is the thing the
-game actually IS: a **loop** — many turns of the REAL `runNewTurn` pipeline,
-state threaded turn-over-turn the way `App.tsx` threads it, with the
-invariants that only mean anything *across* a playthrough:
+game actually IS: a **loop** — many turns of the REAL `runNewTurn` pipeline
+(and full mounted `App` interactions), state threaded turn-over-turn the way
+`App.tsx` and `useExecuteTurn.ts` thread it, with the invariants that only
+mean anything *across* a playthrough:
 
 - information asymmetry holding for a whole campaign, not one delta;
 - deaths only ever sticking via validation + hidden dice;
 - a secret survivor staying secret on every player-facing surface for
   multiple turns while the adjudicator is told;
-- a save taken mid-campaign resuming into a mechanically identical world;
+- a save taken mid-campaign resuming into a mechanically identical world, and
+  a retried turn replaying the exact same dice from `reignSeed` (D51);
 - the pre-decided-outcome contract (code decides, model narrates) surviving
   the full round trip from dice to prompt to committed state.
 
 A JOURNEY is a scripted user story: a sequence of player intents plus canned,
 schema-valid "model" responses and pre-decided d20 results, driven through the
-**real** pipeline (`isMockMode: false` always — NOT the `ai/mocks.ts` path)
-and asserted mechanic-by-mechanic each turn.
+**real** pipeline (`isMockMode: false` unless specifically testing Mock Mode's
+grounded occurrence loop) and asserted mechanic-by-mechanic each turn.
 
 | Layer | What it exercises | Model calls | Speed |
 |---|---|---|---|
-| Unit suite (`npm test`) | one mechanism at a time | scripted/stubbed | seconds, in CI |
-| **Journey harness (`npm run test:journeys`)** | **the whole loop, multi-turn, real pipeline** | **scripted** | **~2s, on demand** |
-| Mock mode (`ai/mocks.ts`) | UI plumbing offline | none (bypasses pipeline) | interactive |
-| Eval harness (`npm run eval`) | response *quality* with a live model | real | slow, costly |
+| Unit suite (`npm test` / `npm run verify:unit`) | one mechanism at a time (3,098+ tests) | scripted/stubbed | seconds, in CI |
+| **Journey harness (`npm run test:journeys` / `npm run verify:integration`)** | **the whole loop, multi-turn, real pipeline + mounted App (18 journeys)** | **scripted** | **~3s, in CI** |
+| Mock mode (`ai/mocks.ts`) | UI plumbing offline | none (bypasses live calls) | interactive |
+| Eval harness (`npm run eval` / `npm run eval:ci`) | corpus schema & roll checks (`eval:ci` in CI) + optional live LLM judge | offline in CI / real with key | fast in CI |
 
 The journey harness deliberately shares the eval-harness shape (own config,
-own file glob, own npm script) so the three sit side by side without any of
-them touching `npm test`.
+own file glob, own npm script) so `npm test` runs the fast unit leg while
+`npm run verify:integration` runs journeys, `eval:ci`, and `build`.
 
 ## 2. The seam: a scripted client against the real pipeline
 
 `ScriptedClient` (in `tests/journeys/harness.ts`) is a fake `GoogleGenAI` that
 **classifies** every incoming call by its `systemInstruction` text — each
 prompt builder in `ai/prompts/*.ts` has distinct, stable role wording. The
-harness covers all **ten** call kinds the current pipeline can make:
+harness covers all **14** call kinds the current application can make:
 
-`storyRelevance` · `assessment` · **`npcMind`** · `adjudication` ·
+`privateScene` · `storyRelevance` · `assessment` · **`npcMind`** · `adjudication` ·
 `mortalityValidation` · `mortalityOutcome` · `simulationState` ·
-`monologue` · `narration` ·
-`investigation` (the between-turns side call).
+`monologue` · `narration` · `relationshipObservations` · `ambition` ·
+`investigation` · `schemeNature`.
 
 It **answers from per-kind queues** of canned responses (a two-spotlight turn
 queues two `npcMind` decisions), **records every prompt/systemInstruction**,
@@ -64,20 +69,26 @@ and **throws on any unscripted call**. Fixtures are plain objects the harness
 stringifies; the REAL `generateStructured` then JSON-parses **and
 zod-validates** them, so a drifted fixture fails loudly (INV-SCHEMA).
 
-### Dice: the seeded-RNG successor to the roll queue
+### Dice: the seeded-RNG successor to the roll queue (D50, D51)
 
 The prototype spied `Math.random` with a queue of d20 results. The current
-pipeline no longer works that way: it draws ONE 32-bit seed per turn
-(`ai/core/resolution.ts::generateSeed` — the turn's only `Math.random` call in
-a successful run), builds a `mulberry32` generator, and every hidden roll
-draws from THAT generator in a fixed order (the resolution-layer action roll
-first when consequential, then one mortality roll per **validated** death
-claim in delta order). So the harness `findSeedForRolls([...])` searches seed
-space for a seed whose generator's first draws are exactly the scripted
-sequence, and pins `Math.random` to reproduce it. **INV-ROLL** then asserts
-the committed traces (`resolutionTrace` + validated mortality rolls) carry
-exactly the scripted rolls — a stronger, more faithful check than the old
-"queue emptied" one, and the seam that makes save/reload dice reproducible.
+pipeline no longer works that way: each turn draws from ONE 32-bit `turnSeed`
+— derived deterministically in `App` from `deriveTurnSeed(reignSeed, turnNumber)`
+(D51) or from `generateSeed` in standalone runner turns — builds a `mulberry32`
+generator (`createSeededRng`), and every hidden roll draws from THAT generator
+in a fixed order:
+1. the resolution-layer action roll first (when consequential),
+2. one mortality roll per **validated** death claim in delta order,
+3. one composure roll (D50) per inward mark and secret tie of each figure
+   present with the player (`figuresPresentWith`), in roster order.
+
+The harness `findSeedForRolls([...])` searches seed space for a seed whose
+generator's first draws are exactly the scripted sequence, and pins the turn's
+seed to reproduce it. **INV-ROLL** then asserts the committed traces
+(`resolutionTrace` + validated mortality rolls, plus composure draws via
+`replayTurnDraws`) carry exactly the scripted rolls — a stronger, more faithful
+check than the old "queue emptied" one, and the seam that makes save/reload and
+D51 retry dice reproducible.
 
 ## 3. The runner and the commit contract
 
@@ -121,9 +132,9 @@ campaign can be `toEqual`-compared against a never-reloaded control run.
 |---|---|
 | **INV-SHAPE** | `TurnStage` notifications fire once each, in canonical order; the conditional `npc_minds` / `mortality` stages fire exactly when their triggers exist; all mandatory stages present |
 | **INV-SCHEMA** | every call the pipeline made was captured (`rawCalls` count matches) and every response parsed + zod-validated with zero repair retries |
-| **INV-LEAK** (headline) | no GM-private datum reaches a player-facing surface — scanned surfaces: the narration & monologue **prompts and system instructions** (the true enforcement seam), narration/monologue/suggestions text, headlines, the perceived digest, new report claims, **and the committed player knowledge store**. Forbidden data: every `gm_private` note (full string); the `[Mortality]`/`[Resolution]`/`[Secret Meeting]`/`[Narrative Analyst]`/`[Director]`/`[Mind]`/`[Pacing]`/`GM-SECRET` markers; `secret_truth`/`actually_alive` + every secret motive; rumor `is_true`/`origin_id` fields; each mind's `private_reasoning`; every **non-player** entity's scheme name/goal/steps (D28 — the player's OWN scheme is self-knowledge and exempt); invalidated claims' validation reasoning; underscore-bearing band/tier tokens (`presumed_dead`, `survive_with_loss`, `partial_success`, …); roll mechanics as prose (`/\broll(ed)? \d+/i`); and the headline attribution record's fields (`headlineActors`/`actorIds`/`actorNames`/`unresolvedActors`, and `livingAtCommit` beside it, D42/D47 - its bare ids and texts are public, the pairing is not). Its other half: that record is WRITTEN, one per cried headline, by the committed (post-redaction) text, with the ids alive at commit beside any non-empty one |
+| **INV-LEAK** (headline) | no GM-private datum reaches a player-facing surface — scanned surfaces: the narration & monologue **prompts and system instructions** (the true enforcement seam), narration/monologue/suggestions text, headlines, the perceived digest, new report claims, **and the committed player knowledge store**. Forbidden data: every `gm_private` note (full string); the `[Mortality]`/`[Resolution]`/`[Secret Meeting]`/`[Narrative Analyst]`/`[Director]`/`[Mind]`/`[Pacing]`/`[Composure]`/`GM-SECRET` markers; `secret_truth`/`actually_alive` + every secret motive; rumor `is_true`/`origin_id` fields; an investigation finding's standing/ground truth (D47); each mind's `private_reasoning`; every **non-player** entity's scheme name/goal/steps (D28 — the player's OWN scheme is self-knowledge and exempt); every **non-player** entity's inward mark (D48) or unlearned secret tie (D49) — and, the other way round, the **player's** secret tie never reaches an NPC-facing prompt (`npcMind`, `privateScene`) unless witnessed; invalidated claims' validation reasoning; underscore-bearing band/tier tokens (`presumed_dead`, `survive_with_loss`, `partial_success`, …); roll mechanics as prose (`/\broll(ed)? \d+/i`); the headline attribution record's fields (`headlineActors`/`actorIds`/`actorNames`/`unresolvedActors`, and `livingAtCommit` beside it, D42/D47 - its bare ids and texts are public, the pairing is not); and any composure record (D50: `composureRolls`, a held subject, or the `subject` handle a sign betrayed). Its other half: the headline attribution record is WRITTEN, one per cried headline, by the committed (post-redaction) text, with the ids alive at commit beside any non-empty one |
 | **INV-DIGEST** | every perceived change carries a source attribution (`self`/`witnessed`/`network`/`public`) |
-| **INV-ROLL** | the dice the journey scripted are EXACTLY the dice the pipeline made and recorded, in draw order (`resolutionTrace` + validated mortality rolls) |
+| **INV-ROLL** | the dice the journey scripted are EXACTLY the dice the pipeline made and recorded, in draw order (`resolutionTrace` + validated mortality rolls + composure draws) |
 | **INV-SCRIPT** | every scripted response was requested (no leftover queue entries) |
 | **INV-NO-SILENT** | no `console.error` during the turn (`applyDeltas` swallows per-delta failures that way) |
 
@@ -131,27 +142,28 @@ Band/tier tokens without underscores (`dies`, `survive`, `failure`,
 `success`) are deliberately NOT scanned — they are legitimate prose words; the
 mechanical identifiers all carry underscores.
 
-## 5. The journeys shipped (all GREEN against current HEAD)
+## 5. The journeys shipped (18 journeys across 12 files, all GREEN against current HEAD)
 
 | File | Story | Journey-specific guards |
 |---|---|---|
 | `quietReign.journey.ts` | 3 turns of ordinary governance | treasury/relationship accumulation (directional, engine trust clamp respected); no dice on a non-consequential turn, exactly one on a consequential oration; the pre-decided TIER — not the model — reaches the adjudication prompt and the GM `resolutionTrace`; an off-network senator's finances (and whole scheme) commit as ground truth yet stay invisible in the digest and knowledge store for the whole journey |
 | `schemeWar.journey.ts` | player plants a rumor; a spotlight mind evolves its own scheme; the player earns the scheme's nature through paid clues | truth-ledger vs believed-world divergence (rumor lives ONLY as a sub-1.0 source-attributed Report + a GM-only ledger entry; no entity's real resources/status move to match it); single spotlight fires `npc_minds`, while the retired autonomous off-screen NPC-NPC conversation simulation is absent; the mind evolves its OWN `active_scheme` (D30) which the player perceives only as "something afoot" (D28), never its name/steps; the **clue gate**: proximity awareness never advances the count, ONE paid scheme investigation is insufficient, and the nature is revealed only after `SCHEME_CLUES_TO_REVEAL` (3) paid clues — earned, not dumped; a failed investigation's consequence is code-substituted |
-| `saveReload.journey.ts` | 4-turn campaign, autosave after turn 2, reload from real localStorage, play on | lossless envelope round-trip through the real seam (D11 ledger + D21 knowledge + 4C.3 intents survive); a consequential roll AND a planted rumor fall AFTER the save point, so the resumed campaign reproduces the exact hidden dice (seed round-trips) and the exact divergence; `equivalenceSnapshot` equality across entities/world/sim/ledger/knowledge/intents/reports/narrations/headlines after two further full-pipeline turns |
+| `saveReload.journey.ts` (3 journeys) | 4-turn campaign, autosave after turn 2, reload from real localStorage, play on; plus private-scene ledger and structured history/observations round-trips | lossless envelope round-trip through the real seam (D11 ledger + D21 knowledge + 4C.3 intents + private-scene ledger + relationship observations survive); a consequential roll AND a planted rumor fall AFTER the save point, so the resumed campaign reproduces the exact hidden dice (seed round-trips) and the exact divergence; `equivalenceSnapshot` equality across entities/world/sim/ledger/knowledge/intents/reports/narrations/headlines after two further full-pipeline turns |
 | `mortalityFates.journey.ts` | assassination the player survives, a vetoed hallucinated death, an NPC presumed dead (secretly alive), the player's death | every stuck death = validation + hidden roll; a vetoed claim never touches dice and preserves prior status; veto reasoning stays off every player surface; the 'survive' band needs no outcome call while 'presumed_dead' does; presumed-dead double bookkeeping (public record 'dead' everywhere the player can see; `secret_truth.actually_alive` + motive only on the committed entity, never leaked); player death ⇒ game over (D1) |
-| `lastingMarks.journey.ts` | the Emperor survives an attempt with a loss; the next week he is scarred, and his mother takes a burn he sees and nightmares he never learns of; the burn heals | D48: a loss band's loss commits as a condition plus a removed hard asset (validated outcome deltas), the band never a state and the "none was authored" note silent; the mark rides the next adjudication's PLAYER CHARACTER block and the narration's marks block; an outward mark in the player's room is witnessed and held by the knowledge store, an inward one never reaches the digest, the store or any prose (INV-LEAK now forbids every non-player inward mark); a heal seen drops the mark from the Personae read model |
-| `openAndSecretTies.journey.ts` | the regent's mind weighs her own secret sympathy; Thrax secretly swears to the plotters far away while Magnus openly boosts a triumph; the regent is seen at a secret rite in the Emperor's hall; Magnus exposes the Emperor's own private devotion | D49: a mind sees its own secret tie and the player's OPEN one, never the player's secret (INV-LEAK now scans every NPC-facing prompt for the player's secret ties, and every player surface for a non-player's unlearned one); the adjudicator sees the player's secret, marked; an open change is public anywhere, a secret one far away is no one's news, a secret rite in the player's room is witnessed and held by the knowledge store; an exposure of the player's tie commits and reaches their dispatches |
+| `lastingMarks.journey.ts` | the Emperor survives an attempt with a loss; the next week he is scarred, and his mother takes a burn he sees and nightmares he never learns of; the burn heals | D48: a loss band's loss commits as a condition plus a removed hard asset (validated outcome deltas), the band never a state and the "none was authored" note silent; the mark rides the next adjudication's PLAYER CHARACTER block and the narration's marks block; an outward mark in the player's room is witnessed and held by the knowledge store, an inward one never reaches the digest, the store or any prose (INV-LEAK forbids every non-player inward mark); a heal seen drops the mark from the Personae read model |
+| `openAndSecretTies.journey.ts` | the regent's mind weighs her own secret sympathy; Thrax secretly swears to the plotters far away while Magnus openly boosts a triumph; the regent is seen at a secret rite in the Emperor's hall; Magnus exposes the Emperor's own private devotion | D49: a mind sees its own secret tie and the player's OPEN one, never the player's secret (INV-LEAK scans every NPC-facing prompt for the player's secret ties, and every player surface for a non-player's unlearned one); the adjudicator sees the player's secret, marked; an open change is public anywhere, a secret one far away is no one's news, a secret rite in the player's room is witnessed and held by the knowledge store; an exposure of the player's tie commits and reaches their dispatches |
+| `structuredInput.journey.ts` (2 journeys) | Chat ↔ Structured composer mode switching, recipient canonicalization, Retry preservation, and question-only / private-only / mixed turns across save & reload | D37: switching composer modes moves draft text cleanly; known-recipient orders canonicalize to `entityId` while preserving display names; a failed turn restores the frozen structured draft for one-click Retry; question-only (`noAttemptEvidenceSelection`) and private-intent-only turns skip rolling and never fabricate observable player conduct (D42) while persisting atomically |
+| `relationshipObservations.journey.ts` | turn and investigation evidence feeds `relationshipObservations`; Personae relationship prose updates and round-trips through v1 save/reload | D29/D44: relationship observations reveal participant identities only from cited player-safe evidence; presumed-dead poison sentinels never enter the selector prompt; rendered dossier relationship rows show sourced provenance prose with zero raw numeric scores |
+| `privateScene.journey.ts` | player-initiated one-on-one audiences with co-located and network NPCs (continued, player-ended, and NPC-refused with last word), followed by macro turn commit | D38/D39/D40: access gated to co-located or network-reachable living individuals; NPC prompt receives only bounded self-brief and transcript; `npcPrivate` (sincerity, hiddenIntent, plannedFollowThrough) stays GM-only and never leaks to player surfaces; closed scene projects into the next macro turn's adjudication and NPC mind memory, then transitions from `pending` to `consumed` |
+| `composure.journey.ts` | Julia Mamaea stands with the Emperor bearing an inward mark and a secret faith; composure rolls from the turn generator decide what frays or holds | D50: one hidden d20 per inward mark and secret tie of figures present with the player (`figuresPresentWith`); the narrator is told a fraying mark by weight alone (never its name/cause) and nothing of a held tie; `screenNarrationSigns` keeps valid signs on the NPC's Personae card ("Signs seen", figure + sentence only) and drops signs that leak accounts or held subjects; `replayTurnDraws` verifies composure roll reproducibility |
+| `retryDice.journey.ts` (4 journeys) | a turn with action, mortality, and composure rolls fails at the final provider call after streaming narration; player retries, edits the action, reloads, or restores a copy | D51: `deriveTurnSeed(reignSeed, turnNumber)` fixes each turn's dice once per turn of the reign; retrying, rewriting the action before re-sending, reloading from autosave, or restoring an earlier copy all draw the exact same action, mortality, and composure rolls, while the next turn gets a fresh derived seed; legacy saves without `reignSeed` receive and persist one on load |
+| `occurrenceQuestions.journey.ts` | in Mock Mode, player sends a week, opens the Events register, and asks "Who is behind it?" and "Who gains?" on two public headlines | D47: grounded occurrence questions draw on `TurnHistoryEntry.headlineActors`, roll accuracy and fidelity from a deterministic seed, record linked `TruthLedgerEntry` rows (D11), agree between sibling questions on whether anyone acted, and leak zero GM-private attribution fields to the DOM |
 
 ### Deferred / not yet covered
 
 - A **presumed-dead NPC's later RETURN** (a `status: 'alive'` revival delta —
   not a death claim, so no mortality pass): the mortality journey stops at the
   presumed-dead beat; the revival leg is a natural extension.
-- **Per-mind asymmetry scans** (assert each `npcMind` PROMPT contains only
-  what that character plausibly knows): the scripted client already records
-  every mind prompt, so this is assertion work, not harness surgery. Today
-  the mind asymmetry contract is covered by `tests/npcMinds.test.ts`; the
-  journey leak scan targets the player-facing surfaces only.
 - A **GM-intervention fallout** end-to-end leg (the `gmIntervention` channel
   is wired through `runTurn` but no shipped journey exercises it yet).
 
@@ -159,15 +171,16 @@ mechanical identifiers all carry underscores.
 
 ```bash
 cd roman_crisis_simulation/src
-npm run test:journeys                 # all journeys, ~2s, no API key, no network
-npx vitest run --config vitest.journeys.config.ts tests/journeys/mortalityFates.journey.ts   # one journey
+npm run test:journeys                 # all 18 journeys across 12 files, ~3s, no API key, no network
+npx vitest run --config vitest.journeys.config.ts tests/journeys/mortalityFates.journey.ts   # one journey file
 ```
 
-`npm test` is untouched (589): the default include only matches
-`*.test.*`/`*.spec.*`, and the journeys config only matches
-`tests/journeys/**/*.journey.ts`. Default environment is `node`; the
-save/reload journey opts into jsdom per-file with the `@vitest-environment
-jsdom` pragma (same pattern as `tests/persistence.test.ts`).
+`npm test` (`npm run verify:unit`) runs the 3,098+ unit tests across 136 files:
+the default include only matches `*.test.*`/`*.spec.*`, and the journeys config
+only matches `tests/journeys/**/*.journey.ts` (run in CI by
+`npm run verify:integration`). Default environment is `node`; journeys that
+mount the full React `App` opt into jsdom per-file with the
+`@vitest-environment jsdom` pragma.
 
 ## 7. How to add a journey
 

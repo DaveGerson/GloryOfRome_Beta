@@ -5,7 +5,7 @@
  * roster is deliberately poisoned with an alive, colocated identity absent
  * from the player's knowledge graph; raw entity data must not reach the DOM.
  */
-import React, { act } from 'react';
+import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import EmpireTab from '../components/tabs/EmpireTab';

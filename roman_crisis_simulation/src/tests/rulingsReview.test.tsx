@@ -6,7 +6,7 @@
  * tests covered. Each case names the rule it holds.
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import React, { act } from 'react';
+import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { applyDeltas } from '../ai/core/engine';
 import { deriveLeverageTruth, schemeClueRecords } from '../ai/core/groundTruth';
@@ -14,8 +14,20 @@ import { ingestPerceivedChanges, perceivedConditionsOf } from '../knowledge/stor
 import { buildPlayerPerceivedDigest, toPreTurnRoster } from '../perception/visibility';
 import { normalizeLoadedEntities } from '../persistence/saveGame';
 import { Tooltip } from '../components/ui/Feedback';
-import { makeEntity, makeRelationship, makeWorldState } from './factories';
+import { GroundTruthView } from '../components/gm/GroundTruthView';
+import { NpcPerceptionView } from '../components/gm/NpcPerceptionView';
+import { buildActionAssessmentPrompt } from '../ai/prompts/assessment';
+import { buildDeepAnalysisPrompt, buildInvestigationPrompt, buildStoryRelevancePrompt } from '../ai/prompts/intelligence';
+import { buildEntityBatchPrompt } from '../ai/prompts/worldGen';
+import { buildCharacterCreationPrompt } from '../ai/prompts/characterCreation';
+import { buildEvalJudgePrompt } from '../ai/prompts/evalJudge';
+import { getClarificationOnEvent, getDeepAnalysis, getPlayerMonologue, getSchemeNatureReading } from '../ai/tools/intelligence';
+import { selectNoAttemptEvidence } from '../ai/tools/noAttemptResponse';
+import { getRelationshipObservations } from '../ai/tools/relationshipObservations';
+import { judgeTurn } from '../eval/judge';
+import { makeEntity, makeQueuedTextAi, makeRelationship, makeTurnHistoryEntry, makeWorldState } from './factories';
 import type { Condition, Entity, EventDelta, TruthLedgerEntry } from '../types';
+import type { GoogleGenAI } from '@google/genai';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -124,5 +136,236 @@ describe('a tooltip opened by a tap stays open while its trigger holds focus', (
     expect(host.querySelector('[role="tooltip"]')).not.toBeNull();
     act(() => trigger.blur());
     expect(host.querySelector('[role="tooltip"]')).toBeNull();
+  });
+
+  it('GroundTruthView and NpcPerceptionView classify a departure location delta with preTurnRoster and render headlineActors attribution', () => {
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+
+    const worldWithFrontier = makeWorldState({
+      regions: {
+        'Palatine Hill': { stability: 'Stable', controlling_faction: null, current_events: [] },
+        'The Rhine Frontier': { stability: 'Stable', controlling_faction: null, current_events: [] },
+      },
+    });
+    const viewer = makeEntity({ entity_id: 'player', name: 'Severus Alexander', location: 'Palatine Hill' });
+    const npcWatcher = makeEntity({ entity_id: 'julia', name: 'Julia Mamaea', location: 'Palatine Hill' });
+    const travelerBefore = makeEntity({ entity_id: 'thrax', name: 'Maximinus Thrax', location: 'Palatine Hill' });
+    const travelerAfter = { ...travelerBefore, location: 'The Rhine Frontier' };
+
+    const entry = makeTurnHistoryEntry({
+      turnNumber: 4,
+      preTurnRoster: toPreTurnRoster([viewer, npcWatcher, travelerBefore]),
+      postTurnEntities: [viewer, npcWatcher, travelerAfter],
+      perceivingNpcIds: ['julia'],
+      adjudication: {
+        turn: 4,
+        entityActions: [],
+        deltas: [
+          { type: 'status', key: 'thrax', delta: 0, new_location: 'The Rhine Frontier', reason: 'Moved north.' },
+        ],
+        headlines: [
+          'Maximinus Thrax rides north toward the Rhine.',
+          'Fog settles over the Tiber.',
+        ],
+        gm_private: [],
+      },
+      headlineActors: [
+        {
+          text: 'Maximinus Thrax rides north toward the Rhine.',
+          actorIds: ['thrax'],
+          actorNames: ['Maximinus Thrax'],
+          unresolvedActors: ['Ghostly Scout'],
+        },
+        {
+          text: 'Fog settles over the Tiber.',
+          actorIds: [],
+        },
+      ],
+    });
+
+    act(() => {
+      root!.render(
+        <div>
+          <GroundTruthView entry={entry} playerCharacterId="player" worldState={worldWithFrontier} />
+          <NpcPerceptionView entry={entry} worldState={worldWithFrontier} />
+        </div>,
+      );
+    });
+
+    // Without preTurnRoster, a departure from Palatine Hill to The Rhine Frontier
+    // would be FILTERED because postTurnEntities places thrax at The Rhine Frontier.
+    // With preTurnRoster passed through, both GroundTruthView and NpcPerceptionView
+    // classify the departure as witnessed!
+    expect(host.textContent).toContain('VISIBLE — witnessed');
+    expect(host.textContent).toContain('Maximinus Thrax leaves for The Rhine Frontier.');
+    // Headline attribution (D42/D47) section renders attributed hands, circumstance, and unresolvedActors:
+    expect(host.textContent).toContain('Headline attribution (D42/D47)');
+    expect(host.textContent).toContain('Hands: Maximinus Thrax · unresolved: Ghostly Scout');
+    expect(host.textContent).toContain('Hands: circumstance');
+  });
+});
+
+describe('D47-D50 prompt and thinkingConfig completeness', () => {
+  it('enriches Action Assessor, Director, Intel, WorldGen/CharacterCreation, and EvalJudge prompts with D47-D50 context', () => {
+    const target = makeEntity({
+      entity_id: 'thrax',
+      name: 'Maximinus Thrax',
+      position: 'General',
+      epithet: 'the Thracian',
+      location: 'The Rhine Frontier',
+      resources: { denarii: 400, military_strength: 1200, influence: 30 },
+      conditions: [
+        { id: 'scar', name: 'a battle scar', description: 'Cut at the Danube.', outward: true, severity: 'serious', since_turn: 1 },
+        { id: 'terror', name: 'INWARD_TERROR_SENTINEL', description: 'Private dread.', outward: false, severity: 'grave', since_turn: 1 },
+      ],
+      affiliations: [
+        { id: 'mars', name: 'the Soldiers of Mars', kind: 'cause', public: true },
+        { id: 'mithras', name: 'SECRET_MITHRAS_SENTINEL', kind: 'religion', public: false },
+      ],
+    });
+
+    // 1. Action Assessor prompt
+    const assessmentBuilt = buildActionAssessmentPrompt({
+      playerIntent: 'Press blackmail against Maximinus Thrax.',
+      playerBrief: 'Severus Alexander (Emperor)',
+      worldSummary: 'Year 235, Week 1.',
+      npcEntities: [target],
+      leverageTruth: [{ targetId: 'thrax', item: 'Forged letter', standing: 'false' }],
+    });
+    expect(assessmentBuilt.prompt).toContain('[Location: The Rhine Frontier]');
+    expect(assessmentBuilt.prompt).toContain('Resources: denarii:400, military_strength:1200, influence:30');
+    expect(assessmentBuilt.prompt).toContain("Conditions: a battle scar (handle 'scar'; serious; outward - others can see it)");
+    expect(assessmentBuilt.prompt).toContain("GM-SECRET: THE PLAYER'S LEVERAGE");
+    expect(assessmentBuilt.prompt).toContain('Forged letter');
+    expect(assessmentBuilt.systemInstruction).toContain('Conditions');
+    expect(assessmentBuilt.systemInstruction).toContain("GM-SECRET: THE PLAYER'S LEVERAGE");
+
+    // 2. Director (storyRelevance) prompt
+    const directorBuilt = buildStoryRelevancePrompt(2, ['The Rhine legions stir.'], world, [target], []);
+    expect(directorBuilt.prompt).toContain('Location: The Rhine Frontier.');
+    expect(directorBuilt.prompt).toContain("Conditions: a battle scar (handle 'scar'; serious; outward - others can see it)");
+    expect(directorBuilt.prompt).toContain("Affiliations: the Soldiers of Mars (handle 'mars'; cause; openly professed)");
+    expect(directorBuilt.systemInstruction).toContain('CONDITION FEASIBILITY');
+    expect(directorBuilt.systemInstruction).toContain('inward condition (outward: false)');
+
+    // 3. Deep Analysis & Investigation prompts (public/outward only)
+    const emptyPlan = { kind: 'deep_analysis' as const, accuracy: 'true' as const, fidelity: 'fuller' as const, findings: [], poolEmpty: true };
+    const deepBuilt = buildDeepAnalysisPrompt(target, player, true, emptyPlan);
+    expect(deepBuilt.prompt).toContain('Location: The Rhine Frontier.');
+    expect(deepBuilt.prompt).toContain('Known as: the Thracian.');
+    expect(deepBuilt.prompt).toContain('Openly professes: the Soldiers of Mars.');
+    expect(deepBuilt.prompt).toContain('Outward marks: a battle scar (serious).');
+    expect(deepBuilt.prompt).not.toContain('INWARD_TERROR_SENTINEL');
+    expect(deepBuilt.prompt).not.toContain('SECRET_MITHRAS_SENTINEL');
+
+    const invBuilt = buildInvestigationPrompt(target, player, 'secrets', 'success', { ...emptyPlan, kind: 'secrets' });
+    expect(invBuilt.prompt).toContain('- Location: The Rhine Frontier');
+    expect(invBuilt.prompt).toContain('- Outward marks: a battle scar (serious)');
+    expect(invBuilt.prompt).not.toContain('INWARD_TERROR_SENTINEL');
+    expect(invBuilt.prompt).not.toContain('SECRET_MITHRAS_SENTINEL');
+
+    // 4. WorldGen & CharacterCreation prompts
+    const batchBuilt = buildEntityBatchPrompt(
+      [{ entity_id: 'thrax', name: 'Maximinus Thrax', entity_type: 'individual', position: 'General', brief_description: 'A frontier commander.' }],
+      [{ entity_id: 'thrax', name: 'Maximinus Thrax', entity_type: 'individual', position: 'General', brief_description: 'A frontier commander.' }],
+      'Crisis of the Third Century',
+      world,
+    );
+    expect(batchBuilt.systemInstruction).toContain('respect_level');
+    expect(batchBuilt.systemInstruction).toContain("0-2 'conditions'");
+
+    const charBuilt = buildCharacterCreationPrompt('An aged veteran with a limp.', [target]);
+    expect(charBuilt.systemInstruction).toContain("0-2 'conditions'");
+
+    // 5. EvalJudge prompt
+    const judgeBuilt = buildEvalJudgePrompt({
+      turnNumber: 1,
+      playerIntent: 'Hold court.',
+      adjudication: { turn: 1, entityActions: [], deltas: [], headlines: [], gm_private: [] },
+      narration: 'The court is quiet.',
+    });
+    expect(judgeBuilt.systemInstruction).toContain('lost_item');
+    expect(judgeBuilt.systemInstruction).toContain('outward: false, D48');
+    expect(judgeBuilt.systemInstruction).toContain('public: false, D49');
+    expect(judgeBuilt.systemInstruction).toContain('holds, D50');
+  });
+
+  it('passes explicit thinkingConfig budgets to flash intelligence, selector, and judge calls', async () => {
+    const target = makeEntity({ entity_id: 'thrax', name: 'Maximinus Thrax', position: 'General' });
+
+    // 1. getClarificationOnEvent (forecast)
+    {
+      const { ai, generateContent } = makeQueuedTextAi('The Senate willhesitate.');
+      await getClarificationOnEvent(ai as unknown as GoogleGenAI, 'A headline.', 'what_follows', player, { allEntities: [player, target], turnHistory: [], knowledge: [] }, false);
+      expect(generateContent.mock.calls[0][0].config?.thinkingConfig).toEqual({ thinkingBudget: 256 });
+    }
+
+    // 2. getDeepAnalysis
+    {
+      const { ai, generateContent } = makeQueuedTextAi('He is dangerous.');
+      await getDeepAnalysis(ai as unknown as GoogleGenAI, target, player, false);
+      expect(generateContent.mock.calls[0][0].config?.thinkingConfig).toEqual({ thinkingBudget: 256 });
+    }
+
+    // 3. getSchemeNatureReading
+    {
+      const { ai, generateContent } = makeQueuedTextAi('He plots a march on Rome.');
+      await getSchemeNatureReading(ai as unknown as GoogleGenAI, target, player, { standing: 'true', clueAccounts: ['Clue 1'], design: { name: 'March', goal: 'Take Rome' }, groundTruth: 'March: Take Rome', noDesign: false }, false);
+      expect(generateContent.mock.calls[0][0].config?.thinkingConfig).toEqual({ thinkingBudget: 256 });
+    }
+
+    // 4. getPlayerMonologue
+    {
+      const { ai, generateContent } = makeQueuedTextAi(JSON.stringify({ text: 'I wait.', actors: [] }));
+      await getPlayerMonologue(ai as unknown as GoogleGenAI, player, ['Quiet week.'], ['Wait.'], true, false);
+      expect(generateContent.mock.calls[0][0].config?.thinkingConfig).toEqual({ thinkingBudget: 256 });
+    }
+
+    // 5. selectNoAttemptEvidence
+    {
+      const { ai, generateContent } = makeQueuedTextAi(JSON.stringify({ decision: 'answer', evidenceIds: ['ev-1'], actors: [] }));
+      await selectNoAttemptEvidence(ai, 'What happened?', [{ id: 'ev-1', source: 'self', text: 'Nothing.' }], false);
+      expect(generateContent.mock.calls[0][0].config?.thinkingConfig).toEqual({ thinkingBudget: 256 });
+    }
+
+    // 6. getRelationshipObservations
+    {
+      const { ai, generateContent } = makeQueuedTextAi(JSON.stringify([]));
+      await getRelationshipObservations(
+        ai,
+        [{ id: 'ev-1', source: 'witnessed', text: 'Maximinus Thrax spoke.' }],
+        [{ entity_id: 'thrax', name: 'Maximinus Thrax' }],
+        ['thrax'],
+        false,
+      );
+      expect(generateContent.mock.calls[0][0].config?.thinkingConfig).toEqual({ thinkingBudget: 256 });
+    }
+
+    // 7. judgeTurn
+    {
+      const axis = { score: 5, rationale: 'Good.' };
+      const { ai, generateContent } = makeQueuedTextAi(JSON.stringify({
+        consequence_density: axis,
+        sim_state_consistency: axis,
+        schema_validity: axis,
+        information_asymmetry: axis,
+        character_richness: axis,
+      }));
+      await judgeTurn(ai, {
+        turnNumber: 1,
+        playerIntent: 'Hold court.',
+        adjudication: { turn: 1, entityActions: [], deltas: [], headlines: [], gm_private: [] },
+        narration: 'Quiet.',
+        rawCalls: [],
+        turnSeed: null,
+        resolutionTrace: null,
+        mortalityTrace: null,
+        npcIntents: null,
+        npcMindResults: null,
+      });
+      expect(generateContent.mock.calls[0][0].config?.thinkingConfig).toEqual({ thinkingBudget: 512 });
+    }
   });
 });

@@ -476,11 +476,13 @@ describe('D50 composure: the names a tell may give a hidden subject by', () => {
     expect(screen.sign('Her broken vow shows plainly.')).toBe('Her broken vow shows plainly.');
   });
 
-  it('folds the spellings a name wanders between: Iesus and Jesus, Khristos and Christ, Bakchos and Bacchus', () => {
+  it('folds the spellings a name wanders between: Iesus and Jesus, Khristos and Christ, Bakchos and Bacchus (both directions)', () => {
     expect(tieScreen('the followers of Jesus').sign('He whispers the name of Iesus.')).toBeNull();
     expect(tieScreen('the followers of Iesus').sign('He whispers the name of Jesus.')).toBeNull();
     expect(tieScreen('the Christian faith').sign('A prayer to Khristos escapes her.')).toBeNull();
     expect(tieScreen('the cult of Bacchus').sign('She hums a hymn to Bakchos.')).toBeNull();
+    expect(tieScreen('the Cult of Bakchos').sign('She hums a hymn to Bacchus.')).toBeNull();
+    expect(tieScreen('the Cult of Bakchos').delivery('with a murmur to Bacchus')).toBeNull();
     expect(tieScreen('the cult of Bacchus').sign('She hums under her breath.')).toBe('She hums under her breath.');
   });
 

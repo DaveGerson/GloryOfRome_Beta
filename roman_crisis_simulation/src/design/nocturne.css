@@ -20,7 +20,6 @@
 --shadow-raised:0 6px 18px rgba(0,0,0,.6),0 0 0 1px var(--border-subtle);
 --shadow-modal:0 24px 60px rgba(0,0,0,.75),0 0 0 1px var(--border-strong);
 --shadow-inset:inset 0 1px 3px rgba(0,0,0,.6);
---focus-ring:0 0 0 2px var(--surface-page),0 0 0 4px var(--gold-300);
 /* ── The four loud surfaces, re-cut for the night (audit item 29) ──
    The masthead no longer sits in full daylight Tyrian over a basalt page, and
    the Dispatches tablet INVERTS rather than fading: by torchlight it becomes
