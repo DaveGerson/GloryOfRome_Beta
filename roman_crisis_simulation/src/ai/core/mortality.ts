@@ -235,7 +235,7 @@ export async function processMortality(
   isMockMode: boolean,
   rng?: Rng,
   validationContext: MortalityValidationContext = {}
-): Promise<{ transformedAdjudication: Adjudication; mortalityEvents: MortalityEvent[]; playerOutcomeDirective?: string }> {
+): Promise<{ transformedAdjudication: Adjudication; mortalityEvents: MortalityEvent[]; playerOutcomeDirective?: string; rewrittenHeadlines?: Array<{ from: string; to: string }> }> {
   if (isMockMode) {
     return { transformedAdjudication: adjudication, mortalityEvents: [] };
   }
@@ -361,6 +361,7 @@ export async function processMortality(
   const mortalityEvents: MortalityEvent[] = [];
   const extraDeltas: EventDelta[] = [];
   const knownEntityIds = new Set(entities.map(entity => entity.entity_id));
+  const overturnedSubjects: OverturnedDeathSubject[] = [];
   let playerOutcomeDirective: string | undefined;
 
   for (const r of resolved) {
@@ -386,6 +387,7 @@ export async function processMortality(
       // narration prompt does not). Keep it diegetic - the validation
       // reasoning itself is GM-only and already recorded in gm_private below.
       claim.delta.reason = `${claim.entity.name} comes through the turn's events unharmed; darker reports prove unfounded.`;
+      overturnedSubjects.push({ entityId: claim.entity.entity_id, name: claim.entity.name, valid: false });
 
       const summary = `Death claim invalidated - ${reasoning}`;
       gmPrivateNotes.push(`[Mortality] ${entityLabel}: ${summary}`);
@@ -405,6 +407,10 @@ export async function processMortality(
     const narrativeDirective = contentOverride?.narrative_directive ?? outcome.defaultDirective;
 
     const publicDies = isNpcFateOutcome(outcome) ? outcome.publicStatus === 'dead' : outcome.dies;
+    const secretlyAlive = isNpcFateOutcome(outcome) && Boolean(outcome.secretlyAlive);
+    if (!publicDies && !secretlyAlive) {
+      overturnedSubjects.push({ entityId: claim.entity.entity_id, name: claim.entity.name, valid: true });
+    }
     // A survival band keeps the entity's standing status, as the invalid
     // branch above does: surviving an attempt on one's life does not end an
     // exile (D1) or bring the missing home. Only an entity alive before the
@@ -505,8 +511,93 @@ export async function processMortality(
     });
   }
 
+  const { headlines: guardedHeadlines, rewrites: rewrittenHeadlines } = guardOverturnedDeathHeadlines(
+    transformed.headlines,
+    overturnedSubjects,
+  );
+  if (rewrittenHeadlines.length > 0) {
+    transformed.headlines = guardedHeadlines;
+    for (const { from, to } of rewrittenHeadlines) {
+      gmPrivateNotes.push(`[Mortality] Overturned-death headline rewritten: "${from}" -> "${to}"`);
+    }
+  }
+
   transformed.deltas.push(...extraDeltas);
   transformed.gm_private.push(...gmPrivateNotes);
 
-  return { transformedAdjudication: transformed, mortalityEvents, playerOutcomeDirective };
+  return {
+    transformedAdjudication: transformed,
+    mortalityEvents,
+    playerOutcomeDirective,
+    ...(rewrittenHeadlines.length > 0 ? { rewrittenHeadlines } : {}),
+  };
+}
+
+export interface OverturnedDeathSubject {
+  entityId: string;
+  name: string;
+  valid: boolean;
+}
+
+const DEATH_ASSERTION_RE = /\b(?:dead|dies|died|killed|slain|assassinated|murdered|executed|perished|fell dead|met (?:his|her|their) end|passed away|succumbed|corpse|funeral|lifeless)\b/i;
+const SURVIVAL_QUALIFIER_RE = /\b(?:survived|survives|narrowly escaped|escaped death|foiled|failed attempt|unharmed|recovered|unfounded|still lives|fails to end|alive)\b/i;
+const TITLE_STOP_WORDS = new Set([
+  'emperor', 'empress', 'caesar', 'augustus', 'augusta', 'senator', 'consul',
+  'general', 'tribune', 'prefect', 'king', 'queen', 'legion', 'guard', 'lord',
+  'gaius', 'marcus', 'lucius', 'publius', 'quintus', 'titus', 'sextus', 'tiberius', 'gnaeus',
+]);
+
+function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function subjectNamePatterns(name: string): RegExp[] {
+  const trimmed = name.trim();
+  if (!trimmed) return [];
+  const patterns: RegExp[] = [new RegExp(`\\b${escapeRegex(trimmed)}\\b`, 'i')];
+  const tokens = trimmed.split(/\s+/).filter(token => {
+    const clean = token.replace(/[^\p{L}]/gu, '');
+    return clean.length >= 4 && !TITLE_STOP_WORDS.has(clean.toLowerCase());
+  });
+  for (const token of tokens) {
+    patterns.push(new RegExp(`\\b${escapeRegex(token)}\\b`, 'i'));
+  }
+  return patterns;
+}
+
+/**
+ * Prevents adjudication headlines from stating that a figure died when the
+ * mortality pipeline invalidated the death claim or resolved it to survival
+ * (excluding `presumed_dead`, whose public record must stay dead). Pure and
+ * idempotent; exported for direct testing and `declaredHeadlines` sync.
+ */
+export function guardOverturnedDeathHeadlines(
+  headlines: readonly string[],
+  overturned: readonly OverturnedDeathSubject[],
+): { headlines: string[]; rewrites: Array<{ from: string; to: string }> } {
+  if (headlines.length === 0 || overturned.length === 0) {
+    return { headlines: [...headlines], rewrites: [] };
+  }
+  const matchers = overturned
+    .map(subject => ({ subject, patterns: subjectNamePatterns(subject.name) }))
+    .filter(item => item.patterns.length > 0);
+  if (matchers.length === 0) {
+    return { headlines: [...headlines], rewrites: [] };
+  }
+
+  const rewrites: Array<{ from: string; to: string }> = [];
+  const nextHeadlines = headlines.map(headline => {
+    if (!DEATH_ASSERTION_RE.test(headline) || SURVIVAL_QUALIFIER_RE.test(headline)) {
+      return headline;
+    }
+    const matched = matchers.find(entry => entry.patterns.some(re => re.test(headline)));
+    if (!matched) return headline;
+    const to = matched.subject.valid
+      ? `An attempt against ${matched.subject.name} fails to end a life; ${matched.subject.name} still lives.`
+      : `Reports claiming the end of ${matched.subject.name} prove unfounded; ${matched.subject.name} still lives.`;
+    rewrites.push({ from: headline, to });
+    return to;
+  });
+
+  return { headlines: nextHeadlines, rewrites };
 }

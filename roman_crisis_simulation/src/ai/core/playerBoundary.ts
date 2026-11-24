@@ -1149,33 +1149,90 @@ export interface PlayerVisibleStreamGate {
   finish(completeText: string): string | null;
 }
 
+const STREAM_SAFE_OVERLAP_CHARS = 256;
+const STREAM_BOUNDARY_LOOKBACK_CHARS = 512;
+const STREAM_TAIL_GUARD_CHARS = 32;
+const STREAM_HEAD_GUARD_CHARS = 16;
+
+function safeStreamWindowStart(text: string, validatedEnd: number): number {
+  if (validatedEnd <= STREAM_SAFE_OVERLAP_CHARS) return 0;
+  const target = validatedEnd - STREAM_SAFE_OVERLAP_CHARS;
+  const floor = Math.max(0, validatedEnd - STREAM_BOUNDARY_LOOKBACK_CHARS);
+  for (let i = target; i >= floor; i--) {
+    if (text[i] === '\n') return i + 1;
+    if (/[.!?]/.test(text[i]) && i + 1 < text.length && /\s/.test(text[i + 1])) return i + 2;
+  }
+  for (let i = target; i >= floor; i--) {
+    if (/\s/.test(text[i])) return i + 1;
+  }
+  return target;
+}
+
 /**
  * Buffers the stream's incomplete final sentence. A prefix such as
  * "The die rolled " or "critical_" is harmless in isolation but can become
  * forbidden when the next provider chunk arrives; only a complete segment
  * is eligible for the UI callback, and the complete text is revalidated at
- * stream end.
+ * stream end. Maintains a monotonic high-water mark with overlap lookback so
+ * incremental chunks avoid quadratic full-prefix regex scans.
  */
 export function createPlayerVisibleStreamGate(): PlayerVisibleStreamGate {
   let lastReleased = '';
+  let validatedEnd = 0;
+  let validatedHead = '';
+  let validatedTail = '';
+
+  const isMonotonic = (text: string): boolean => {
+    if (validatedEnd === 0) return false;
+    if (text.length < validatedEnd) return false;
+    if (!text.startsWith(validatedHead)) return false;
+    const tailStart = Math.max(0, validatedEnd - STREAM_TAIL_GUARD_CHARS);
+    return text.slice(tailStart, validatedEnd) === validatedTail;
+  };
+
+  const recordValidated = (text: string): void => {
+    validatedEnd = text.length;
+    validatedHead = text.slice(0, STREAM_HEAD_GUARD_CHARS);
+    validatedTail = text.slice(Math.max(0, text.length - STREAM_TAIL_GUARD_CHARS));
+  };
 
   return {
     push(cumulativeText: string): string | null {
+      const monotonic = isMonotonic(cumulativeText);
+      const scanFloor = monotonic ? validatedEnd : 0;
+
       let completedEnd = 0;
-      for (const match of cumulativeText.matchAll(/[.!?]/g)) {
-        completedEnd = (match.index ?? 0) + match[0].length;
+      for (let i = cumulativeText.length - 1; i >= scanFloor; i--) {
+        const ch = cumulativeText[i];
+        if (ch === '.' || ch === '!' || ch === '?') {
+          completedEnd = i + 1;
+          break;
+        }
       }
-      if (completedEnd === 0) return null;
+      if (completedEnd === 0 || (monotonic && completedEnd <= validatedEnd)) return null;
 
       const completed = cumulativeText.slice(0, completedEnd).trimEnd();
       if (!completed || completed === lastReleased) return null;
-      assertPlayerVisibleTextSafe(completed);
+
+      const windowStart = monotonic ? safeStreamWindowStart(completed, validatedEnd) : 0;
+      assertPlayerVisibleTextSafe(windowStart === 0 ? completed : completed.slice(windowStart));
+
+      recordValidated(completed);
       lastReleased = completed;
       return completed;
     },
     finish(completeText: string): string | null {
       const complete = completeText.trim();
-      assertPlayerVisibleTextSafe(complete);
+      if (isMonotonic(complete)) {
+        if (complete.length > validatedEnd) {
+          const windowStart = safeStreamWindowStart(complete, validatedEnd);
+          assertPlayerVisibleTextSafe(windowStart === 0 ? complete : complete.slice(windowStart));
+          recordValidated(complete);
+        }
+      } else {
+        assertPlayerVisibleTextSafe(complete);
+        if (complete) recordValidated(complete);
+      }
       if (!complete || complete === lastReleased) return null;
       lastReleased = complete;
       return complete;

@@ -809,6 +809,8 @@ export interface Adjudication {
     deltas: EventDelta[];
     headlines: string[];
     gm_private: string[];
+    /** D12: RIPE historical-material event ids woven by the adjudicator this turn (suppressed from post-commit modal double-firing). */
+    woven_event_ids?: string[];
     add_entities?: Entity[];
     remove_entities?: string[]; // Array of entity_ids to remove
 }

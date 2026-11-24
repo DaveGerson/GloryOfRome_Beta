@@ -416,6 +416,12 @@ export const AdjudicationSchema = {
         deltas: { type: Type.ARRAY, items: EventDeltaSchema, description: "The specific, atomic state changes that result from all actions." },
         headlines: { type: Type.ARRAY, items: HeadlineSchema, description: "A few major, publicly known events that occurred this turn." },
         gm_private: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Private notes or secret events for the GM's eyes only." },
+        woven_event_ids: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING },
+            nullable: true,
+            description: "IDs of any RIPE entries from HISTORICAL MATERIAL whose premise you wove into this turn's events."
+        },
         add_entities: { 
             type: Type.ARRAY, 
             items: EntitySchema,

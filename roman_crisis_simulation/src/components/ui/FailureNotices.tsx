@@ -3,6 +3,7 @@ import { Alert, RECORD_REFUSES } from './Alert';
 import { Button } from './Core';
 import { toRoman } from './Brand';
 import type { ImportResult, SaveRefusalReason } from '../../persistence/saveGame';
+import type { ForeignSaveWrite } from '../../persistence/crossTab';
 
 /**
  * Every failure the player can meet (WP-21, audit items 46–49), in one
@@ -306,6 +307,38 @@ export const HalfCommitNotice: React.FC<{ style?: React.CSSProperties }> = ({ st
     The turn was saved, but a follow-up step failed. Play continues from the saved turn.
   </Alert>
 );
+
+/**
+ * Another browser tab wrote or cleared the shared localStorage reign slot.
+ * Non-modal: the player decides whether to adopt the newer tab's state
+ * (reload) or dismiss and let this tab write again.
+ */
+export const CrossTabConflictNotice: React.FC<{
+  conflict: ForeignSaveWrite;
+  onReload: () => void;
+  onKeepThisTab: () => void;
+  style?: React.CSSProperties;
+}> = ({ conflict, onReload, onKeepThisTab, style }) => {
+  const turnNote = conflict.turnNumber !== null ? ` (Week ${toRoman(conflict.turnNumber)})` : '';
+  const body = conflict.kind === 'cleared'
+    ? 'Another tab cleared the saved reign on this device. Autosave is paused here so neither tab silently overwrites the other.'
+    : `This reign was continued in another tab${turnNote}. Autosave is paused here so neither tab silently overwrites the other.`;
+  return (
+    <Alert
+      tone="crimson"
+      title="Another tab holds the quill"
+      style={style}
+      actions={
+        <>
+          <Button size="sm" onClick={onReload}>Reload newest</Button>
+          <Button size="sm" variant="ghost" onClick={onKeepThisTab}>Keep this tab</Button>
+        </>
+      }
+    >
+      {body}
+    </Alert>
+  );
+};
 
 /** The bronze strip under the crisis banner. No network call, no polling. */
 export const OfflineStrip: React.FC = () => (

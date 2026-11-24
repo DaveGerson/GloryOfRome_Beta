@@ -565,6 +565,7 @@ export interface RunNewTurnResult {
     suggestedActions: string[],
     playerMonologue: string,
     newHistoryEntry: TurnHistoryEntry,
+    wovenEventIds?: string[],
 }
 
 /**
@@ -1024,6 +1025,16 @@ async function runAdjudicationStage(
     // texts are the post-redaction ones.
     const declaredHeadlines = rawAdjudication.headlines.map(({ text, actors }) => ({ text, actors: [...actors] }));
     const adjudication = stripActorsFromAdjudication(rawAdjudication);
+    const ripeMaterialIds = new Set(
+        (historicalMaterial ?? []).filter(entry => entry.status === 'ripe').map(entry => entry.id),
+    );
+    const wovenEventIds = (adjudication.woven_event_ids ?? []).filter(id => ripeMaterialIds.has(id));
+    if (wovenEventIds.length > 0) {
+        adjudication.woven_event_ids = wovenEventIds;
+        adjudication.gm_private.push(`[Historical material] Adjudicator wove ${wovenEventIds.join(', ')} (ripe) - suppressing duplicate modal fire on post-commit check.`);
+    } else {
+        delete adjudication.woven_event_ids;
+    }
 
     const trustedResolutionContext = recordResolutionNote(adjudication, playerAction.resolutionTrace, ctx.resolutionAttempt);
 
@@ -1151,7 +1162,7 @@ async function runMortalityStage(ctx: TurnContext, adjudicated: AdjudicationStag
     if (detectDeathClaims(adjudication.deltas, ctx.currentEntities, playerEntity.entity_id).length > 0) {
         ctx.options?.onStage?.('mortality');
     }
-    const { transformedAdjudication, mortalityEvents, playerOutcomeDirective } = await processMortality(
+    const { transformedAdjudication, mortalityEvents, playerOutcomeDirective, rewrittenHeadlines } = await processMortality(
         ctx.ai,
         adjudication,
         ctx.currentEntities,
@@ -1161,6 +1172,12 @@ async function runMortalityStage(ctx: TurnContext, adjudicated: AdjudicationStag
         ctx.turnRng,
         { trustedResolutionContext: adjudicated.trustedResolutionContext, hasObservableAttempt: ctx.narrationSubmission.hasObservableAttempt }
     );
+    if (rewrittenHeadlines?.length) {
+        for (const { from, to } of rewrittenHeadlines) {
+            const match = adjudicated.declaredHeadlines.find(declared => declared.text === from);
+            if (match) match.text = to;
+        }
+    }
     const proseRedactions = enforceNoAttemptBoundary(transformedAdjudication, playerEntity, ctx.narrationSubmission.hasObservableAttempt, ctx.currentEntities);
     return { transformedAdjudication, mortalityEvents, playerOutcomeDirective, proseRedactions };
 }
@@ -1582,5 +1599,6 @@ function assembleTurnResult(ctx: TurnContext, turn: {
         suggestedActions: suggestedActions.length > 0 ? suggestedActions : ["Consider your next move carefully.", "Consolidate your power.", "Seek new allies."],
         playerMonologue,
         newHistoryEntry,
+        ...(transformedAdjudication.woven_event_ids?.length ? { wovenEventIds: transformedAdjudication.woven_event_ids } : {}),
     };
 }

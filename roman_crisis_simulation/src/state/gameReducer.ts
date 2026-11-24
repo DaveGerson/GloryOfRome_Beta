@@ -252,6 +252,8 @@ export type GameAction =
       ribbonMessage: Message;
       suggestedActions: string[];
       currentEvents: string[];
+      triggeredEventIds?: string[];
+      eventFirings?: EventFiringRecord[];
     }
   /**
    * Restore the pre-turn snapshot after a mid-turn failure, including its
@@ -379,6 +381,8 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         ],
         suggestedActions: action.suggestedActions,
         currentEvents: action.currentEvents,
+        triggeredEventIds: action.triggeredEventIds ?? state.triggeredEventIds,
+        eventFirings: action.eventFirings ?? state.eventFirings,
         // ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - the fallout queue is
         // "consumed" only here, once the turn that was handed the
         // intervention text built from it has actually committed. A

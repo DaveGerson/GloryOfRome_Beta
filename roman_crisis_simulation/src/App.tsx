@@ -12,10 +12,10 @@ import DispatchesDigest from './components/DispatchesDigest';
 import SidePanel from './components/SidePanel';
 import EventModal from './components/EventModal';
 import { useGame } from './state/GameContext';
-import { hasStoredReign } from './persistence/saveGame';
+import { hasStoredReign, saveGame } from './persistence/saveGame';
 import { knownRecipientOptionsForPlayer } from './knowledge/relationships';
 import { Button } from './components/ui/Core';
-import { OfflineStrip, TurnFailureNotice, useOnline } from './components/ui/FailureNotices';
+import { CrossTabConflictNotice, OfflineStrip, TurnFailureNotice, useOnline } from './components/ui/FailureNotices';
 import { Tooltip } from './components/ui/Feedback';
 import { useCampaignTransactions } from './hooks/useCampaignTransactions';
 import { useCampaignLifecycle } from './hooks/useCampaignLifecycle';
@@ -37,7 +37,7 @@ import { usePrivateSceneVoice } from './hooks/usePrivateSceneVoice';
 import { usePersonaeVoice } from './hooks/usePersonaeVoice';
 import { useCastBasis, useVoiceCast } from './hooks/useVoiceCast';
 import { NarrationLog } from './components/NarrationLog';
-import { useDevSmokeTest, useUnloadGuardWhileProcessing } from './hooks/useShellEffects';
+import { useCrossTabConflict, useDevSmokeTest, useUnloadGuardWhileProcessing } from './hooks/useShellEffects';
 import { CHAT_FOLLOW_COPY, useChatFollow } from './hooks/useChatFollow';
 import { useCommandPalette } from './hooks/useCommandPalette';
 import { buildGameCommands } from './app/commands';
@@ -94,6 +94,11 @@ const App: React.FC = () => {
     const online = useOnline();
     const { weekBeat, strikeWeekBeat } = useWeekBeat();
     const {
+        conflict: crossTabConflict,
+        dismissConflict: dismissCrossTabConflict,
+        reloadFromOtherTab,
+    } = useCrossTabConflict(gameState !== GameState.SETUP);
+    const {
         isSettingsMenuOpen, openSettings, closeSettings,
         isMockMode, setIsMockMode,
         isNox, setIsNox,
@@ -134,7 +139,7 @@ const App: React.FC = () => {
         appMountedRef,
         campaignGenerationRef,
         latestInferredAmbitionRef,
-    } = useCampaignTransactions(state, dispatch);
+    } = useCampaignTransactions(state, dispatch, { autosavePaused: Boolean(crossTabConflict) });
 
     // --- What the player can see and reach.
     const playerEntity = entities.find(e => e.entity_id === playerCharacterId) || null;
@@ -171,6 +176,11 @@ const App: React.FC = () => {
         return { economic_stability: moved('economic_stability'), political_climate: moved('political_climate') };
     }, [lastTurn]);
 
+    // The campaign's voice cast (narration/voiceCast.ts): every character
+    // the player knows gets a voice of their own - player-visible data only.
+    const castBasis = useCastBasis({ voiceCast: state.voiceCast, playerEntity, entities, knowledge });
+    const { effectiveCast } = castBasis;
+
     // --- The domain handlers, one hook per surface.
     const {
         privateSceneViews,
@@ -188,7 +198,7 @@ const App: React.FC = () => {
     } = usePrivateSceneController({
         ai, isMockMode, online,
         privateScenes: state.privateScenes,
-        playerEntity, entities, worldState, privateSceneKnownIds, knowledge, turnNumber,
+        playerEntity, entities, worldState, privateSceneKnownIds, knowledge, voiceCast: effectiveCast, turnNumber,
         privateSceneInteractionLocked,
         runDomainMutation, commitDomainMutation, buildSaveState,
         privateSceneLockRef, privateScenesRef,
@@ -222,7 +232,7 @@ const App: React.FC = () => {
         ai, isMockMode, resolvedApiKey, online,
         entities, worldState, simulationState, reports, truthLedger, knowledge, npcIntents,
         turnNumber, playerCharacterId, turnHistory, pendingIntelligenceFallout, gmInterventionText,
-        eventFirings, metaNarrative, messages, reignSeed,
+        triggeredEventIds, eventFirings, metaNarrative, messages, reignSeed,
         dispatch, getStateGeneration, runDomainMutation, commitDomainMutation, buildSaveState, strikeWeekBeat,
         preTurnSnapshotRef, campaignGenerationRef, privateScenesRef, appMountedRef, latestInferredAmbitionRef,
         setIsCheckingEvents, setTransactionNote,
@@ -271,10 +281,6 @@ const App: React.FC = () => {
         () => narratorCharactersFor(playerEntity, entities, knowledge),
         [playerEntity, entities, knowledge],
     );
-    // The campaign's voice cast (narration/voiceCast.ts): every character
-    // the player knows gets a voice of their own - player-visible data only.
-    const castBasis = useCastBasis({ voiceCast: state.voiceCast, playerEntity, entities, knowledge });
-    const { effectiveCast } = castBasis;
     const {
         narrationVoiceMode, handleSetNarrationVoiceMode, toggleNarrationVoice, narrationVoiceStateFor,
         narrators, narratorId, narratorVoiceFromCast, handleSetNarrator,
@@ -378,6 +384,18 @@ const App: React.FC = () => {
             {/* Item 49: the roads are shut. The tablet stays fully editable —
                 writing the week is the one thing that still works. */}
             {!online && gameState !== GameState.SETUP && <OfflineStrip />}
+            {crossTabConflict && gameState !== GameState.SETUP && (
+                <div style={{ padding: '8px 24px 0' }}>
+                    <CrossTabConflictNotice
+                        conflict={crossTabConflict}
+                        onReload={reloadFromOtherTab}
+                        onKeepThisTab={() => {
+                            dismissCrossTabConflict();
+                            saveGame(buildSaveState());
+                        }}
+                    />
+                </div>
+            )}
             {/*
               DESIGN_DECISIONS.md D1: exile/missing are survivable - the run
               keeps going, input stays enabled - so this is a persistent

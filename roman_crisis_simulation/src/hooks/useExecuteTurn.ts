@@ -43,6 +43,7 @@ import type {
 import type { GameAction } from '../state/gameReducer';
 import { withOldSnapshotsDropped } from '../state/gameReducer';
 import type { RunDomainMutation } from '../state/domainMutation';
+import { recordWovenEvents } from '../events/engine';
 import { runNewTurn } from '../ai/core/turn';
 import type { TurnStage } from '../ai/core/turn';
 import { deriveTurnSeed } from '../ai/core/resolution';
@@ -120,6 +121,7 @@ export interface ExecuteTurnDeps {
     turnHistory: TurnHistoryEntry[];
     pendingIntelligenceFallout: string[];
     gmInterventionText: string;
+    triggeredEventIds: string[];
     eventFirings: EventFiringRecord[];
     metaNarrative: string;
     messages: Message[];
@@ -165,7 +167,7 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
         ai, isMockMode, resolvedApiKey, online,
         entities, worldState, simulationState, reports, truthLedger, knowledge, npcIntents,
         turnNumber, playerCharacterId, turnHistory, pendingIntelligenceFallout, gmInterventionText,
-        eventFirings, metaNarrative, messages, reignSeed,
+        triggeredEventIds, eventFirings, metaNarrative, messages, reignSeed,
         dispatch, getStateGeneration, runDomainMutation, commitDomainMutation, buildSaveState, strikeWeekBeat,
         preTurnSnapshotRef, campaignGenerationRef, privateScenesRef, appMountedRef, latestInferredAmbitionRef,
         setPendingPlayerMessage, setTurnFailure, setRetrySubmission, setRetryDraft,
@@ -525,6 +527,9 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
             // failed/rolled-back attempt never dispatches this, so both
             // survive untouched for a retry. If the player died this turn,
             // the reducer resolves the phase straight to GAME_OVER (D1).
+            const wovenBookkeeping = result.wovenEventIds?.length
+                ? recordWovenEvents(triggeredEventIds, eventFirings, result.wovenEventIds, newTurnNumber)
+                : null;
             const nextSaveState = buildSaveState({
                 entities: result.updatedEntities,
                 worldState: newWorldState,
@@ -539,6 +544,10 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
                 messages: [...messages, ...committedMessages],
                 suggestedActions: result.suggestedActions,
                 currentEvents: result.headlines,
+                ...(wovenBookkeeping ? {
+                    triggeredEventIds: wovenBookkeeping.triggeredEventIds,
+                    eventFirings: wovenBookkeeping.eventFirings,
+                } : {}),
                 gmInterventionText: '',
                 pendingIntelligenceFallout: [],
             });
@@ -563,6 +572,10 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
                     ribbonMessage,
                     suggestedActions: result.suggestedActions,
                     currentEvents: result.headlines,
+                    ...(wovenBookkeeping ? {
+                        triggeredEventIds: wovenBookkeeping.triggeredEventIds,
+                        eventFirings: wovenBookkeeping.eventFirings,
+                    } : {}),
                 },
                 onSaveFailure: () => { throw new Error('AUTOSAVE_FAILED'); },
                 beforeDispatch: () => {
@@ -717,5 +730,5 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
         }
         });
         return mutation.acquired;
-    }, [ai, buildSaveState, commitDomainMutation, dispatch, entities, eventFirings, getStateGeneration, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, online, pendingIntelligenceFallout, playerCharacterId, reignSeed, reports, resolvedApiKey, runDomainMutation, simulationState, strikeWeekBeat, truthLedger, turnHistory, turnNumber, worldState, preTurnSnapshotRef, campaignGenerationRef, privateScenesRef, appMountedRef, latestInferredAmbitionRef, setPendingPlayerMessage, setTurnFailure, setRetrySubmission, setRetryDraft, setChatDraft, setStructuredDraft, setTurnStage, setStreamingNarration, setIsCheckingEvents, setTransactionNote]);
+    }, [ai, buildSaveState, commitDomainMutation, dispatch, entities, eventFirings, getStateGeneration, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, online, pendingIntelligenceFallout, playerCharacterId, reignSeed, reports, resolvedApiKey, runDomainMutation, simulationState, strikeWeekBeat, triggeredEventIds, truthLedger, turnHistory, turnNumber, worldState, preTurnSnapshotRef, campaignGenerationRef, privateScenesRef, appMountedRef, latestInferredAmbitionRef, setPendingPlayerMessage, setTurnFailure, setRetrySubmission, setRetryDraft, setChatDraft, setStructuredDraft, setTurnStage, setStreamingNarration, setIsCheckingEvents, setTransactionNote]);
 }

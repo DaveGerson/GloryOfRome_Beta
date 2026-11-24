@@ -66,6 +66,29 @@ export function recordEventFiring(
 }
 
 /**
+ * Records woven HISTORICAL MATERIAL event ids into the event-firing ledger
+ * at the same cooldown cadence as modal fires (D12): prevents a turn that
+ * wove an event's premise from immediately popping the identical modal event
+ * on post-commit check (or within its cooldown window). Deduplicated; never
+ * mutates its inputs.
+ */
+export function recordWovenEvents(
+    triggeredEventIds: string[],
+    eventFirings: EventFiringRecord[],
+    wovenEventIds: readonly string[],
+    turnNumber: number
+): { triggeredEventIds: string[]; eventFirings: EventFiringRecord[] } {
+    let nextTriggered = [...triggeredEventIds];
+    let nextFirings = [...eventFirings];
+    for (const eventId of new Set(wovenEventIds)) {
+        const recorded = recordEventFiring(nextTriggered, nextFirings, eventId, turnNumber);
+        nextTriggered = recorded.triggeredEventIds;
+        nextFirings = recorded.eventFirings;
+    }
+    return { triggeredEventIds: nextTriggered, eventFirings: nextFirings };
+}
+
+/**
  * The roster ids an authored event's choices act upon - every entity id its
  * option deltas key (the PLAYER_CHARACTER placeholder aside). Derived from
  * the choices themselves, so the requirement can never drift from what the

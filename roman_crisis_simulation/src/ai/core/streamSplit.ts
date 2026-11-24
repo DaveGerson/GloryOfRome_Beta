@@ -102,11 +102,61 @@ export function splitNarrationSuggestions(fullText: string): { narration: string
  *    have been ordinary prose all along and is released once more text
  *    proves it isn't the marker.
  */
+const NARRATION_TAIL_MARKUP_CHAR = /[\s*_#•\-\d.)]/;
+
+function findDanglingMarkupTail(visible: string): RegExpExecArray | null {
+  let k = visible.length - 1;
+  while (k >= 0 && NARRATION_TAIL_MARKUP_CHAR.test(visible[k])) k--;
+  const sliceStart = k >= 0 ? k : 0;
+  const tail = sliceStart === 0 ? visible : visible.slice(sliceStart);
+  const match = DANGLING_MARKUP.exec(tail);
+  if (!match) return null;
+  match.index += sliceStart;
+  return match;
+}
+
 export function createNarrationStreamGate(): (cumulativeText: string) => string {
+  const HEAD_GUARD = 16;
+  const TAIL_GUARD = 32;
+  let prevLen = 0;
+  let prevHead = '';
+  let prevTail = '';
+  let cachedMarkerIndex = -1;
+  let cachedCutNarration = '';
+
+  const isMonotonic = (text: string): boolean => {
+    if (prevLen === 0) return false;
+    if (text.length < prevLen) return false;
+    if (!text.startsWith(prevHead)) return false;
+    const tailStart = Math.max(0, prevLen - TAIL_GUARD);
+    return text.slice(tailStart, prevLen) === prevTail;
+  };
+
   return (cumulativeText: string): string => {
-    const markerIndex = cumulativeText.indexOf(SUGGESTION_MARKER);
+    const monotonic = isMonotonic(cumulativeText);
+    if (!monotonic) {
+      prevLen = 0;
+      cachedMarkerIndex = -1;
+      cachedCutNarration = '';
+    }
+
+    if (cachedMarkerIndex !== -1 && cumulativeText.startsWith(SUGGESTION_MARKER, cachedMarkerIndex)) {
+      prevLen = cumulativeText.length;
+      prevHead = cumulativeText.slice(0, HEAD_GUARD);
+      prevTail = cumulativeText.slice(Math.max(0, cumulativeText.length - TAIL_GUARD));
+      return cachedCutNarration;
+    }
+
+    const searchFrom = monotonic ? Math.max(0, prevLen - SUGGESTION_MARKER.length + 1) : 0;
+    const markerIndex = cumulativeText.indexOf(SUGGESTION_MARKER, searchFrom);
+    prevLen = cumulativeText.length;
+    prevHead = cumulativeText.slice(0, HEAD_GUARD);
+    prevTail = cumulativeText.slice(Math.max(0, cumulativeText.length - TAIL_GUARD));
+
     if (markerIndex !== -1) {
-      return splitNarrationSuggestions(cumulativeText.slice(0, markerIndex)).narration;
+      cachedMarkerIndex = markerIndex;
+      cachedCutNarration = splitNarrationSuggestions(cumulativeText.slice(0, markerIndex)).narration;
+      return cachedCutNarration;
     }
 
     // No complete marker yet - find the longest suffix of what we have that
@@ -124,7 +174,7 @@ export function createNarrationStreamGate(): (cumulativeText: string) => string 
     }
 
     let visible = cumulativeText.slice(0, end);
-    const dangling = DANGLING_MARKUP.exec(visible);
+    const dangling = findDanglingMarkupTail(visible);
     if (dangling) visible = visible.slice(0, dangling.index);
     // Trailing whitespace is trimmed only in front of something withheld;
     // plain prose keeps it, so it does not flicker in and out mid-stream.

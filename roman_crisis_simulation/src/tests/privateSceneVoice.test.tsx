@@ -13,7 +13,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { GeminiClient } from '../ai/core/geminiService';
-import { cleanSceneLineForSpeech, npcCastVoice } from '../narration/sceneVoice';
+import { cleanSceneLineForSpeech, npcCastVoice, sceneLineForSpeech } from '../narration/sceneVoice';
+import { buildPrivateScenePrompt as buildControllerScenePrompt } from '../hooks/usePrivateSceneController';
+import { buildPrivateScenePrompt as buildPrivateScenePromptText } from '../ai/prompts/privateScene';
+import { makeEntity } from './factories';
 import { getSceneVoicesEnabled } from '../persistence/uiPrefs';
 import { deterministicCast, withMemberOverride, type VoiceCast } from '../narration/voiceCast';
 import { isCatalogVoice } from '../narration/voiceCatalog';
@@ -267,5 +270,42 @@ describe('the private scene surface', () => {
     act(() => controls[0].click());
     expect(npcVoice.onToggle).toHaveBeenCalledWith(view, view.transcript[1]);
     expect(container.textContent).not.toContain('NPC_PRIVATE');
+  });
+});
+
+describe('voice cast manner -> private scene prompt & speech (1A)', () => {
+  it('leaves sceneLineForSpeech unchanged without an opt-in fallbackCue, and uses validated fallbackCue only when delivery is absent', () => {
+    expect(sceneLineForSpeech({ text: 'Hold the gate.' })).toBe('Hold the gate.');
+    expect(sceneLineForSpeech({ text: 'Hold the gate.' }, { fallbackCue: 'cool, measured' })).toBe('<cool, measured> Hold the gate.');
+    expect(sceneLineForSpeech({ text: 'Hold the gate.', delivery: 'voice catching' }, { fallbackCue: 'cool, measured' })).toBe('<voice catching> Hold the gate.');
+    // Disallowed fallback cue is silently dropped rather than spoken or emitted malformed.
+    expect(sceneLineForSpeech({ text: 'Hold the gate.' }, { fallbackCue: 'say [123]' })).toBe('Hold the gate.');
+  });
+
+  it('carries optional castManner through controller payload builder into buildPrivateScenePrompt', () => {
+    const player = makeEntity({ entity_id: 'player', name: 'Severus', entity_type: 'individual' });
+    const npc = makeEntity({ entity_id: 'julia', name: 'Julia Mamaea', entity_type: 'individual' });
+    const withManner = buildControllerScenePrompt(
+      player,
+      npc,
+      [{ sequence: 1, speaker: 'player', text: 'Wait before signing.' }],
+      1,
+      undefined,
+      'cool, imperious and measured',
+    );
+    expect(withManner.npc.castManner).toBe('cool, imperious and measured');
+
+    const promptPack = buildPrivateScenePromptText(withManner);
+    expect(promptPack.systemInstruction).toContain('npc.castManner');
+    expect(promptPack.prompt).toContain('"castManner": "cool, imperious and measured"');
+
+    const withoutManner = buildControllerScenePrompt(
+      player,
+      npc,
+      [{ sequence: 1, speaker: 'player', text: 'Wait before signing.' }],
+      1,
+    );
+    expect(withoutManner.npc.castManner).toBeUndefined();
+    expect(buildPrivateScenePromptText(withoutManner).prompt).not.toContain('castManner');
   });
 });

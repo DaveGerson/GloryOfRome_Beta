@@ -338,6 +338,7 @@ export const zAdjudication = z.object({
   deltas: z.array(zEventDelta),
   headlines: z.array(zHeadline),
   gm_private: z.array(z.string()),
+  woven_event_ids: z.array(z.string()).nullable().optional(),
   add_entities: z.array(zEntity).nullable().optional(),
   remove_entities: z.array(z.string()).nullable().optional(),
 }).passthrough();

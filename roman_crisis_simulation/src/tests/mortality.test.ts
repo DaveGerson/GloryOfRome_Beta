@@ -10,8 +10,9 @@ import {
   PLAYER_DEATH_SAVE_TABLE,
   NPC_FATE_TABLE,
 } from '../ai/core/resolution';
-import { processMortality } from '../ai/core/mortality';
+import { processMortality, guardOverturnedDeathHeadlines } from '../ai/core/mortality';
 import { applyDeltas } from '../ai/core/engine';
+import { attributeHeadlines } from '../ai/core/actorsBoundary';
 import { buildMortalityOutcomePrompt } from '../ai/prompts/mortality';
 import type { GeminiClient } from '../ai/core/geminiService';
 import {
@@ -758,5 +759,110 @@ describe('mortality outcome prompt authorization contract', () => {
     expect(systemInstruction).toContain('rumor key MUST be the candidate entity_id');
     expect(systemInstruction).toContain('origin_id may name any real entity who spreads it');
     expect(systemInstruction).not.toContain('origin_id MUST be the candidate');
+  });
+});
+
+describe('guardOverturnedDeathHeadlines (1C)', () => {
+  const playerId = 'player_1';
+  const npcId = 'maximinus_thrax';
+  const entities: Entity[] = [
+    makeEntity({ entity_id: playerId, name: 'Gaius Testus', resources: { denarii: 1000 } }),
+    makeEntity({ entity_id: npcId, name: 'Maximinus Thrax', resources: { denarii: 500 } }),
+  ];
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function mockRoll(target: number) {
+    vi.spyOn(Math, 'random').mockReturnValue((target - 1) / 20);
+  }
+
+  it('rewrites a headline claiming death when the claim is invalidated', async () => {
+    const adjudication: Adjudication = {
+      ...makeAdjudication([{ type: 'status', key: npcId, delta: 0, reason: 'Slain at dawn.', new_status: 'dead' }]),
+      headlines: ['Maximinus Thrax dies at dawn in the camp.', 'Grain ships reach Ostia.'],
+    };
+    const { ai } = makeMockAi(
+      JSON.stringify({ dispositions: [{ entity_id: npcId, valid: false, reasoning: 'No assassin reached the Rhine.' }] }),
+    );
+
+    const result = await processMortality(ai, adjudication, entities, playerId, 5, false);
+
+    expect(result.transformedAdjudication.headlines[0]).toBe(
+      'Reports claiming the end of Maximinus Thrax prove unfounded; Maximinus Thrax still lives.',
+    );
+    expect(result.transformedAdjudication.headlines[1]).toBe('Grain ships reach Ostia.');
+    expect(result.rewrittenHeadlines).toHaveLength(1);
+    expect(result.transformedAdjudication.gm_private.some(n => n.includes('Overturned-death headline rewritten'))).toBe(true);
+  });
+
+  it('rewrites a headline claiming death when a validated attempt resolves to survival', async () => {
+    mockRoll(19); // escapes_openly (19-20)
+    const adjudication: Adjudication = {
+      ...makeAdjudication([{ type: 'status', key: npcId, delta: 0, reason: 'Ambushed outside the gate.', new_status: 'dead' }]),
+      headlines: ['Maximinus Thrax assassinated outside the Praetorian camp!'],
+    };
+    const { ai } = makeMockAi(
+      JSON.stringify({ dispositions: [{ entity_id: npcId, valid: true, reasoning: 'An ambush struck.' }] }),
+      JSON.stringify({ outcomes: [{ entity_id: npcId, deltas: [], narrative_directive: 'He breaks free and rides north.' }] }),
+    );
+
+    const result = await processMortality(ai, adjudication, entities, playerId, 6, false);
+
+    expect(result.transformedAdjudication.headlines[0]).toBe(
+      'An attempt against Maximinus Thrax fails to end a life; Maximinus Thrax still lives.',
+    );
+    // Preserves D47 attribution when synced onto declaredHeadlines.
+    const declared = [{ text: 'Maximinus Thrax assassinated outside the Praetorian camp!', actors: [playerId] }];
+    for (const { from, to } of result.rewrittenHeadlines ?? []) {
+      const match = declared.find(d => d.text === from);
+      if (match) match.text = to;
+    }
+    const attributed = attributeHeadlines(declared, result.transformedAdjudication.headlines, [entities], playerId);
+    expect(attributed).toEqual([{
+      text: 'An attempt against Maximinus Thrax fails to end a life; Maximinus Thrax still lives.',
+      actorIds: [playerId],
+      actorNames: ['Gaius Testus'],
+    }]);
+  });
+
+  it('preserves presumed_dead headlines and confirmed death headlines, and ignores survival-qualified headlines', async () => {
+    mockRoll(17); // presumed_dead (secretlyAlive: true)
+    const adjudication: Adjudication = {
+      ...makeAdjudication([{ type: 'status', key: npcId, delta: 0, reason: 'Slain in his tent.', new_status: 'dead' }]),
+      headlines: ['Maximinus Thrax killed in midnight raid.'],
+    };
+    const { ai } = makeMockAi(
+      JSON.stringify({ dispositions: [{ entity_id: npcId, valid: true, reasoning: 'Real raid.' }] }),
+      JSON.stringify({ outcomes: [{ entity_id: npcId, deltas: [], narrative_directive: 'His death is proclaimed.', secret_motive: 'Hiding north.' }] }),
+    );
+
+    const presumedResult = await processMortality(ai, adjudication, entities, playerId, 7, false);
+    expect(presumedResult.transformedAdjudication.headlines).toEqual(['Maximinus Thrax killed in midnight raid.']);
+    expect(presumedResult.rewrittenHeadlines).toBeUndefined();
+
+    mockRoll(12); // confirmed_dead (1-12)
+    const confirmedResult = await processMortality(
+      makeMockAi(JSON.stringify({ dispositions: [{ entity_id: npcId, valid: true, reasoning: 'Real raid.' }] })).ai,
+      adjudication,
+      entities,
+      playerId,
+      7,
+      false,
+    );
+    expect(confirmedResult.transformedAdjudication.headlines).toEqual(['Maximinus Thrax killed in midnight raid.']);
+    expect(confirmedResult.rewrittenHeadlines).toBeUndefined();
+
+    // Pure guard leaves survival-qualified and non-lethal headlines alone.
+    const qualified = guardOverturnedDeathHeadlines(
+      ['Maximinus Thrax narrowly escaped an assassination attempt.', 'Maximinus Thrax addresses the legions.'],
+      [{ entityId: npcId, name: 'Maximinus Thrax', valid: true }],
+    );
+    expect(qualified.rewrites).toEqual([]);
+    expect(qualified.headlines).toEqual([
+      'Maximinus Thrax narrowly escaped an assassination attempt.',
+      'Maximinus Thrax addresses the legions.',
+    ]);
   });
 });

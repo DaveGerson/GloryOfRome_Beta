@@ -229,3 +229,33 @@ describe('createPayloadTextExtractor (incremental; BACKLOG B7 item (a)) - equiva
     expect(last).toBe(extractPayloadTextPrefix(large));
   });
 });
+
+describe('1E: createNarrationStreamGate incremental parity & latency', () => {
+  it('matches stateless semantics across chunk boundaries, dangling markup, and non-monotonic inputs', () => {
+    const gate = createNarrationStreamGate();
+    const full = 'First clause holds.\n  1. \nSUGGESTION: Wait until dawn.';
+    const outputs: string[] = [];
+    for (let i = 1; i <= full.length; i += 3) {
+      outputs.push(gate(full.slice(0, i)));
+    }
+    expect(outputs[outputs.length - 1]).toBe('First clause holds.');
+    // Non-monotonic call falls back cleanly to fresh evaluation.
+    expect(gate('Shorter fresh prose.')).toBe('Shorter fresh prose.');
+  });
+
+  it('streams 64KB in 16-byte chunks quickly', () => {
+    const sentence = 'Crowds gather along the Via Sacra as evening falls. ';
+    const payload = `${sentence.repeat(Math.ceil((64 * 1024) / sentence.length))}\nSUGGESTION: Address them now.`;
+    const gate = createNarrationStreamGate();
+    const start = performance.now();
+    let lastVisible = '';
+    for (let i = 16; i <= payload.length; i += 16) {
+      lastVisible = gate(payload.slice(0, i));
+    }
+    const visible = payload.length % 16 === 0 ? lastVisible : gate(payload);
+    const elapsedMs = performance.now() - start;
+    expect(visible.endsWith('evening falls.')).toBe(true);
+    expect(visible).not.toContain('SUGGESTION');
+    expect(elapsedMs).toBeLessThan(250);
+  });
+});

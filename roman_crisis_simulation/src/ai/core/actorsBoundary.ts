@@ -89,9 +89,13 @@ export function stripActorsFromEntityAction(action: EntityActionInterchange): En
  * declare, which a structural check alone won't paper over.
  */
 export function stripActorsFromAdjudication(adjudication: AdjudicationInterchange): Adjudication {
-  const { actors: _interchangeOnly, ...rest } = adjudication;
+  const { actors: _interchangeOnly, woven_event_ids: rawWovenEventIds, ...rest } = adjudication;
+  const wovenEventIds = Array.isArray(rawWovenEventIds)
+    ? [...new Set(rawWovenEventIds.map(id => id.trim()).filter(Boolean))]
+    : [];
   return {
     ...rest,
+    ...(wovenEventIds.length > 0 ? { woven_event_ids: wovenEventIds } : {}),
     entityActions: adjudication.entityActions.map(stripActorsFromEntityAction),
     deltas: adjudication.deltas.map(stripActorsFromEventDelta),
     headlines: adjudication.headlines.map(headline => headline.text),

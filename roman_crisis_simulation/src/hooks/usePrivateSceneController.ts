@@ -41,6 +41,8 @@ import { PRIVATE_SCENE_MAX_COMPOSURE_ITEMS, PRIVATE_SCENE_MAX_PROMPT_INPUT_CHARS
 import { replacePrivateSceneForCommit } from '../components/PrivateScene';
 import type { PrivateSceneFailure } from '../components/ui/FailureNotices';
 import { projectPrivateSceneForPlayer } from '../perception/visibility';
+import { memberVoice, type VoiceCast } from '../narration/voiceCast';
+import { voiceStyleManner } from '../narration/voiceStyle';
 import {
     type DomainCommit,
     isPrivateSceneInteractionLocked,
@@ -64,6 +66,8 @@ export interface PrivateSceneControllerDeps {
     privateSceneKnownIds: string[];
     /** The player's knowledge store: a tell they catch in the scene is recorded there as a sign seen (D50). */
     knowledge: KnowledgeClaim[];
+    /** The campaign's voice cast: when present, feeds the NPC's delivery manner into the private-scene prompt. */
+    voiceCast?: VoiceCast | null;
     turnNumber: number;
     privateSceneInteractionLocked: boolean;
     runDomainMutation: RunDomainMutation;
@@ -117,7 +121,7 @@ function fitSceneBudget<T extends ReturnType<typeof unfittedScenePrompt>>(input:
     for (const list of lists) {
         while (list.length > 0 && !fits()) list.shift();
     }
-    for (const field of ['selfDescription', 'voice', 'location', 'position'] as const) {
+    for (const field of ['selfDescription', 'castManner', 'voice', 'location', 'position'] as const) {
         const text = npc[field];
         if (text !== undefined && !fits()) npc[field] = clipSceneText(text);
     }
@@ -168,6 +172,7 @@ function unfittedScenePrompt(
     transcript: PrivateSceneRecord['transcript'],
     exchange: number,
     composure?: ScenePromptComposure,
+    castManner?: string,
 ) {
     const npcComposure = composure ? npcComposureForPrompt(composure.npc) : [];
     const tells = composure ? playerTellsForPrompt(composure.player) : [];
@@ -177,6 +182,7 @@ function unfittedScenePrompt(
         npc: {
             entityId: npc.entity_id, displayName: npc.name, position: optionalSceneText(npc.position),
             location: optionalSceneText(npc.location), voice: optionalSceneText(npc.voice),
+            castManner: optionalSceneText(castManner),
             selfDescription: optionalSceneText(npc.current_state_narrative),
             goals: sceneContextList(npc.short_term_goals, 8), beliefs: sceneContextList(npc.beliefs ?? [], 8),
             ownSecrets: sceneContextList(npc.secrets ?? [], 8),
@@ -224,8 +230,9 @@ export function buildPrivateScenePrompt(
     transcript: PrivateSceneRecord['transcript'],
     exchange: number,
     composure?: ScenePromptComposure,
+    castManner?: string,
 ) {
-    return fitSceneBudget(unfittedScenePrompt(player, npc, transcript, exchange, composure));
+    return fitSceneBudget(unfittedScenePrompt(player, npc, transcript, exchange, composure, castManner));
 }
 
 /** The signs a transition added, as the player's knowledge store takes them: the figure and the sentence only (D50). */
@@ -237,7 +244,7 @@ function newSignsSeen(scene: PrivateSceneRecord, fromExchange: number): Array<{ 
 
 export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
     const {
-        ai, isMockMode, online, privateScenes, playerEntity, entities, worldState, privateSceneKnownIds, knowledge, turnNumber,
+        ai, isMockMode, online, privateScenes, playerEntity, entities, worldState, privateSceneKnownIds, knowledge, voiceCast, turnNumber,
         privateSceneInteractionLocked, runDomainMutation, commitDomainMutation, buildSaveState,
         privateSceneLockRef, privateScenesRef,
     } = deps;
@@ -267,8 +274,9 @@ export function usePrivateSceneController(deps: PrivateSceneControllerDeps) {
 
     const privateScenePromptFor = useCallback((npc: Entity, transcript: PrivateSceneRecord['transcript'], exchange: number, composure?: ScenePromptComposure) => {
         if (!playerEntity) throw new Error('The player is unavailable for this private scene.');
-        return buildPrivateScenePrompt(playerEntity, npc, transcript, exchange, composure);
-    }, [playerEntity]);
+        const castManner = voiceStyleManner(memberVoice(voiceCast, npc.entity_id)?.style) ?? undefined;
+        return buildPrivateScenePrompt(playerEntity, npc, transcript, exchange, composure, castManner);
+    }, [playerEntity, voiceCast]);
 
     // A scene commit may carry the knowledge store too: the signs the player
     // caught in the reply it commits (D50), landing in the same write.

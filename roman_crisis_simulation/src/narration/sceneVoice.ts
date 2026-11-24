@@ -58,13 +58,18 @@ export function cleanSceneLineForSpeech(text: string): string {
 
 /**
  * What the voice performs for one committed line (D50): its words cleaned
- * for speech, opened by its validated delivery as one `<cue>` - or the words
- * alone. '' when there is nothing to say (a cue alone is never performed).
+ * for speech, opened by its validated delivery as one `<cue>` (or an
+ * explicit opt-in validated fallbackCue) - or the words alone. '' when
+ * there is nothing to say (a cue alone is never performed).
  */
-export function sceneLineForSpeech(line: { text: string; delivery?: string }): string {
+export function sceneLineForSpeech(
+  line: { text: string; delivery?: string },
+  options?: { fallbackCue?: string },
+): string {
   const words = cleanSceneLineForSpeech(line.text);
   if (!words) return '';
-  const delivery = validateDelivery(line.delivery);
+  const delivery = validateDelivery(line.delivery)
+    ?? (options?.fallbackCue ? validateDelivery(options.fallbackCue) : null);
   return delivery ? `<${delivery}> ${words}` : words;
 }
 

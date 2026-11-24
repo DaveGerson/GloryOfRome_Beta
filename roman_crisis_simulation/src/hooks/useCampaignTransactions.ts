@@ -36,8 +36,18 @@ import {
     pickSaveState,
 } from '../app/transactions';
 
-export function useCampaignTransactions(state: GameDomainState, dispatch: Dispatch<GameAction>) {
+export interface CampaignTransactionOptions {
+    /** When true (e.g. a cross-tab conflict is active), skip writing autosaves so the other tab is not silently overwritten. */
+    autosavePaused?: boolean;
+}
+
+export function useCampaignTransactions(
+    state: GameDomainState,
+    dispatch: Dispatch<GameAction>,
+    options: CampaignTransactionOptions = {},
+) {
     const { inferredAmbition } = state;
+    const autosavePaused = Boolean(options.autosavePaused);
     const [domainMutationInFlight, setDomainMutationInFlight] = useState(false);
 
     // Snapshot of the committed game state taken right before a turn's AI
@@ -138,12 +148,12 @@ export function useCampaignTransactions(state: GameDomainState, dispatch: Dispat
     }, [state]);
 
     const commitDomainMutation = useCallback(({ candidate, action, onSaveFailure, beforeDispatch, onCommitted }: DomainCommit): boolean => {
-        if (!saveGame(candidate).ok) { onSaveFailure(); return false; }
+        if (!autosavePaused && !saveGame(candidate).ok) { onSaveFailure(); return false; }
         beforeDispatch?.();
         dispatch(action);
         onCommitted?.();
         return true;
-    }, [dispatch]);
+    }, [autosavePaused, dispatch]);
 
     return {
         domainMutationInFlight,

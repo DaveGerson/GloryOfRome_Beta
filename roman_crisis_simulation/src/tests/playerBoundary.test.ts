@@ -537,3 +537,33 @@ describe('no-attempt possessive/subject clause precedence boundary', () => {
     'The Emperor seized his treasury.',
   ])('rejects a bare player action whose object carries a possessive: %s', expectRejected);
 });
+
+describe('1E: createPlayerVisibleStreamGate incremental performance & parity', () => {
+  it('blocks hidden mechanics split across chunks at the overlap boundary and handles non-monotonic resets', () => {
+    const gate = createPlayerVisibleStreamGate();
+    const lead = `${'A senator speaks cleanly. '.repeat(20)}`;
+    expect(gate.push(lead)).toBe(lead.trimEnd());
+    expect(() => gate.push(`${lead}The roll total was 14.`)).toThrow('AI output violated the player-visible mechanics boundary.');
+
+    const resetGate = createPlayerVisibleStreamGate();
+    expect(resetGate.push('First sentence. Second sentence.')).toBe('First sentence. Second sentence.');
+    // Shorter/rewritten string resets the monotonic guard safely.
+    expect(resetGate.push('Different opening.')).toBe('Different opening.');
+    expect(resetGate.finish('Different opening. Closing.')).toBe('Different opening. Closing.');
+  });
+
+  it('streams 64KB in 16-byte chunks quickly without quadratic rescans', () => {
+    const sentence = 'Legions hold the northern watch in silence. ';
+    const payload = sentence.repeat(Math.ceil((64 * 1024) / sentence.length));
+    const gate = createPlayerVisibleStreamGate();
+    const start = performance.now();
+    let released = '';
+    for (let i = 16; i <= payload.length; i += 16) {
+      const next = gate.push(payload.slice(0, i));
+      if (next !== null) released = next;
+    }
+    const elapsedMs = performance.now() - start;
+    expect(released.length).toBeGreaterThan(60 * 1024);
+    expect(elapsedMs).toBeLessThan(500);
+  });
+});

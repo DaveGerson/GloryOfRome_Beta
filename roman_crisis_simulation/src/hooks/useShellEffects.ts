@@ -8,9 +8,10 @@
  * is at the foot of the log - and became hooks/useChatFollow.ts.)
  */
 
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { GameState } from '../types';
 import { runSmokeTest } from '../tests/smokeTest';
+import { subscribeToForeignSaveWrites, type ForeignSaveWrite } from '../persistence/crossTab';
 
 /**
  * Run a "smoke test" on startup to validate that all mock functions are
@@ -67,4 +68,23 @@ export function useUnloadGuardWhileProcessing(gameState: GameState, openFateUnsa
         window.addEventListener('beforeunload', handleBeforeUnload);
         return () => window.removeEventListener('beforeunload', handleBeforeUnload);
     }, [guarded]);
+}
+
+/**
+ * Watches the browser's `storage` event for writes or clears from another tab
+ * sharing the same profile. Exposes the latest conflict together with explicit
+ * user choices: reload to adopt the newer save, or dismiss and keep this tab.
+ */
+export function useCrossTabConflict(active: boolean) {
+    const [rawConflict, setRawConflict] = useState<ForeignSaveWrite | null>(null);
+    useEffect(() => {
+        if (!active) return;
+        return subscribeToForeignSaveWrites(write => setRawConflict(write));
+    }, [active]);
+    const conflict = active ? rawConflict : null;
+    const dismissConflict = useCallback(() => setRawConflict(null), []);
+    const reloadFromOtherTab = useCallback(() => {
+        if (typeof window !== 'undefined') window.location.reload();
+    }, []);
+    return { conflict, dismissConflict, reloadFromOtherTab };
 }
