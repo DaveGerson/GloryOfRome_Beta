@@ -23,7 +23,7 @@
  */
 
 import { Adjudication, Entity, EventDelta, MortalityEvent } from '../../types';
-import { GeminiClient, generateStructured, GEMINI_PRO } from './geminiService';
+import { GeminiClient, generateStructured, GEMINI_PRO, TurnCancelledError } from './geminiService';
 import { isDeathClaimDelta } from './engine';
 import {
   rollD20,
@@ -68,6 +68,7 @@ export interface MortalityValidationContext {
    * player acted.
    */
   hasObservableAttempt?: boolean;
+  signal?: AbortSignal;
 }
 
 /**
@@ -236,6 +237,9 @@ export async function processMortality(
   rng?: Rng,
   validationContext: MortalityValidationContext = {}
 ): Promise<{ transformedAdjudication: Adjudication; mortalityEvents: MortalityEvent[]; playerOutcomeDirective?: string; rewrittenHeadlines?: Array<{ from: string; to: string }> }> {
+  if (validationContext.signal?.aborted) {
+    throw new TurnCancelledError();
+  }
   if (isMockMode) {
     return { transformedAdjudication: adjudication, mortalityEvents: [] };
   }
@@ -270,6 +274,7 @@ export async function processMortality(
     responseSchema: MortalityValidationSchema,
     zodSchema: zMortalityValidation,
     thinkingConfig: { thinkingBudget: 512 },
+    signal: validationContext.signal,
   });
 
   const dispositionByEntity = new Map(validation.dispositions.map(d => [d.entity_id, d]));
@@ -317,6 +322,7 @@ export async function processMortality(
       responseSchema: MortalityOutcomeSchema,
       zodSchema: zMortalityOutcome,
       thinkingConfig: { thinkingBudget: 512 },
+      signal: validationContext.signal,
     });
 
     // Matched by candidate id: an outcome keyed to anyone else dresses no

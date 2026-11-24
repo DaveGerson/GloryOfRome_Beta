@@ -44,6 +44,7 @@ export interface TurnComposerProps {
   onChatDraftChange(value: string): void;
   onStructuredDraftChange(value: StructuredTurnDraft): void;
   onSubmit(input: string | StructuredTurnDraft): void;
+  onCancelTurn?(): void;
   /**
    * The desk's other tools (a private scene, the narration log, the GM
    * ledger), drawn at the end of the mode bar so the tablet itself can take
@@ -117,7 +118,7 @@ const CHAT_INPUT_ELEMENT_ID = 'chat-input';
 
 export const TurnComposer: React.FC<TurnComposerProps> = ({
   chatDraft, structuredDraft, recipientOptions, suggestedActions, disabled, isProcessing,
-  onChatDraftChange, onStructuredDraftChange, onSubmit, turnStage, playerInitial,
+  onChatDraftChange, onStructuredDraftChange, onSubmit, onCancelTurn, turnStage, playerInitial,
   canReachTheFates = true, online = true, openScene = null, onOpenSettings, onEnableMockMode, tools,
 }) => {
   const [mode, setMode] = useState<ComposerMode>(() => getComposerMode());
@@ -325,9 +326,16 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
           The region is always in the DOM - visually hidden and empty while
           idle - because a live region created together with its message is
           often never announced, which cost the first stage every turn. */}
-      <p className={isProcessing ? 'gor-hint' : 'gor-sr-only'} role="status" aria-live="polite" style={{ margin: 0 }}>
-        {isProcessing ? TURN_STAGE_STATUS_COPY[turnStage ?? 'story_relevance'] : ''}
-      </p>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+        <p className={isProcessing ? 'gor-hint' : 'gor-sr-only'} role="status" aria-live="polite" style={{ margin: 0 }}>
+          {isProcessing ? TURN_STAGE_STATUS_COPY[turnStage ?? 'story_relevance'] : ''}
+        </p>
+        {isProcessing && onCancelTurn && (
+          <Button type="button" size="sm" variant="ghost" onClick={onCancelTurn}>
+            Cancel turn
+          </Button>
+        )}
+      </div>
       {/* The near-limit count, spoken after a pause. Always present, like the
           stage line above, for the same reason. */}
       <p className="gor-sr-only" aria-live="polite" aria-atomic="true">{countAnnouncement}</p>

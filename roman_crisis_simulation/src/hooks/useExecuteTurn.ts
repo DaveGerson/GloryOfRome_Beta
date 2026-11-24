@@ -47,7 +47,7 @@ import { recordWovenEvents } from '../events/engine';
 import { runNewTurn } from '../ai/core/turn';
 import type { TurnStage } from '../ai/core/turn';
 import { deriveTurnSeed } from '../ai/core/resolution';
-import { AiServiceError } from '../ai/core/geminiService';
+import { AiServiceError, TurnCancelledError } from '../ai/core/geminiService';
 import { logDevError } from '../diagnostics/logger';
 import { inferAmbition } from '../ai/tools/ambition';
 import { updateSavedAmbition } from '../persistence/saveGame';
@@ -146,6 +146,7 @@ export interface ExecuteTurnDeps {
     privateScenesRef: MutableRefObject<PrivateSceneRecord[]>;
     appMountedRef: MutableRefObject<boolean>;
     latestInferredAmbitionRef: MutableRefObject<InferredAmbitionState | null>;
+    turnAbortControllerRef?: MutableRefObject<AbortController | null>;
 
     // --- Transient, presentation-only setters (App.tsx local useState -
     // never part of the save bundle; see their declarations there). ---
@@ -170,6 +171,7 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
         triggeredEventIds, eventFirings, metaNarrative, messages, reignSeed,
         dispatch, getStateGeneration, runDomainMutation, commitDomainMutation, buildSaveState, strikeWeekBeat,
         preTurnSnapshotRef, campaignGenerationRef, privateScenesRef, appMountedRef, latestInferredAmbitionRef,
+        turnAbortControllerRef,
         setPendingPlayerMessage, setTurnFailure, setRetrySubmission, setRetryDraft,
         setChatDraft, setStructuredDraft, setTurnStage, setStreamingNarration,
         setIsCheckingEvents, setTransactionNote,
@@ -285,6 +287,9 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
         // type level) narrow to `null` at the read site below.
         const committedTail: { current: { diedThisTurn: boolean } | null } = { current: null };
 
+        const abortController = new AbortController();
+        if (turnAbortControllerRef) turnAbortControllerRef.current = abortController;
+
         try {
             // At most one closed pending scene informs the macro adjudicator.
             // NPC memories remain partitioned by the NPC who participated;
@@ -348,6 +353,7 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
                     // no reign ever began; runNewTurn then draws a fresh
                     // seed. Mock Mode rolls no dice and ignores it.
                     turnSeed: reignSeed === undefined ? undefined : deriveTurnSeed(reignSeed, turnNumber),
+                    signal: abortController.signal,
                 }
             );
             if (!transaction.isCurrent() || !turnSnapshotIsCurrent()) return;
@@ -499,6 +505,7 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
             // consumed record is prepared before persistence, but becomes
             // live only after the whole macro-turn candidate is durable.
             if (!turnSnapshotIsCurrent()) return;
+            if (abortController.signal.aborted) throw new TurnCancelledError();
             let committedPrivateScenes = [...privateScenesForTurn];
             if (pendingPrivateScene) {
                 const consumed = consumePrivateSceneOutcome(
@@ -674,6 +681,22 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
                 return;
             }
             if (!transaction.isCurrent() || !turnSnapshotIsCurrent()) return;
+            if (error instanceof TurnCancelledError) {
+                setTurnStage(null);
+                setStreamingNarration('');
+                setPendingPlayerMessage(null);
+                setTurnFailure(null);
+                setRetrySubmission(null);
+                setRetryDraft(null);
+                const snapshot = preTurnSnapshotRef.current;
+                if (snapshot) {
+                    dispatch({ type: 'TURN_ROLLED_BACK', snapshot });
+                }
+                dispatch({ type: 'GAME_STATE_SET', gameState: GameState.AWAITING_PLAYER_INPUT });
+                if (typeof restoreDraft === 'string') setChatDraft(restoreDraft);
+                else setStructuredDraft(restoreDraft);
+                return;
+            }
             // Keep the full error in the console for diagnosis, but never lose
             // the player's game over this — no "please refresh" (persistence
             // now exists, and nothing was committed mid-turn anyway).
@@ -727,8 +750,12 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
             dispatch({ type: 'GAME_STATE_SET', gameState: GameState.AWAITING_PLAYER_INPUT });
             if (typeof restoreDraft === 'string') setChatDraft(restoreDraft);
             else setStructuredDraft(restoreDraft);
+        } finally {
+            if (turnAbortControllerRef && turnAbortControllerRef.current === abortController) {
+                turnAbortControllerRef.current = null;
+            }
         }
         });
         return mutation.acquired;
-    }, [ai, buildSaveState, commitDomainMutation, dispatch, entities, eventFirings, getStateGeneration, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, online, pendingIntelligenceFallout, playerCharacterId, reignSeed, reports, resolvedApiKey, runDomainMutation, simulationState, strikeWeekBeat, triggeredEventIds, truthLedger, turnHistory, turnNumber, worldState, preTurnSnapshotRef, campaignGenerationRef, privateScenesRef, appMountedRef, latestInferredAmbitionRef, setPendingPlayerMessage, setTurnFailure, setRetrySubmission, setRetryDraft, setChatDraft, setStructuredDraft, setTurnStage, setStreamingNarration, setIsCheckingEvents, setTransactionNote]);
+    }, [ai, buildSaveState, commitDomainMutation, dispatch, entities, eventFirings, getStateGeneration, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, online, pendingIntelligenceFallout, playerCharacterId, reignSeed, reports, resolvedApiKey, runDomainMutation, simulationState, strikeWeekBeat, triggeredEventIds, truthLedger, turnHistory, turnNumber, worldState, preTurnSnapshotRef, campaignGenerationRef, privateScenesRef, appMountedRef, latestInferredAmbitionRef, turnAbortControllerRef, setPendingPlayerMessage, setTurnFailure, setRetrySubmission, setRetryDraft, setChatDraft, setStructuredDraft, setTurnStage, setStreamingNarration, setIsCheckingEvents, setTransactionNote]);
 }

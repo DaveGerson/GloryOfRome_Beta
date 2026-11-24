@@ -11,7 +11,7 @@ import { MAX_MINDS_PER_TURN } from '../prompts/npcMind';
 import { buildWorldSummary } from '../prompts/fragments';
 import { buildPerceivedDigest, buildPlayerPerceivedDigest, PerceivedChange } from '../../perception/visibility';
 import { figuresInViewOf } from '../../perception/npcPerception';
-import { generateStructured, generateStructuredStream, GEMINI_PRO, beginTurnCapture, endTurnCapture } from './geminiService';
+import { generateStructured, generateStructuredStream, GEMINI_PRO, beginTurnCapture, endTurnCapture, TurnCancelledError } from './geminiService';
 import { zAdjudication, zNarrationPayload } from './zodSchemas';
 import {
     attributeHeadlines,
@@ -550,6 +550,8 @@ export interface RunNewTurnOptions {
      * before D51. Ignored in Mock Mode, whose turns roll no dice.
      */
     turnSeed?: number;
+    /** Optional AbortSignal canceling in-flight AI work immediately with TurnCancelledError (2C). */
+    signal?: AbortSignal;
 }
 
 /** What `runNewTurn` commits: the post-turn state slices plus the turn's player-facing output and history entry. */
@@ -701,16 +703,26 @@ export async function runNewTurn(
     };
 
     try {
+        const abortIfCancelled = () => {
+            if (ctx.options?.signal?.aborted) throw new TurnCancelledError();
+        };
         // THE PIPELINE, in the order it runs. Each stage's own doc comment
         // carries the rulings that govern it; `TurnStage` above lists the
         // onStage notifications they fire.
+        abortIfCancelled();
         const director = await runDirectorStage(ctx);
+        abortIfCancelled();
         const playerAction = resolvePlayerAction(ctx, director.actionAssessment);
         const minds = await runNpcMindsStage(ctx, director.storyRelevance, director.npcIntents);
+        abortIfCancelled();
         const adjudicated = await runAdjudicationStage(ctx, director, playerAction, minds);
+        abortIfCancelled();
         const mortality = await runMortalityStage(ctx, adjudicated);
+        abortIfCancelled();
         const applied = applyTurnState(ctx, director.storyRelevance, mortality.transformedAdjudication);
+        abortIfCancelled();
         const surfaces = await runPlayerSurfacesStage(ctx, mortality.transformedAdjudication, applied, mortality.playerOutcomeDirective);
+        abortIfCancelled();
         return assembleTurnResult(ctx, {
             npcIntents: director.npcIntents,
             resolutionTrace: playerAction.resolutionTrace,
@@ -764,7 +776,8 @@ interface DirectorStageResult {
  */
 async function runDirectorStage(ctx: TurnContext): Promise<DirectorStageResult> {
     ctx.options?.onStage?.('story_relevance');
-    const storyRelevancePromise = getStoryRelevance(ctx.ai, ctx.turnNumber, ctx.turnHistory.slice(-1)[0]?.adjudication.headlines || [], ctx.currentWorldState, ctx.npcEntities, ctx.currentNpcIntents, ctx.isMockMode);
+    const signal = ctx.options?.signal;
+    const storyRelevancePromise = getStoryRelevance(ctx.ai, ctx.turnNumber, ctx.turnHistory.slice(-1)[0]?.adjudication.headlines || [], ctx.currentWorldState, ctx.npcEntities, ctx.currentNpcIntents, ctx.isMockMode, signal);
     const actionAssessmentPromise = ctx.resolutionAttempt === null
         ? Promise.resolve(undefined)
         : getActionAssessment(
@@ -775,6 +788,7 @@ async function runDirectorStage(ctx: TurnContext): Promise<DirectorStageResult> 
             ctx.npcEntities,
             ctx.isMockMode,
             deriveLeverageTruth(ctx.playerEntity, ctx.currentTruthLedger),
+            signal,
         );
     const [storyRelevance, actionAssessment] = await Promise.all([storyRelevancePromise, actionAssessmentPromise]);
     return {
@@ -914,8 +928,11 @@ async function runNpcMindsStage(ctx: TurnContext, storyRelevance: StoryRelevance
                 // in its room and the ties each openly professes, never their
                 // records.
                 figuresInView: figuresInViewOf(npc, currentEntities),
-            }, ctx.isMockMode);
+            }, ctx.isMockMode, ctx.options?.signal);
         } catch (e) {
+            if (e instanceof TurnCancelledError || ctx.options?.signal?.aborted) {
+                throw e instanceof TurnCancelledError ? e : new TurnCancelledError();
+            }
             mindFailureNotes.push(`[Mind] ${npc.entity_id}'s mind call failed (${e instanceof Error ? e.message : String(e)}) - proceeding without it; the adjudicator falls back to this spotlight's Director intent alone.`);
             return null;
         }
@@ -1002,6 +1019,7 @@ async function runAdjudicationStage(
         zodSchema: zAdjudication,
         thinkingConfig: { thinkingBudget: 1024 },
         temperature: ADJUDICATION_TEMPERATURE,
+        signal: ctx.options?.signal,
     });
     // D42 (gate-before-strip; roadmaps/DESIGN_DECISIONS.md): the FIRST
     // no-attempt boundary run happens on the RAW interchange, before the
@@ -1170,7 +1188,7 @@ async function runMortalityStage(ctx: TurnContext, adjudicated: AdjudicationStag
         ctx.turnNumber,
         ctx.isMockMode,
         ctx.turnRng,
-        { trustedResolutionContext: adjudicated.trustedResolutionContext, hasObservableAttempt: ctx.narrationSubmission.hasObservableAttempt }
+        { trustedResolutionContext: adjudicated.trustedResolutionContext, hasObservableAttempt: ctx.narrationSubmission.hasObservableAttempt, signal: ctx.options?.signal }
     );
     if (rewrittenHeadlines?.length) {
         for (const { from, to } of rewrittenHeadlines) {
@@ -1305,7 +1323,7 @@ async function runPlayerSurfacesStage(
     // it returns the raw SimulationStateInterchange (still carrying
     // `actors`) so the crisis text can be gated against its declaration
     // below, before the commit-boundary strip.
-    const simulationStatePromise = getUpdatedSimulationState(ai, transformedAdjudication, ctx.currentSimulationState, narrationSubmission.hasObservableAttempt, isMockMode);
+    const simulationStatePromise = getUpdatedSimulationState(ai, transformedAdjudication, ctx.currentSimulationState, narrationSubmission.hasObservableAttempt, isMockMode, options?.signal);
 
     options?.onStage?.('monologue');
     // Task 4: getPlayerMonologue now returns the structured { text, actors }
@@ -1316,7 +1334,7 @@ async function runPlayerSurfacesStage(
     const headlineFigures = figuresNamedIn(transformedAdjudication.headlines, updatedEntities, playerEntity.entity_id);
     const monologuePromise = noAttemptResponse
         ? Promise.resolve<PlayerMonologuePayloadInterchange>({ text: '', actors: [] })
-        : getPlayerMonologue(ai, updatedPlayerEntity, transformedAdjudication.headlines, recentPlayerIntents, narrationSubmission.hasObservableAttempt, isMockMode, headlineFigures);
+        : getPlayerMonologue(ai, updatedPlayerEntity, transformedAdjudication.headlines, recentPlayerIntents, narrationSubmission.hasObservableAttempt, isMockMode, headlineFigures, options?.signal);
 
     // Get narration and suggested actions. The event input crosses the D5
     // visibility seam first, then is narrowed field-by-field to text/source.
@@ -1388,6 +1406,7 @@ async function runPlayerSurfacesStage(
         zodSchema: zNarrationPayload,
         thinkingConfig: { thinkingBudget: 512 },
         temperature: NARRATION_TEMPERATURE,
+        signal: options?.signal,
     };
     // Task 4 narration decision (task-4-design.md section 1): ONE
     // structured-output call either way - streaming via

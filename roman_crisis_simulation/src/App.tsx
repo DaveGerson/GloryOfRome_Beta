@@ -45,6 +45,7 @@ import { draftSuggestion, focusComposer, focusDesk, pressOpener, selectRegister 
 import { SIDE_PANEL_TABS } from './components/SidePanel';
 import type { TransactionNote } from './app/transactions';
 import { TransactionNoteView, downloadTheReign } from './app/TransactionNoteView';
+import { buildChronicleScrollHtml, scrollExportFilename, triggerHtmlDownload } from './persistence/chronicleExport';
 import {
     GameMasterScreen, EpilogueScreen, SettingsMenu, OnboardingOverlay, CommandPalette, usePreloadLazyScreens,
 } from './app/lazyScreens';
@@ -227,6 +228,7 @@ const App: React.FC = () => {
         turnStage,
         streamingNarration,
         handleComposerSubmit,
+        cancelTurn,
     } = useTurnFlow({
         gameState, privateSceneInteractionLocked, recipientOptions,
         ai, isMockMode, resolvedApiKey, online,
@@ -237,6 +239,21 @@ const App: React.FC = () => {
         preTurnSnapshotRef, campaignGenerationRef, privateScenesRef, appMountedRef, latestInferredAmbitionRef,
         setIsCheckingEvents, setTransactionNote,
     });
+    const exportChronicleScroll = useCallback((epitaph?: string | null) => {
+        if (!playerEntity) return;
+        const html = buildChronicleScrollHtml({
+            player: playerEntity,
+            worldState,
+            turnHistory,
+            eventHistory,
+            metaNarrative,
+            epitaph,
+            causeNarration: lastGmNarration,
+            exportedAt: new Date().toISOString().slice(0, 10),
+        });
+        triggerHtmlDownload(scrollExportFilename(playerEntity.name, worldState.year), html);
+    }, [playerEntity, worldState, turnHistory, eventHistory, metaNarrative, lastGmNarration]);
+
     // The log follows the newest line only while the reader is at it
     // (hooks/useChatFollow.ts) - including the streamed narration.
     const {
@@ -426,6 +443,7 @@ const App: React.FC = () => {
                         metaNarrative={metaNarrative}
                         ai={ai}
                         isMockMode={isMockMode}
+                        onExportScroll={(epitaph) => exportChronicleScroll(epitaph)}
                     />
                 ) : (
                     <>
@@ -582,6 +600,7 @@ const App: React.FC = () => {
                                             online={online}
                                             onOpenSettings={openSettings}
                                             onEnableMockMode={() => setIsMockMode(true)}
+                                            onCancelTurn={cancelTurn}
                                             tools={<>
                                                 {gameState === GameState.AWAITING_PLAYER_INPUT && (
                                                     <PrivateScene
@@ -660,6 +679,7 @@ const App: React.FC = () => {
                             resolvedApiKey={resolvedApiKey}
                             narrationVoiceMode={narrationVoiceMode}
                             personaeVoice={personaeVoice}
+                            onExportChronicle={() => exportChronicleScroll()}
                         />
                     </>
                 )}

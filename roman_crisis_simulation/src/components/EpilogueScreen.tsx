@@ -72,7 +72,8 @@ const EpilogueScreen: React.FC<{
   metaNarrative: string;
   ai: GeminiClient;
   isMockMode: boolean;
-}> = ({ player, causeNarration, turnHistory, eventHistory, metaNarrative, ai, isMockMode }) => {
+  onExportScroll?: (epitaph: string | null) => void;
+}> = ({ player, causeNarration, turnHistory, eventHistory, metaNarrative, ai, isMockMode, onExportScroll }) => {
   const [epitaph, setEpitaph] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [usedFallback, setUsedFallback] = useState(false);
@@ -260,6 +261,11 @@ const EpilogueScreen: React.FC<{
 
         <div style={{ marginTop: 48, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
           {resetError && <Alert title={RECORD_REFUSES} onDarkGround>{resetError}</Alert>}
+          {onExportScroll && (
+            <button type="button" onClick={() => onExportScroll(epitaph)} className="gor-btn gor-btn-secondary">
+              Export Scroll (.html)
+            </button>
+          )}
           <button onClick={handleNewChronicle} className="gor-btn gor-btn-lg gor-btn-primary">
             Begin a New Chronicle
           </button>

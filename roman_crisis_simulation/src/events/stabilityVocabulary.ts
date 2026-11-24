@@ -129,3 +129,73 @@ export function isEconomyAtOrWorseThan(raw: string | null | undefined, threshold
 export function recognizedEconomicTerms(): ReadonlyMap<string, EconomicStabilityGrade> {
     return PHRASE_TO_GRADE;
 }
+
+/**
+ * Clamps a macro `economic_stability` transition to at most one canonical grade
+ * step per turn along `ECONOMIC_STABILITY_GRADES` (`Prosperous` <-> `Stable`
+ * <-> `Strained` <-> `Failing` <-> `Crisis`). When the shift is already within
+ * one grade (or either side is unrecognized free prose), the proposed string
+ * passes through unchanged; otherwise the return steps by ±1 toward `proposed`.
+ */
+export function stepEconomicStability(
+    current: string | null | undefined,
+    proposed: string,
+): {
+    next: string;
+    clamped: boolean;
+    fromGrade: EconomicStabilityGrade | null;
+    toGrade: EconomicStabilityGrade | null;
+} {
+    const fromGrade = economicStabilityGrade(current);
+    const toGrade = economicStabilityGrade(proposed);
+    if (!fromGrade || !toGrade) {
+        return { next: proposed, clamped: false, fromGrade, toGrade };
+    }
+    const fromIdx = economicSeverity(fromGrade);
+    const toIdx = economicSeverity(toGrade);
+    const delta = toIdx - fromIdx;
+    if (Math.abs(delta) <= 1) {
+        return { next: proposed, clamped: false, fromGrade, toGrade };
+    }
+    const steppedGrade = ECONOMIC_STABILITY_GRADES[fromIdx + Math.sign(delta)];
+    return { next: steppedGrade, clamped: true, fromGrade, toGrade };
+}
+
+export type RomanSeason = 'winter' | 'harvest' | 'ordinary';
+
+/**
+ * Deterministic seasonal economic rhythm tied to calendar week (1..52).
+ * Late winter / year-end solstice (`week === 52`) applies mild unmitigated
+ * lean-season pressure when the adjudicator emitted no economic change this
+ * turn, nudging `Prosperous -> Stable` or `Stable -> Strained` (never worse
+ * than `Strained` on seasonal cadence alone).
+ */
+export function seasonalEconomicPressure(
+    week: number,
+    current: string | null | undefined,
+): { driftTo: EconomicStabilityGrade | null; season: RomanSeason; reason: string | null } {
+    const normalizedWeek = Number.isFinite(week) ? ((((Math.trunc(week) - 1) % 52) + 52) % 52) + 1 : 1;
+    const season: RomanSeason = (normalizedWeek >= 48 || normalizedWeek <= 4)
+        ? 'winter'
+        : (normalizedWeek >= 32 && normalizedWeek <= 38 ? 'harvest' : 'ordinary');
+
+    if (normalizedWeek !== 52) {
+        return { driftTo: null, season, reason: null };
+    }
+    const grade = economicStabilityGrade(current);
+    if (grade === 'Prosperous') {
+        return {
+            driftTo: 'Stable',
+            season,
+            reason: 'Midwinter shipping halts and grain stores thin toward ordinary supply.',
+        };
+    }
+    if (grade === 'Stable') {
+        return {
+            driftTo: 'Strained',
+            season,
+            reason: 'Midwinter shipping halts and granary drawdowns strain the treasury.',
+        };
+    }
+    return { driftTo: null, season, reason: null };
+}

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { EventHistoryEntry, TurnHistoryEntry } from '../../types';
 import { toRoman } from '../ui/Brand';
-import { RegisterHeading } from '../ui/Core';
+import { Button, RegisterHeading } from '../ui/Core';
 import { SubRail } from '../ui/SubRail';
 import { buildChronicleSpine, ChronicleRow } from './chronicleSpine';
 import { getTabRegister, setTabRegister } from '../../persistence/uiPrefs';
@@ -57,7 +57,8 @@ const ChronicleTab: React.FC<{
     turnHistory: TurnHistoryEntry[];
     /** Marks the final week crimson — the caller knows the player has died; this tab does not guess it. */
     reignEnded?: boolean;
-}> = ({ eventHistory, turnHistory, reignEnded = false }) => {
+    onExportScroll?: () => void;
+}> = ({ eventHistory, turnHistory, reignEnded = false, onExportScroll }) => {
     const [register, setRegister] = useState<ChronicleRegister>(() => getTabRegister('chronicle', REGISTERS, 'reign'));
     const spine = buildChronicleSpine(turnHistory, eventHistory, reignEnded);
 
@@ -68,15 +69,22 @@ const ChronicleTab: React.FC<{
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <SubRail
-                ariaLabel="Chronicle register"
-                value={register}
-                onChange={selectRegister}
-                options={[
-                    { value: 'reign', label: 'The Reign', count: turnHistory.length },
-                    { value: 'fates', label: 'The Fates', count: eventHistory.length },
-                ]}
-            />
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+                <SubRail
+                    ariaLabel="Chronicle register"
+                    value={register}
+                    onChange={selectRegister}
+                    options={[
+                        { value: 'reign', label: 'The Reign', count: turnHistory.length },
+                        { value: 'fates', label: 'The Fates', count: eventHistory.length },
+                    ]}
+                />
+                {onExportScroll && (
+                    <Button variant="secondary" size="sm" onClick={onExportScroll}>
+                        Export Scroll (.html)
+                    </Button>
+                )}
+            </div>
             {register === 'reign' ? (
                 spine.length === 0
                     ? <EmptyRegister

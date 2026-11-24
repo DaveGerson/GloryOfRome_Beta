@@ -175,6 +175,22 @@ export class AiServiceError extends Error {
   }
 }
 
+/**
+ * Thrown immediately when a caller-provided AbortSignal cancels an in-flight
+ * turn or model call. Never retried, never downgraded to Pro fallback, and
+ * never wrapped into `AiServiceError`.
+ */
+export class TurnCancelledError extends Error {
+  constructor(message = 'Turn interrupted by player cancellation.') {
+    super(message);
+    this.name = 'TurnCancelledError';
+  }
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new TurnCancelledError();
+}
+
 const MAX_ATTEMPTS = 3;
 const BASE_BACKOFF_MS = 1000; // sleeps ~1s then ~2s; the loop throws before a third sleep
 
@@ -215,13 +231,22 @@ function deadlineFor(model: string, kind: RequestKind): number {
   return model === GEMINI_PRO || model === GEMINI_PRO_FALLBACK ? REQUEST_DEADLINE_MS.pro : REQUEST_DEADLINE_MS.standard;
 }
 
-/** Settles as `pending` does, or rejects with a timeout once `ms` pass first. The timer never outlives the race. */
-function withDeadline<T>(pending: Promise<T>, ms: number): Promise<T> {
+/** Settles as `pending` does, rejects on `signal` abort, or rejects with a timeout once `ms` pass first. Timers and listeners never outlive the race. */
+function withDeadline<T>(pending: Promise<T>, ms: number, signal?: AbortSignal): Promise<T> {
+  throwIfAborted(signal);
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
   const deadline = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(`request timeout: no response within ${Math.round(ms / 1000)}s`)), ms);
+    if (signal) {
+      onAbort = () => reject(new TurnCancelledError());
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
   });
-  return Promise.race([pending, deadline]).finally(() => clearTimeout(timer));
+  return Promise.race([pending, deadline]).finally(() => {
+    clearTimeout(timer);
+    if (signal && onAbort) signal.removeEventListener('abort', onAbort);
+  });
 }
 
 const MAX_RAW_RESPONSE_CHARS = 20_000;
@@ -349,23 +374,31 @@ async function invokeWithProFallback<T>(
   callName: string,
   model: string,
   invoke: (model: string) => Promise<T>,
-  kind: RequestKind = 'text'
+  kind: RequestKind = 'text',
+  signal?: AbortSignal,
 ): Promise<ProFallbackResult<T>> {
+  throwIfAborted(signal);
   const resolvedModel = resolveModel(model);
   const start = Date.now();
   try {
-    const { value, attempts } = await retryTransient(callName, () => invoke(resolvedModel), deadlineFor(resolvedModel, kind));
+    const { value, attempts } = await retryTransient(callName, () => invoke(resolvedModel), deadlineFor(resolvedModel, kind), signal);
     return { value, attempts, latencyMs: Date.now() - start, model: resolvedModel };
   } catch (e) {
+    if (e instanceof TurnCancelledError || signal?.aborted) {
+      throw e instanceof TurnCancelledError ? e : new TurnCancelledError();
+    }
     if (!canAttemptProFallback(resolvedModel, e)) {
       logAiFailure(callName, resolvedModel, e);
       throw e;
     }
     proFallbackActive = true;
     try {
-      const value = await withDeadline(invoke(GEMINI_PRO_FALLBACK), deadlineFor(GEMINI_PRO_FALLBACK, kind));
+      const value = await withDeadline(invoke(GEMINI_PRO_FALLBACK), deadlineFor(GEMINI_PRO_FALLBACK, kind), signal);
       return { value, attempts: 2, latencyMs: Date.now() - start, model: GEMINI_PRO_FALLBACK };
     } catch (fallbackError) {
+      if (fallbackError instanceof TurnCancelledError || signal?.aborted) {
+        throw fallbackError instanceof TurnCancelledError ? fallbackError : new TurnCancelledError();
+      }
       const wrapped = wrapFallbackFailure(callName, fallbackError, 2);
       logAiFailure(callName, GEMINI_PRO_FALLBACK, wrapped);
       throw wrapped;
@@ -373,8 +406,19 @@ async function invokeWithProFallback<T>(
   }
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(new TurnCancelledError());
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new TurnCancelledError());
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 /**
@@ -505,17 +549,21 @@ interface RetryResult<T> {
  * generator), not in the retry semantics themselves. Each attempt races
  * `deadlineMs` (see `REQUEST_DEADLINE_MS`).
  */
-async function retryTransient<T>(callName: string, invoke: () => Promise<T>, deadlineMs: number): Promise<RetryResult<T>> {
+async function retryTransient<T>(callName: string, invoke: () => Promise<T>, deadlineMs: number, signal?: AbortSignal): Promise<RetryResult<T>> {
   const start = Date.now();
   let attempt = 0;
   let lastError: unknown;
 
   while (attempt < MAX_ATTEMPTS) {
+    throwIfAborted(signal);
     attempt++;
     try {
-      const value = await withDeadline(invoke(), deadlineMs);
+      const value = await withDeadline(invoke(), deadlineMs, signal);
       return { value, attempts: attempt, latencyMs: Date.now() - start };
     } catch (e) {
+      if (e instanceof TurnCancelledError || signal?.aborted) {
+        throw e instanceof TurnCancelledError ? e : new TurnCancelledError();
+      }
       lastError = e;
       if (!isTransientError(e)) {
         throw new AiServiceError(
@@ -533,7 +581,7 @@ async function retryTransient<T>(callName: string, invoke: () => Promise<T>, dea
           e
         );
       }
-      await sleep(jitteredBackoffMs(attempt));
+      await sleep(jitteredBackoffMs(attempt), signal);
     }
   }
 
@@ -566,20 +614,30 @@ async function consumeStream(
   callName: string,
   stream: AsyncIterable<{ text?: string }>,
   onText: (textSoFar: string, chunkText: string) => void,
-  idleMs: number
+  idleMs: number,
+  signal?: AbortSignal,
 ): Promise<{ text: string; chunks: number }> {
   let textSoFar = '';
   let chunks = 0;
   let consumerFailure: { error: unknown } | null = null;
   const iterator = stream[Symbol.asyncIterator]();
+  let iteratorClosed = false;
+  const closeIterator = () => {
+    if (iteratorClosed) return;
+    iteratorClosed = true;
+    void iterator.return?.()?.catch(() => {});
+  };
   try {
     for (;;) {
+      throwIfAborted(signal);
       let next: IteratorResult<{ text?: string }>;
       try {
-        next = await withDeadline(iterator.next(), idleMs);
+        next = await withDeadline(iterator.next(), idleMs, signal);
       } catch (e) {
-        // Stalled, not ended: ask it to close without waiting on it.
-        if (e instanceof Error && e.message.startsWith('request timeout')) void iterator.return?.()?.catch(() => {});
+        // Stalled or cancelled: ask it to close without waiting on it.
+        if (e instanceof TurnCancelledError || (e instanceof Error && e.message.startsWith('request timeout'))) {
+          closeIterator();
+        }
         throw e;
       }
       if (next.done) break;
@@ -592,11 +650,16 @@ async function consumeStream(
       } catch (e) {
         consumerFailure = { error: e };
         // As `for await` does on a break: close the stream.
+        iteratorClosed = true;
         await iterator.return?.();
         break;
       }
     }
   } catch (e) {
+    if (e instanceof TurnCancelledError || signal?.aborted) {
+      closeIterator();
+      throw e instanceof TurnCancelledError ? e : new TurnCancelledError();
+    }
     const streamErr = new AiServiceError(
       'transient',
       callName,
@@ -613,9 +676,10 @@ async function consumeStream(
 async function callWithRetry(
   callName: string,
   model: string,
-  invoke: (model: string) => Promise<{ text?: string }>
+  invoke: (model: string) => Promise<{ text?: string }>,
+  signal?: AbortSignal,
 ): Promise<NetworkResult> {
-  const { value, attempts, latencyMs, model: usedModel } = await invokeWithProFallback(callName, model, invoke);
+  const { value, attempts, latencyMs, model: usedModel } = await invokeWithProFallback(callName, model, invoke, 'text', signal);
   return { text: value.text || '', attempts, latencyMs, model: usedModel };
 }
 
@@ -637,6 +701,7 @@ export interface GenerateStructuredRequest<T> {
   zodSchema?: ZodType<T, any, any>;
   thinkingConfig?: ThinkingConfigLike;
   temperature?: number;
+  signal?: AbortSignal;
 }
 
 function buildConfig(req: {
@@ -683,6 +748,7 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
   let currentPrompt = req.prompt;
 
   for (let repairAttempt = 0; repairAttempt <= 1; repairAttempt++) {
+    throwIfAborted(req.signal);
     const config = buildConfig({
       systemInstruction: req.systemInstruction,
       responseSchema: req.responseSchema,
@@ -692,7 +758,8 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
     });
 
     const network = await callWithRetry(callName, model, (resolvedModel) =>
-      ai.models.generateContent({ model: resolvedModel, contents: currentPrompt, config })
+      ai.models.generateContent({ model: resolvedModel, contents: currentPrompt, config }),
+      req.signal,
     );
 
     let parsed: T;
@@ -806,6 +873,7 @@ export interface GenerateTextRequest {
   prompt: string;
   thinkingConfig?: ThinkingConfigLike;
   temperature?: number;
+  signal?: AbortSignal;
 }
 
 /**
@@ -824,7 +892,8 @@ export async function generateText(ai: GeminiClient, req: GenerateTextRequest): 
   });
 
   const network = await callWithRetry(callName, model, (resolvedModel) =>
-    ai.models.generateContent({ model: resolvedModel, contents: req.prompt, config })
+    ai.models.generateContent({ model: resolvedModel, contents: req.prompt, config }),
+    req.signal,
   );
 
   recordCall({
@@ -852,6 +921,7 @@ export interface GenerateSpeechRequest {
   /** A prebuilt voice name, e.g. `DEFAULT_NARRATOR_VOICE`. */
   voiceName: string;
   temperature?: number;
+  signal?: AbortSignal;
 }
 
 export interface SpeechResult {
@@ -894,7 +964,8 @@ export async function generateSpeech(ai: GeminiClient, req: GenerateSpeechReques
     callName,
     model,
     (resolvedModel) => ai.models.generateContent({ model: resolvedModel, contents: req.prompt, config }),
-    'speech'
+    'speech',
+    req.signal,
   );
 
   const parts = response.candidates?.[0]?.content?.parts ?? [];
@@ -953,6 +1024,7 @@ export async function generateStructuredStream<T>(
   // the cumulative text - see streamSplit.ts's `createPayloadTextExtractor`.
   onChunk: (rawJsonSoFar: string, chunkText: string) => void
 ): Promise<T> {
+  throwIfAborted(req.signal);
   const { callName, model, zodSchema } = req;
   const callLogOwner = currentCallLogOwner();
   const streamFn = ai.models.generateContentStream;
@@ -977,7 +1049,9 @@ export async function generateStructuredStream<T>(
   // Phase 1: acquire the stream - identical retry/fallback semantics to
   // generateTextStream's own acquisition phase.
   const { value: stream, attempts, model: usedModel } = await invokeWithProFallback(callName, model, (resolvedModel) =>
-    streamFn({ model: resolvedModel, contents: req.prompt, config })
+    streamFn({ model: resolvedModel, contents: req.prompt, config }),
+    'text',
+    req.signal,
   );
 
   // Phase 2: consume it. No retry here by design (see doc comment above) -
@@ -988,7 +1062,7 @@ export async function generateStructuredStream<T>(
   // fed to `onChunk`, so an empty chunk counts for nothing. Round-trip
   // metadata of the same class as `latencyMs`, recorded on every branch
   // below via `baseRecord`.
-  const { text: rawSoFar, chunks: streamChunks } = await consumeStream(callName, stream, onChunk, deadlineFor(usedModel, 'text'));
+  const { text: rawSoFar, chunks: streamChunks } = await consumeStream(callName, stream, onChunk, deadlineFor(usedModel, 'text'), req.signal);
 
   const baseRecord = {
     callName,
@@ -1098,14 +1172,16 @@ export async function generateTextStream(
   // eligible for the same one-shot pro-tier fallback - narration runs on
   // GEMINI_PRO and streams when App.tsx opts into onNarrationChunk).
   const { value: stream, attempts, model: usedModel } = await invokeWithProFallback(callName, model, (resolvedModel) =>
-    streamFn({ model: resolvedModel, contents: req.prompt, config })
+    streamFn({ model: resolvedModel, contents: req.prompt, config }),
+    'text',
+    req.signal,
   );
 
   // Phase 2: consume it. No retry here by design (see doc comment above) -
   // a stream failure at this point (including on the very first chunk) is
   // surfaced as transient, since the stream was already successfully
   // acquired. An `onChunk` throw propagates unchanged (see consumeStream).
-  const { text: textSoFar } = await consumeStream(callName, stream, (soFar) => onChunk(soFar), deadlineFor(usedModel, 'text'));
+  const { text: textSoFar } = await consumeStream(callName, stream, (soFar) => onChunk(soFar), deadlineFor(usedModel, 'text'), req.signal);
 
   recordCall({
     callName,

@@ -12,7 +12,7 @@
  * the eight setters it owns.
  */
 
-import { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { GameState } from '../types';
 import type { KnownRecipientOption, Message, StructuredTurnDraft, TurnSubmission } from '../types';
 import type { TurnStage } from '../ai/core/turn';
@@ -55,9 +55,15 @@ export function useTurnFlow(deps: TurnFlowDeps) {
     // executeTurn - so they never survive past the turn that set them.
     const [turnStage, setTurnStage] = useState<TurnStage | null>(null);
     const [streamingNarration, setStreamingNarration] = useState<string>('');
+    const turnAbortControllerRef = useRef<AbortController | null>(null);
+
+    const cancelTurn = useCallback(() => {
+        turnAbortControllerRef.current?.abort();
+    }, []);
 
     const executeTurn = useExecuteTurn({
         ...executeTurnDeps,
+        turnAbortControllerRef,
         setPendingPlayerMessage, setTurnFailure, setRetrySubmission, setRetryDraft,
         setChatDraft, setStructuredDraft, setTurnStage, setStreamingNarration,
     });
@@ -100,5 +106,6 @@ export function useTurnFlow(deps: TurnFlowDeps) {
         turnStage,
         streamingNarration,
         handleComposerSubmit,
+        cancelTurn,
     };
 }

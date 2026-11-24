@@ -5,6 +5,7 @@ import { buildNpcPerceptions, selectMemoryChanges, selectPerceivingNpcs } from '
 import { legacyReasonIndicatesDeath, legacyStatusFromReason } from './legacyStatus';
 import { applyConditionDelta } from './conditions';
 import { applyAffiliationDelta } from './affiliations';
+import { seasonalEconomicPressure, stepEconomicStability } from '../../events/stabilityVocabulary';
 
 // The legacy reason-parse lives in ./legacyStatus.ts, where the perception
 // layer can mirror it without importing this module.
@@ -332,7 +333,17 @@ export function applyDeltas(
                     const isValidWorldKey = (key: string): key is typeof validWorldKeys[number] =>
                         (validWorldKeys as readonly string[]).includes(key);
                     if (isValidWorldKey(delta.key)) {
-                        updatedWorldState[delta.key] = delta.reason;
+                        if (delta.key === 'economic_stability') {
+                            const stepped = stepEconomicStability(updatedWorldState.economic_stability, delta.reason);
+                            updatedWorldState.economic_stability = stepped.next;
+                            if (stepped.clamped) {
+                                gmNotes.push(
+                                    `[Engine] Clamped 'economic_stability' shift from "${stepped.fromGrade}" toward "${delta.reason}" (${stepped.toGrade}) to ±1 grade ("${stepped.next}").`,
+                                );
+                            }
+                        } else {
+                            updatedWorldState[delta.key] = delta.reason;
+                        }
                     } else {
                         console.warn(`Unknown 'world' delta key "${delta.key}" - expected 'economic_stability' or 'political_climate'. No-op.`);
                     }
@@ -609,6 +620,17 @@ export function applyAdjudication(
         adjudication.deltas, currentEntities, currentWorldState, stampTurn, perceptionContext.playerEntityId
     );
     adjudication.gm_private.push(...gmNotes);
+    const hasEconomicDelta = adjudication.deltas.some(delta => delta.type === 'world' && delta.key === 'economic_stability');
+    if (!hasEconomicDelta) {
+        const seasonal = seasonalEconomicPressure(updatedWorldState.week, updatedWorldState.economic_stability);
+        if (seasonal.driftTo) {
+            const priorEconomy = updatedWorldState.economic_stability;
+            updatedWorldState.economic_stability = seasonal.driftTo;
+            adjudication.gm_private.push(
+                `[Engine] Seasonal (${seasonal.season}, week ${updatedWorldState.week}) pressure drifted economic_stability from "${priorEconomy}" to "${seasonal.driftTo}": ${seasonal.reason}`,
+            );
+        }
+    }
     let entitiesAfterDeltas = updatedEntities;
     const updatedReports = [...currentReports, ...newReports];
     const updatedTruthLedger = appendTruthLedgerEntries(currentTruthLedger, newTruthLedgerEntries);

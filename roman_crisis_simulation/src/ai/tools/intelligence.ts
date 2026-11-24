@@ -538,6 +538,7 @@ export const getPlayerMonologue = async (
     // D49: the figures the headlines name - only their OPENLY professed ties
     // reach the prompt (buildPlayerMonologuePrompt). Optional, [] = none.
     figuresAtHand: readonly Entity[] = [],
+    signal?: AbortSignal,
 ): Promise<PlayerMonologuePayloadInterchange> => {
     if (isMockMode) {
         if(!mockGetPlayerMonologue) throw new Error("Mock function 'mockGetPlayerMonologue' is not implemented.");
@@ -555,13 +556,14 @@ export const getPlayerMonologue = async (
         responseSchema: PlayerMonologuePayloadSchema,
         zodSchema: zPlayerMonologuePayload,
         thinkingConfig: { thinkingBudget: 256 },
+        signal,
     });
     const playerVisibleText = payload.text || "I am contemplative.";
     assertPlayerVisibleTextSafe(playerVisibleText);
     return { ...payload, text: playerVisibleText };
 };
 
-export const getStoryRelevance = async (ai: GoogleGenAI, turnNumber: number, prevTurnHeadlines: string[], worldState: WorldState, npcEntities: Entity[], previousIntents: NpcIntent[], isMockMode: boolean): Promise<StoryRelevance> => {
+export const getStoryRelevance = async (ai: GoogleGenAI, turnNumber: number, prevTurnHeadlines: string[], worldState: WorldState, npcEntities: Entity[], previousIntents: NpcIntent[], isMockMode: boolean, signal?: AbortSignal): Promise<StoryRelevance> => {
     if (isMockMode) {
         if (!mockGetStoryRelevance) throw new Error("Mock function 'mockGetStoryRelevance' is not implemented.");
         return mockGetStoryRelevance(turnNumber, previousIntents);
@@ -576,6 +578,7 @@ export const getStoryRelevance = async (ai: GoogleGenAI, turnNumber: number, pre
         responseSchema: StoryRelevanceSchema,
         zodSchema: zStoryRelevance,
         thinkingConfig: { thinkingBudget: 512 },
+        signal,
     });
 };
 
@@ -589,7 +592,7 @@ export const getStoryRelevance = async (ai: GoogleGenAI, turnNumber: number, pre
  * provider, so no declaration - the mock pipeline keeps its own tripwire-only
  * crisis gate, see ai/mocks.ts).
  */
-export const getUpdatedSimulationState = async (ai: GoogleGenAI, adjudication: Adjudication, oldState: SimulationState, hasObservableAttempt: boolean, isMockMode: boolean): Promise<SimulationStateInterchange> => {
+export const getUpdatedSimulationState = async (ai: GoogleGenAI, adjudication: Adjudication, oldState: SimulationState, hasObservableAttempt: boolean, isMockMode: boolean, signal?: AbortSignal): Promise<SimulationStateInterchange> => {
     if (isMockMode) {
         assertPlayerVisibleValueSafe(oldState);
         return { ...oldState, actors: [] };
@@ -604,6 +607,7 @@ export const getUpdatedSimulationState = async (ai: GoogleGenAI, adjudication: A
         responseSchema: SimulationStateSchema,
         zodSchema: zSimulationState,
         thinkingConfig: { thinkingBudget: 512 },
+        signal,
     });
     assertPlayerVisibleValueSafe(rawUpdatedState);
     return rawUpdatedState;

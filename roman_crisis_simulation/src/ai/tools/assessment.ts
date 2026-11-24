@@ -51,6 +51,7 @@ export const getActionAssessment = async (
   npcEntities: Entity[],
   isMockMode: boolean,
   leverageTruth?: LeverageTruth[],
+  signal?: AbortSignal,
 ): Promise<ActionAssessment> => {
   if (isMockMode) {
     return {
@@ -79,5 +80,6 @@ export const getActionAssessment = async (
     responseSchema: ActionAssessmentSchema,
     zodSchema: zActionAssessment,
     thinkingConfig: { thinkingBudget: 256 },
+    signal,
   });
 };

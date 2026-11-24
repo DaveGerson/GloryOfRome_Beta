@@ -146,7 +146,9 @@ const SidePanel: React.FC<{
     narrationVoiceMode?: NarrationVoiceMode;
     /** The voice row on each Personae card (hooks/usePersonaeVoice.ts). */
     personaeVoice?: PersonaeVoice;
-}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, turnHistory, pulsingTabs, tabChangeCounts, activeTab: heldTab, onSelectTab, panelRef, onOccurrenceFinding, occurrenceSibling, resolvedApiKey, narrationVoiceMode, personaeVoice }) => {
+    /** 2A: optional handler exporting the player's chronicle as a standalone scroll HTML file. */
+    onExportChronicle?: () => void;
+}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, turnHistory, pulsingTabs, tabChangeCounts, activeTab: heldTab, onSelectTab, panelRef, onOccurrenceFinding, occurrenceSibling, resolvedApiKey, narrationVoiceMode, personaeVoice, onExportChronicle }) => {
     const [ownTab, setOwnTab] = useState<TabId>('world_state');
     const activeTab = heldTab ?? ownTab;
     const { dispatchStatus, toggleDispatch } = useImperialDispatch({
@@ -340,7 +342,7 @@ const SidePanel: React.FC<{
                     interactionLocked={interactionLocked}
                 />}
                 {activeTab === 'reports' && <ReportsTab reports={reports} knowledge={knowledge} />}
-                {activeTab === 'chronicle' && <ChronicleTab eventHistory={eventHistory} turnHistory={turnHistory} reignEnded={gameState === GameState.GAME_OVER} />}
+                {activeTab === 'chronicle' && <ChronicleTab eventHistory={eventHistory} turnHistory={turnHistory} reignEnded={gameState === GameState.GAME_OVER} onExportScroll={onExportChronicle} />}
                 {activeTab === 'dramatis_personae' && <DramatisPersonaeTab
                     playerEntity={playerEntity}
                     entities={entities}

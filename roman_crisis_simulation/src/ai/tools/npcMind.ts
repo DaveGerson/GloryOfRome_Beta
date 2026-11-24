@@ -41,7 +41,8 @@ const MIND_TEMPERATURE = 0.9;
 export const getNpcMindDecision = async (
   ai: GeminiClient,
   input: NpcMindPromptInput,
-  isMockMode: boolean
+  isMockMode: boolean,
+  signal?: AbortSignal,
 ): Promise<NpcMindDecision> => {
   if (isMockMode) {
     return mockGetNpcMindDecision(input.self, input.directorIntent, input.privateSceneMemories);
@@ -60,6 +61,7 @@ export const getNpcMindDecision = async (
     zodSchema: zNpcMindDecision,
     thinkingConfig: { thinkingBudget: 256 },
     temperature: MIND_TEMPERATURE,
+    signal,
   });
 
   // The entity_id is a JOIN KEY the pipeline already knows - the caller

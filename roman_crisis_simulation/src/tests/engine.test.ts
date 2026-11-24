@@ -492,14 +492,43 @@ describe('applyAdjudication', () => {
 
   // --- World Deltas (D6/Phase 2: unfreezes the Header meters) ---
   describe('World Deltas', () => {
-    it("should update economic_stability from a 'world' delta", () => {
+    it("should update economic_stability from a 'world' delta clamped to ±1 canonical grade per turn", () => {
       const adjudication = deepCopy(baseAdjudication);
       adjudication.deltas.push({ type: 'world', key: 'economic_stability', delta: 0, reason: 'Failing' });
 
       const { updatedWorldState } = applyAdjudication(adjudication, mockEntities, mockWorldState, mockReports);
 
-      expect(updatedWorldState.economic_stability).toBe('Failing');
+      // mockWorldState starts 'Stable'; proposing 'Failing' steps 1 grade to 'Strained'.
+      expect(updatedWorldState.economic_stability).toBe('Strained');
       expect(updatedWorldState.political_climate).toBe(mockWorldState.political_climate); // unchanged
+      expect(adjudication.gm_private.some(note => note.includes("Clamped 'economic_stability'"))).toBe(true);
+    });
+
+    it("allows ±1 canonical grade shifts without clamping, clamps upside jumps, and applies week-52 winter seasonal drift", () => {
+      const downOne = deepCopy(baseAdjudication);
+      downOne.deltas.push({ type: 'world', key: 'economic_stability', delta: 0, reason: 'Strained' });
+      const res1 = applyAdjudication(downOne, mockEntities, mockWorldState, mockReports);
+      expect(res1.updatedWorldState.economic_stability).toBe('Strained');
+
+      const jumpUp = deepCopy(baseAdjudication);
+      jumpUp.deltas.push({ type: 'world', key: 'economic_stability', delta: 0, reason: 'Prosperous' });
+      const crisisWorld = { ...mockWorldState, economic_stability: 'Crisis' };
+      const res2 = applyAdjudication(jumpUp, mockEntities, crisisWorld, mockReports);
+      expect(res2.updatedWorldState.economic_stability).toBe('Failing');
+
+      // Unknown free-prose grades pass through untouched without throwing.
+      const customWorld = { ...mockWorldState, economic_stability: 'Uncertain' };
+      const customAdj = deepCopy(baseAdjudication);
+      customAdj.deltas.push({ type: 'world', key: 'economic_stability', delta: 0, reason: 'Failing' });
+      const res3 = applyAdjudication(customAdj, mockEntities, customWorld, mockReports);
+      expect(res3.updatedWorldState.economic_stability).toBe('Failing');
+
+      // Week 52 mild winter drift when no economic world delta ran this turn.
+      const winterWorld = { ...mockWorldState, week: 52, economic_stability: 'Stable' };
+      const quietAdj = deepCopy(baseAdjudication);
+      const res4 = applyAdjudication(quietAdj, mockEntities, winterWorld, mockReports);
+      expect(res4.updatedWorldState.economic_stability).toBe('Strained');
+      expect(quietAdj.gm_private.some(note => note.includes('Seasonal (winter'))).toBe(true);
     });
 
     it("should update political_climate from a 'world' delta", () => {
