@@ -566,7 +566,7 @@ interface OverturnedDeathSubject {
   epithet?: string;
 }
 
-const DEATH_ASSERTION_RE = /\b(?:dead|death|dies|died|killed|killing|slain|slaying|assassinated|assassination|murdered|murder|executed|execution|perished|demise|fell dead|cut down|struck down|poisoned|strangled|beheaded|bled out|body found|met (?:his|her|their) end|passed away|succumbed|corpse|funeral|lifeless)\b/i;
+const DEATH_ASSERTION_RE = /\b(?:dead|death|dies|died|kill|kills|killed|killing|slay|slays|slain|slaying|assassinated|assassination|murdered|murder|executed|execution|perished|demise|fell dead|cut down|struck down|poisoned|strangled|beheaded|bled out|body\s+(?:found|of\b[^.;!]{1,60}\brecovered)|met (?:his|her|their) end|passed away|succumbed|corpse|funeral|lifeless)\b/i;
 const SURVIVAL_QUALIFIER_RE = /\b(?:surviv(?:ed|es)\s+(?:the\s+|an\s+)?(?:attempt|attack|ambush|assassination|plot|blade|poison|strike|assault|ambuscade)|narrowly escaped|escaped death|escapes with (?:his|her|their) life|foiled\s+(?:the\s+)?(?:plot|assassination|attempt)|unharmed|unfounded|still lives|still alive|fails to end)\b/i;
 const TITLE_STOP_WORDS = new Set([
   'emperor', 'empress', 'caesar', 'augustus', 'augusta', 'regent', 'senator', 'consul',
@@ -605,6 +605,8 @@ function buildUnicodeBoundaryRegex(term: string, global = false): RegExp {
 interface SubjectPattern {
   regex: RegExp;
   isFullName: boolean;
+  kind: 'full' | 'token' | 'position' | 'epithet';
+  key: string;
 }
 
 function subjectPatternsFor(
@@ -616,23 +618,43 @@ function subjectPatternsFor(
   const patterns: SubjectPattern[] = [];
   const trimmedName = subject.name.trim();
   if (trimmedName) {
-    patterns.push({ regex: buildUnicodeBoundaryRegex(trimmedName), isFullName: true });
+    patterns.push({
+      regex: buildUnicodeBoundaryRegex(trimmedName),
+      isFullName: true,
+      kind: 'full',
+      key: trimmedName.toLowerCase(),
+    });
     for (const cleanToken of normalizedNameTokens(trimmedName)) {
       const lower = cleanToken.toLowerCase();
       if (TITLE_STOP_WORDS.has(lower)) continue;
       if ((tokenOwnerCount.get(lower) ?? 0) > 1) continue;
-      patterns.push({ regex: buildUnicodeBoundaryRegex(cleanToken), isFullName: false });
+      patterns.push({
+        regex: buildUnicodeBoundaryRegex(cleanToken),
+        isFullName: false,
+        kind: 'token',
+        key: lower,
+      });
     }
   }
 
   const normalizedPos = subject.position ? cleanEdgePunctuation(subject.position).toLowerCase() : '';
   if (normalizedPos && !GENERIC_SHARED_ROLES.has(normalizedPos) && (phraseOwnerCount.get(`pos:${normalizedPos}`) ?? 0) <= 1) {
-    patterns.push({ regex: buildUnicodeBoundaryRegex(cleanEdgePunctuation(subject.position!)), isFullName: false });
+    patterns.push({
+      regex: buildUnicodeBoundaryRegex(cleanEdgePunctuation(subject.position!)),
+      isFullName: false,
+      kind: 'position',
+      key: normalizedPos,
+    });
   }
   if (normalizedPos) {
     for (const title of SINGULAR_IMPERIAL_TITLES) {
       if (normalizedPos !== title && new RegExp(`(?<!co-)\\b${title}\\b`, 'i').test(normalizedPos) && (imperialTitleCount.get(title) ?? 0) <= 1) {
-        patterns.push({ regex: buildUnicodeBoundaryRegex(title), isFullName: false });
+        patterns.push({
+          regex: buildUnicodeBoundaryRegex(title),
+          isFullName: false,
+          kind: 'position',
+          key: title,
+        });
       }
     }
   }
@@ -640,7 +662,12 @@ function subjectPatternsFor(
   const cleanEpithet = subject.epithet ? cleanEdgePunctuation(subject.epithet) : '';
   const normalizedEpithet = cleanEpithet.toLowerCase();
   if (cleanEpithet.length >= 4 && !GENERIC_SHARED_ROLES.has(normalizedEpithet) && (phraseOwnerCount.get(`ep:${normalizedEpithet}`) ?? 0) <= 1) {
-    patterns.push({ regex: buildUnicodeBoundaryRegex(cleanEpithet), isFullName: false });
+    patterns.push({
+      regex: buildUnicodeBoundaryRegex(cleanEpithet),
+      isFullName: false,
+      kind: 'epithet',
+      key: normalizedEpithet,
+    });
   }
 
   return patterns;
@@ -720,9 +747,12 @@ export function guardOverturnedDeathHeadlines(
   }
 
   const overturnedIds = new Set(overturned.map(subject => subject.entityId));
-  const deadFullNameRegexes = roster
+  const deadEntities = roster
     .filter(entity => entity.status === 'dead' && !overturnedIds.has(entity.entity_id) && entity.name.trim().length > 0)
-    .map(entity => buildUnicodeBoundaryRegex(entity.name.trim()));
+    .map(entity => ({
+      regex: buildUnicodeBoundaryRegex(entity.name.trim()),
+      tokens: new Set(normalizedNameTokens(entity.name).map(token => token.toLowerCase())),
+    }));
 
   const matchers = overturned
     .map(subject => ({
@@ -739,21 +769,36 @@ export function guardOverturnedDeathHeadlines(
   const seenRewrittenTexts = new Set<string>();
 
   for (const headline of headlines) {
-    if (!DEATH_ASSERTION_RE.test(headline) || SURVIVAL_QUALIFIER_RE.test(headline)) {
-      nextHeadlines.push(headline);
-      continue;
-    }
-    const confirmedDeadNamed = deadFullNameRegexes.some(re => re.test(headline));
-    const matchedSubjects: OverturnedDeathSubject[] = [];
-    for (const entry of matchers) {
-      const hasFullName = entry.patterns.some(p => p.isFullName && p.regex.test(headline));
-      const matched = hasFullName
-        ? entry.patterns.some(p => p.isFullName && isVictimOccurrence(headline, p.regex))
-        : (!confirmedDeadNamed && entry.patterns.some(p => !p.isFullName && isVictimOccurrence(headline, p.regex)));
-      if (matched) {
-        matchedSubjects.push(entry.subject);
+    const clauses = headline
+      .split(/[.;!]+|,\s*(?:while|whereas|and\s+yet|but)\s+/i)
+      .map(part => part.trim())
+      .filter(Boolean);
+    const matchedById = new Map<string, OverturnedDeathSubject>();
+
+    for (const clause of clauses) {
+      if (!DEATH_ASSERTION_RE.test(clause) || SURVIVAL_QUALIFIER_RE.test(clause)) {
+        continue;
+      }
+      const deadInClause = deadEntities.filter(d => d.regex.test(clause));
+      const deadVictimInClause = deadInClause.some(d => isVictimOccurrence(clause, d.regex));
+
+      for (const entry of matchers) {
+        const hasFullName = entry.patterns.some(p => p.isFullName && p.regex.test(clause));
+        const matched = hasFullName
+          ? entry.patterns.some(p => p.isFullName && isVictimOccurrence(clause, p.regex))
+          : entry.patterns.some(p => {
+            if (p.isFullName) return false;
+            if (p.kind === 'token' && deadInClause.some(d => d.tokens.has(p.key))) return false;
+            if ((p.kind === 'position' || p.kind === 'epithet') && deadVictimInClause) return false;
+            return isVictimOccurrence(clause, p.regex);
+          });
+        if (matched && !matchedById.has(entry.subject.entityId)) {
+          matchedById.set(entry.subject.entityId, entry.subject);
+        }
       }
     }
+
+    const matchedSubjects = [...matchedById.values()];
     if (matchedSubjects.length === 0) {
       nextHeadlines.push(headline);
       continue;

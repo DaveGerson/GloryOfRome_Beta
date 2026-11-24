@@ -53,7 +53,12 @@ export interface IntelCommitsDeps {
     setTransactionNote: (note: TransactionNote | null) => void;
 }
 
+const TREASURY_REFUSAL_TITLE = 'The treasury cannot meet it';
 const INSUFFICIENT_FUNDS_NOTE = 'Not enough funds in the treasury to complete this order.';
+
+function numericBalance(value: unknown): number {
+    return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
 
 function deductDenariiWithSystemicRule(
     player: Entity,
@@ -61,9 +66,11 @@ function deductDenariiWithSystemicRule(
     turnNumber: number,
     existingReportCount: number,
 ): { ok: boolean; finalDenarii: number; reports: Report[] } {
-    const rawCurrent = player.resources.denarii;
-    const currentDenarii = typeof rawCurrent === 'number' && Number.isFinite(rawCurrent) ? rawCurrent : 0;
-    if (denariiCost <= 0) {
+    const currentDenarii = numericBalance(player.resources.denarii);
+    if (!Number.isFinite(denariiCost) || denariiCost < 0) {
+        return { ok: false, finalDenarii: currentDenarii, reports: [] };
+    }
+    if (denariiCost === 0) {
         return { ok: true, finalDenarii: currentDenarii, reports: [] };
     }
     if (currentDenarii < denariiCost) {
@@ -102,17 +109,21 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
         denariiCost = 0,
     ): boolean => {
         if (!request.isCurrent()) return false;
+        if (!Number.isFinite(cost) || cost < 0 || !Number.isFinite(denariiCost) || denariiCost < 0) {
+            setTransactionNote({ kind: 'plain', title: TREASURY_REFUSAL_TITLE, message: INSUFFICIENT_FUNDS_NOTE });
+            return false;
+        }
         const player = entities.find(e => e.entity_id === playerCharacterId);
         if (!player) return false;
 
-        const currentUnits = (player.resources.deep_analyses as number) || 0;
+        const currentUnits = numericBalance(player.resources.deep_analyses);
         if (cost > 0 && currentUnits < cost) {
-            setTransactionNote({ kind: 'save', lead: INSUFFICIENT_FUNDS_NOTE });
+            setTransactionNote({ kind: 'plain', title: TREASURY_REFUSAL_TITLE, message: INSUFFICIENT_FUNDS_NOTE });
             return false;
         }
         const denariiStep = deductDenariiWithSystemicRule(player, denariiCost, turnNumber, reports.length);
         if (!denariiStep.ok) {
-            setTransactionNote({ kind: 'save', lead: INSUFFICIENT_FUNDS_NOTE });
+            setTransactionNote({ kind: 'plain', title: TREASURY_REFUSAL_TITLE, message: INSUFFICIENT_FUNDS_NOTE });
             return false;
         }
 
@@ -234,14 +245,16 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
         denariiCost = 0,
     ): Promise<boolean> => {
         if (!request.isCurrent()) return false;
+        if (!Number.isFinite(cost) || cost < 0 || !Number.isFinite(denariiCost) || denariiCost < 0) {
+            setTransactionNote({ kind: 'plain', title: TREASURY_REFUSAL_TITLE, message: INSUFFICIENT_FUNDS_NOTE });
+            return false;
+        }
         const playerBeforeAsync = entities.find(e => e.entity_id === playerCharacterId);
         if (!playerBeforeAsync) return false;
-        const unitsBeforeAsync = (playerBeforeAsync.resources.investigations as number) || 0;
-        const denariiBeforeAsync = typeof playerBeforeAsync.resources.denarii === 'number' && Number.isFinite(playerBeforeAsync.resources.denarii)
-            ? playerBeforeAsync.resources.denarii
-            : 0;
+        const unitsBeforeAsync = numericBalance(playerBeforeAsync.resources.investigations);
+        const denariiBeforeAsync = numericBalance(playerBeforeAsync.resources.denarii);
         if ((cost > 0 && unitsBeforeAsync < cost) || (denariiCost > 0 && denariiBeforeAsync < denariiCost)) {
-            setTransactionNote({ kind: 'save', lead: INSUFFICIENT_FUNDS_NOTE });
+            setTransactionNote({ kind: 'plain', title: TREASURY_REFUSAL_TITLE, message: INSUFFICIENT_FUNDS_NOTE });
             return false;
         }
         const entityDirectory = entities.map(entity => ({
@@ -300,14 +313,14 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
         if (!request.isCurrent()) return false;
         const livePlayer = entities.find(e => e.entity_id === playerCharacterId);
         if (!livePlayer) return false;
-        const currentInv = (livePlayer.resources.investigations as number) || 0;
+        const currentInv = numericBalance(livePlayer.resources.investigations);
         if (cost > 0 && currentInv < cost) {
-            setTransactionNote({ kind: 'save', lead: INSUFFICIENT_FUNDS_NOTE });
+            setTransactionNote({ kind: 'plain', title: TREASURY_REFUSAL_TITLE, message: INSUFFICIENT_FUNDS_NOTE });
             return false;
         }
         const denariiStep = deductDenariiWithSystemicRule(livePlayer, denariiCost, turnNumber, reports.length);
         if (!denariiStep.ok) {
-            setTransactionNote({ kind: 'save', lead: INSUFFICIENT_FUNDS_NOTE });
+            setTransactionNote({ kind: 'plain', title: TREASURY_REFUSAL_TITLE, message: INSUFFICIENT_FUNDS_NOTE });
             return false;
         }
         const newEntities = entities.map(e => {
@@ -385,7 +398,9 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
         if (!player) return false;
         const conversion = convertResourceToInvestigations(player.resources, source, 1);
         if (!conversion.ok) {
-            if (conversion.reason) setTransactionNote({ kind: 'save', lead: conversion.reason });
+            if (conversion.reason) {
+                setTransactionNote({ kind: 'plain', title: TREASURY_REFUSAL_TITLE, message: conversion.reason });
+            }
             return false;
         }
         let updatedResources = conversion.updatedResources;

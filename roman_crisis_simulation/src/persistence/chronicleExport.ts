@@ -26,6 +26,7 @@ export interface ChronicleExportInput {
   eventHistory: readonly EventHistoryEntry[];
   marks?: readonly string[];
   ties?: readonly string[];
+  secretTies?: readonly string[];
   metaNarrative?: string;
   epitaph?: string | null;
   causeNarration?: string;
@@ -96,7 +97,7 @@ export function scrollExportFilename(playerName: string, year?: number): string 
 }
 
 export function buildChronicleScrollHtml(input: ChronicleExportInput): string {
-  const { player, worldState, turnHistory, eventHistory, marks, ties, metaNarrative, epitaph, causeNarration, exportedAt } = input;
+  const { player, worldState, turnHistory, eventHistory, marks, ties, secretTies, metaNarrative, epitaph, causeNarration, exportedAt } = input;
   const isDead = player.status === 'dead' || Boolean(epitaph && epitaph.trim());
   const titleText = `Chronicle of ${player.name}`;
   const standing = [player.position, player.epithet, player.location].filter(Boolean).join(' · ');
@@ -162,10 +163,12 @@ export function buildChronicleScrollHtml(input: ChronicleExportInput): string {
 
   const cleanMarks = (marks ?? []).map(m => m.trim()).filter(Boolean);
   const cleanTies = (ties ?? []).map(t => t.trim()).filter(Boolean);
-  const standingDetails = cleanMarks.length > 0 || cleanTies.length > 0
+  const cleanSecretTies = (secretTies ?? []).map(t => t.trim()).filter(Boolean);
+  const standingDetails = cleanMarks.length > 0 || cleanTies.length > 0 || cleanSecretTies.length > 0
     ? `<section class="traits" aria-label="Lasting Marks and Ties">
   ${cleanMarks.length > 0 ? `<p><strong>Marks Carried:</strong> ${cleanMarks.map(escapeHtml).join(', ')}</p>` : ''}
   ${cleanTies.length > 0 ? `<p><strong>Professed Ties:</strong> ${cleanTies.map(escapeHtml).join(', ')}</p>` : ''}
+  ${cleanSecretTies.length > 0 ? `<p><strong>Secret Ties:</strong> ${cleanSecretTies.map(escapeHtml).join(', ')}</p>` : ''}
 </section>`
     : '';
 

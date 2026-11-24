@@ -87,7 +87,8 @@ export function deriveFactionMoodsForViewer(
 
   const summaries: FactionMoodSummary[] = [];
   for (const bloc of livingBlocs) {
-    const isOwnFaction = Boolean(viewer.faction_id && viewer.faction_id === bloc.entity_id);
+    const isOwnFaction = viewer.entity_id === bloc.entity_id
+      || Boolean(viewer.faction_id && viewer.faction_id === bloc.entity_id);
     const livingIndividualMembers = entities.filter(
       e => e.entity_type === 'individual' && e.status === 'alive' && e.faction_id === bloc.entity_id,
     );

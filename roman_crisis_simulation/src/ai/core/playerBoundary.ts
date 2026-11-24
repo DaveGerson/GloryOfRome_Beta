@@ -1221,6 +1221,10 @@ export function createPlayerVisibleStreamGate(): PlayerVisibleStreamGate {
     push(cumulativeText: string): string | null {
       chunkBuffer = cumulativeText;
       const monotonic = validatedPrefix.length > 0 && cumulativeText.startsWith(validatedPrefix);
+      if (validatedPrefix.length > 0 && !monotonic) {
+        validatedPrefix = '';
+        sentenceStarts = [];
+      }
       const scanFloor = monotonic ? validatedPrefix.length : 0;
 
       let completedEnd = 0;

@@ -215,7 +215,7 @@ export function selectRipeEventMaterial(
         if (!event.repeatable) continue;
         const record = eventFirings.find(r => r.eventId === event.id);
         if (!record) continue;
-        const turnsUntilEligible = record.lastFiredTurn + (event.cooldownTurns ?? 0) - turnNumber;
+        const turnsUntilEligible = record.lastFiredTurn + Math.max(1, event.cooldownTurns ?? 1) - turnNumber;
         if (turnsUntilEligible > 0 && turnsUntilEligible <= NEAR_COOLDOWN_WINDOW) {
             material.push({ event, premise, status: 'near' });
         }

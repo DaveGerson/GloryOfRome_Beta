@@ -189,4 +189,29 @@ describe('3C: Per-viewer Collective Faction Climates (D10 / D41 isolated)', () =
     expect(block).not.toContain(String.fromCharCode(0x2029));
     expect(block).not.toContain(String.fromCharCode(0x0085));
   });
+
+  it('recognizes a spotlighted faction/group entity as its own bloc with its own agenda (L3)', () => {
+    const senateBloc = makeEntity({
+      entity_id: 'senatorial_party',
+      name: 'Senatorial Order',
+      entity_type: 'faction',
+      faction_id: undefined,
+      visibility_network: ['senator_a'],
+      short_term_goals: ['Safeguard the Curia treasury.'],
+    });
+    const senatorA = makeEntity({
+      entity_id: 'senator_a',
+      name: 'Aulus',
+      faction_id: 'senatorial_party',
+    });
+
+    const moods = deriveFactionMoodsForViewer(senateBloc, [senateBloc, senatorA], world);
+    expect(moods).toHaveLength(1);
+    expect(moods[0]).toMatchObject({
+      factionId: 'senatorial_party',
+      isOwnFaction: true,
+      agenda: 'Safeguard the Curia treasury.',
+      memberCount: 1,
+    });
+  });
 });

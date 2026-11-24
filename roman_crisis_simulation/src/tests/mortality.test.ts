@@ -925,4 +925,36 @@ describe('guardOverturnedDeathHeadlines (1C)', () => {
       'An attempt against Maximinus Thrax and Quintus fails to end any life; Maximinus Thrax and Quintus still live.',
     ]);
   });
+
+  it('still catches overturned surname/title deaths even when a previously dead NPC is named or a sibling clause qualifies survival', () => {
+    const severus = makeEntity({ entity_id: 'player_1', name: 'Severus Alexander', position: 'Roman Emperor' });
+    const thrax = makeEntity({ entity_id: 'maximinus_thrax', name: 'Maximinus Thrax', position: 'Legion Commander' });
+    const mamaea = makeEntity({ entity_id: 'julia_mamaea', name: 'Julia Mamaea', status: 'dead', position: 'Augusta Mater' });
+    const marcus = makeEntity({ entity_id: 'marcus_1', name: 'Marcus Aurelius', position: 'Senator' });
+    const gordianI = makeEntity({ entity_id: 'gordian_1', name: 'Gordian I', status: 'alive', position: 'Co-Emperor' });
+    const gordianII = makeEntity({ entity_id: 'gordian_2', name: 'Gordian II', status: 'dead', position: 'Co-Emperor' });
+    const roster = [severus, thrax, mamaea, marcus, gordianI, gordianII];
+
+    const res = guardOverturnedDeathHeadlines(
+      [
+        'Avenging Julia Mamaea, assassins kill Thrax in camp.',
+        'Julia Mamaea slain; the Emperor assassinated in the palace.',
+        'Marcus narrowly escaped the ambush, while Thrax is slain.',
+        'Gordian II is slain in battle.',
+      ],
+      [
+        { entityId: 'player_1', name: 'Severus Alexander', valid: true, position: 'Roman Emperor' },
+        { entityId: 'maximinus_thrax', name: 'Maximinus Thrax', valid: true, position: 'Legion Commander' },
+        { entityId: 'gordian_1', name: 'Gordian I', valid: false, position: 'Co-Emperor' },
+      ],
+      roster,
+    );
+
+    expect(res.headlines).toEqual([
+      'An attempt against Maximinus Thrax fails to end a life; Maximinus Thrax still lives.',
+      'An attempt against Severus Alexander fails to end a life; Severus Alexander still lives.',
+      'Gordian II is slain in battle.',
+    ]);
+    expect(res.rewrites).toHaveLength(3);
+  });
 });

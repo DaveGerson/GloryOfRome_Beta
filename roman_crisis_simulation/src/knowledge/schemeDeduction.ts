@@ -233,7 +233,7 @@ export function evaluateDeductionHypothesis(
   return {
     connected: true,
     stage: lead.stage,
-    summary: `Observed alongside ${linked.name} (latest Turn ${linked.lastSeenTurn}).`,
+    summary: `Observed alongside ${linked.name}.`,
     supportingTurns: linked.turns,
   };
 }

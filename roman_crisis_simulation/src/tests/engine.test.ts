@@ -545,15 +545,21 @@ describe('applyAdjudication', () => {
       const resWeekZero = applyAdjudication(weekZeroAdj, mockEntities, weekZeroWorld, mockReports);
       expect(resWeekZero.updatedWorldState.economic_stability).toBe('Stable');
 
-      // Week 52 mild winter drift when economy did not shift emits a visible 'world' delta for perceptions & narration.
+      // Week 52 mild winter drift when economy did not shift syncs an existing no-op delta cleanly (no duplicate contradictory deltas)
+      // and emits one when none existed.
       const winterWorld = { ...mockWorldState, week: 52, economic_stability: 'Stable' };
       const quietAdj = deepCopy(baseAdjudication);
       quietAdj.deltas.push({ type: 'world', key: 'economic_stability', delta: 0, reason: 'Steady' });
       const res4 = applyAdjudication(quietAdj, mockEntities, winterWorld, mockReports);
       expect(res4.updatedWorldState.economic_stability).toBe('Strained');
-      expect(quietAdj.deltas.some(d => d.type === 'world' && d.key === 'economic_stability' && d.reason === 'Strained')).toBe(true);
+      expect(quietAdj.deltas.filter(d => d.type === 'world' && d.key === 'economic_stability').map(d => d.reason)).toEqual(['Strained']);
       expect(res4.updatedEntities.every(e => e.memories.some(m => m.event_description.includes('Strained')))).toBe(true);
       expect(quietAdj.gm_private.some(note => note.includes('Seasonal (winter'))).toBe(true);
+
+      const emptyWinterAdj = deepCopy(baseAdjudication);
+      const res5 = applyAdjudication(emptyWinterAdj, mockEntities, winterWorld, mockReports);
+      expect(res5.updatedWorldState.economic_stability).toBe('Strained');
+      expect(emptyWinterAdj.deltas.filter(d => d.type === 'world' && d.key === 'economic_stability').map(d => d.reason)).toEqual(['Strained']);
     });
 
     it("should update political_climate from a 'world' delta", () => {

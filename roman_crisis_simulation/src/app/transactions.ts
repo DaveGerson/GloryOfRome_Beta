@@ -33,7 +33,7 @@ import type { PrivateSceneRecord } from '../privateScene/model';
 export type TransactionNote =
     | { kind: 'save'; lead: string }
     | { kind: 'half_commit' }
-    | { kind: 'plain'; message: string };
+    | { kind: 'plain'; message: string; title?: string };
 
 // Task 7 (task-7-site-map.md): the shared shape for every save-then-dispatch
 // site. The durable bytes must exist before the reducer dispatch;

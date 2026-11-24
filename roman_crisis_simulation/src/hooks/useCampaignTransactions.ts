@@ -144,7 +144,7 @@ export function useCampaignTransactions(
         buildOptions?: { skipStoredMerge?: boolean },
     ): SaveGameState => {
         const candidate: SaveGameState = { ...pickSaveState(state), ...overrides };
-        const stored = buildOptions?.skipStoredMerge ? undefined : loadGame()?.state;
+        const stored = (buildOptions?.skipStoredMerge || autosavePausedRef.current) ? undefined : loadGame()?.state;
         const storedAmbition = stored && isSameCampaignPrefix(candidate, stored)
             ? stored.inferredAmbition
             : null;

@@ -626,13 +626,9 @@ export function applyAdjudication(
         adjudication.deltas, currentEntities, currentWorldState, stampTurn, perceptionContext.playerEntityId
     );
     adjudication.gm_private.push(...gmNotes);
-    // D26 sync: ensure any clamped economic_stability delta carries the effective
-    // post-clamp grade so Dispatches, Narration, Knowledge, and NPC memories agree with WorldState.
-    for (const delta of adjudication.deltas) {
-        if (delta.type === 'world' && delta.key === 'economic_stability' && delta.reason.trim()) {
-            delta.reason = updatedWorldState.economic_stability;
-        }
-    }
+    // Apply Week 52 seasonal drift BEFORE syncing D26 effective grades so
+    // an unchanged/same-grade economic delta updates cleanly instead of leaving
+    // two contradictory world:economic_stability deltas.
     const beforeGrade = economicStabilityGrade(currentWorldState.economic_stability);
     const afterGrade = economicStabilityGrade(updatedWorldState.economic_stability);
     const economyShifted = beforeGrade && afterGrade
@@ -643,15 +639,26 @@ export function applyAdjudication(
         if (seasonal.driftTo) {
             const priorEconomy = updatedWorldState.economic_stability;
             updatedWorldState.economic_stability = seasonal.driftTo;
-            adjudication.deltas.push({
-                type: 'world',
-                key: 'economic_stability',
-                delta: 0,
-                reason: seasonal.driftTo,
-            });
+            const hasEconDelta = adjudication.deltas.some(d => d.type === 'world' && d.key === 'economic_stability');
+            if (!hasEconDelta) {
+                adjudication.deltas.push({
+                    type: 'world',
+                    key: 'economic_stability',
+                    delta: 0,
+                    reason: seasonal.driftTo,
+                });
+            }
             adjudication.gm_private.push(
                 `[Engine] Seasonal (${seasonal.season}, week ${updatedWorldState.week}) pressure drifted economic_stability from "${priorEconomy}" to "${seasonal.driftTo}": ${seasonal.reason}`,
             );
+        }
+    }
+    // D26 sync: ensure any economic_stability delta carries the effective
+    // post-clamp / post-drift grade so Dispatches, Narration, Knowledge, and
+    // NPC memories agree with WorldState.
+    for (const delta of adjudication.deltas) {
+        if (delta.type === 'world' && delta.key === 'economic_stability' && (delta.reason.trim() || !economyShifted)) {
+            delta.reason = updatedWorldState.economic_stability;
         }
     }
     let entitiesAfterDeltas = updatedEntities;

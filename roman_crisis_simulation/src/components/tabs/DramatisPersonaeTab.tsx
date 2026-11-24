@@ -305,7 +305,8 @@ const DramatisPersonaeTab: React.FC<{ playerEntity: Entity | null; entities: Ent
                   }
                 }
                 const associateOptions = [...associateMap.entries()].map(([id, name]) => ({ id, name }));
-                const selectedId = selectedAssociates[lead.leadId] ?? '';
+                const rawSelected = selectedAssociates[lead.leadId] ?? '';
+                const selectedId = associateMap.has(rawSelected) ? rawSelected : '';
                 const hypothesisCheck = evaluateDeductionHypothesis(schemeBoard, lead.subjectId, selectedId || undefined);
                 const selectId = `scheme-crosscheck-${lead.leadId}`;
 

@@ -738,9 +738,15 @@ function acquireStreamWithAbortCleanup(
     }
   };
   let settled = false;
+  let cleanedUp = false;
+  const scheduleCleanup = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    void streamPromise.then(closeAbandonedStream, () => {});
+  };
   const onAbort = () => {
     if (!settled) {
-      void streamPromise.then(closeAbandonedStream, () => {});
+      scheduleCleanup();
     }
   };
   signal.addEventListener('abort', onAbort, { once: true });
@@ -748,7 +754,7 @@ function acquireStreamWithAbortCleanup(
     settled = true;
     signal.removeEventListener('abort', onAbort);
     if (signal.aborted) {
-      void streamPromise.then(closeAbandonedStream, () => {});
+      scheduleCleanup();
     }
   });
 }

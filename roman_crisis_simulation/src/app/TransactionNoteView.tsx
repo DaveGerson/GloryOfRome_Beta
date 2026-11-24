@@ -41,7 +41,7 @@ export function downloadTheReign(): void {
 
 export const TransactionNoteView: React.FC<{ note: TransactionNote; style?: React.CSSProperties }> = ({ note, style }) => {
     if (note.kind === 'half_commit') return <HalfCommitNotice style={style} />;
-    if (note.kind === 'plain') return <Alert title={RECORD_REFUSES} style={style}>{note.message}</Alert>;
+    if (note.kind === 'plain') return <Alert title={note.title ?? RECORD_REFUSES} style={style}>{note.message}</Alert>;
     // Derived from whether a save actually loads, never defaulted to a
     // turn: with storage dead since boot, a corrupted blob or a version
     // the loader rejects there IS no last safe turn, and "safe up to

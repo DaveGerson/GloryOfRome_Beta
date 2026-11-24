@@ -111,6 +111,7 @@ describe('2A: Illustrated Chronicle & Stele Scroll Export', () => {
       ],
       marks: ['a jagged scar <b/>'],
       ties: ['Oath of the Senate'],
+      secretTies: ['Private Lararium Circle'],
       epitaph: 'Line one.\r\n\r\nLine two.',
     });
 
@@ -129,6 +130,8 @@ describe('2A: Illustrated Chronicle & Stele Scroll Export', () => {
     expect(html).toContain(escapeHtml('a jagged scar <b/>'));
     expect(html).toContain('Professed Ties:');
     expect(html).toContain('Oath of the Senate');
+    expect(html).toContain('Secret Ties:');
+    expect(html).toContain('Private Lararium Circle');
     expect(html).toContain('<p>Line one.</p><p>Line two.</p>');
     expect(html).toContain('1000000000');
   });

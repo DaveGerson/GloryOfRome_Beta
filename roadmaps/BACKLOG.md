@@ -159,6 +159,9 @@ contacts / disinformation remain open pending design spec.
   (direct eviction, the real 300-claim cap path, and a legacy gapped-fork
   store).
 - The modal-weave same-turn double-hit (D12) has no suppression gate.
+  **CLOSED (TODO 1B)** — `AdjudicationSchema` now carries optional
+  `woven_event_ids`, stripped from narration prompts and recorded via
+  `events/engine.ts::recordWovenEvents` with `cooldownTurns >= 1` enforcement.
 - `economic_stability` free-string triggers can go dormant when the model
   writes a synonym ("Collapsing" vs "Failing") — no canonical vocabulary
   enforced, so some authored events may never fire.
@@ -216,12 +219,11 @@ contacts / disinformation remain open pending design spec.
   `docs/superpowers/specs/2026-07-28-schema-declared-attribution-design.md`.
 - Cross-tab play is last-writer-wins: `persistence/saveGame.ts` uses a
   single `localStorage` slot (`SAVE_KEY = 'gloryOfRome:autosave'`) with no
-  `storage`-event or `BroadcastChannel` coordination between tabs. A second
-  browser tab starting or loading a campaign can silently clobber the first
-  tab's autosave on its next write. Recorded as an accepted risk / single-
-  tab-at-a-time assumption, not a bug to fix reactively - no user-visible
-  symptom exists until a player actually runs two tabs against the same
-  save slot.
+  `storage`-event or `BroadcastChannel` coordination between tabs.
+  **CLOSED (TODO 1D)** — `persistence/crossTab.ts` now listens for foreign-tab
+  writes/clears, pauses local autosaves (`autosavePausedRef` in
+  `hooks/useCampaignTransactions.ts`), and renders `CrossTabConflictNotice`
+  in `App.tsx`.
 - Two optional hardening items from the D42 actors-contract adversarial
   review, neither blocking: (a) `ai/core/streamSplit.ts`'s
   `extractPayloadTextPrefix` re-scans the full cumulative raw JSON from the

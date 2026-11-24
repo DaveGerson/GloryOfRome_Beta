@@ -100,7 +100,7 @@
     - `roman_crisis_simulation/src/hooks/useExecuteTurn.ts`
     - `roman_crisis_simulation/src/hooks/useTurnFlow.ts`
     - `roman_crisis_simulation/src/components/TurnComposer.tsx`
-  - **Scope:** Thread `AbortSignal` through turns, streams, and parallel stages with a `"Stay the courier's hand"` cancel button preserving the player's draft.
+  - **Scope:** Thread `AbortSignal` through turns, streams, and parallel stages with a `"Cancel turn"` button preserving the player's draft.
 
 ---
 
@@ -146,10 +146,10 @@
 A 4-subagent wave layout keeps file seams disjoint so workers can run in isolated worktrees/shares without merge conflicts:
 
 - **Tier 1 Wave (~15–18m wall-clock):**
-  - **Worker 1:** `1A` (`privateScene.ts`, `sceneVoice.ts`, `usePrivateSceneVoice.ts`)
+  - **Worker 1:** `1A` (`privateScene.ts`, `sceneVoice.ts`, `usePrivateSceneController.ts`)
   - **Worker 2:** `1B` (`schemas.ts`, `zodSchemas.ts`, `adjudication.ts`, `events/engine.ts`)
   - **Worker 3:** `1C` + `1E` (`mortality.ts`, `turn.ts`, `playerBoundary.ts`, `playerBoundary.test.ts`)
   - **Worker 4:** `1D` (`crossTab.ts`, `FailureNotices.tsx`, `useShellEffects.ts`)
 - **Tier 1 + Tier 2 Combined (~22–28m wall-clock including `npm run verify` + merge):**
-  - Follow the Tier 1 wave with `2A`, `2B`, and `2C` across 3 parallel workers (disjoint seams: `EpilogueScreen.tsx`/`ChronicleTab.tsx`/`reignScrollExport.ts`, `stabilityVocabulary.ts`/`ai/core/engine.ts`, and `geminiService.ts`/`useExecuteTurn.ts`/`TurnComposer.tsx`), then run `npm run verify` and merge.
+  - Follow the Tier 1 wave with `2A`, `2B`, and `2C` across 3 parallel workers (disjoint seams: `EpilogueScreen.tsx`/`ChronicleTab.tsx`/`persistence/chronicleExport.ts`, `stabilityVocabulary.ts`/`ai/core/engine.ts`, and `geminiService.ts`/`useExecuteTurn.ts`/`TurnComposer.tsx`), then run `npm run verify` and merge.
 - **Tier 3:** Resolve open design choices (`3A`, `3B`, `3C`) via `/grill-me` or spec before dispatching implementation waves.

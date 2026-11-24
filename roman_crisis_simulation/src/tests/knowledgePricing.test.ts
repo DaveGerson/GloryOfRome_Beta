@@ -283,14 +283,24 @@ describe('3A: Currency Converter (B1/T1) + D27 Warm Dossier Refresh Pricing', ()
     expect(p2.resources.denarii).toBe(5200 - 3125);
     expect(action2.reports?.some(r => r.claim.includes('below 5000 denarii'))).toBe(true);
 
-    // 3. Refusal when live denarii balance is below requested coin spend.
+    // 3. Refusal when live denarii balance is below requested coin spend (never emits a 'save' error).
     let refused = true;
     await act(async () => {
       refused = await hook.current.handleInvestigationOutcome('beliefs', 'thrax', ['Too expensive.'], 0, invResult, live, undefined, 9000);
     });
     expect(refused).toBe(false);
     expect(commits).toHaveLength(2);
-    expect(notes.some(n => n && typeof n === 'object' && 'lead' in n && String((n as { lead: string }).lead).includes('Not enough funds'))).toBe(true);
+    expect(notes).toContainEqual({
+      kind: 'plain',
+      title: 'The treasury cannot meet it',
+      message: 'Not enough funds in the treasury to complete this order.',
+    });
+    expect(notes.some(n => n && typeof n === 'object' && 'kind' in n && (n as { kind: string }).kind === 'save')).toBe(false);
+
+    // 4. Rejects negative / non-finite costs cleanly too.
+    expect(hook.current.handleDeepAnalysis('thrax', Number.NaN, 'Ignored.', live)).toBe(false);
+    expect(hook.current.handleDeepAnalysis('thrax', -1, 'Ignored.', live)).toBe(false);
+    expect(commits).toHaveLength(2);
 
     hook.unmount();
   });
