@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   generateStructured,
   generateStructuredStream,
@@ -10,7 +10,13 @@ import {
   type GeminiClient,
 } from '../ai/core/geminiService';
 import { runNewTurn } from '../ai/core/turn';
+import { getRelationshipObservations } from '../ai/tools/relationshipObservations';
+import { selectNoAttemptEvidence } from '../ai/tools/noAttemptResponse';
 import { makeEntity, makeSimulationState, makeWorldState } from './factories';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('2C: Turn Cancel & AbortSignal support', () => {
   it('generateStructured rejects immediately with TurnCancelledError without retrying or Pro fallback', async () => {
@@ -102,5 +108,97 @@ describe('2C: Turn Cancel & AbortSignal support', () => {
       { signal: controller.signal },
     )).rejects.toBeInstanceOf(TurnCancelledError);
     expect(generateContent).not.toHaveBeenCalled();
+
+    // Mock Mode also honors pre-aborted signals without issuing mock turn work.
+    await expect(runNewTurn(
+      ai as never,
+      { version: 1, kind: 'freeform', text: 'Address the Senate.' },
+      player,
+      1,
+      [player],
+      makeWorldState(),
+      makeSimulationState(),
+      [],
+      [],
+      [],
+      [],
+      '',
+      true,
+      'Crisis of 235',
+      { signal: controller.signal },
+    )).rejects.toBeInstanceOf(TurnCancelledError);
+  });
+
+  it('forwards config.abortSignal to SDK requests and prevents unhandled rejections when signal aborts synchronously inside invoke()', async () => {
+    const controller = new AbortController();
+    let seenSignal: AbortSignal | undefined;
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      const generateContent = vi.fn(async (params: { config?: { abortSignal?: AbortSignal } }) => {
+        seenSignal = params.config?.abortSignal;
+        controller.abort();
+        // Reject asynchronously on abort like real fetch() would when config.abortSignal aborts.
+        return await new Promise<{ text: string }>((_resolve, reject) => {
+          queueMicrotask(() => reject(new DOMException('Aborted', 'AbortError')));
+        });
+      });
+      const ai: GeminiClient = { models: { generateContent } };
+
+      await expect(generateStructured(ai, {
+        callName: 'adjudication',
+        model: GEMINI_PRO,
+        prompt: 'Test prompt',
+        signal: controller.signal,
+      })).rejects.toBeInstanceOf(TurnCancelledError);
+
+      expect(seenSignal).toBe(controller.signal);
+      await new Promise(resolve => setTimeout(resolve, 10));
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
+  });
+
+  it('aborts parallel sibling calls in runDirectorStage on first failure and propagates TurnCancelledError from post-turn tools', async () => {
+    const capturedSignals: AbortSignal[] = [];
+    const ai: GeminiClient = {
+      models: {
+        generateContent: vi.fn(async (params: { config?: { abortSignal?: AbortSignal; responseSchema?: unknown } }) => {
+          const sig = params.config?.abortSignal;
+          if (sig) capturedSignals.push(sig);
+          const schema = JSON.stringify(params.config?.responseSchema ?? '');
+          if (schema.includes('spotlight_entities')) {
+            throw new Error('400 bad request');
+          }
+          return await new Promise<{ text: string }>(() => {});
+        }),
+      },
+    };
+    const player = makeEntity({ entity_id: 'player_1', name: 'Severus Alexander' });
+    await expect(runNewTurn(
+      ai as never,
+      { version: 1, kind: 'freeform', text: 'Address the legions.' },
+      player,
+      1,
+      [player],
+      makeWorldState(),
+      makeSimulationState(),
+      [],
+      [],
+      [],
+      [],
+      '',
+      false,
+      'Crisis of 235',
+    )).rejects.toThrow();
+    // Both Director-stage calls ran with linked child signals, and the sibling signal was aborted on failure.
+    expect(capturedSignals.length).toBeGreaterThanOrEqual(2);
+    expect(capturedSignals.every(s => s.aborted)).toBe(true);
+
+    const aborted = new AbortController();
+    aborted.abort();
+    await expect(getRelationshipObservations(ai, [], [], [], false, aborted.signal)).rejects.toBeInstanceOf(TurnCancelledError);
+    await expect(selectNoAttemptEvidence(ai, 'Who is behind this?', [{ id: 'ev1', source: 'rumor', text: 'Rumors swirl.' }], false, aborted.signal)).rejects.toBeInstanceOf(TurnCancelledError);
   });
 });

@@ -169,6 +169,7 @@ export async function relationshipDraftsUnlessOffline<T>(select: () => Promise<T
     try {
         return await select();
     } catch (error) {
+        if (error instanceof Error && error.name === 'TurnCancelledError') throw error;
         if (roadsOpenNow()) throw error;
         console.warn('relationshipObservations: the roads shut during the call; committing without them', error);
         return [];

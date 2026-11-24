@@ -507,6 +507,80 @@ describe('runNewTurn npc_minds: the information-asymmetry pin', () => {
     // ...and invisible to Venena: different location, no network reach.
     expect(harness.prompts['npcMind:npc_venena']).not.toContain('legion support');
   });
+
+  it('collective faction climates respect D10 epistemic isolation: hides unknown blocs and strips rival goals/narrative/internal distrust', async () => {
+    const harness = createMindHarness(baseResponses());
+    const { player, npcA, npcB } = makeAsymmetryCast();
+    npcA.faction_id = 'rhine_command';
+    npcA.visibility_network = [...npcA.visibility_network, 'palatine_clique'];
+    npcB.faction_id = 'palatine_clique';
+
+    const rhineBloc = makeEntity({
+      entity_id: 'rhine_command',
+      name: 'Rhine Command',
+      entity_type: 'faction',
+      short_term_goals: ['OWN_RHINE_OBJECTIVE_VISIBLE'],
+    });
+    const palatineBloc = makeEntity({
+      entity_id: 'palatine_clique',
+      name: 'Palatine Clique',
+      entity_type: 'faction',
+      short_term_goals: ['RIVAL_PALATINE_SECRET_GOAL'],
+      current_state_narrative: 'RIVAL_PALATINE_NARRATIVE_INFIGHTING',
+    });
+    const palatineDistrustedMate = makeEntity({
+      entity_id: 'npc_palatine_mate',
+      name: 'Corbulo',
+      faction_id: 'palatine_clique',
+      relationships: {
+        [npcB.entity_id]: {
+          entity_id: npcB.entity_id,
+          relationship_type: 'Enemy',
+          trust_level: -9,
+          respect_level: 0,
+          perceived_threat: 9,
+          ideological_alignment: 0,
+          dependency_level: 0,
+          recent_interactions: [],
+        },
+      },
+    });
+    const unknownHiddenCabal = makeEntity({
+      entity_id: 'secret_brotherhood',
+      name: 'HIDDEN_FACTION_NAME_SENTINEL',
+      entity_type: 'faction',
+      short_term_goals: ['HIDDEN_FACTION_GOAL_SENTINEL'],
+    });
+
+    await runNewTurn(
+      harness.ai,
+      freeform('Hold court'),
+      player,
+      5,
+      [player, npcA, npcB, rhineBloc, palatineBloc, palatineDistrustedMate, unknownHiddenCabal],
+      WORLD_STATE,
+      SIM_STATE,
+      [makePreviousEntry()],
+      [],
+      [],
+      [
+        { entity_id: 'npc_thrax', intent: 'Hold the camp', continuity: 'continue' },
+        { entity_id: 'npc_venena', intent: 'Watch the halls', continuity: 'continue' },
+      ],
+      '',
+      false,
+      'Grim political thriller',
+    );
+
+    const thraxPrompt = harness.prompts['npcMind:npc_thrax'];
+    expect(thraxPrompt).toContain('OWN_RHINE_OBJECTIVE_VISIBLE');
+    expect(thraxPrompt).toContain('Palatine Clique');
+    expect(thraxPrompt).not.toContain('RIVAL_PALATINE_SECRET_GOAL');
+    expect(thraxPrompt).not.toContain('RIVAL_PALATINE_NARRATIVE_INFIGHTING');
+    expect(thraxPrompt).not.toContain('fracturing');
+    expect(thraxPrompt).not.toContain('HIDDEN_FACTION_NAME_SENTINEL');
+    expect(thraxPrompt).not.toContain('HIDDEN_FACTION_GOAL_SENTINEL');
+  });
 });
 
 // --- the digest/memory double-count filter (memory stamp vs re-derived digest) ---

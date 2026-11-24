@@ -148,9 +148,15 @@ export const SchemeIntelSection: React.FC<{
     landedSeq?: number;
     /** Clears the landing once focus has moved, so it fires once (useFocusOnLanding). */
     onLandingFocused?: () => void;
-}> = ({ discovery, threshold, cost, resourceCount, onInvestigate, isLoading, interactionLocked = false, tooltip, showGloss = false, landedSeq, onLandingFocused }) => {
+    /** Optional D27 denarii fallback rail when unit investigations are depleted. */
+    denariiFallback?: { cost: number; canAfford: boolean };
+    /** Optional D27 warm/cold denarii pricing caption. */
+    warmthCaption?: string;
+}> = ({ discovery, threshold, cost, resourceCount, onInvestigate, isLoading, interactionLocked = false, tooltip, showGloss = false, landedSeq, onLandingFocused, denariiFallback, warmthCaption }) => {
     // Whichever state renders is where focus lands once a clue comes back.
     const findingRef = useFocusOnLanding<HTMLDivElement>(landedSeq, onLandingFocused);
+    const useCoin = resourceCount < cost && Boolean(denariiFallback?.canAfford);
+    const canAfford = resourceCount >= cost || useCoin;
     const renderState = () => {
         if (discovery?.revealed && discovery.nature) {
             return (
@@ -166,9 +172,12 @@ export const SchemeIntelSection: React.FC<{
                 <span className="gor-silhouette-body">
                     <span style={quiet}>{aware ? 'Something is afoot — your agents are still piecing it together.' : '[ Unknown ]'}</span>
                     {aware && <StitchedThread filled={clues} total={threshold} />}
+                    {warmthCaption && <span style={{ ...quiet, fontSize: 12 }}>{warmthCaption}</span>}
                 </span>
-                <FocusKeepingButton onPress={onInvestigate} unaffordable={resourceCount < cost} busy={isLoading || interactionLocked}>
-                    <Price verb="Pull the thread" cost={cost} balance={resourceCount} unit="Inv." />
+                <FocusKeepingButton onPress={onInvestigate} unaffordable={!canAfford} busy={isLoading || interactionLocked}>
+                    {useCoin && denariiFallback
+                        ? `Pull the thread · ${denariiFallback.cost.toLocaleString('en-US')} denarii`
+                        : <Price verb="Pull the thread" cost={cost} balance={resourceCount} unit="Inv." />}
                 </FocusKeepingButton>
             </div>
         );
@@ -221,18 +230,21 @@ export const IntelSection: React.FC<{
     landedSeq?: number;
     /** Clears the landing once focus has moved, so it fires once (useFocusOnLanding). */
     onLandingFocused?: () => void;
+    /** Optional D27 denarii fallback rail when unit investigations are depleted. */
+    denariiFallback?: { cost: number; canAfford: boolean };
     /** Optional D27 warm/cold denarii pricing caption. */
     warmthCaption?: string;
-}> = ({ title, cost, resourceName, resourceCount, held, heldSinceTurn, heldReading, onUncover, isLoading, interactionLocked = false, tooltip, showGloss = false, landedSeq, onLandingFocused, warmthCaption }) => {
+}> = ({ title, cost, resourceName, resourceCount, held, heldSinceTurn, heldReading, onUncover, isLoading, interactionLocked = false, tooltip, showGloss = false, landedSeq, onLandingFocused, denariiFallback, warmthCaption }) => {
     // Whichever state renders is where focus lands once a reading comes back.
     const findingRef = useFocusOnLanding<HTMLDivElement>(landedSeq, onLandingFocused);
     const busy = isLoading || interactionLocked;
+    const useCoin = resourceCount < cost && Boolean(denariiFallback?.canAfford);
+    const canAfford = resourceCount >= cost || useCoin;
 
     const renderContent = () => {
         // The held aspect, read durably off the store (B2) - the only place a
         // bought reading renders, so nothing paid for is lost to a tab switch
-        // (D14). The refresh affordance stays beside it at the same flat
-        // price. The stamps count turns, not the masthead's calendar week.
+        // (D14). The stamps count turns, not the masthead's calendar week.
         if (heldReading) {
             return (
                 <div ref={findingRef} tabIndex={-1} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -254,18 +266,15 @@ export const IntelSection: React.FC<{
                         <span style={{ ...quiet, fontSize: 12 }}>{warmthCaption}</span>
                     )}
                     <span>
-                        <FocusKeepingButton onPress={onUncover} unaffordable={resourceCount < cost} busy={busy}>
-                            <Price verb="Refresh" cost={cost} balance={resourceCount} unit={resourceName} />
+                        <FocusKeepingButton onPress={onUncover} unaffordable={!canAfford} busy={busy}>
+                            {useCoin && denariiFallback
+                                ? `Refresh · ${denariiFallback.cost.toLocaleString('en-US')} denarii`
+                                : <Price verb="Refresh" cost={cost} balance={resourceCount} unit={resourceName} />}
                         </FocusKeepingButton>
                     </span>
                 </div>
             );
         }
-        // A held dossier is REFRESHED, not revealed afresh - at the same flat
-        // price (D14; the D27 staleness discount stays dormant until B1's
-        // graded currency). Only a spend AMOUNT is ever shown - never a
-        // credibility number (D25).
-        //
         // Two silhouettes, not one row twice (audit item 26): nothing on file
         // is blanked vellum; something on file is a seal already broken, and
         // says how old it is.
@@ -285,9 +294,14 @@ export const IntelSection: React.FC<{
                     ) : (
                         <span style={quiet}>Nothing on file.</span>
                     )}
+                    {warmthCaption && (
+                        <span style={{ ...quiet, fontSize: 12 }}>{warmthCaption}</span>
+                    )}
                 </span>
-                <FocusKeepingButton onPress={onUncover} unaffordable={resourceCount < cost} busy={busy}>
-                    <Price verb={verb} cost={cost} balance={resourceCount} unit={resourceName} />
+                <FocusKeepingButton onPress={onUncover} unaffordable={!canAfford} busy={busy}>
+                    {useCoin && denariiFallback
+                        ? `${verb} · ${denariiFallback.cost.toLocaleString('en-US')} denarii`
+                        : <Price verb={verb} cost={cost} balance={resourceCount} unit={resourceName} />}
                 </FocusKeepingButton>
             </div>
         );
@@ -328,8 +342,14 @@ export const DeepAnalysisSection: React.FC<{
     landedSeq?: number;
     /** Clears the landing once focus has moved, so it fires once (useFocusOnLanding). */
     onLandingFocused?: () => void;
-}> = ({ held, cost, resourceCount, onCommission, isLoading, interactionLocked = false, showGloss = false, landedSeq, onLandingFocused }) => {
-    const canAfford = resourceCount >= cost;
+    /** Optional D27 denarii fallback rail when Deep Analyses units are depleted. */
+    denariiFallback?: { cost: number; canAfford: boolean };
+    /** Optional D27 warm/cold denarii pricing caption. */
+    warmthCaption?: string;
+}> = ({ held, cost, resourceCount, onCommission, isLoading, interactionLocked = false, showGloss = false, landedSeq, onLandingFocused, denariiFallback, warmthCaption }) => {
+    const canAffordUnits = resourceCount >= cost;
+    const useCoin = !canAffordUnits && Boolean(denariiFallback?.canAfford);
+    const canAfford = canAffordUnits || useCoin;
     const findingRef = useFocusOnLanding<HTMLDivElement>(landedSeq, onLandingFocused);
     const commission = (verb: string) => (
         <FocusKeepingButton
@@ -337,9 +357,15 @@ export const DeepAnalysisSection: React.FC<{
             onPress={onCommission}
             unaffordable={!canAfford}
             busy={isLoading || interactionLocked}
-            title={!canAfford ? `Requires ${cost} Deep Analyses (you have ${resourceCount})` : undefined}
+            title={!canAfford
+                ? (denariiFallback
+                    ? `Requires ${cost} Deep Analyses (you have ${resourceCount}) or ${denariiFallback.cost.toLocaleString('en-US')} denarii`
+                    : `Requires ${cost} Deep Analyses (you have ${resourceCount})`)
+                : undefined}
         >
-            <Price verb={verb} cost={cost} balance={resourceCount} unit="Deep" />
+            {useCoin && denariiFallback
+                ? `${verb} · ${denariiFallback.cost.toLocaleString('en-US')} denarii`
+                : <Price verb={verb} cost={cost} balance={resourceCount} unit="Deep" />}
         </FocusKeepingButton>
     );
 
@@ -354,16 +380,20 @@ export const DeepAnalysisSection: React.FC<{
                         <div className="gor-card gor-card-gilt" style={{ marginTop: 5, padding: '10px 12px', animation: 'gorFadeIn .4s ease-out both' }}>
                             <p style={{ margin: 0, fontSize: 14, fontStyle: 'italic', whiteSpace: 'pre-wrap' }}>“{held.analysis}”</p>
                         </div>
+                        {warmthCaption && <span style={{ ...quiet, fontSize: 12 }}>{warmthCaption}</span>}
                         <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                             <span style={quiet}>As of Turn {toRoman(held.asOfTurn)}</span>
                             {commission('Refresh')}
                         </span>
                     </div>
                 ) : (
-                    <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                        <span style={quiet}>[ No deep analysis commissioned ]</span>
-                        {commission('Commission')}
-                    </span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
+                        <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                            <span style={quiet}>[ No deep analysis commissioned ]</span>
+                            {commission('Commission')}
+                        </span>
+                        {warmthCaption && <span style={{ ...quiet, fontSize: 12 }}>{warmthCaption}</span>}
+                    </div>
                 )}
             </div>
         </div>

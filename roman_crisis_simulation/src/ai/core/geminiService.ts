@@ -233,7 +233,10 @@ function deadlineFor(model: string, kind: RequestKind): number {
 
 /** Settles as `pending` does, rejects on `signal` abort, or rejects with a timeout once `ms` pass first. Timers and listeners never outlive the race. */
 function withDeadline<T>(pending: Promise<T>, ms: number, signal?: AbortSignal): Promise<T> {
-  throwIfAborted(signal);
+  if (signal?.aborted) {
+    void pending.catch(() => {});
+    return Promise.reject(new TurnCancelledError());
+  }
   let timer: ReturnType<typeof setTimeout> | undefined;
   let onAbort: (() => void) | undefined;
   const deadline = new Promise<never>((_, reject) => {
@@ -649,9 +652,8 @@ async function consumeStream(
         onText(textSoFar, chunk.text);
       } catch (e) {
         consumerFailure = { error: e };
-        // As `for await` does on a break: close the stream.
-        iteratorClosed = true;
-        await iterator.return?.();
+        // As `for await` does on a break: close the stream without hanging if wedged.
+        closeIterator();
         break;
       }
     }
@@ -709,6 +711,7 @@ function buildConfig(req: {
   responseSchema?: object;
   thinkingConfig?: ThinkingConfigLike;
   temperature?: number;
+  signal?: AbortSignal;
   json: boolean;
 }): Record<string, unknown> {
   const config: Record<string, unknown> = {};
@@ -717,7 +720,37 @@ function buildConfig(req: {
   if (req.responseSchema) config.responseSchema = req.responseSchema;
   if (req.thinkingConfig) config.thinkingConfig = req.thinkingConfig;
   if (req.temperature !== undefined) config.temperature = req.temperature;
+  if (req.signal) config.abortSignal = req.signal;
   return config;
+}
+
+function acquireStreamWithAbortCleanup(
+  streamPromise: Promise<AsyncIterable<{ text?: string }>>,
+  signal?: AbortSignal,
+): Promise<AsyncIterable<{ text?: string }>> {
+  if (!signal) return streamPromise;
+  const closeAbandonedStream = (stream: AsyncIterable<{ text?: string }> | null | undefined) => {
+    try {
+      const iter = stream?.[Symbol.asyncIterator]?.();
+      void iter?.return?.()?.catch(() => {});
+    } catch {
+      // ignore cleanup failures on abandoned streams
+    }
+  };
+  let settled = false;
+  const onAbort = () => {
+    if (!settled) {
+      void streamPromise.then(closeAbandonedStream, () => {});
+    }
+  };
+  signal.addEventListener('abort', onAbort, { once: true });
+  return streamPromise.finally(() => {
+    settled = true;
+    signal.removeEventListener('abort', onAbort);
+    if (signal.aborted) {
+      void streamPromise.then(closeAbandonedStream, () => {});
+    }
+  });
 }
 
 /**
@@ -754,6 +787,7 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
       responseSchema: req.responseSchema,
       thinkingConfig: req.thinkingConfig,
       temperature: req.temperature,
+      signal: req.signal,
       json: true,
     });
 
@@ -766,6 +800,7 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
     try {
       parsed = parseModelJson<T>(network.text);
     } catch (e) {
+      throwIfAborted(req.signal);
       recordCall({
         callName,
         model: network.model,
@@ -828,6 +863,8 @@ export async function generateStructured<T>(ai: GeminiClient, req: GenerateStruc
       return result.data;
     }
 
+    throwIfAborted(req.signal);
+
     const issuePaths = result.error.issues.map(issue => issue.path.join('.') || '(root)');
     recordCall({
       callName,
@@ -888,6 +925,7 @@ export async function generateText(ai: GeminiClient, req: GenerateTextRequest): 
     systemInstruction: req.systemInstruction,
     thinkingConfig: req.thinkingConfig,
     temperature: req.temperature,
+    signal: req.signal,
     json: false,
   });
 
@@ -959,6 +997,7 @@ export async function generateSpeech(ai: GeminiClient, req: GenerateSpeechReques
     speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: req.voiceName } } },
   };
   if (req.temperature !== undefined) config.temperature = req.temperature;
+  if (req.signal) config.abortSignal = req.signal;
 
   const { value: response, attempts, latencyMs, model: usedModel } = await invokeWithProFallback(
     callName,
@@ -1041,6 +1080,7 @@ export async function generateStructuredStream<T>(
     responseSchema: req.responseSchema,
     thinkingConfig: req.thinkingConfig,
     temperature: req.temperature,
+    signal: req.signal,
     json: true,
   });
 
@@ -1049,7 +1089,7 @@ export async function generateStructuredStream<T>(
   // Phase 1: acquire the stream - identical retry/fallback semantics to
   // generateTextStream's own acquisition phase.
   const { value: stream, attempts, model: usedModel } = await invokeWithProFallback(callName, model, (resolvedModel) =>
-    streamFn({ model: resolvedModel, contents: req.prompt, config }),
+    acquireStreamWithAbortCleanup(streamFn({ model: resolvedModel, contents: req.prompt, config }), req.signal),
     'text',
     req.signal,
   );
@@ -1080,6 +1120,7 @@ export async function generateStructuredStream<T>(
   try {
     parsed = parseModelJson<T>(rawSoFar);
   } catch (e) {
+    throwIfAborted(req.signal);
     recordCall({ ...baseRecord, validated: false }, callLogOwner);
     const parseDetail = e instanceof Error ? e.message : String(e);
     console.error(`Gemini call '${callName}' returned unparseable JSON (streaming - no repair retry):`, parseDetail);
@@ -1102,6 +1143,8 @@ export async function generateStructuredStream<T>(
     recordCall({ ...baseRecord, validated: true }, callLogOwner);
     return result.data;
   }
+
+  throwIfAborted(req.signal);
 
   const issuePaths = result.error.issues.map(issue => issue.path.join('.') || '(root)');
   recordCall({ ...baseRecord, validated: false }, callLogOwner);
@@ -1147,6 +1190,7 @@ export async function generateTextStream(
   req: GenerateTextRequest,
   onChunk: (textSoFar: string) => void
 ): Promise<string> {
+  throwIfAborted(req.signal);
   const { callName, model } = req;
   const callLogOwner = currentCallLogOwner();
   const streamFn = ai.models.generateContentStream;
@@ -1162,6 +1206,7 @@ export async function generateTextStream(
     systemInstruction: req.systemInstruction,
     thinkingConfig: req.thinkingConfig,
     temperature: req.temperature,
+    signal: req.signal,
     json: false,
   });
 
@@ -1172,7 +1217,7 @@ export async function generateTextStream(
   // eligible for the same one-shot pro-tier fallback - narration runs on
   // GEMINI_PRO and streams when App.tsx opts into onNarrationChunk).
   const { value: stream, attempts, model: usedModel } = await invokeWithProFallback(callName, model, (resolvedModel) =>
-    streamFn({ model: resolvedModel, contents: req.prompt, config }),
+    acquireStreamWithAbortCleanup(streamFn({ model: resolvedModel, contents: req.prompt, config }), req.signal),
     'text',
     req.signal,
   );

@@ -1145,27 +1145,44 @@ export function playerProseRedactionNotes(
 export interface PlayerVisibleStreamGate {
   /** Returns a newly safe cumulative prefix, or null when more text is needed. */
   push(cumulativeText: string): string | null;
+  /** Append-only O(1)-per-chunk fast path for streaming chunks. */
+  pushChunk(delta: string): string | null;
   /** Validates and releases the complete player-visible text at stream end. */
   finish(completeText: string): string | null;
 }
 
 const STREAM_SAFE_OVERLAP_CHARS = 256;
-const STREAM_BOUNDARY_LOOKBACK_CHARS = 512;
-const STREAM_TAIL_GUARD_CHARS = 32;
-const STREAM_HEAD_GUARD_CHARS = 16;
+const SENTENCE_BREAK_AFTER_RE = /(?:[.!?][*_`"'”’)\]]*\s+|[\r\n]+)/gu;
 
-function safeStreamWindowStart(text: string, validatedEnd: number): number {
-  if (validatedEnd <= STREAM_SAFE_OVERLAP_CHARS) return 0;
-  const target = validatedEnd - STREAM_SAFE_OVERLAP_CHARS;
-  const floor = Math.max(0, validatedEnd - STREAM_BOUNDARY_LOOKBACK_CHARS);
-  for (let i = target; i >= floor; i--) {
-    if (text[i] === '\n') return i + 1;
-    if (/[.!?]/.test(text[i]) && i + 1 < text.length && /\s/.test(text[i + 1])) return i + 2;
+function appendSentenceStarts(text: string, fromOffset: number, sentenceStarts: number[]): void {
+  const lastStart = sentenceStarts[sentenceStarts.length - 1] ?? 0;
+  const scanStart = Math.max(lastStart, fromOffset - 32);
+  SENTENCE_BREAK_AFTER_RE.lastIndex = scanStart;
+  let match: RegExpExecArray | null;
+  while ((match = SENTENCE_BREAK_AFTER_RE.exec(text)) !== null) {
+    const start = match.index + match[0].length;
+    if (start > (sentenceStarts[sentenceStarts.length - 1] ?? 0) && start < text.length) {
+      sentenceStarts.push(start);
+    }
   }
-  for (let i = target; i >= floor; i--) {
-    if (/\s/.test(text[i])) return i + 1;
+}
+
+function overlapStartFor(sentenceStarts: readonly number[], limit: number): number {
+  if (limit <= 0) return 0;
+  let lo = 0;
+  let hi = sentenceStarts.length - 1;
+  let best = 0;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const candidate = sentenceStarts[mid];
+    if (candidate <= limit) {
+      best = candidate;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
   }
-  return target;
+  return best;
 }
 
 /**
@@ -1173,33 +1190,38 @@ function safeStreamWindowStart(text: string, validatedEnd: number): number {
  * "The die rolled " or "critical_" is harmless in isolation but can become
  * forbidden when the next provider chunk arrives; only a complete segment
  * is eligible for the UI callback, and the complete text is revalidated at
- * stream end. Maintains a monotonic high-water mark with overlap lookback so
- * incremental chunks avoid quadratic full-prefix regex scans.
+ * stream end. Verifies exact prefix monotonicity and aligns incremental
+ * overlap windows strictly to recorded sentence/line starts so mid-sentence
+ * cuts and middle-of-stream mutations cannot pass unchecked or fail valid prose.
  */
 export function createPlayerVisibleStreamGate(): PlayerVisibleStreamGate {
   let lastReleased = '';
-  let validatedEnd = 0;
-  let validatedHead = '';
-  let validatedTail = '';
+  let validatedPrefix = '';
+  let chunkBuffer = '';
+  let sentenceStarts: number[] = [0];
 
-  const isMonotonic = (text: string): boolean => {
-    if (validatedEnd === 0) return false;
-    if (text.length < validatedEnd) return false;
-    if (!text.startsWith(validatedHead)) return false;
-    const tailStart = Math.max(0, validatedEnd - STREAM_TAIL_GUARD_CHARS);
-    return text.slice(tailStart, validatedEnd) === validatedTail;
-  };
+  const validateCompleted = (completed: string, monotonic: boolean): string | null => {
+    if (!monotonic) {
+      sentenceStarts = [0];
+    }
+    const prevLen = monotonic ? validatedPrefix.length : 0;
+    appendSentenceStarts(completed, prevLen, sentenceStarts);
 
-  const recordValidated = (text: string): void => {
-    validatedEnd = text.length;
-    validatedHead = text.slice(0, STREAM_HEAD_GUARD_CHARS);
-    validatedTail = text.slice(Math.max(0, text.length - STREAM_TAIL_GUARD_CHARS));
+    const windowStart = monotonic
+      ? overlapStartFor(sentenceStarts, prevLen - STREAM_SAFE_OVERLAP_CHARS)
+      : 0;
+    assertPlayerVisibleTextSafe(windowStart === 0 ? completed : completed.slice(windowStart));
+
+    validatedPrefix = completed;
+    lastReleased = completed;
+    return completed;
   };
 
   return {
     push(cumulativeText: string): string | null {
-      const monotonic = isMonotonic(cumulativeText);
-      const scanFloor = monotonic ? validatedEnd : 0;
+      chunkBuffer = cumulativeText;
+      const monotonic = validatedPrefix.length > 0 && cumulativeText.startsWith(validatedPrefix);
+      const scanFloor = monotonic ? validatedPrefix.length : 0;
 
       let completedEnd = 0;
       for (let i = cumulativeText.length - 1; i >= scanFloor; i--) {
@@ -1209,29 +1231,54 @@ export function createPlayerVisibleStreamGate(): PlayerVisibleStreamGate {
           break;
         }
       }
-      if (completedEnd === 0 || (monotonic && completedEnd <= validatedEnd)) return null;
+      if (completedEnd === 0 || (monotonic && completedEnd <= validatedPrefix.length)) return null;
 
       const completed = cumulativeText.slice(0, completedEnd).trimEnd();
       if (!completed || completed === lastReleased) return null;
+      return validateCompleted(completed, monotonic);
+    },
+    pushChunk(delta: string): string | null {
+      if (!delta) return null;
+      const prevBufLen = chunkBuffer.length;
+      chunkBuffer += delta;
+      const scanFloor = Math.max(validatedPrefix.length, prevBufLen);
 
-      const windowStart = monotonic ? safeStreamWindowStart(completed, validatedEnd) : 0;
-      assertPlayerVisibleTextSafe(windowStart === 0 ? completed : completed.slice(windowStart));
+      let completedEnd = 0;
+      for (let i = chunkBuffer.length - 1; i >= scanFloor; i--) {
+        const ch = chunkBuffer[i];
+        if (ch === '.' || ch === '!' || ch === '?') {
+          completedEnd = i + 1;
+          break;
+        }
+      }
+      if (completedEnd === 0 || completedEnd <= validatedPrefix.length) return null;
 
-      recordValidated(completed);
-      lastReleased = completed;
-      return completed;
+      const completed = chunkBuffer.slice(0, completedEnd).trimEnd();
+      if (!completed || completed === lastReleased) return null;
+      return validateCompleted(completed, validatedPrefix.length > 0);
     },
     finish(completeText: string): string | null {
       const complete = completeText.trim();
-      if (isMonotonic(complete)) {
-        if (complete.length > validatedEnd) {
-          const windowStart = safeStreamWindowStart(complete, validatedEnd);
-          assertPlayerVisibleTextSafe(windowStart === 0 ? complete : complete.slice(windowStart));
-          recordValidated(complete);
-        }
+      chunkBuffer = complete;
+      if (complete && complete === validatedPrefix) {
+        if (complete === lastReleased) return null;
+        lastReleased = complete;
+        return complete;
+      }
+      if (validatedPrefix.length > 0 && complete.startsWith(validatedPrefix)) {
+        const windowStart = overlapStartFor(sentenceStarts, validatedPrefix.length - STREAM_SAFE_OVERLAP_CHARS);
+        assertPlayerVisibleTextSafe(windowStart === 0 ? complete : complete.slice(windowStart));
+        appendSentenceStarts(complete, validatedPrefix.length, sentenceStarts);
+        validatedPrefix = complete;
       } else {
         assertPlayerVisibleTextSafe(complete);
-        if (complete) recordValidated(complete);
+        sentenceStarts = [0];
+        if (complete) {
+          appendSentenceStarts(complete, 0, sentenceStarts);
+          validatedPrefix = complete;
+        } else {
+          validatedPrefix = '';
+        }
       }
       if (!complete || complete === lastReleased) return null;
       lastReleased = complete;

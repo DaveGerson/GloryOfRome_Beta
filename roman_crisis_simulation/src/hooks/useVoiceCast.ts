@@ -100,6 +100,8 @@ export interface UseVoiceCastArgs {
   defaultNarrator?: DefaultNarrator;
   /** Bumped at every campaign boundary (hooks/useCampaignTransactions.ts). */
   campaignGenerationRef: MutableRefObject<number>;
+  /** Shared pause ref set while a cross-tab conflict is active (1D). */
+  autosavePausedRef?: MutableRefObject<boolean>;
 }
 
 export type RecastStatus = 'idle' | 'casting' | 'done' | 'fell_back';
@@ -107,6 +109,7 @@ export type RecastStatus = 'idle' | 'casting' | 'done' | 'fell_back';
 export function useVoiceCast({
   ai, isMockMode, resolvedApiKey, narrationVoiceMode, gameState, voiceCast, dispatch,
   playerEntity, basis, metaNarrative, defaultNarrator = DEFAULT_CAST_NARRATOR, campaignGenerationRef,
+  autosavePausedRef,
 }: UseVoiceCastArgs) {
   const { candidates, effectiveCast } = basis;
   const [recastStatus, setRecastStatus] = useState<RecastStatus>('idle');
@@ -124,8 +127,10 @@ export function useVoiceCast({
   const keep = useCallback((next: VoiceCast) => {
     castRef.current = next;
     dispatch({ type: 'VOICE_CAST_SET', voiceCast: next });
-    updateSavedVoiceCast(next, playerCharacterId);
-  }, [dispatch, playerCharacterId]);
+    if (!autosavePausedRef?.current) {
+      updateSavedVoiceCast(next, playerCharacterId);
+    }
+  }, [dispatch, playerCharacterId, autosavePausedRef]);
 
   const player = useMemo(
     () => (playerEntity ? { name: playerEntity.name, ...(playerEntity.position ? { position: playerEntity.position } : {}) } : null),

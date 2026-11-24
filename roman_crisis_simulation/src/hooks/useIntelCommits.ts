@@ -14,11 +14,12 @@
  */
 
 import type { GoogleGenAI } from '@google/genai';
-import type { Entity, InvestigationResult, InvestigationTruth, Message, OccurrenceSiblingOutcome, OccurrenceTruth, TruthLedgerEntry } from '../types';
+import type { Entity, InvestigationResult, InvestigationTruth, Message, OccurrenceSiblingOutcome, OccurrenceTruth, Report, TruthLedgerEntry } from '../types';
 import type { DomainMutationContext } from '../state/domainMutation';
 import type { SaveGameState } from '../persistence/saveGame';
 import { computeDeepAnalysisKnowledge, computeInvestigationKnowledge } from '../knowledge/commit';
 import { deriveDossier, ingestOccurrenceFinding, occurrenceClaimKey, occurrenceSiblingInStore, SCHEME_CLUES_TO_REVEAL, type KnowledgeClaim, type OccurrenceQuestion } from '../knowledge/store';
+import { convertResourceToInvestigations, type ConvertibleResource } from '../knowledge/pricing';
 import {
     buildInvestigationRelationshipEvidence,
     knownRecipientOptionsForPlayer,
@@ -27,6 +28,7 @@ import { getRelationshipObservations } from '../ai/tools/relationshipObservation
 import { settleInvestigationTruth, type SettledInvestigationTruth } from '../ai/tools/intelligence';
 import { investigationLedgerEntries, occurrenceLedgerEntry, siblingOccurrenceOutcome } from '../ai/core/groundTruth';
 import { appendTruthLedgerEntries } from '../ai/core/engine';
+import { applySystemicResourceRule, SYSTEMIC_RESOURCES } from '../ai/core/resources';
 import { appendFallout, hasFallout } from '../components/investigationLoop';
 import { relationshipDraftsUnlessOffline, type DomainCommit, type TransactionNote } from '../app/transactions';
 
@@ -36,6 +38,7 @@ export interface IntelCommitsDeps {
     entities: Entity[];
     playerCharacterId: string | null;
     knowledge: KnowledgeClaim[];
+    reports?: Report[];
     /**
      * GM-PRIVATE (D11): the truth ledger, read here only to settle a bought
      * finding's truth (D47) - the clue standings a scheme's nature follows
@@ -50,18 +53,44 @@ export interface IntelCommitsDeps {
     setTransactionNote: (note: TransactionNote | null) => void;
 }
 
+const INSUFFICIENT_FUNDS_NOTE = 'Not enough funds in the treasury to complete this order.';
+
+function deductDenariiWithSystemicRule(
+    player: Entity,
+    denariiCost: number,
+    turnNumber: number,
+    existingReportCount: number,
+): { ok: boolean; finalDenarii: number; reports: Report[] } {
+    const rawCurrent = player.resources.denarii;
+    const currentDenarii = typeof rawCurrent === 'number' && Number.isFinite(rawCurrent) ? rawCurrent : 0;
+    if (denariiCost <= 0) {
+        return { ok: true, finalDenarii: currentDenarii, reports: [] };
+    }
+    if (currentDenarii < denariiCost) {
+        return { ok: false, finalDenarii: currentDenarii, reports: [] };
+    }
+    const clonedPlayer: Entity = { ...player, resources: { ...player.resources } };
+    const { finalValue, reports } = applySystemicResourceRule(
+        SYSTEMIC_RESOURCES.denarii,
+        clonedPlayer,
+        'denarii',
+        currentDenarii,
+        currentDenarii - denariiCost,
+        turnNumber,
+        { emitReports: true, sequence: existingReportCount },
+    );
+    return { ok: true, finalDenarii: finalValue, reports };
+}
+
 export function useIntelCommits(deps: IntelCommitsDeps) {
     const {
-        ai, isMockMode, entities, playerCharacterId, knowledge, truthLedger, pendingIntelligenceFallout, messages, turnNumber,
+        ai, isMockMode, entities, playerCharacterId, knowledge, reports = [], truthLedger, pendingIntelligenceFallout, messages, turnNumber,
         buildSaveState, commitDomainMutation, setTransactionNote,
     } = deps;
 
     /**
-     * A commissioned Spymaster's Assessment: the deep_analyses spend AND the
-     * assessment itself, in one atomic commit (D14). The spend used to commit
-     * alone, with the text kept only in the dossier card's component state -
-     * so a tab switch (which unmounts the card) lost the reading the rare
-     * resource had already paid for, and offered to sell it again. Its
+     * A commissioned Spymaster's Assessment: the deep_analyses (or D27 coin)
+     * spend AND the assessment itself, in one atomic commit (D14). Its
      * GM-private truth (D47) lands on the truth ledger in the same commit.
      */
     const handleDeepAnalysis = (
@@ -70,14 +99,33 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
         analysis: string,
         request: DomainMutationContext,
         truth?: InvestigationTruth,
+        denariiCost = 0,
     ): boolean => {
         if (!request.isCurrent()) return false;
+        const player = entities.find(e => e.entity_id === playerCharacterId);
+        if (!player) return false;
+
+        const currentUnits = (player.resources.deep_analyses as number) || 0;
+        if (cost > 0 && currentUnits < cost) {
+            setTransactionNote({ kind: 'save', lead: INSUFFICIENT_FUNDS_NOTE });
+            return false;
+        }
+        const denariiStep = deductDenariiWithSystemicRule(player, denariiCost, turnNumber, reports.length);
+        if (!denariiStep.ok) {
+            setTransactionNote({ kind: 'save', lead: INSUFFICIENT_FUNDS_NOTE });
+            return false;
+        }
+
         const newEntities = entities.map(e => {
             if (e.entity_id === playerCharacterId) {
-                const newResources = {...e.resources};
-                const currentAmount = (newResources.deep_analyses as number) || 0;
-                newResources.deep_analyses = Math.max(0, currentAmount - cost);
-                return {...e, resources: newResources};
+                const newResources = { ...e.resources };
+                if (cost > 0) {
+                    newResources.deep_analyses = Math.max(0, currentUnits - cost);
+                }
+                if (denariiCost > 0) {
+                    newResources.denarii = denariiStep.finalDenarii;
+                }
+                return { ...e, resources: newResources };
             }
             return e;
         });
@@ -85,18 +133,18 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
         const nextTruthLedger = truth
             ? appendTruthLedgerEntries(truthLedger, investigationLedgerEntries(truth, turnNumber, Date.now()))
             : truthLedger;
+        const nextReports = denariiStep.reports.length > 0 ? [...reports, ...denariiStep.reports] : reports;
+        const reportUpdate = denariiStep.reports.length > 0 ? { reports: nextReports } : {};
         if (!request.isCurrent()) return false;
         return commitDomainMutation({
-            candidate: buildSaveState({ entities: newEntities, knowledge: nextKnowledge, truthLedger: nextTruthLedger }),
-            // The same commit shape a bought reveal uses; an assessment
-            // carries no consequences, so the fallout queue is handed back
-            // unchanged.
+            candidate: buildSaveState({ entities: newEntities, knowledge: nextKnowledge, truthLedger: nextTruthLedger, ...reportUpdate }),
             action: {
                 type: 'INVESTIGATION_COMMITTED',
                 entities: newEntities,
                 pendingIntelligenceFallout,
                 knowledge: nextKnowledge,
                 truthLedger: nextTruthLedger,
+                ...reportUpdate,
             },
             onSaveFailure: () => setTransactionNote({ kind: 'save', lead: 'Your change could not be saved.' }),
             beforeDispatch: () => setTransactionNote(null),
@@ -183,8 +231,19 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
         result: InvestigationResult,
         request: DomainMutationContext,
         truth?: InvestigationTruth,
+        denariiCost = 0,
     ): Promise<boolean> => {
         if (!request.isCurrent()) return false;
+        const playerBeforeAsync = entities.find(e => e.entity_id === playerCharacterId);
+        if (!playerBeforeAsync) return false;
+        const unitsBeforeAsync = (playerBeforeAsync.resources.investigations as number) || 0;
+        const denariiBeforeAsync = typeof playerBeforeAsync.resources.denarii === 'number' && Number.isFinite(playerBeforeAsync.resources.denarii)
+            ? playerBeforeAsync.resources.denarii
+            : 0;
+        if ((cost > 0 && unitsBeforeAsync < cost) || (denariiCost > 0 && denariiBeforeAsync < denariiCost)) {
+            setTransactionNote({ kind: 'save', lead: INSUFFICIENT_FUNDS_NOTE });
+            return false;
+        }
         const entityDirectory = entities.map(entity => ({
             entity_id: entity.entity_id,
             name: entity.name,
@@ -239,17 +298,33 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
             isMockMode,
         ));
         if (!request.isCurrent()) return false;
+        const livePlayer = entities.find(e => e.entity_id === playerCharacterId);
+        if (!livePlayer) return false;
+        const currentInv = (livePlayer.resources.investigations as number) || 0;
+        if (cost > 0 && currentInv < cost) {
+            setTransactionNote({ kind: 'save', lead: INSUFFICIENT_FUNDS_NOTE });
+            return false;
+        }
+        const denariiStep = deductDenariiWithSystemicRule(livePlayer, denariiCost, turnNumber, reports.length);
+        if (!denariiStep.ok) {
+            setTransactionNote({ kind: 'save', lead: INSUFFICIENT_FUNDS_NOTE });
+            return false;
+        }
         const newEntities = entities.map(e => {
             if (e.entity_id === playerCharacterId) {
-                const newResources = {...e.resources};
-                const currentInv = (newResources.investigations as number) || 0;
-                newResources.investigations = Math.max(0, currentInv - cost);
+                const newResources = { ...e.resources };
+                if (cost > 0) {
+                    newResources.investigations = Math.max(0, currentInv - cost);
+                }
+                if (denariiCost > 0) {
+                    newResources.denarii = denariiStep.finalDenarii;
+                }
                 if (kind === 'secrets' && Array.isArray(reportData)) {
                     const resourceKey = `blackmail_on_${targetId}`;
                     const existingSecrets = (newResources[resourceKey] as string[]) || [];
                     newResources[resourceKey] = Array.from(new Set([...existingSecrets, ...(reportData as string[])]));
                 }
-                return {...e, resources: newResources};
+                return { ...e, resources: newResources };
             }
             return e;
         });
@@ -283,13 +358,15 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
         const falloutMessage: Message | undefined = hasFallout(result.consequences)
             ? { sender: 'gm', text: 'Your agent returns — but something in their manner suggests the visit did not go unnoticed.' }
             : undefined;
+        const nextReports = denariiStep.reports.length > 0 ? [...reports, ...denariiStep.reports] : reports;
+        const reportUpdate = denariiStep.reports.length > 0 ? { reports: nextReports } : {};
         // This is intentionally adjacent to the durable write. A future
         // async-extraction phase may add work above; an EntityDetails unmount
         // during that work must cancel before charging or committing any result.
         if (!request.isCurrent()) return false;
         if (!commitDomainMutation({
-            candidate: buildSaveState({ entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge, truthLedger: nextTruthLedger, messages: falloutMessage ? [...messages, falloutMessage] : messages }),
-            action: { type: 'INVESTIGATION_COMMITTED', entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge, truthLedger: nextTruthLedger, falloutMessage },
+            candidate: buildSaveState({ entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge, truthLedger: nextTruthLedger, ...reportUpdate, messages: falloutMessage ? [...messages, falloutMessage] : messages }),
+            action: { type: 'INVESTIGATION_COMMITTED', entities: newEntities, pendingIntelligenceFallout: nextFallout, knowledge: nextKnowledge, truthLedger: nextTruthLedger, ...reportUpdate, falloutMessage },
             onSaveFailure: () => setTransactionNote({ kind: 'save', lead: 'Your investigation could not be saved.' }),
             beforeDispatch: () => setTransactionNote(null),
         })) {
@@ -297,6 +374,59 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
         }
 
         return true;
+    };
+
+    const handleConvertResourceToInvestigations = (
+        source: ConvertibleResource,
+        request: DomainMutationContext,
+    ): boolean => {
+        if (!request.isCurrent()) return false;
+        const player = entities.find(e => e.entity_id === playerCharacterId);
+        if (!player) return false;
+        const conversion = convertResourceToInvestigations(player.resources, source, 1);
+        if (!conversion.ok) {
+            if (conversion.reason) setTransactionNote({ kind: 'save', lead: conversion.reason });
+            return false;
+        }
+        let updatedResources = conversion.updatedResources;
+        let emittedReports: Report[] = [];
+        if (source === 'denarii') {
+            const prevDenarii = typeof player.resources.denarii === 'number' && Number.isFinite(player.resources.denarii)
+                ? player.resources.denarii
+                : 0;
+            const rawDenarii = typeof updatedResources.denarii === 'number' && Number.isFinite(updatedResources.denarii)
+                ? updatedResources.denarii
+                : 0;
+            const clonedPlayer: Entity = { ...player, resources: { ...updatedResources } };
+            const sys = applySystemicResourceRule(
+                SYSTEMIC_RESOURCES.denarii,
+                clonedPlayer,
+                'denarii',
+                prevDenarii,
+                rawDenarii,
+                turnNumber,
+                { emitReports: true, sequence: reports.length },
+            );
+            updatedResources = { ...clonedPlayer.resources, denarii: sys.finalValue };
+            emittedReports = sys.reports;
+        }
+        const nextEntities = entities.map(e => (
+            e.entity_id === playerCharacterId ? { ...e, resources: updatedResources } : e
+        ));
+        const reportUpdate = emittedReports.length > 0 ? { reports: [...reports, ...emittedReports] } : {};
+        if (!request.isCurrent()) return false;
+        return commitDomainMutation({
+            candidate: buildSaveState({ entities: nextEntities, ...reportUpdate }),
+            action: {
+                type: 'INVESTIGATION_COMMITTED',
+                entities: nextEntities,
+                pendingIntelligenceFallout,
+                knowledge,
+                ...reportUpdate,
+            },
+            onSaveFailure: () => setTransactionNote({ kind: 'save', lead: 'Your funding order could not be saved.' }),
+            beforeDispatch: () => setTransactionNote(null),
+        });
     };
 
     /**
@@ -323,5 +453,12 @@ export function useIntelCommits(deps: IntelCommitsDeps) {
         });
     };
 
-    return { handleDeepAnalysis, handleOccurrenceFinding, handleInvestigationOutcome, handleSetIntervention, occurrenceSibling };
+    return {
+        handleDeepAnalysis,
+        handleOccurrenceFinding,
+        handleInvestigationOutcome,
+        handleConvertResourceToInvestigations,
+        handleSetIntervention,
+        occurrenceSibling,
+    };
 }

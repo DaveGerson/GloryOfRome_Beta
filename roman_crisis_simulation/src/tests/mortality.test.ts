@@ -865,4 +865,64 @@ describe('guardOverturnedDeathHeadlines (1C)', () => {
       'Maximinus Thrax addresses the legions.',
     ]);
   });
+
+  it('catches noun/title deaths, bypass phrasings, Unicode/punctuated names, while preventing shared-nomen and agent false positives', () => {
+    const severus = makeEntity({ entity_id: 'player_1', name: 'Severus Alexander', position: 'Roman Emperor' });
+    const thrax = makeEntity({ entity_id: 'maximinus_thrax', name: 'Maximinus Thrax', position: 'Legion Commander' });
+    const gordianI = makeEntity({ entity_id: 'gordian_1', name: 'Gordian I', status: 'dead', position: 'Co-Emperor' });
+    const gordianII = makeEntity({ entity_id: 'gordian_2', name: 'Gordian II', status: 'alive', position: 'Co-Emperor' });
+    const emile = makeEntity({ entity_id: 'emile_1', name: 'Émile', position: 'Envoy' });
+    const julia = makeEntity({ entity_id: 'julia_1', name: 'Julia, Empress' });
+    const roster = [severus, thrax, gordianI, gordianII, emile, julia];
+
+    const res = guardOverturnedDeathHeadlines(
+      [
+        'Death of Maximinus Thrax shocks the Rhine legions!',
+        'Assassination of Maximinus Thrax plunges camp into chaos.',
+        'The Emperor is assassinated on the Senate steps!',
+        'Body of Maximinus Thrax recovered from the Tiber; he is dead.',
+        'Maximinus Thrax dies; his son survives him.',
+        'Émile dies at dawn.',
+        'Julia, Empress cut down in the palace.',
+        'Gordian I dies at Carthage.',
+        "Assassin killed by Maximinus Thrax's bodyguards.",
+        'Maximinus Thrax executes rebel centurion; traitor dies at dawn.',
+      ],
+      [
+        { entityId: 'maximinus_thrax', name: 'Maximinus Thrax', valid: false, position: 'Legion Commander' },
+        { entityId: 'player_1', name: 'Severus Alexander', valid: true, position: 'Roman Emperor' },
+        { entityId: 'gordian_2', name: 'Gordian II', valid: true, position: 'Co-Emperor' },
+        { entityId: 'emile_1', name: 'Émile', valid: false, position: 'Envoy' },
+        { entityId: 'julia_1', name: 'Julia, Empress', valid: false },
+      ],
+      roster,
+    );
+
+    // Duplicate rewrites for Maximinus Thrax are deduplicated in final headlines.
+    expect(res.headlines).toEqual([
+      'Reports claiming the end of Maximinus Thrax prove unfounded; Maximinus Thrax still lives.',
+      'An attempt against Severus Alexander fails to end a life; Severus Alexander still lives.',
+      'Reports claiming the end of Émile prove unfounded; Émile still lives.',
+      'Reports claiming the end of Julia, Empress prove unfounded; Julia, Empress still lives.',
+      'Gordian I dies at Carthage.',
+      "Assassin killed by Maximinus Thrax's bodyguards.",
+      'Maximinus Thrax executes rebel centurion; traitor dies at dawn.',
+    ]);
+    // Preserves valid flag for invalidated vs attempt-survived rewrites.
+    expect(res.rewrites.find(r => r.from.includes('The Emperor'))?.valid).toBe(true);
+    expect(res.rewrites.find(r => r.from.includes('Émile'))?.valid).toBe(false);
+  });
+
+  it('joins multi-subject overturned death headlines cleanly', () => {
+    const res = guardOverturnedDeathHeadlines(
+      ['Maximinus Thrax and Quintus slain in ambush.'],
+      [
+        { entityId: 'maximinus_thrax', name: 'Maximinus Thrax', valid: true },
+        { entityId: 'quintus', name: 'Quintus', valid: true },
+      ],
+    );
+    expect(res.headlines).toEqual([
+      'An attempt against Maximinus Thrax and Quintus fails to end any life; Maximinus Thrax and Quintus still live.',
+    ]);
+  });
 });

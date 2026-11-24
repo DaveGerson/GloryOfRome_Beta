@@ -20,9 +20,9 @@ Full prioritized Value × Effort × Subagent Resolvability matrix, file seams, a
 - [x] **TODO (2A):** Shareable End-of-Reign Illustrated Scroll (P7) (`Medium`, ~18–20m)
 - [x] **TODO (2B):** Economy with Seasonal Momentum & ±1 Clamp (G2) (`Medium`, ~15–20m)
 - [x] **TODO (2C):** Turn Cancellation & `AbortSignal` Plumbing (A1) (`Medium`, ~18–22m)
-- [x] **TODO (3A):** Intel Currency Converter & Graded Dossier Pricing (B1 + D27) (`Medium-Large`, needs design choices)
-- [x] **TODO (3B):** Clue-Driven Scheme Deduction Board (B3 / G1) (`Large`, needs design choices)
-- [x] **TODO (3C):** Faction Collective Minds (B6 / G3) & Turned Spy Contacts (G4) (`Large`, needs design spec)
+- [x] **TODO (3A):** Intel Currency Converter & Graded Dossier Pricing (B1 + D27) *(Done — `knowledge/pricing.ts`, Personae `"Fund Agents"` drawer, D27 coin rail)*
+- [~] **TODO (3B):** Clue-Driven Scheme Deduction Board (B3 / G1) *(Partial — `knowledge/schemeDeduction.ts` & Personae board/cross-check shipped; G1 accusation mini-game deferred)*
+- [~] **TODO (3C):** Faction Collective Minds (B6 / G3) & Turned Spy Contacts (G4) *(Partial — D10/D41 per-viewer `ai/core/factionMood.ts` climates shipped; G4 turned spies & spotlight faction minds deferred)*
 
 ---
 
@@ -53,25 +53,20 @@ will recur for every systemic mechanic added.
 
 ## Backlog items
 
-### B1 — Currency converter: soft resources → investigations  *(owner-requested)*
+### B1 — Currency converter: soft resources → investigations  *(SHIPPED on denarii/senatorial/legion rails; broker gating open)*
 Let the player exchange other currencies they hold — money/denarii, troops,
 favors, standing, etc. — into investigation capacity. Investigations are a
 hard gating currency but are currently unit-priced and scarce, with no way to
 trade a surplus of one kind for intel. A converter is the T1 interoperability
 bridge between the soft resource bag and the hard investigation mechanic.
 
-- **Unlocks graded investigation pricing.** Once investigations have a real
-  (non-unit) cost via conversion, the currently-dormant dossier-refresh decay
-  curve (`knowledge/dossierCost.ts`, D27) becomes meaningful again — a warm
-  refresh can cost genuinely less than a cold one. **Until the converter
-  lands, investigations stay flat/simple ("as is") and the decay curve is
-  preserved-but-dormant.** The converter is therefore the prerequisite that
-  makes D27's graded pricing worth having.
-- **Open design:** per-resource exchange rates; friction/loss on conversion
-  (to prevent trivial minting — the T1 guardrail); whether conversion is
-  instant or costs a turn; whether some conversions need an NPC/broker (tying
-  intel-buying into the relationship system, so who you know gates what you
-  can trade).
+- **Shipped (TODO 3A):** `knowledge/pricing.ts` (`convertResourceToInvestigations`
+  with `1.25×` T1 friction on `denarii: 2500`, `senatorial_support: 10`,
+  `legion_support: 10`), `"Fund Agents"` drawer in `DramatisPersonaeTab.tsx`,
+  atomic commit + D6 low-treasury warnings via `hooks/useIntelCommits.ts`, and
+  active D27 warm/cold denarii fallback pricing (`priceIntelPurchase`) across all
+  four intel rails. Unit `investigations` stay `1 Inv.` flat; per-season caps
+  and NPC-broker gating remain future tuning options.
 
 ### B2 — Player-facing intelligence VISUAL surfaces  *(LANDED 2026-08-06)*
 The substrate was built (knowledge graph D29, sourced-credibility framing
@@ -95,11 +90,13 @@ zero-state lines, the staleness clause, pair em-dash headers). The feed
 includes digest-channel (witnessed) claims alongside reports — drop
 `digest` from `isFeedClaim` if pure hearsay is preferred.
 
-### B3 — Clue-driven scheme-discovery mini-game  *(D28 forward direction)*
+### B3 — Clue-driven scheme-discovery mini-game  *(PARTIAL — Board Shipped; G1 Accusation Mini-Game Open)*
 The data model is built (awareness vs earned nature, clue accretion, reveal
-threshold). The forward direction is the fuller detective loop: unravel
-accumulated clues to *deduce* a scheme's true nature, rather than a threshold
-flip.
+threshold). **Shipped (TODO 3B):** `knowledge/schemeDeduction.ts`
+(`deriveSchemeBoard` / `evaluateDeductionHypothesis`) and the `"Conspiracy & Leads"`
+board + interactive `"Cross-check associate"` selector inside Personae.
+**Still open (G1):** the formal public accusation mini-game (accusation costs,
+Curia/tribunal resolution, and false-accusation fallout).
 
 ### B4 — Journey smoke-harness integration  *(LANDED)*
 Done: the multi-turn journey suite runs the real turn pipeline via scripted
@@ -129,10 +126,12 @@ baseline, and a deliberate decision is made to accept the recurring cost and
 adopt fork-safe secret handling (e.g. `pull_request_target` with explicit
 review gating, or a manual/scheduled workflow instead of every push).
 
-### B6 — Faction-level collective minds  *(D22 seam)*
-The mind system has a documented seam for modeling a bloc (Plebs, Senate,
-gangs) as one collective mind. Build when a faction matters as a spotlight
-actor in its own right.
+### B6 — Faction-level collective minds  *(PARTIAL — Per-Viewer Climates Shipped; Spotlight Faction Minds & G4 Open)*
+The mind system now injects per-viewer D10/D41-isolated collective faction
+climates (`ai/core/factionMood.ts::deriveFactionMoodsForViewer`, wired in
+`ai/core/turn.ts`) summarizing own-bloc cohesion/agendas and public-only posture
+for known blocs. Full autonomous spotlight faction minds and G4 turned spy
+contacts / disinformation remain open pending design spec.
 
 ### B7 — Deferred edge cleanups
 - `secret_truth` is not cleared on NPC revival — a publicly-returned NPC stays
@@ -913,8 +912,9 @@ as written; any line can still be reworded if it reads wrong in play.
 - **Event text** — 3 new (Acclamation on the Rhine, Stirrings in Africa, The
   Donative Comes Due) + 2 reworked (grain shortage, whispers of mutiny).
 - **FATES posture wording** — PATIENT / MEASURED / EAGER.
-- **D27 decay numbers** (floor 0.2×, cold threshold 6 turns) — moot while
-  dormant; revisit alongside B1.
+- **D27 decay numbers** (floor 0.2×, cold threshold 6 turns) — active on the
+  denarii rail via `knowledge/pricing.ts` (`3A`); revisit tuning alongside balance
+  feedback.
 - **Narration voice copy (B13)** — setting "Narrator's voice" with options
   SILENT / ON REQUEST / EVERY WEEK and their notes ("The narration is read,
   not heard." / "A play control on each narration. Every performance is a

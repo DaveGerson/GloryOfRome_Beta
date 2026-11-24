@@ -147,6 +147,7 @@ export interface ExecuteTurnDeps {
     appMountedRef: MutableRefObject<boolean>;
     latestInferredAmbitionRef: MutableRefObject<InferredAmbitionState | null>;
     turnAbortControllerRef?: MutableRefObject<AbortController | null>;
+    autosavePausedRef?: MutableRefObject<boolean>;
 
     // --- Transient, presentation-only setters (App.tsx local useState -
     // never part of the save bundle; see their declarations there). ---
@@ -171,7 +172,7 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
         triggeredEventIds, eventFirings, metaNarrative, messages, reignSeed,
         dispatch, getStateGeneration, runDomainMutation, commitDomainMutation, buildSaveState, strikeWeekBeat,
         preTurnSnapshotRef, campaignGenerationRef, privateScenesRef, appMountedRef, latestInferredAmbitionRef,
-        turnAbortControllerRef,
+        turnAbortControllerRef, autosavePausedRef,
         setPendingPlayerMessage, setTurnFailure, setRetrySubmission, setRetryDraft,
         setChatDraft, setStructuredDraft, setTurnStage, setStreamingNarration,
         setIsCheckingEvents, setTransactionNote,
@@ -333,10 +334,14 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
                 // HISTORICAL MATERIAL in the adjudication prompt.
                 {
                     onStage: stage => {
-                        if (transaction.isCurrent() && turnSnapshotIsCurrent()) setTurnStage(stage);
+                        if (transaction.isCurrent() && turnSnapshotIsCurrent() && !abortController.signal.aborted) {
+                            setTurnStage(stage);
+                        }
                     },
                     onNarrationChunk: textSoFar => {
-                        if (transaction.isCurrent() && turnSnapshotIsCurrent()) setStreamingNarration(textSoFar);
+                        if (transaction.isCurrent() && turnSnapshotIsCurrent() && !abortController.signal.aborted) {
+                            setStreamingNarration(textSoFar);
+                        }
                     },
                     pacingPosture: getPacingPosture(),
                     eventFirings,
@@ -356,6 +361,7 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
                     signal: abortController.signal,
                 }
             );
+            if (abortController.signal.aborted) throw new TurnCancelledError();
             if (!transaction.isCurrent() || !turnSnapshotIsCurrent()) return;
 
             // COMMIT STATE
@@ -417,7 +423,9 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
                 entityDirectory,
                 knownEntityIds,
                 isMockMode,
+                abortController.signal,
             ));
+            if (abortController.signal.aborted) throw new TurnCancelledError();
             if (!transaction.isCurrent() || !turnSnapshotIsCurrent()) return;
             const newKnowledge = computeTurnKnowledge({
                 prev: knowledge,
@@ -448,7 +456,9 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
                     noAttemptResponse.question,
                     evidence,
                     isMockMode,
+                    abortController.signal,
                 );
+                if (abortController.signal.aborted) throw new TurnCancelledError();
                 if (!transaction.isCurrent() || !turnSnapshotIsCurrent()) return;
                 finalNarration = withSettledFate(renderNoAttemptResponse(selection));
                 if (selection.kind === 'no_answer'
@@ -655,7 +665,9 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
                             // closed over - if the player committed another turn
                             // while inference was in flight, that would clobber
                             // the newer autosave and lose those turns on reload.
-                            updateSavedAmbition(nextAmbition);
+                            if (!autosavePausedRef?.current) {
+                                updateSavedAmbition(nextAmbition);
+                            }
                         }, 50);
                     })
                     .catch(console.warn);
@@ -681,7 +693,7 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
                 return;
             }
             if (!transaction.isCurrent() || !turnSnapshotIsCurrent()) return;
-            if (error instanceof TurnCancelledError) {
+            if (error instanceof TurnCancelledError || abortController.signal.aborted) {
                 setTurnStage(null);
                 setStreamingNarration('');
                 setPendingPlayerMessage(null);
@@ -757,5 +769,5 @@ export function useExecuteTurn(deps: ExecuteTurnDeps) {
         }
         });
         return mutation.acquired;
-    }, [ai, buildSaveState, commitDomainMutation, dispatch, entities, eventFirings, getStateGeneration, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, online, pendingIntelligenceFallout, playerCharacterId, reignSeed, reports, resolvedApiKey, runDomainMutation, simulationState, strikeWeekBeat, triggeredEventIds, truthLedger, turnHistory, turnNumber, worldState, preTurnSnapshotRef, campaignGenerationRef, privateScenesRef, appMountedRef, latestInferredAmbitionRef, turnAbortControllerRef, setPendingPlayerMessage, setTurnFailure, setRetrySubmission, setRetryDraft, setChatDraft, setStructuredDraft, setTurnStage, setStreamingNarration, setIsCheckingEvents, setTransactionNote]);
+    }, [ai, buildSaveState, commitDomainMutation, dispatch, entities, eventFirings, getStateGeneration, gmInterventionText, isMockMode, knowledge, messages, metaNarrative, npcIntents, online, pendingIntelligenceFallout, playerCharacterId, reignSeed, reports, resolvedApiKey, runDomainMutation, simulationState, strikeWeekBeat, triggeredEventIds, truthLedger, turnHistory, turnNumber, worldState, preTurnSnapshotRef, campaignGenerationRef, privateScenesRef, appMountedRef, latestInferredAmbitionRef, turnAbortControllerRef, autosavePausedRef, setPendingPlayerMessage, setTurnFailure, setRetrySubmission, setRetryDraft, setChatDraft, setStructuredDraft, setTurnStage, setStreamingNarration, setIsCheckingEvents, setTransactionNote]);
 }

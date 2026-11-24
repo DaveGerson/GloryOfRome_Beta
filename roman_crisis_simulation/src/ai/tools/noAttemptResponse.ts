@@ -3,7 +3,7 @@ import type {
   NoAttemptSelectionResult,
 } from '../../playerView/noAttemptResponse';
 import { validateNoAttemptSelection } from '../../playerView/noAttemptResponse';
-import { GEMINI_FLASH, generateStructured, type GeminiClient } from '../core/geminiService';
+import { GEMINI_FLASH, generateStructured, TurnCancelledError, type GeminiClient } from '../core/geminiService';
 import { NoAttemptEvidenceSelectionSchema } from '../core/schemas';
 import { zNoAttemptEvidenceSelection } from '../core/zodSchemas';
 import { stripActorsFromNoAttemptEvidenceSelection, type NoAttemptEvidenceSelectionInterchange } from '../core/actorsBoundary';
@@ -22,7 +22,11 @@ export async function selectNoAttemptEvidence(
   question: string,
   evidence: readonly NoAttemptEvidence[],
   isMockMode = false,
+  signal?: AbortSignal,
 ): Promise<NoAttemptSelectionResult> {
+  if (signal?.aborted) {
+    throw new TurnCancelledError();
+  }
   if (evidence.length === 0) return { kind: 'no_answer', reason: 'no_evidence' };
   if (isMockMode) {
     return projectSelectionResult(validateNoAttemptSelection({
@@ -41,12 +45,16 @@ export async function selectNoAttemptEvidence(
       responseSchema: NoAttemptEvidenceSelectionSchema,
       zodSchema: zNoAttemptEvidenceSelection,
       thinkingConfig: { thinkingBudget: 256 },
+      signal,
     });
     // Actors-attribution parse boundary (D42): strip the interchange-only
     // `actors` sibling before this reaches selection validation/downstream use.
     const selection = stripActorsFromNoAttemptEvidenceSelection(rawSelection);
     return projectSelectionResult(validateNoAttemptSelection(selection, evidence));
-  } catch {
+  } catch (error) {
+    if (error instanceof TurnCancelledError || signal?.aborted) {
+      throw error instanceof TurnCancelledError ? error : new TurnCancelledError();
+    }
     return { kind: 'no_answer', reason: 'selector_failure' };
   }
 }

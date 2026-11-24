@@ -262,8 +262,8 @@ const EpilogueScreen: React.FC<{
         <div style={{ marginTop: 48, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
           {resetError && <Alert title={RECORD_REFUSES} onDarkGround>{resetError}</Alert>}
           {onExportScroll && (
-            <button type="button" onClick={() => onExportScroll(epitaph)} className="gor-btn gor-btn-secondary">
-              Export Scroll (.html)
+            <button type="button" disabled={isLoading} onClick={() => onExportScroll(epitaph)} className="gor-btn gor-btn-secondary">
+              {isLoading ? 'Preparing scroll…' : 'Export Scroll (.html)'}
             </button>
           )}
           <button onClick={handleNewChronicle} className="gor-btn gor-btn-lg gor-btn-primary">

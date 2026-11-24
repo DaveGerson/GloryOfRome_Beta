@@ -16,6 +16,7 @@ import { corroboration } from '../knowledge/credibilityFraming';
 import { isRegionKnownToPlayer } from '../perception/visibility';
 import type { BriefingPointer } from './tabs/WorldStateTab';
 import type { KnowledgeClaim, OccurrenceQuestion } from '../knowledge/store';
+import type { ConvertibleResource } from '../knowledge/pricing';
 import { occurrenceFindings } from '../knowledge/store';
 import type { DomainMutationContext, RunDomainMutation } from '../state/domainMutation';
 import { radioGroupKeyDown } from './ui/rovingRadio';
@@ -98,10 +99,12 @@ const SidePanel: React.FC<{
     knowledge: KnowledgeClaim[];
     /** The App's authoritative turn counter - the staleness clock D27 prices a dossier refresh against. */
     turnNumber: number;
-    /** One atomic callback per commissioned assessment - the deep_analyses spend and the assessment itself (hooks/useIntelCommits.ts). `truth` is GM-private (D11/D47): forwarded for the truth ledger, never rendered. */
-    onSpendDeepAnalysis: (targetId: string, cost: number, analysis: string, request: DomainMutationContext, truth?: InvestigationTruth) => boolean | void | Promise<boolean | void>;
+    /** One atomic callback per commissioned assessment - the deep_analyses (or D27 coin) spend and the assessment itself (hooks/useIntelCommits.ts). `truth` is GM-private (D11/D47): forwarded for the truth ledger, never rendered. */
+    onSpendDeepAnalysis: (targetId: string, cost: number, analysis: string, request: DomainMutationContext, truth?: InvestigationTruth, denariiCost?: number) => boolean | void | Promise<boolean | void>;
     /** One atomic callback per investigation reveal - spend + blackmail + fallout + truth ledger in a single state/save pass (see App.tsx's handleInvestigationOutcome). `truth` as above. */
-    onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult, request: DomainMutationContext, truth?: InvestigationTruth) => Promise<boolean | void>;
+    onInvestigationOutcome: (kind: 'beliefs' | 'scheme' | 'secrets', targetId: string, reportData: unknown, cost: number, result: InvestigationResult, request: DomainMutationContext, truth?: InvestigationTruth, denariiCost?: number) => Promise<boolean | void>;
+    /** T1 / B1: converts surplus resources into investigations capacity. */
+    onConvertToInvestigation?: (source: ConvertibleResource, request: DomainMutationContext) => boolean | void | Promise<boolean | void>;
     runDomainMutation: RunDomainMutation;
     interactionLocked?: boolean;
     ai: GoogleGenAI;
@@ -148,7 +151,7 @@ const SidePanel: React.FC<{
     personaeVoice?: PersonaeVoice;
     /** 2A: optional handler exporting the player's chronicle as a standalone scroll HTML file. */
     onExportChronicle?: () => void;
-}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, turnHistory, pulsingTabs, tabChangeCounts, activeTab: heldTab, onSelectTab, panelRef, onOccurrenceFinding, occurrenceSibling, resolvedApiKey, narrationVoiceMode, personaeVoice, onExportChronicle }) => {
+}> = ({ gameState, playerEntity, entities, currentEvents, worldState, simulationState, reports, knowledge, turnNumber, onSpendDeepAnalysis, onInvestigationOutcome, onConvertToInvestigation, runDomainMutation, interactionLocked = false, ai, isMockMode, eventHistory, turnHistory, pulsingTabs, tabChangeCounts, activeTab: heldTab, onSelectTab, panelRef, onOccurrenceFinding, occurrenceSibling, resolvedApiKey, narrationVoiceMode, personaeVoice, onExportChronicle }) => {
     const [ownTab, setOwnTab] = useState<TabId>('world_state');
     const activeTab = heldTab ?? ownTab;
     const { dispatchStatus, toggleDispatch } = useImperialDispatch({
@@ -350,6 +353,7 @@ const SidePanel: React.FC<{
                     turnNumber={turnNumber}
                     onSpendDeepAnalysis={onSpendDeepAnalysis}
                     onInvestigationOutcome={onInvestigationOutcome}
+                    onConvertToInvestigation={onConvertToInvestigation}
                     runDomainMutation={runDomainMutation}
                     interactionLocked={interactionLocked}
                     ai={ai}

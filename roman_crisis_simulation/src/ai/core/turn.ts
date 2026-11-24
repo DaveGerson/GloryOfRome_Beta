@@ -9,7 +9,7 @@ import { getActionAssessment, type ActionAssessment } from '../tools/assessment'
 import { getNpcMindDecision } from '../tools/npcMind';
 import { MAX_MINDS_PER_TURN } from '../prompts/npcMind';
 import { buildWorldSummary } from '../prompts/fragments';
-import { deriveFactionMoods } from './factionMood';
+import { deriveFactionMoodsForViewer } from './factionMood';
 import { buildPerceivedDigest, buildPlayerPerceivedDigest, PerceivedChange } from '../../perception/visibility';
 import { figuresInViewOf } from '../../perception/npcPerception';
 import { generateStructured, generateStructuredStream, GEMINI_PRO, beginTurnCapture, endTurnCapture, TurnCancelledError } from './geminiService';
@@ -22,6 +22,7 @@ import {
     type AdjudicationInterchange,
     type NarrationPayloadInterchange,
     type PlayerMonologuePayloadInterchange,
+    type SimulationStateInterchange,
 } from './actorsBoundary';
 import { buildAdjudicationPrompt, PlayerActionOutcomeContext, HistoricalMaterialEntry } from '../prompts/adjudication';
 import type { PrivateSceneAdjudicatorProjection, PrivateSceneNpcMemoryProjection } from '../../privateScene/model';
@@ -642,6 +643,23 @@ interface TurnContext extends SubmissionProjections {
     turnRng: Rng;
 }
 
+function createLinkedAbortController(parent?: AbortSignal): { controller: AbortController; dispose: () => void } {
+    const controller = new AbortController();
+    if (!parent) {
+        return { controller, dispose: () => {} };
+    }
+    if (parent.aborted) {
+        controller.abort();
+        return { controller, dispose: () => {} };
+    }
+    const onParentAbort = () => controller.abort();
+    parent.addEventListener('abort', onParentAbort, { once: true });
+    return {
+        controller,
+        dispose: () => parent.removeEventListener('abort', onParentAbort),
+    };
+}
+
 export async function runNewTurn(
     ai: GoogleGenAI,
     submission: TurnSubmission | string,
@@ -666,6 +684,9 @@ export async function runNewTurn(
     metaNarrative: string,
     options?: RunNewTurnOptions
 ): Promise<RunNewTurnResult> {
+    if (options?.signal?.aborted) {
+        throw new TurnCancelledError();
+    }
     const projections = projectSubmission(submission);
     if (isMockMode) {
         if(!mockRunNewTurn) throw new Error("Mock function 'mockRunNewTurn' is not implemented.");
@@ -777,7 +798,8 @@ interface DirectorStageResult {
  */
 async function runDirectorStage(ctx: TurnContext): Promise<DirectorStageResult> {
     ctx.options?.onStage?.('story_relevance');
-    const signal = ctx.options?.signal;
+    const stageAbort = createLinkedAbortController(ctx.options?.signal);
+    const signal = stageAbort.controller.signal;
     const storyRelevancePromise = getStoryRelevance(ctx.ai, ctx.turnNumber, ctx.turnHistory.slice(-1)[0]?.adjudication.headlines || [], ctx.currentWorldState, ctx.npcEntities, ctx.currentNpcIntents, ctx.isMockMode, signal);
     const actionAssessmentPromise = ctx.resolutionAttempt === null
         ? Promise.resolve(undefined)
@@ -791,12 +813,19 @@ async function runDirectorStage(ctx: TurnContext): Promise<DirectorStageResult> 
             deriveLeverageTruth(ctx.playerEntity, ctx.currentTruthLedger),
             signal,
         );
-    const [storyRelevance, actionAssessment] = await Promise.all([storyRelevancePromise, actionAssessmentPromise]);
-    return {
-        storyRelevance,
-        actionAssessment,
-        npcIntents: selectDurableIntents(storyRelevance, ctx.currentEntities, ctx.playerEntity.entity_id),
-    };
+    try {
+        const [storyRelevance, actionAssessment] = await Promise.all([storyRelevancePromise, actionAssessmentPromise]);
+        return {
+            storyRelevance,
+            actionAssessment,
+            npcIntents: selectDurableIntents(storyRelevance, ctx.currentEntities, ctx.playerEntity.entity_id),
+        };
+    } catch (error) {
+        stageAbort.controller.abort();
+        throw error;
+    } finally {
+        stageAbort.dispose();
+    }
 }
 
 // --- Stage 0.5: the resolution layer's hidden roll -------------------------
@@ -902,44 +931,52 @@ async function runNpcMindsStage(ctx: TurnContext, storyRelevance: StoryRelevance
     const previousDeltas = previousEntry?.adjudication.deltas ?? [];
     const publicHeadlines = previousEntry?.adjudication.headlines ?? [];
     const worldSummary = buildWorldSummary(currentWorldState);
-    const factionMoods = deriveFactionMoods(currentEntities, currentWorldState, ctx.turnNumber);
     const intentByEntity = new Map(npcIntents.map(intent => [intent.entity_id, intent]));
-    const settled = await Promise.all(mindNpcs.map(async (npc): Promise<NpcMindDecision | null> => {
-        try {
-            return await getNpcMindDecision(ctx.ai, {
-                self: npc,
-                directorIntent: intentByEntity.get(npc.entity_id),
-                // The character's own vantage on last week's ground truth
-                // - the same viewer-agnostic filter the memory stamp and
-                // the player digest use (perception/visibility.ts) -
-                // minus the lines the previous turn's memory stamp
-                // already put in this character's memories, which the
-                // mind prompt renders separately (see
-                // selectUnrememberedChanges above).
-                perceivedChanges: selectUnrememberedChanges(
-                    buildPerceivedDigest(previousDeltas, npc, currentEntities, currentWorldState, previousEntry?.preTurnRoster),
-                    npc.memories,
-                    previousEntry?.turnNumber
-                ),
-                publicHeadlines,
-                worldSummary,
-                turnNumber: ctx.turnNumber,
-                privateSceneMemories: ctx.options?.privateSceneNpcMemoriesByNpcId?.[npc.entity_id],
-                // What anyone could know of the people this character knows
-                // (D48/D49): a typed projection of the outward marks of those
-                // in its room and the ties each openly professes, never their
-                // records.
-                figuresInView: figuresInViewOf(npc, currentEntities),
-                factionMoods,
-            }, ctx.isMockMode, ctx.options?.signal);
-        } catch (e) {
-            if (e instanceof TurnCancelledError || ctx.options?.signal?.aborted) {
-                throw e instanceof TurnCancelledError ? e : new TurnCancelledError();
+    const stageAbort = createLinkedAbortController(ctx.options?.signal);
+    let settled: Array<NpcMindDecision | null>;
+    try {
+        settled = await Promise.all(mindNpcs.map(async (npc): Promise<NpcMindDecision | null> => {
+            try {
+                return await getNpcMindDecision(ctx.ai, {
+                    self: npc,
+                    directorIntent: intentByEntity.get(npc.entity_id),
+                    // The character's own vantage on last week's ground truth
+                    // - the same viewer-agnostic filter the memory stamp and
+                    // the player digest use (perception/visibility.ts) -
+                    // minus the lines the previous turn's memory stamp
+                    // already put in this character's memories, which the
+                    // mind prompt renders separately (see
+                    // selectUnrememberedChanges above).
+                    perceivedChanges: selectUnrememberedChanges(
+                        buildPerceivedDigest(previousDeltas, npc, currentEntities, currentWorldState, previousEntry?.preTurnRoster),
+                        npc.memories,
+                        previousEntry?.turnNumber
+                    ),
+                    publicHeadlines,
+                    worldSummary,
+                    turnNumber: ctx.turnNumber,
+                    privateSceneMemories: ctx.options?.privateSceneNpcMemoriesByNpcId?.[npc.entity_id],
+                    // What anyone could know of the people this character knows
+                    // (D48/D49): a typed projection of the outward marks of those
+                    // in its room and the ties each openly professes, never their
+                    // records.
+                    figuresInView: figuresInViewOf(npc, currentEntities),
+                    factionMoods: deriveFactionMoodsForViewer(npc, currentEntities, currentWorldState),
+                }, ctx.isMockMode, stageAbort.controller.signal);
+            } catch (e) {
+                if (e instanceof TurnCancelledError || stageAbort.controller.signal.aborted) {
+                    throw e instanceof TurnCancelledError ? e : new TurnCancelledError();
+                }
+                mindFailureNotes.push(`[Mind] ${npc.entity_id}'s mind call failed (${e instanceof Error ? e.message : String(e)}) - proceeding without it; the adjudicator falls back to this spotlight's Director intent alone.`);
+                return null;
             }
-            mindFailureNotes.push(`[Mind] ${npc.entity_id}'s mind call failed (${e instanceof Error ? e.message : String(e)}) - proceeding without it; the adjudicator falls back to this spotlight's Director intent alone.`);
-            return null;
-        }
-    }));
+        }));
+    } catch (error) {
+        stageAbort.controller.abort();
+        throw error;
+    } finally {
+        stageAbort.dispose();
+    }
     npcMindResults.push(...settled.filter((decision): decision is NpcMindDecision => decision !== null));
     return { npcMindResults, mindFailureNotes };
 }
@@ -1049,7 +1086,12 @@ async function runAdjudicationStage(
     const ripeMaterialIds = new Set(
         (historicalMaterial ?? []).filter(entry => entry.status === 'ripe').map(entry => entry.id),
     );
-    const wovenEventIds = (adjudication.woven_event_ids ?? []).filter(id => ripeMaterialIds.has(id));
+    const rawWovenIds = adjudication.woven_event_ids ?? [];
+    const wovenEventIds = rawWovenIds.filter(id => ripeMaterialIds.has(id));
+    const ignoredWovenIds = rawWovenIds.filter(id => !ripeMaterialIds.has(id));
+    if (ignoredWovenIds.length > 0) {
+        adjudication.gm_private.push(`[Historical material] Ignored non-ripe/unknown woven_event_ids: ${ignoredWovenIds.join(', ')}.`);
+    }
     if (wovenEventIds.length > 0) {
         adjudication.woven_event_ids = wovenEventIds;
         adjudication.gm_private.push(`[Historical material] Adjudicator wove ${wovenEventIds.join(', ')} (ripe) - suppressing duplicate modal fire on post-commit check.`);
@@ -1194,10 +1236,19 @@ async function runMortalityStage(ctx: TurnContext, adjudicated: AdjudicationStag
         { trustedResolutionContext: adjudicated.trustedResolutionContext, hasObservableAttempt: ctx.narrationSubmission.hasObservableAttempt, signal: ctx.options?.signal }
     );
     if (rewrittenHeadlines?.length) {
-        for (const { from, to } of rewrittenHeadlines) {
+        for (const { from, to, valid } of rewrittenHeadlines) {
             const match = adjudicated.declaredHeadlines.find(declared => declared.text === from);
-            if (match) match.text = to;
+            if (match) {
+                match.text = to;
+                if (!valid) match.actors = [];
+            }
         }
+        const seenHeadlines = new Set<string>();
+        adjudicated.declaredHeadlines = adjudicated.declaredHeadlines.filter(declared => {
+            if (seenHeadlines.has(declared.text)) return false;
+            seenHeadlines.add(declared.text);
+            return true;
+        });
     }
     const proseRedactions = enforceNoAttemptBoundary(transformedAdjudication, playerEntity, ctx.narrationSubmission.hasObservableAttempt, ctx.currentEntities);
     return { transformedAdjudication, mortalityEvents, playerOutcomeDirective, proseRedactions };
@@ -1321,12 +1372,14 @@ async function runPlayerSurfacesStage(
         projectForPlayerReflection(ctx.normalizedSubmission),
     ];
 
+    const stageAbort = createLinkedAbortController(options?.signal);
+    const stageSignal = stageAbort.controller.signal;
     options?.onStage?.('simulation_state');
     // Task 4: the strip no longer happens inside getUpdatedSimulationState -
     // it returns the raw SimulationStateInterchange (still carrying
     // `actors`) so the crisis text can be gated against its declaration
     // below, before the commit-boundary strip.
-    const simulationStatePromise = getUpdatedSimulationState(ai, transformedAdjudication, ctx.currentSimulationState, narrationSubmission.hasObservableAttempt, isMockMode, options?.signal);
+    const simulationStatePromise = getUpdatedSimulationState(ai, transformedAdjudication, ctx.currentSimulationState, narrationSubmission.hasObservableAttempt, isMockMode, stageSignal);
 
     options?.onStage?.('monologue');
     // Task 4: getPlayerMonologue now returns the structured { text, actors }
@@ -1337,7 +1390,7 @@ async function runPlayerSurfacesStage(
     const headlineFigures = figuresNamedIn(transformedAdjudication.headlines, updatedEntities, playerEntity.entity_id);
     const monologuePromise = noAttemptResponse
         ? Promise.resolve<PlayerMonologuePayloadInterchange>({ text: '', actors: [] })
-        : getPlayerMonologue(ai, updatedPlayerEntity, transformedAdjudication.headlines, recentPlayerIntents, narrationSubmission.hasObservableAttempt, isMockMode, headlineFigures, options?.signal);
+        : getPlayerMonologue(ai, updatedPlayerEntity, transformedAdjudication.headlines, recentPlayerIntents, narrationSubmission.hasObservableAttempt, isMockMode, headlineFigures, stageSignal);
 
     // Get narration and suggested actions. The event input crosses the D5
     // visibility seam first, then is narrowed field-by-field to text/source.
@@ -1409,7 +1462,7 @@ async function runPlayerSurfacesStage(
         zodSchema: zNarrationPayload,
         thinkingConfig: { thinkingBudget: 512 },
         temperature: NARRATION_TEMPERATURE,
-        signal: options?.signal,
+        signal: stageSignal,
     };
     // Task 4 narration decision (task-4-design.md section 1): ONE
     // structured-output call either way - streaming via
@@ -1430,6 +1483,7 @@ async function runPlayerSurfacesStage(
     // chunk.
     const onNarrationChunk = options?.onNarrationChunk;
     const payloadTextExtractor = createPayloadTextExtractor();
+    let prevProseLen = 0;
     // A no-attempt turn is answered, not narrated - unless the world made an
     // attempt on the player's life this turn: that settled fate is theirs,
     // and D2 has the narration convey it (D46 - the world acts whether or
@@ -1439,7 +1493,9 @@ async function runPlayerSurfacesStage(
         : onNarrationChunk
             ? generateStructuredStream<NarrationPayloadInterchange>(ai, narrationRequest, (_rawJsonSoFar, chunkText) => {
                 const prosePrefix = payloadTextExtractor.push(chunkText);
-                const displayText = narrationStreamGate(prosePrefix);
+                const proseDelta = prosePrefix.slice(prevProseLen);
+                prevProseLen = prosePrefix.length;
+                const displayText = narrationStreamGate.pushChunk(proseDelta);
                 const completedText = playerVisibleStreamGate.push(displayText);
                 if (completedText !== null) onNarrationChunk(completedText);
             })
@@ -1453,11 +1509,21 @@ async function runPlayerSurfacesStage(
     // resolve/reject from a "losing" leg is never reported as an unhandled
     // rejection. runNewTurn's try/catch (`endTurnCapture(); throw e;`)
     // is what actually surfaces the failure to the caller.
-    const [rawSimulationState, rawMonologuePayload, rawNarrationPayload] = await Promise.all([
-        simulationStatePromise,
-        monologuePromise,
-        narrationPromise,
-    ]);
+    let rawSimulationState: SimulationStateInterchange;
+    let rawMonologuePayload: PlayerMonologuePayloadInterchange;
+    let rawNarrationPayload: NarrationPayloadInterchange;
+    try {
+        [rawSimulationState, rawMonologuePayload, rawNarrationPayload] = await Promise.all([
+            simulationStatePromise,
+            monologuePromise,
+            narrationPromise,
+        ]);
+    } catch (error) {
+        stageAbort.controller.abort();
+        throw error;
+    } finally {
+        stageAbort.dispose();
+    }
     assertPlayerVisibleValueSafe(rawSimulationState);
     assertPlayerVisibleTextSafe(rawMonologuePayload.text);
     assertPlayerVisibleTextSafe(rawNarrationPayload.text);

@@ -45,6 +45,8 @@ import { draftSuggestion, focusComposer, focusDesk, pressOpener, selectRegister 
 import { SIDE_PANEL_TABS } from './components/SidePanel';
 import type { TransactionNote } from './app/transactions';
 import { TransactionNoteView, downloadTheReign } from './app/TransactionNoteView';
+import { conditionsOf } from './ai/core/conditions';
+import { affiliationsOf } from './ai/core/affiliations';
 import { buildChronicleScrollHtml, scrollExportFilename, triggerHtmlDownload } from './persistence/chronicleExport';
 import {
     GameMasterScreen, EpilogueScreen, SettingsMenu, OnboardingOverlay, CommandPalette, usePreloadLazyScreens,
@@ -130,6 +132,9 @@ const App: React.FC = () => {
     const {
         domainMutationInFlight,
         privateSceneInteractionLocked,
+        autosavePausedRef,
+        unsavedWhilePaused,
+        clearUnsavedWhilePaused,
         runDomainMutation,
         commitDomainMutation,
         buildSaveState,
@@ -140,7 +145,10 @@ const App: React.FC = () => {
         appMountedRef,
         campaignGenerationRef,
         latestInferredAmbitionRef,
-    } = useCampaignTransactions(state, dispatch, { autosavePaused: Boolean(crossTabConflict) });
+    } = useCampaignTransactions(state, dispatch, {
+        autosavePaused: Boolean(crossTabConflict),
+        onBeginCampaign: dismissCrossTabConflict,
+    });
 
     // --- What the player can see and reach.
     const playerEntity = entities.find(e => e.entity_id === playerCharacterId) || null;
@@ -215,9 +223,9 @@ const App: React.FC = () => {
     const { setIsCheckingEvents, eventChoiceError, handleEventChoice, openFateUnsaved } = useEventFlow({
         activeEvent, playerEntity, entities, worldState, simulationState, turnNumber,
         eventFirings, eventHistory, triggeredEventIds, messages,
-        dispatch, buildSaveState, commitDomainMutation, setTransactionNote,
+        dispatch, buildSaveState, commitDomainMutation, setTransactionNote, autosavePausedRef,
     });
-    useUnloadGuardWhileProcessing(gameState, openFateUnsaved);
+    useUnloadGuardWhileProcessing(gameState, openFateUnsaved, unsavedWhilePaused);
 
     const {
         chatDraft, setChatDraft,
@@ -237,6 +245,7 @@ const App: React.FC = () => {
         triggeredEventIds, eventFirings, metaNarrative, messages, reignSeed,
         dispatch, getStateGeneration, runDomainMutation, commitDomainMutation, buildSaveState, strikeWeekBeat,
         preTurnSnapshotRef, campaignGenerationRef, privateScenesRef, appMountedRef, latestInferredAmbitionRef,
+        autosavePausedRef,
         setIsCheckingEvents, setTransactionNote,
     });
     const exportChronicleScroll = useCallback((epitaph?: string | null) => {
@@ -246,6 +255,8 @@ const App: React.FC = () => {
             worldState,
             turnHistory,
             eventHistory,
+            marks: conditionsOf(playerEntity).map(condition => condition.name),
+            ties: affiliationsOf(playerEntity).map(affiliation => affiliation.name),
             metaNarrative,
             epitaph,
             causeNarration: lastGmNarration,
@@ -288,6 +299,14 @@ const App: React.FC = () => {
         dispatch, buildSaveState, commitDomainMutation, beginCampaignSession, campaignGenerationRef,
         setTransactionNote, offerOnboarding,
     });
+    const handleImportReignWithReset = useCallback((text: string) => {
+        const result = handleImportReign(text);
+        if (result.ok) {
+            dismissCrossTabConflict();
+            clearUnsavedWhilePaused();
+        }
+        return result;
+    }, [handleImportReign, dismissCrossTabConflict, clearUnsavedWhilePaused]);
 
     // "Hear it performed" - voices committed GM narration only (D4/D5); a
     // device preference, default off (every clip is a paid call). See the
@@ -314,7 +333,7 @@ const App: React.FC = () => {
         recastStatus, canRecast, handleRecast, handleOverrideMember, handleResetMember,
     } = useVoiceCast({
         ai, isMockMode, resolvedApiKey, narrationVoiceMode, gameState, voiceCast: state.voiceCast, dispatch,
-        playerEntity, basis: castBasis, metaNarrative, campaignGenerationRef,
+        playerEntity, basis: castBasis, metaNarrative, campaignGenerationRef, autosavePausedRef,
     });
     // The narration log: every performance kept as text on this device, with
     // replay that never re-runs the narrator (narration/narrationLog.ts).
@@ -339,9 +358,9 @@ const App: React.FC = () => {
     });
 
     const {
-        handleDeepAnalysis, handleOccurrenceFinding, handleInvestigationOutcome, handleSetIntervention, occurrenceSibling,
+        handleDeepAnalysis, handleOccurrenceFinding, handleInvestigationOutcome, handleConvertResourceToInvestigations, handleSetIntervention, occurrenceSibling,
     } = useIntelCommits({
-        ai, isMockMode, entities, playerCharacterId, knowledge, truthLedger, pendingIntelligenceFallout, messages, turnNumber,
+        ai, isMockMode, entities, playerCharacterId, knowledge, reports, truthLedger, pendingIntelligenceFallout, messages, turnNumber,
         buildSaveState, commitDomainMutation, setTransactionNote,
     });
 
@@ -405,10 +424,23 @@ const App: React.FC = () => {
                 <div style={{ padding: '8px 24px 0' }}>
                     <CrossTabConflictNotice
                         conflict={crossTabConflict}
+                        busy={domainMutationInFlight}
                         onReload={reloadFromOtherTab}
                         onKeepThisTab={() => {
+                            if (domainMutationInFlight) return;
+                            const result = saveGame(buildSaveState({}, { skipStoredMerge: true }));
+                            if (!result.ok) {
+                                setTransactionNote({
+                                    kind: 'save',
+                                    lead: result.reason === 'quota_exceeded'
+                                        ? "This device's storage is full; this tab's reign could not be saved."
+                                        : "This tab's reign could not be saved.",
+                                });
+                                return;
+                            }
                             dismissCrossTabConflict();
-                            saveGame(buildSaveState());
+                            clearUnsavedWhilePaused();
+                            setTransactionNote(null);
                         }}
                     />
                 </div>
@@ -466,7 +498,7 @@ const App: React.FC = () => {
                                     onStartAnew={() => {
                                         void runDomainMutation(handleStartAnew);
                                     }}
-                                    onImportReign={handleImportReign}
+                                    onImportReign={handleImportReignWithReset}
                                     onTakeCopy={downloadTheReign}
                                     canReachTheFates={isMockMode || Boolean(resolvedApiKey)}
                                     onOpenSettings={openSettings}
@@ -663,6 +695,7 @@ const App: React.FC = () => {
                             turnNumber={turnNumber}
                             onSpendDeepAnalysis={handleDeepAnalysis}
                             onInvestigationOutcome={handleInvestigationOutcome}
+                            onConvertToInvestigation={handleConvertResourceToInvestigations}
                             runDomainMutation={runDomainMutation}
                             interactionLocked={domainMutationInFlight || privateSceneInteractionLocked || gameState === GameState.PROCESSING}
                             ai={ai}
@@ -765,7 +798,7 @@ const App: React.FC = () => {
                     onSetGmConsoleOpen={handleSetGmConsoleOpen}
                     hasSavedReign={hasStoredReign()}
                     onExportReign={downloadTheReign}
-                    onImportReign={handleImportReign}
+                    onImportReign={handleImportReignWithReset}
                     interactionLocked={domainMutationInFlight || gameState === GameState.PROCESSING}
                     reading={{
                         readingScale: reading.readingScale, onSetReadingScale: reading.handleSetReadingScale,

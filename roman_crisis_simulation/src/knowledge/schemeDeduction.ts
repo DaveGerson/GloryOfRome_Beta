@@ -17,22 +17,23 @@ import { knowledgeSourceLead } from './credibilityFraming';
 import { SCHEME_CLUES_TO_REVEAL, type KnowledgeClaim } from './store';
 
 export type PublicRosterFigure = Pick<Entity, 'entity_id' | 'name' | 'position' | 'faction_id'>;
-export type SchemeLeadStage = 'whisper' | 'trail' | 'unmasked';
+type SchemeLeadStage = 'whisper' | 'trail' | 'unmasked';
 
-export interface SchemeEvidenceItem {
+interface SchemeEvidenceItem {
   turn: number;
   sourceLead: string;
   text: string;
   channel: 'scheme' | 'report' | 'investigation' | 'sign' | 'digest';
 }
 
-export interface SchemeLinkedFigure {
+interface SchemeLinkedFigure {
   entityId: string;
   name: string;
   lastSeenTurn: number;
+  turns: number[];
 }
 
-export interface SchemeLead {
+interface SchemeLead {
   leadId: string;
   subjectId: string;
   subjectName: string;
@@ -99,12 +100,13 @@ export function deriveSchemeBoard(
 
     const relatedClaims = knowledge.filter(claim =>
       claim.subject === subjectId
-      && (claim.claimKey.startsWith('scheme:')
-        || claim.claimKey.startsWith('sign:')
-        || (claim.edges?.some(e => e.to === schemeClaim.id || e.type === 'corroborates' || e.type === 'contradicts') ?? false)
+      && (claim.claimKey === `scheme:${subjectId}`
+        || claim.claimKey === `sign:${subjectId}`
+        || claim.claimKey.startsWith(`sign:${subjectId}:`)
         || claim.topic === 'scheme'
         || claim.topic === 'conspiracy'
-        || claim.topic === 'plot')
+        || claim.topic === 'plot'
+        || (claim.edges?.some(e => e.to === schemeClaim.id && (e.type === 'corroborates' || e.type === 'contradicts')) ?? false))
     );
 
     const claimIds = new Set(relatedClaims.map(c => c.id));
@@ -113,7 +115,7 @@ export function deriveSchemeBoard(
     for (const c of knowledge) {
       if (!c.edges) continue;
       for (const edge of c.edges) {
-        if (!claimIds.has(edge.to) && c.subject !== subjectId) continue;
+        if (!claimIds.has(c.id) && !claimIds.has(edge.to)) continue;
         if (edge.type === 'corroborates') corroborationCount++;
         else if (edge.type === 'contradicts') contradictionCount++;
       }
@@ -143,8 +145,17 @@ export function deriveSchemeBoard(
         const other = byId.get(pid);
         if (!other) continue;
         const existing = linkedMap.get(pid);
-        if (!existing || turn > existing.lastSeenTurn) {
-          linkedMap.set(pid, { entityId: pid, name: other.name, lastSeenTurn: turn });
+        if (!existing) {
+          linkedMap.set(pid, { entityId: pid, name: other.name, lastSeenTurn: turn, turns: [turn] });
+        } else {
+          const turns = existing.turns.includes(turn)
+            ? existing.turns
+            : [...existing.turns, turn].sort((a, b) => a - b);
+          linkedMap.set(pid, {
+            ...existing,
+            lastSeenTurn: Math.max(existing.lastSeenTurn, turn),
+            turns,
+          });
         }
       }
     }
@@ -199,13 +210,14 @@ export function evaluateDeductionHypothesis(
       supportingTurns: [],
     };
   }
+  const shownClues = Math.min(lead.clueCount, lead.cluesNeeded);
   if (!candidateFigureId) {
     return {
-      connected: lead.clueCount > 0 || lead.evidenceTimeline.length > 0,
+      connected: lead.clueCount > 0,
       stage: lead.stage,
       summary: lead.revealed
-        ? `Confirmed plot nature (${lead.clueCount}/${lead.cluesNeeded} clues).`
-        : `${lead.clueCount} of ${lead.cluesNeeded} clues gathered toward unmasking the design.`,
+        ? `Agent files attribute a design (${shownClues}/${lead.cluesNeeded} clues).`
+        : `${shownClues} of ${lead.cluesNeeded} clues gathered toward unmasking the design.`,
       supportingTurns: [...new Set(lead.evidenceTimeline.map(item => item.turn))],
     };
   }
@@ -221,7 +233,7 @@ export function evaluateDeductionHypothesis(
   return {
     connected: true,
     stage: lead.stage,
-    summary: `Observed link with ${linked.name} as of Turn ${linked.lastSeenTurn}.`,
-    supportingTurns: [linked.lastSeenTurn],
+    summary: `Observed alongside ${linked.name} (latest Turn ${linked.lastSeenTurn}).`,
+    supportingTurns: linked.turns,
   };
 }

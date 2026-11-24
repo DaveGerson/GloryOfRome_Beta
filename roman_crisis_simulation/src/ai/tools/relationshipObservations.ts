@@ -5,7 +5,7 @@ import {
   hasDuplicateEvidenceIds,
   validateRelationshipObservationDrafts,
 } from '../../knowledge/relationships';
-import { GEMINI_FLASH, generateStructured, type GeminiClient } from '../core/geminiService';
+import { GEMINI_FLASH, generateStructured, TurnCancelledError, type GeminiClient } from '../core/geminiService';
 import { RelationshipObservationsSchema } from '../core/schemas';
 import { zRelationshipObservations } from '../core/zodSchemas';
 import { buildRelationshipObservationsPrompt } from '../prompts/relationshipObservations';
@@ -19,7 +19,11 @@ export async function getRelationshipObservations(
   entities: Array<{ entity_id: string; name: string }>,
   knownEntityIds: readonly string[],
   isMockMode = false,
+  signal?: AbortSignal,
 ): Promise<RelationshipObservationDraft[]> {
+  if (signal?.aborted) {
+    throw new TurnCancelledError();
+  }
   if (!Array.isArray(knownEntityIds)) {
     throw new Error('knownEntityIds is required at the relationship observation boundary');
   }
@@ -46,6 +50,7 @@ export async function getRelationshipObservations(
         responseSchema: RelationshipObservationsSchema,
         zodSchema: zRelationshipObservations,
         thinkingConfig: { thinkingBudget: 256 },
+        signal,
       });
     })();
   const accepted = validateRelationshipObservationDrafts({

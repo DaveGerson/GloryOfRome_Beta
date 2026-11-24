@@ -516,18 +516,43 @@ describe('applyAdjudication', () => {
       const res2 = applyAdjudication(jumpUp, mockEntities, crisisWorld, mockReports);
       expect(res2.updatedWorldState.economic_stability).toBe('Failing');
 
-      // Unknown free-prose grades pass through untouched without throwing.
-      const customWorld = { ...mockWorldState, economic_stability: 'Uncertain' };
+      // Truly unknown free-prose grades pass through untouched without throwing.
+      const customWorld = { ...mockWorldState, economic_stability: 'Bartering' };
       const customAdj = deepCopy(baseAdjudication);
-      customAdj.deltas.push({ type: 'world', key: 'economic_stability', delta: 0, reason: 'Failing' });
+      customAdj.deltas.push({ type: 'world', key: 'economic_stability', delta: 0, reason: 'Crisis' });
       const res3 = applyAdjudication(customAdj, mockEntities, customWorld, mockReports);
-      expect(res3.updatedWorldState.economic_stability).toBe('Failing');
+      expect(res3.updatedWorldState.economic_stability).toBe('Crisis');
 
-      // Week 52 mild winter drift when no economic world delta ran this turn.
+      // Multi-delta economic shifts cannot exceed ±1 grade from pre-turn baseline, and clamped deltas sync to D26 surfaces.
+      const multiAdj = deepCopy(baseAdjudication);
+      multiAdj.deltas.push(
+        { type: 'world', key: 'economic_stability', delta: 0, reason: 'Strained' },
+        { type: 'world', key: 'economic_stability', delta: 0, reason: 'Failing' },
+      );
+      const resMulti = applyAdjudication(multiAdj, mockEntities, mockWorldState, mockReports);
+      expect(resMulti.updatedWorldState.economic_stability).toBe('Strained');
+      expect(multiAdj.deltas.every(d => d.reason === 'Strained')).toBe(true);
+
+      // Blank world delta reasons are ignored safely.
+      const blankAdj = deepCopy(baseAdjudication);
+      blankAdj.deltas.push({ type: 'world', key: 'economic_stability', delta: 0, reason: '   ' });
+      const resBlank = applyAdjudication(blankAdj, mockEntities, mockWorldState, mockReports);
+      expect(resBlank.updatedWorldState.economic_stability).toBe('Stable');
+
+      // Week <= 0 clamps to 1 rather than wrapping to week 52.
+      const weekZeroWorld = { ...mockWorldState, week: 0, economic_stability: 'Stable' };
+      const weekZeroAdj = deepCopy(baseAdjudication);
+      const resWeekZero = applyAdjudication(weekZeroAdj, mockEntities, weekZeroWorld, mockReports);
+      expect(resWeekZero.updatedWorldState.economic_stability).toBe('Stable');
+
+      // Week 52 mild winter drift when economy did not shift emits a visible 'world' delta for perceptions & narration.
       const winterWorld = { ...mockWorldState, week: 52, economic_stability: 'Stable' };
       const quietAdj = deepCopy(baseAdjudication);
+      quietAdj.deltas.push({ type: 'world', key: 'economic_stability', delta: 0, reason: 'Steady' });
       const res4 = applyAdjudication(quietAdj, mockEntities, winterWorld, mockReports);
       expect(res4.updatedWorldState.economic_stability).toBe('Strained');
+      expect(quietAdj.deltas.some(d => d.type === 'world' && d.key === 'economic_stability' && d.reason === 'Strained')).toBe(true);
+      expect(res4.updatedEntities.every(e => e.memories.some(m => m.event_description.includes('Strained')))).toBe(true);
       expect(quietAdj.gm_private.some(note => note.includes('Seasonal (winter'))).toBe(true);
     });
 
@@ -579,7 +604,7 @@ describe('applyAdjudication', () => {
     // A 'world' macro delta is public to every viewer - the deterministic
     // one-memory-per-entity write the cap tests below lean on.
     const worldNewsDelta = { type: 'world', key: 'economic_stability', delta: 0, reason: 'Failing' } as const;
-    const WORLD_NEWS_LINE = "Word spreads through every market: the empire's economy is now Failing.";
+    const WORLD_NEWS_LINE = "Word spreads through every market: the empire's economy is now Strained.";
 
     it('stamps a memory only for entities whose vantage admits the event', () => {
         const adjudication = deepCopy(baseAdjudication);

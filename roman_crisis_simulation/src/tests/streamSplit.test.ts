@@ -241,6 +241,16 @@ describe('1E: createNarrationStreamGate incremental parity & latency', () => {
     expect(outputs[outputs.length - 1]).toBe('First clause holds.');
     // Non-monotonic call falls back cleanly to fresh evaluation.
     expect(gate('Shorter fresh prose.')).toBe('Shorter fresh prose.');
+
+    // Middle-mutation spoof with identical >16-char head and >32-char tail cannot bypass SUGGESTION detection.
+    const spoofGate = createNarrationStreamGate();
+    const clean = `Opening prose sentence here. ${'A'.repeat(300)} Closing prose sentence stays clean.`;
+    expect(spoofGate(clean)).toBe(clean);
+    const poisonedMid = `Opening prose sentence here. ${'A'.repeat(40)}\nSUGGESTION: Secret leak! ${'A'.repeat(230)} Closing prose sentence stays clean.`;
+    expect(spoofGate(poisonedMid)).toBe(`Opening prose sentence here. ${'A'.repeat(40)}`);
+
+    // Mutating pre-marker prose after caching SUGGESTION_MARKER recomputes cleanly.
+    expect(spoofGate(`Altered opening sentence here. ${'A'.repeat(40)}\nSUGGESTION: Secret leak! ${'A'.repeat(230)} Closing prose sentence stays clean.`)).toBe(`Altered opening sentence here. ${'A'.repeat(40)}`);
   });
 
   it('streams 64KB in 16-byte chunks quickly', () => {
@@ -248,11 +258,10 @@ describe('1E: createNarrationStreamGate incremental parity & latency', () => {
     const payload = `${sentence.repeat(Math.ceil((64 * 1024) / sentence.length))}\nSUGGESTION: Address them now.`;
     const gate = createNarrationStreamGate();
     const start = performance.now();
-    let lastVisible = '';
-    for (let i = 16; i <= payload.length; i += 16) {
-      lastVisible = gate(payload.slice(0, i));
+    let visible = '';
+    for (let i = 0; i < payload.length; i += 16) {
+      visible = gate.pushChunk(payload.slice(i, i + 16));
     }
-    const visible = payload.length % 16 === 0 ? lastVisible : gate(payload);
     const elapsedMs = performance.now() - start;
     expect(visible.endsWith('evening falls.')).toBe(true);
     expect(visible).not.toContain('SUGGESTION');

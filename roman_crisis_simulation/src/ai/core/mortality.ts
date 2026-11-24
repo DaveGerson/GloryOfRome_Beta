@@ -236,7 +236,7 @@ export async function processMortality(
   isMockMode: boolean,
   rng?: Rng,
   validationContext: MortalityValidationContext = {}
-): Promise<{ transformedAdjudication: Adjudication; mortalityEvents: MortalityEvent[]; playerOutcomeDirective?: string; rewrittenHeadlines?: Array<{ from: string; to: string }> }> {
+): Promise<{ transformedAdjudication: Adjudication; mortalityEvents: MortalityEvent[]; playerOutcomeDirective?: string; rewrittenHeadlines?: Array<{ from: string; to: string; valid: boolean }> }> {
   if (validationContext.signal?.aborted) {
     throw new TurnCancelledError();
   }
@@ -368,6 +368,7 @@ export async function processMortality(
   const extraDeltas: EventDelta[] = [];
   const knownEntityIds = new Set(entities.map(entity => entity.entity_id));
   const overturnedSubjects: OverturnedDeathSubject[] = [];
+  const publicDeadThisTurnIds = new Set<string>();
   let playerOutcomeDirective: string | undefined;
 
   for (const r of resolved) {
@@ -393,7 +394,13 @@ export async function processMortality(
       // narration prompt does not). Keep it diegetic - the validation
       // reasoning itself is GM-only and already recorded in gm_private below.
       claim.delta.reason = `${claim.entity.name} comes through the turn's events unharmed; darker reports prove unfounded.`;
-      overturnedSubjects.push({ entityId: claim.entity.entity_id, name: claim.entity.name, valid: false });
+      overturnedSubjects.push({
+        entityId: claim.entity.entity_id,
+        name: claim.entity.name,
+        valid: false,
+        ...(claim.entity.position ? { position: claim.entity.position } : {}),
+        ...(claim.entity.epithet ? { epithet: claim.entity.epithet } : {}),
+      });
 
       const summary = `Death claim invalidated - ${reasoning}`;
       gmPrivateNotes.push(`[Mortality] ${entityLabel}: ${summary}`);
@@ -414,8 +421,16 @@ export async function processMortality(
 
     const publicDies = isNpcFateOutcome(outcome) ? outcome.publicStatus === 'dead' : outcome.dies;
     const secretlyAlive = isNpcFateOutcome(outcome) && Boolean(outcome.secretlyAlive);
-    if (!publicDies && !secretlyAlive) {
-      overturnedSubjects.push({ entityId: claim.entity.entity_id, name: claim.entity.name, valid: true });
+    if (publicDies) {
+      publicDeadThisTurnIds.add(claim.entity.entity_id);
+    } else if (!secretlyAlive) {
+      overturnedSubjects.push({
+        entityId: claim.entity.entity_id,
+        name: claim.entity.name,
+        valid: true,
+        ...(claim.entity.position ? { position: claim.entity.position } : {}),
+        ...(claim.entity.epithet ? { epithet: claim.entity.epithet } : {}),
+      });
     }
     // A survival band keeps the entity's standing status, as the invalid
     // branch above does: surviving an attempt on one's life does not end an
@@ -517,9 +532,13 @@ export async function processMortality(
     });
   }
 
+  const rosterForGuard = entities.map(entity => (
+    publicDeadThisTurnIds.has(entity.entity_id) ? { ...entity, status: 'dead' as const } : entity
+  ));
   const { headlines: guardedHeadlines, rewrites: rewrittenHeadlines } = guardOverturnedDeathHeadlines(
     transformed.headlines,
     overturnedSubjects,
+    rosterForGuard,
   );
   if (rewrittenHeadlines.length > 0) {
     transformed.headlines = guardedHeadlines;
@@ -539,36 +558,111 @@ export async function processMortality(
   };
 }
 
-export interface OverturnedDeathSubject {
+interface OverturnedDeathSubject {
   entityId: string;
   name: string;
   valid: boolean;
+  position?: string;
+  epithet?: string;
 }
 
-const DEATH_ASSERTION_RE = /\b(?:dead|dies|died|killed|slain|assassinated|murdered|executed|perished|fell dead|met (?:his|her|their) end|passed away|succumbed|corpse|funeral|lifeless)\b/i;
-const SURVIVAL_QUALIFIER_RE = /\b(?:survived|survives|narrowly escaped|escaped death|foiled|failed attempt|unharmed|recovered|unfounded|still lives|fails to end|alive)\b/i;
+const DEATH_ASSERTION_RE = /\b(?:dead|death|dies|died|killed|killing|slain|slaying|assassinated|assassination|murdered|murder|executed|execution|perished|demise|fell dead|cut down|struck down|poisoned|strangled|beheaded|bled out|body found|met (?:his|her|their) end|passed away|succumbed|corpse|funeral|lifeless)\b/i;
+const SURVIVAL_QUALIFIER_RE = /\b(?:surviv(?:ed|es)\s+(?:the\s+|an\s+)?(?:attempt|attack|ambush|assassination|plot|blade|poison|strike|assault|ambuscade)|narrowly escaped|escaped death|escapes with (?:his|her|their) life|foiled\s+(?:the\s+)?(?:plot|assassination|attempt)|unharmed|unfounded|still lives|still alive|fails to end)\b/i;
 const TITLE_STOP_WORDS = new Set([
-  'emperor', 'empress', 'caesar', 'augustus', 'augusta', 'senator', 'consul',
-  'general', 'tribune', 'prefect', 'king', 'queen', 'legion', 'guard', 'lord',
+  'emperor', 'empress', 'caesar', 'augustus', 'augusta', 'regent', 'senator', 'consul',
+  'general', 'tribune', 'prefect', 'king', 'queen', 'legion', 'guard', 'lord', 'lady',
+  'soldier', 'governor', 'commander', 'priest', 'merchant', 'advisor', 'patrician', 'plebeian',
   'gaius', 'marcus', 'lucius', 'publius', 'quintus', 'titus', 'sextus', 'tiberius', 'gnaeus',
 ]);
+const GENERIC_SHARED_ROLES = new Set([
+  'senator', 'general', 'tribune', 'consul', 'prefect', 'soldier', 'governor',
+  'commander', 'priest', 'merchant', 'advisor', 'patrician', 'plebeian', 'guard', 'lord', 'lady',
+]);
+const SINGULAR_IMPERIAL_TITLES = ['emperor', 'empress', 'augustus', 'augusta', 'regent'] as const;
+const ACTIVE_KILLER_AFTER_RE = /^(?:\s+(?:executes?|kills?|slays?|murders?|orders?\s+the\s+(?:execution|killing|death|murder))\b|\s+(?:executed|killed|slain|murdered)\s+(?:a|an|the|his|her|their|rebel|traitor|senator|rival|general|consul|spy)\b|(?:'s|’s)\s+(?:own\s+)?(?:bodyguards?|guards?|men|soldiers?|legionaries?|agents?|assassins?|troops?|loyalists?)\s+(?:execute|executed|kill|killed|slay|slain|murder|murdered|order)\b)/i;
+const PASSIVE_AGENT_BEFORE_RE = /\bby\s+(?:the\s+(?:hands?\s+of\s+)?)?$/i;
 
 function escapeRegex(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function subjectNamePatterns(name: string): RegExp[] {
-  const trimmed = name.trim();
-  if (!trimmed) return [];
-  const patterns: RegExp[] = [new RegExp(`\\b${escapeRegex(trimmed)}\\b`, 'i')];
-  const tokens = trimmed.split(/\s+/).filter(token => {
-    const clean = token.replace(/[^\p{L}]/gu, '');
-    return clean.length >= 4 && !TITLE_STOP_WORDS.has(clean.toLowerCase());
-  });
-  for (const token of tokens) {
-    patterns.push(new RegExp(`\\b${escapeRegex(token)}\\b`, 'i'));
+function cleanEdgePunctuation(raw: string): string {
+  return raw.replace(/^[^\p{L}\p{N}\p{M}]+|[^\p{L}\p{N}\p{M}]+$/gu, '').trim();
+}
+
+function normalizedNameTokens(name: string): string[] {
+  return name
+    .trim()
+    .split(/\s+/)
+    .map(cleanEdgePunctuation)
+    .filter(token => token.length >= 4);
+}
+
+function buildUnicodeBoundaryRegex(term: string, global = false): RegExp {
+  return new RegExp(`(?<![\\p{L}\\p{N}\\p{M}])${escapeRegex(term)}(?![\\p{L}\\p{N}\\p{M}])`, global ? 'giu' : 'iu');
+}
+
+interface SubjectPattern {
+  regex: RegExp;
+  isFullName: boolean;
+}
+
+function subjectPatternsFor(
+  subject: OverturnedDeathSubject,
+  tokenOwnerCount: ReadonlyMap<string, number>,
+  phraseOwnerCount: ReadonlyMap<string, number>,
+  imperialTitleCount: ReadonlyMap<string, number>,
+): SubjectPattern[] {
+  const patterns: SubjectPattern[] = [];
+  const trimmedName = subject.name.trim();
+  if (trimmedName) {
+    patterns.push({ regex: buildUnicodeBoundaryRegex(trimmedName), isFullName: true });
+    for (const cleanToken of normalizedNameTokens(trimmedName)) {
+      const lower = cleanToken.toLowerCase();
+      if (TITLE_STOP_WORDS.has(lower)) continue;
+      if ((tokenOwnerCount.get(lower) ?? 0) > 1) continue;
+      patterns.push({ regex: buildUnicodeBoundaryRegex(cleanToken), isFullName: false });
+    }
   }
+
+  const normalizedPos = subject.position ? cleanEdgePunctuation(subject.position).toLowerCase() : '';
+  if (normalizedPos && !GENERIC_SHARED_ROLES.has(normalizedPos) && (phraseOwnerCount.get(`pos:${normalizedPos}`) ?? 0) <= 1) {
+    patterns.push({ regex: buildUnicodeBoundaryRegex(cleanEdgePunctuation(subject.position!)), isFullName: false });
+  }
+  if (normalizedPos) {
+    for (const title of SINGULAR_IMPERIAL_TITLES) {
+      if (normalizedPos !== title && new RegExp(`(?<!co-)\\b${title}\\b`, 'i').test(normalizedPos) && (imperialTitleCount.get(title) ?? 0) <= 1) {
+        patterns.push({ regex: buildUnicodeBoundaryRegex(title), isFullName: false });
+      }
+    }
+  }
+
+  const cleanEpithet = subject.epithet ? cleanEdgePunctuation(subject.epithet) : '';
+  const normalizedEpithet = cleanEpithet.toLowerCase();
+  if (cleanEpithet.length >= 4 && !GENERIC_SHARED_ROLES.has(normalizedEpithet) && (phraseOwnerCount.get(`ep:${normalizedEpithet}`) ?? 0) <= 1) {
+    patterns.push({ regex: buildUnicodeBoundaryRegex(cleanEpithet), isFullName: false });
+  }
+
   return patterns;
+}
+
+function isVictimOccurrence(headline: string, pattern: RegExp): boolean {
+  const globalRe = new RegExp(pattern.source, 'giu');
+  for (const match of headline.matchAll(globalRe)) {
+    const start = match.index ?? 0;
+    const end = start + match[0].length;
+    const before = headline.slice(Math.max(0, start - 32), start);
+    const after = headline.slice(end);
+    const isAgent = PASSIVE_AGENT_BEFORE_RE.test(before) || ACTIVE_KILLER_AFTER_RE.test(after);
+    if (!isAgent) return true;
+  }
+  return false;
+}
+
+function formatSubjectNames(names: readonly string[]): string {
+  if (names.length <= 1) return names[0] ?? '';
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
 }
 
 /**
@@ -580,30 +674,108 @@ function subjectNamePatterns(name: string): RegExp[] {
 export function guardOverturnedDeathHeadlines(
   headlines: readonly string[],
   overturned: readonly OverturnedDeathSubject[],
-): { headlines: string[]; rewrites: Array<{ from: string; to: string }> } {
+  allEntities?: readonly Pick<Entity, 'entity_id' | 'name' | 'position' | 'epithet' | 'status'>[],
+): { headlines: string[]; rewrites: Array<{ from: string; to: string; valid: boolean }> } {
   if (headlines.length === 0 || overturned.length === 0) {
     return { headlines: [...headlines], rewrites: [] };
   }
+
+  const roster = allEntities && allEntities.length > 0
+    ? allEntities
+    : overturned.map(subject => ({
+      entity_id: subject.entityId,
+      name: subject.name,
+      position: subject.position,
+      epithet: subject.epithet,
+      status: 'alive' as const,
+    }));
+
+  const tokenOwnerCount = new Map<string, number>();
+  const phraseOwnerCount = new Map<string, number>();
+  const imperialTitleCount = new Map<string, number>();
+  for (const entity of roster) {
+    const seenTokens = new Set<string>();
+    for (const token of normalizedNameTokens(entity.name)) {
+      const lower = token.toLowerCase();
+      if (!seenTokens.has(lower)) {
+        seenTokens.add(lower);
+        tokenOwnerCount.set(lower, (tokenOwnerCount.get(lower) ?? 0) + 1);
+      }
+    }
+    const pos = entity.position ? cleanEdgePunctuation(entity.position).toLowerCase() : '';
+    if (pos) {
+      phraseOwnerCount.set(`pos:${pos}`, (phraseOwnerCount.get(`pos:${pos}`) ?? 0) + 1);
+      if (entity.status !== 'dead') {
+        for (const title of SINGULAR_IMPERIAL_TITLES) {
+          if (new RegExp(`(?<!co-)\\b${title}\\b`, 'i').test(pos)) {
+            imperialTitleCount.set(title, (imperialTitleCount.get(title) ?? 0) + 1);
+          }
+        }
+      }
+    }
+    const ep = entity.epithet ? cleanEdgePunctuation(entity.epithet).toLowerCase() : '';
+    if (ep) {
+      phraseOwnerCount.set(`ep:${ep}`, (phraseOwnerCount.get(`ep:${ep}`) ?? 0) + 1);
+    }
+  }
+
+  const overturnedIds = new Set(overturned.map(subject => subject.entityId));
+  const deadFullNameRegexes = roster
+    .filter(entity => entity.status === 'dead' && !overturnedIds.has(entity.entity_id) && entity.name.trim().length > 0)
+    .map(entity => buildUnicodeBoundaryRegex(entity.name.trim()));
+
   const matchers = overturned
-    .map(subject => ({ subject, patterns: subjectNamePatterns(subject.name) }))
+    .map(subject => ({
+      subject,
+      patterns: subjectPatternsFor(subject, tokenOwnerCount, phraseOwnerCount, imperialTitleCount),
+    }))
     .filter(item => item.patterns.length > 0);
   if (matchers.length === 0) {
     return { headlines: [...headlines], rewrites: [] };
   }
 
-  const rewrites: Array<{ from: string; to: string }> = [];
-  const nextHeadlines = headlines.map(headline => {
+  const rewrites: Array<{ from: string; to: string; valid: boolean }> = [];
+  const nextHeadlines: string[] = [];
+  const seenRewrittenTexts = new Set<string>();
+
+  for (const headline of headlines) {
     if (!DEATH_ASSERTION_RE.test(headline) || SURVIVAL_QUALIFIER_RE.test(headline)) {
-      return headline;
+      nextHeadlines.push(headline);
+      continue;
     }
-    const matched = matchers.find(entry => entry.patterns.some(re => re.test(headline)));
-    if (!matched) return headline;
-    const to = matched.subject.valid
-      ? `An attempt against ${matched.subject.name} fails to end a life; ${matched.subject.name} still lives.`
-      : `Reports claiming the end of ${matched.subject.name} prove unfounded; ${matched.subject.name} still lives.`;
-    rewrites.push({ from: headline, to });
-    return to;
-  });
+    const confirmedDeadNamed = deadFullNameRegexes.some(re => re.test(headline));
+    const matchedSubjects: OverturnedDeathSubject[] = [];
+    for (const entry of matchers) {
+      const hasFullName = entry.patterns.some(p => p.isFullName && p.regex.test(headline));
+      const matched = hasFullName
+        ? entry.patterns.some(p => p.isFullName && isVictimOccurrence(headline, p.regex))
+        : (!confirmedDeadNamed && entry.patterns.some(p => !p.isFullName && isVictimOccurrence(headline, p.regex)));
+      if (matched) {
+        matchedSubjects.push(entry.subject);
+      }
+    }
+    if (matchedSubjects.length === 0) {
+      nextHeadlines.push(headline);
+      continue;
+    }
+
+    const valid = matchedSubjects.some(subject => subject.valid);
+    const names = formatSubjectNames(matchedSubjects.map(subject => subject.name));
+    const plural = matchedSubjects.length > 1;
+    const to = valid
+      ? (plural
+        ? `An attempt against ${names} fails to end any life; ${names} still live.`
+        : `An attempt against ${names} fails to end a life; ${names} still lives.`)
+      : (plural
+        ? `Reports claiming the end of ${names} prove unfounded; ${names} still live.`
+        : `Reports claiming the end of ${names} prove unfounded; ${names} still lives.`);
+
+    rewrites.push({ from: headline, to, valid });
+    if (!seenRewrittenTexts.has(to)) {
+      seenRewrittenTexts.add(to);
+      nextHeadlines.push(to);
+    }
+  }
 
   return { headlines: nextHeadlines, rewrites };
 }

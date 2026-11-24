@@ -40,7 +40,8 @@ export function isEventEligible(event: GameEvent, eventFirings: EventFiringRecor
     const record = eventFirings.find(r => r.eventId === event.id);
     if (!record) return true;
     if (!event.repeatable) return false;
-    return turnNumber - record.lastFiredTurn >= (event.cooldownTurns ?? 0);
+    const cooldown = Math.max(1, event.cooldownTurns ?? 1);
+    return turnNumber - record.lastFiredTurn >= cooldown;
 }
 
 /**
@@ -80,7 +81,8 @@ export function recordWovenEvents(
 ): { triggeredEventIds: string[]; eventFirings: EventFiringRecord[] } {
     let nextTriggered = [...triggeredEventIds];
     let nextFirings = [...eventFirings];
-    for (const eventId of new Set(wovenEventIds)) {
+    const cleanIds = [...new Set(wovenEventIds.map(id => id.trim()).filter(Boolean))];
+    for (const eventId of cleanIds) {
         const recorded = recordEventFiring(nextTriggered, nextFirings, eventId, turnNumber);
         nextTriggered = recorded.triggeredEventIds;
         nextFirings = recorded.eventFirings;

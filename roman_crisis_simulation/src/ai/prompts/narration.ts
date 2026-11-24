@@ -59,8 +59,8 @@ export function sanitizeEntityForNarration(entity: Entity): Omit<Entity, 'secret
  * never the interior plan. Only the string embedded in this player-facing
  * prompt is redacted - the committed delta the engine parses is untouched.
  */
-export function sanitizeAdjudicationForNarration(adjudication: Adjudication): Omit<Adjudication, 'gm_private'> {
-  const { gm_private, add_entities, deltas, ...rest } = adjudication;
+export function sanitizeAdjudicationForNarration(adjudication: Adjudication): Omit<Adjudication, 'gm_private' | 'woven_event_ids'> {
+  const { gm_private, woven_event_ids, add_entities, deltas, ...rest } = adjudication;
   return {
     ...rest,
     // A private mark (D48) or a secret tie (D49) gives way to its stand-in

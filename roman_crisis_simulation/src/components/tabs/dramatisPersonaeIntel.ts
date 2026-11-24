@@ -11,14 +11,11 @@ import { formatWarmRefreshCaption, priceIntelPurchase, type IntelPriceQuote, typ
 const FIRST_INVESTIGATION_COST = 1;
 
 /**
- * Prices one investigation aspect (D14). FLAT: every aspect - and every
- * repeat of it - costs the full first-acquisition price, whether or not the
- * player already holds a dossier on it. Investigations stay a simple unit
- * price until the currency converter lands (BACKLOG.md B1); the staleness
- * decay curve (knowledge/dossierCost.ts::computeRefreshCost, D27) stays
- * DORMANT - not on this active cost path - until a graded (non-unit) price
- * gives it room to discount a warm refresh. `held` only labels Reveal-vs-
- * Refresh and never reads any credibility number (D25).
+ * Prices one investigation aspect in the `investigations` unit currency (D14):
+ * every aspect - and every repeat of it - costs the flat unit price (`1`).
+ * Graded D27 warm/cold pricing lives alongside it on the denarii rail via
+ * `priceInvestigationWithWarmth` (`knowledge/pricing.ts`). `held` only labels
+ * Reveal-vs-Refresh and never reads any credibility number (D25).
  */
 export function priceInvestigation(
   knowledge: KnowledgeClaim[],
@@ -115,7 +112,7 @@ export async function resolveIntelRequest(params: {
   ai: GoogleGenAI;
   isMockMode: boolean;
   turnNumber?: number;
-  paymentCurrency?: 'investigations' | 'denarii';
+  paymentCurrency?: 'investigations' | 'deep_analyses' | 'denarii';
 }): Promise<IntelRequestOutcome> {
   const { type, target, playerEntity, knowledge, ai, isMockMode, turnNumber, paymentCurrency } = params;
   switch (type) {
@@ -126,9 +123,30 @@ export async function resolveIntelRequest(params: {
       // consequence pipeline - a deep analysis never returns a
       // `consequences` string, so it never touches the investigation-fallout
       // queue (components/investigationLoop.ts).
-      if ((playerEntity.resources.deep_analyses as number) >= DEEP_ANALYSIS_COST) {
+      const unitBalance = (playerEntity.resources.deep_analyses as number) || 0;
+      if (paymentCurrency !== 'denarii' && unitBalance >= DEEP_ANALYSIS_COST) {
         const { analysis, truth } = await getDeepAnalysis(ai, target, playerEntity, isMockMode);
         return { kind: 'deep_analysis', charged: true, cost: DEEP_ANALYSIS_COST, analysis, truth };
+      }
+      if (turnNumber !== undefined || paymentCurrency === 'denarii') {
+        const quote = priceIntelPurchase({
+          knowledge,
+          targetId: target.entity_id,
+          kind: 'deep_analysis',
+          turnNumber: turnNumber ?? Number.NaN,
+          playerResources: playerEntity.resources,
+        });
+        if (quote.canPayWithDenarii) {
+          const { analysis, truth } = await getDeepAnalysis(ai, target, playerEntity, isMockMode);
+          return {
+            kind: 'deep_analysis',
+            charged: true,
+            cost: 0,
+            denariiCost: quote.denariiCost,
+            analysis,
+            truth,
+          };
+        }
       }
       return { kind: 'deep_analysis', charged: false };
     }
@@ -137,8 +155,8 @@ export async function resolveIntelRequest(params: {
     case 'scheme': {
       // Flat first-acquisition cost in the `investigations` resource (D14);
       // priced at click from the current store so it matches the label the
-      // player saw. When turnNumber is provided and denarii is requested or
-      // unit capacity is exhausted, falls back to the D27 warm/cold denarii rate.
+      // player saw. When turnNumber or paymentCurrency='denarii' is provided
+      // and unit capacity is exhausted, falls back to graded D27 denarii.
       const { cost } = priceInvestigation(knowledge, target.entity_id, type);
       const unitBalance = (playerEntity.resources.investigations as number) || 0;
       if (paymentCurrency !== 'denarii' && unitBalance >= cost) {
@@ -146,12 +164,12 @@ export async function resolveIntelRequest(params: {
         const outcome = { target_id: target.entity_id, report: result.report, consequences: result.consequences };
         return { kind: 'investigation', investigationKind: type, charged: true, cost, reportData: result.reportData, outcome, truth: result.truth };
       }
-      if (turnNumber !== undefined) {
+      if (turnNumber !== undefined || paymentCurrency === 'denarii') {
         const quote = priceIntelPurchase({
           knowledge,
           targetId: target.entity_id,
           kind: type,
-          turnNumber,
+          turnNumber: turnNumber ?? Number.NaN,
           playerResources: playerEntity.resources,
         });
         if (quote.canPayWithDenarii) {

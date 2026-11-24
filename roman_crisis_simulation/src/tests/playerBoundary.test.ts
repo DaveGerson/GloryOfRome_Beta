@@ -539,11 +539,48 @@ describe('no-attempt possessive/subject clause precedence boundary', () => {
 });
 
 describe('1E: createPlayerVisibleStreamGate incremental performance & parity', () => {
-  it('blocks hidden mechanics split across chunks at the overlap boundary and handles non-monotonic resets', () => {
-    const gate = createPlayerVisibleStreamGate();
+  it('blocks hidden mechanics split across chunks, catches middle-mutation spoofs, and avoids mid-sentence false positives', () => {
+    // True cross-chunk splits across the boundary
+    const splitRollGate = createPlayerVisibleStreamGate();
     const lead = `${'A senator speaks cleanly. '.repeat(20)}`;
-    expect(gate.push(lead)).toBe(lead.trimEnd());
-    expect(() => gate.push(`${lead}The roll total was 14.`)).toThrow('AI output violated the player-visible mechanics boundary.');
+    expect(splitRollGate.push(`${lead}The die rolled `)).toBe(lead.trimEnd());
+    expect(() => splitRollGate.push(`${lead}The die rolled 17.`)).toThrow('AI output violated the player-visible mechanics boundary.');
+
+    const splitTierGate = createPlayerVisibleStreamGate();
+    expect(splitTierGate.push('Outcome tier.')).toBe('Outcome tier.');
+    expect(() => splitTierGate.push('Outcome tier. Critical failure.')).toThrow('AI output violated the player-visible mechanics boundary.');
+
+    // Middle-mutation spoof (matching >16-char head and >32-char tail) must still be caught on push and finish.
+    const head = 'Opening sentence. ';
+    const tail = ' Closing sentence here and now today.';
+    const clean = `${head}${'B'.repeat(350)}${tail}`;
+    const poisoned = `${head}The die rolled 17 and d20! ${'B'.repeat(323)}${tail}`;
+    const spoofGate = createPlayerVisibleStreamGate();
+    expect(spoofGate.push(clean)).toBe(clean);
+    expect(() => spoofGate.finish(poisoned)).toThrow('AI output violated the player-visible mechanics boundary.');
+
+    const spoofPushGate = createPlayerVisibleStreamGate();
+    expect(spoofPushGate.push(clean)).toBe(clean);
+    expect(() => spoofPushGate.push(`${poisoned} Another sentence.`)).toThrow('AI output violated the player-visible mechanics boundary.');
+
+    // Dialogue-heavy quotes + long lawful sentence containing "partial success" must NOT false-positive.
+    const dialogueLead = '"Wait!" "The Senate meets." "Hold the gate." '.repeat(7);
+    const lawfulMid = 'The consul called the grain requisition a partial success.';
+    const lawfulTail = ` ${'B'.repeat(240)}.`;
+    const chunk1 = `${dialogueLead}${lawfulMid}${lawfulTail}`;
+    const chunk2 = `${chunk1} Dawn breaks.`;
+    expect(() => assertPlayerVisibleTextSafe(chunk2)).not.toThrow();
+    const dialogueGate = createPlayerVisibleStreamGate();
+    expect(dialogueGate.push(chunk1)).toBe(chunk1);
+    expect(dialogueGate.push(chunk2)).toBe(chunk2);
+
+    // Word ending in "ward20" near overlap boundary must NOT slice mid-word to trip "d20".
+    const wordChunk1 = `${'A'.repeat(260)}ward20 ${'X'.repeat(251)}.`;
+    const wordChunk2 = `${wordChunk1} Dawn breaks.`;
+    expect(() => assertPlayerVisibleTextSafe(wordChunk2)).not.toThrow();
+    const wordGate = createPlayerVisibleStreamGate();
+    expect(wordGate.push(wordChunk1)).toBe(wordChunk1);
+    expect(wordGate.push(wordChunk2)).toBe(wordChunk2);
 
     const resetGate = createPlayerVisibleStreamGate();
     expect(resetGate.push('First sentence. Second sentence.')).toBe('First sentence. Second sentence.');
@@ -558,11 +595,14 @@ describe('1E: createPlayerVisibleStreamGate incremental performance & parity', (
     const gate = createPlayerVisibleStreamGate();
     const start = performance.now();
     let released = '';
-    for (let i = 16; i <= payload.length; i += 16) {
-      const next = gate.push(payload.slice(0, i));
+    for (let i = 0; i < payload.length; i += 16) {
+      const next = gate.pushChunk(payload.slice(i, i + 16));
       if (next !== null) released = next;
     }
+    const final = gate.finish(payload);
+    if (final !== null) released = final;
     const elapsedMs = performance.now() - start;
+    expect(released).toBe(payload.trim());
     expect(released.length).toBeGreaterThan(60 * 1024);
     expect(elapsedMs).toBeLessThan(500);
   });

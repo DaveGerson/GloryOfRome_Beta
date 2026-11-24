@@ -317,9 +317,10 @@ export const CrossTabConflictNotice: React.FC<{
   conflict: ForeignSaveWrite;
   onReload: () => void;
   onKeepThisTab: () => void;
+  busy?: boolean;
   style?: React.CSSProperties;
-}> = ({ conflict, onReload, onKeepThisTab, style }) => {
-  const turnNote = conflict.turnNumber !== null ? ` (Week ${toRoman(conflict.turnNumber)})` : '';
+}> = ({ conflict, onReload, onKeepThisTab, busy = false, style }) => {
+  const turnNote = conflict.turnNumber !== null && conflict.turnNumber > 0 ? ` (Turn ${toRoman(conflict.turnNumber)})` : '';
   const body = conflict.kind === 'cleared'
     ? 'Another tab cleared the saved reign on this device. Autosave is paused here so neither tab silently overwrites the other.'
     : `This reign was continued in another tab${turnNote}. Autosave is paused here so neither tab silently overwrites the other.`;
@@ -329,10 +330,17 @@ export const CrossTabConflictNotice: React.FC<{
       title="Another tab holds the quill"
       style={style}
       actions={
-        <>
-          <Button size="sm" onClick={onReload}>Reload newest</Button>
-          <Button size="sm" variant="ghost" onClick={onKeepThisTab}>Keep this tab</Button>
-        </>
+        conflict.kind === 'cleared' ? (
+          <>
+            <Button size="sm" disabled={busy} onClick={onKeepThisTab}>{"Keep this tab's reign"}</Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={onReload}>Reload cleared device</Button>
+          </>
+        ) : (
+          <>
+            <Button size="sm" disabled={busy} onClick={onReload}>{"Reload that tab's reign"}</Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={onKeepThisTab}>{"Keep this tab's reign"}</Button>
+          </>
+        )
       }
     >
       {body}

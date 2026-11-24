@@ -123,6 +123,7 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
 }) => {
   const [mode, setMode] = useState<ComposerMode>(() => getComposerMode());
   const [sealing, setSealing] = useState(false);
+  const [cancelAnnouncement, setCancelAnnouncement] = useState('');
   const sealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const chatTextareaRef = useRef<HTMLTextAreaElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
@@ -239,6 +240,7 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
   const composerHoldsFocus = () => Boolean(composerRef.current?.contains(document.activeElement));
   const submitChat = () => {
     if (online && canReachTheFates && !locked && artifactStatus.ok && !overLimit && chatDraft.trim()) {
+      setCancelAnnouncement('');
       restoreFocusOnUnlockRef.current = composerHoldsFocus();
       onSubmit(chatDraft);
       stampSeal();
@@ -246,10 +248,16 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
   };
   const submitStructured = () => {
     if (online && canReachTheFates && !locked && artifactStatus.ok && !overLimit) {
+      setCancelAnnouncement('');
       restoreFocusOnUnlockRef.current = composerHoldsFocus();
       onSubmit(structuredDraft);
       stampSeal();
     }
+  };
+  const handleCancelClick = () => {
+    setCancelAnnouncement('Turn cancelled. Your draft is kept.');
+    restoreFocusOnUnlockRef.current = true;
+    onCancelTurn?.();
   };
 
   const sealLetter = (playerInitial ?? '').trim().charAt(0).toUpperCase() || 'R';
@@ -326,12 +334,12 @@ export const TurnComposer: React.FC<TurnComposerProps> = ({
           The region is always in the DOM - visually hidden and empty while
           idle - because a live region created together with its message is
           often never announced, which cost the first stage every turn. */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+      <div style={isProcessing ? { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 } : { display: 'contents' }}>
         <p className={isProcessing ? 'gor-hint' : 'gor-sr-only'} role="status" aria-live="polite" style={{ margin: 0 }}>
-          {isProcessing ? TURN_STAGE_STATUS_COPY[turnStage ?? 'story_relevance'] : ''}
+          {isProcessing ? TURN_STAGE_STATUS_COPY[turnStage ?? 'story_relevance'] : cancelAnnouncement}
         </p>
         {isProcessing && onCancelTurn && (
-          <Button type="button" size="sm" variant="ghost" onClick={onCancelTurn}>
+          <Button type="button" size="sm" variant="ghost" onClick={handleCancelClick}>
             Cancel turn
           </Button>
         )}

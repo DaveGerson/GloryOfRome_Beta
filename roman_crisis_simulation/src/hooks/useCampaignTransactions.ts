@@ -39,6 +39,8 @@ import {
 export interface CampaignTransactionOptions {
     /** When true (e.g. a cross-tab conflict is active), skip writing autosaves so the other tab is not silently overwritten. */
     autosavePaused?: boolean;
+    /** Optional hook invoked when `beginCampaignSession` starts a new campaign boundary. */
+    onBeginCampaign?: () => void;
 }
 
 export function useCampaignTransactions(
@@ -48,7 +50,18 @@ export function useCampaignTransactions(
 ) {
     const { inferredAmbition } = state;
     const autosavePaused = Boolean(options.autosavePaused);
+    const autosavePausedRef = useRef(autosavePaused);
+    useLayoutEffect(() => {
+        autosavePausedRef.current = autosavePaused;
+    }, [autosavePaused]);
+    const onBeginCampaignRef = useRef(options.onBeginCampaign);
+    useLayoutEffect(() => {
+        onBeginCampaignRef.current = options.onBeginCampaign;
+    }, [options.onBeginCampaign]);
+
     const [domainMutationInFlight, setDomainMutationInFlight] = useState(false);
+    const [unsavedWhilePaused, setUnsavedWhilePaused] = useState(false);
+    const clearUnsavedWhilePaused = useCallback(() => setUnsavedWhilePaused(false), []);
 
     // Snapshot of the committed game state taken right before a turn's AI
     // calls kick off, so a mid-turn failure can be rolled back to explicitly
@@ -115,7 +128,9 @@ export function useCampaignTransactions(
     const beginCampaignSession = useCallback(() => {
         campaignGenerationRef.current += 1;
         latestInferredAmbitionRef.current = null;
+        setUnsavedWhilePaused(false);
         resetSessionCallLog();
+        onBeginCampaignRef.current?.();
     }, []);
 
     // Builds the full persistable game-state bundle from current state,
@@ -124,9 +139,12 @@ export function useCampaignTransactions(
     // committed new values must pass them explicitly rather than reading
     // the stale closure). See persistence/saveGame.ts for exactly which
     // game state this does (and doesn't) include, and why.
-    const buildSaveState = useCallback((overrides: Partial<SaveGameState> = {}): SaveGameState => {
+    const buildSaveState = useCallback((
+        overrides: Partial<SaveGameState> = {},
+        buildOptions?: { skipStoredMerge?: boolean },
+    ): SaveGameState => {
         const candidate: SaveGameState = { ...pickSaveState(state), ...overrides };
-        const stored = loadGame()?.state;
+        const stored = buildOptions?.skipStoredMerge ? undefined : loadGame()?.state;
         const storedAmbition = stored && isSameCampaignPrefix(candidate, stored)
             ? stored.inferredAmbition
             : null;
@@ -148,16 +166,24 @@ export function useCampaignTransactions(
     }, [state]);
 
     const commitDomainMutation = useCallback(({ candidate, action, onSaveFailure, beforeDispatch, onCommitted }: DomainCommit): boolean => {
-        if (!autosavePaused && !saveGame(candidate).ok) { onSaveFailure(); return false; }
+        if (autosavePausedRef.current) {
+            setUnsavedWhilePaused(true);
+        } else if (!saveGame(candidate).ok) {
+            onSaveFailure();
+            return false;
+        }
         beforeDispatch?.();
         dispatch(action);
         onCommitted?.();
         return true;
-    }, [autosavePaused, dispatch]);
+    }, [dispatch]);
 
     return {
         domainMutationInFlight,
         privateSceneInteractionLocked,
+        autosavePausedRef,
+        unsavedWhilePaused,
+        clearUnsavedWhilePaused,
         runDomainMutation,
         commitDomainMutation,
         buildSaveState,

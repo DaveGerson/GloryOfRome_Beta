@@ -7,6 +7,7 @@ import {
 import { ALL_EVENTS } from '../constants/events';
 import { stripActorsFromAdjudication, type AdjudicationInterchange } from '../ai/core/actorsBoundary';
 import { buildHistoricalMaterialBlock } from '../ai/prompts/adjudication';
+import { sanitizeAdjudicationForNarration } from '../ai/prompts/narration';
 import { gameReducer, createInitialGameState } from '../state/gameReducer';
 import { runNewTurn } from '../ai/core/turn';
 import type { GeminiClient } from '../ai/core/geminiService';
@@ -47,11 +48,35 @@ describe('1B: D12 Modal-Weave Cooldown Gate', () => {
     // One-shot stays suppressed permanently once woven.
     expect(isEventEligible(oneShot, after.eventFirings, 100)).toBe(false);
 
-    // checkForTriggeredEvent skips grain_shortage when Failing economy would otherwise trigger it.
+    // checkForTriggeredEvent fires grain_shortage cleanly on an unfired roster containing its cast,
+    // and skips it once recordWovenEvents stamps after.eventFirings.
     const player = makeEntity({ entity_id: 'player_1', name: 'Severus' });
+    const senatorialParty = makeEntity({ entity_id: 'senatorial_party', name: 'Senatorial Party', entity_type: 'faction' });
+    const romanSenate = makeEntity({ entity_id: 'roman_senate', name: 'Roman Senate', entity_type: 'group' });
     const failingWorld = makeWorldState({ economic_stability: 'Failing', week: 5 });
-    const triggered = checkForTriggeredEvent(failingWorld, [player], after.eventFirings, player, makeSimulationState(), 5);
-    expect(triggered?.id).not.toBe('grain_shortage');
+    const roster = [player, senatorialParty, romanSenate];
+    const unfired = checkForTriggeredEvent(failingWorld, roster, [], player, makeSimulationState(), 5);
+    expect(unfired?.id).toBe('grain_shortage');
+
+    const triggered = checkForTriggeredEvent(failingWorld, roster, after.eventFirings, player, makeSimulationState(), 5);
+    expect(triggered).toBeNull();
+  });
+
+  it('recordWovenEvents trims and drops blank/whitespace ids, and sanitizeAdjudicationForNarration strips woven_event_ids', () => {
+    const cleaned = recordWovenEvents([], [], ['  ', '', '  grain_shortage  '], 3);
+    expect(cleaned.triggeredEventIds).toEqual(['grain_shortage']);
+    expect(cleaned.eventFirings).toEqual([{ eventId: 'grain_shortage', lastFiredTurn: 3, timesFired: 1 }]);
+
+    const sanitized = sanitizeAdjudicationForNarration({
+      turn: 3,
+      entityActions: [],
+      deltas: [],
+      headlines: ['Bread prices rise.'],
+      gm_private: ['secret note'],
+      woven_event_ids: ['grain_shortage'],
+    });
+    expect('woven_event_ids' in sanitized).toBe(false);
+    expect('gm_private' in sanitized).toBe(false);
   });
 
   it('stripActorsFromAdjudication deduplicates and trims woven_event_ids, and drops empty/null values', () => {

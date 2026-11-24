@@ -25,12 +25,12 @@ export const CONVERSION_FRICTION_FACTOR = 1.25;
 
 export const CONVERSION_RATES = {
   denarii: INVESTIGATION_DENARII_BASE,
-  senatorial_support: 3,
-  legion_support: 3,
+  senatorial_support: 10,
+  legion_support: 10,
 } as const;
 
 export type ConvertibleResource = keyof typeof CONVERSION_RATES;
-export type WarmthBand = 'unheld' | 'fresh' | 'warm' | 'cooling' | 'cold';
+type WarmthBand = 'unheld' | 'fresh' | 'warm' | 'cooling' | 'cold';
 
 export interface IntelPriceQuote {
   kind: PricedIntelKind;
@@ -55,7 +55,8 @@ function numericBalance(resources: ResourceBag | undefined, key: string): number
 }
 
 function warmthBandFor(held: boolean, turnsSinceRefresh: number | null): WarmthBand {
-  if (!held || turnsSinceRefresh === null) return 'unheld';
+  if (!held) return 'unheld';
+  if (turnsSinceRefresh === null) return 'cold';
   if (turnsSinceRefresh <= 1) return 'fresh';
   if (turnsSinceRefresh <= 3) return 'warm';
   if (turnsSinceRefresh < DOSSIER_COLD_THRESHOLD) return 'cooling';
@@ -81,15 +82,36 @@ export function priceIntelPurchase(params: {
   const { knowledge, targetId, kind, turnNumber, playerResources } = params;
   const dossier = deriveDossier(knowledge, targetId);
   const existing = dossier.entries.find(entry => entry.kind === kind);
-  const held = Boolean(existing);
+  // D28: passive awareness (`clues === 0`) is NOT a paid held scheme dossier
+  // and receives no warm refresh discount.
+  const held = kind === 'scheme'
+    ? Boolean(existing?.schemeDiscovery && existing.schemeDiscovery.clues > 0)
+    : Boolean(existing);
   const unitResource = kind === 'deep_analysis' ? 'deep_analyses' : 'investigations';
   const unitCost = 1;
   const denariiBase = kind === 'deep_analysis' ? DEEP_ANALYSIS_DENARII_BASE : INVESTIGATION_DENARII_BASE;
 
+  let lastRefreshedTurn: number | null = null;
+  if (held && existing) {
+    if (kind === 'scheme') {
+      const rawSchemeClaim = knowledge.find(c => c.claimKey === `scheme:${targetId}`);
+      const latestSpyTurn = rawSchemeClaim
+        ? [...rawSchemeClaim.updates].reverse().find(u => u.source === 'spy')?.turn
+        : undefined;
+      lastRefreshedTurn = latestSpyTurn ?? existing.lastRefreshedTurn;
+    } else {
+      lastRefreshedTurn = existing.lastRefreshedTurn;
+    }
+  }
+
+  const validTurn = Number.isFinite(turnNumber);
   let turnsSinceRefresh: number | null = null;
-  let denariiCost = denariiBase;
-  if (existing) {
-    turnsSinceRefresh = Math.max(0, turnNumber - existing.lastRefreshedTurn);
+  let denariiCost = held
+    ? denariiBase
+    : roundToDenariiStep(denariiBase * CONVERSION_FRICTION_FACTOR, 50);
+
+  if (held && validTurn && lastRefreshedTurn !== null) {
+    turnsSinceRefresh = Math.max(0, turnNumber - lastRefreshedTurn);
     const floorDenarii = roundToDenariiStep(denariiBase * 0.2, 50);
     denariiCost = roundToDenariiStep(
       computeRefreshCost(denariiBase, turnsSinceRefresh, DOSSIER_COLD_THRESHOLD),
@@ -98,7 +120,7 @@ export function priceIntelPurchase(params: {
   }
 
   const isWarmRefresh = held && turnsSinceRefresh !== null && turnsSinceRefresh < DOSSIER_COLD_THRESHOLD;
-  const discountPct = held ? Math.max(0, Math.round((1 - denariiCost / denariiBase) * 100)) : 0;
+  const discountPct = isWarmRefresh ? Math.max(0, Math.round((1 - denariiCost / denariiBase) * 100)) : 0;
   const warmthBand = warmthBandFor(held, turnsSinceRefresh);
 
   const unitBalance = numericBalance(playerResources, unitResource);
@@ -114,7 +136,7 @@ export function priceIntelPurchase(params: {
     denariiBase,
     denariiCost,
     held,
-    lastRefreshedTurn: existing ? existing.lastRefreshedTurn : null,
+    lastRefreshedTurn,
     turnsSinceRefresh,
     isWarmRefresh,
     discountPct,
@@ -190,7 +212,7 @@ export function formatWarmRefreshCaption(quote: IntelPriceQuote): string {
     return `Or fund directly for ${denariiStr}`;
   }
   if (quote.isWarmRefresh && quote.discountPct > 0) {
-    return `Warm file (${quote.discountPct}% courier discount: ${denariiStr})`;
+    return `Warm file (${quote.discountPct}% denarii discount: ${denariiStr} when funding with coin)`;
   }
-  return `File grown cold (full refresh: ${denariiStr})`;
+  return `File grown cold (full denarii refresh: ${denariiStr})`;
 }

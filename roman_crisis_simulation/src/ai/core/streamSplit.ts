@@ -75,14 +75,11 @@ export function splitNarrationSuggestions(fullText: string): { narration: string
 }
 
 /**
- * Creates a gate function scoped to one streaming narration call. The
- * returned function is pure and stateless - it recomputes its answer from
- * scratch from the full cumulative text passed in every time, so calling it
- * out of order or more than once with the same text is always safe. It's
- * wrapped in this factory purely so a caller can hold one stable reference
- * across a stream's lifetime (`const gate = createNarrationStreamGate();`
- * then `gate(textSoFar)` per chunk), mirroring how a component might hold a
- * memoized callback.
+ * Creates a gate function scoped to one streaming narration call. Caches the
+ * last monotonically extended prefix (and, once `SUGGESTION_MARKER` arrives,
+ * the exact prefix through the marker) so append-only streams avoid rescanning
+ * earlier text, while any out-of-order, shorter, or mid-string-mutated input
+ * cleanly falls back to a full re-evaluation.
  *
  * Behavior:
  *  - If `SUGGESTION:` has fully arrived anywhere in `cumulativeText`,
@@ -115,71 +112,89 @@ function findDanglingMarkupTail(visible: string): RegExpExecArray | null {
   return match;
 }
 
-export function createNarrationStreamGate(): (cumulativeText: string) => string {
-  const HEAD_GUARD = 16;
-  const TAIL_GUARD = 32;
-  let prevLen = 0;
-  let prevHead = '';
-  let prevTail = '';
+export type NarrationStreamGate = ((cumulativeText: string) => string) & {
+  /** Append-only O(1)-per-chunk fast path for monotonic delta streams. */
+  pushChunk(delta: string): string;
+};
+
+function withholdTrailingMarker(text: string): string {
+  // No complete marker yet - find the longest suffix of what we have that
+  // could still grow into the marker, and withhold it. Checked longest
+  // first so e.g. a trailing "SUGGESTION" (10 chars) isn't reported as
+  // just its own trailing "N" (1 char) being held back.
+  let end = text.length;
+  const maxCheck = Math.min(SUGGESTION_MARKER.length - 1, text.length);
+  for (let len = maxCheck; len > 0; len--) {
+    const suffix = text.slice(text.length - len);
+    if (SUGGESTION_MARKER.startsWith(suffix)) {
+      end -= len;
+      break;
+    }
+  }
+
+  let visible = text.slice(0, end);
+  const dangling = findDanglingMarkupTail(visible);
+  if (dangling) visible = visible.slice(0, dangling.index);
+  // Trailing whitespace is trimmed only in front of something withheld;
+  // plain prose keeps it, so it does not flicker in and out mid-stream.
+  return end < text.length || dangling ? visible.trimEnd() : visible;
+}
+
+export function createNarrationStreamGate(): NarrationStreamGate {
+  let prevPrefix = '';
+  let chunkBuffer = '';
   let cachedMarkerIndex = -1;
+  let cachedPrefixThroughMarker = '';
   let cachedCutNarration = '';
 
-  const isMonotonic = (text: string): boolean => {
-    if (prevLen === 0) return false;
-    if (text.length < prevLen) return false;
-    if (!text.startsWith(prevHead)) return false;
-    const tailStart = Math.max(0, prevLen - TAIL_GUARD);
-    return text.slice(tailStart, prevLen) === prevTail;
-  };
-
-  return (cumulativeText: string): string => {
-    const monotonic = isMonotonic(cumulativeText);
-    if (!monotonic) {
-      prevLen = 0;
-      cachedMarkerIndex = -1;
-      cachedCutNarration = '';
-    }
-
-    if (cachedMarkerIndex !== -1 && cumulativeText.startsWith(SUGGESTION_MARKER, cachedMarkerIndex)) {
-      prevLen = cumulativeText.length;
-      prevHead = cumulativeText.slice(0, HEAD_GUARD);
-      prevTail = cumulativeText.slice(Math.max(0, cumulativeText.length - TAIL_GUARD));
+  const gate = ((cumulativeText: string): string => {
+    chunkBuffer = cumulativeText;
+    if (cachedMarkerIndex !== -1 && cumulativeText.startsWith(cachedPrefixThroughMarker)) {
+      prevPrefix = cumulativeText;
       return cachedCutNarration;
     }
 
-    const searchFrom = monotonic ? Math.max(0, prevLen - SUGGESTION_MARKER.length + 1) : 0;
+    const monotonic = prevPrefix.length > 0 && cumulativeText.startsWith(prevPrefix);
+    cachedMarkerIndex = -1;
+    cachedPrefixThroughMarker = '';
+    cachedCutNarration = '';
+
+    const searchFrom = monotonic ? Math.max(0, prevPrefix.length - SUGGESTION_MARKER.length + 1) : 0;
     const markerIndex = cumulativeText.indexOf(SUGGESTION_MARKER, searchFrom);
-    prevLen = cumulativeText.length;
-    prevHead = cumulativeText.slice(0, HEAD_GUARD);
-    prevTail = cumulativeText.slice(Math.max(0, cumulativeText.length - TAIL_GUARD));
+    prevPrefix = cumulativeText;
 
     if (markerIndex !== -1) {
       cachedMarkerIndex = markerIndex;
+      cachedPrefixThroughMarker = cumulativeText.slice(0, markerIndex + SUGGESTION_MARKER.length);
       cachedCutNarration = splitNarrationSuggestions(cumulativeText.slice(0, markerIndex)).narration;
       return cachedCutNarration;
     }
 
-    // No complete marker yet - find the longest suffix of what we have that
-    // could still grow into the marker, and withhold it. Checked longest
-    // first so e.g. a trailing "SUGGESTION" (10 chars) isn't reported as
-    // just its own trailing "N" (1 char) being held back.
-    let end = cumulativeText.length;
-    const maxCheck = Math.min(SUGGESTION_MARKER.length - 1, cumulativeText.length);
-    for (let len = maxCheck; len > 0; len--) {
-      const suffix = cumulativeText.slice(cumulativeText.length - len);
-      if (SUGGESTION_MARKER.startsWith(suffix)) {
-        end -= len;
-        break;
-      }
+    return withholdTrailingMarker(cumulativeText);
+  }) as NarrationStreamGate;
+
+  gate.pushChunk = (delta: string): string => {
+    const prevLen = chunkBuffer.length;
+    chunkBuffer += delta;
+    prevPrefix = chunkBuffer;
+
+    if (cachedMarkerIndex !== -1) {
+      return cachedCutNarration;
     }
 
-    let visible = cumulativeText.slice(0, end);
-    const dangling = findDanglingMarkupTail(visible);
-    if (dangling) visible = visible.slice(0, dangling.index);
-    // Trailing whitespace is trimmed only in front of something withheld;
-    // plain prose keeps it, so it does not flicker in and out mid-stream.
-    return end < cumulativeText.length || dangling ? visible.trimEnd() : visible;
+    const searchFrom = Math.max(0, prevLen - SUGGESTION_MARKER.length + 1);
+    const markerIndex = chunkBuffer.indexOf(SUGGESTION_MARKER, searchFrom);
+    if (markerIndex !== -1) {
+      cachedMarkerIndex = markerIndex;
+      cachedPrefixThroughMarker = chunkBuffer.slice(0, markerIndex + SUGGESTION_MARKER.length);
+      cachedCutNarration = splitNarrationSuggestions(chunkBuffer.slice(0, markerIndex)).narration;
+      return cachedCutNarration;
+    }
+
+    return withholdTrailingMarker(chunkBuffer);
   };
+
+  return gate;
 }
 
 /**

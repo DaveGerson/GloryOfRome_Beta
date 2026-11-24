@@ -174,7 +174,8 @@ export function seasonalEconomicPressure(
     week: number,
     current: string | null | undefined,
 ): { driftTo: EconomicStabilityGrade | null; season: RomanSeason; reason: string | null } {
-    const normalizedWeek = Number.isFinite(week) ? ((((Math.trunc(week) - 1) % 52) + 52) % 52) + 1 : 1;
+    const clampedWeek = Number.isFinite(week) ? Math.max(1, Math.trunc(week)) : 1;
+    const normalizedWeek = ((clampedWeek - 1) % 52) + 1;
     const season: RomanSeason = (normalizedWeek >= 48 || normalizedWeek <= 4)
         ? 'winter'
         : (normalizedWeek >= 32 && normalizedWeek <= 38 ? 'harvest' : 'ordinary');

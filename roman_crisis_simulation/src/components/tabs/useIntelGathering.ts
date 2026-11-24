@@ -11,17 +11,18 @@ export type IntelGatheringInput = {
   entity: Entity;
   playerEntity: Entity;
   knowledge: KnowledgeClaim[];
+  turnNumber?: number;
   ai: GoogleGenAI;
   isMockMode: boolean;
   interactionLocked?: boolean;
   runDomainMutation: RunDomainMutation;
   /**
-   * Commits the deep_analyses spend AND the assessment in one pass
-   * (hooks/useIntelCommits.ts). `truth` is the assessment's GM-private truth
-   * (D11/D47), forwarded untouched for the truth ledger - this hook never
+   * Commits the deep_analyses (or D27 coin) spend AND the assessment in one
+   * pass (hooks/useIntelCommits.ts). `truth` is the assessment's GM-private
+   * truth (D11/D47), forwarded untouched for the truth ledger - this hook never
    * reads or renders it.
    */
-  onSpendDeepAnalysis: (targetId: string, cost: number, analysis: string, request: DomainMutationContext, truth?: InvestigationTruth) => boolean | void | Promise<boolean | void>;
+  onSpendDeepAnalysis: (targetId: string, cost: number, analysis: string, request: DomainMutationContext, truth?: InvestigationTruth, denariiCost?: number) => boolean | void | Promise<boolean | void>;
   /** One atomic commit per reveal; `truth` as for onSpendDeepAnalysis - forwarded, never read here. */
   onInvestigationOutcome: (
     kind: 'beliefs' | 'scheme' | 'secrets',
@@ -31,6 +32,7 @@ export type IntelGatheringInput = {
     result: InvestigationResult,
     request: DomainMutationContext,
     truth?: InvestigationTruth,
+    denariiCost?: number,
   ) => boolean | void | Promise<boolean | void>;
 };
 
@@ -68,6 +70,7 @@ export function useIntelGathering({
   entity,
   playerEntity,
   knowledge,
+  turnNumber,
   ai,
   isMockMode,
   interactionLocked,
@@ -103,16 +106,20 @@ export function useIntelGathering({
         setLoadingState(type);
         const land = (kind: IntelRequestType) => setLanded(previous => ({ type: kind, seq: (previous?.seq ?? 0) + 1 }));
         try {
-          const outcome = await resolveIntelRequest({ type, target: entity, playerEntity, knowledge, ai, isMockMode });
+          const outcome = await resolveIntelRequest({ type, target: entity, playerEntity, knowledge, turnNumber, ai, isMockMode });
           if (outcome.kind === 'deep_analysis') {
             if (outcome.charged) {
-              const committed = await onSpendDeepAnalysis(entity.entity_id, outcome.cost, outcome.analysis, request, outcome.truth);
+              const committed = await (outcome.denariiCost !== undefined
+                ? onSpendDeepAnalysis(entity.entity_id, outcome.cost, outcome.analysis, request, outcome.truth, outcome.denariiCost)
+                : onSpendDeepAnalysis(entity.entity_id, outcome.cost, outcome.analysis, request, outcome.truth));
               if (request.isCurrent() && committed !== false) land('deep_analysis');
             }
             return;
           }
           if (outcome.charged) {
-            const committed = await onInvestigationOutcome(outcome.investigationKind, entity.entity_id, outcome.reportData, outcome.cost, outcome.outcome, request, outcome.truth);
+            const committed = await (outcome.denariiCost !== undefined
+              ? onInvestigationOutcome(outcome.investigationKind, entity.entity_id, outcome.reportData, outcome.cost, outcome.outcome, request, outcome.truth, outcome.denariiCost)
+              : onInvestigationOutcome(outcome.investigationKind, entity.entity_id, outcome.reportData, outcome.cost, outcome.outcome, request, outcome.truth));
             if (request.isCurrent() && committed !== false) land(outcome.investigationKind);
           }
         } finally {

@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import type { Dispatch } from 'react';
+import type { Dispatch, MutableRefObject } from 'react';
 import { GameState } from '../types';
 import type {
     Entity, GameEvent, EventFiringRecord, EventHistoryEntry, Message, PlayerEventChoice,
@@ -35,13 +35,14 @@ export interface EventFlowDeps {
     buildSaveState: (overrides?: Partial<SaveGameState>) => SaveGameState;
     commitDomainMutation: (commit: DomainCommit) => boolean;
     setTransactionNote: (note: TransactionNote | null) => void;
+    autosavePausedRef?: MutableRefObject<boolean>;
 }
 
 export function useEventFlow(deps: EventFlowDeps) {
     const {
         activeEvent, playerEntity, entities, worldState, simulationState, turnNumber,
         eventFirings, eventHistory, triggeredEventIds, messages,
-        dispatch, buildSaveState, commitDomainMutation, setTransactionNote,
+        dispatch, buildSaveState, commitDomainMutation, setTransactionNote, autosavePausedRef,
     } = deps;
 
     // Set when a turn commits with the player still alive; the effect below
@@ -64,22 +65,21 @@ export function useEventFlow(deps: EventFlowDeps) {
             // 4D.2 (D12): eligibility is decided by the per-event firing
             // records (repeatable + cooldown), not the legacy string set;
             // simulationState/turnNumber feed the sim-state-keyed triggers
-            // and the cooldown arithmetic.
-            // Known coordination gap: nothing suppresses a verbatim modal
-            // fire for a premise the adjudicator wove into the turn that
-            // just committed - "verbatim as the exception" (D12) is held
-            // only by trigger rarity and cooldowns. The prompt's
-            // never-pre-stage clause keeps content from duplicating, but a
-            // same-turn weave-then-modal double-hit is possible; a
-            // suppression gate is an owner-ruling candidate.
+            // and the cooldown arithmetic. Any RIPE premise the adjudicator
+            // declared in `woven_event_ids` is already stamped into
+            // `eventFirings` at TURN_COMMITTED via `recordWovenEvents`,
+            // preventing a same-turn weave-then-modal double-fire.
             const event = checkForTriggeredEvent(worldState, entities, eventFirings, playerEntity, simulationState, turnNumber);
             if (event) {
-                // The turn that fired this fate is already on disk; the fate
-                // is written into that same save before its modal opens, so
-                // a reload reopens it instead of skipping it. A write that
-                // does not land still opens the modal - the fate stands
-                // either way, and the unload guard warns before it is lost.
-                const saved = updateSavedPendingEvent(event.id, turnNumber, playerEntity?.entity_id ?? null);
+                // The turn that fired this fate is already on disk unless
+                // autosave is paused for a cross-tab conflict; the fate is
+                // written into that save before its modal opens, so a reload
+                // reopens it instead of skipping it. A write that does not
+                // land still opens the modal - the fate stands either way,
+                // and the unload guard warns before it is lost.
+                const saved = autosavePausedRef?.current
+                    ? false
+                    : updateSavedPendingEvent(event.id, turnNumber, playerEntity?.entity_id ?? null);
                 dispatch({ type: 'EVENT_TRIGGERED', event });
                 queueMicrotask(() => setOpenFateUnsaved(!saved));
             } else {
@@ -87,7 +87,7 @@ export function useEventFlow(deps: EventFlowDeps) {
             }
             queueMicrotask(() => setIsCheckingEvents(false));
         }
-    }, [isCheckingEvents, worldState, entities, eventFirings, playerEntity, simulationState, turnNumber, dispatch]);
+    }, [isCheckingEvents, worldState, entities, eventFirings, playerEntity, simulationState, turnNumber, dispatch, autosavePausedRef]);
 
     const handleEventChoice = useCallback((choice: PlayerEventChoice) => {
         if (!activeEvent || !playerEntity) return;

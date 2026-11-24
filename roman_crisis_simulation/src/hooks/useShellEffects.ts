@@ -54,9 +54,10 @@ export function useDevSmokeTest(): void {
  * it. When that best-effort write did not land, the fate's dialog has no
  * close control by design, so leaving must not be a quiet way out of it.
  */
-export function useUnloadGuardWhileProcessing(gameState: GameState, openFateUnsaved: boolean): void {
+export function useUnloadGuardWhileProcessing(gameState: GameState, openFateUnsaved: boolean, unsavedChanges = false): void {
     const guarded = gameState === GameState.PROCESSING
-        || (gameState === GameState.AWAITING_EVENT_CHOICE && openFateUnsaved);
+        || (gameState === GameState.AWAITING_EVENT_CHOICE && openFateUnsaved)
+        || unsavedChanges;
     useEffect(() => {
         if (!guarded) return;
 
@@ -77,6 +78,13 @@ export function useUnloadGuardWhileProcessing(gameState: GameState, openFateUnsa
  */
 export function useCrossTabConflict(active: boolean) {
     const [rawConflict, setRawConflict] = useState<ForeignSaveWrite | null>(null);
+    const [prevActive, setPrevActive] = useState(active);
+    if (prevActive !== active) {
+        setPrevActive(active);
+        if (!active && rawConflict !== null) {
+            setRawConflict(null);
+        }
+    }
     useEffect(() => {
         if (!active) return;
         return subscribeToForeignSaveWrites(write => setRawConflict(write));

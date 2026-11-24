@@ -315,7 +315,7 @@ export type GameAction =
    * (D11/D47) carries the GM-private truth of every finding in the same
    * transition; absent, the ledger is left as it stands.
    */
-  | { type: 'INVESTIGATION_COMMITTED'; entities: Entity[]; pendingIntelligenceFallout: string[]; knowledge: KnowledgeClaim[]; falloutMessage?: Message; truthLedger?: TruthLedgerEntry[] }
+  | { type: 'INVESTIGATION_COMMITTED'; entities: Entity[]; pendingIntelligenceFallout: string[]; knowledge: KnowledgeClaim[]; falloutMessage?: Message; truthLedger?: TruthLedgerEntry[]; reports?: Report[] }
   /** GM-console operator authored (or cleared) the intervention text. */
   | { type: 'GM_INTERVENTION_SET'; text: string }
   /** DESIGN_DECISIONS.md D8 - a periodic ambition inference resolved. */
@@ -576,6 +576,7 @@ export function gameReducer(state: GameDomainState, action: GameAction): GameDom
         pendingIntelligenceFallout: action.pendingIntelligenceFallout,
         knowledge: action.knowledge,
         truthLedger: action.truthLedger ?? state.truthLedger,
+        reports: action.reports ?? state.reports,
         messages: action.falloutMessage ? [...state.messages, action.falloutMessage] : state.messages,
       };
 

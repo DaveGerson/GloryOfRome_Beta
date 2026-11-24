@@ -12,7 +12,7 @@
  * the eight setters it owns.
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { GameState } from '../types';
 import type { KnownRecipientOption, Message, StructuredTurnDraft, TurnSubmission } from '../types';
 import type { TurnStage } from '../ai/core/turn';
@@ -58,6 +58,10 @@ export function useTurnFlow(deps: TurnFlowDeps) {
     const turnAbortControllerRef = useRef<AbortController | null>(null);
 
     const cancelTurn = useCallback(() => {
+        turnAbortControllerRef.current?.abort();
+    }, []);
+
+    useEffect(() => () => {
         turnAbortControllerRef.current?.abort();
     }, []);
 
