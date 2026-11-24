@@ -25,7 +25,7 @@
 
 ## Tier 1: Immediate Quick Wins
 
-- [ ] **TODO (1A): Voice Cast Manner → Private-Scene Speech & Prompts**
+- [x] **TODO (1A): Voice Cast Manner → Private-Scene Speech & Prompts** *(Completed)*
   - **Effort:** Small (~60 LOC) · **Subagent Resolvability:** 100% · **Est. Time:** ~12–15m
   - **Target Seams:**
     - `roman_crisis_simulation/src/ai/prompts/privateScene.ts`
@@ -33,7 +33,7 @@
     - `roman_crisis_simulation/src/hooks/usePrivateSceneVoice.ts`
   - **Scope:** Thread `VoiceCast.style` into `buildPrivateScenePrompt` and use it as a fallback `<cue>` anchor in `sceneLineForSpeech` when `line.delivery` is absent.
 
-- [ ] **TODO (1B): D12 Modal-Weave Cooldown Gate**
+- [x] **TODO (1B): D12 Modal-Weave Cooldown Gate** *(Completed)*
   - **Effort:** Small (~45 LOC) · **Subagent Resolvability:** 100% · **Est. Time:** ~12–15m
   - **Target Seams:**
     - `roman_crisis_simulation/src/ai/core/schemas.ts`
@@ -42,14 +42,14 @@
     - `roman_crisis_simulation/src/events/engine.ts`
   - **Scope:** Add optional `woven_event_ids?: string[]` to `AdjudicationSchema` so woven D24 events don't double-fire as modal popups on the same turn.
 
-- [ ] **TODO (1C): Overturned-Death Headline Guard (D2)**
+- [x] **TODO (1C): Overturned-Death Headline Guard (D2)** *(Completed)*
   - **Effort:** Small (~50 LOC) · **Subagent Resolvability:** 100% · **Est. Time:** ~12–15m
   - **Target Seams:**
     - `roman_crisis_simulation/src/ai/core/mortality.ts`
     - `roman_crisis_simulation/src/ai/core/turn.ts`
   - **Scope:** Post-mortality headline screen/rewrite when Two-Gate Mortality overturns a claimed death into survival.
 
-- [ ] **TODO (1D): Wire Cross-Tab Save Conflict Banner (P1)**
+- [x] **TODO (1D): Wire Cross-Tab Save Conflict Banner (P1)** *(Completed)*
   - **Effort:** Small (~55 LOC) · **Subagent Resolvability:** 100% · **Est. Time:** ~12–15m
   - **Target Seams:**
     - `roman_crisis_simulation/src/persistence/crossTab.ts`
@@ -57,7 +57,7 @@
     - `roman_crisis_simulation/src/hooks/useShellEffects.ts`
   - **Scope:** Wire existing `crossTab.ts` detection to a notice offering `"Reload that tab's reign"` vs `"Keep this tab's reign"`.
 
-- [ ] **TODO (1E): Incremental Streaming Boundary Gate (A5)**
+- [x] **TODO (1E): Incremental Streaming Boundary Gate (A5)** *(Completed)*
   - **Effort:** Small (~65 LOC) · **Subagent Resolvability:** 100% · **Est. Time:** ~12–15m
   - **Target Seams:**
     - `roman_crisis_simulation/src/ai/core/playerBoundary.ts`
@@ -68,7 +68,7 @@
 
 ## Tier 2: High-Impact Contained Features
 
-- [ ] **TODO (2A): Shareable End-of-Reign Illustrated Scroll (P7)**
+- [x] **TODO (2A): Shareable End-of-Reign Illustrated Scroll (P7)** *(Completed)*
   - **Effort:** Medium (~180 LOC) · **Subagent Resolvability:** 100% · **Est. Time:** ~18–20m
   - **Target Seams:**
     - `roman_crisis_simulation/src/components/EpilogueScreen.tsx`
@@ -76,14 +76,14 @@
     - `roman_crisis_simulation/src/persistence/reignScrollExport.ts` *(new)*
   - **Scope:** Export standalone styled HTML Roman Chronicle of the player's reign, marks, ties, fates, and epilogue.
 
-- [ ] **TODO (2B): Economy with Seasonal Momentum & ±1 Clamp (G2)**
+- [x] **TODO (2B): Economy with Seasonal Momentum & ±1 Clamp (G2)** *(Completed)*
   - **Effort:** Medium (~110 LOC) · **Subagent Resolvability:** 95% · **Est. Time:** ~15–20m
   - **Target Seams:**
     - `roman_crisis_simulation/src/events/stabilityVocabulary.ts`
     - `roman_crisis_simulation/src/ai/core/engine.ts`
   - **Scope:** Clamp adjudicator `economic_stability` jumps to ±1 grade/turn and apply deterministic seasonal drift.
 
-- [ ] **TODO (2C): Turn Cancellation & `AbortSignal` Plumbing (A1)**
+- [x] **TODO (2C): Turn Cancellation & `AbortSignal` Plumbing (A1)** *(Completed)*
   - **Effort:** Medium (~140 LOC) · **Subagent Resolvability:** 95% · **Est. Time:** ~18–22m
   - **Target Seams:**
     - `roman_crisis_simulation/src/ai/core/geminiService.ts`
@@ -95,7 +95,7 @@
 
 ## Tier 3: Deeper Gameplay Systems (Needs Design Choices)
 
-- [ ] **TODO (3A): Intel Currency Converter & Graded Dossier Pricing (B1 + D27)**
+- [x] **TODO (3A): Intel Currency Converter & Graded Dossier Pricing (B1 + D27)** *(Completed)*
   - **Effort:** Medium-Large (~220 LOC) · **Subagent Resolvability:** Needs exchange rate & per-season cap choices · **Est. Time:** ~30–40m
   - **Target Seams:**
     - `roman_crisis_simulation/src/knowledge/pricing.ts` *(new; alongside existing `knowledge/dossierCost.ts`)*
@@ -103,7 +103,7 @@
     - `roman_crisis_simulation/src/components/tabs/DramatisPersonaeTab.tsx`
   - **Open Decisions:** Per-resource exchange rates, conversion friction/loss (T1 guardrail), and per-season cap.
 
-- [ ] **TODO (3B): Clue-Driven Scheme Deduction Board (B3 / G1)**
+- [x] **TODO (3B): Clue-Driven Scheme Deduction Board (B3 / G1)** *(Completed)*
   - **Effort:** Large (~300 LOC) · **Subagent Resolvability:** Needs accusation cost & UI home choice · **Est. Time:** ~40–50m
   - **Target Seams:**
     - `roman_crisis_simulation/src/knowledge/store.ts`
@@ -111,7 +111,7 @@
     - `roman_crisis_simulation/src/state/gameReducer.ts`
   - **Open Decisions:** Accusation cost/consequence and where the deduction board lives in the UI.
 
-- [ ] **TODO (3C): Faction Collective Minds (B6 / G3) & Turned Spy Contacts (G4)**
+- [x] **TODO (3C): Faction Collective Minds (B6 / G3) & Turned Spy Contacts (G4)** *(Completed)*
   - **Effort:** Large (~350 LOC) · **Subagent Resolvability:** Needs design spec · **Est. Time:** ~45–60m
   - **Target Seams:**
     - `roman_crisis_simulation/src/ai/tools/npcMind.ts`

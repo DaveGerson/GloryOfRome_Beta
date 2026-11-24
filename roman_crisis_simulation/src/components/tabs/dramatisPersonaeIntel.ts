@@ -2,6 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import { Entity, InvestigationResult, InvestigationTruth } from '../../types';
 import { getInvestigationResult, getDeepAnalysis } from '../../ai/tools/intelligence';
 import { deriveDossier, InvestigationKind, KnowledgeClaim, SchemeDiscovery } from '../../knowledge/store';
+import { formatWarmRefreshCaption, priceIntelPurchase, type IntelPriceQuote, type PricedIntelKind } from '../../knowledge/pricing';
 
 /**
  * DESIGN_DECISIONS.md D14 - the full first-acquisition price of one
@@ -27,6 +28,19 @@ export function priceInvestigation(
   const held = deriveDossier(knowledge, targetId).entries.some(e => e.kind === kind);
   return { cost: FIRST_INVESTIGATION_COST, held };
 }
+
+/** Graded D27 warm/cold dossier pricing quote for UI and converter rails. */
+export function priceInvestigationWithWarmth(
+  knowledge: KnowledgeClaim[],
+  targetId: string,
+  kind: PricedIntelKind,
+  turnNumber: number,
+  playerResources?: Entity['resources'],
+): IntelPriceQuote {
+  return priceIntelPurchase({ knowledge, targetId, kind, turnNumber, playerResources });
+}
+
+export { formatWarmRefreshCaption };
 
 /**
  * The week a dossier aspect was first opened, or null if nothing is on file.
@@ -68,6 +82,7 @@ export type IntelRequestOutcome =
       kind: 'deep_analysis';
       charged: true;
       cost: number;
+      denariiCost?: number;
       analysis: string;
       /** GM-PRIVATE (D11/D47) - forwarded, untouched and unrendered, to the commit that writes the truth ledger. */
       truth?: InvestigationTruth;
@@ -78,6 +93,7 @@ export type IntelRequestOutcome =
       investigationKind: InvestigationKind;
       charged: true;
       cost: number;
+      denariiCost?: number;
       reportData: unknown;
       outcome: InvestigationResult;
       /** GM-PRIVATE (D11/D47) - forwarded, untouched and unrendered, to the commit that writes the truth ledger. */
@@ -98,8 +114,10 @@ export async function resolveIntelRequest(params: {
   knowledge: KnowledgeClaim[];
   ai: GoogleGenAI;
   isMockMode: boolean;
+  turnNumber?: number;
+  paymentCurrency?: 'investigations' | 'denarii';
 }): Promise<IntelRequestOutcome> {
-  const { type, target, playerEntity, knowledge, ai, isMockMode } = params;
+  const { type, target, playerEntity, knowledge, ai, isMockMode, turnNumber, paymentCurrency } = params;
   switch (type) {
     case 'deep_analysis': {
       // ROADMAP_0_MASTER_PLAN.md Phase 3 item 5 - wires the previously-dead
@@ -119,16 +137,37 @@ export async function resolveIntelRequest(params: {
     case 'scheme': {
       // Flat first-acquisition cost in the `investigations` resource (D14);
       // priced at click from the current store so it matches the label the
-      // player saw.
+      // player saw. When turnNumber is provided and denarii is requested or
+      // unit capacity is exhausted, falls back to the D27 warm/cold denarii rate.
       const { cost } = priceInvestigation(knowledge, target.entity_id, type);
-      if ((playerEntity.resources.investigations as number) >= cost) {
+      const unitBalance = (playerEntity.resources.investigations as number) || 0;
+      if (paymentCurrency !== 'denarii' && unitBalance >= cost) {
         const result = await getInvestigationResult(ai, target, playerEntity, true, isMockMode, type);
         const outcome = { target_id: target.entity_id, report: result.report, consequences: result.consequences };
-        // The commit decides what reportData becomes: beliefs/secrets keep
-        // it as the reading's findings, a 'scheme' buy only as ONE nature
-        // clue (D28). The GM-private `truth` rides beside the outcome, never
-        // inside it: the outcome is what the player's surfaces read.
         return { kind: 'investigation', investigationKind: type, charged: true, cost, reportData: result.reportData, outcome, truth: result.truth };
+      }
+      if (turnNumber !== undefined) {
+        const quote = priceIntelPurchase({
+          knowledge,
+          targetId: target.entity_id,
+          kind: type,
+          turnNumber,
+          playerResources: playerEntity.resources,
+        });
+        if (quote.canPayWithDenarii) {
+          const result = await getInvestigationResult(ai, target, playerEntity, true, isMockMode, type);
+          const outcome = { target_id: target.entity_id, report: result.report, consequences: result.consequences };
+          return {
+            kind: 'investigation',
+            investigationKind: type,
+            charged: true,
+            cost: 0,
+            denariiCost: quote.denariiCost,
+            reportData: result.reportData,
+            outcome,
+            truth: result.truth,
+          };
+        }
       }
       return { kind: 'investigation', investigationKind: type, charged: false };
     }

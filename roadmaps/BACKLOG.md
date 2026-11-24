@@ -12,17 +12,17 @@ not a commitment or a schedule — it's the memory so nothing gets lost.
 
 Full prioritized Value × Effort × Subagent Resolvability matrix, file seams, and parallel execution topology: [`TODO_PLAN_2026-11.md`](./TODO_PLAN_2026-11.md).
 
-- [ ] **TODO (1A):** Voice Cast Manner → Private-Scene Speech & Prompts (`Small`, ~12–15m)
-- [ ] **TODO (1B):** D12 Modal-Weave Cooldown Gate (`Small`, ~12–15m)
-- [ ] **TODO (1C):** Overturned-Death Headline Guard (D2) (`Small`, ~12–15m)
-- [ ] **TODO (1D):** Wire Cross-Tab Save Conflict Banner (P1) (`Small`, ~12–15m)
-- [ ] **TODO (1E):** Incremental Streaming Boundary Gate (A5) (`Small`, ~12–15m)
-- [ ] **TODO (2A):** Shareable End-of-Reign Illustrated Scroll (P7) (`Medium`, ~18–20m)
-- [ ] **TODO (2B):** Economy with Seasonal Momentum & ±1 Clamp (G2) (`Medium`, ~15–20m)
-- [ ] **TODO (2C):** Turn Cancellation & `AbortSignal` Plumbing (A1) (`Medium`, ~18–22m)
-- [ ] **TODO (3A):** Intel Currency Converter & Graded Dossier Pricing (B1 + D27) (`Medium-Large`, needs design choices)
-- [ ] **TODO (3B):** Clue-Driven Scheme Deduction Board (B3 / G1) (`Large`, needs design choices)
-- [ ] **TODO (3C):** Faction Collective Minds (B6 / G3) & Turned Spy Contacts (G4) (`Large`, needs design spec)
+- [x] **TODO (1A):** Voice Cast Manner → Private-Scene Speech & Prompts (`Small`, ~12–15m)
+- [x] **TODO (1B):** D12 Modal-Weave Cooldown Gate (`Small`, ~12–15m)
+- [x] **TODO (1C):** Overturned-Death Headline Guard (D2) (`Small`, ~12–15m)
+- [x] **TODO (1D):** Wire Cross-Tab Save Conflict Banner (P1) (`Small`, ~12–15m)
+- [x] **TODO (1E):** Incremental Streaming Boundary Gate (A5) (`Small`, ~12–15m)
+- [x] **TODO (2A):** Shareable End-of-Reign Illustrated Scroll (P7) (`Medium`, ~18–20m)
+- [x] **TODO (2B):** Economy with Seasonal Momentum & ±1 Clamp (G2) (`Medium`, ~15–20m)
+- [x] **TODO (2C):** Turn Cancellation & `AbortSignal` Plumbing (A1) (`Medium`, ~18–22m)
+- [x] **TODO (3A):** Intel Currency Converter & Graded Dossier Pricing (B1 + D27) (`Medium-Large`, needs design choices)
+- [x] **TODO (3B):** Clue-Driven Scheme Deduction Board (B3 / G1) (`Large`, needs design choices)
+- [x] **TODO (3C):** Faction Collective Minds (B6 / G3) & Turned Spy Contacts (G4) (`Large`, needs design spec)
 
 ---
 

@@ -516,12 +516,18 @@ function knowsFigure(viewer: Entity, entityId: string): boolean {
  * changed nothing, so classifyDelta must leave it invisible. */
 const WORLD_MACRO_KEYS = ['economic_stability', 'political_climate'];
 
+export interface DigestVisibilityOptions {
+  /** Opt-in contact ids turned into active informants (perception/spyNetwork.ts). */
+  extraNetworkIds?: readonly string[];
+}
+
 export function classifyDelta(
   delta: EventDelta,
   viewer: Entity,
   entities: Entity[],
   worldState: WorldState,
-  preTurnEntities?: PreTurnRoster
+  preTurnEntities?: PreTurnRoster,
+  options?: DigestVisibilityOptions,
 ): Visibility {
   // --- Nothing perceptible happened ---
   if (delta.type === 'status' && !statusDeltaEffect(delta, entities, worldState, preTurnEntities)) {
@@ -603,19 +609,22 @@ export function classifyDelta(
   }
 
   // --- Rule 4: network ---
+  const networkIds = options?.extraNetworkIds?.length
+    ? [...new Set([...viewer.visibility_network, ...options.extraNetworkIds])]
+    : viewer.visibility_network;
   if (delta.type === 'region') {
     const [regionName] = delta.key.split(':');
     // Guard against a malformed/unknown region key - only real regions can
     // have a network contact "in" them.
     if (worldState.regions[regionName]) {
-      const networkPresent = viewer.visibility_network.some(
+      const networkPresent = networkIds.some(
         id => stationedContactLocation(id, entities) === regionName
       );
       if (networkPresent) return { visible: true, source: 'network' };
     }
   } else {
     const others = involvedOtherEntityIds(delta, viewer);
-    if (others.some(id => viewer.visibility_network.includes(id))) {
+    if (others.some(id => networkIds.includes(id))) {
       return { visible: true, source: 'network' };
     }
   }
@@ -878,11 +887,12 @@ export function buildPerceivedDigest(
   viewer: Entity,
   entities: Entity[],
   worldState: WorldState,
-  preTurnEntities?: PreTurnRoster
+  preTurnEntities?: PreTurnRoster,
+  options?: DigestVisibilityOptions,
 ): PerceivedChange[] {
   const changes: PerceivedChange[] = [];
   for (const delta of deltas) {
-    const { visible, source } = classifyDelta(delta, viewer, entities, worldState, preTurnEntities);
+    const { visible, source } = classifyDelta(delta, viewer, entities, worldState, preTurnEntities, options);
     if (!visible || !source) continue;
     const change: PerceivedChange = {
       text: describeDelta(delta, viewer, entities, worldState, preTurnEntities),
@@ -929,8 +939,9 @@ export function buildPlayerPerceivedDigest(
   player: Entity,
   entities: Entity[],
   world: WorldState,
-  preTurnEntities?: PreTurnRoster
+  preTurnEntities?: PreTurnRoster,
+  options?: DigestVisibilityOptions,
 ): PerceivedChange[] {
-  return buildPerceivedDigest(deltas, player, entities, world, preTurnEntities)
+  return buildPerceivedDigest(deltas, player, entities, world, preTurnEntities, options)
     .filter(change => change.deltaType !== 'relation');
 }

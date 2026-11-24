@@ -221,7 +221,9 @@ export const IntelSection: React.FC<{
     landedSeq?: number;
     /** Clears the landing once focus has moved, so it fires once (useFocusOnLanding). */
     onLandingFocused?: () => void;
-}> = ({ title, cost, resourceName, resourceCount, held, heldSinceTurn, heldReading, onUncover, isLoading, interactionLocked = false, tooltip, showGloss = false, landedSeq, onLandingFocused }) => {
+    /** Optional D27 warm/cold denarii pricing caption. */
+    warmthCaption?: string;
+}> = ({ title, cost, resourceName, resourceCount, held, heldSinceTurn, heldReading, onUncover, isLoading, interactionLocked = false, tooltip, showGloss = false, landedSeq, onLandingFocused, warmthCaption }) => {
     // Whichever state renders is where focus lands once a reading comes back.
     const findingRef = useFocusOnLanding<HTMLDivElement>(landedSeq, onLandingFocused);
     const busy = isLoading || interactionLocked;
@@ -247,6 +249,9 @@ export const IntelSection: React.FC<{
                         <span style={{ ...quiet, fontStyle: 'italic', color: 'var(--bronze-500)' }}>
                             The file has aged; Rome has not stood still.
                         </span>
+                    )}
+                    {warmthCaption && (
+                        <span style={{ ...quiet, fontSize: 12 }}>{warmthCaption}</span>
                     )}
                     <span>
                         <FocusKeepingButton onPress={onUncover} unaffordable={resourceCount < cost} busy={busy}>

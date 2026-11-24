@@ -9,6 +9,7 @@ import { getActionAssessment, type ActionAssessment } from '../tools/assessment'
 import { getNpcMindDecision } from '../tools/npcMind';
 import { MAX_MINDS_PER_TURN } from '../prompts/npcMind';
 import { buildWorldSummary } from '../prompts/fragments';
+import { deriveFactionMoods } from './factionMood';
 import { buildPerceivedDigest, buildPlayerPerceivedDigest, PerceivedChange } from '../../perception/visibility';
 import { figuresInViewOf } from '../../perception/npcPerception';
 import { generateStructured, generateStructuredStream, GEMINI_PRO, beginTurnCapture, endTurnCapture, TurnCancelledError } from './geminiService';
@@ -901,6 +902,7 @@ async function runNpcMindsStage(ctx: TurnContext, storyRelevance: StoryRelevance
     const previousDeltas = previousEntry?.adjudication.deltas ?? [];
     const publicHeadlines = previousEntry?.adjudication.headlines ?? [];
     const worldSummary = buildWorldSummary(currentWorldState);
+    const factionMoods = deriveFactionMoods(currentEntities, currentWorldState, ctx.turnNumber);
     const intentByEntity = new Map(npcIntents.map(intent => [intent.entity_id, intent]));
     const settled = await Promise.all(mindNpcs.map(async (npc): Promise<NpcMindDecision | null> => {
         try {
@@ -928,6 +930,7 @@ async function runNpcMindsStage(ctx: TurnContext, storyRelevance: StoryRelevance
                 // in its room and the ties each openly professes, never their
                 // records.
                 figuresInView: figuresInViewOf(npc, currentEntities),
+                factionMoods,
             }, ctx.isMockMode, ctx.options?.signal);
         } catch (e) {
             if (e instanceof TurnCancelledError || ctx.options?.signal?.aborted) {

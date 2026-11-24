@@ -13,7 +13,8 @@ import { MARKS_COPY, MarkList, SignList, TieList, type TieView } from '../ui/Mar
 import { DOSSIER_COLD_THRESHOLD } from '../../knowledge/dossierCost';
 import { knowledgeSourceLead } from '../../knowledge/credibilityFraming';
 import { isEntityKnownToPlayer, relationshipTimelineFor } from '../../knowledge/relationships';
-import { priceInvestigation, heldSinceTurn, schemeDiscoveryFor, DEEP_ANALYSIS_COST } from './dramatisPersonaeIntel';
+import { priceInvestigation, priceInvestigationWithWarmth, formatWarmRefreshCaption, heldSinceTurn, schemeDiscoveryFor, DEEP_ANALYSIS_COST } from './dramatisPersonaeIntel';
+import { deriveSchemeBoard } from '../../knowledge/schemeDeduction';
 import { useIntelGathering } from './useIntelGathering';
 import { quiet, IntelSection, SchemeIntelSection, DeepAnalysisSection, type HeldDossierReading } from './dramatisPersonaeUi';
 import RelationshipObservations from './RelationshipObservations';
@@ -151,9 +152,9 @@ const EntityDetails: React.FC<{ entity: Entity; playerEntity: Entity } & Wiring>
         {requestError && <Alert title="Your agents return empty-handed">{requestError}</Alert>}
         {isExpanded && <div id={briefingId} style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 8, borderTop: '1px solid var(--border-faint)' }}>
           <span className="gor-label" style={{ color: 'var(--tyrian-500)' }}>Intelligence Briefing</span>
-          <IntelSection title="Beliefs" {...price('beliefs')} heldSinceTurn={heldSinceTurn(knowledge, entity.entity_id, 'beliefs')} heldReading={heldReadingFor('beliefs')} resourceName="Inv." resourceCount={investigations} onUncover={() => handleRequest('beliefs')} isLoading={loadingState === 'beliefs'} interactionLocked={interactionLocked} showGloss={glossaryOpen} landedSeq={landedSeq('beliefs')} onLandingFocused={clearLanded} tooltip="Uncover the core ideologies and principles that drive this character's decisions." />
+          <IntelSection title="Beliefs" {...price('beliefs')} heldSinceTurn={heldSinceTurn(knowledge, entity.entity_id, 'beliefs')} heldReading={heldReadingFor('beliefs')} warmthCaption={heldReadingFor('beliefs') ? formatWarmRefreshCaption(priceInvestigationWithWarmth(knowledge, entity.entity_id, 'beliefs', turnNumber, playerEntity.resources)) : undefined} resourceName="Inv." resourceCount={investigations} onUncover={() => handleRequest('beliefs')} isLoading={loadingState === 'beliefs'} interactionLocked={interactionLocked} showGloss={glossaryOpen} landedSeq={landedSeq('beliefs')} onLandingFocused={clearLanded} tooltip="Uncover the core ideologies and principles that drive this character's decisions." />
           <SchemeIntelSection discovery={schemeDiscovery} threshold={SCHEME_CLUES_TO_REVEAL} cost={price('scheme').cost} resourceCount={investigations} onInvestigate={() => handleRequest('scheme')} isLoading={loadingState === 'scheme'} interactionLocked={interactionLocked} showGloss={glossaryOpen} landedSeq={landedSeq('scheme')} onLandingFocused={clearLanded} tooltip="Piece together what this character is quietly plotting. Each investigation earns one clue toward its true nature." />
-          <IntelSection title="Secrets" {...price('secrets')} heldSinceTurn={heldSinceTurn(knowledge, entity.entity_id, 'secrets')} heldReading={heldReadingFor('secrets')} resourceName="Inv." resourceCount={investigations} onUncover={() => handleRequest('secrets')} isLoading={loadingState === 'secrets'} interactionLocked={interactionLocked} showGloss={glossaryOpen} landedSeq={landedSeq('secrets')} onLandingFocused={clearLanded} tooltip="Use high-risk, high-reward investigation to uncover hidden fears, blackmail material, or secret plots." />
+          <IntelSection title="Secrets" {...price('secrets')} heldSinceTurn={heldSinceTurn(knowledge, entity.entity_id, 'secrets')} heldReading={heldReadingFor('secrets')} warmthCaption={heldReadingFor('secrets') ? formatWarmRefreshCaption(priceInvestigationWithWarmth(knowledge, entity.entity_id, 'secrets', turnNumber, playerEntity.resources)) : undefined} resourceName="Inv." resourceCount={investigations} onUncover={() => handleRequest('secrets')} isLoading={loadingState === 'secrets'} interactionLocked={interactionLocked} showGloss={glossaryOpen} landedSeq={landedSeq('secrets')} onLandingFocused={clearLanded} tooltip="Use high-risk, high-reward investigation to uncover hidden fears, blackmail material, or secret plots." />
           <DeepAnalysisSection held={heldAssessment ? { analysis: heldAssessment.latestText, asOfTurn: heldAssessment.lastRefreshedTurn } : undefined} cost={DEEP_ANALYSIS_COST} resourceCount={deepAnalyses} onCommission={() => handleRequest('deep_analysis')} isLoading={loadingState === 'deep_analysis'} interactionLocked={interactionLocked} showGloss={glossaryOpen} landedSeq={landedSeq('deep_analysis')} onLandingFocused={clearLanded} />
         </div>}
       </div>
@@ -210,6 +211,7 @@ const DramatisPersonaeTab: React.FC<{ playerEntity: Entity | null; entities: Ent
   const neutral = knownLiving.filter(entity => !entity.faction_id || !factionIds.has(entity.faction_id));
   const investigations = (playerEntity.resources.investigations as number) || 0;
   const observationCount = wiring.knowledge.filter(claim => claim.relationshipObservation).length;
+  const schemeBoard = deriveSchemeBoard(wiring.knowledge, entities, playerEntity.entity_id);
 
   return <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
     <SubRail
@@ -237,6 +239,33 @@ const DramatisPersonaeTab: React.FC<{ playerEntity: Entity | null; entities: Ent
           <span className="gor-label" style={{ color: investigations > 0 ? 'var(--gold-700)' : 'var(--crimson-500)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>Investigations: {investigations}<InfoTooltip text="Your capacity for espionage. Spend to reveal beliefs, schemes, or secrets." /></span>
         </span>
         {wiring.personaeVoice && <p className="gor-config-note" id={paidNoteId} style={{ margin: 0 }}>{PERSONA_VOICE_COPY.paidNote}</p>}
+        {schemeBoard.leads.length > 0 && (
+          <details className="gor-card" style={{ padding: '10px 14px' }}>
+            <summary style={{ cursor: 'pointer', fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 13, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--crimson-500)' }}>
+              Conspiracy &amp; Leads ({schemeBoard.leads.length})
+            </summary>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
+              {schemeBoard.leads.map(lead => (
+                <div key={lead.leadId} style={{ borderLeft: '2px solid var(--gold-500)', paddingLeft: 10, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>
+                    {lead.subjectName} — <span className="gor-label">{lead.stage} ({lead.clueCount}/{lead.cluesNeeded})</span>
+                  </span>
+                  {lead.revealed && lead.nature && <span style={quiet}>“{lead.nature}”</span>}
+                  {lead.linkedFigures.length > 0 && (
+                    <span style={{ ...quiet, fontSize: 12 }}>
+                      Connected figures: {lead.linkedFigures.map(f => f.name).join(', ')}
+                    </span>
+                  )}
+                  {lead.evidenceTimeline.length > 0 && (
+                    <span style={{ ...quiet, fontSize: 12 }}>
+                      Latest: {lead.evidenceTimeline[lead.evidenceTimeline.length - 1].text}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
         {knownFactions.map(faction => <FactionSection key={faction.entity_id} faction={faction} members={knownLiving.filter(member => member.faction_id === faction.entity_id)} playerEntity={playerEntity} {...wiring} />)}
         {neutral.length > 0 && <><span className="gor-label">Other known figures</span>{neutral.map(entity => <EntityDetails key={entity.entity_id} entity={entity} playerEntity={playerEntity} {...wiring} />)}</>}
       </>

@@ -64,6 +64,7 @@ import type { PrivateSceneNpcMemoryProjection } from '../../privateScene/model';
 import { asPromptData } from './fragments';
 import { conditionsLine, conditionsOf } from '../core/conditions';
 import { affiliationsLine, affiliationsOf } from '../core/affiliations';
+import { buildFactionMoodBlock, type FactionMoodSummary } from '../core/factionMood';
 
 /**
  * Cost/latency cap on mind calls per turn (D16/D22): at most this many
@@ -111,6 +112,8 @@ export interface NpcMindPromptInput {
    * absent or empty, no block.
    */
   figuresInView?: readonly FigureInView[];
+  /** Optional collective faction climate summaries for living factions (3C). Absent or empty -> no block. */
+  factionMoods?: readonly FactionMoodSummary[];
 }
 
 /**
@@ -250,7 +253,7 @@ export function buildMindSelfBrief(self: Entity): string {
 
 /** Builds the { systemInstruction, prompt } pair for one character's per-turn mind call. */
 export function buildNpcMindPrompt(input: NpcMindPromptInput): { systemInstruction: string; prompt: string } {
-  const { self, directorIntent, perceivedChanges, publicHeadlines, worldSummary, turnNumber, privateSceneMemories, figuresInView } = input;
+  const { self, directorIntent, perceivedChanges, publicHeadlines, worldSummary, turnNumber, privateSceneMemories, figuresInView, factionMoods } = input;
 
   const systemInstruction = `
 ROLE: A character's own private mind.
@@ -298,7 +301,7 @@ ${perceivedChanges.length > 0 ? perceivedChanges.map(c => `- [${c.source}] ${c.t
 
 WHAT ALL OF ROME HAS HEARD (public news):
 ${publicHeadlines.length > 0 ? publicHeadlines.map(h => `- ${h}`).join('\n') : '- The city was quiet.'}
-${buildFiguresInViewBlock(figuresInView)}${directorIntent ? `
+${buildFiguresInViewBlock(figuresInView)}${buildFactionMoodBlock(factionMoods, self.faction_id)}${directorIntent ? `
 YOUR RESOLVE (the aim you have been carrying forward):
 "${directorIntent.intent}"
 Decide this week's move in service of it - or against it, if what you now know demands a change of course.
